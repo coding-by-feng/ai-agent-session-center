@@ -109,6 +109,34 @@ describe('transformEntries', () => {
     expect(out[0]).toEqual({ role: 'user', text: prompt, timestamp: 14 });
   });
 
+  it('demotes a background task-notification to a labelled notification row', () => {
+    const text =
+      '<task-notification>\n<task-id>b848a2x9j</task-id>\n<status>completed</status>\n' +
+      '<summary>Background command "Run the full vitest suite" completed (exit code 0)</summary>\n</task-notification>';
+    const out = transformEntries([{ role: 'user', text, timestamp: 15 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'notification', label: 'completed' });
+  });
+
+  it('demotes the "(Re-invocation of /raab …)" harness note', () => {
+    const text =
+      '(Re-invocation of /raab — the skill instructions were previously loaded; the arguments or dynamic output below are new.)';
+    const out = transformEntries([{ role: 'user', text, timestamp: 16 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'plumbing', label: 're-invocation of /raab' });
+  });
+
+  it('demotes a shortcut command expansion ("Use the `x` skill on the request below") to a skill row', () => {
+    const text =
+      'Use the `retouch-ascii-auto-build` skill on the request below and follow it exactly.\n\nincluding model select';
+    const out = transformEntries([{ role: 'user', text, timestamp: 17 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'skill', label: 'retouch-ascii-auto-build' });
+  });
+
+  it('keeps a genuine prompt that merely quotes those phrases mid-sentence', () => {
+    const prompt = 'why does it say "Use the `x` skill on the request below" and <task-notification> here?';
+    const out = transformEntries([{ role: 'user', text: prompt, timestamp: 18 }]);
+    expect(out[0]).toEqual({ role: 'user', text: prompt, timestamp: 18 });
+  });
+
   it('classifyInjection returns null for genuine prompts and a kind for injections', () => {
     expect(classifyInjection('why are there previous trade records on the table?')).toBeNull();
     expect(classifyInjection('Base directory for this skill: /a/b/skills/foo-bar')).toEqual({

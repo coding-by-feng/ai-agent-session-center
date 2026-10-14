@@ -12,7 +12,7 @@
    shared primitives (src/components/ui/*); this file only lays them out. */
 
 .view {
-  --hist-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --hist-accent: var(--accent-text);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -114,7 +114,7 @@
    <p>s, hence `.detailPanel .detailState p`. */
 
 .detailPanel.detailPanel {
-  --hist-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --hist-accent: var(--accent-text);
   display: flex;
   flex-direction: column;
   width: min(900px, calc(100vw - 32px));

@@ -77,7 +77,7 @@
 .sshFieldGrow { flex: 1; }
 .sshFieldSmall { width: 80px; }
 .sshFieldHint { font-size: 10px; color: var(--text-secondary, #888); font-weight: 400; }
-.sshFieldRequired { color: var(--accent-cyan, #00e5ff); font-weight: 700; }
+.sshFieldRequired { color: var(--accent-text, var(--accent-cyan)); font-weight: 700; }
 .sshFieldError { font-size: 10px; color: #ff5555; font-weight: 500; }
 .codexModelSelect { width: 100%; }
 .codexModelMeta {
@@ -92,17 +92,17 @@
 .opsCheckboxRow input[type='checkbox'] { flex-shrink: 0; width: 14px; height: 14px; accent-color: var(--accent-cyan, #00e5ff); cursor: pointer; margin: 0; }
 .opsCheckboxText { display: flex; flex-direction: column; gap: 2px; }
 .opsCheckboxLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary, #e0e0e0); }
-.opsCheckboxHint { font-size: 10px; color: var(--text-dim, #555); letter-spacing: 0.3px; }
+.opsCheckboxHint { font-size: 10px; color: var(--text-secondary); letter-spacing: 0.3px; }
 
 /* Session mode toggle */
 .sshModeToggle { display: flex; gap: 0; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; overflow: hidden; }
 .sshModeBtn { flex: 1; padding: 6px 10px; font-family: var(--font-mono, monospace); font-size: 11px; letter-spacing: 0.5px; background: transparent; color: var(--text-secondary, #888); border: none; border-right: 1px solid var(--border-accent, #1a1a3a); cursor: pointer; transition: background 0.15s, color 0.15s; }
 .sshModeBtn:last-child { border-right: none; }
 .sshModeBtn:hover { background: rgba(255,255,255,0.04); color: var(--text-primary, #e0e0e0); }
-.sshModeBtn.active { background: rgba(0,229,255,0.12); color: var(--accent-cyan, #00e5ff); }
+.sshModeBtn.active { background: rgba(0,229,255,0.12); color: var(--accent-text, var(--accent-cyan)); }
 
 /* Tmux session list */
-.sshTmuxRefresh { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 14px; background: transparent; color: var(--accent-cyan, #00e5ff); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 3px; cursor: pointer; vertical-align: middle; line-height: 1; }
+.sshTmuxRefresh { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 14px; background: transparent; color: var(--accent-text, var(--accent-cyan)); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 3px; cursor: pointer; vertical-align: middle; line-height: 1; }
 .sshTmuxRefresh:hover { background: rgba(0,229,255,0.1); border-color: var(--accent-cyan, #00e5ff); }
 .sshTmuxList { max-height: 160px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; background: rgba(0,0,0,0.2); }
 .sshTmuxItem { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
@@ -118,21 +118,21 @@
 
 .quickSessionPanel { max-width: 400px; width: 100%; }
 .quickSessionHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
-.quickSessionHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-cyan); }
+.quickSessionHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-text, var(--accent-cyan)); }
 .quickSessionBody { padding: 16px 20px; }
-.quickSessionHint { font-size: 11px; color: var(--text-dim); margin: 0 0 12px; }
+.quickSessionHint { font-size: 11px; color: var(--text-secondary); margin: 0 0 12px; }
 .quickSessionFooter { display: flex; gap: 8px; padding: 12px 20px; justify-content: flex-end; border-top: 1px solid var(--border-subtle); }
 
 /* Quick label chips */
 .quickLabelChips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .quickLabelChip { display: flex; align-items: center; gap: 6px; background: var(--bg-subtle); border: 1px solid var(--border-subtle); color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; border-radius: 12px; cursor: pointer; transition: all 0.2s; position: relative; }
-.quickLabelChip:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
-.quickLabelChip.active { background: rgba(0, 229, 255, 0.15); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.quickLabelChip:hover { border-color: var(--accent-cyan); color: var(--accent-text, var(--accent-cyan)); }
+.quickLabelChip.active { background: rgba(0, 229, 255, 0.15); border-color: var(--accent-cyan); color: var(--accent-text, var(--accent-cyan)); }
 .labelText { flex: 1; }
 .labelDelete { display: none; font-size: 14px; font-weight: bold; color: var(--accent-red); cursor: pointer; line-height: 1; opacity: 0.7; transition: opacity 0.2s; }
 .quickLabelChip:hover .labelDelete { display: block; }
 .labelDelete:hover { opacity: 1; }
-.quickLabelEmpty { font-size: 11px; color: var(--text-dim); font-style: italic; }
+.quickLabelEmpty { font-size: 11px; color: var(--text-secondary); font-style: italic; }
 
 .quickLabelInputRow { margin-bottom: 4px; }
 .quickLabelInputRow input { width: 100%; background: var(--bg-card); border: 2px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; border-radius: 4px; outline: none; }
@@ -142,7 +142,7 @@
 /* Combobox + native "Browse…" button on one row (Electron only). */
 .workdirInputRow { display: flex; gap: 8px; align-items: stretch; }
 .workdirCombo { flex: 1; min-width: 0; }
-.quickWorkdirRow label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.quickWorkdirRow label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
 .quickWorkdirRow input { width: 100%; background: var(--bg-card); border: 2px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; border-radius: 4px; outline: none; }
 .quickWorkdirRow input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 6px var(--glow-accent); }
 
@@ -150,9 +150,9 @@
 
 .shortcutsPanel { max-width: 480px; width: 100%; }
 .shortcutsHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
-.shortcutsHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-cyan); }
+.shortcutsHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-text, var(--accent-cyan)); }
 .shortcutsBody { padding: 16px 20px; display: flex; flex-direction: column; gap: 18px; max-height: 70vh; overflow-y: auto; }
-.shortcutsSection h4 { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+.shortcutsSection h4 { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px; }
 .shortcutList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
 .shortcutRow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
 .shortcutRow kbd { display: inline-block; min-width: 32px; text-align: center; padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-primary); background: var(--bg-card); border: 1px solid var(--border-subtle-strong); border-radius: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
@@ -163,7 +163,7 @@
 .toastContainer { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 
 .toast { background: var(--bg-panel); border: 1px solid var(--accent-orange); border-radius: 8px; padding: 12px 16px; min-width: 280px; box-shadow: 0 0 30px rgba(255, 145, 0, 0.15); animation: toast-in 0.3s ease; pointer-events: auto; position: relative; }
-.toastClose { position: absolute; top: 6px; right: 8px; background: none; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; }
+.toastClose { position: absolute; top: 6px; right: 8px; background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; }
 .toastClose:hover { color: var(--text-primary); }
 .toast.fadeOut { animation: toast-out 0.3s ease forwards; }
 .toastTitle { font-size: 11px; font-weight: 700; color: var(--accent-orange); letter-spacing: 1px; margin-bottom: 4px; }
@@ -186,12 +186,12 @@
 .oneoffReviewToast .toastMsg { color: var(--text-secondary); font-size: 11px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 .oneoffReviewActions { display: flex; gap: 6px; }
 .oneoffReviewBtn, .oneoffDeleteBtn, .oneoffDismissBtn { padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: 4px; background: transparent; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; transition: all 0.15s; }
-.oneoffReviewBtn { color: var(--accent-cyan); border-color: rgba(0, 229, 255, 0.3); }
+.oneoffReviewBtn { color: var(--accent-text, var(--accent-cyan)); border-color: rgba(0, 229, 255, 0.3); }
 .oneoffReviewBtn:hover { background: rgba(0, 229, 255, 0.12); }
 .oneoffDeleteBtn { color: #ff3355; border-color: rgba(255, 51, 85, 0.3); }
 .oneoffDeleteBtn:hover { background: rgba(255, 51, 85, 0.12); }
-.oneoffDismissBtn { color: var(--text-dim); }
-.oneoffDismissBtn:hover { color: var(--text-secondary); background: var(--bg-subtle); }
+.oneoffDismissBtn { color: var(--text-secondary); }
+.oneoffDismissBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
 
 /* Archived badge */
 .archivedBadge { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; border-radius: 3px; color: var(--accent-purple); border: 1px solid rgba(170, 102, 255, 0.3); background: rgba(170, 102, 255, 0.08); margin-left: 8px; }
@@ -273,4 +273,16 @@
   .sshField label {
     font-size: 12px;
   }
+}
+
+/* AASC-11: a finger needs 44px to close a dialog. */
+@media (pointer: coarse) {
+  .closeBtn { min-width: 44px; min-height: 44px; }
+}
+
+/* The shortcuts panel's Customize… button, centred under the list. */
+.shortcutsCustomize { align-self: center; }
+/* A checkbox row is its own label, so the whole row is the touch target. */
+@media (pointer: coarse) {
+  .opsCheckboxRow { min-height: 44px; }
 }

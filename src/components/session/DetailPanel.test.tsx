@@ -141,7 +141,10 @@ describe('DetailPanel', () => {
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    expect(screen.getByText('APPROVAL NEEDED')).toBeInTheDocument();
+    // The shared StatusBadge (AASC-11): the LIVE card's words, glyph in the status colour.
+    const badge = screen.getByText('Approval needed').closest('[data-status]');
+    expect(badge).toHaveAttribute('data-status', 'approval');
+    expect(badge?.querySelector('svg')).not.toBeNull();
   });
 
   it('displays model name', () => {
@@ -190,7 +193,7 @@ describe('DetailPanel', () => {
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    fireEvent.click(screen.getByTitle('Minimize'));
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize session panel' }));
     expect(useUiStore.getState().detailPanelMinimized).toBe(true);
     expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
   });

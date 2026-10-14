@@ -1,0 +1,78 @@
+name: Build Release Platforms
+
+on:
+  push:
+    branches: ['codex/electron-release-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:linux
+    runs-on: ${{ matrix.runner }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          architecture: ${{ matrix.architecture }}
+          cache: 'npm'
+
+      - name: Confirm native runner architecture
+        run: node -e "if(process.arch !== '${{ matrix.architecture }}') throw new Error('Runner architecture mismatch')"
+
+      - name: Install Linux native build tools
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev libsecret-1-dev
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate contracts
+        run: npm run typecheck:all
+
+      - name: Test release artifact verification
+        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts
+
+      - name: Build without publishing
+        run: npm run ${{ matrix.command }} -- --publish never
+
+      - name: Verify versioned artifacts and checksums
+        run: npm run electron:verify -- ${{ matrix.platform }}
+
+      - name: Upload verified platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            dist/*.dmg
+            dist/*-mac.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+            dist/SHA256SUMS-${{ matrix.platform }}.txt
+          if-no-files-found: error
+          retention-days: 30

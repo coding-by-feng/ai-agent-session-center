@@ -10,6 +10,7 @@ import { useUiStore, ROOM_KILL_MODAL_ID } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { Session, KillSessionResponse, ApiResponse } from '@/types';
+import Button from '@/components/ui/Button';
 import styles from '@/styles/modules/Modal.module.css';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
 
@@ -111,8 +112,14 @@ export default function RoomKillConfirmModal() {
 
   return (
     <div className={styles.overlay} onClick={handleCancel}>
-      <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
-        <h3>Kill all sessions in &quot;{room.name}&quot;</h3>
+      <div
+        className={styles.panel}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="room-kill-title"
+      >
+        <h3 id="room-kill-title">Kill all sessions in &quot;{room.name}&quot;</h3>
         {count === 0 ? (
           <p>This room has no live sessions to kill.</p>
         ) : (
@@ -130,32 +137,16 @@ export default function RoomKillConfirmModal() {
           </>
         )}
         <div className={styles.actions}>
-          <button
-            className={styles.closeBtn}
-            onClick={handleCancel}
-            style={{ fontSize: '12px', padding: '6px 14px' }}
-          >
-            CANCEL
-          </button>
-          <button
+          {/* The shared kit (AASC-11), as in KillConfirmModal. */}
+          <Button onClick={handleCancel}>CANCEL</Button>
+          <Button
+            variant="danger"
             onClick={handleConfirm}
             disabled={killing || count === 0}
-            style={{
-              background: 'rgba(255, 51, 85, 0.15)',
-              border: '1px solid rgba(255, 51, 85, 0.3)',
-              color: 'var(--accent-red, #ff3355)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '12px',
-              fontWeight: 700,
-              letterSpacing: '1px',
-              padding: '6px 14px',
-              borderRadius: '4px',
-              cursor: killing || count === 0 ? 'not-allowed' : 'pointer',
-              opacity: count === 0 ? 0.5 : 1,
-            }}
+            aria-busy={killing || undefined}
           >
             {killing ? 'KILLING...' : count === 0 ? 'KILL' : `KILL ${count}`}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

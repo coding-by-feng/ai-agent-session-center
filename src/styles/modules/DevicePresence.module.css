@@ -34,7 +34,7 @@
 
 .chip:hover,
 .chipOpen {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--accent-cyan, #00e5ff);
   background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 10%, transparent);
 }
@@ -129,7 +129,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 18%, transparent);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -145,7 +145,7 @@
    monospace so it reads as a technical value rather than competing with the
    device's name/status for attention. */
 .deviceAddress {
-  color: var(--text-dim, #666680);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 10px;
 }
@@ -186,7 +186,7 @@
   overflow: hidden;
   flex: 1;
   min-width: 0;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: nowrap;
@@ -212,7 +212,7 @@
 }
 
 .copyBtn:hover {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--accent-cyan, #00e5ff);
 }
 
@@ -303,7 +303,7 @@
   border: 1px solid color-mix(in srgb, var(--accent-cyan, #00e5ff) 45%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 12%, transparent);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 10.5px;
   white-space: nowrap;
 }

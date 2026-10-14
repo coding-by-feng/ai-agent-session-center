@@ -14,30 +14,42 @@ fi
 # --- Everything runs in background so the hook returns instantly ---
 {
 
+# ── Event name (a SessionStart is where PID-keyed caches may be stale) ──
+EVENT_CHECK=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
+if [ -z "$EVENT_CHECK" ]; then
+  LEGACY_TYPE=$(echo "$INPUT" | jq -r '.type // empty' 2>/dev/null)
+  [ "$LEGACY_TYPE" = "agent-turn-complete" ] && EVENT_CHECK="Stop"
+fi
+
 # ── TTY detection (cached per Codex PID) ──
+# PIDs are reused, so a cached entry can belong to an earlier process. A SessionStart is a
+# process's first hook: re-read the tty then, and drop a stale entry when this process has none.
+# A headless agent must report no tty, or the server cannot tell it from one in a dashboard terminal.
 HOOK_TTY=""
 if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
-  TTY_CACHE="/tmp/codex-tty-cache"
-  TTY_CACHE_FILE="$TTY_CACHE/$PPID"
-  if [ -f "$TTY_CACHE_FILE" ]; then
+  # The cache is a per-user 0700 directory and is used only if it really is ours: a shared /tmp path
+  # could be pre-created or symlinked by another account, and a SessionStart writes into it.
+  TTY_CACHE="/tmp/codex-tty-cache-${EUID:-$(id -u)}"
+  [ -d "$TTY_CACHE" ] || mkdir -m 700 "$TTY_CACHE" 2>/dev/null
+  TTY_CACHE_FILE=""
+  if [ -d "$TTY_CACHE" ] && [ ! -L "$TTY_CACHE" ] && [ -O "$TTY_CACHE" ]; then
+    TTY_CACHE_FILE="$TTY_CACHE/$PPID"
+  fi
+  if [ "$EVENT_CHECK" != "SessionStart" ] && [ -n "$TTY_CACHE_FILE" ] && [ -f "$TTY_CACHE_FILE" ]; then
     HOOK_TTY=$(cat "$TTY_CACHE_FILE" 2>/dev/null)
   else
     RAW_TTY=$(ps -o tty= -p "$PPID" 2>/dev/null | tr -d ' ')
     if [ -n "$RAW_TTY" ] && [ "$RAW_TTY" != "??" ] && [ "$RAW_TTY" != "?" ]; then
       HOOK_TTY="/dev/${RAW_TTY}"
-      mkdir -p "$TTY_CACHE" 2>/dev/null
-      echo "$HOOK_TTY" > "$TTY_CACHE_FILE" 2>/dev/null
+      [ -n "$TTY_CACHE_FILE" ] && echo "$HOOK_TTY" > "$TTY_CACHE_FILE" 2>/dev/null
+    elif [ -n "$TTY_CACHE_FILE" ]; then
+      rm -f "$TTY_CACHE_FILE" 2>/dev/null
     fi
   fi
 fi
 
 # ── Startup command capture (SessionStart only) ──
 STARTUP_CMD=""
-EVENT_CHECK=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
-if [ -z "$EVENT_CHECK" ]; then
-  LEGACY_TYPE=$(echo "$INPUT" | jq -r '.type // empty' 2>/dev/null)
-  [ "$LEGACY_TYPE" = "agent-turn-complete" ] && EVENT_CHECK="Stop"
-fi
 if [ "$EVENT_CHECK" = "SessionStart" ] && [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
   STARTUP_CMD=$(ps -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
 fi

@@ -895,3 +895,8 @@ export function loadResourceTransferState(): string | null {
 export function saveResourceTransferState(body: string): void {
   db.prepare('INSERT INTO resource_transfer_state (id, body) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(body);
 }
+
+/** The open handle, for feature stores that keep their own tables (server/projectSync/store.ts). */
+export function dbHandle(): Database.Database {
+  return db;
+}

@@ -692,3 +692,84 @@ describe('kickDelayFor', () => {
     }
   });
 });
+
+describe('sync', () => {
+  it('reads the sources now and says the numbers moved', async () => {
+    let reading = [usage('claude', 40, 1000)];
+    const service = createPlanUsageService(host(['claude']), [source('claude', async () => reading)]);
+    await service.refresh('claude');
+    reading = [usage('claude', 47, 2000)];
+    const result = await service.sync('claude');
+    expect(result).toEqual({ checkedAt: NOW, asOf: 2000, changed: true });
+    expect(service.latest('claude')?.windows[0].usedPercent).toBe(47);
+  });
+
+  it('says nothing changed when a newer reading carries the same numbers', async () => {
+    let reading = [usage('claude', 40, 1000)];
+    const service = createPlanUsageService(host(['claude']), [source('claude', async () => reading)]);
+    await service.refresh('claude');
+    reading = [usage('claude', 40, 2000)];
+    expect(await service.sync('claude')).toEqual({ checkedAt: NOW, asOf: 2000, changed: false });
+  });
+
+  it('says nothing changed, and keeps the old time, when no newer reading exists', async () => {
+    const service = createPlanUsageService(host(['claude']), [source('claude', async () => [usage('claude', 40, 1000)])]);
+    await service.refresh('claude');
+    expect(await service.sync('claude')).toEqual({ checkedAt: NOW, asOf: 1000, changed: false });
+  });
+
+  it('counts a first reading as a change', async () => {
+    const service = createPlanUsageService(host(['claude']), [source('claude', async () => [usage('claude', 40, 1000)])]);
+    expect(await service.sync('claude')).toEqual({ checkedAt: NOW, asOf: 1000, changed: true });
+  });
+
+  it('reports no time and no change when nothing has ever been read', async () => {
+    const service = createPlanUsageService(host(['claude']), [source('claude', async () => [])]);
+    expect(await service.sync('claude')).toEqual({ checkedAt: NOW, asOf: null, changed: false });
+  });
+
+  it('reads again after a read already under way: that one may have listed the files before the write', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const claude = source('claude', async () => {
+      calls += 1;
+      if (calls === 1) await gate;
+      return [usage('claude', 40 + calls, 1000 * calls)];
+    });
+    const service = createPlanUsageService(host(['claude']), [claude]);
+    const first = service.refresh('claude');
+    const synced = service.sync('claude');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(claude.read).toHaveBeenCalledTimes(1); // sync waits behind it, it does not share it
+    release();
+    const result = await synced;
+    await first;
+    expect(claude.read).toHaveBeenCalledTimes(2);
+    expect(result.asOf).toBe(2000);
+  });
+
+  it('reads for a CLI nobody is using: the user asked', async () => {
+    const claude = source('claude', async () => [usage('claude', 40, 1000)]);
+    const service = createPlanUsageService(host([]), [claude]);
+    expect((await service.sync('claude')).asOf).toBe(1000);
+    expect(claude.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives a source that throws and keeps what it knew', async () => {
+    let fail = false;
+    const service = createPlanUsageService(host(['claude']), [
+      source('claude', async () => { if (fail) throw new Error('boom'); return [usage('claude', 40, 1000)]; }),
+    ]);
+    await service.refresh('claude');
+    fail = true;
+    expect(await service.sync('claude')).toEqual({ checkedAt: NOW, asOf: 1000, changed: false });
+  });
+
+  it('shares one read between simultaneous syncs', async () => {
+    const claude = source('claude', async () => [usage('claude', 40, 1000)]);
+    const service = createPlanUsageService(host(['claude']), [claude]);
+    await Promise.all([service.sync('claude'), service.sync('claude'), service.sync('claude')]);
+    expect(claude.read.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+});

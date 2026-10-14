@@ -22,7 +22,7 @@
    look, so nothing here fights it. */
 
 .view {
-  --q-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --q-accent: var(--accent-text);
   --q-muted: color-mix(in srgb, var(--text-secondary) 40%, var(--text-primary));
   display: flex;
   flex-direction: column;

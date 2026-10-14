@@ -23,7 +23,7 @@
  * reintroduce the very history these caps bound.
  */
 
-import type { PromptEntry, ArchivedSession, Session } from '../src/types/session.js';
+import type { PromptEntry, ArchivedSession, Session, ToolLogEntry } from '../src/types/session.js';
 
 /**
  * Longest prompt text retained per history entry (~4 000 words). Beyond this a
@@ -51,6 +51,62 @@ export const TRUNCATION_MARKER = '\n\n[… truncated — full prompt kept in the
 export function truncateText(text: string, maxChars: number): string {
   if (typeof text !== 'string' || text.length <= maxChars) return text;
   return text.slice(0, maxChars) + TRUNCATION_MARKER;
+}
+
+/**
+ * Longest `ToolLogEntry.detail` kept: the fuller copy of a tool's input that the
+ * AGENTS log shows when a row is clicked (`input` is a 100-120 character summary).
+ */
+export const MAX_TOOL_DETAIL_CHARS = 1_000;
+
+/**
+ * How many of the newest tool-log entries keep their `detail`; older ones drop it.
+ * It must cover every row the AGENTS log can show, which is its newest `LOG_LIMIT`
+ * (60, `src/lib/agentFlow.ts`; `agentFlow.test.ts` pins `>=`): with fewer, the older
+ * rows would open to the same cut-off text the cell has, and an open row would
+ * shrink back to it as newer calls arrived. At most ~60 KB per session, and only
+ * Bash commands and unrecognised tools over 100-120 characters count.
+ */
+export const TOOL_DETAIL_KEEP = 60;
+
+/** Tools whose summary (`summarizeToolInput`) is already their whole point: a path, a pattern, a URL. */
+const SUMMARY_IS_COMPLETE = new Set(['Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'Task']);
+
+/**
+ * The fuller text behind a tool-log entry's `input` summary, or undefined when
+ * the summary already says it all. Only a Bash command and an unrecognised tool's
+ * JSON can lose text to the summary's cut, so only those carry a detail; capped
+ * at `MAX_TOOL_DETAIL_CHARS` with a trailing ellipsis when cut again.
+ */
+export function toolInputDetail(
+  toolName: string,
+  toolInput: Record<string, unknown> | undefined,
+  summary: string,
+): string | undefined {
+  if (!toolInput || SUMMARY_IS_COMPLETE.has(toolName)) return undefined;
+  let full: string;
+  if (toolName === 'Bash') {
+    if (typeof toolInput.command !== 'string') return undefined;
+    full = toolInput.command;
+  } else {
+    full = JSON.stringify(toolInput);
+  }
+  if (full.length <= summary.length) return undefined;
+  return full.length > MAX_TOOL_DETAIL_CHARS ? `${full.slice(0, MAX_TOOL_DETAIL_CHARS)}…` : full;
+}
+
+/**
+ * Called after pushing onto `toolLog`: drop the `detail` of the entry that has
+ * just fallen out of the newest `keep`, so the log holds at most `keep` of them
+ * (about 30 KB) however long the session runs. Replaces that one entry rather
+ * than editing it, and leaves an entry that never had a detail untouched.
+ */
+export function dropStaleToolDetail(toolLog: ToolLogEntry[], keep: number = TOOL_DETAIL_KEEP): void {
+  const index = toolLog.length - keep - 1;
+  if (index < 0 || toolLog[index].detail === undefined) return;
+  const { detail: _dropped, ...rest } = toolLog[index];
+  void _dropped;
+  toolLog[index] = rest;
 }
 
 /** Cap the always-broadcast `currentPrompt`. */

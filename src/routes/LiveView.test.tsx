@@ -125,7 +125,8 @@ describe('the desktop LIVE page (3D off) before and after sessions exist', () =>
   it('keeps the HUD (sound and 3D toggles) in every state', () => {
     useSessionStore.setState({ sessions: new Map() });
     render(<LiveView />);
-    expect(screen.getByRole('button', { name: /3D Off/i })).toBeInTheDocument();
+    // The toggle's name is fixed ("3D scene", aria-pressed carries on/off); its text says the state.
+    expect(screen.getByRole('button', { name: '3D scene' })).toHaveTextContent(/3D Off/i);
   });
 });
 

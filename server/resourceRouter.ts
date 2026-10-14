@@ -30,6 +30,8 @@ import { ABBR_RE, TARGET_RE, AliasError, aliasFilesFor, createAlias, removeAlias
 import log from './logger.js';
 import { createTransferRouter } from './resourceTransfers/router.js';
 import type { TransferServiceDeps } from './resourceTransfers/service.js';
+import { createSyncRouter } from './projectSync/router.js';
+import { createSyncService, type SyncServiceDeps } from './projectSync/service.js';
 
 export interface ResourceRouterDeps {
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
@@ -43,6 +45,8 @@ export interface ResourceRouterDeps {
   trashDir?: string;
   /** Isolated persistence/transport in tests. */
   transfers?: Omit<TransferServiceDeps, 'catalog'>;
+  /** Project Sync overrides; `eagerLoad` (production) loads links at start so Transfers sees them. */
+  sync?: Partial<Omit<SyncServiceDeps, 'catalog'>> & { eagerLoad?: boolean };
 }
 
 /** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
@@ -210,7 +214,21 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     fail(res, 404, 'Not found');
   });
   router.use(json({ limit: '64kb' }));
-  router.use('/transfers', createTransferRouter({ ...deps.transfers, catalog }, isSameOriginWrite));
+  const { eagerLoad, ...syncDeps } = deps.sync ?? {};
+  const sync = createSyncService({
+    ...syncDeps,
+    catalog,
+    ...(deps.home && !syncDeps.home ? { home: deps.home } : {}),
+  });
+  if (eagerLoad) void sync.load().catch((err) => log.warn('project-sync', `Could not load links: ${err instanceof Error ? err.message : String(err)}`));
+  router.use(
+    '/transfers',
+    createTransferRouter(
+      { linkedFolder: sync.linkedFolder, deviceInUse: sync.deviceInUse, ...deps.transfers, catalog },
+      isSameOriginWrite,
+    ),
+  );
+  router.use('/sync', createSyncRouter(sync, isSameOriginWrite));
 
   const idOf = (req: Request): string | null => {
     const parsed = resourceIdSchema.safeParse(str(req.params.id));

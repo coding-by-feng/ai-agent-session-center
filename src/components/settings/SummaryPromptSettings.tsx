@@ -105,7 +105,7 @@ export default function SummaryPromptSettings() {
         {/* Prompt List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px', maxHeight: '300px', overflowY: 'auto' }}>
           {prompts.length === 0 ? (
-            <div style={{ color: 'var(--text-dim)', padding: '8px', fontSize: '12px' }}>
+            <div style={{ color: 'var(--text-secondary)', padding: '8px', fontSize: '12px' }}>
               No prompt templates
             </div>
           ) : (
@@ -181,7 +181,7 @@ export default function SummaryPromptSettings() {
                     &times;
                   </button>
                 </div>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px', lineHeight: 1.3, maxHeight: '28px', overflow: 'hidden' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.3, maxHeight: '28px', overflow: 'hidden' }}>
                   {p.prompt.substring(0, 120)}{p.prompt.length > 120 ? '...' : ''}
                 </div>
               </div>

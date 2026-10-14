@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { homedir, tmpdir } from 'os';
 import { mkdtemp, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
@@ -84,10 +84,79 @@ const fingerprintOf = (keys: string[]) =>
 export async function knownFingerprint(device: TransferDeviceInput): Promise<string> {
   return fingerprintOf(await knownKeys(device));
 }
+/** `node -e` command that evaluates a fixed helper source sent inside the command itself. */
+export function nodeEvalCommand(source: string): string {
+  const encoded = Buffer.from(source).toString('base64');
+  return `node -e 'eval(Buffer.from("${encoded}","base64").toString())'`;
+}
+/** Pinned options: only the trusted key snapshot, no global known_hosts, no prompts, keepalive. */
+function sshArgs(device: TransferDeviceInput, keyFile: string, host: string, command: string) {
+  return [
+    '-T',
+    '-o',
+    `UserKnownHostsFile=${keyFile}`,
+    '-o',
+    'GlobalKnownHostsFile=/dev/null',
+    '-o',
+    'UpdateHostKeys=no',
+    '-o',
+    `HostKeyAlias=${host}`,
+    '-o',
+    'BatchMode=yes',
+    '-o',
+    'StrictHostKeyChecking=yes',
+    // The user's ssh config must not widen the pinned trust or reuse another connection.
+    '-o',
+    'VerifyHostKeyDNS=no',
+    '-o',
+    'KnownHostsCommand=none',
+    '-o',
+    'ControlMaster=no',
+    '-o',
+    'ControlPath=none',
+    '-o',
+    'ConnectTimeout=10',
+    '-o',
+    'ServerAliveInterval=15',
+    '-o',
+    'ServerAliveCountMax=2',
+    '-p',
+    String(device.port),
+    '--',
+    `${device.username}@${device.host}`,
+    command,
+  ];
+}
+/**
+ * A long-lived process over the same pinned SSH as sshRemoteCall — Project Sync streams
+ * frames through it. The caller runs `cleanup` after the process closes.
+ */
+export async function spawnPinnedSsh(
+  device: TransferDevice,
+  command: string,
+): Promise<{ child: ChildProcessWithoutNullStreams; cleanup: () => Promise<void> }> {
+  const keys = await knownKeys(device);
+  if (fingerprintOf(keys) !== device.fingerprint)
+    throw new Error(
+      'Trusted host keys changed. Re-add the destination after verifying its identity.',
+    );
+  const directory = await mkdtemp(join(tmpdir(), 'aasc-sync-'));
+  const keyFile = join(directory, 'known_hosts');
+  const host = device.port === 22 ? device.host : `[${device.host}]:${device.port}`;
+  try {
+    await writeFile(keyFile, keys.map((k) => `${host} ${k}`).join('\n') + '\n', { mode: 0o600 });
+    const child = spawn('ssh', sshArgs(device, keyFile, host, command), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { child, cleanup: () => rm(directory, { recursive: true, force: true }) };
+  } catch (e) {
+    await rm(directory, { recursive: true, force: true });
+    throw e;
+  }
+}
 /** Native SSH authentication; no passwords or private keys enter the browser or task journal. */
 export const sshRemoteCall: RemoteCall = async (device, request) => {
-  const encoded = Buffer.from(REMOTE_HELPER).toString('base64');
-  const command = `node -e 'eval(Buffer.from("${encoded}","base64").toString())'`;
+  const command = nodeEvalCommand(REMOTE_HELPER);
   const keys = await knownKeys(device);
   if ('fingerprint' in device && fingerprintOf(keys) !== device.fingerprint)
     throw new Error(
@@ -101,32 +170,7 @@ export const sshRemoteCall: RemoteCall = async (device, request) => {
     await writeFile(keyFile, keys.map((k) => `${host} ${k}`).join('\n') + '\n', { mode: 0o600 });
     raw = await run(
       'ssh',
-      [
-        '-T',
-        '-o',
-        `UserKnownHostsFile=${keyFile}`,
-        '-o',
-        'GlobalKnownHostsFile=/dev/null',
-        '-o',
-        'UpdateHostKeys=no',
-        '-o',
-        `HostKeyAlias=${host}`,
-        '-o',
-        'BatchMode=yes',
-        '-o',
-        'StrictHostKeyChecking=yes',
-        '-o',
-        'ConnectTimeout=10',
-        '-o',
-        'ServerAliveInterval=15',
-        '-o',
-        'ServerAliveCountMax=2',
-        '-p',
-        String(device.port),
-        '--',
-        `${device.username}@${device.host}`,
-        command,
-      ],
+      sshArgs(device, keyFile, host, command),
       JSON.stringify(request),
       120000,
     );

@@ -1,26 +1,24 @@
 /* LiveBoard — the 3D-off LIVE page's session board (desktop only; a phone gets
  * RobotListSidebar). Scrolls on its own inside LiveView's .flatRoot.
  *
- * The HUD (SceneOverlay: units, sound, 3D) floats bottom-right over this page.
- * The board keeps clear of it: from 600px a right gutter as wide as the HUD
- * (--hud-clear-right, set on .flatRoot; one 272px column still fits at 600),
- * below that a bottom gutter so the last row can scroll up past it
- * (--hud-clear-bottom).
+ * The HUD (SceneOverlay: units, sound, 3D) floats bottom-right over this page,
+ * and a minimized session panel leaves its restore chip bottom-centre. Both sit
+ * at the BOTTOM, so the board keeps clear of them with a bottom gutter only
+ * (--hud-clear-bottom, set on .flatRoot): the last row can always scroll up past
+ * them. It used to also hold a full-height 304px right gutter for the HUD's
+ * corner, which left a quarter of a 1457px window empty (AASC-11).
+ *
+ * Opaque on purpose: the board is its own scrolling layer, and a transparent
+ * one showed stale text from an earlier, wider layout in its empty gutter
+ * (AASC-11 screenshot) — an opaque layer is repainted whole.
  */
 
 .board {
   position: absolute;
   inset: 0;
   overflow-y: auto;
-  padding: 8px 24px 32px;
-  padding-bottom: var(--hud-clear-bottom, 232px);
-}
-
-@media (min-width: 600px) {
-  .board {
-    padding-right: var(--hud-clear-right, 304px);
-    padding-bottom: 32px;
-  }
+  padding: 8px 24px var(--hud-clear-bottom, 232px);
+  background: var(--bg-primary, #0a0a1a);
 }
 
 /* ---- Header: "SESSIONS (3)" + filters ---- */
@@ -85,7 +83,7 @@
 .filter[aria-pressed='true'] {
   background: var(--bg-card);
   border-color: var(--border-accent-strong);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .filterCount {
@@ -116,7 +114,8 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 104px;
+  /* title + note + footer fit without a row growing past its neighbours: cards with and without a note match */
+  min-height: 112px;
   padding: 12px 16px;
   text-align: left;
   background: var(--bg-card);
@@ -169,21 +168,32 @@
   letter-spacing: 0.5px;
 }
 
-.glyph {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: var(--status-color, var(--text-dim));
-}
-.glyph svg {
-  width: 12px;
-  height: 12px;
+/* The status word and, when the session is quiet, for how long: one flex item,
+   so the pair shrinks (the word ellipsizes first) and the CLI name stays put. */
+.statusLine {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
 }
 
+/* The shared StatusBadge (glyph + words); here it only needs to shrink first. */
 .status {
-  color: var(--text-secondary);
+  min-width: 0;
+}
+
+/* The new card text (age, note, room name) is --text-primary: --text-secondary
+   measures 2.9-4.3:1 on the card in dracula, solarized, nord and monokai (4.5
+   needed). Size keeps it below the 13px title. */
+.age {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.age::before {
+  content: '·';
+  margin-right: 4px;
 }
 
 .cli {
@@ -207,10 +217,66 @@
   overflow: hidden;
 }
 
-.project {
+/* One line under the title: what the session was last asked, or the user's own remark. */
+.note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A prompt gets a chevron; the user's own remark has none. Not in the DOM text, and the
+   `/ ''` alt keeps it out of the accessible description too (Chromium reads generated
+   content); a browser without alt-text support drops that line and keeps the first. */
+.note[data-kind='prompt']::before {
+  content: '› ';
+  content: '› ' / '';
+}
+
+/* Project on the left, room on the right. The project keeps its own width (it is
+   what names the repo); the room takes what is left, right-aligned, and ellipsizes.
+   If both are long the project gives way, but never below the room's 64px floor. */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   margin-top: auto;
   font-size: 11px;
+}
+
+.project {
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 64px;
+  color: var(--text-primary);
+}
+
+/* The room's colour is the dot only; its name carries the meaning. --room-color is
+   set on the element (not :root), and "Common Area" sets none, so it falls back to dim. */
+.roomDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--room-color, var(--text-dim));
+}
+
+.roomName {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

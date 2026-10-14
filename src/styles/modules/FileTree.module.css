@@ -41,7 +41,7 @@
 
 .nodeActive {
   background: rgba(0, 212, 255, 0.12);
-  color: var(--accent-cyan, #00d4ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .nodeFocused {
@@ -58,7 +58,7 @@
   width: 14px;
   height: 14px;
   font-size: 8px;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   transition: transform 0.15s ease;
   flex-shrink: 0;
 }
@@ -78,7 +78,7 @@
 .icon {
   width: 13px;
   height: 13px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -91,7 +91,7 @@
 /* ---- Loading spinner ---- */
 
 .spinner {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 10px;
   animation: pulse 1s ease-in-out infinite;
   margin-left: 4px;
@@ -108,7 +108,7 @@
 .error {
   padding: 16px 12px;
   font-size: 12px;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -126,7 +126,7 @@
   padding: 0 4px;
   background: transparent;
   border: none;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   cursor: pointer;
   opacity: 0;
   border-radius: 3px;

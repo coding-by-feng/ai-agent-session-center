@@ -12,7 +12,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isPasswordEnabled } from './authManager.js';
@@ -262,7 +262,8 @@ export function buildResumeCommand(session: { startupCommand?: string; sshComman
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
     let baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
-    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, undefined);
+    // The session's latest model + effort replace the ones baked into its launch command.
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel, { replace: true });
     // Same rationale as the Claude branch below: fall back to a FRESH codex, NOT
     // `codex resume --last`, which would resume an UNRELATED most-recent session
     // in this dir and hijack it on restore.
@@ -275,9 +276,10 @@ export function buildResumeCommand(session: { startupCommand?: string; sshComman
     let baseCmd = stripClaudeSessionFlags(originalCmd || 'claude') || 'claude';
     baseCmd = stripClaudeSessionName(baseCmd);
     baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
-    // Preserve the session's model + effort across resume (idempotent — skipped
-    // if the stored command already carries the flags).
-    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel);
+    // Relaunch on the session's LATEST model + effort (`/model` / `/effort` write them
+    // back via sessionRuntime): they replace the launch-time flags baked into the
+    // stored command, which is the live CLI's `ps` args.
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel, { replace: true });
     const title = session.title ?? extractSessionName(originalCmd);
     baseCmd = appendSessionName(baseCmd, title);
     // Fallback is a FRESH `claude`, NOT `claude --continue`. When `--resume <id>`
@@ -307,7 +309,7 @@ function buildForkCommand(session: { startupCommand?: string; sshCommand?: strin
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
     let baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
-    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, undefined);
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel, { replace: true });
     return canUseSessionId
       ? `${baseCmd} fork '${safeId}'`
       : `${baseCmd} fork --last`;
@@ -325,6 +327,7 @@ function buildForkCommand(session: { startupCommand?: string; sshCommand?: strin
     reconstructPermissionFlags(baseForkCmd, effectiveMode),
     session.model,
     session.effortLevel,
+    { replace: true },
   );
 }
 
@@ -368,7 +371,8 @@ const terminalCreateSchema = z.object({
     .regex(/^[a-zA-Z0-9_-]+$/, 'resumeSessionId contains invalid characters')
     .optional(),
   /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max/ultracode) */
-  effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
+  // `minimal` is Codex-only (`model_reasoning_effort`); Claude's --effort ignores it.
+  effortLevel: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
   /**
    * Model launch override for Claude or Codex. Charset is restricted because
    * the value is interpolated unquoted into the `--model` launch flag.
@@ -1122,8 +1126,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
     let cloneCmd = stripClaudeSessionFlags(baseCmd);
     cloneCmd = stripClaudeSessionName(cloneCmd);
     cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
-    // Preserve the session's model + effort on the clone (idempotent).
-    cloneCmd = applyClaudeLaunchFlags(cloneCmd, session.model, session.effortLevel);
+    // The clone starts on the session's latest model + effort, not its launch flags.
+    cloneCmd = applyClaudeLaunchFlags(cloneCmd, session.model, session.effortLevel, { replace: true });
     cloneCmd = appendSessionName(cloneCmd, newTitle);
 
     if (cfg && cfg.username) {
@@ -2215,6 +2219,28 @@ router.delete('/db/sessions/:id', (req: Request, res: Response) => {
 // Get distinct projects
 router.get('/db/projects', (_req: Request, res: Response) => {
   res.json(db.getDistinctProjects());
+});
+
+// Plan usage: the chip's "sync" button. Re-reads the CLI's usage files now. The reply says when,
+// how old the newest reading is and whether the numbers moved, and carries no percentages: those
+// reach a client only on a session update, behind that session's visibility gate.
+const planUsageSyncSchema = z.object({ cli: z.enum(['claude', 'codex']) });
+
+router.post('/plan-usage/sync', async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (isRateLimited(`plan-usage-sync:${ip}`, 2)) {
+    res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+    return;
+  }
+  const body = validateBody(planUsageSyncSchema, req.body, res);
+  if (!body) return;
+  try {
+    const { checkedAt, asOf, changed } = await syncPlanUsage(body.cli);
+    res.json({ success: true, data: { cli: body.cli, checkedAt, asOf, changed } });
+  } catch (err) {
+    log.error('api', `plan-usage sync failed: ${err instanceof Error ? err.message : String(err)}`);
+    res.status(500).json({ success: false, error: 'Could not sync plan usage' });
+  }
 });
 
 // Full-text search across prompts and responses (rate-limited: expensive)

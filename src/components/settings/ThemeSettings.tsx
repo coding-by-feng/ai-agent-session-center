@@ -43,7 +43,7 @@ export default function ThemeSettings() {
       {/* Character Model Picker */}
       <div className={styles.section}>
         <h4>3D Character Model</h4>
-        <p style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '8px' }}>
+        <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
           Choose the robot model shown in the Cyberdrome
         </p>
         <div style={{
@@ -56,6 +56,7 @@ export default function ThemeSettings() {
             return (
               <button
                 key={type}
+                className={styles.modelChoice}
                 onClick={() => setCharacterModel(type)}
                 title={getModelDescription(type)}
                 style={{
@@ -73,8 +74,9 @@ export default function ThemeSettings() {
                   background: isActive
                     ? 'rgba(0, 229, 255, 0.1)'
                     : 'rgba(255, 255, 255, 0.02)',
+                  // --accent-text: the raw accent was 3.2:1 on light / solarized (AASC-11).
                   color: isActive
-                    ? 'var(--accent-cyan, #00e5ff)'
+                    ? 'var(--accent-text, var(--accent-cyan))'
                     : 'var(--text-secondary, #8888aa)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: '10px',

@@ -14,7 +14,7 @@
    Short rules sit on one line, as in Settings/DetailPanel.module.css. */
 
 .view {
-  --res-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --res-accent: var(--accent-text);
   --res-code-font: 'JetBrains Mono', 'Fira Code', Consolas, 'Lucida Console', monospace;
   height: 100%;
   min-width: 0;

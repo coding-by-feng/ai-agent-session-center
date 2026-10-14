@@ -12,44 +12,50 @@ import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
-import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { sortSessionsByActivity, numberedSessions } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS, RECENT_WINDOW_MS } from '@/lib/recentSessions';
 import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
+import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import PlanUsageChip from './PlanUsageChip';
+import SessionRuntimeChip from './SessionRuntimeChip';
+import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import ProjectFrameHeader from './ProjectFrameHeader';
-import SessionViewModeMenu from './SessionViewModeMenu';
+import SessionViewMenu from './SessionViewMenu';
 import { FrameCollapseIcon } from './SessionFrameIcons';
 import DetachIcon from '@/components/ui/DetachIcon';
+import IconButton from '@/components/ui/IconButton';
+import {
+  CollapseRailIcon,
+  EditIcon,
+  ExpandRailIcon,
+  MinimizeIcon,
+  MoveRoomDownIcon,
+  MoveRoomUpIcon,
+  NewSessionIcon,
+  NoteIcon,
+  PinIcon,
+  QueueBadgeIcon,
+  RoomDragHandleIcon,
+  SkullIcon,
+  TagIcon,
+} from '@/components/ui/icons';
+import { KILL_MODAL_ID } from './KillConfirmModal';
+import { useShortcutStore } from '@/stores/shortcutStore';
+import { keyComboToString } from '@/lib/shortcutKeys';
+import buttonStyles from '@/styles/modules/Button.module.css';
+import chipStyles from '@/styles/modules/Chip.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import { justCompleted, completionStillApplies } from '@/lib/sessionAttention';
 import { STATUS_COLORS, STATUS_LEGEND } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
+import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/DetailPanel.module.css';
-
-// One color per room slot — cycles if more than 8 rooms exist.
-// Must match the palette in HeaderAgentStrip so colors agree across the UI.
-const ROOM_COLOR_PALETTE = [
-  'var(--accent-orange)',
-  '#4a9eff',
-  'var(--accent-green)',
-  'var(--accent-purple)',
-  'var(--accent-yellow)',
-  '#ff69b4',
-  'var(--accent-cyan)',
-  '#ff7043',
-];
-
-function getRoomColor(room: Room): string {
-  const index = ((room.roomIndex ?? 0) % ROOM_COLOR_PALETTE.length + ROOM_COLOR_PALETTE.length) % ROOM_COLOR_PALETTE.length;
-  return ROOM_COLOR_PALETTE[index];
-}
 
 type TabRenderItem =
   | { type: 'session'; session: Session }
@@ -80,281 +86,10 @@ function getCliBadge(session: Session): string | null {
   return null;
 }
 
-/** Room filter funnel icon */
-function RoomFilterIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M1 2h10L7 6.5V10.5L5 9.5V6.5L1 2Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-        fill={active ? 'currentColor' : 'none'}
-        fillOpacity={active ? 0.3 : 0}
-      />
-    </svg>
-  );
-}
-
-/** Pencil icon — hints that the title can be clicked to rename */
-function EditIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M8.5 1.5l2 2L4 10l-2.5.5L2 8l6.5-6.5Z"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-/** Tag icon — opens the label picker for the current session */
-function TagIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M1.5 1.5h4l5 5-4 4-5-5v-4Z"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-      />
-      <circle cx="3.6" cy="3.6" r="0.8" fill="currentColor" />
-    </svg>
-  );
-}
-
-/** Skull glyph — "kill all sessions in this room". Unambiguously destructive;
- *  rendered dim and turned red on hover by `.roomKillToggle`. */
-function KillRoomIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      {/* cranium + jaw */}
-      <path
-        d="M8 1.6c-3 0-5 2-5 4.7 0 1.6.8 2.7 1.7 3.3v1.5c0 .5.4.9.9.9h4.8c.5 0 .9-.4.9-.9v-1.5c.9-.6 1.7-1.7 1.7-3.3 0-2.7-2-4.7-5-4.7Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      {/* eye sockets */}
-      <circle cx="6" cy="6.4" r="1.2" fill="currentColor" />
-      <circle cx="10" cy="6.4" r="1.2" fill="currentColor" />
-      {/* nasal cavity */}
-      <path d="M8 8.1l-.7 1.3h1.4L8 8.1Z" fill="currentColor" />
-      {/* teeth */}
-      <path d="M6.2 12v1.4M8 12v1.4M9.8 12v1.4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Six-dot grip — "drag to reorder this room". Purely a visual affordance;
- *  the actual `onPointerDown` lives on the wrapping non-button span (see
- *  `.roomDragHandle`), not on this glyph. The span carries a deliberately
- *  oversized hit box (see the CSS) — the glyph is 8x12, which is a quarter of
- *  the 44x44 touch minimum and hard to land on with a trackpad. */
-function RoomDragHandleIcon() {
-  return (
-    <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" aria-hidden="true">
-      <circle cx="2" cy="2" r="1.1" />
-      <circle cx="6" cy="2" r="1.1" />
-      <circle cx="2" cy="6" r="1.1" />
-      <circle cx="6" cy="6" r="1.1" />
-      <circle cx="2" cy="10" r="1.1" />
-      <circle cx="6" cy="10" r="1.1" />
-    </svg>
-  );
-}
-
-/** Up arrow WITH A SHAFT — move this room one slot earlier in the list.
- *
- *  The shaft is the entire point, not decoration. These two buttons used to
- *  be bare chevrons, which is also the collapse toggle's glyph — so the room
- *  header row carried two pixel-similar down-chevrons two slots apart, one
- *  folding the room and one moving it, with nothing but position to tell them
- *  apart. Arrow-with-shaft (movement) vs triangle (disclosure) are different
- *  glyph FAMILIES, which survives being 10px tall and dimmed to 60% opacity
- *  in a way "slightly different chevron angle" does not. Paired with the
- *  divider that groups these two away from the collapse control. */
-function MoveRoomUpIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M6 10.2V2.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <polyline points="2.7 5.7 6 2.4 9.3 5.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Down arrow WITH A SHAFT — move this room one slot later in the list.
- *  Mirror of `MoveRoomUpIcon`; see that comment for why it is not a chevron. */
-function MoveRoomDownIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M6 1.8V9.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <polyline points="2.7 6.3 6 9.6 9.3 6.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Stacked-list glyph — "this session has queued prompts". Paired with the queue
- *  count in `.sessionTabQueueBadge`; inherits the cyan queue colour via
- *  `currentColor`. */
-function QueueBadgeIcon() {
-  return (
-    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
-      <line x1="4" y1="6" x2="20" y2="6" />
-      <line x1="4" y1="12" x2="20" y2="12" />
-      <line x1="4" y1="18" x2="20" y2="18" />
-    </svg>
-  );
-}
-
-/** Note glyph — the entry point for the progress remark. A lined page, distinct
- *  from the pencil (rename) and tag (label) it sits beside. */
-function NoteIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M2.5 1.5h7v9h-7v-9Z"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4.2 4h3.6M4.2 6h3.6M4.2 8h2.2"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-/** Pin glyph — toggles session.pinned. Matches this row's minimal line-art
- *  style rather than the 📌 emoji the other-session tab cards use below
- *  (.sessionTabPin) — same togglePin state, different visual context. */
-function PinIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M6 1.5c-1.5 0-2.6 1.1-2.6 2.5 0 1.1.7 2 1.7 2.4L6 10.5l0.9-4.1c1-.4 1.7-1.3 1.7-2.4 0-1.4-1.1-2.5-2.6-2.5Z"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      <circle cx="6" cy="4" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
-
-/** Two-column grid icon — shown in compact mode; click to switch to detailed */
-function DetailedModeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="1" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  );
-}
-
-/** Horizontal list icon — shown in detailed mode; click to switch to compact */
-function CompactModeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="2" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="1" y="9" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  );
-}
-
-/** Legend / key icon — opens the status-colour legend popover */
-function LegendIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="3" cy="3" r="1.5" fill="currentColor" />
-      <circle cx="3" cy="7" r="1.5" fill="currentColor" />
-      <circle cx="3" cy="11" r="1.5" fill="currentColor" />
-      <path d="M6.5 3H12M6.5 7H12M6.5 11H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Panel-with-left-rail icon — shown when nav is on top; click to dock it left */
-function DockLeftIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="1" y="1" width="4.5" height="12" rx="1.5" fill="currentColor" opacity="0.85" />
-    </svg>
-  );
-}
-
-/** Panel-with-top-bar icon — shown when nav is on left; click to dock it top */
-function DockTopIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="1" y="1" width="12" height="4.5" rx="1.5" fill="currentColor" opacity="0.85" />
-    </svg>
-  );
-}
-
-/** Expand-to-corners icon — maximize the detail panel (hide its session strip) */
-function MaximizeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M2 5V2.5A.5.5 0 0 1 2.5 2H5M9 2h2.5a.5.5 0 0 1 .5.5V5M12 9v2.5a.5.5 0 0 1-.5.5H9M5 12H2.5a.5.5 0 0 1-.5-.5V9"
-        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Contract-from-corners icon — restore the detail panel's session strip */
-function RestoreSizeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M5 2v2.5a.5.5 0 0 1-.5.5H2M9 2v2.5a.5.5 0 0 0 .5.5H12M12 9H9.5a.5.5 0 0 0-.5.5V12M2 9h2.5a.5.5 0 0 1 .5.5V12"
-        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Double-chevron-left icon — fold the left session rail to a thin strip */
-function CollapseRailIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="8 3 4 7 8 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="11.5 3 7.5 7 11.5 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Double-chevron-right icon — unfold the collapsed left session rail */
-function ExpandRailIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="6 3 10 7 6 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="2.5 3 6.5 7 2.5 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Plus icon — opens the new-session form */
-function NewSessionIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** The recent-directories icon matches the row's toggles, lit while its menu is open (as the legend's is). */
-const dirsTriggerClass = (open: boolean): string =>
-  `${styles.displayModeToggle}${open ? ` ${styles.roomFilterActive}` : ''}`;
+/** The recent-directories trigger is drawn as the row's IconButtons (WorkdirLauncher
+ *  renders its own button, so it takes the kit's classes). Open = the pressed look,
+ *  from the kit's `[aria-expanded='true']` rule. */
+const dirsTriggerClass = (): string => `${buttonStyles.iconButton} ${buttonStyles.iconSm}`;
 
 interface Props {
   currentSession: Session;
@@ -465,39 +200,8 @@ export default function SessionSwitcher({
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const toggleRoomFilter = useUiStore((s) => s.toggleRoomFilter);
   const clearRoomFilter = useUiStore((s) => s.clearRoomFilter);
-  const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  // Menu element (inside the wrap) — measured to keep it inside the viewport.
-  const roomMenuRef = useRef<HTMLDivElement>(null);
-  useDropdownFlipX(roomDropdownOpen, roomMenuRef);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!roomDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setRoomDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [roomDropdownOpen]);
-
-  // Status-colour legend popover (hint for what each session colour means)
-  const [legendOpen, setLegendOpen] = useState(false);
-  const legendRef = useRef<HTMLDivElement>(null);
-  const legendMenuRef = useRef<HTMLDivElement>(null);
-  useDropdownFlipX(legendOpen, legendMenuRef);
-  useEffect(() => {
-    if (!legendOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (legendRef.current && !legendRef.current.contains(e.target as Node)) {
-        setLegendOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [legendOpen]);
+  // The room filter, the view switch, the status legend, density, dock and
+  // maximize live in one labelled View menu (SessionViewMenu, AASC-11).
 
   // Derive a stable content signature from `sessions`. The Map reference changes
   // on every session update (pattern `new Map(...)`), but if the visible fields
@@ -548,6 +252,17 @@ export default function SessionSwitcher({
     // excluded so unchanged-content re-renders skip the sort.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionsSignature, currentSession.sessionId, sortByActivity]);
+
+  // How to get back here from the keyboard: the user's own binding for "Switch to
+  // session N" (1–9), else "Go to session by number". A string, so the selector is stable.
+  const jumpHint = useShortcutStore((st) => {
+    const id = currentIndex >= 1 && currentIndex <= 9 ? `switchSession${currentIndex}` : 'jumpToSession';
+    const combo = st.bindings.find((b) => b.actionId === id)?.combo ?? null;
+    if (!combo) return 'The number its card carries in the list';
+    return currentIndex <= 9
+      ? `${keyComboToString(combo)} switches here`
+      : `${keyComboToString(combo)}, then ${currentIndex}, switches here`;
+  });
 
   // ---- Built-in RECENT frame (Rooms view only: each session is also listed in its own room) ----
   // Membership depends on the clock as well as on updates: a session leaves
@@ -658,7 +373,7 @@ export default function SessionSwitcher({
         room.sessionIds.includes(s.sessionId),
       );
       if (roomSessions.length === 0) continue;
-      items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+      items.push({ type: 'room', room, sessions: roomSessions, color: roomColor(room) });
     }
 
     for (const session of filteredSessions) {
@@ -718,14 +433,6 @@ export default function SessionSwitcher({
     commitRoomOrder(next);
   }, [visibleRoomIds, commitRoomOrder]);
 
-  const selectedRoomNames = useMemo(() => {
-    if (selectedRoomIds.size === 0) return '';
-    return [...selectedRoomIds]
-      .map((id) => rooms.find((r) => r.id === id)?.name)
-      .filter(Boolean)
-      .join(', ');
-  }, [selectedRoomIds, rooms]);
-
   const toggleRoom = useCallback((roomId: string) => {
     toggleRoomFilter(roomId);
   }, [toggleRoomFilter]);
@@ -734,7 +441,8 @@ export default function SessionSwitcher({
   const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName
     ? currentSession.projectName
     : null;
-  const currentColor = STATUS_COLORS[currentSession.status] ?? 'var(--text-dim)';
+  const pinCopy = currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin;
+  const hasRuntimeChip = resolveRuntimeDisplay(currentSession) !== null;
   const isCompact = cardDisplayMode === 'compact';
 
   // ---- Inline rename for the header title (currentSession) ----
@@ -868,15 +576,9 @@ export default function SessionSwitcher({
     const activeCount = activeSessionIds.size;
     return (
       <div className={`${styles.switcherBar} ${styles.switcherBarVertical} ${styles.switcherBarCollapsed}`}>
-        <button
-          type="button"
-          className={styles.displayModeToggle}
-          onClick={toggleNavRailCollapsed}
-          title="Expand session panel"
-          aria-label="Expand session panel"
-        >
+        <IconButton size="sm" label="Expand session panel" tooltipPlacement="right" onClick={toggleNavRailCollapsed}>
           <ExpandRailIcon />
-        </button>
+        </IconButton>
         {activeCount > 0 && (
           <span
             className={styles.railCollapsedCount}
@@ -898,12 +600,16 @@ export default function SessionSwitcher({
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
               .switcherMeta below: that row's icon count is what the rail is sized for. */}
           <PlanUsageChip session={currentSession} />
-          <span
-            className={styles.switcherDot}
-            style={{ background: currentColor, boxShadow: `0 0 6px ${currentColor}` }}
-          />
+          {/* The session's number — the badge its card carries, and what the switch
+              shortcuts use. The status dot that sat beside it repeated the status
+              badge below, so it is gone (AASC-11); the number now says what it is. */}
           {currentIndex > 0 && (
-            <span className={styles.switcherIndex}>{currentIndex}</span>
+            <Tooltip label={`Session #${currentIndex}`} description={jumpHint} placement="bottom">
+              <span className={styles.switcherIndex}>
+                <span className={chipStyles.srOnly}>Session number </span>
+                {currentIndex}
+              </span>
+            </Tooltip>
           )}
           {headerEditing ? (
             <input
@@ -925,93 +631,91 @@ export default function SessionSwitcher({
               maxLength={200}
             />
           ) : (
-            <span
-              className={styles.switcherName}
-              onDoubleClick={beginHeaderEdit}
-            >
-              <span className={styles.switcherNameText}>{primaryName}</span>
-              {/* Pin toggle — leads the cluster rather than trailing after
-                  Detach: Edit/Tag/Note all annotate the session, Pin changes
-                  its lifecycle/list-position instead, so it reads as a
-                  distinct action, not a fourth label-editing icon. */}
-              <Tooltip {...(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin)}>
-                <button
-                  type="button"
-                  className={`${styles.switcherEditHint}${currentSession.pinned ? ` ${styles.switcherHintActive}` : ''}`}
+            <>
+              <span
+                className={styles.switcherName}
+                onDoubleClick={beginHeaderEdit}
+              >
+                {/* title: the rail clamps a long name to two lines, so hover reads the rest. */}
+                <span className={styles.switcherNameText} title={primaryName}>{primaryName}</span>
+              </span>
+              {/* The title's actions. A sibling of the name, not inside it: in the 213px
+                  left rail five buttons beside the name squeezed it to "Exmouth …", so
+                  there they take a row of their own under it (the top bar keeps them
+                  inline). Being outside the name, a double-click on one can never reach
+                  its rename handler. */}
+              <span className={styles.switcherTitleActions}>
+                {/* Pin leads: Edit/Tag/Note annotate the session, Pin changes its
+                    lifecycle. The pinned state is in the glyph (filled), not only
+                    in the button's fill. */}
+                <IconButton
+                  size="sm"
+                  label={pinCopy.label}
+                  description={pinCopy.description}
+                  pressed={!!currentSession.pinned}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={handleTogglePin}
-                  // See the tag/note buttons: block the parent's double-click-
-                  // to-rename so a double-click here can't overwrite the title.
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  aria-label={(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin).label}
-                  aria-pressed={currentSession.pinned}
                 >
-                  <PinIcon />
-                </button>
-              </Tooltip>
-              <button
-                type="button"
-                className={styles.switcherEditHint}
-                onClick={beginHeaderEdit}
-                title="Rename session"
-                aria-label="Rename session"
-              >
-                <EditIcon />
-              </button>
-              <button
-                type="button"
-                className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherHintActive}` : ''}`}
-                onClick={openLabelPicker}
-                // The parent .switcherName renames on double-click. `dblclick`
-                // is a separate bubbling event that stopPropagation on `click`
-                // does NOT stop — without this, double-clicking this icon (whose
-                // click does NOT rename) still opens the rename editor.
-                onDoubleClick={(e) => e.stopPropagation()}
-                title={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
-                aria-label="Set session label"
-              >
-                <TagIcon />
-              </button>
-              {/* Remark entry point. Stays lit whenever this session carries a
-                  remark, so the bar shows at a glance that a note exists even
-                  while the row below is scrolled/ellipsized. */}
-              <button
-                type="button"
-                className={`${styles.switcherEditHint}${remarkEditing || currentRemark ? ` ${styles.switcherHintActive}` : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={toggleRemarkEdit}
-                // See the tag button: block the parent's double-click-to-rename
-                // so a double-click here can't overwrite the session title.
-                onDoubleClick={(e) => e.stopPropagation()}
-                title={currentRemark ? `Remark: ${currentRemark}` : 'Add a remark'}
-                aria-label={currentRemark ? `Edit session remark: ${currentRemark}` : 'Add a session remark'}
-                aria-expanded={remarkEditing}
-              >
-                <NoteIcon />
-              </button>
-              {/* Pop the whole session (every tab) into its own native window.
-                  Electron only — the browser sandbox can't open a real OS window,
-                  and window.electronAPI is undefined there. */}
-              {canPopOutSession && (
-                <Tooltip {...tooltips.floatSessionPopOut}>
-                  <button
-                    type="button"
-                    className={styles.switcherEditHint}
+                  <PinIcon filled={!!currentSession.pinned} />
+                </IconButton>
+                <IconButton size="sm" label="Rename session" onClick={beginHeaderEdit}>
+                  <EditIcon />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  label={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
+                  ariaLabel="Set session label"
+                  aria-expanded={!!labelAnchor}
+                  onClick={openLabelPicker}
+                >
+                  <TagIcon />
+                </IconButton>
+                {/* Remark entry point. Lit whenever the session carries a remark,
+                    so the bar shows a note exists even while its row is ellipsized. */}
+                <IconButton
+                  size="sm"
+                  label={currentRemark ? `Remark: ${currentRemark}` : 'Add a remark'}
+                  ariaLabel={currentRemark ? `Edit session remark: ${currentRemark}` : 'Add a session remark'}
+                  aria-expanded={remarkEditing}
+                  className={currentRemark ? styles.titleActionLit : undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={toggleRemarkEdit}
+                >
+                  <NoteIcon />
+                </IconButton>
+                {/* Pop the whole session into its own native window (Electron only:
+                    window.electronAPI is undefined in a browser). */}
+                {canPopOutSession && (
+                  <IconButton
+                    size="sm"
+                    label={tooltips.floatSessionPopOut.label}
+                    description={tooltips.floatSessionPopOut.description}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={handleDetachSession}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    aria-label={tooltips.floatSessionPopOut.label}
                   >
-                    {/* 13px to match EditIcon/TagIcon/NoteIcon in this row —
-                        DetailTabs.tsx's own usage stays at the 14px default. */}
                     <DetachIcon size={13} />
-                  </button>
-                </Tooltip>
-              )}
-            </span>
+                  </IconButton>
+                )}
+                {/* Kill: destructive, so set apart at the far end of this row and
+                    never among the Mute / Share / Alert toggles (AASC-11). Same
+                    confirm dialog as before. */}
+                {/* The wrapper is the flex item (Tooltip wraps the button in a span). */}
+                <span className={styles.titleActionKill}>
+                  <IconButton
+                    size="sm"
+                    tone="danger"
+                    label={tooltips.ctrlKill.label}
+                    description={tooltips.ctrlKill.description}
+                    onClick={() => openModal(KILL_MODAL_ID)}
+                  >
+                    <SkullIcon />
+                  </IconButton>
+                </span>
+              </span>
+            </>
           )}
           {currentLabel && (
-            <LabelChip name={currentLabel} color={labelColor(currentLabel)} />
+            <LabelChip name={currentLabel} color={labelColor(currentLabel)} className={styles.switcherLabelChip} />
           )}
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
@@ -1058,14 +762,15 @@ export default function SessionSwitcher({
 
         {/* Right side: status + duration + display toggle + minimize */}
         <div className={styles.switcherMeta}>
+          {/* The shared status mark — the same glyph and words as the LIVE card (AASC-11). */}
           {statusLabel && (
-            <span
-              className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : currentSession.status}`}
-            >
-              {statusLabel}
-            </span>
+            <StatusBadge status={isDisconnected ? 'ended' : currentSession.status} className={styles.switcherStatus} />
           )}
-          {model && (
+          {/* Claude: the model · effort it runs on NOW, following /model and /effort live.
+              Others (Codex) report neither, so they keep the launch model as plain text. */}
+          {hasRuntimeChip ? (
+            <SessionRuntimeChip session={currentSession} />
+          ) : model && (
             /* title: the badge is clamped to one ellipsised line (see
                .detailModel), so hover is the only way to read a long id. */
             <span className={styles.detailModel} title={model}>{model}</span>
@@ -1076,166 +781,52 @@ export default function SessionSwitcher({
           {controls && (
             <span className={styles.switcherControls}>{controls}</span>
           )}
-          {/* Room filter dropdown (multi-select) */}
-          {availableRooms.length > 0 && (
-            <div className={styles.roomFilterWrap} ref={dropdownRef}>
-              <button
-                className={`${styles.displayModeToggle}${selectedRoomIds.size > 0 ? ` ${styles.roomFilterActive}` : ''}`}
-                onClick={() => setRoomDropdownOpen((o) => !o)}
-                title={selectedRoomIds.size > 0 ? `Filtering: ${selectedRoomNames}` : 'Filter by room'}
-                type="button"
-              >
-                <RoomFilterIcon active={selectedRoomIds.size > 0} />
-              </button>
-              {roomDropdownOpen && (
-                <div className={styles.roomFilterDropdown} ref={roomMenuRef}>
-                  <button
-                    className={`${styles.roomFilterOption}${selectedRoomIds.size === 0 ? ` ${styles.roomFilterOptionActive}` : ''}`}
-                    onClick={() => { clearRoomFilter(); setRoomDropdownOpen(false); }}
-                    type="button"
-                  >
-                    All rooms
-                  </button>
-                  {availableRooms.map((r) => (
-                    <button
-                      key={r.id}
-                      className={`${styles.roomFilterOption}${selectedRoomIds.has(r.id) ? ` ${styles.roomFilterOptionActive}` : ''}`}
-                      onClick={() => toggleRoom(r.id)}
-                      type="button"
-                    >
-                      {selectedRoomIds.has(r.id) && <span className={styles.roomFilterCheck}>&#x2713;</span>}
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Session view — Rooms (default), Projects, or the flat recent-activity
-              list. One button in the slot the old sort toggle held, so line one
-              of the rail's icon row stays at seven toggles (see
-              `.switcherBarVertical .switcherMeta`). */}
-          <SessionViewModeMenu mode={sessionSortMode} onChange={setSessionSortMode} />
-
-          {/* Status-colour legend — hint for what each session-title/badge colour
-              means under the currently selected theme */}
-          <div className={styles.roomFilterWrap} ref={legendRef}>
-            <button
-              className={`${styles.displayModeToggle}${legendOpen ? ` ${styles.roomFilterActive}` : ''}`}
-              onClick={() => setLegendOpen((o) => !o)}
-              title="Status colour legend"
-              aria-label="Status colour legend"
-              aria-expanded={legendOpen}
-              type="button"
-            >
-              <LegendIcon />
-            </button>
-            {legendOpen && (
-              <div
-                className={styles.statusLegendDropdown}
-                ref={legendMenuRef}
-                role="group"
-                aria-label="Session status colours"
-              >
-                <div className={styles.statusLegendTitle}>STATUS COLOURS</div>
-                {STATUS_LEGEND.map(({ status, label }) => {
-                  const c = STATUS_COLORS[status] ?? 'var(--text-dim)';
-                  return (
-                    <div key={status} className={styles.statusLegendRow}>
-                      <span
-                        className={styles.statusLegendSwatch}
-                        style={{ background: c, boxShadow: `0 0 5px ${c}` }}
-                        aria-hidden="true"
-                      />
-                      <span className={styles.statusLegendLabel}>{label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <button
-            className={styles.displayModeToggle}
-            onClick={toggleCardDisplayMode}
-            title={isCompact ? 'Detailed view' : 'Compact view'}
-            type="button"
-          >
-            {isCompact ? <DetailedModeIcon /> : <CompactModeIcon />}
-          </button>
-          {/* Dock the session nav bar on top (default) or as a left rail */}
-          <button
-            className={`${styles.displayModeToggle}${navPosition === 'left' ? ` ${styles.roomFilterActive}` : ''}`}
-            onClick={toggleNavPosition}
-            title={navPosition === 'left' ? 'Dock session bar on top' : 'Dock session bar on left'}
-            aria-label={navPosition === 'left' ? 'Dock session bar on top' : 'Dock session bar on left'}
-            type="button"
-          >
-            {navPosition === 'left' ? <DockTopIcon /> : <DockLeftIcon />}
-          </button>
-          {/* Maximize — collapses the panel's own session strip for more terminal
-              space. (The dashboard's top bar is already hidden while a panel is
-              open — App.tsx — hence the + / folder icons at the end of this row.) */}
-          <button
-            className={`${styles.displayModeToggle}${maximized ? ` ${styles.roomFilterActive}` : ''}`}
-            onClick={toggleMaximized}
-            title={maximized ? 'Restore session strip (Esc)' : 'Maximize — hide session strip for more space'}
-            aria-label={maximized ? 'Restore session strip' : 'Maximize'}
-            type="button"
-          >
-            {maximized ? <RestoreSizeIcon /> : <MaximizeIcon />}
-          </button>
-          {/* Fold — collapse the left rail to a thin strip (left dock only).
-              In top-dock mode there's no rail to fold, so it's hidden. */}
-          {isVertical && (
-            <button
-              className={styles.displayModeToggle}
-              onClick={toggleNavRailCollapsed}
-              title="Collapse session panel"
-              aria-label="Collapse session panel"
-              type="button"
-            >
-              <CollapseRailIcon />
-            </button>
-          )}
-          {onClose && (
-            <button
-              // switcherMinimizeBtn carries no desktop styling — it exists so
-              // the mobile breakpoint can pull this button to the FRONT of
-              // .switcherMeta's wrap order (`order: -1`). Without it, DOM
-              // order puts minimize after the full-width .switcherControls
-              // line, i.e. on a third wrapped row, when it is the one control
-              // that must always be within reach (it is how you get back to
-              // the session list).
-              className={`${styles.switcherIconBtn} ${styles.switcherMinimizeBtn}`}
-              onClick={onClose}
-              title="Minimize"
-              aria-label="Minimize session panel"
-              type="button"
-            >
-              &#x2012;
-            </button>
-          )}
+          {/* One labelled View menu for grouping, rooms shown, card size, dock and
+              maximize — six bare icons before (AASC-11). */}
+          <SessionViewMenu
+            className={styles.switcherViewMenu}
+            mode={sessionSortMode}
+            onModeChange={setSessionSortMode}
+            rooms={availableRooms}
+            selectedRoomIds={selectedRoomIds}
+            onToggleRoom={toggleRoom}
+            onClearRooms={clearRoomFilter}
+            compact={isCompact}
+            onToggleCompact={toggleCardDisplayMode}
+            navPosition={navPosition}
+            onToggleNavPosition={toggleNavPosition}
+            maximized={maximized}
+            onToggleMaximized={toggleMaximized}
+          />
           {/* Start a session: + (the new-session form) and the recent-directories
-              launcher. The app's one home for both while any session exists (the
-              top bar's + NEW / DIRS were removed, Oct 2026; with no session at all,
-              the LIVE page's card offers them). One child, so a wrap never splits
-              them. Main window only: a popped-out session window renders this
-              strip too, but not AppLayout, so NewSessionModal is not mounted there. */}
+              launcher — the app's one home for both while any session exists. One
+              child, so a wrap never splits them. Main window only: a popped-out
+              session window does not mount NewSessionModal. */}
           {!isPopoutWindow() && (
             <div className={styles.switcherLaunch}>
-              <button
-                className={styles.displayModeToggle}
-                onClick={() => openModal('new-session')}
-                title="New session"
-                aria-label="New session"
-                type="button"
-              >
+              <IconButton size="sm" label="New session" onClick={() => openModal('new-session')}>
                 <NewSessionIcon />
-              </button>
+              </IconButton>
               <WorkdirLauncher triggerClassName={dirsTriggerClass} />
             </div>
+          )}
+          {onClose && (
+            // switcherMinimizeBtn: the phone breakpoint pulls it to the FRONT of the
+            // wrap order (it is how you get back to the session list). On the wrapper:
+            // Tooltip wraps the button in a span, and that span is the flex item.
+            <span className={styles.switcherMinimizeBtn}>
+              <IconButton size="sm" label="Minimize" ariaLabel="Minimize session panel" onClick={onClose}>
+                <MinimizeIcon />
+              </IconButton>
+            </span>
+          )}
+          {/* Fold the left rail to a thin strip (left dock only). */}
+          {isVertical && (
+            <span className={styles.switcherCollapseBtn}>
+              <IconButton size="sm" label="Collapse session panel" onClick={toggleNavRailCollapsed}>
+                <CollapseRailIcon />
+              </IconButton>
+            </span>
           )}
         </div>
       </div>
@@ -1444,7 +1035,7 @@ export default function SessionSwitcher({
                         title={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in ${item.room.name}`}
                         aria-label={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in room ${item.room.name}`}
                       >
-                        <KillRoomIcon />
+                        <SkullIcon />
                       </button>
                       </>
                     )}

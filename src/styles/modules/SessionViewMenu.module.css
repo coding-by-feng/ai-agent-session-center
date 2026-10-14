@@ -1,0 +1,44 @@
+/* SessionViewMenu — the status-colour legend in the View menu's footer.
+   Reference, not a choice: plain rows, no hover. Text is --text-secondary or
+   brighter (--text-dim is ~2.75:1, not text). */
+
+.legend {
+  font-size: 11px;
+}
+
+.legendTitle {
+  padding: 2px 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Two columns: eight short labels would otherwise make the menu very tall. */
+.legendList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}

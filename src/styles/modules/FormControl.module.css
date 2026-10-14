@@ -13,7 +13,7 @@
      background-image too, and would silently erase the chevron beside it. */
 
 .control {
-  --fc-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --fc-accent: var(--accent-text);
   box-sizing: border-box;
   height: 32px;
   min-width: 0;

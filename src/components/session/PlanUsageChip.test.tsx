@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
+
+const syncPlanUsage = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/planUsageApi', () => ({ syncPlanUsage }));
 
 import PlanUsageChip from './PlanUsageChip';
 import type { PlanUsage, PlanUsageWindow, Session } from '@/types';
@@ -47,6 +50,8 @@ describe('PlanUsageChip', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     vi.setSystemTime(NOW);
+    syncPlanUsage.mockReset();
+    syncPlanUsage.mockResolvedValue({ cli: 'claude', checkedAt: NOW, asOf: NOW - MIN, changed: false });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -74,15 +79,15 @@ describe('PlanUsageChip', () => {
       const s = makeSession({ cliSource: 'claude', planUsage: usage([win(10080, 26)], { cli: 'codex' }) });
       render(<PlanUsageChip session={s} />);
       expect(chip().getAttribute('data-cli')).toBe('codex');
-      expect(screen.getByRole('group', { name: /^Codex plan usage:/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^Codex plan usage:/ })).toBeTruthy();
     });
   });
 
   describe('with numbers', () => {
     it('says the window, the percentage and, for a screen reader, one full sentence', () => {
       render(<PlanUsageChip session={makeSession({ planUsage: usage([win(300, 63)]) })} />);
-      const group = screen.getByRole('group', {
-        name: 'Claude plan usage: 63% of the 5-hour limit used, resets in 1 hour 12 minutes',
+      const group = screen.getByRole('button', {
+        name: 'Claude plan usage: 63% of the 5-hour limit used, resets in 1 hour 12 minutes. Sync now.',
       });
       expect(within(group).getByText('5h')).toBeTruthy();
       expect(within(group).getByText('63%')).toBeTruthy();
@@ -104,9 +109,12 @@ describe('PlanUsageChip', () => {
       expect(bar.getAttribute('aria-hidden')).toBe('true');
     });
 
-    it('shows the countdown for the rail', () => {
+    it('shows the countdown for the rail, behind a clock rather than the refresh arrow the click now owns', () => {
       render(<PlanUsageChip session={makeSession({ planUsage: usage([win(300, 63)]) })} />);
-      expect(chip().querySelector('[class*="planUsageReset"]')?.textContent).toBe('↻ 1h 12m');
+      const reset = chip().querySelector('[class*="planUsageReset"]') as HTMLElement;
+      expect(reset.textContent).toBe('1h 12m');
+      expect(reset.textContent).not.toContain('↻');
+      expect(reset.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     });
 
     it('has no countdown when the CLI gave no reset time', () => {
@@ -148,14 +156,14 @@ describe('PlanUsageChip', () => {
       expect(chip().getAttribute('data-state')).toBe('empty');
       expect(within(chip()).getByText('—')).toBeTruthy();
       expect(chip().getAttribute('aria-label')).toBe(
-        'Claude plan usage unavailable: Plan usage is read from Claude sessions started in this dashboard — none has reported yet.',
+        'Claude plan usage unavailable: Plan usage is read from Claude sessions started in this dashboard — none has reported yet. Sync now.',
       );
     });
 
     it('shows "—" and says why for Codex', () => {
       render(<PlanUsageChip session={makeSession({ cliSource: 'codex', model: 'gpt-5' })} />);
       expect(chip().getAttribute('aria-label')).toBe(
-        'Codex plan usage unavailable: Plan usage appears once Codex has made a request.',
+        'Codex plan usage unavailable: Plan usage appears once Codex has made a request. Sync now.',
       );
     });
 
@@ -179,11 +187,11 @@ describe('PlanUsageChip', () => {
   describe('the clock', () => {
     it('counts down once a minute without a new report', () => {
       render(<PlanUsageChip session={makeSession({ planUsage: usage([win(300, 63, NOW + 72 * MIN)]) })} />);
-      expect(chip().querySelector('[class*="planUsageReset"]')?.textContent).toBe('↻ 1h 12m');
+      expect(chip().querySelector('[class*="planUsageReset"]')?.textContent).toBe('1h 12m');
       act(() => {
         vi.advanceTimersByTime(MIN);
       });
-      expect(chip().querySelector('[class*="planUsageReset"]')?.textContent).toBe('↻ 1h 11m');
+      expect(chip().querySelector('[class*="planUsageReset"]')?.textContent).toBe('1h 11m');
     });
 
     it('gives up a window the moment it resets, even if no report says so', () => {
@@ -203,11 +211,124 @@ describe('PlanUsageChip', () => {
   });
 
   describe('as a control', () => {
-    it('is a readout, not a button — but keyboard users can reach it', () => {
+    it('is a real button, so keyboard and touch can sync with it', () => {
       render(<PlanUsageChip session={makeSession({ planUsage: usage([win(300, 63)]) })} />);
-      expect(screen.queryByRole('button')).toBeNull();
-      expect(chip().getAttribute('role')).toBe('group');
+      expect(screen.getAllByRole('button')).toHaveLength(1);
+      expect(chip().tagName).toBe('BUTTON');
+      expect(chip().getAttribute('type')).toBe('button');
       expect(chip().tabIndex).toBe(0);
+    });
+  });
+
+  describe('syncing', () => {
+    const click = () => act(() => { fireEvent.click(chip()); });
+    const settle = (ms = 700) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    const withUsage = (over: Partial<PlanUsage> = {}, sessionOver: Partial<Session> = {}) =>
+      makeSession({ planUsage: usage([win(300, 63)], over), ...sessionOver });
+
+    it('asks the server to re-read the CLI the report names', () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      expect(syncPlanUsage).toHaveBeenCalledWith('claude', expect.any(AbortSignal));
+    });
+
+    it('syncs a Codex session as Codex', () => {
+      render(<PlanUsageChip session={makeSession({ cliSource: 'codex', planUsage: usage([win(300, 63)], { cli: 'codex' }) })} />);
+      click();
+      expect(syncPlanUsage).toHaveBeenCalledWith('codex', expect.any(AbortSignal));
+    });
+
+    it('also syncs when there is nothing to show yet: that is how a first report is found', () => {
+      render(<PlanUsageChip session={makeSession()} />);
+      click();
+      expect(syncPlanUsage).toHaveBeenCalledWith('claude', expect.any(AbortSignal));
+    });
+
+    it('says it is busy without losing focus or the click: aria-busy, never disabled', () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      expect(chip().getAttribute('aria-busy')).toBe('false');
+      click();
+      expect(chip().getAttribute('aria-busy')).toBe('true');
+      expect(chip().getAttribute('data-syncing')).toBe('true');
+      expect((chip() as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('swaps the CLI mark for a spinner while it works, and back after', async () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      expect(chip().querySelector('[class*="planUsageSpinner"]')).toBeNull();
+      click();
+      expect(chip().querySelector('[class*="planUsageSpinner"]')).not.toBeNull();
+      await settle();
+      expect(chip().querySelector('[class*="planUsageSpinner"]')).toBeNull();
+      expect(chip().querySelector('[class*="planUsageMark"]')).not.toBeNull();
+    });
+
+    it('does not fire a second request while one is in flight', async () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      click();
+      click();
+      expect(syncPlanUsage).toHaveBeenCalledTimes(1);
+      await settle();
+    });
+
+    it('offers the click in the panel until it has been used', () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      expect(within(showTooltip()).getByText('Click to sync')).toBeTruthy();
+    });
+
+    it('says in the panel that it is syncing', () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      expect(within(showTooltip()).getByText('Syncing…')).toBeTruthy();
+    });
+
+    it('says when nothing newer was found', async () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      await settle();
+      expect(chip().getAttribute('data-sync')).toBe('done');
+      expect(within(showTooltip()).getByText('Up to date · checked just now')).toBeTruthy();
+    });
+
+    it('says when the numbers were updated', async () => {
+      syncPlanUsage.mockResolvedValue({ cli: 'claude', checkedAt: NOW, asOf: NOW, changed: true });
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      await settle();
+      expect(within(showTooltip()).getByText('Updated just now')).toBeTruthy();
+    });
+
+    it('says it failed, and the next click tries again', async () => {
+      syncPlanUsage.mockRejectedValueOnce(new Error('Rate limit exceeded'));
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      await settle();
+      expect(chip().getAttribute('data-sync')).toBe('failed');
+      expect(within(showTooltip()).getByText("Couldn't sync · click to retry")).toBeTruthy();
+      click();
+      await settle();
+      expect(chip().getAttribute('data-sync')).toBe('done');
+      expect(syncPlanUsage).toHaveBeenCalledTimes(2);
+    });
+
+    it('announces the outcome to a screen reader, and says nothing before anyone asked', async () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      const live = () => document.querySelector('[role="status"]') as HTMLElement;
+      expect(live().textContent).toBe('');
+      click();
+      expect(live().textContent).toBe('Syncing plan usage');
+      await settle();
+      expect(live().textContent).toBe('Plan usage is up to date');
+    });
+
+    it('goes back to offering the click once the answer is as old as a stale report', async () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      click();
+      await settle();
+      await settle(11 * 60_000);
+      expect(chip().getAttribute('data-sync')).toBe('done'); // the state is kept…
+      expect(within(showTooltip()).getByText('Click to sync')).toBeTruthy(); // …the footer is not
     });
   });
 
@@ -241,6 +362,11 @@ describe('PlanUsageChip', () => {
       const tip = showTooltip();
       expect(within(tip).getByText('Codex · prolite')).toBeTruthy();
       expect(tip.textContent).toMatch(/as of /i);
+    });
+
+    it('says how old the reading is beside the clock time', () => {
+      render(<PlanUsageChip session={makeSession({ planUsage: usage([win(300, 63)], { asOf: NOW - 105 * MIN }) })} />);
+      expect(showTooltip().textContent).toMatch(/as of .*· 1h 45m ago/);
     });
 
     it('says a limit was reached', () => {

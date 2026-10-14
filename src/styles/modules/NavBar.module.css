@@ -26,7 +26,7 @@
    11px text on the dark and windows-xp headers. The accent is mixed toward the
    text colour for the same reason on the light themes. */
 .navBtn {
-  --nav-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --nav-accent: var(--accent-text);
   display: inline-flex; align-items: center; gap: 6px;
   background: none; border: none; color: var(--text-secondary);
   font-family: var(--font-mono); font-size: 11px; font-weight: 500;

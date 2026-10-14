@@ -24,6 +24,7 @@ import {
   updateQueueCount, linkTerminalToSession,
 } from '../server/sessionStore.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE } from '../server/constants.js';
+import { TOOL_DETAIL_KEEP } from '../server/sessionTrim.js';
 
 // sessionMatcher's Priority 5 external fallback only creates a card for an
 // unmatched hook when it carries a controlling tty — a headless `claude -p`, a
@@ -220,6 +221,48 @@ describe('sessionStore', () => {
       }
       const session = getSession('store-test-toollog-cap');
       expect(session.toolLog.length).toBeLessThanOrEqual(200);
+    });
+
+    // The AGENTS log's click-to-open reads `detail`: the fuller text behind `input`'s cut summary.
+    describe('detail for the AGENTS log', () => {
+      const bash = (id, command) => handleEvent({
+        session_id: id, hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'Bash', tool_input: { command },
+      });
+
+      it('keeps the whole of a Bash command that the summary cut', () => {
+        createSession('store-test-detail-long');
+        const command = `cd ~/Documents/exmouth && ${'git status --short | head -3; '.repeat(8)}echo done`;
+        bash('store-test-detail-long', command);
+        const entry = getSession('store-test-detail-long').toolLog[0];
+        expect(entry.input).toBe(command.substring(0, 120));
+        expect(entry.detail).toBe(command);
+      });
+
+      it('adds no detail when the summary already holds the command', () => {
+        createSession('store-test-detail-short');
+        bash('store-test-detail-short', 'npm test');
+        expect('detail' in getSession('store-test-detail-short').toolLog[0]).toBe(false);
+      });
+
+      it('survives a hook payload with no tool_input, or one that is not an object', () => {
+        createSession('store-test-detail-odd');
+        handleEvent({ session_id: 'store-test-detail-odd', hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'Bash' });
+        handleEvent({ session_id: 'store-test-detail-odd', hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'Mystery', tool_input: 'a string' });
+        handleEvent({ session_id: 'store-test-detail-odd', hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'Bash', tool_input: { command: 42 } });
+        expect(getSession('store-test-detail-odd').toolLog).toHaveLength(3);
+      });
+
+      it('keeps the detail of only the newest calls, however long the session runs', () => {
+        createSession('store-test-detail-window');
+        const long = (i) => `echo ${i} ${'x'.repeat(200)}`;
+        for (let i = 0; i < 250; i++) bash('store-test-detail-window', long(i));
+        const log = getSession('store-test-detail-window').toolLog;
+        expect(log).toHaveLength(200);
+        expect(log.filter((e) => e.detail !== undefined)).toHaveLength(TOOL_DETAIL_KEEP);
+        expect(log[log.length - 1].detail).toBe(long(249));
+        expect(log[0].detail).toBeUndefined();
+        expect(log[0].input).toContain('echo 50 '); // the summary stays
+      });
     });
   });
 

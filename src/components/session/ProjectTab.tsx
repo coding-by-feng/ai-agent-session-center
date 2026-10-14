@@ -2,7 +2,7 @@
  * ProjectTab — interactive file browser for a session's project directory.
  * Features: tree navigation, file tabs, fuzzy search, content search, new file/folder.
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import ReactMarkdown from 'react-markdown';
@@ -15,6 +15,9 @@ import FileTree, { type FileTreeHandle } from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
 import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
 import TexViewer from './TexViewer';
+import { useFileReadingPosition } from '@/hooks/useFileReadingPosition';
+import { readingKey, pdfReadingKey, readPositionValue, writePositionValue } from '@/lib/fileReadingPosition';
+const PdfViewer = lazy(() => import('./PdfViewer'));
 import { useNavigate } from 'react-router';
 import { listFavoritedByFile } from '@/lib/translationLog';
 import { setProjectEditing } from '@/lib/projectEditGuard';
@@ -289,19 +292,24 @@ const LINE_HEIGHT_PX = 20;
 const OVERSCAN = 30;
 
 /** Excel spreadsheet viewer — renders parsed sheets as tables. */
-function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
-  const [activeSheet, setActiveSheet] = useState(0);
+function ExcelViewer({ sheets, positionKey }: { sheets: ExcelSheet[]; positionKey: string }) {
+  const [activeSheet, setActiveSheet] = useState(() => {
+    const saved = Number(readPositionValue(`${positionKey}:sheet`));
+    return Number.isInteger(saved) && saved >= 0 && saved < sheets.length ? saved : 0;
+  });
+  const tableRef = useRef<HTMLDivElement>(null);
+  const saveSheet = useFileReadingPosition(tableRef, `${positionKey}:sheet:${activeSheet}`);
   const sheet = sheets[activeSheet];
-  if (!sheet) return null;
 
   // Find max column count across all rows — sheet_to_json omits trailing empty
   // cells, so rows can have different lengths. Pad to the widest row to keep
   // columns aligned and cell borders consistent.
   const colCount = useMemo(
-    () => sheet.data.reduce((max, row) => Math.max(max, row.length), 0),
-    [sheet.data],
+    () => sheet?.data.reduce((max, row) => Math.max(max, row.length), 0) ?? 0,
+    [sheet?.data],
   );
 
+  if (!sheet) return null;
   return (
     <div className={styles.excelViewer}>
       {sheets.length > 1 && (
@@ -310,7 +318,7 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
             <button
               key={i}
               className={`${styles.excelSheetTab}${i === activeSheet ? ` ${styles.excelSheetTabActive}` : ''}`}
-              onClick={() => setActiveSheet(i)}
+              onClick={() => { saveSheet(); writePositionValue(`${positionKey}:sheet`, String(i)); setActiveSheet(i); }}
               type="button"
             >
               {s.name}
@@ -318,7 +326,7 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
           ))}
         </div>
       )}
-      <div className={styles.excelTableWrap}>
+      <div ref={tableRef} className={styles.excelTableWrap}>
         <table className={styles.excelTable}>
           {sheet.data.length > 0 && (
             <thead>
@@ -347,7 +355,9 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
 }
 
 /** Word document viewer — renders mammoth-converted HTML (sanitized before injection). */
-function WordViewer({ html, error }: { html?: string; error?: string }) {
+function WordViewer({ html, error, positionKey }: { html?: string; error?: string; positionKey: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useFileReadingPosition(scrollRef, positionKey, !!html && !error);
   const clean = useMemo(
     () => (html ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }) : ''),
     [html],
@@ -355,10 +365,32 @@ function WordViewer({ html, error }: { html?: string; error?: string }) {
   if (error) return <div className={styles.empty}>{error}</div>;
   if (!clean) return <div className={styles.empty}>Empty document</div>;
   return (
-    <div className={styles.wordViewer}>
+    <div ref={scrollRef} className={styles.wordViewer}>
       <div className={styles.wordDoc} dangerouslySetInnerHTML={{ __html: clean }} />
     </div>
   );
+}
+
+/** Resume media at its saved playback position, without auto-playing on return. */
+function MediaViewer({ file, positionKey }: { file: FileContent; positionKey: string }) {
+  const save = (el: HTMLMediaElement) => {
+    if (el.readyState > 0 && Number.isFinite(el.currentTime)) writePositionValue(`${positionKey}:time`, String(el.currentTime));
+  };
+  const restore = (el: HTMLMediaElement) => {
+    const time = Number(readPositionValue(`${positionKey}:time`));
+    if (Number.isFinite(time) && time >= 0) el.currentTime = Number.isFinite(el.duration) ? Math.min(time, el.duration) : time;
+  };
+  const props = {
+    src: file.blobUrl, controls: true, preload: 'metadata' as const,
+    onLoadedMetadata: (e: React.SyntheticEvent<HTMLMediaElement>) => restore(e.currentTarget),
+    onTimeUpdate: (e: React.SyntheticEvent<HTMLMediaElement>) => save(e.currentTarget),
+    onSeeked: (e: React.SyntheticEvent<HTMLMediaElement>) => save(e.currentTarget),
+    onPause: (e: React.SyntheticEvent<HTMLMediaElement>) => save(e.currentTarget),
+  };
+  return <div className={styles.mediaViewer}>
+    {isVideoExt(file.ext) ? <video {...props} className={styles.mediaVideo} /> : <audio {...props} className={styles.mediaAudio} />}
+    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+  </div>;
 }
 
 /** Virtualised code viewer for very large files. */
@@ -384,17 +416,11 @@ function VirtualCodeViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(600);
+  const savePosition = useFileReadingPosition(containerRef, scrollKey, true, setScrollTop);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    // Restore saved scroll position
-    if (scrollKey) {
-      try {
-        const saved = localStorage.getItem(scrollKey);
-        if (saved) { el.scrollTop = parseInt(saved, 10); setScrollTop(parseInt(saved, 10)); }
-      } catch { /* ignore */ }
-    }
     // Observe container resize to keep viewHeight accurate
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) setViewHeight(entry.contentRect.height);
@@ -402,17 +428,13 @@ function VirtualCodeViewer({
     ro.observe(el);
     setViewHeight(el.clientHeight);
     return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     setScrollTop(el.scrollTop);
-    if (scrollKey) {
-      try { localStorage.setItem(scrollKey, String(el.scrollTop)); } catch { /* ignore */ }
-    }
-  }, [scrollKey]);
+  }, []);
 
   // Programmatic scroll-to-line for find-in-file (element may not be in DOM due to virtualization)
   useEffect(() => {
@@ -421,10 +443,8 @@ function VirtualCodeViewer({
     const center = target - containerRef.current.clientHeight / 2;
     containerRef.current.scrollTop = Math.max(0, center);
     setScrollTop(containerRef.current.scrollTop);
-    if (scrollKey) {
-      try { localStorage.setItem(scrollKey, String(containerRef.current.scrollTop)); } catch { /* ignore */ }
-    }
-  }, [scrollToLine, scrollKey]);
+    savePosition();
+  }, [scrollToLine, savePosition]);
 
   const totalHeight = lines.length * LINE_HEIGHT_PX;
   const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT_PX) - OVERSCAN);
@@ -683,7 +703,10 @@ function ImageViewer({ src, alt, filePath, caption, fullscreen }: ImageViewerPro
         localStorage.setItem(imageViewKey(filePath), serializeView(view));
       } catch { /* quota or disabled storage — ignore */ }
     }, PERSIST_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      clearTimeout(handle);
+      try { localStorage.setItem(imageViewKey(filePath), serializeView(view)); } catch { /* storage unavailable */ }
+    };
   }, [view, filePath]);
 
   useEffect(() => () => {
@@ -1139,6 +1162,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [mdSaving, setMdSaving] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
   const markdownFsRef = useRef<HTMLDivElement>(null);
+  const codeFsRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
 
@@ -1368,104 +1392,17 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, loadDir, loadFile]);
 
-  // Scroll position persistence — save/restore per file across session switches and app restarts.
-  // Key: file-browser:scroll:{projectPath}:{filePath}
-  const scrollKeyForPath = useCallback((filePath: string) =>
-    `file-browser:scroll:${projectPath}:${filePath}`, [projectPath]);
-  const fileScrollKey = scrollKeyForPath(currentPath);
+  const scrollKeyForPath = useCallback((path: string) => readingKey(projectPath, path), [projectPath]);
+  const fileScrollKey = scrollKeyForPath(file?.path ?? currentPath);
+  const inlineReady = !loading && !showFullscreen && !mdEdit && !paneCollapsed && !editingNewFile;
+  const saveMarkdown = useFileReadingPosition(markdownRef, fileScrollKey, inlineReady);
+  const saveCode = useFileReadingPosition(codeViewerRef, fileScrollKey, inlineReady);
+  useFileReadingPosition(markdownFsRef, fileScrollKey, showFullscreen);
+  useFileReadingPosition(codeFsRef, fileScrollKey, showFullscreen);
+  const saveCurrentScroll = useCallback(() => { saveMarkdown(); saveCode(); }, [saveMarkdown, saveCode]);
 
-  // Save current scroll position to localStorage (call before switching away)
-  const saveCurrentScroll = useCallback(() => {
-    const el = markdownRef.current || codeViewerRef.current;
-    if (!el || !file) return;
-    // Don't save when element is hidden (display:none/visibility:hidden resets scroll to 0)
-    if (!el.offsetHeight) return;
-    try { localStorage.setItem(scrollKeyForPath(file.path), String(el.scrollTop)); } catch { /* ignore */ }
-  }, [file, scrollKeyForPath]);
-
-  // Ref so cleanup/unmount can always call the latest saveCurrentScroll
-  const saveCurrentScrollRef = useRef(saveCurrentScroll);
-  saveCurrentScrollRef.current = saveCurrentScroll;
-
-  // Save scroll position on unmount
-  useEffect(() => {
-    return () => { saveCurrentScrollRef.current(); };
-  }, []);
-
-  // Restore scroll when a file finishes loading (markdown + regular code).
-  // Re-fires on Refresh via refreshNonce — file.path is unchanged then.
-  useEffect(() => {
-    if (!file) return;
-    const key = scrollKeyForPath(file.path);
-    let saved = 0;
-    try { saved = parseInt(localStorage.getItem(key) ?? '0', 10) || 0; } catch { /* ignore */ }
-    if (!saved) return;
-    // Use double rAF to ensure DOM has settled after React render
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (markdownRef.current) markdownRef.current.scrollTop = saved;
-        else if (codeViewerRef.current) codeViewerRef.current.scrollTop = saved;
-      });
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, refreshNonce]);
-
-  // Exit md edit mode whenever the open file changes
-  useEffect(() => {
-    setMdEdit(false);
-  }, [file?.path]);
-
-  // Save scroll on markdown scroll events
-  useEffect(() => {
-    const el = markdownRef.current;
-    if (!el || !file) return;
-    const key = scrollKeyForPath(file.path);
-    const onScroll = () => {
-      // Skip save when element is hidden (browser resets scroll to 0)
-      if (!el.offsetHeight) return;
-      try { localStorage.setItem(key, String(el.scrollTop)); } catch { /* ignore */ }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { onScroll(); el.removeEventListener('scroll', onScroll); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, scrollKeyForPath]);
-
-  // Save scroll on regular code viewer scroll events
-  useEffect(() => {
-    const el = codeViewerRef.current;
-    if (!el || !file) return;
-    const key = scrollKeyForPath(file.path);
-    const onScroll = () => {
-      // Skip save when element is hidden (browser resets scroll to 0)
-      if (!el.offsetHeight) return;
-      try { localStorage.setItem(key, String(el.scrollTop)); } catch { /* ignore */ }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { onScroll(); el.removeEventListener('scroll', onScroll); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, scrollKeyForPath]);
-
-  // Restore scroll when tab becomes visible (display:none → display:flex triggers resize)
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const ro = new ResizeObserver(() => {
-      if (!root.offsetHeight) return; // still hidden
-      const el = markdownRef.current || codeViewerRef.current;
-      if (!el || el.scrollTop !== 0) return; // already at a non-zero position
-      const f = file;
-      if (!f) return;
-      const key = scrollKeyForPath(f.path);
-      let saved = 0;
-      try { saved = parseInt(localStorage.getItem(key) ?? '0', 10) || 0; } catch { /* ignore */ }
-      if (saved) {
-        requestAnimationFrame(() => { el.scrollTop = saved; });
-      }
-    });
-    ro.observe(root);
-    return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, scrollKeyForPath]);
+  // Exit md edit mode whenever the open file changes.
+  useEffect(() => { setMdEdit(false); }, [file?.path]);
 
   // Tab actions
   const handleTabClick = useCallback((tab: FileTab) => {
@@ -2106,7 +2043,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             {isLast ? (
               <span className={styles.breadCurrent}>{seg}</span>
             ) : (
-              <span className={styles.breadSep} style={{ color: 'var(--text-dim)' }}>{seg}</span>
+              <span className={styles.breadSep} style={{ color: 'var(--text-secondary)' }}>{seg}</span>
             )}
           </span>
         );
@@ -2716,18 +2653,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             )}
 
             {/* File viewer */}
-            {!loading && !error && file && !showingEditor && (
+            {!loading && !error && file && !showingEditor && !showFullscreen && (
               <div className={styles.fileViewer}>
                 {file.sheets && file.sheets.length > 0 ? (
-                  <ExcelViewer sheets={file.sheets} />
+                  <ExcelViewer key={file.path} sheets={file.sheets} positionKey={fileScrollKey} />
                 ) : isWordExt(file.ext) ? (
-                  <WordViewer html={file.docHtml} error={file.docError} />
+                  <WordViewer key={file.path} html={file.docHtml} error={file.docError} positionKey={fileScrollKey} />
                 ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
-                  <iframe
-                    src={file.blobUrl}
-                    className={styles.pdfViewer}
-                    title={file.name}
-                  />
+                  <Suspense fallback={<div className={styles.empty}>Loading PDF…</div>}><PdfViewer key={file.path} src={file.blobUrl} name={file.name} positionKey={pdfReadingKey(projectPath, file.path)} /></Suspense>
                 ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
                   <ImageViewer
                     key={file.path}
@@ -2736,27 +2669,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     filePath={file.path}
                     caption={`${file.name} — ${formatSize(file.size)}`}
                   />
-                ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
-                  <div className={styles.mediaViewer}>
-                    <video
-                      src={file.blobUrl}
-                      controls
-                      className={styles.mediaVideo}
-                      preload="metadata"
-                    />
-                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-                  </div>
-                ) : file.streamable && file.blobUrl && isAudioExt(file.ext) ? (
-                  <div className={styles.mediaViewer}>
-                    <audio src={file.blobUrl} controls preload="metadata" className={styles.mediaAudio} />
-                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-                  </div>
+                ) : file.streamable && file.blobUrl && (isVideoExt(file.ext) || isAudioExt(file.ext)) ? (
+                  <MediaViewer key={file.path} file={file} positionKey={fileScrollKey} />
                 ) : file.binary ? (
                   <div className={styles.empty}>
                     Binary file ({formatSize(file.size)})
                   </div>
                 ) : file.ext === 'tex' ? (
-                  <TexViewer source={file.content || ''} fileKey={file.path} />
+                  <TexViewer key={file.path} source={file.content || ''} fileKey={file.path} positionKey={fileScrollKey} />
                 ) : (file.ext === 'md' || file.ext === 'mdx') && mdEdit ? (
                   <div className={styles.newFileEditor}>
                     <div className={styles.newFileHeader}>
@@ -2897,17 +2817,19 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             </div>
             <div className={styles.fullscreenBody}>
               {file.sheets && file.sheets.length > 0 ? (
-                <ExcelViewer sheets={file.sheets} />
+                <ExcelViewer key={file.path} sheets={file.sheets} positionKey={fileScrollKey} />
               ) : isWordExt(file.ext) ? (
-                <WordViewer html={file.docHtml} error={file.docError} />
+                <WordViewer key={file.path} html={file.docHtml} error={file.docError} positionKey={fileScrollKey} />
               ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
-                <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
+                <Suspense fallback={<div className={styles.empty}>Loading PDF…</div>}><PdfViewer key={file.path} src={file.blobUrl} name={file.name} positionKey={pdfReadingKey(projectPath, file.path)} /></Suspense>
               ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
                 <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} fullscreen />
+              ) : file.streamable && file.blobUrl && (isVideoExt(file.ext) || isAudioExt(file.ext)) ? (
+                <MediaViewer key={file.path} file={file} positionKey={fileScrollKey} />
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : file.ext === 'tex' ? (
-                <TexViewer source={file.content || ''} fileKey={file.path} />
+                <TexViewer key={file.path} source={file.content || ''} fileKey={file.path} positionKey={fileScrollKey} />
               ) : file.ext === 'md' || file.ext === 'mdx' ? (
                 <div className={styles.markdown} ref={markdownFsRef}>
                   <ReactMarkdown
@@ -2921,7 +2843,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
                 <VirtualCodeViewer content={file.content || ''} filePath={file.path} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
               ) : (
-                <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
+                <div ref={codeFsRef} className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                   {(file.content || '').split('\n').map((line, i) => (
                     <div key={i} id={`fs-line-${i + 1}`} className={styles.codeLine}>
                       <span className={styles.lineNum}>{i + 1}</span>

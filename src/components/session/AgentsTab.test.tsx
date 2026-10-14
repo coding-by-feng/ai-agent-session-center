@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { Session, SubagentRun } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
+import { showToast } from '@/components/ui/ToastContainer';
 import AgentsTab from './AgentsTab';
+
+// The toast is how a clipboard refusal is reported; the container itself is not what these tests are about.
+vi.mock('@/components/ui/ToastContainer', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/ui/ToastContainer')>()),
+  showToast: vi.fn(),
+}));
 
 const T0 = 1_791_000_000_000;
 
@@ -138,3 +146,217 @@ describe('AgentsTab', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+// Click a log row to read its whole TARGET: the cell clips one line, and the
+// server keeps only a summary, so a longer `detail` rides on the newest entries.
+describe('AgentsTab — opening a log row', () => {
+  const LONG = 'cd ~/Documents/exmouth && python3 -c "import json;json.load(open(\'docs/feature/.manifest.json\'))" && echo manifest-ok; git status --short';
+  const SHORT = LONG.slice(0, 40);
+  const log = () => screen.getByRole('table', { name: /agent activity/i });
+  const showsFull = () => screen.queryByText(LONG, { selector: 'pre' });
+
+  beforeEach(() => {
+    seed(makeSession('L', {
+      toolLog: [
+        { tool: 'Bash', input: 'npm test', timestamp: T0 + 1 },
+        { tool: 'Bash', input: SHORT, timestamp: T0 + 2, detail: LONG },
+      ],
+    }));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(showToast).mockClear();
+    window.getSelection()?.removeAllRanges();
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  it('every row with a target is a button that says it is closed', () => {
+    render(<AgentsTab sessionId="L" />);
+    const open = within(log()).getByRole('button', { name: SHORT });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    expect(showsFull()).toBeNull();
+  });
+
+  it('a click opens the full text under the row, and a second click closes it', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    const button = within(log()).getByRole('button', { name: SHORT });
+
+    await user.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(showsFull()).not.toBeNull();
+    expect(button.getAttribute('aria-controls')).toBe(showsFull()!.closest('tr')!.id);
+
+    await user.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(showsFull()).toBeNull();
+  });
+
+  it('works from the keyboard: Enter opens it once, Space closes it', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    const button = within(log()).getByRole('button', { name: SHORT });
+    button.focus();
+    await user.keyboard('{Enter}');
+    expect(button).toHaveAttribute('aria-expanded', 'true'); // not toggled twice by the bubbling click
+    await user.keyboard(' ');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('a click anywhere on the row opens it, not only on the target text', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    const row = within(log()).getByRole('button', { name: SHORT }).closest('tr')!;
+    await user.click(within(row).getAllByRole('cell')[0]); // the time cell
+    expect(showsFull()).not.toBeNull();
+  });
+
+  it('shows the target itself when the call has no longer detail', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: 'npm test' }));
+    expect(screen.getByText('npm test', { selector: 'pre' })).toBeTruthy();
+  });
+
+  it('shows the error of a failed call and marks it', async () => {
+    const user = userEvent.setup();
+    seed(makeSession('L', { toolLog: [{ tool: 'Bash', input: 'npm test', timestamp: T0, failed: true, error: 'exit code 1: 3 tests failed' }] }));
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: /npm test/ }));
+    expect(screen.getByText(/exit code 1: 3 tests failed/)).toBeTruthy();
+  });
+
+  it('names the agent, the action and the full time of the call', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    const detail = showsFull()!.closest('tr')!;
+    expect(within(detail).getByText(/Bash/)).toBeTruthy();
+    expect(within(detail).getByText(/leader/)).toBeTruthy();
+    expect(within(detail).getByText(/20\d\d/)).toBeTruthy(); // a year: the cell shows only HH:MM:SS
+  });
+
+  it('several rows can be open at once', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    await user.click(within(log()).getByRole('button', { name: 'npm test' }));
+    expect(within(log()).getAllByRole('button', { expanded: true })).toHaveLength(2);
+  });
+
+  it('a row with nothing in its target is not a button', () => {
+    seed(makeSession('L', { subagents: [makeRun({ description: '', status: 'working' })] }));
+    render(<AgentsTab sessionId="L" />);
+    const startRow = within(log()).getAllByRole('row').find((r) => within(r).queryByText('start'))!;
+    expect(within(startRow).queryByRole('button')).toBeNull();
+  });
+
+  // The guard is for a drag-select that ends in a click on the row: it must look at THIS row's
+  // selection, not at whatever is selected anywhere on the page.
+  const selectIn = (el: Element) => window.getSelection()!.selectAllChildren(el);
+
+  it('selecting text in a row does not toggle that row', () => {
+    render(<AgentsTab sessionId="L" />);
+    const row = within(log()).getByRole('button', { name: SHORT }).closest('tr')!;
+    selectIn(within(row).getAllByRole('cell')[1]);
+    fireEvent.click(within(row).getAllByRole('cell')[1], { detail: 1 });
+    expect(showsFull()).toBeNull();
+  });
+
+  it('a selection in one row does not stop another row from opening', () => {
+    render(<AgentsTab sessionId="L" />);
+    const rows = within(log()).getAllByRole('row');
+    const other = within(log()).getByRole('button', { name: 'npm test' }).closest('tr')!;
+    const selected = within(log()).getByRole('button', { name: SHORT }).closest('tr')!;
+    selectIn(within(selected).getAllByRole('cell')[1]);
+    fireEvent.click(within(other).getByRole('button', { name: 'npm test' }), { detail: 1 });
+    expect(rows.length).toBeGreaterThan(1);
+    expect(screen.getByText('npm test', { selector: 'pre' })).toBeTruthy();
+  });
+
+  it('the keyboard is never blocked by a selection', () => {
+    render(<AgentsTab sessionId="L" />);
+    const button = within(log()).getByRole('button', { name: SHORT });
+    selectIn(within(button.closest('tr')!).getAllByRole('cell')[1]);
+    fireEvent.click(button, { detail: 0 }); // what Enter and Space on a button send
+    expect(showsFull()).not.toBeNull();
+  });
+
+  it('copies the full text', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith(LONG);
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy();
+  });
+
+  it('says when the text was cut at the server\'s cap, and copies it without the marker', async () => {
+    const user = userEvent.setup();
+    const cut = `${'a'.repeat(1000)}…`;
+    seed(makeSession('L', { toolLog: [{ tool: 'Bash', input: 'a'.repeat(120), timestamp: T0, detail: cut }] }));
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: 'a'.repeat(120) }));
+    expect(screen.getByText(/first 1,000 characters/i)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith('a'.repeat(1000));
+  });
+
+  it('does not claim a cut when the text was whole', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    expect(screen.queryByText(/first 1,000 characters/i)).toBeNull();
+  });
+
+  it('tells the user when the clipboard refuses', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => { throw new Error('denied'); }) }, configurable: true });
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(showToast).toHaveBeenCalledWith('Could not copy to the clipboard', 'error');
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy(); // not "Copied"
+  });
+
+  it('opened rows do not follow you to another session', async () => {
+    const user = userEvent.setup();
+    seed(
+      makeSession('L', { toolLog: [{ tool: 'Bash', input: 'npm test', timestamp: T0 + 1 }] }),
+      makeSession('M', { toolLog: [{ tool: 'Bash', input: 'npm test', timestamp: T0 + 1 }] }),
+    );
+    const { rerender } = render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: 'npm test' }));
+    rerender(<AgentsTab sessionId="M" />);
+    expect(within(log()).getByRole('button', { name: 'npm test' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('copying does not close the detail', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => undefined) }, configurable: true });
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    await user.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(showsFull()).not.toBeNull();
+  });
+
+  it('an open row stays with its command when the capped tool log rolls over', async () => {
+    const user = userEvent.setup();
+    render(<AgentsTab sessionId="L" />);
+    await user.click(within(log()).getByRole('button', { name: SHORT }));
+    // the server shifts the oldest entry out and appends a new call: every array index moves
+    act(() => seed(makeSession('L', {
+      toolLog: [
+        { tool: 'Bash', input: SHORT, timestamp: T0 + 2, detail: LONG },
+        { tool: 'Bash', input: 'git push', timestamp: T0 + 3 },
+      ],
+    })));
+    expect(showsFull()).not.toBeNull();
+    expect(within(log()).getByRole('button', { name: 'git push' })).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+

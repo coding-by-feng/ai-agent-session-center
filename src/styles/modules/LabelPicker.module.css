@@ -24,7 +24,7 @@
 }
 
 .header {
-  color: var(--accent-cyan, #00d4ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -157,7 +157,7 @@
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-text, var(--accent-cyan));
   background: var(--bg-accent, rgba(0, 240, 255, 0.1));
   border: 1px solid var(--border-accent-strong, rgba(0, 212, 255, 0.45));
   border-radius: 6px;
@@ -207,7 +207,7 @@
 
 .previewLabel {
   font-size: 10px;
-  color: var(--text-dim, #6a6a88);
+  color: var(--text-secondary);
 }
 
 /* ---- Shared label chip (also used read-only in the strip) ---- */

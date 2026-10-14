@@ -20,7 +20,7 @@
   font-size: 9px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   background: rgba(0, 229, 255, 0.06);
   border-top: 1px solid rgba(0, 229, 255, 0.18);
   border-bottom: 1px solid rgba(0, 229, 255, 0.18);
@@ -48,7 +48,7 @@
 }
 .acItemSelected {
   background: rgba(0, 229, 255, 0.12);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .acKindIcon {
@@ -95,13 +95,13 @@
   padding: 0 4px;
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
   border-radius: 3px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 10px;
   white-space: nowrap;
 }
 .acSub {
   flex: 1;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -117,7 +117,7 @@
   gap: 8px;
   padding: 4px 8px;
   font-size: 9px;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(0, 0, 0, 0.2);
   position: sticky;

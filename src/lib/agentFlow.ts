@@ -42,6 +42,10 @@ export interface FlowLogRow {
   kind: AgentKind;
   action: string;
   target: string;
+  /** The longer text behind `target` (`ToolLogEntry.detail`), when the server kept one. */
+  detail?: string;
+  /** What went wrong, for a failed call that recorded it. */
+  error?: string;
   failed?: boolean;
 }
 
@@ -162,18 +166,39 @@ function visibleAgents(all: AgentNode[]): { shown: AgentNode[]; hidden: number }
 function toolRow(entry: ToolLogEntry, key: string, agent: string, kind: AgentKind): FlowLogRow {
   return {
     key, at: entry.timestamp, agent, kind, action: entry.tool, target: entry.input,
+    ...(entry.detail ? { detail: entry.detail } : {}),
+    ...(entry.error ? { error: entry.error } : {}),
     ...(entry.failed ? { failed: true } : {}),
   };
+}
+
+/**
+ * A key for a tool-log row that belongs to the CALL, not to its place in the
+ * array. The server keeps the newest 200 entries by shifting the oldest out, so
+ * an index moves every row up by one on every call once the log is full, and an
+ * opened row (see AgentsTab) would slide onto a different command. Timestamp and
+ * tool identify a call; the counter separates calls of one tool in one millisecond.
+ */
+function toolKeys(prefix: string, log: readonly ToolLogEntry[]): string[] {
+  const seen = new Map<string, number>();
+  return log.map((t) => {
+    const base = `${prefix}${t.timestamp}:${t.tool}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
 }
 
 function buildLog(leader: Session, runs: readonly SubagentRun[], teammates: readonly Session[]): FlowLogRow[] {
   const typeById = new Map(runs.map((r) => [r.agentId, r.agentType]));
   const rows: FlowLogRow[] = [];
 
-  (leader.toolLog ?? []).forEach((t, i) => {
+  const leaderLog = leader.toolLog ?? [];
+  const leaderKeys = toolKeys('L', leaderLog);
+  leaderLog.forEach((t, i) => {
     rows.push(t.agentId
-      ? toolRow(t, `L${i}`, typeById.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME, 'subagent')
-      : toolRow(t, `L${i}`, LEADER_LOG_NAME, 'leader'));
+      ? toolRow(t, leaderKeys[i], typeById.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME, 'subagent')
+      : toolRow(t, leaderKeys[i], LEADER_LOG_NAME, 'leader'));
   });
   for (const r of runs) {
     rows.push({ key: `S${r.agentId}`, at: r.startedAt, agent: r.agentType, kind: 'subagent', action: 'start', target: r.description ?? '' });
@@ -187,9 +212,11 @@ function buildLog(leader: Session, runs: readonly SubagentRun[], teammates: read
   for (const mate of teammates) {
     const name = mate.agentName || sessionDisplayTitle(mate);
     const mateTypes = new Map((mate.subagents ?? []).map((r) => [r.agentId, r.agentType]));
-    (mate.toolLog ?? []).forEach((t, i) => rows.push(t.agentId
-      ? toolRow(t, `T${mate.sessionId}:${i}`, `${name} › ${mateTypes.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME}`, 'subagent')
-      : toolRow(t, `T${mate.sessionId}:${i}`, name, 'teammate')));
+    const mateLog = mate.toolLog ?? [];
+    const mateKeys = toolKeys(`T${mate.sessionId}:`, mateLog);
+    mateLog.forEach((t, i) => rows.push(t.agentId
+      ? toolRow(t, mateKeys[i], `${name} › ${mateTypes.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME}`, 'subagent')
+      : toolRow(t, mateKeys[i], name, 'teammate')));
   }
   // Stable for equal timestamps: later-recorded rows first.
   return rows

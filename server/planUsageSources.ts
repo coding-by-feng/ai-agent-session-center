@@ -97,7 +97,7 @@ const ownedByUs = (st: { uid: number }): boolean => typeof process.getuid !== 'f
  * an inotify watch on the deleted one is dead. Birth time is 0 where the filesystem
  * keeps none, which only leaves the inode to decide, as before.
  */
-type DirectoryVerdict = { ok: true; id: string } | { ok: false; reason: string | null };
+export type DirectoryVerdict = { ok: true; id: string } | { ok: false; reason: string | null };
 
 /**
  * May the usage directory be read — and, above all, swept? It lives under /tmp, shared
@@ -113,8 +113,9 @@ function judgeUsageDirectory(st: Stats): DirectoryVerdict {
   return { ok: true, id: `${st.dev}:${st.ino}:${st.birthtimeMs}` };
 }
 
-/** A directory that is simply not there yet is the normal state before the first snapshot and says nothing (`reason: null`). */
-async function checkUsageDirectory(dir: string): Promise<DirectoryVerdict> {
+/** A directory that is simply not there yet is the normal state before the first snapshot and says nothing (`reason: null`).
+ *  Also guards `<queue>/runtime/` (sessionRuntimeWatch.ts): same shared /tmp ground, same rules. */
+export async function checkUsageDirectory(dir: string): Promise<DirectoryVerdict> {
   let st;
   try {
     st = await lstat(dir);

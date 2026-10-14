@@ -14,12 +14,14 @@
 
 .button,
 .iconButton {
-  --btn-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --btn-accent: var(--accent-text);
   /* Text on an accent TINT (primary, pressed) mixes further toward the text
      colour: at 80% it measured 3.96:1 on light and 3.92:1 on solarized over
-     the 14% fill (Oct 2026). */
-  --btn-accent-text: color-mix(in srgb, var(--accent-cyan) 65%, var(--text-primary));
-  --btn-danger: color-mix(in srgb, var(--accent-red) 75%, var(--text-primary));
+     the 14% fill (Oct 2026); at 65%, 4.41:1 on solarized's pressed fill (AASC-11). */
+  --btn-accent-text: color-mix(in srgb, var(--accent-cyan) 50%, var(--text-primary));
+  /* 75% measured 3.23:1 on solarized / nord / monokai's danger fill (AASC-11); a
+     theme can set --danger-text on <body> where even 50% is not enough. */
+  --btn-danger: var(--danger-text, color-mix(in srgb, var(--accent-red) 50%, var(--text-primary)));
   --btn-warning: color-mix(in srgb, var(--accent-yellow) 75%, var(--text-primary));
 }
 
@@ -140,6 +142,9 @@
 
 .iconButton[aria-pressed='true'] { color: var(--btn-accent); }
 .iconButton[aria-pressed='true']::before { background: var(--bg-accent); border-color: var(--border-accent-strong); }
+/* A menu or picker trigger whose list is open reads as "on" too. */
+.iconButton[aria-expanded='true'] { color: var(--btn-accent); }
+.iconButton[aria-expanded='true']::before { background: var(--bg-accent); border-color: var(--border-accent-strong); }
 
 .iconDanger:hover:not(:disabled) { color: var(--btn-danger); }
 .iconDanger:hover:not(:disabled)::before { background: color-mix(in srgb, var(--accent-red) 12%, transparent); }

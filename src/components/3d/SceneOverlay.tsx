@@ -1,8 +1,11 @@
 /**
- * SceneOverlay — 2D HUD overlay on top of the 3D Cyberdrome scene.
- * Shows status breakdown, session count, mute toggle, and room management.
+ * SceneOverlay — 2D HUD overlay on top of the 3D Cyberdrome scene (and the 3D-off
+ * LIVE board): session count, sound and 3D toggles, and room management.
+ *
+ * All styling is in SceneOverlay.module.css (AASC-11): it used inline styles, so
+ * hover was painted from JS and there was no keyboard focus or pressed state.
  */
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
@@ -10,18 +13,7 @@ import { useCameraStore, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET } from '
 import { computeRoomCameraTarget } from '@/lib/roomGrid';
 import { soundEngine } from '@/lib/soundEngine';
 import { nextSceneStyle, resolveSceneStyle, sceneStyleLabel } from '@/lib/sceneStyle';
-
-// Shared button styling helper
-const BTN_FONT: React.CSSProperties = {
-  fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-  fontSize: 10,
-  letterSpacing: 1.5,
-  textTransform: 'uppercase',
-  padding: '7px 12px',
-  borderRadius: 2,
-  cursor: 'pointer',
-  transition: 'all 0.15s ease',
-};
+import styles from '@/styles/modules/SceneOverlay.module.css';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -81,216 +73,90 @@ function RoomPanel() {
   );
 
   return (
-    <div style={{ marginTop: 10, borderTop: '1px solid var(--border-accent)', paddingTop: 8 }}>
-      {/* Toggle header */}
+    <div className={styles.rooms}>
       <button
+        type="button"
+        className={styles.roomsToggle}
         onClick={() => setExpanded(!expanded)}
-        style={{
-          ...BTN_FONT,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          width: '100%',
-          padding: '4px 0',
-          border: 'none',
-          background: 'none',
-          color: 'var(--text-dim)',
-          fontSize: 9,
-          letterSpacing: 2,
-        }}
+        aria-expanded={expanded}
       >
         <span>Rooms ({rooms.length})</span>
-        <span style={{ fontSize: 10 }}>{expanded ? '\u25B4' : '\u25BE'}</span>
+        <span aria-hidden="true">{expanded ? '\u25B4' : '\u25BE'}</span>
       </button>
 
       {expanded && (
-        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className={styles.roomList}>
           {/* Overview (reset camera) button */}
-          <button
-            onClick={handleResetView}
-            style={{
-              ...BTN_FONT,
-              width: '100%',
-              border: '1px solid var(--border-accent)',
-              background: 'var(--bg-accent)',
-              color: 'var(--accent-cyan)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-accent-strong)';
-              e.currentTarget.style.borderColor = 'var(--border-accent-strong)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--bg-accent)';
-              e.currentTarget.style.borderColor = 'var(--border-accent)';
-            }}
-          >
+          <button type="button" className={styles.hudButton} onClick={handleResetView}>
             Overview
           </button>
 
-          {/* Existing rooms */}
           {sortedRooms.map((room) => {
-            const activeCount = room.sessionIds.filter(id => {
+            const activeCount = room.sessionIds.filter((id) => {
               const s = sessions.get(id);
               return s && s.status !== 'ended';
             }).length;
+            const editing = editingId === room.id;
 
             return (
-              <div
-                key={room.id}
-                onClick={() => {
-                  if (editingId !== room.id && room.roomIndex != null) {
-                    handleFocusRoom(room.roomIndex);
-                  }
-                }}
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: 3,
-                  border: '1px solid var(--border-accent)',
-                  background: 'var(--bg-accent)',
-                  cursor: editingId === room.id ? 'default' : 'pointer',
-                }}
-                onMouseEnter={(e) => {
-                  if (editingId !== room.id) {
-                    e.currentTarget.style.background = 'var(--bg-accent-strong)';
-                    e.currentTarget.style.borderColor = 'var(--border-accent-strong)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-accent)';
-                  e.currentTarget.style.borderColor = 'var(--border-accent)';
-                }}
-              >
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 4,
-                }}>
-                  {editingId === room.id ? (
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onBlur={commitRename}
-                      onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); }}
-                      onClick={(e) => e.stopPropagation()}
-                      autoFocus
-                      style={{
-                        flex: 1,
-                        background: 'var(--bg-subtle)',
-                        border: '1px solid var(--border-accent-strong)',
-                        color: 'var(--text-primary)',
-                        fontSize: 10,
-                        fontFamily: "'JetBrains Mono', monospace",
-                        padding: '2px 4px',
-                        borderRadius: 2,
-                        outline: 'none',
-                      }}
-                    />
-                  ) : (
-                    <span style={{
-                      fontSize: 10,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      color: 'var(--text-secondary)',
-                      flex: 1,
-                    }}>
-                      {room.name}
-                    </span>
-                  )}
+              <div key={room.id} className={styles.room}>
+                {editing ? (
+                  <input
+                    className={styles.roomInput}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); }}
+                    aria-label={`Room name for ${room.name}`}
+                    autoFocus
+                  />
+                ) : (
+                  // A real button (it was a clickable div): the camera move is
+                  // reachable from the keyboard now.
+                  <button
+                    type="button"
+                    className={styles.roomName}
+                    aria-label={`Show room ${room.name}`}
+                    onClick={() => { if (room.roomIndex != null) handleFocusRoom(room.roomIndex); }}
+                  >
+                    <span className={styles.roomLabel}>{room.name}</span>
+                    {activeCount > 0 && (
+                      <span className={styles.roomCount}>
+                        {activeCount} session{activeCount !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </button>
+                )}
 
-                  {editingId !== room.id && (
-                    <div style={{ display: 'flex', gap: 2 }}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); startRename(room); }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-dim)',
-                          cursor: 'pointer',
-                          fontSize: 10,
-                          minWidth: 44,
-                          minHeight: 44,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        title="Rename"
-                      >
-                        &#9998;
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteRoom(room.id); }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--accent-red)',
-                          cursor: 'pointer',
-                          fontSize: 10,
-                          minWidth: 44,
-                          minHeight: 44,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        title="Delete room"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Session count badge */}
-                {activeCount > 0 && (
-                  <div style={{
-                    marginTop: 4,
-                    fontSize: 9,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: 'var(--text-dim)',
-                    padding: '1px 4px',
-                  }}>
-                    {activeCount} session{activeCount !== 1 ? 's' : ''}
-                  </div>
+                {!editing && (
+                  <span className={styles.roomActions}>
+                    <button
+                      type="button"
+                      className={styles.roomIcon}
+                      onClick={() => startRename(room)}
+                      title="Rename"
+                      aria-label={`Rename room ${room.name}`}
+                    >
+                      &#9998;
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.roomIcon} ${styles.roomIconDanger}`}
+                      onClick={() => deleteRoom(room.id)}
+                      title="Delete room"
+                      aria-label={`Delete room ${room.name}`}
+                    >
+                      &times;
+                    </button>
+                  </span>
                 )}
               </div>
             );
           })}
 
-          {/* No rooms message */}
-          {rooms.length === 0 && (
-            <div style={{
-              fontSize: 9,
-              color: 'var(--text-dim)',
-              textAlign: 'center',
-              padding: '6px 0',
-              fontFamily: "'Share Tech Mono', monospace",
-            }}>
-              No rooms yet
-            </div>
-          )}
+          {rooms.length === 0 && <div className={styles.empty}>No rooms yet</div>}
 
-          {/* Create New Room button */}
-          <button
-            onClick={handleCreateRoom}
-            style={{
-              ...BTN_FONT,
-              width: '100%',
-              border: '1px dashed color-mix(in srgb, var(--accent-green) 30%, transparent)',
-              background: 'color-mix(in srgb, var(--accent-green) 6%, transparent)',
-              color: 'var(--accent-green)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-green) 14%, transparent)';
-              e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent-green) 50%, transparent)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-green) 6%, transparent)';
-              e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent-green) 30%, transparent)';
-            }}
-          >
+          <button type="button" className={`${styles.hudButton} ${styles.hudButtonNew}`} onClick={handleCreateRoom}>
             + New Room
           </button>
         </div>
@@ -311,6 +177,30 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
   const sceneStyle = resolveSceneStyle(useSettingsStore((s) => s.sceneStyle));
   const setSceneStyle = useSettingsStore((s) => s.setSceneStyle);
 
+  // The board below keeps clear of this panel with a bottom gutter
+  // (--hud-clear-bottom on LiveView's .flatRoot, 232px by default). With the rooms
+  // list open the panel grows up to 100vh - 80px, past that default, and covered
+  // the last row's right card even at the scroll end (AASC-11 review). So the panel
+  // publishes its real footprint — height + 16px from the edge + a 16px gap — on
+  // its parent while it is mounted.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = overlayRef.current?.parentElement;
+    const panel = panelRef.current;
+    if (!host || !panel || typeof ResizeObserver === 'undefined') return;
+    const publish = () => {
+      host.style.setProperty('--hud-clear-bottom', `${Math.ceil(panel.getBoundingClientRect().height) + 32}px`);
+    };
+    const ro = new ResizeObserver(publish);
+    ro.observe(panel);
+    publish();
+    return () => {
+      ro.disconnect();
+      host.style.removeProperty('--hud-clear-bottom');
+    };
+  }, []);
+
   const toggleMute = () => {
     const newEnabled = !soundEnabled;
     updateSoundSettings({ enabled: newEnabled });
@@ -320,101 +210,32 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
   };
 
   return (
-    <div style={{
-      position: 'absolute',
-      inset: 0,
-      pointerEvents: 'none',
-      zIndex: 10,
-    }}>
-
+    <div className={styles.overlay} ref={overlayRef}>
       {/* Bottom-right panel */}
-      <div style={{
-        position: 'absolute',
-        bottom: 16,
-        right: 20,
-        background: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid var(--border-accent)',
-        borderRadius: 4,
-        padding: '14px 18px',
-        pointerEvents: 'all',
-        minWidth: 200,
-        maxWidth: 260,
-        // dvh, not vh — on iOS Safari `100vh` is the URL-bar-expanded height, so
-        // a vh-capped panel extends under the browser chrome and its last rows
-        // cannot be scrolled to. Inline styles cannot carry the vh→dvh fallback
-        // pair (a duplicate key just overwrites), and every engine this ships on
-        // supports dvh, so it is used unconditionally here.
-        maxHeight: 'calc(100dvh - 80px)',
-        overflowY: 'auto',
-        boxShadow: '0 0 12px var(--glow-accent), inset 0 0 24px var(--glow-accent)',
-      }}>
-        <div style={{
-          fontSize: 9,
-          letterSpacing: 2,
-          color: 'var(--text-dim)',
-          textTransform: 'uppercase',
-          fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-        }}>
-          Units Online
-        </div>
-        <div style={{
-          fontFamily: "'Orbitron', 'JetBrains Mono', sans-serif",
-          fontSize: 28,
-          fontWeight: 700,
-          color: 'var(--text-primary)',
-          margin: '2px 0 10px',
-          lineHeight: 1,
-        }}>
-          {sessionCount}
-        </div>
+      <div className={styles.panel} ref={panelRef}>
+        <div className={styles.caption}>Units Online</div>
+        <div className={styles.count}>{sessionCount}</div>
 
-        {/* Mute Toggle */}
+        {/* Sound and 3D are toggles: the label says the state, aria-pressed says it to a screen reader. */}
         <button
+          type="button"
+          className={`${styles.hudButton} ${soundEnabled ? '' : styles.hudButtonOffDanger}`}
           onClick={toggleMute}
-          style={{
-            ...BTN_FONT,
-            width: '100%',
-            border: `1px solid ${soundEnabled ? 'var(--border-accent)' : 'color-mix(in srgb, var(--accent-red) 40%, transparent)'}`,
-            background: soundEnabled ? 'var(--bg-accent)' : 'color-mix(in srgb, var(--accent-red) 12%, transparent)',
-            color: soundEnabled ? 'var(--accent-cyan)' : 'var(--accent-red)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = soundEnabled
-              ? 'var(--bg-accent-strong)'
-              : 'color-mix(in srgb, var(--accent-red) 20%, transparent)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = soundEnabled
-              ? 'var(--bg-accent)'
-              : 'color-mix(in srgb, var(--accent-red) 12%, transparent)';
-          }}
+          // A fixed name with aria-pressed: the visible label changes with the state,
+          // and "Muted, not pressed" would contradict itself.
+          aria-label="Sound"
+          aria-pressed={soundEnabled}
         >
           {soundEnabled ? 'Sound On' : 'Muted'}
         </button>
 
-        {/* 3D Scene Toggle */}
         <button
+          type="button"
+          className={`${styles.hudButton} ${scene3dEnabled ? '' : styles.hudButtonOffWarning}`}
           onClick={() => setScene3dEnabled(!scene3dEnabled)}
           title={scene3dEnabled ? 'Disable 3D scene to save CPU/GPU' : 'Enable 3D scene'}
-          style={{
-            ...BTN_FONT,
-            width: '100%',
-            marginTop: 6,
-            border: `1px solid ${scene3dEnabled ? 'var(--border-accent)' : 'color-mix(in srgb, var(--accent-orange) 40%, transparent)'}`,
-            background: scene3dEnabled ? 'var(--bg-accent)' : 'color-mix(in srgb, var(--accent-orange) 12%, transparent)',
-            color: scene3dEnabled ? 'var(--accent-cyan)' : 'var(--accent-orange)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = scene3dEnabled
-              ? 'var(--bg-accent-strong)'
-              : 'color-mix(in srgb, var(--accent-orange) 20%, transparent)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = scene3dEnabled
-              ? 'var(--bg-accent)'
-              : 'color-mix(in srgb, var(--accent-orange) 12%, transparent)';
-          }}
+          aria-label="3D scene"
+          aria-pressed={scene3dEnabled}
         >
           {scene3dEnabled ? '3D On' : '3D Off'}
         </button>
@@ -422,28 +243,17 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
         {/* Scene look — only meaningful while the 3D scene is on, so it is not offered otherwise */}
         {scene3dEnabled && (
           <button
+            type="button"
+            className={styles.hudButton}
             onClick={() => setSceneStyle(nextSceneStyle(sceneStyle))}
             title={`Switch the 3D look to ${sceneStyleLabel(nextSceneStyle(sceneStyle))}`}
             aria-label={`3D look: ${sceneStyleLabel(sceneStyle)}. Switch to ${sceneStyleLabel(nextSceneStyle(sceneStyle))}`}
-            style={{
-              ...BTN_FONT,
-              width: '100%',
-              marginTop: 6,
-              border: '1px solid var(--border-accent)',
-              background: 'var(--bg-accent)',
-              color: 'var(--accent-cyan)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-accent-strong)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-accent)'; }}
           >
             {sceneStyleLabel(sceneStyle)}
           </button>
         )}
 
-        {/* Room management panel */}
         <RoomPanel />
-
-
       </div>
     </div>
   );

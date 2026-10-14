@@ -74,7 +74,7 @@ function Harness({ sessionId }: { sessionId: string }) {
   return <SessionControlBar session={session} />;
 }
 
-describe('SessionControlBar — remote visibility button', () => {
+describe('SessionControlBar — the three toggles (AASC-11)', () => {
   beforeEach(() => {
     useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
     useRoomStore.setState({ rooms: [] });
@@ -85,79 +85,69 @@ describe('SessionControlBar — remote visibility button', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reads "HOST ONLY" (no emoji) when the session is not shared', () => {
+  // One label each, whatever the state: the state is aria-pressed and the "on"
+  // fill. The old labels mixed verbs (MUTE/UNMUTE) with states (HOST ONLY/SHARED,
+  // ALERT ON), so a label could not be read as either.
+  it('are Mute, Share and Alert, all off for a fresh session', () => {
+    useSessionStore.getState().addSession(makeSession());
+    render(<Harness sessionId="s1" />);
+    for (const name of ['Mute', 'Share', 'Alert']) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
+    }
+  });
+
+  it('show each one on when the session carries it', () => {
+    useSessionStore.getState().addSession(makeSession({ muted: true, remoteVisible: true, alerted: true }));
+    render(<Harness sessionId="s1" />);
+    for (const name of ['Mute', 'Share', 'Alert']) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
+    }
+  });
+
+  it('Share flips on click and back — the store, not just the label (the original remote-visibility bug)', () => {
     useSessionStore.getState().addSession(makeSession({ remoteVisible: false }));
     render(<Harness sessionId="s1" />);
-    // Plain text, matching the row's own convention (KILL/MUTE/ALERT carry
-    // no icon) — the previous version prefixed this with "📡 ".
-    expect(screen.getByRole('button', { name: 'HOST ONLY' })).toBeInTheDocument();
+    const share = () => screen.getByRole('button', { name: 'Share' });
+    fireEvent.click(share());
+    expect(useSessionStore.getState().sessions.get('s1')?.remoteVisible).toBe(true);
+    expect(share()).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(share());
+    expect(useSessionStore.getState().sessions.get('s1')?.remoteVisible).toBe(false);
+    expect(share()).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('reads "SHARED" when the session is opted in', () => {
-    useSessionStore.getState().addSession(makeSession({ remoteVisible: true }));
+  it('Share does not touch its neighbours', () => {
+    useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
-    expect(screen.getByRole('button', { name: 'SHARED' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+    expect(screen.getByRole('button', { name: 'Mute' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Alert' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('flips the label on click — the exact bug being fixed', () => {
-    // Before this fix: the click handler awaited a fetch and only ever
-    // showed a toast — the store never changed, so DetailPanel's selector
-    // never re-ran, and this assertion would have timed out seeing "HOST
-    // ONLY" forever. This is the test that would have caught it.
-    useSessionStore.getState().addSession(makeSession({ remoteVisible: false }));
+  it('Mute and Alert flip their own flags', () => {
+    useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'HOST ONLY' }));
-
-    expect(screen.getByRole('button', { name: 'SHARED' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'HOST ONLY' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Alert' }));
+    const s = useSessionStore.getState().sessions.get('s1');
+    expect(s?.muted).toBe(true);
+    expect(s?.alerted).toBe(true);
   });
 
-  it('flips back on a second click', () => {
-    useSessionStore.getState().addSession(makeSession({ remoteVisible: false }));
+  it('holds no Kill: it is in the title row, away from the toggles', () => {
+    useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
-
-    const btn = () => screen.getByRole('button', { name: /HOST ONLY|SHARED/ });
-    fireEvent.click(btn());
-    expect(screen.getByRole('button', { name: 'SHARED' })).toBeInTheDocument();
-    fireEvent.click(btn());
-    expect(screen.getByRole('button', { name: 'HOST ONLY' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /kill/i })).toBeNull();
   });
 
-  it('sets aria-pressed to reflect the current state', () => {
-    useSessionStore.getState().addSession(makeSession({ remoteVisible: false }));
+  it('offers Resume only for an ended session', () => {
+    useSessionStore.getState().addSession(makeSession({ status: 'idle' }));
+    const { unmount } = render(<Harness sessionId="s1" />);
+    expect(screen.queryByRole('button', { name: /resume/i })).toBeNull();
+    unmount();
+    useSessionStore.setState({ sessions: new Map() });
+    useSessionStore.getState().addSession(makeSession({ status: 'ended' }));
     render(<Harness sessionId="s1" />);
-
-    const btn = screen.getByRole('button', { name: 'HOST ONLY' });
-    expect(btn).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(btn);
-    expect(screen.getByRole('button', { name: 'SHARED' })).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('applies the shared-state highlight class only once opted in', () => {
-    useSessionStore.getState().addSession(makeSession({ remoteVisible: false }));
-    render(<Harness sessionId="s1" />);
-
-    const hostOnlyBtn = screen.getByRole('button', { name: 'HOST ONLY' });
-    expect(hostOnlyBtn.className).not.toMatch(/remoteShared/);
-
-    fireEvent.click(hostOnlyBtn);
-
-    expect(screen.getByRole('button', { name: 'SHARED' }).className).toMatch(/remoteShared/);
-  });
-
-  it('does not affect the neighboring MUTE/ALERT buttons', () => {
-    // Guards against a selector or key collision silently coupling the three
-    // toggles — each must move independently.
-    useSessionStore.getState().addSession(
-      makeSession({ remoteVisible: false, muted: false, alerted: false }),
-    );
-    render(<Harness sessionId="s1" />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'HOST ONLY' }));
-
-    expect(screen.getByRole('button', { name: 'SHARED' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'MUTE' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'ALERT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
   });
 });

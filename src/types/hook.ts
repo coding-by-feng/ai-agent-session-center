@@ -26,7 +26,8 @@ export interface HookPayloadBase {
 
   // Terminal environment (added by jq enrichment)
   agent_terminal_id?: string;
-  tty_path?: string;
+  /** `null` = the hook looked and found no tty (a headless process); absent = it didn't say. */
+  tty_path?: string | null;
   term_program?: string;
   tab_id?: string;
   vscode_pid?: number;

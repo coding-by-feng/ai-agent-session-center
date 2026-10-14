@@ -68,7 +68,7 @@
 
 .caretOpen {
   transform: rotate(180deg);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 /* Dropdown list */
@@ -130,12 +130,12 @@
 
 .itemHighlighted {
   background: rgba(0, 229, 255, 0.12);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-left-color: var(--accent-cyan, #00e5ff);
 }
 
 .itemSelected {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 /* Scrollbar styling */

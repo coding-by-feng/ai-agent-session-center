@@ -17,7 +17,7 @@
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
 .tools {
@@ -30,7 +30,7 @@
 .toolBtn {
   background: none;
   border: 1px solid var(--border-subtle);
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-family: inherit;
   font-size: 9px;
   letter-spacing: 0.5px;
@@ -46,14 +46,14 @@
 }
 
 .toolBtn[aria-pressed='true'] {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--accent-cyan, #00e5ff);
 }
 
 .empty,
 .rawNote {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-style: italic;
   padding: 6px 8px;
   line-height: 1.5;
@@ -115,7 +115,7 @@
 .markdown h1 {
   font-size: 16px;
   margin: 14px 0 8px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 5px;
 }
@@ -136,7 +136,7 @@
 .markdown h6 {
   font-size: 11px;
   margin: 10px 0 4px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -154,12 +154,12 @@
   color: var(--text-secondary);
 }
 .markdown del {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-decoration: line-through;
 }
 
 .markdown a {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s;
@@ -255,7 +255,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 5%, transparent);
   border-bottom: 2px solid var(--border-subtle);
 }

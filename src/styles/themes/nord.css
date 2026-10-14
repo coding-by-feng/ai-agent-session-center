@@ -27,6 +27,7 @@ body[data-theme="nord"] {
   --accent-purple: #b48ead;
   --accent-yellow: #ebcb8b;
   --text-primary: #eceff4;
-  --text-secondary: #81a1c1;
+  /* AASC-11: #81a1c1 was 3.21:1 on --bg-card-hover; mixed 40% toward --text-primary → 4.62:1. */
+  --text-secondary: #acc0d5;
   --text-dim: #616e88;
 }

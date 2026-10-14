@@ -4,6 +4,7 @@
  * Reads bindings dynamically from the shortcut store.
  */
 import Modal from '@/components/ui/Modal';
+import Button from '@/components/ui/Button';
 import { useUiStore } from '@/stores/uiStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { SECTION_ORDER, keyComboToString } from '@/lib/shortcutKeys';
@@ -88,33 +89,10 @@ export default function ShortcutsPanel() {
               </div>
             </div>
           ))}
-          <button
-            onClick={() => openModal('shortcut-settings')}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              fontWeight: 600,
-              letterSpacing: '0.5px',
-              padding: '6px 14px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              alignSelf: 'center',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--accent-cyan)';
-              e.currentTarget.style.borderColor = 'rgba(0, 229, 255, 0.3)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--text-secondary)';
-              e.currentTarget.style.borderColor = 'var(--border-subtle)';
-            }}
-          >
-            Customize...
-          </button>
+          {/* The shared kit (AASC-11): it was inline styles with a JS hover, no focus ring. */}
+          <Button size="sm" className={styles.shortcutsCustomize} onClick={() => openModal('shortcut-settings')}>
+            Customize…
+          </Button>
         </div>
       </div>
     </Modal>

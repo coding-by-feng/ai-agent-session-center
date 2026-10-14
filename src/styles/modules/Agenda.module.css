@@ -13,7 +13,7 @@
 /* ---- View shell: toolbar + summary | one scrolling list | add bar ---- */
 
 .view {
-  --ag-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --ag-accent: var(--accent-text);
   display: flex;
   flex-direction: column;
   height: 100%;

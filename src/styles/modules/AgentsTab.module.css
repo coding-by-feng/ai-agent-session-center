@@ -189,10 +189,94 @@
 .logFailed .logTarget { color: var(--accent-red); }
 .failMark { font-weight: 700; }
 
+/* ---- A row you can open: the target's full text, under it ---- */
+.logOpenable { cursor: pointer; }
+.logOpenable:hover td,
+.logOpen td { background: var(--bg-subtle); }
+
+/* The cell's content is a real button (keyboard + screen reader); the row's own
+   click does the work for a mouse, so the button is bare. */
+.log .logToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.log .logToggle:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+/* --text-secondary measures under 4.5:1 on the panel in four themes: the glyph and
+   the detail's meta line use --text-primary. */
+.chevron { flex-shrink: 0; width: 1ch; color: var(--text-primary); }
+.logTargetText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* `.log td` clips to one line; the detail cell is the one place that must not. */
+.log .logDetailCell {
+  padding: 0;
+  overflow: visible;
+  white-space: normal;
+  background: none;
+}
+.logDetail {
+  margin: 4px 8px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.logDetailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.logDetailMeta { min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.logDetailText {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.logDetailNote { margin: 6px 0 0; color: var(--text-primary); font-style: italic; }
+.logDetailError { margin: 6px 0 0; color: var(--accent-red); font-weight: 700; overflow-wrap: anywhere; }
+
+@media (pointer: coarse) {
+  /* the whole row is the touch target */
+  .logOpenable td { padding-block: 12px; }
+}
+
 /* Sized by the PANEL, not the window: a docked panel is narrow on a wide screen.
    Under 480px the time column goes (it is the least needed) so Target keeps room. */
 @container agents (max-width: 480px) {
-  .log th:nth-child(1), .log td:nth-child(1) { display: none; }
+  /* Zero width, not display:none: an opened row's detail cell spans all four columns,
+     and with the column gone from the header row the grid kept a phantom fourth
+     column that took its share of the width from Target. (visibility:collapse on
+     a <col> shrank the table and let the detail run over the next row.) */
+  .log th:nth-child(1), .log td:nth-child(1):not(.logDetailCell) {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+    border-right: 0;
+  }
   .log th:nth-child(2) { width: 96px; }
   .log th:nth-child(3) { width: 80px; }
 }

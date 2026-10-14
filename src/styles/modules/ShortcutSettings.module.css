@@ -22,7 +22,7 @@
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 1.5px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   margin: 0;
 }
 
@@ -47,7 +47,7 @@
 }
 
 .resetAllBtn:hover {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: rgba(0, 229, 255, 0.3);
   background: rgba(0, 229, 255, 0.08);
 }
@@ -68,7 +68,7 @@
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
@@ -133,7 +133,7 @@
   border-color: var(--accent-cyan);
   box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
   animation: pulse-border 1s ease-in-out infinite;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 @keyframes pulse-border {
@@ -149,7 +149,7 @@
 .resetBtn {
   background: transparent;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
@@ -164,7 +164,7 @@
 }
 
 .resetBtn:hover {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 /* ---- Conflict Warning ---- */

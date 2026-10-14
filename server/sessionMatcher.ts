@@ -10,6 +10,7 @@ import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import log from './logger.js';
 import { toArchivedSession } from './sessionTrim.js';
 import { forgetSubagentSession } from './subagentTracker.js';
+import { withoutContext } from './sessionRuntime.js';
 import type { Session, SessionSource, SshConfig, PendingResume } from '../src/types/session.js';
 import type { HookPayloadBase } from '../src/types/hook.js';
 
@@ -104,6 +105,7 @@ export function reKeyResumedSession(
     existing.isHistorical = false;
     existing.isExternal = false; // adopted onto a dashboard terminal — no longer external
     existing.currentPrompt = '';
+    if (existing.runtime) existing.runtime = withoutContext(existing.runtime);
     existing.events = [...(existing.events || []), { type: 'SessionResumed', timestamp: Date.now(), detail: `Resumed from ${oldSessionId?.slice(0, 8)} (existing session merged)` }];
     log.info('session', `Re-key merged into existing session ${newSessionId?.slice(0, 8)} — promptHistory preserved (${existing.promptHistory.length} entries)`);
     return existing;
@@ -119,6 +121,8 @@ export function reKeyResumedSession(
   oldSession.isHistorical = false;
   oldSession.isExternal = false; // adopted onto a dashboard terminal — no longer external
   oldSession.currentPrompt = '';
+  // Model and effort carry over; the context-window share belonged to the old conversation.
+  if (oldSession.runtime) oldSession.runtime = withoutContext(oldSession.runtime);
   oldSession.totalToolCalls = 0;
   oldSession.toolUsage = {};
   oldSession.promptHistory = [];
@@ -205,6 +209,31 @@ function findSshConfig(
 }
 
 /**
+ * True when a hook names a dashboard terminal but its process has no controlling tty, so
+ * the terminal id can only have come from a parent's environment, not from the agent
+ * living in that PTY. Only an explicit `tty_path: null` counts (dashboard-hook.sh and
+ * dashboard-hook-codex.sh send it when no tty was found); a payload that omits the key —
+ * the Windows hook, an older install — makes no claim either way and keeps matching.
+ *
+ * The claim is still honoured when the hook is provably the card's own process: its
+ * `claude_pid` is already bound (`pidToSession`) to a card owning that terminal. That is a
+ * real agent whose hook lost its tty to a race, or a new session id in the same process.
+ * Session ids prove nothing: a headless process can reuse one (claude-mem keeps resuming a
+ * single observer session), so a card stored under the hook's own id gets no exemption.
+ */
+export function isInheritedTerminalClaim(
+  hookData: HookPayloadBase,
+  sessions: ReadonlyMap<string, Session>,
+  pidToSession: ReadonlyMap<number, string>,
+): boolean {
+  const termId = hookData.agent_terminal_id;
+  if (!termId || hookData.tty_path !== null) return false;
+  const pid = Number(hookData.claude_pid);
+  const owner = pid > 0 ? sessions.get(pidToSession.get(pid) ?? '') : undefined;
+  return !(owner && (owner.terminalId === termId || owner.lastTerminalId === termId));
+}
+
+/**
  * Match an incoming hook event to an existing session, or create a new one.
  * Implements a priority fallback system:
  *   Priority 0: pendingResume + terminal ID / workDir matching
@@ -228,6 +257,18 @@ export function matchSession(
 ): Session | null {
   const { session_id, hook_event_name, cwd } = hookData;
   let session = sessions.get(session_id);
+
+  // AASC-10: an inherited terminal id is not ownership. A process with no controlling
+  // tty is not the agent in a dashboard PTY, so its `agent_terminal_id` came from a
+  // parent's environment (claude-mem's observer daemon, a `claude -p` run from a tool
+  // call). It must claim nothing and touch nothing: no PID cache (below), no re-key
+  // (P0/P1/P1b/P4.5), no workDir/path link (P0.5/P2/P3), and no event on a card that
+  // happens to share its session id. Priority 5 would drop such a hook anyway; this
+  // stops everything above it from getting there first.
+  if (isInheritedTerminalClaim(hookData, sessions, pidToSession)) {
+    log.debug('session', `Ignored ${hook_event_name} ${session_id?.slice(0, 8)}: headless hook inherited terminal ${hookData.agent_terminal_id?.slice(0, 12)}`);
+    return null;
+  }
 
   // Fork routing: `claude --resume '<originId>' --fork-session` causes the fork to
   // fire ALL hooks (including SessionEnd and PID updates) with session_id == originId.

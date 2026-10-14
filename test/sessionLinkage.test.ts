@@ -717,6 +717,26 @@ describe('reKeyResumedSession', () => {
     // cachedPid is NOT cleared because pidToSession was not passed
     expect(result.cachedPid).toBe(7777);
   });
+
+  // /clear (and a resume) re-keys the card onto a new conversation: the old context-window
+  // share belongs to the old one. The new id's first status-line snapshot can land before
+  // the re-key and be dropped, so nothing else would ever clear it.
+  it('drops the old conversation\'s context-window share but keeps model and effort', () => {
+    const runtime = { model: 'Opus 5.5', modelAt: 1, effort: 'high', effortAt: 1, context: { pct: 87 }, contextAt: 1 };
+    const sessions = new Map<string, Session>();
+    const oldSession = makeSession({ sessionId: 'ctx-old', runtime });
+    sessions.set('ctx-old', oldSession);
+    const result = reKeyResumedSession(sessions, oldSession, 'ctx-new', 'ctx-old');
+    expect(result.runtime).toEqual({ model: 'Opus 5.5', modelAt: 1, effort: 'high', effortAt: 1 });
+    expect(runtime.context).toEqual({ pct: 87 }); // the old object is not mutated
+
+    const restored = makeSession({ sessionId: 'ctx-existing', runtime: { ...runtime } });
+    const fresh = makeSession({ sessionId: 'ctx-term' });
+    sessions.set('ctx-existing', restored);
+    sessions.set('ctx-term', fresh);
+    expect(reKeyResumedSession(sessions, fresh, 'ctx-existing', 'ctx-term').runtime)
+      .toEqual({ model: 'Opus 5.5', modelAt: 1, effort: 'high', effortAt: 1 });
+  });
 });
 
 // ---------------------------------------------------------------------------

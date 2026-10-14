@@ -33,7 +33,7 @@
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 3px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   text-shadow: 0 0 20px var(--glow-accent-strong);
   white-space: nowrap;
 }
@@ -92,7 +92,7 @@
 .hookStatsTable th { text-align: left; color: var(--text-secondary); font-weight: 400; padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); letter-spacing: 0.5px; font-size: 10px; text-transform: uppercase; }
 .hookStatsTable td { padding: 4px 8px; color: var(--text-primary); border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
 
-.hookEvName { color: var(--accent-cyan); font-weight: 500; }
+.hookEvName { color: var(--accent-text, var(--accent-cyan)); font-weight: 500; }
 .hookEvCount { text-align: right; }
 .hookEvRate { text-align: right; color: var(--text-secondary); }
 .hookEvLatency, .hookEvProc { text-align: right; }
@@ -131,7 +131,7 @@
   transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 .headerIconBtn:hover {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--border-accent);
   background: var(--bg-subtle);
 }
@@ -317,7 +317,7 @@
 
 .overflowChip:hover {
   border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   box-shadow: 0 0 8px var(--glow-accent);
 }
 
@@ -415,7 +415,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 1.5px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
 }
@@ -438,7 +438,7 @@
 
 .workspaceMenuItem:hover {
   background: rgba(0, 229, 255, 0.08);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .workspaceMenuIcon {

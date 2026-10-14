@@ -4,6 +4,7 @@
  */
 import { useState, useMemo } from 'react';
 import Modal from '@/components/ui/Modal';
+import Button from '@/components/ui/Button';
 import Combobox from '@/components/ui/Combobox';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -372,43 +373,16 @@ export default function QuickSessionModal() {
         </div>
 
         <div className={styles.quickSessionFooter}>
-          <button
-            type="button"
-            onClick={() => closeModal()}
-            style={{
-              padding: '6px 14px',
-              background: 'transparent',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '4px',
-              color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              letterSpacing: '1px',
-              cursor: 'pointer',
-            }}
-          >
-            CANCEL
-          </button>
-          <button
-            type="button"
+          {/* The shared kit (AASC-11), as in NewSessionModal. */}
+          <Button onClick={() => closeModal()}>CANCEL</Button>
+          <Button
+            variant="primary"
             onClick={handleLaunch}
             disabled={submitting || !formValid}
-            style={{
-              padding: '6px 16px',
-              background: 'rgba(0, 229, 255, 0.15)',
-              border: '1px solid var(--accent-cyan)',
-              borderRadius: '4px',
-              color: 'var(--accent-cyan)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              fontWeight: 700,
-              letterSpacing: '1px',
-              cursor: submitting || !formValid ? 'not-allowed' : 'pointer',
-              opacity: submitting || !formValid ? 0.5 : 1,
-            }}
+            aria-busy={submitting || undefined}
           >
             {submitting ? 'LAUNCHING...' : 'LAUNCH'}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

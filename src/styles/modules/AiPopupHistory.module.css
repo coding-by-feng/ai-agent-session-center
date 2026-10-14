@@ -11,7 +11,7 @@
 .empty {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 11px;
   letter-spacing: 1px;
 }
@@ -40,7 +40,7 @@
 .favToggle {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 16px;
   line-height: 1;
   padding: 10px 6px 10px 10px;
@@ -99,12 +99,12 @@
 .aliasLabel {
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .langChip {
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: 3px;
   padding: 1px 5px;
@@ -115,7 +115,7 @@
   flex-wrap: wrap;
   gap: 4px;
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   margin-top: 3px;
 }
 
@@ -129,7 +129,7 @@
 
 .expandIcon {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   flex-shrink: 0;
   padding-top: 2px;
 }
@@ -156,13 +156,13 @@
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
 .linkBtn {
   background: none;
   border: 1px solid var(--border-subtle);
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-family: inherit;
   font-size: 9px;
   letter-spacing: 0.5px;
@@ -251,5 +251,5 @@
 .timestamp {
   margin-left: auto;
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }

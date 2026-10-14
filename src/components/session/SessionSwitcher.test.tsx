@@ -177,7 +177,7 @@ describe('SessionSwitcher — progress remark', () => {
   });
 
   it('does not hijack into the rename editor on a double-click of the note icon', () => {
-    // The note button sits inside .switcherName, which renames on double-click.
+    // The title actions sit beside .switcherName, which renames on double-click, not inside it.
     // Its onDoubleClick stopPropagation must keep a double-click from opening
     // the title editor (which would mount with the title pre-selected, so the
     // next keystroke would overwrite it).
@@ -834,9 +834,11 @@ describe('SessionSwitcher — the current session is listed too', () => {
 
   it('numbers the current card the same as the header', () => {
     const { container } = renderSwitcher([sms, exm], [cur, other]);
+    // The header badge also says "Session number" to a screen reader (AASC-11); the digits match.
     const header = container.querySelector('[class*="switcherIndex"]')!.textContent;
     const card = container.querySelector('[aria-current="true"] [class*="sessionTabIndex"]')!.textContent;
-    expect(card).toBe(header);
+    expect(header).toMatch(/^Session number \d+$/);
+    expect(card).toBe(header!.replace(/\D/g, ''));
   });
 
   it('clicking the current card keeps you where you are — it never re-selects it', () => {
@@ -1604,13 +1606,14 @@ describe('SessionSwitcher — project view', () => {
       expect(container.querySelector('[title="SMS OPS"]')).not.toBeNull();
       expect(projectFrames(container)).toHaveLength(0);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Session view: Rooms' }));
+      // The view switch is one section of the View menu now (AASC-11).
+      fireEvent.click(screen.getByRole('button', { name: /^View: Rooms/ }));
       fireEvent.click(screen.getByRole('menuitemradio', { name: 'Projects' }));
       expect(useUiStore.getState().sessionSortMode).toBe('project');
       expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts']);
       expect(container.querySelector('[title="SMS OPS"]')).toBeNull();
 
-      fireEvent.click(screen.getByRole('button', { name: 'Session view: Projects' }));
+      fireEvent.click(screen.getByRole('button', { name: /^View: Projects/ }));
       fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rooms' }));
       expect(useUiStore.getState().sessionSortMode).toBe('room');
       expect(projectFrames(container)).toHaveLength(0);
@@ -1619,7 +1622,7 @@ describe('SessionSwitcher — project view', () => {
 
     it('still reaches the flat recent-activity list', () => {
       const { container } = renderProjects([queueFloat, kts]);
-      fireEvent.click(screen.getByRole('button', { name: 'Session view: Projects' }));
+      fireEvent.click(screen.getByRole('button', { name: /^View: Projects/ }));
       fireEvent.click(screen.getByRole('menuitemradio', { name: 'Recent activity' }));
       expect(useUiStore.getState().sessionSortMode).toBe('activity');
       expect(projectFrames(container)).toHaveLength(0);
@@ -1683,31 +1686,34 @@ describe('SessionSwitcher — plan usage chip', () => {
     vi.restoreAllMocks();
   });
 
-  it('is the first thing in the title row, before the status dot', () => {
+  // AASC-11: the status dot that followed it repeated the status badge and is gone;
+  // the session number is next.
+  it('is the first thing in the title row, before the session number', () => {
     const { container } = renderSwitcher(makeSession({ planUsage: usage() }));
     const row = nameRow(container);
     expect(row.firstElementChild?.className).toMatch(/planUsageSlot/);
     expect(row.firstElementChild?.querySelector('[class*="planUsageChip"]')).toBeTruthy();
-    expect(row.children[1].className).toMatch(/switcherDot/);
+    expect(row.children[1].querySelector('[class*="switcherIndex"]')).toBeTruthy();
+    expect(row.querySelector('[class*="switcherDot"]')).toBeNull();
   });
 
   it('shows the figures a session carries', () => {
     renderSwitcher(makeSession({ planUsage: usage() }));
-    const group = screen.getByRole('group', { name: /^Claude plan usage: 63% of the 5-hour limit used/ });
+    const group = screen.getByRole('button', { name: /^Claude plan usage: 63% of the 5-hour limit used/ });
     expect(within(group).getByText('5h')).toBeInTheDocument();
     expect(within(group).getByText('63%')).toBeInTheDocument();
   });
 
   it('is there as a dash, with a reason, before any report has arrived', () => {
     renderSwitcher(makeSession());
-    const group = screen.getByRole('group', { name: /^Claude plan usage unavailable:/ });
+    const group = screen.getByRole('button', { name: /^Claude plan usage unavailable:/ });
     expect(within(group).getByText('—')).toBeInTheDocument();
   });
 
-  it('is absent for a session that is not Claude or Codex, and the dot leads the row', () => {
+  it('is absent for a session that is not Claude or Codex, and the session number leads the row', () => {
     const { container } = renderSwitcher(makeSession({ cliSource: undefined, model: '', startupCommand: 'zsh' }));
     expect(chips(container)).toHaveLength(0);
-    expect(nameRow(container).firstElementChild?.className).toMatch(/switcherDot/);
+    expect(nameRow(container).firstElementChild?.querySelector('[class*="switcherIndex"]')).toBeTruthy();
   });
 
   it('is never in the meta row — its icon count is what the rail width is sized for', () => {
@@ -1809,5 +1815,233 @@ describe('SessionSwitcher — start a session without leaving the panel', () => 
     } finally {
       act(() => useUiStore.setState({ navPosition: prev }));
     }
+  });
+});
+
+/**
+ * Title actions — pin, rename, label, remark (and pop-out in Electron). They used to
+ * sit inside the title element, so in the 213px left rail five buttons squeezed a
+ * title to "Exmouth …". They are a sibling now: the rail gives them a row of their
+ * own under the title, and the top bar keeps them inline.
+ */
+describe('SessionSwitcher — title actions row', () => {
+  const session = {
+    sessionId: 's1',
+    title: 'Exmouth Development',
+    projectName: 'exmouth',
+    projectPath: '/Users/me/exmouth',
+    status: 'idle',
+    cliSource: 'claude',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+  } as Session;
+
+  const renderSwitcher = () =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  const text = (c: HTMLElement) => c.querySelector('[class*="switcherNameText"]') as HTMLElement;
+  const actions = (c: HTMLElement) => c.querySelector('[class*="switcherTitleActions"]') as HTMLElement | null;
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(),
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set() });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the actions out of the title element, in an element of their own right after it', () => {
+    const { container } = renderSwitcher();
+    const name = text(container).parentElement as HTMLElement;
+    const row = actions(container) as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(name.contains(row)).toBe(false);
+    expect(name.nextElementSibling).toBe(row);
+    expect(name.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('holds pin, rename, label and remark', () => {
+    const { container } = renderSwitcher();
+    const row = within(actions(container) as HTMLElement);
+    expect(row.getByRole('button', { name: 'Pin session' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Rename session' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Set session label' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Add a session remark' })).toBeInTheDocument();
+  });
+
+  it('is the same in the left rail', () => {
+    useUiStore.setState({ navPosition: 'left' });
+    const { container } = renderSwitcher();
+    expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+    const name = text(container).parentElement as HTMLElement;
+    expect(name.nextElementSibling).toBe(actions(container));
+  });
+
+  it('puts the whole title in a tooltip, since the rail may still clip a long one', () => {
+    const { container } = renderSwitcher();
+    expect(text(container).getAttribute('title')).toBe('Exmouth Development');
+  });
+
+  it('still renames on a double-click of the title, and the actions step aside while it is open', () => {
+    const { container } = renderSwitcher();
+    fireEvent.doubleClick(text(container));
+    expect(container.querySelector('input[class*="switcherNameInput"]')).toBeTruthy();
+    expect(actions(container)).toBeNull();
+  });
+
+  it('does not rename on a double-click of an action', () => {
+    const { container } = renderSwitcher();
+    fireEvent.doubleClick(within(actions(container) as HTMLElement).getByRole('button', { name: 'Set session label' }));
+    expect(container.querySelector('input[class*="switcherNameInput"]')).toBeNull();
+  });
+});
+
+/** The model badge in the meta row: live model · effort for Claude, plain launch text otherwise. */
+describe('SessionSwitcher — model · effort badge', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1', title: 'AASC', projectName: 'agent-manager', projectPath: '/Users/me/agent-manager',
+    status: 'idle', startedAt: Date.now(), lastActivityAt: Date.now(),
+    model: 'claude-opus-5-5', cliSource: 'claude',
+    ...over,
+  } as Session);
+  const renderWith = (session: Session) =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+        model={session.model}
+      />,
+    );
+
+  it('shows what the CLI reports it runs on now, in place of the launch model id', () => {
+    renderWith(makeSession({ runtime: { model: 'Haiku 4.5', modelAt: 2, effort: 'low', effortAt: 2 } }));
+    expect(screen.getByRole('status', { name: 'Model Haiku 4.5, effort low' })).toBeInTheDocument();
+    expect(screen.queryByText('claude-opus-5-5')).toBeNull();
+  });
+
+  it('follows a /model and /effort change when the session updates', () => {
+    const { rerender } = renderWith(makeSession({ runtime: { model: 'Opus 5.5', modelAt: 1, effort: 'high', effortAt: 1 } }));
+    const next = makeSession({ runtime: { model: 'Sonnet 5.5', modelAt: 3, effort: 'max', effortAt: 3 } });
+    rerender(
+      <SessionSwitcher currentSession={next} sessions={new Map([[next.sessionId, next]])} onSwitch={vi.fn()} model={next.model} />,
+    );
+    expect(screen.getByRole('status', { name: 'Model Sonnet 5.5, effort max' })).toBeInTheDocument();
+  });
+
+  it('a Codex session keeps its launch model as plain text', () => {
+    renderWith(makeSession({ cliSource: 'codex', model: 'gpt-5-codex' }));
+    expect(screen.getByText('gpt-5-codex')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /^Model / })).toBeNull();
+  });
+});
+
+/**
+ * AASC-11 — the header's controls on the shared kit: Kill set apart in the title
+ * row, one labelled View menu instead of six bare icons, the session number that
+ * says what it is, and a pin whose state is in the glyph.
+ */
+describe('SessionSwitcher — AASC-11 header', () => {
+  const session = {
+    sessionId: 's1', title: 'AASC Q & A', projectName: 'agent-manager', projectPath: '/p',
+    status: 'working', cliSource: 'claude', startedAt: Date.now(), lastActivityAt: Date.now(),
+  } as Session;
+  const renderHeader = (s: Session = session) =>
+    render(<SessionSwitcher currentSession={s} sessions={new Map([[s.sessionId, s]])} onSwitch={vi.fn()} onClose={vi.fn()} />);
+  const viewTrigger = () => screen.getByRole('button', { name: /^View:/ });
+  const viewMenu = () => screen.getByRole('menu', { name: 'View' });
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useRoomStore.setState({ rooms: [{ id: 'r1', name: 'AASC', sessionIds: ['s1'], collapsed: false, roomIndex: 0, createdAt: 1 }] });
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'left', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(), cardDisplayMode: 'detailed',
+    } as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set() } as never);
+    useRoomStore.setState({ rooms: [] });
+    vi.unstubAllGlobals();
+  });
+
+  it('Kill is the last of the title actions and opens the same confirm dialog', () => {
+    const { container } = renderHeader();
+    const row = container.querySelector('[class*="switcherTitleActions"]') as HTMLElement;
+    const kill = within(row).getByRole('button', { name: 'Kill session' });
+    expect(row.lastElementChild?.contains(kill)).toBe(true);
+    fireEvent.click(kill);
+    expect(useUiStore.getState().activeModal).toBe('kill-confirm');
+  });
+
+  it('draws a pinned session with a filled pin, not just a lit button', () => {
+    renderHeader({ ...session, pinned: true } as Session);
+    const pin = screen.getByRole('button', { name: 'Unpin session' });
+    expect(pin).toHaveAttribute('aria-pressed', 'true');
+    expect(pin.querySelector('path')?.getAttribute('fill')).toBe('currentColor');
+  });
+
+  it('names the session number for a screen reader and has no status dot', () => {
+    const { container } = renderHeader();
+    expect(container.querySelector('[class*="switcherIndex"]')?.textContent).toBe('Session number 1');
+    expect(container.querySelector('[class*="switcherDot"]')).toBeNull();
+  });
+
+  it('replaces the six view icons with one labelled View menu', () => {
+    renderHeader();
+    for (const gone of ['Status colour legend', /^Session view/, /Dock session bar/, 'Maximize', /Compact view|Detailed view/, 'Filter by room']) {
+      expect(screen.queryByRole('button', { name: gone })).toBeNull();
+    }
+    expect(viewTrigger()).toHaveTextContent('View');
+    fireEvent.click(viewTrigger());
+    for (const group of ['Group sessions', 'Rooms shown', 'Cards', 'Session list']) {
+      expect(within(viewMenu()).getByRole('group', { name: group })).toBeInTheDocument();
+    }
+    // The legend is reference, not a choice: in the popover, outside role="menu".
+    const legend = screen.getByRole('group', { name: 'Status colours' });
+    expect(viewMenu().contains(legend)).toBe(false);
+    expect(within(legend).getByText('Approval needed')).toBeInTheDocument();
+  });
+
+  it('filters rooms from the menu, and the trigger says so and lights up', () => {
+    renderHeader();
+    fireEvent.click(viewTrigger());
+    fireEvent.click(within(viewMenu()).getByRole('menuitemcheckbox', { name: 'AASC' }));
+    expect([...useUiStore.getState().selectedRoomIds]).toEqual(['r1']);
+    expect(viewTrigger()).toHaveAccessibleName('View: Rooms, 1 room shown');
+    fireEvent.click(within(viewMenu()).getByRole('menuitemcheckbox', { name: 'All rooms' }));
+    expect(useUiStore.getState().selectedRoomIds.size).toBe(0);
+  });
+
+  it('switches density, dock and maximize from the menu', () => {
+    renderHeader();
+    fireEvent.click(viewTrigger());
+    fireEvent.click(within(viewMenu()).getByRole('menuitemradio', { name: 'Compact' }));
+    expect(useUiStore.getState().cardDisplayMode).toBe('compact');
+    fireEvent.click(viewTrigger());
+    fireEvent.click(within(viewMenu()).getByRole('menuitemradio', { name: 'On top' }));
+    expect(useUiStore.getState().navPosition).toBe('top');
+    fireEvent.click(viewTrigger());
+    fireEvent.click(within(viewMenu()).getByRole('menuitemcheckbox', { name: 'Hidden (maximize)' }));
+    expect(useUiStore.getState().maximized).toBe(true);
+  });
+
+  it('keeps collapse « as an icon in the rail, and minimize reachable', () => {
+    renderHeader();
+    expect(screen.getByRole('button', { name: 'Collapse session panel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Minimize session panel' })).toBeInTheDocument();
   });
 });

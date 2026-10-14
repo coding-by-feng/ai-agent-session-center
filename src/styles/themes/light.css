@@ -6,6 +6,8 @@ body[data-theme="light"] ::selection {
 }
 
 body[data-theme="light"] {
+  /* AASC-11: the shared 80% accent-text measured 4.30:1 on this theme's accent tint. */
+  --accent-text: color-mix(in srgb, var(--accent-cyan) 62%, var(--text-primary));
   color-scheme: light;
   --bg-primary: #f0f2f5;
   --bg-card: #ffffff;

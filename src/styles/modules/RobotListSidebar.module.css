@@ -54,7 +54,7 @@
 .headerTitle {
   font-size: 12px;
   letter-spacing: 2px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-transform: uppercase;
   font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
   flex: 1;

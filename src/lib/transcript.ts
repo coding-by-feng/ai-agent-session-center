@@ -18,8 +18,9 @@ import type { PromptEntry, ResponseEntry, ToolLogEntry, SessionEvent } from '@/t
  * - `skill`     — an injected skill body (e.g. "Base directory for this skill: …")
  * - `reminder`  — a `<system-reminder>` block injected into a turn
  * - `hook`      — SessionStart / hook additional-context injected into a turn
+ * - `notification` — a `<task-notification>` (a background task finished)
  */
-export type SystemKind = 'plumbing' | 'skill' | 'reminder' | 'hook';
+export type SystemKind = 'plumbing' | 'skill' | 'reminder' | 'hook' | 'notification';
 
 /** One interleaved conversation entry. */
 export type ConversationEntry =

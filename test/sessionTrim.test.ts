@@ -4,13 +4,17 @@ import {
   trimCurrentPrompt,
   pushPrompt,
   toArchivedSession,
+  toolInputDetail,
+  dropStaleToolDetail,
+  MAX_TOOL_DETAIL_CHARS,
+  TOOL_DETAIL_KEEP,
   MAX_PROMPT_CHARS,
   MAX_PROMPT_HISTORY_CHARS,
   MAX_PROMPT_HISTORY_ENTRIES,
   MAX_CURRENT_PROMPT_CHARS,
   TRUNCATION_MARKER,
 } from '../server/sessionTrim.js';
-import type { PromptEntry, Session } from '../src/types/session.js';
+import type { PromptEntry, Session, ToolLogEntry } from '../src/types/session.js';
 
 const prompt = (text: string, timestamp = 1): PromptEntry => ({ text, timestamp });
 const totalChars = (h: PromptEntry[]) => h.reduce((n, p) => n + p.text.length, 0);
@@ -167,3 +171,86 @@ describe('toArchivedSession', () => {
     expect(toArchivedSession(empty).promptHistory).toEqual([]);
   });
 });
+
+// The AGENTS log's "click a row to see its full target". summarizeToolInput keeps a Bash
+// command to 120 characters and another tool's JSON to 100 so the always-broadcast
+// `input` stays small; `detail` is the longer copy that a click shows.
+describe('toolInputDetail', () => {
+  const summary = (text: string, max: number) => text.substring(0, max);
+
+  it('keeps the whole Bash command when the 120-character summary cut it', () => {
+    const command = `cd ~/Documents/exmouth && ${'git status --short | head -3; '.repeat(8)}echo done`;
+    expect(command.length).toBeGreaterThan(120);
+    expect(toolInputDetail('Bash', { command }, summary(command, 120))).toBe(command);
+  });
+
+  it('has nothing to add when the command fit in the summary', () => {
+    expect(toolInputDetail('Bash', { command: 'npm test' }, 'npm test')).toBeUndefined();
+  });
+
+  it('keeps an unknown tool\'s whole input as JSON when the 100-character summary cut it', () => {
+    const input = { ref: 'EE-34', environment: 'prod', note: 'x'.repeat(200) };
+    const full = JSON.stringify(input);
+    expect(toolInputDetail('mcp__krt__item_deploy', input, summary(full, 100))).toBe(full);
+  });
+
+  it.each(['Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'Task'])(
+    '%s is summarised in full already, so it carries no detail',
+    (tool) => {
+      expect(toolInputDetail(tool, { file_path: '/a/b', pattern: 'x'.repeat(300), command: 'y'.repeat(300) }, '/a/b')).toBeUndefined();
+    },
+  );
+
+  it('caps the detail and says it was cut', () => {
+    const command = 'a'.repeat(MAX_TOOL_DETAIL_CHARS + 500);
+    const detail = toolInputDetail('Bash', { command }, command.substring(0, 120));
+    expect(detail).toBe(`${'a'.repeat(MAX_TOOL_DETAIL_CHARS)}…`);
+  });
+
+  it('is exactly at the cap without a marker', () => {
+    const command = 'a'.repeat(MAX_TOOL_DETAIL_CHARS);
+    expect(toolInputDetail('Bash', { command }, command.substring(0, 120))).toBe(command);
+  });
+
+  it('copes with a missing or malformed input', () => {
+    expect(toolInputDetail('Bash', undefined, '')).toBeUndefined();
+    expect(toolInputDetail('Bash', { command: 42 }, '')).toBeUndefined();
+    expect(toolInputDetail('Bash', {}, '')).toBeUndefined();
+    expect(toolInputDetail('Mystery', undefined, '')).toBeUndefined();
+  });
+});
+
+describe('dropStaleToolDetail', () => {
+  const entry = (i: number, detail?: string): ToolLogEntry => ({ tool: 'Bash', input: `c${i}`, timestamp: i, ...(detail ? { detail } : {}) });
+
+  it('drops the detail of the entry that just fell out of the newest window, and only that one', () => {
+    const log = Array.from({ length: TOOL_DETAIL_KEEP + 1 }, (_, i) => entry(i, `d${i}`));
+    dropStaleToolDetail(log, TOOL_DETAIL_KEEP);
+    expect(log[0].detail).toBeUndefined();
+    expect(log[0].input).toBe('c0'); // the rest of the entry is untouched
+    expect(log.slice(1).every((e) => e.detail !== undefined)).toBe(true);
+  });
+
+  it('does nothing while the log is still within the window', () => {
+    const log = Array.from({ length: TOOL_DETAIL_KEEP }, (_, i) => entry(i, `d${i}`));
+    dropStaleToolDetail(log, TOOL_DETAIL_KEEP);
+    expect(log.every((e) => e.detail !== undefined)).toBe(true);
+  });
+
+  it('keeps at most the newest N details over a long run', () => {
+    const log: ToolLogEntry[] = [];
+    for (let i = 0; i < 300; i++) {
+      log.push(entry(i, `d${i}`));
+      dropStaleToolDetail(log, TOOL_DETAIL_KEEP);
+    }
+    expect(log.filter((e) => e.detail !== undefined)).toHaveLength(TOOL_DETAIL_KEEP);
+    expect(log[log.length - 1].detail).toBe('d299');
+  });
+
+  it('does not write an empty detail key onto an entry that never had one', () => {
+    const log = Array.from({ length: TOOL_DETAIL_KEEP + 1 }, (_, i) => entry(i));
+    dropStaleToolDetail(log, TOOL_DETAIL_KEEP);
+    expect('detail' in log[0]).toBe(false);
+  });
+});
+

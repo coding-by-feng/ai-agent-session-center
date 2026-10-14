@@ -55,7 +55,7 @@
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   border-bottom: 1px solid var(--border-subtle, #1a1a3e);
 }
 
@@ -134,7 +134,7 @@
 .dirPath {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -143,7 +143,7 @@
 .dirRemove {
   background: none;
   border: none;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
@@ -170,7 +170,7 @@
   text-align: center;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-style: italic;
 }
 

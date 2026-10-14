@@ -231,10 +231,13 @@ interface QueueState {
   setResumePrompt: (sessionId: string, prompt: string) => void;
   /** Replace the session-level loop exclude windows (quiet hours). */
   setLoopExcludeWindows: (sessionId: string, windows: ExcludeWindow[]) => void;
-  /** Replace the entire automation config for a session. Used by workspace
-   *  restore to re-attach the snapshot's paused/quiet-hours/auto-send state
-   *  under the freshly-created terminal id. */
+  /** Replace the entire automation config for a session. */
   setAutomation: (sessionId: string, config: QueueAutomationConfig) => void;
+  /** Workspace restore: re-attach the snapshot's paused/quiet-hours/auto-send state
+   *  under the freshly-created terminal id. Like `setAutomation`, but remembers the
+   *  value it installed so `migrateSession` can tell it from one the user changed
+   *  afterwards. */
+  restoreAutomation: (sessionId: string, config: QueueAutomationConfig) => void;
 
   /** Get (or initialize) the compose draft for a session. */
   getComposeDraft: (sessionId: string) => QueueComposeDraft;
@@ -285,6 +288,14 @@ interface QueueState {
     originClientId: string | null,
   ) => void;
 }
+
+/**
+ * The automation a workspace restore installed on a placeholder card, by the exact
+ * object it installed. Every switch is changed by replacing the entry with a new
+ * object, so an entry that is still this object has not been touched since the
+ * restore. `migrateSession` reads it to tell the restore's value from the user's.
+ */
+const _restoredAutomation = new Map<string, QueueAutomationConfig>();
 
 /** Stable reference for "no automation config set" — exported so component
  *  selectors can fall back to it without minting a fresh object every render
@@ -681,6 +692,15 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       return { automation: next };
     }),
 
+  restoreAutomation: (sessionId, config) =>
+    set((state) => {
+      const installed = { ...config };
+      _restoredAutomation.set(sessionId, installed);
+      const next = new Map(state.automation);
+      next.set(sessionId, installed);
+      return { automation: next };
+    }),
+
   getComposeDraft: (sessionId) =>
     get().composeDrafts.get(sessionId) ?? DEFAULT_COMPOSE_DRAFT,
 
@@ -707,6 +727,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       const items = state.queues.get(oldSessionId);
       const auto = state.automation.get(oldSessionId);
+      const restoredValue = _restoredAutomation.get(oldSessionId);
+      _restoredAutomation.delete(oldSessionId);
       const draft = state.composeDrafts.get(oldSessionId);
       // Nothing to carry across — leave all three maps untouched.
       if ((!items || items.length === 0) && !auto && !draft) return state;
@@ -733,7 +755,15 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         nextAutomation.delete(oldSessionId);
         // Don't clobber a config the new id may already have (e.g. set by an
         // explicit restore) — only carry forward when the target is unset.
-        if (!nextAutomation.has(newSessionId)) {
+        //
+        // One exception: a switch the USER flipped on a `term-*` placeholder.
+        // `claude --resume` keeps the session id, so the rows stored under it are
+        // loaded at boot, before the card turns back into it; the placeholder
+        // exists only since the restore, so anything on it that the restore did not
+        // install (the entry is no longer the restored object) is newer than those
+        // rows. Without this the re-key silently undid the click.
+        const flippedOnPlaceholder = oldSessionId.startsWith('term-') && auto !== restoredValue;
+        if (flippedOnPlaceholder || !nextAutomation.has(newSessionId)) {
           nextAutomation.set(newSessionId, { ...auto });
         }
         patch.automation = nextAutomation;

@@ -1,0 +1,29 @@
+/* StatusBadge — a session status mark (session/StatusBadge.tsx). Not a control:
+   no border, no fill, no pointer. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--status-color, var(--text-dim));
+}
+.glyph svg {
+  width: 12px;
+  height: 12px;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

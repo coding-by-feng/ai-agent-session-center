@@ -91,7 +91,7 @@
 
 .selectionQuote {
   flex: 0 0 auto;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 13px;
 }
 
@@ -186,7 +186,7 @@ input.quickSettingsModel {
   background: var(--bg-accent, rgba(0, 229, 255, 0.06));
   border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
   border-radius: 6px;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 11px;
   font-family: inherit;
   letter-spacing: 0.02em;
@@ -239,7 +239,7 @@ input.quickSettingsModel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-style: italic;
 }
 
@@ -275,7 +275,7 @@ input.quickSettingsModel {
 .attachYes {
   background: var(--bg-accent-strong, rgba(0, 229, 255, 0.14));
   border: 1px solid var(--accent-cyan, #00f0ff);
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .attachYes:hover:not(:disabled) {

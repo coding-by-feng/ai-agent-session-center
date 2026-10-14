@@ -91,7 +91,7 @@
   justify-content: center;
   border: 1px solid var(--border-accent-strong);
   border-radius: 50%;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 11px;
   font-weight: 700;
 }
@@ -121,7 +121,7 @@
 .action {
   border: 1px solid var(--border-accent-strong);
   background: var(--bg-accent);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .action:hover,
 .action[aria-expanded='true'] {

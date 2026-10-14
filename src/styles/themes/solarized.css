@@ -26,7 +26,15 @@ body[data-theme="solarized"] {
   --accent-red: #dc322f;
   --accent-purple: #6c71c4;
   --accent-yellow: #b58900;
-  --text-primary: #93a1a1;
-  --text-secondary: #657b83;
+  /* AASC-11: lifted toward base2 (#eee8d5) — #93a1a1 was 4.22:1 on --bg-card-hover,
+     #657b83 2.53:1; now 6.56:1 and 4.9:1 on every surface (headroom for tinted badges) (primary, card, hover,
+     panel, header), with the primary/secondary step kept. */
+  --text-primary: #c3c7bd;
+  --text-secondary: #a4ada9;
+  /* Solarized's cyan (#2aa198) is dark for text: the shared 62% mix measured
+     4.41:1 on its own accent tint (45%: 4.35 on the conversation role badge), so
+     this theme takes more of the text colour — for danger text too. */
+  --accent-text: color-mix(in srgb, var(--accent-cyan) 35%, var(--text-primary));
+  --danger-text: color-mix(in srgb, var(--accent-red) 35%, var(--text-primary));
   --text-dim: #4a6269;
 }

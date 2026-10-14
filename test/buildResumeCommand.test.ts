@@ -108,6 +108,30 @@ describe('buildResumeCommand — effort/model re-application on resume', () => {
     expect(cmd).not.toContain('--effort');
     expect(cmd).not.toContain('--model');
   });
+
+  // REGRESSION: the stored startup command is the live CLI's `ps` args, so it holds
+  // the LAUNCH flags. After `/model` + `/effort` the session's model/effortLevel move
+  // on; a restart relaunched with the stale baked flags because they "already existed".
+  it('relaunches on the latest model + effort, not the flags baked into the launch command', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: "claude --model claude-opus-4-8 --effort medium -n 'api'", title: 'api', model: 'claude-opus-5-5', effortLevel: 'high' },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('--model claude-opus-5-5');
+    expect(cmd).toContain('--effort high');
+    expect(cmd).not.toContain('claude-opus-4-8');
+    expect(cmd).not.toContain('--effort medium');
+  });
+
+  it('relaunches Codex on its latest model + reasoning effort', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: 'codex -m gpt-old', title: 't', model: 'gpt-6-astra', effortLevel: 'high' },
+      VALID_UUID,
+    );
+    expect(cmd).toBe(
+      `codex --model gpt-6-astra -c 'model_reasoning_effort="high"' resume '${VALID_UUID}' || codex --model gpt-6-astra -c 'model_reasoning_effort="high"'`,
+    );
+  });
 });
 
 /**

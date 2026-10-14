@@ -1,6 +1,7 @@
 /**
  * SessionSwitchOverlay — Cmd+Tab-style session switcher popup.
- * Hold Cmd (macOS) / Ctrl (other), tap E to cycle, release to switch.
+ * Hold Cmd (macOS) / Ctrl (other), tap E to cycle (or press Up / Down to move
+ * either way), release to switch.
  * Escape or a row click cancels/commits without waiting for release.
  *
  * Mounted unconditionally in App.tsx, same pattern as GlobalSearchModal /
@@ -58,7 +59,7 @@ export default function SessionSwitchOverlay() {
       <div className={styles.panel} onMouseDown={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <span>SWITCH SESSION</span>
-          <span className={styles.hint}>hold {isMac ? '⌘' : 'Ctrl'} &middot; tap E</span>
+          <span className={styles.hint}>hold {isMac ? '⌘' : 'Ctrl'} &middot; tap E or ↑↓</span>
         </div>
         <div className={styles.list}>
           {items.map((session, index) => {

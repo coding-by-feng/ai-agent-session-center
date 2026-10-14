@@ -7,7 +7,7 @@
    reads as structure. */
 
 .header {
-  --sh-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --sh-accent: var(--accent-text);
   display: flex;
   align-items: center;
   gap: 8px;

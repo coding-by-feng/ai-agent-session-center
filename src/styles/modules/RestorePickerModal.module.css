@@ -45,7 +45,7 @@
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 3px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .subtitle {
@@ -99,7 +99,7 @@
 .toolBtn {
   background: transparent;
   border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.18));
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-family: inherit;
   font-size: 11px;
   letter-spacing: 0.5px;
@@ -124,7 +124,7 @@
 .empty {
   padding: 24px 0;
   text-align: center;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -141,7 +141,7 @@
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--text-dim, #6a6a8a);
+  color: var(--text-secondary);
   border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
 }
 
@@ -157,7 +157,7 @@
 .groupEmpty {
   padding: 8px 0 8px 24px;
   font-size: 11px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
@@ -219,7 +219,7 @@
 
 .rowDir {
   flex-shrink: 0;
-  color: var(--text-dim, #6a6a8a);
+  color: var(--text-secondary);
   font-size: 11px;
   max-width: 220px;
   white-space: nowrap;
@@ -325,7 +325,7 @@
 .btnPrimary {
   background: rgba(0, 229, 255, 0.12);
   border: 1px solid var(--accent-cyan, #00e5ff);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .btnPrimary:hover:not(:disabled) {
   background: rgba(0, 229, 255, 0.22);

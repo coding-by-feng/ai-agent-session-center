@@ -1,0 +1,121 @@
+/* ChainCommandPicker — the "Set effort…" / "Set model…" menus on a queue item's
+ * chain sections.
+ *
+ * Colours come from tokens that exist in the theme files, each with a literal
+ * fallback (see PromptSnippetPicker.module.css for the regression that rule is
+ * from). Portaled to <body>, so nothing here may rely on an ancestor's variables
+ * being redefined locally.
+ */
+
+.picker {
+  /* `fixed` + portaled: the trigger sits inside `.chainModalBody`, a scroll box.
+     `top`/`left` are written inline by computeMovePickerPosition(). */
+  position: fixed;
+  /* Same band as PromptSnippetPicker: above .chainModalOverlay (10000/10001) and
+     the AutocompleteTextarea dropdown (10100), under the TitleBar (99999). */
+  z-index: 10150;
+  display: flex;
+  flex-direction: column;
+  width: min(240px, 92vw);
+  max-height: min(360px, 92vh);
+  padding: 4px;
+  /* Hover/focus accent, set on the box itself (portaled — no ancestor to inherit from). */
+  --picker-accent: var(--accent-orange, #ff9100);
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  border-radius: 4px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 12px var(--glow-accent, rgba(0, 229, 255, 0.15));
+  /* Fade only, no transform: the component re-measures this node on scroll/resize
+     and a transform would feed corrupted geometry back into the placement. */
+  animation: effort-picker-in 0.15s ease-out;
+}
+
+.toneModel {
+  --picker-accent: var(--accent-cyan, #00e5ff);
+}
+
+/* The items scroll inside the box, so a footer note stays in view under a long list. */
+.menu {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes effort-picker-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker { animation: none; }
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  /* 8px rhythm; the row stays comfortably tappable on a touch screen. */
+  min-height: 32px;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 3px;
+  color: var(--text-primary, #e0e0ff);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.item:hover {
+  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
+  border-left-color: var(--picker-accent);
+}
+.item:active {
+  background: var(--bg-accent, rgba(0, 229, 255, 0.18));
+  transform: none;
+}
+.item:focus-visible {
+  outline: 1px solid var(--picker-accent);
+  outline-offset: -1px;
+  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
+  border-left-color: var(--picker-accent);
+}
+
+.value {
+  font-weight: 600;
+}
+
+/* Secondary by size and weight, not by colour: `--text-secondary` measured 2.92:1 on
+   `solarized`, 3.74 on `nord` and 4.26 on `monokai` (4.5 needed) and `--text-dim` is
+   not text at all. */
+.note {
+  color: var(--text-primary, #e0e0ff);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Non-interactive note under the items (e.g. "/model also becomes your default"). */
+.footer {
+  margin: 4px 0 0;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  color: var(--text-primary, #e0e0ff);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* A finger needs 44px; a mouse is fine with 32. Keyed to the input, not the width. */
+@media (pointer: coarse) {
+  .item { min-height: 44px; }
+}

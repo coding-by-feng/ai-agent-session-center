@@ -27,6 +27,7 @@ body[data-theme="dracula"] {
   --accent-purple: #bd93f9;
   --accent-yellow: #f1fa8c;
   --text-primary: #f8f8f2;
-  --text-secondary: #bfbfbf;
+  /* AASC-11: #bfbfbf was 4.24:1 on --bg-card-hover; mixed 14% toward --text-primary → 4.61:1. */
+  --text-secondary: #c7c7c6;
   --text-dim: #6272a4;
 }

@@ -1,0 +1,139 @@
+/* Menu — the shared dropdown (ui/Menu.tsx). The popover is portaled to <body>
+   and placed with position: fixed by placeMenu(), so nothing here anchors it to
+   an edge; it only sizes and paints it. */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* Accent text is mixed toward the text colour ON THE ELEMENT (themes set their
+   colours on <body>, so a :root token would freeze the default palette). */
+.wrap,
+.popover {
+  --menu-accent: var(--accent-text);
+}
+
+.chevron {
+  display: inline-flex;
+  margin-left: 2px;
+  opacity: 0.8;
+}
+
+/* Lit: the menu holds a non-default choice (a room filter, a non-default view). */
+.triggerActive {
+  color: var(--menu-accent, var(--accent-cyan));
+}
+
+.popover {
+  position: fixed;
+  z-index: var(--z-portal-menu, 10000);
+  box-sizing: border-box;
+  min-width: 192px;
+  max-width: min(288px, calc(100vw - 16px));
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-panel, #0e0e24);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.group + .group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Captions are --text-secondary, never --text-dim (≈2.75:1, not text). */
+.caption {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.item:hover {
+  background: var(--bg-subtle-strong);
+}
+.item:active {
+  background: var(--bg-accent-strong);
+}
+.item:focus-visible {
+  outline: 2px solid var(--menu-accent);
+  outline-offset: -2px;
+}
+.item[aria-checked='true'] {
+  color: var(--menu-accent);
+}
+.item[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.check {
+  display: inline-flex;
+  flex: 0 0 12px;
+  justify-content: center;
+}
+
+.itemIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.itemIcon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.itemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  margin-top: 4px;
+  padding: 4px 8px 2px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* A finger needs 44px; a mouse does not, so only coarse pointers grow. */
+@media (pointer: coarse) {
+  .item {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .item {
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+}

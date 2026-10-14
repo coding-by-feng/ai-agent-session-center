@@ -43,7 +43,7 @@
 
 .uninstallBlocked { flex-basis: 100%; margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 
-.uninstallPanel { --res-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary)); font-family: var(--font-mono); }
+.uninstallPanel { --res-accent: var(--accent-text); font-family: var(--font-mono); }
 /* Modal's title row is a non-wrapping flex row: an unbroken memory filename in
    the title pushed the ✕ out past the panel's edge. */
 .uninstallPanel h3 { min-width: 0; overflow-wrap: anywhere; }

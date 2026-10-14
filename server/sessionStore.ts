@@ -46,10 +46,13 @@ import {
   getPromptsForSession as dbGetPrompts,
   insertFullPrompt as dbInsertFullPrompt,
 } from './db.js';
-import { toArchivedSession, pushPrompt, trimCurrentPrompt } from './sessionTrim.js';
+import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
-import { createPlanUsageService, applyUsageToSessions, kickDelayFor } from './planUsageService.js';
+import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
+import { launchFlagsFromRuntime, mergeRuntime, runtimeVisiblyChanged, type RuntimeReading } from './sessionRuntime.js';
+import { createRuntimeWatch } from './sessionRuntimeWatch.js';
+import { findCodexRollout } from './codexRollout.js';
 import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent, PlanCli } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -470,7 +473,8 @@ function summarizeToolInput(toolInput: Record<string, unknown> | undefined, tool
     case 'Read': return (toolInput.file_path as string) || '';
     case 'Write': return (toolInput.file_path as string) || '';
     case 'Edit': return (toolInput.file_path as string) || '';
-    case 'Bash': return ((toolInput.command as string) || '').substring(0, 120);
+    // A hook payload is untrusted: a non-string command must not throw out of the event handler.
+    case 'Bash': return (typeof toolInput.command === 'string' ? toolInput.command : '').substring(0, 120);
     case 'Grep': return `${(toolInput.pattern as string) || ''} in ${(toolInput.path as string) || 'cwd'}`;
     case 'Glob': return (toolInput.pattern as string) || '';
     case 'WebFetch': return (toolInput.url as string) || '';
@@ -599,6 +603,133 @@ export function startPlanUsage(): void {
 
 export function stopPlanUsage(): void {
   planUsageService.stop();
+}
+
+// ---- Live model + effort (sessionRuntime.ts) -------------------------------
+// What the session header's model · effort chip shows, and — written back into
+// `model` / `effortLevel` when they are valid launch flags — what every resume,
+// restart and workspace restore relaunches the session with.
+
+/** How often the transcript watchers are re-synced even with no hook arriving. */
+const RUNTIME_SYNC_INTERVAL_MS = 30_000;
+/**
+ * A Codex session whose rollout was not found searches again after 5 s, doubling per
+ * miss up to 10 min: Codex may create the file only at the first turn, and a miss
+ * walks every day folder.
+ */
+const CODEX_ROLLOUT_RETRY_MIN_MS = 5_000;
+const CODEX_ROLLOUT_RETRY_MAX_MS = 10 * 60_000;
+let runtimeSyncTimer: ReturnType<typeof setInterval> | null = null;
+
+const tracksRuntime = (session: Session): boolean => isLiveSession(session);
+
+/** Codex session id → its rollout file (`null` = not found at `checkedAt`, `misses` times running). */
+const codexRollouts = new Map<string, { path: string | null; checkedAt: number; misses: number }>();
+const codexRetryMs = (misses: number): number =>
+  Math.min(CODEX_ROLLOUT_RETRY_MIN_MS * 2 ** Math.max(0, misses - 1), CODEX_ROLLOUT_RETRY_MAX_MS);
+const codexRolloutLookups = new Set<string>();
+
+/** The file this session's runtime is read from: Claude's transcript, Codex's rollout. */
+function runtimeSourcePath(session: Session): string | undefined {
+  if (!isCodexSession(session)) return session.transcriptPath || undefined;
+  return codexRollouts.get(session.sessionId)?.path ?? undefined;
+}
+
+/** Find a Codex session's rollout in the background; the next sync starts watching it. */
+function lookUpCodexRollout(sessionId: string, now: number): void {
+  const known = codexRollouts.get(sessionId);
+  if (known && (known.path || now - known.checkedAt < codexRetryMs(known.misses))) return;
+  if (codexRolloutLookups.has(sessionId)) return;
+  codexRolloutLookups.add(sessionId);
+  findCodexRollout(sessionId)
+    .then((path) => {
+      codexRollouts.set(sessionId, { path, checkedAt: Date.now(), misses: path ? 0 : (known?.misses ?? 0) + 1 });
+      if (path) syncRuntimeWatch();
+    })
+    .catch((err: unknown) => {
+      codexRollouts.set(sessionId, { path: null, checkedAt: Date.now(), misses: (known?.misses ?? 0) + 1 });
+      log.debug('session-runtime', `codex rollout lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    })
+    .finally(() => codexRolloutLookups.delete(sessionId));
+}
+
+function applyRuntimeReading(session: Session, reading: RuntimeReading): void {
+  const next = mergeRuntime(session.runtime, reading);
+  if (!next) return;
+  const visible = runtimeVisiblyChanged(session.runtime, next);
+  // The latest model + effort become the launch flags, so a resume relaunches on them.
+  const flags = launchFlagsFromRuntime(next, { model: session.model, effortLevel: session.effortLevel });
+  const flagsChanged = flags.model !== session.model || flags.effortLevel !== session.effortLevel;
+  session.runtime = next;
+  if (flags.model !== undefined) session.model = flags.model;
+  session.effortLevel = flags.effortLevel;
+  // The client's workspace snapshot is built from what it was last sent: a changed
+  // launch flag must reach it even when the chip would look the same.
+  if (!visible && !flagsChanged) return;
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+}
+
+const runtimeWatch = createRuntimeWatch({
+  applyToSession(sessionId, reading) {
+    const resolved = resolveSessionId(sessionId);
+    const session = resolved ? sessions.get(resolved) : undefined;
+    // Status-line snapshots come from Claude's tap only; Codex reads its rollout.
+    if (session && tracksRuntime(session) && !isCodexSession(session)) applyRuntimeReading(session, reading);
+  },
+  applyToTranscript(path, reading) {
+    for (const session of sessions.values()) {
+      if (tracksRuntime(session) && runtimeSourcePath(session) === path) applyRuntimeReading(session, reading);
+    }
+  },
+});
+
+/**
+ * Watch exactly the transcripts (Claude) and rollouts (Codex) of live sessions. Called
+ * after every hook and on a timer, so no teardown path has to remember to stop a
+ * watcher. It runs mid-handleEvent, so it must never throw.
+ */
+function syncRuntimeWatch(): void {
+  try {
+    const now = Date.now();
+    const paths: string[] = [];
+    const liveCodex = new Set<string>();
+    for (const session of sessions.values()) {
+      if (!tracksRuntime(session)) continue;
+      if (isCodexSession(session)) {
+        liveCodex.add(session.sessionId);
+        lookUpCodexRollout(session.sessionId, now);
+      }
+      const path = runtimeSourcePath(session);
+      if (path) paths.push(path);
+    }
+    for (const id of codexRollouts.keys()) {
+      if (!liveCodex.has(id)) codexRollouts.delete(id);
+    }
+    runtimeWatch.syncTranscripts(paths);
+  } catch (err) {
+    log.debug('session-runtime', `sync failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export function startSessionRuntime(): void {
+  runtimeWatch.start();
+  syncRuntimeWatch();
+  if (!runtimeSyncTimer) {
+    runtimeSyncTimer = setInterval(syncRuntimeWatch, RUNTIME_SYNC_INTERVAL_MS);
+    runtimeSyncTimer.unref?.();
+  }
+}
+
+export function stopSessionRuntime(): void {
+  if (runtimeSyncTimer) clearInterval(runtimeSyncTimer);
+  runtimeSyncTimer = null;
+  runtimeWatch.stop();
+}
+
+/** The chip's "sync" button: read a CLI's usage files now instead of waiting for the poll or the watch. */
+export function syncPlanUsage(cli: PlanCli): Promise<PlanUsageSyncResult> {
+  return planUsageService.sync(cli);
 }
 
 /**
@@ -890,17 +1021,18 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.toolUsage[toolName] = (session.toolUsage[toolName] || 0) + 1;
       session.totalToolCalls++;
       // Store detailed tool log entry for the detail panel
-      const toolInputSummary = summarizeToolInput(
-        ('tool_input' in hookData ? hookData.tool_input : undefined) as Record<string, unknown> | undefined,
-        toolName
-      );
+      const toolInput = ('tool_input' in hookData ? hookData.tool_input : undefined) as Record<string, unknown> | undefined;
+      const toolInputSummary = summarizeToolInput(toolInput, toolName);
+      const toolInputFull = toolInputDetail(toolName, toolInput, toolInputSummary);
       const toolAgentId = applySubagentEvent(toolInputSummary);
       session.toolLog.push({
         tool: toolName,
         input: toolInputSummary,
         timestamp: Date.now(),
+        ...(toolInputFull ? { detail: toolInputFull } : {}),
         ...(toolAgentId ? { agentId: toolAgentId } : {}),
       });
+      dropStaleToolDetail(session.toolLog);
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 
@@ -1129,6 +1261,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   }
 
   attachPlanUsage(session, hook_event_name);
+  syncRuntimeWatch();
 
   const result: HandleEventResult = { session: { ...session } };
   // Migrate DB records when session is re-keyed (e.g., after claude --resume)

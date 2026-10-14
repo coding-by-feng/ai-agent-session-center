@@ -8,7 +8,7 @@ import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
-import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
@@ -184,6 +184,15 @@ export function startServer(port?: number): Promise<number> {
   app.use('/api/resources', authMiddleware, createResourceRouter({
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
+    sync: {
+      eagerLoad: true,
+      // Project Sync asks before running while a session is busy in the project.
+      activeSessionPaths: () =>
+        Object.values(getAllSessions())
+          .filter((s) => ['prompting', 'working', 'approval', 'input'].includes(s.status))
+          .map((s) => s.projectPath)
+          .filter(Boolean),
+    },
   }));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it
@@ -414,6 +423,7 @@ export function startServer(port?: number): Promise<number> {
 
     // Keep each CLI's plan limits (the usage chip in the session header) current
     startPlanUsage();
+    startSessionRuntime();
 
     // Start auth token cleanup (every hour)
     startTokenCleanup();
@@ -458,6 +468,7 @@ export function startServer(port?: number): Promise<number> {
     log.info('server', `Received ${signal}, shutting down...`);
     stopPeriodicSave();
     stopPlanUsage();
+    stopSessionRuntime();
     stopHeartbeat();
     stopMqReader();
     stopTokenCleanup();

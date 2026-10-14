@@ -85,6 +85,13 @@ export interface ToolLogEntry {
   failed?: boolean;
   error?: string;
   /**
+   * The fuller text behind `input` (a Bash command or an unrecognised tool's JSON,
+   * which `input` cuts to 100-120 characters), up to 1,000 characters. Only the
+   * newest ~30 entries keep it, and only when it says more than `input` does.
+   * Shown when a row of the AGENTS log is opened.
+   */
+  detail?: string;
+  /**
    * The in-process subagent that made this call (its Claude `agent_id`).
    * Absent for the session's own calls. Set only when the id matches one of
    * the session's `subagents`, so a teammate's own identity never lands here.
@@ -243,6 +250,37 @@ export interface PlanUsage {
 // ---------------------------------------------------------------------------
 
 /** Core session object stored in the sessions Map */
+/**
+ * Live model + effort of a Claude session, newest reading per field (`server/sessionRuntime.ts`).
+ * `model` may be an ID or a display name — format with `formatModelLabel`. No `effort`
+ * with an `effortAt` means it is unknown since that time (e.g. right after a model switch).
+ */
+export interface SessionRuntime {
+  model?: string;
+  modelAt?: number;
+  /** The model the user CHOSE (`/model <name>`, the reply after a `/model` menu pick, a
+   *  Codex turn) as a `--model` value — never just the model a reply came from. */
+  launchModel?: string;
+  launchModelAt?: number;
+  effort?: string;
+  effortAt?: number;
+  /** The effort came from an explicit `/effort` (not a status-line report). */
+  effortSet?: boolean;
+  /** How full the context window is, from Claude Code's status line. Absent = not
+   *  reported yet (no reply since launch or `/clear`), never "0%". */
+  context?: SessionContextUsage;
+  contextAt?: number;
+}
+
+export interface SessionContextUsage {
+  /** Used share of the window, 0–100 (Claude Code's own `used_percentage`). */
+  pct: number;
+  /** The window, in tokens. */
+  size?: number;
+  /** Tokens in the window: input + cache creation + cache read of the last reply. */
+  tokens?: number;
+}
+
 export interface Session {
   sessionId: string;
   status: SessionStatus;
@@ -268,9 +306,16 @@ export interface Session {
   source: SessionSource | string;
   /** AI CLI family (Claude, Codex). Distinct from terminal/source. */
   cliSource?: string;
+  /** The model a resume launches with (`--model`): set at creation, then follows `/model`
+   *  whenever the live value is a valid flag (`launchFlagsFromRuntime`). */
   model: string;
-  /** Effort level (low/medium/high/xhigh/max/ultracode) — set at creation from config so popups can inherit it. */
+  /** Effort level (low/medium/high/xhigh/max/ultracode) a resume launches with: set at creation,
+   *  then follows `/effort` (Codex: each turn's reasoning effort). Popups inherit it. */
   effortLevel?: string;
+  /** The model and effort the CLI reports it is running with now (`server/sessionRuntime.ts`):
+   *  Claude's transcript + status line, Codex's rollout `turn_context`. The chip shows it (Claude
+   *  only); its flag-valid values are also written into `model` / `effortLevel`. */
+  runtime?: SessionRuntime;
   transcriptPath?: string;
   permissionMode?: string | null;
 

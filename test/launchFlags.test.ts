@@ -125,6 +125,64 @@ describe('applyClaudeLaunchFlags', () => {
   });
 });
 
+describe('applyClaudeLaunchFlags — replace (resume / fork / clone)', () => {
+  // The stored startup command is the live CLI's `ps` args, so it still carries the
+  // flags the session was LAUNCHED with; a resume must relaunch with the latest ones.
+  it('replaces a baked Claude --model and --effort with the session\'s current values', () => {
+    const baked = "claude --model claude-opus-4-8 --effort medium -n 'API work'";
+    expect(applyClaudeLaunchFlags(baked, 'claude-opus-5-5', 'high', { replace: true })).toBe(
+      "claude --model claude-opus-5-5 --effort high -n 'API work'",
+    );
+    expect(applyClaudeLaunchFlags('claude --model=sonnet --effort=low', 'opus', 'max', { replace: true })).toBe(
+      'claude --model opus --effort max',
+    );
+  });
+
+  it('keeps a baked model it has no replacement for', () => {
+    expect(applyClaudeLaunchFlags('claude --model sonnet --effort low', undefined, 'high', { replace: true })).toBe(
+      'claude --effort high --model sonnet',
+    );
+  });
+
+  it('REVIEW: drops a baked effort when the session has none — the model\'s own saved level applies', () => {
+    expect(applyClaudeLaunchFlags('claude --model sonnet --effort max', 'claude-haiku-5-5', undefined, { replace: true })).toBe(
+      'claude --model claude-haiku-5-5',
+    );
+    expect(applyClaudeLaunchFlags(`codex --model gpt-6-astra -c 'model_reasoning_effort="low"'`, 'gpt-6-astra', undefined, { replace: true }))
+      .toBe('codex --model gpt-6-astra');
+  });
+
+  it('REVIEW: strips a double-quoted, escaped config override whole, and never eats a following flag', () => {
+    expect(applyClaudeLaunchFlags('codex -c "model_reasoning_effort=\\"low\\"" --search', undefined, 'high', { replace: true }))
+      .toBe(`codex -c 'model_reasoning_effort="high"' --search`);
+    expect(applyClaudeLaunchFlags('codex --model --yolo', 'gpt-6-astra', undefined, { replace: true }))
+      .toBe('codex --model gpt-6-astra --yolo');
+    expect(applyClaudeLaunchFlags('claude --effort --verbose', undefined, 'high', { replace: true }))
+      .toBe('claude --effort high --verbose');
+  });
+
+  it('replaces a Codex --model / -m and passes the effort as a config override', () => {
+    expect(applyClaudeLaunchFlags('codex -m gpt-old --search', 'gpt-6-astra', 'high', { replace: true })).toBe(
+      `codex --model gpt-6-astra -c 'model_reasoning_effort="high"' --search`,
+    );
+    expect(applyClaudeLaunchFlags(
+      `codex --model gpt-old -c 'model_reasoning_effort="low"'`, 'gpt-6-astra', 'xhigh', { replace: true },
+    )).toBe(`codex --model gpt-6-astra -c 'model_reasoning_effort="xhigh"'`);
+  });
+
+  it('without replace, existing flags still win (a launch command typed by the user)', () => {
+    expect(applyClaudeLaunchFlags('claude --model sonnet', 'opus', undefined)).toBe('claude --model sonnet');
+    expect(applyClaudeLaunchFlags(`codex -c model_reasoning_effort=low`, undefined, 'high')).toBe(
+      'codex -c model_reasoning_effort=low',
+    );
+  });
+
+  it('gives Codex an effort only for a level Codex has', () => {
+    expect(applyClaudeLaunchFlags('codex', undefined, 'medium')).toBe(`codex -c 'model_reasoning_effort="medium"'`);
+    expect(applyClaudeLaunchFlags('codex', undefined, 'max')).toBe('codex');
+  });
+});
+
 describe('sanitizeModelInCommand', () => {
   it('rewrites a contaminated --model token in place', () => {
     expect(sanitizeModelInCommand('claude --model claude-opus-4-8[1m] -n "x"')).toBe(

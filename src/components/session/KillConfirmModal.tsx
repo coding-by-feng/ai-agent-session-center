@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { KillSessionResponse, ApiResponse } from '@/types';
+import Button from '@/components/ui/Button';
 import styles from '@/styles/modules/Modal.module.css';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
 
@@ -81,38 +82,25 @@ export default function KillConfirmModal() {
 
   return (
     <div className={styles.overlay} onClick={handleCancel}>
-      <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
-        <h3>Kill Session</h3>
+      <div
+        className={styles.panel}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kill-confirm-title"
+      >
+        <h3 id="kill-confirm-title">Kill Session</h3>
         <p>
           Kill session for &quot;{projectName}&quot;? This will close its managed
           terminal or terminate its isolated agent process.
         </p>
         <div className={styles.actions}>
-          <button
-            className={styles.closeBtn}
-            onClick={handleCancel}
-            style={{ fontSize: '12px', padding: '6px 14px' }}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={killing}
-            style={{
-              background: 'rgba(255, 51, 85, 0.15)',
-              border: '1px solid rgba(255, 51, 85, 0.3)',
-              color: 'var(--accent-red, #ff3355)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '12px',
-              fontWeight: 700,
-              letterSpacing: '1px',
-              padding: '6px 14px',
-              borderRadius: '4px',
-              cursor: killing ? 'not-allowed' : 'pointer',
-            }}
-          >
+          {/* The shared kit (AASC-11): one font and one height for both, the danger
+              look on the destructive one only. */}
+          <Button onClick={handleCancel}>CANCEL</Button>
+          <Button variant="danger" onClick={handleConfirm} disabled={killing} aria-busy={killing || undefined}>
             {killing ? 'KILLING...' : 'KILL'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

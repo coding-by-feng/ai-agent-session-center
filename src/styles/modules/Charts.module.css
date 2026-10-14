@@ -18,26 +18,26 @@
 .historyTitle { font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .historyProject { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .historyDate { color: var(--text-secondary); font-size: 10px; }
-.historyDuration { color: var(--text-dim); font-size: 10px; }
+.historyDuration { color: var(--text-secondary); font-size: 10px; }
 
 .historyStatus { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; border-radius: 3px; }
 .historyStatus.idle { color: var(--accent-green); border: 1px solid rgba(0, 255, 136, 0.3); background: rgba(0, 255, 136, 0.08); }
 .historyStatus.working { color: var(--accent-orange); border: 1px solid rgba(255, 145, 0, 0.3); background: rgba(255, 145, 0, 0.08); }
 .historyStatus.ended { color: var(--accent-red); border: 1px solid rgba(255, 51, 85, 0.3); background: rgba(255, 51, 85, 0.08); }
-.historyStatus.prompting { color: var(--accent-cyan); border: 1px solid var(--border-accent-strong); background: var(--bg-accent); }
+.historyStatus.prompting { color: var(--accent-text, var(--accent-cyan)); border: 1px solid var(--border-accent-strong); background: var(--bg-accent); }
 .historyStatus.archived { color: var(--accent-purple); border: 1px solid rgba(170, 102, 255, 0.3); background: rgba(170, 102, 255, 0.08); }
 
-.historyPrompts, .historyTools { color: var(--text-dim); font-size: 10px; }
+.historyPrompts, .historyTools { color: var(--text-secondary); font-size: 10px; }
 .historyBranch { color: var(--accent-purple); font-size: 10px; }
 
-.historyDelete { background: none; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; padding: 0; line-height: 1; opacity: 0; transition: opacity 0.2s, color 0.2s; }
+.historyDelete { background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 0; line-height: 1; opacity: 0; transition: opacity 0.2s, color 0.2s; }
 .historyRow:hover .historyDelete { opacity: 1; }
 .historyDelete:hover { color: var(--accent-red); }
 
 .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 16px; padding: 12px; }
 .paginationBtn { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-secondary); padding: 6px 12px; border-radius: 4px; font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
 .paginationBtn:hover { border-color: var(--accent-cyan); }
-.paginationBtn.active { background: var(--bg-accent); color: var(--accent-cyan); border-color: var(--accent-cyan); }
+.paginationBtn.active { background: var(--bg-accent); color: var(--accent-text, var(--accent-cyan)); border-color: var(--accent-cyan); }
 
 /* ---- Chart Tooltip ---- */
 

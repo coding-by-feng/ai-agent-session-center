@@ -37,7 +37,8 @@ test.describe('Kill session', () => {
     await expect(killModal).toBeVisible({ timeout: 5000 });
 
     // Confirm the kill
-    const confirmBtn = page.getByRole('button', { name: /confirm|kill|yes/i });
+    // Scoped to the dialog: the header's Kill session icon matches /kill/ too (AASC-11).
+    const confirmBtn = killModal.getByRole('button', { name: /^kill$/i });
     if (await confirmBtn.isVisible()) {
       await confirmBtn.click();
     }

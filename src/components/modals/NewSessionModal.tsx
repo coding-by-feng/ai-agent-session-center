@@ -10,6 +10,7 @@ import type {
   ListCodexModelsResponse,
 } from '@/types/api';
 import Modal from '@/components/ui/Modal';
+import Button from '@/components/ui/Button';
 import Combobox from '@/components/ui/Combobox';
 import Select from '@/components/ui/Select';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
@@ -452,34 +453,16 @@ export default function NewSessionModal() {
       </div>
 
       <div className={styles.newSessionFooter}>
-        <button
-          type="button"
-          className={styles.closeBtn}
-          onClick={() => closeModal()}
-          style={{ fontSize: '11px', letterSpacing: '1px' }}
-        >
-          CANCEL
-        </button>
-        <button
-          type="button"
+        {/* The shared kit (AASC-11): Cancel was bare text beside a bordered Create. */}
+        <Button onClick={() => closeModal()}>CANCEL</Button>
+        <Button
+          variant="primary"
           onClick={handleSubmit}
           disabled={submitting || !formValid}
-          style={{
-            padding: '6px 16px',
-            background: 'rgba(0, 229, 255, 0.15)',
-            border: '1px solid var(--accent-cyan)',
-            borderRadius: '4px',
-            color: 'var(--accent-cyan)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '11px',
-            fontWeight: 700,
-            letterSpacing: '1px',
-            cursor: submitting ? 'not-allowed' : 'pointer',
-            opacity: submitting ? 0.5 : 1,
-          }}
+          aria-busy={submitting || undefined}
         >
           {submitting ? 'CREATING...' : 'CREATE'}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

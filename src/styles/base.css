@@ -67,6 +67,28 @@
   --layout-gap: 16px;
   --layout-gap-sm: 8px;
 
+  /* Spacing scale — the 8px grid (4px only for tight internal padding).
+     Theme-independent, so it may live on :root (unlike accent-derived tokens,
+     which must sit on the element: themes set their colours on <body>). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Stacking scale. In-flow layers use the small numbers; anything portaled to
+     <body> (tooltips, menus — they must escape scrollers and transformed
+     ancestors) uses the 10000 band, so no in-page layer can cover it. */
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-overlay: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+  --z-tooltip: 60;
+  --z-portal-menu: 10000;
+  --z-portal-tooltip: 10000;
+
   /* Safe area fallbacks */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
@@ -103,6 +125,14 @@ html, body {
 
 body {
   position: relative;
+  /* Accent-coloured text (links, pressed toggles, the selected row): the cyan
+     accent mixed toward the body text, so it holds 4.5:1 on its own tint in every
+     theme (the raw accent is ~3:1 on the light whites). One token instead of
+     fifteen per-view copies (AASC-11). Dark themes keep the 80% neon; a theme
+     whose accent is too dark or too light for that sets its own (light,
+     solarized — measured on each theme's accent tint). On <body>, never :root: themes set their
+     colours on <body>, and a :root color-mix would freeze the default palette. */
+  --accent-text: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
 }
 
 #root {
@@ -174,7 +204,7 @@ option {
 
 option:checked {
   background: var(--bg-accent, rgba(0, 229, 255, 0.1));
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 /* ---- Utility ---- */
@@ -402,3 +432,7 @@ option:checked {
   }
 }
 
+/* AASC-11: a range input's track is ~16px tall; a finger needs 44px to grab it. */
+@media (pointer: coarse) {
+  input[type='range'] { min-height: 44px; }
+}

@@ -200,7 +200,7 @@ export default function SummarizeModal() {
         {/* Prompt list */}
         <div style={{ maxHeight: '240px', overflowY: 'auto', marginBottom: '12px' }}>
           {prompts.length === 0 && (
-            <p style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: '11px' }}>
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '11px' }}>
               No prompt templates yet. Create one below.
             </p>
           )}
@@ -239,14 +239,14 @@ export default function SummarizeModal() {
                   <button
                     onClick={(e) => { e.stopPropagation(); handleSetDefault(p.id!); }}
                     title="Set as default"
-                    style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '14px', padding: '2px' }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '14px', padding: '2px' }}
                   >
                     &#9733;
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleEdit(p); }}
                     title="Edit"
-                    style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '14px', padding: '2px' }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '14px', padding: '2px' }}
                   >
                     &#9998;
                   </button>
@@ -259,7 +259,7 @@ export default function SummarizeModal() {
                   </button>
                 </div>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {p.prompt.substring(0, 150)}{p.prompt.length > 150 ? '...' : ''}
               </div>
             </div>

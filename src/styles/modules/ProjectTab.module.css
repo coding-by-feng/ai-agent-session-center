@@ -25,7 +25,7 @@
 .iconBtn {
   background: none;
   border: 1px solid transparent;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   width: 28px;
   height: 28px;
   border-radius: 4px;
@@ -111,7 +111,7 @@
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   border-right: 1px solid var(--border-faint);
   border-bottom: 2px solid transparent;
   white-space: nowrap;
@@ -119,18 +119,18 @@
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 .fileTab:hover {
-  color: var(--text-secondary);
+  color: var(--text-primary);
   background: var(--bg-subtle);
 }
 .fileTabActive {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-bottom-color: var(--accent-cyan);
   background: rgba(0, 229, 255, 0.05);
 }
 .fileTabIcon {
   width: 12px;
   height: 12px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 .fileTabName {
@@ -142,7 +142,7 @@
 .fileTabClose {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   width: 16px;
   height: 16px;
   border-radius: 3px;
@@ -217,14 +217,14 @@
 .breadcrumb::-webkit-scrollbar { display: none; }
 
 .breadSep {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   margin: 0 2px;
 }
 
 .breadBtn {
   background: none;
   border: none;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
@@ -279,7 +279,7 @@
 .empty {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 11px;
   letter-spacing: 1px;
 }
@@ -323,7 +323,7 @@
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
 .fileName {
@@ -337,7 +337,7 @@
 .fileDate {
   flex-shrink: 0;
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   letter-spacing: 0.3px;
   opacity: 0.7;
 }
@@ -345,14 +345,14 @@
 .fileSize {
   flex-shrink: 0;
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   letter-spacing: 0.3px;
 }
 
 .fileChevron {
   flex-shrink: 0;
   font-size: 16px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-weight: 300;
 }
 
@@ -375,7 +375,7 @@
   background: none;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
@@ -440,7 +440,7 @@
 .fullscreenClose {
   background: none;
   border: none;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -571,7 +571,7 @@
   background: none;
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
   border-radius: 3px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 10px;
   font-weight: 600;
@@ -580,7 +580,7 @@
   transition: all 0.15s;
 }
 .deleteConfirmNo:hover {
-  color: var(--text-secondary, #888);
+  color: var(--text-primary);
   border-color: var(--text-dim, #555);
 }
 
@@ -687,7 +687,7 @@
 
 .mediaInfo {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   letter-spacing: 0.3px;
   text-align: center;
 }
@@ -714,7 +714,7 @@
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -738,7 +738,7 @@
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -802,7 +802,7 @@
 }
 .excelSheetTab:hover { color: var(--text-primary); background: var(--bg-subtle); }
 .excelSheetTabActive {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   background: var(--bg-card);
   border-color: var(--border-accent);
 }
@@ -850,7 +850,7 @@
 }
 
 .excelRowNum {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-align: right;
   width: 40px;
   min-width: 40px;
@@ -942,7 +942,7 @@
 .newFileName {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1052,7 +1052,7 @@
 .searchHint {
   padding: 16px;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 11px;
   letter-spacing: 0.5px;
 }
@@ -1089,7 +1089,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 10px;
   text-align: right;
 }
@@ -1136,7 +1136,7 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-transform: uppercase;
   padding: 6px 8px;
   flex-shrink: 0;
@@ -1191,7 +1191,7 @@
 }
 
 .outlineItem:hover {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   background: rgba(0, 229, 255, 0.06);
 }
 
@@ -1200,7 +1200,7 @@
   font-size: 22px;
   font-weight: 700;
   margin: 24px 0 12px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 8px;
   letter-spacing: -0.3px;
@@ -1224,7 +1224,7 @@
   font-size: 12px;
   font-weight: 600;
   margin: 12px 0 4px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -1241,7 +1241,7 @@
 
 /* Links */
 .markdown a {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s;
@@ -1376,7 +1376,7 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   background: rgba(0, 255, 255, 0.04);
   border-bottom: 2px solid var(--border-subtle);
 }
@@ -1404,7 +1404,7 @@
 
 /* Strikethrough (GFM) */
 .markdown del {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-decoration: line-through;
 }
 
@@ -1414,7 +1414,7 @@
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
 /* Code file rendering */
@@ -1545,7 +1545,7 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.2px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-transform: uppercase;
 }
 
@@ -1574,7 +1574,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 3px;
   flex-shrink: 0;
@@ -1625,7 +1625,7 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 11px;
   gap: 8px;
   letter-spacing: 0.5px;
@@ -1748,7 +1748,7 @@
   min-width: 42px;
   text-align: right;
   padding-right: 14px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 11px;
   user-select: none;
   flex-shrink: 0;
@@ -1773,7 +1773,7 @@
   background: rgba(0, 229, 255, 0.07);
   border-left: 2px solid rgba(0, 229, 255, 0.5);
 }
-.bookmarkedLine .lineNum { opacity: 1; color: var(--accent-cyan); }
+.bookmarkedLine .lineNum { opacity: 1; color: var(--accent-text, var(--accent-cyan)); }
 
 /* ---- Bookmark Button Active State ---- */
 
@@ -1830,14 +1830,14 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.2px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   text-transform: uppercase;
 }
 
 .bookmarkPanelClose {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
   width: 20px;
@@ -1856,7 +1856,7 @@
 .bookmarkEmpty {
   padding: 14px 12px;
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-style: italic;
   line-height: 1.6;
 }
@@ -1899,14 +1899,14 @@
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   flex-shrink: 0;
 }
 
 .bookmarkItemFile {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1916,7 +1916,7 @@
 .bookmarkItemDel {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 10px;
   width: 16px;
@@ -2027,7 +2027,7 @@
 .collectionItemPath {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2050,7 +2050,7 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.2px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   text-transform: uppercase;
 }
 
@@ -2094,7 +2094,7 @@
 
 .recentItemPath {
   font-size: 9px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
@@ -2107,7 +2107,7 @@
   padding: 4px 8px;
   font-size: 10px;
   font-family: var(--font-mono);
-  color: var(--text-dim);
+  color: var(--text-secondary);
   background: transparent;
   border: 1px solid var(--border-faint);
   border-radius: 3px;
@@ -2163,7 +2163,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   background: none;
   border: none;
   border-right: 1px solid var(--border-faint);
@@ -2173,11 +2173,11 @@
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 .subTab:hover {
-  color: var(--text-secondary);
+  color: var(--text-primary);
   background: var(--bg-subtle);
 }
 .subTabActive {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-bottom-color: var(--accent-cyan);
   background: rgba(0, 229, 255, 0.05);
 }
@@ -2195,7 +2195,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   background: rgba(0, 229, 255, 0.08);
   border: 1px solid var(--accent-cyan);
   border-radius: 2px;
@@ -2214,7 +2214,7 @@
   margin-left: 4px;
   font-size: 14px;
   line-height: 1;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 3px;
   padding: 0 2px;
@@ -2261,14 +2261,14 @@
 .standaloneTitle {
   font-size: 14px;
   font-weight: 700;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
 .standalonePath {
   font-size: 11px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2286,7 +2286,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-size: 13px;
   letter-spacing: 0.5px;
 }
@@ -2348,7 +2348,7 @@
 }
 
 .deleteConfirmWarn {
-  color: var(--text-dim, #aa8888);
+  color: var(--text-secondary);
   font-size: 11px;
 }
 

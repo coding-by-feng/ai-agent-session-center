@@ -64,21 +64,28 @@ export function lastPromptAt(session: RecentCandidate): number {
   return history[history.length - 1]?.timestamp ?? 0;
 }
 
+/**
+ * The newest work hook event (`WORK_EVENTS`); 0 if none. A prompt is NOT one.
+ * After a workspace restore the server reloads `promptHistory` from the database
+ * with its original timestamps while `events` start over, so a restored session
+ * has old prompts and no work events. Anything that says how long a session has
+ * been quiet reads this, not `lastWorkAt`: counting from the last prompt would
+ * add the whole last turn to the answer.
+ */
+export function lastWorkEventAt(session: RecentCandidate): number {
+  const events = session.events;
+  if (!events) return 0;
+  // Events are appended in time order, so the last work event is the newest.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e && WORK_EVENTS.has(e.type)) return e.timestamp ?? 0;
+  }
+  return 0;
+}
+
 /** The newest sign of work: the last prompt, or the last work hook event; 0 if none. */
 export function lastWorkAt(session: RecentCandidate): number {
-  let latest = lastPromptAt(session);
-  const events = session.events;
-  if (events) {
-    // Events are appended in time order, so the last work event is the newest.
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i];
-      if (e && WORK_EVENTS.has(e.type)) {
-        latest = Math.max(latest, e.timestamp ?? 0);
-        break;
-      }
-    }
-  }
-  return latest;
+  return Math.max(lastPromptAt(session), lastWorkEventAt(session));
 }
 
 export function isRecentlyActive(session: RecentCandidate, now: number): boolean {

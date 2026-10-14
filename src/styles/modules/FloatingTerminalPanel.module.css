@@ -58,7 +58,7 @@
 
 .titleIcon {
   flex: 0 0 auto;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   font-size: 13px;
 }
 
@@ -103,7 +103,7 @@
 .headerBtn:hover {
   background: var(--bg-accent-strong, rgba(0, 229, 255, 0.15));
   border-color: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 .body {

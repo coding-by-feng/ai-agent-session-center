@@ -42,7 +42,7 @@
 }
 
 .searchIcon {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -68,7 +68,7 @@
   background: var(--bg-card, #0d0d1a);
   border: 1px solid var(--border-subtle, #2a2a40);
   border-radius: 4px;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   padding: 7px 8px;
@@ -106,7 +106,7 @@
 .empty {
   padding: 24px 16px;
   text-align: center;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -149,12 +149,12 @@
 
 .groupFile {
   font-weight: 600;
-  color: var(--accent-cyan, #00d4ff);
+  color: var(--accent-text, var(--accent-cyan));
   flex-shrink: 0;
 }
 
 .groupPath {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -164,7 +164,7 @@
 }
 
 .groupCount {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 10px;
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 6px;
@@ -245,13 +245,13 @@
 }
 
 .footerHint {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
 }
 
 .footerKeys {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
 }

@@ -17,6 +17,7 @@ import type {
 } from '@/types';
 import { fetchTranscript, reconstructFromLogs, type ConversationEntry, type SystemKind } from '@/lib/transcript';
 import { transformEntries } from '@/lib/commandMessage';
+import { isQueueSent, readQueueSentLog } from '@/lib/queueSentLog';
 import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
@@ -176,14 +177,32 @@ function capForDisplay(text: string, cap: number, query: string): string {
   return `…${text.slice(start, start + cap)}${start + cap < text.length ? '…' : ''}`;
 }
 
+/** Marks a prompt the prompt queue sent (see queueSentLog.ts). */
+function QueueBadge() {
+  return (
+    <span className={styles.convQueueBadge} title="Sent by the prompt queue">
+      QUEUE
+    </span>
+  );
+}
+
+/** The text a queue send would have produced for a user or command row. */
+function promptTextOf(entry: ConversationEntry): string | null {
+  if (entry.role === 'user') return entry.text;
+  if (entry.role === 'command') return [entry.name, entry.args].filter(Boolean).join(' ');
+  return null;
+}
+
 function EntryRow({
   entry,
   query,
   projectPath,
+  fromQueue,
 }: {
   entry: ConversationEntry;
   query: string;
   projectPath?: string;
+  fromQueue: boolean;
 }) {
   const time = formatTime(entry.timestamp);
   const hl = highlightClass(entry, query);
@@ -193,6 +212,7 @@ function EntryRow({
       <div className={`${styles.convEntry} ${styles.convUser}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>USER</span>
+          {fromQueue && <QueueBadge />}
           <span className={styles.convTime}>{time}</span>
           <CopyButton text={entry.text} />
         </div>
@@ -223,6 +243,7 @@ function EntryRow({
       <div className={`${styles.convEntry} ${styles.convCommand}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>USER</span>
+          {fromQueue && <QueueBadge />}
           <span className={styles.convTime}>{time}</span>
         </div>
         <div className={styles.convText}>
@@ -319,6 +340,7 @@ const SYSTEM_KIND_LABEL: Record<SystemKind, string> = {
   skill: 'skill',
   reminder: 'system reminder',
   hook: 'hook context',
+  notification: 'background task',
 };
 
 function SystemRow({
@@ -330,8 +352,8 @@ function SystemRow({
 }) {
   const [collapsed, setCollapsed] = useState(true);
   const kind = entry.kind ?? 'plumbing';
-  const label =
-    kind === 'skill' && entry.label ? `skill · ${entry.label}` : SYSTEM_KIND_LABEL[kind];
+  const kindLabel = SYSTEM_KIND_LABEL[kind];
+  const label = entry.label && entry.label !== kindLabel ? `${kindLabel} · ${entry.label}` : kindLabel;
   const hit = matchesQuery(entry.text, query);
   // Only needed while collapsed; slice first so the whitespace-collapse never
   // scans a multi-KB injected body to keep ~64 chars. When the search hit is
@@ -404,7 +426,8 @@ export default function ConversationView({
 }: ConversationViewProps) {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<RoleFilter>('all');
+  // Opens on the prompts a person wrote; harness rows stay one click away under ALL.
+  const [filter, setFilter] = useState<RoleFilter>('user');
   const [atBottom, setAtBottom] = useState(true);
   const [matchesOnly, setMatchesOnly] = useState(true);
   const [localSearch, setLocalSearch] = useState('');
@@ -439,6 +462,17 @@ export default function ConversationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // Read once per transcript load: the badge only needs to be right when the rows are.
+  const queueSentEntries = useMemo(() => {
+    const log = readQueueSentLog();
+    return new Set(
+      entries.filter((e) => {
+        const text = promptTextOf(e);
+        return text !== null && isQueueSent(log, text, e.timestamp);
+      }),
+    );
+  }, [entries]);
+
   // Role filter and search are ANDed. Both derive from `roleFiltered` so the
   // match count can never describe a different set than the one on screen.
   const roleFiltered = useMemo(
@@ -463,7 +497,8 @@ export default function ConversationView({
   // Archived prior sessions are not part of the searched thread, so while a
   // narrowing search is active they would be N collapsed blocks claiming space
   // among the hits without being hits themselves.
-  const showPrev = hasPrev && filter === 'all' && !(query && matchesOnly);
+  // They hold only prompts, so USER (the default) keeps them as well as ALL.
+  const showPrev = hasPrev && (filter === 'all' || filter === 'user') && !(query && matchesOnly);
 
   useEffect(() => {
     onMatchCountChange?.(matchCount);
@@ -593,7 +628,13 @@ export default function ConversationView({
           entry.role === 'system' ? (
             <SystemRow key={`${entry.timestamp}-${i}`} entry={entry} query={query} />
           ) : (
-            <EntryRow key={`${entry.timestamp}-${i}`} entry={entry} query={query} projectPath={projectPath} />
+            <EntryRow
+              key={`${entry.timestamp}-${i}`}
+              entry={entry}
+              query={query}
+              projectPath={projectPath}
+              fromQueue={queueSentEntries.has(entry)}
+            />
           ),
         )
       ) : loading ? (
@@ -610,7 +651,7 @@ export default function ConversationView({
         </div>
       ) : (
         <div className={styles.tabEmpty}>
-          {filter === 'all' ? 'No conversation yet' : 'No matching messages'}
+          {filter === 'all' ? 'No conversation yet' : filter === 'user' ? 'No prompts yet' : 'No matching messages'}
         </div>
       )}
 

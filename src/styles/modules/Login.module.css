@@ -23,14 +23,14 @@
 .card h2 {
   font-size: 18px;
   font-weight: 700;
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   letter-spacing: 3px;
   margin-bottom: 8px;
 }
 
 .card p {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   margin-bottom: 24px;
   letter-spacing: 0.5px;
 }
@@ -61,7 +61,7 @@
   padding: 12px;
   background: var(--bg-accent);
   border: 2px solid var(--accent-cyan);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;

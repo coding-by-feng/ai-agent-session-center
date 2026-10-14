@@ -1,0 +1,43 @@
+name: Build Windows
+
+on:
+  push:
+    branches: ['codex/electron-build-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run electron:build:win -- --publish never
+
+      - name: Verify installer and calculate checksums
+        run: npm run electron:verify -- win
+
+      - name: Upload Windows installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS-win.txt
+          if-no-files-found: error
+          retention-days: 30

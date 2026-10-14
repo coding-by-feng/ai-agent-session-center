@@ -5,7 +5,11 @@
 # and whatever this prints IS the footer text. The dashboard passes it per launch
 # (`claude --settings '{"statusLine":…}'`), so nothing is ever written to ~/.claude/settings.json.
 #
-# Two jobs, both invisible to the user:
+# Three jobs, all invisible to the user:
+#   0. Record the live model and effort (model.id / display_name, effort.level) and how full
+#      the context window is (context_window) in
+#      /tmp/claude-session-center/runtime/<session-id>.json for the session header's
+#      model · effort · context chip (server/sessionRuntimeWatch.ts).
 #   1. Record the plan rate limits (rate_limits.five_hour / seven_day). Claude Code reports
 #      them nowhere else, and only after the session's first API response. One tiny snapshot
 #      per session lands in /tmp/claude-session-center/usage/<session-id>.json, which the
@@ -21,9 +25,10 @@
 #   nothing printed (an error message here would land in the user's footer).
 # - It never loops. The chained command runs with AASC_STATUSLINE_TAP=1 and a tap that
 #   finds that marker (or a command that names this script) does not chain again.
-# - It stores only session_id, a timestamp and rate_limits — not the cwd, transcript path
-#   or model — and only when the dashboard's queue directory exists.
-# - It writes only into a usage directory that is a real directory owned by the current user:
+# - It stores only session_id, a timestamp, rate_limits, the model/effort and three context
+#   numbers (used %, window size, tokens in it) — not the cwd or
+#   transcript path — and only when the dashboard's queue directory exists.
+# - It writes only into a usage/runtime directory that is a real directory owned by the current user:
 #   never through a symlink, never into someone else's directory.
 
 INPUT=$(cat)
@@ -34,6 +39,62 @@ command -v jq >/dev/null 2>&1 || exit 0
 # AASC_USAGE_DIR only exists so tests can point the tap elsewhere; the default must stay in
 # step with USAGE_DIR in server/planUsageSources.ts.
 USAGE_DIR="${AASC_USAGE_DIR:-/tmp/claude-session-center/usage}"
+
+# Write one JSON snapshot ($3) as <dir ($1)>/<id ($2)>.json. /tmp is shared ground: anyone
+# can pre-create a path there, as a symlink that would carry the snapshots somewhere else or
+# as a directory of their own. Write only into a real directory that is ours — the rule the
+# server applies before it reads (and sweeps) it. Temp file in the same directory + rename:
+# the server never reads a half-written file.
+write_snapshot() {
+  local dir="$1" sid="${2//[^A-Za-z0-9_-]/_}" snap="$3" tmp
+  [ -n "$sid" ] && [ -n "$snap" ] || return 0
+  mkdir -p -m 700 "$dir" 2>/dev/null
+  [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return 0
+  tmp="$dir/.$sid.$$.tmp"
+  if printf '%s\n' "$snap" > "$tmp"; then
+    mv -f "$tmp" "$dir/$sid.json" || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+# ── Job 0: live model + effort snapshot (background) ──
+# Every render carries the model the session runs on and, when that model takes the effort
+# parameter, effort.level — the live value, including the level Claude restores for a model
+# after a switch. The dashboard's session header shows them (server/sessionRuntime.ts).
+# Beside usage/ by default, so a test that moves usage/ moves this too.
+RUNTIME_DIR="${AASC_RUNTIME_DIR:-${USAGE_DIR%/*}/runtime}"
+case "$INPUT" in
+  *'"model"'*)
+    {
+      [ -d "${RUNTIME_DIR%/*}" ] || exit 0   # the dashboard is not running: nothing is listening
+      OUT=$(printf '%s' "$INPUT" | jq -r '
+        select((.session_id | type) == "string" and (.session_id | length) > 0
+               and (.model | type) == "object")
+        | (.session_id | gsub("[^A-Za-z0-9_-]"; "_") | .[0:64]),
+          ({session_id, ts: (now * 1000 | floor),
+            model: {id: .model.id, display_name: .model.display_name},
+            effort: (if (.effort | type) == "object" then {level: .effort.level} else null end)}
+           # Only a CLI that reports context_window gets the key: its absence means "not reported".
+           + (if (.context_window | type) == "object" then
+                (.context_window as $c
+                 | {context: {
+                     used_percentage: ($c.used_percentage | if type == "number" then . else null end),
+                     size: ($c.context_window_size | if type == "number" then . else null end),
+                     # The tokens IN the window: what used_percentage is computed from (output excluded).
+                     tokens: (if ($c.current_usage | type) == "object" then
+                                [$c.current_usage | .input_tokens, .cache_creation_input_tokens, .cache_read_input_tokens
+                                 | select(type == "number")] | if length == 0 then null else add end
+                              else null end)}})
+              else {} end)
+           | tojson)
+      ' 2>/dev/null)
+      case "$OUT" in *$'\n'*) ;; *) exit 0 ;; esac
+      write_snapshot "$RUNTIME_DIR" "${OUT%%$'\n'*}" "${OUT#*$'\n'}"
+    } &>/dev/null &
+    disown
+    ;;
+esac
 
 # ── Job 1: plan-limit snapshot (background) ──
 # rate_limits is absent until the first API response, so most renders skip this entirely.
@@ -48,23 +109,7 @@ case "$INPUT" in
           ({session_id, ts: (now * 1000 | floor), rate_limits} | tojson)
       ' 2>/dev/null)
       case "$OUT" in *$'\n'*) ;; *) exit 0 ;; esac
-      SID="${OUT%%$'\n'*}"
-      SNAP="${OUT#*$'\n'}"
-      # The id becomes a file name: keep it to safe characters even if the line above lied.
-      SID="${SID//[^A-Za-z0-9_-]/_}"
-      [ -n "$SID" ] && [ -n "$SNAP" ] || exit 0
-      mkdir -p -m 700 "$USAGE_DIR" 2>/dev/null
-      # /tmp is shared ground: anyone can pre-create this path, as a symlink that would carry
-      # the snapshots somewhere else or as a directory of their own. Write only into a real
-      # directory that is ours — the rule the server applies before it reads (and sweeps) it.
-      [ -d "$USAGE_DIR" ] && [ ! -L "$USAGE_DIR" ] && [ -O "$USAGE_DIR" ] || exit 0
-      # Temp file in the same directory + rename: the server never reads a half-written file.
-      TMP="$USAGE_DIR/.$SID.$$.tmp"
-      if printf '%s\n' "$SNAP" > "$TMP"; then
-        mv -f "$TMP" "$USAGE_DIR/$SID.json" || rm -f "$TMP"
-      else
-        rm -f "$TMP"
-      fi
+      write_snapshot "$USAGE_DIR" "${OUT%%$'\n'*}" "${OUT#*$'\n'}"
     } &>/dev/null &
     disown
     ;;

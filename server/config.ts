@@ -349,39 +349,72 @@ export function stripInheritedClaudeSessionEnv(
   );
 }
 
+/** Codex's `model_reasoning_effort` levels the dashboard passes on (no Claude-only `max`). */
+const CODEX_EFFORT_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh']);
+
+// A flag's value is never another flag: `codex --model --yolo` must keep `--yolo`.
+const CLAUDE_MODEL_FLAG_RE = /\s+--model(?:=\S*|\s+(?!-)\S+|(?=\s|$))/g;
+const CLAUDE_EFFORT_FLAG_RE = /\s+--effort(?:=\S*|\s+(?!-)\S+|(?=\s|$))/g;
+const CODEX_MODEL_FLAG_RE = /\s+(?:--model|-m)(?:=\S*|\s+(?!-)\S+|(?=\s|$))/g;
+const CODEX_EFFORT_FLAG_RE =
+  /\s+(?:-c|--config)(?:=|\s+)(?:'model_reasoning_effort=[^']*'|"model_reasoning_effort=(?:[^"\\]|\\.)*"|model_reasoning_effort=\S+)/g;
+
+export interface LaunchFlagOptions {
+  /**
+   * The given model/effort replace the ones the command already carries. For resume /
+   * fork / clone: their stored command is the live CLI's `ps` args, so it still holds
+   * the flags the session was LAUNCHED with, while `model` / `effortLevel` follow the
+   * session's latest `/model` and `/effort`. A baked model with no valid replacement
+   * is kept; a baked effort is always dropped first — no effort means the model's own
+   * saved level (an effort the CLI reported as unknown must not fall back to it).
+   */
+  replace?: boolean;
+}
+
 /**
  * Append supported launch flags before the first prompt runs: Claude receives
- * `--model` + `--effort`, while Codex receives `--model`. The historical
- * function name is retained because it is used across create/resume/fork flows.
- * Flags are inserted after the leading CLI token and skipped when already set.
+ * `--model` + `--effort`, while Codex receives `--model` + a
+ * `model_reasoning_effort` config override. The historical function name is
+ * retained because it is used across create/resume/fork flows. Flags are inserted
+ * after the leading CLI token and skipped when already set, unless
+ * `options.replace` asks for the given values to win.
  */
 export function applyClaudeLaunchFlags(
   command: string,
   model?: string | null,
   effortLevel?: string | null,
+  options: LaunchFlagOptions = {},
 ): string {
   const codexMatch = command.match(/^(?:\S*\/)?codex\b/);
   if (codexMatch) {
-    const cleaned = sanitizeModelInCommand(command);
     const safeModel = sanitizeModelId(model);
-    const hasModelFlag = /(?:^|\s)(?:--model(?:=|\s)|-m(?:=|\s))/.test(cleaned);
-    if (!safeModel || hasModelFlag) return cleaned;
-    return cleaned.replace(codexMatch[0], `${codexMatch[0]} --model ${safeModel}`);
+    const codexEffort = effortLevel && CODEX_EFFORT_LEVELS.has(effortLevel) ? effortLevel : '';
+    let cleaned = sanitizeModelInCommand(command);
+    if (options.replace && safeModel) cleaned = cleaned.replace(CODEX_MODEL_FLAG_RE, '');
+    if (options.replace) cleaned = cleaned.replace(CODEX_EFFORT_FLAG_RE, '');
+    const flags: string[] = [];
+    if (safeModel && !/(?:^|\s)(?:--model(?:=|\s)|-m(?:=|\s))/.test(cleaned)) flags.push(`--model ${safeModel}`);
+    if (codexEffort && !/model_reasoning_effort/.test(cleaned)) {
+      flags.push(`-c 'model_reasoning_effort="${codexEffort}"'`);
+    }
+    if (flags.length === 0) return cleaned;
+    return cleaned.replace(codexMatch[0], `${codexMatch[0]} ${flags.join(' ')}`);
   }
   if (!command.startsWith('claude')) return command;
   // First scrub any contaminated --model already present in the command (clone /
   // resume / fork reuse the stored startupCommand), then add flags only if still
   // missing — so a baked-in `claude-opus-4-8[1m]` can't reach the unquoted flag.
-  const cleaned = sanitizeModelInCommand(command);
-  const flags: string[] = [];
+  let cleaned = sanitizeModelInCommand(command);
   const safeModel = sanitizeModelId(model);
-  if (safeModel && !/--model\b/.test(cleaned)) flags.push(`--model ${safeModel}`);
   // ultracode can't be an --effort value; launch at its base (xhigh) so effort is
   // still a real CLI parameter, then /effort ultracode upgrades it once ready.
   const flagEffort = effortLevel === 'ultracode' ? 'xhigh' : effortLevel;
-  if (flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) && !/--effort\b/.test(cleaned)) {
-    flags.push(`--effort ${flagEffort}`);
-  }
+  const validEffort = flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) ? flagEffort : '';
+  if (options.replace && safeModel) cleaned = cleaned.replace(CLAUDE_MODEL_FLAG_RE, '');
+  if (options.replace) cleaned = cleaned.replace(CLAUDE_EFFORT_FLAG_RE, '');
+  const flags: string[] = [];
+  if (safeModel && !/--model\b/.test(cleaned)) flags.push(`--model ${safeModel}`);
+  if (validEffort && !/--effort\b/.test(cleaned)) flags.push(`--effort ${validEffort}`);
   if (flags.length === 0) return cleaned;
   return cleaned.replace(/^claude\b/, `claude ${flags.join(' ')}`);
 }

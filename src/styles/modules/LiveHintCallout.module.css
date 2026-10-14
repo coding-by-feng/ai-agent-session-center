@@ -52,7 +52,7 @@
 }
 
 .lead {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   font-weight: 700;
 }
 

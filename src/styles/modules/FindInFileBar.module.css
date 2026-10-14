@@ -22,7 +22,7 @@
 }
 
 .icon {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -47,7 +47,7 @@
 .toggleBtn {
   background: none;
   border: 1px solid transparent;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 700;
@@ -70,7 +70,7 @@
 }
 
 .count {
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   white-space: nowrap;
@@ -103,7 +103,7 @@
   height: 22px;
   background: none;
   border: 1px solid transparent;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   border-radius: 3px;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -128,7 +128,7 @@
   height: 22px;
   background: none;
   border: 1px solid transparent;
-  color: var(--text-dim, #888);
+  color: var(--text-secondary);
   border-radius: 3px;
   cursor: pointer;
   transition: color 0.15s;

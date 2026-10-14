@@ -56,7 +56,7 @@
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 9px;
   font-weight: 600;
@@ -65,9 +65,9 @@
   cursor: pointer;
   transition: color 0.1s, border-color 0.1s;
 }
-.tab:hover { color: var(--text-secondary, #8888aa); }
+.tab:hover { color: var(--text-primary); }
 .tabActive {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-bottom-color: var(--accent-cyan, #00e5ff);
 }
 .tab:focus-visible {
@@ -112,7 +112,7 @@
 
 .empty {
   padding: 12px 12px 14px;
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 10px;
   line-height: 1.5;
@@ -165,7 +165,7 @@
   font-size: 11px;
   font-weight: 600;
 }
-.row:hover .rowTitle { color: var(--accent-cyan, #00e5ff); }
+.row:hover .rowTitle { color: var(--accent-text, var(--accent-cyan)); }
 .rowPreview {
   color: var(--text-secondary, #8888aa);
   font-size: 10px;
@@ -197,7 +197,7 @@
 .rowCount,
 .rowSource,
 .rowKept {
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 9px;
 }
@@ -219,7 +219,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 3px;
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 10px;
   line-height: 1;
@@ -227,12 +227,12 @@
   transition: color 0.1s, border-color 0.1s;
 }
 .rowBtn:hover {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--border-accent, rgba(0, 229, 255, 0.35));
 }
 .rowBtn:focus-visible {
   outline: none;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: var(--accent-cyan, #00e5ff);
 }
 .rowBtnDanger:hover {

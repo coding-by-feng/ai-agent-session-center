@@ -1,0 +1,265 @@
+/* SceneOverlay — the bottom-right HUD (units online, sound, 3D, rooms).
+   Was inline styles (AASC-11): hover painted from JS, no keyboard focus or
+   pressed state, captions in --text-dim (2.0:1). Every state lives here now.
+   Accent text uses --accent-text (body-level, theme-safe) and mixes, never the
+   raw accents, which fall near 3:1 on the light themes. */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-dropdown, 10);
+}
+
+.panel {
+  position: absolute;
+  bottom: 16px;
+  right: 20px;
+  box-sizing: border-box;
+  min-width: 200px;
+  max-width: 260px;
+  /* dvh, not vh: on iOS Safari 100vh is the URL-bar-expanded height, so a
+     vh-capped panel ran under the browser chrome. vh first as the fallback. */
+  max-height: calc(100vh - 80px);
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-accent);
+  border-radius: 4px;
+  box-shadow: 0 0 12px var(--glow-accent), inset 0 0 24px var(--glow-accent);
+  pointer-events: all;
+}
+
+.caption {
+  font-family: 'Share Tech Mono', var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.count {
+  margin: 2px 0 10px;
+  font-family: 'Orbitron', var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+/* ---- Buttons ---------------------------------------------------------------- */
+
+.hudButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--border-accent);
+  border-radius: 2px;
+  background: var(--bg-accent);
+  color: var(--accent-text, var(--accent-cyan));
+  font-family: 'Share Tech Mono', var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.hudButton + .hudButton {
+  margin-top: 6px;
+}
+.hudButton:hover {
+  background: var(--bg-accent-strong);
+  border-color: var(--border-accent-strong);
+}
+.hudButton:active {
+  background: color-mix(in srgb, var(--accent-cyan) 24%, transparent);
+}
+.hudButton:focus-visible,
+.roomsToggle:focus-visible,
+.roomName:focus-visible,
+.roomIcon:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 1px;
+}
+
+/* Off states keep their colour-as-warning: sound muted (red), 3D off (orange). */
+.hudButtonOffDanger {
+  border-color: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  color: color-mix(in srgb, var(--accent-red) 45%, var(--text-primary));
+}
+.hudButtonOffDanger:hover {
+  border-color: color-mix(in srgb, var(--accent-red) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-red) 20%, transparent);
+}
+.hudButtonOffWarning {
+  border-color: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-orange) 12%, transparent);
+  color: color-mix(in srgb, var(--accent-orange) 45%, var(--text-primary));
+}
+.hudButtonOffWarning:hover {
+  border-color: color-mix(in srgb, var(--accent-orange) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-orange) 20%, transparent);
+}
+
+.hudButtonNew {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent-green) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-green) 6%, transparent);
+  color: color-mix(in srgb, var(--accent-green) 50%, var(--text-primary));
+}
+.hudButtonNew:hover {
+  border-color: color-mix(in srgb, var(--accent-green) 50%, transparent);
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+}
+
+/* ---- Rooms ------------------------------------------------------------------ */
+
+.rooms {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-accent);
+}
+
+.roomsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-family: 'Share Tech Mono', var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.roomsToggle:hover {
+  color: var(--text-primary);
+}
+
+.roomList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.room {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border-accent);
+  border-radius: 3px;
+  background: var(--bg-accent);
+}
+.room:hover {
+  border-color: var(--border-accent-strong);
+}
+
+.roomName {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.roomName:hover {
+  background: var(--bg-accent-strong);
+}
+.roomName:active {
+  background: color-mix(in srgb, var(--accent-cyan) 24%, transparent);
+}
+
+.roomLabel {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomCount {
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.roomActions {
+  display: flex;
+  gap: 2px;
+}
+
+/* 44px targets (the glyphs are small; a finger is not). */
+.roomIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.roomIcon:hover {
+  color: var(--text-primary);
+}
+.roomIconDanger {
+  color: color-mix(in srgb, var(--accent-red) 55%, var(--text-primary));
+}
+.roomIconDanger:hover {
+  color: color-mix(in srgb, var(--accent-red) 80%, var(--text-primary));
+}
+
+.roomInput {
+  flex: 1;
+  margin: 4px;
+  padding: 2px 4px;
+  border: 1px solid var(--border-accent-strong);
+  border-radius: 2px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.roomInput:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 1px;
+}
+
+.empty {
+  padding: 6px 0;
+  font-family: 'Share Tech Mono', var(--font-mono);
+  font-size: 9px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hudButton,
+  .roomsToggle,
+  .roomName,
+  .roomIcon {
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+}
+
+@media (pointer: coarse) {
+  .hudButton,
+  .roomsToggle { min-height: 44px; }
+}

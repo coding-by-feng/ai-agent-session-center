@@ -79,6 +79,10 @@ export interface TransferServiceDeps {
   store?: TransferStore;
   remote?: RemoteCall;
   fingerprint?: typeof knownFingerprint;
+  /** Project Sync: the link that keeps this device folder, if any (one owner per device path). */
+  linkedFolder?: (deviceId: string, folder: string) => string | null;
+  /** Project Sync: a link uses this device. */
+  deviceInUse?: (deviceId: string) => boolean;
 }
 const cleanError = (err: unknown) =>
   redactSecretsInString(err instanceof Error ? err.message : 'Transfer failed').slice(0, 500);
@@ -275,6 +279,11 @@ export function createTransferService(deps: TransferServiceDeps) {
             const project = r.scope === 'project' ? target.projects[r.projectId ?? ''] : undefined;
             if (r.scope === 'project' && !project)
               throw new Error('Choose a destination folder for this project.');
+            const keeper = project ? deps.linkedFolder?.(d.id, project) : null;
+            if (keeper)
+              throw new Error(
+                `This folder is kept by the project link "${keeper}". Sync the project instead.`,
+              );
             const location = {
               agent: r.agent,
               ...(project ? { project } : {}),
@@ -534,6 +543,7 @@ export function createTransferService(deps: TransferServiceDeps) {
       await load();
       if (state.tasks.some((t) => t.targets.some((x) => x.deviceId === id)))
         throw new Error('This destination is referenced by saved tasks.');
+      if (deps.deviceInUse?.(id)) throw new Error('This destination is used by a project link.');
       state.devices = state.devices.filter((d) => d.id !== id);
       await save();
     },

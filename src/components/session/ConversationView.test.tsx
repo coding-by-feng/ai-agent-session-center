@@ -16,6 +16,7 @@ vi.mock('@/lib/transcript', async (importOriginal) => {
 });
 
 import ConversationView from './ConversationView';
+import { recordQueueSent } from '@/lib/queueSentLog';
 
 const T = 1_700_000_000_000;
 
@@ -41,6 +42,17 @@ function renderView(props: Partial<React.ComponentProps<typeof ConversationView>
   );
 }
 
+/** The tab opens on USER; the search suite is about the whole thread. */
+function showAll() {
+  fireEvent.click(screen.getByRole('button', { name: 'All' }));
+}
+
+function renderAll(props: Partial<React.ComponentProps<typeof ConversationView>> = {}) {
+  const result = renderView(props);
+  showAll();
+  return result;
+}
+
 const rowCount = (c: HTMLElement) => c.querySelectorAll('[class*="convEntry"]').length;
 const highlightCount = (c: HTMLElement) => c.querySelectorAll('.search-highlight').length;
 const markTexts = (c: HTMLElement) => Array.from(c.querySelectorAll('mark')).map((m) => m.textContent);
@@ -52,17 +64,68 @@ async function typeSearch(value: string) {
 beforeEach(() => {
   fetchTranscript.mockReset();
   fetchTranscript.mockResolvedValue(ENTRIES);
+  localStorage.clear();
+});
+
+describe('ConversationView default view', () => {
+  const HARNESS: ConversationEntry[] = [
+    { role: 'user', text: 'including model select /raab', timestamp: T + 1 },
+    {
+      role: 'user',
+      text: 'Use the `retouch-ascii-auto-build` skill on the request below and follow it exactly.\n\nincluding model select',
+      timestamp: T + 2,
+    },
+    { role: 'user', text: '<task-notification>\n<status>completed</status>\n</task-notification>', timestamp: T + 3 },
+    { role: 'assistant', text: 'Building it now.', timestamp: T + 4 },
+    { role: 'user', text: 'typed by hand', timestamp: T + 5 },
+  ];
+
+  it('opens on USER and lists only the prompts a person wrote', async () => {
+    fetchTranscript.mockResolvedValue(HARNESS);
+    const { container } = renderView();
+    await waitFor(() => expect(rowCount(container)).toBe(2));
+    expect(screen.getByRole('button', { name: 'User' }).className).toMatch(/convFilterPillActive/);
+    expect(container.textContent).not.toContain('task-notification');
+    expect(container.textContent).not.toContain('Use the `retouch');
+  });
+
+  it('marks the prompts the queue sent with a QUEUE badge, and only those', async () => {
+    fetchTranscript.mockResolvedValue(HARNESS);
+    recordQueueSent({ text: 'including model select /raab', sentAt: T });
+    const { container } = renderView();
+    await waitFor(() => expect(rowCount(container)).toBe(2));
+    const badges = screen.getAllByText('QUEUE');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].closest('[class*="convEntry"]')?.textContent).toContain('including model select');
+  });
+
+  it('keeps previous-session prompt blocks in the default USER view, and drops them under ASST', async () => {
+    const previousSessions = [
+      { sessionId: 'old-1', startedAt: T - 100, endedAt: T - 50, promptHistory: [{ text: 'older work', timestamp: T - 90 }] },
+    ];
+    const { container } = renderView({ previousSessions });
+    await waitFor(() => expect(container.textContent).toContain('Previous Session #1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Asst' }));
+    await waitFor(() => expect(container.textContent).not.toContain('Previous Session #1'));
+  });
+
+  it('still shows the harness rows, folded, under ALL', async () => {
+    fetchTranscript.mockResolvedValue(HARNESS);
+    const { container } = renderView();
+    showAll();
+    await waitFor(() => expect(container.querySelectorAll('[data-kind]').length).toBe(2));
+  });
 });
 
 describe('ConversationView search', () => {
   it('shows every entry until a query is typed', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(ENTRIES.length));
     expect(screen.queryByTestId('conv-search-count')).toBeNull();
   });
 
   it('narrows to matching entries and reports an honest count', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -75,7 +138,7 @@ describe('ConversationView search', () => {
   });
 
   it('marks the matched substring, preserving its original casing', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('Screen');
@@ -83,7 +146,7 @@ describe('ConversationView search', () => {
   });
 
   it('searches tool names and inputs, not just prose', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('mdfind');
@@ -92,7 +155,7 @@ describe('ConversationView search', () => {
   });
 
   it('keeps the whole thread when MATCHES ONLY is switched off, still highlighting hits', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -107,7 +170,7 @@ describe('ConversationView search', () => {
   });
 
   it('ANDs the search with the role filter', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -121,7 +184,7 @@ describe('ConversationView search', () => {
   });
 
   it('says which query found nothing, and offers a way out', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('zzz-nothing-here');
@@ -136,7 +199,7 @@ describe('ConversationView search', () => {
   });
 
   it('clears from the ✕ inside the search box', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -147,7 +210,7 @@ describe('ConversationView search', () => {
   });
 
   it('ignores an all-whitespace query instead of matching everything', async () => {
-    const { container } = renderView();
+    const { container } = renderAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('   ');
@@ -158,7 +221,7 @@ describe('ConversationView search', () => {
 
   it('reports the match count to the host so its find bar agrees', async () => {
     const onMatchCountChange = vi.fn();
-    const { container } = renderView({ onMatchCountChange });
+    const { container } = renderAll({ onMatchCountChange });
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -176,6 +239,7 @@ describe('ConversationView search', () => {
         onSearchChange={onSearchChange}
       />,
     );
+    showAll();
     await waitFor(() => expect(rowCount(container)).toBe(6));
 
     await typeSearch('ffmpeg');
@@ -198,7 +262,7 @@ describe('ConversationView search', () => {
     const previousSessions = [
       { sessionId: 'old-1', startedAt: T - 100, endedAt: T - 50, promptHistory: [{ text: 'older work', timestamp: T - 90 }] },
     ];
-    const { container } = renderView({ previousSessions });
+    const { container } = renderAll({ previousSessions });
     await waitFor(() => expect(container.textContent).toContain('Previous Session #1'));
 
     await typeSearch('ffmpeg');

@@ -10,7 +10,9 @@
  *
  * It ALSO injects content into `user`-role turns that the user never typed —
  * skill bodies ("Base directory for this skill: …"), `<system-reminder>` blocks,
- * and SessionStart/hook additional-context. Rendering all of this verbatim as
+ * SessionStart/hook additional-context, background `<task-notification>`s,
+ * "(Re-invocation of /x …)" notes and the expanded body of shortcut commands
+ * ("Use the `x` skill on the request below…"). Rendering all of this verbatim as
  * "USER" buries the real prompts. `transformEntries` rewrites slash commands
  * into compact `command` chips and demotes every flavour of injected content
  * into labelled, collapsible `system` rows so genuine user prompts stand alone.
@@ -31,6 +33,13 @@ const RE_SKILL_BODY = /^\s*Base directory for this skill:\s*(\S+)/;
 const RE_SKILL_INTRO = /full content of (?:your|the) ['"]([^'"]+)['"] skill/i;
 const RE_SYSTEM_REMINDER = /^\s*<system-reminder>/;
 const RE_HOOK_CONTEXT = /^\s*(?:<(?:EXTREMELY_IMPORTANT|IMPORTANT|SYSTEM)[^>]*>|SessionStart hook|[A-Za-z]+ hook additional context)/;
+// A background task finishing ("<task-notification>…<status>completed</status>…").
+const RE_TASK_NOTIFICATION = /^\s*<task-notification>/;
+const RE_TASK_STATUS = /<status>([^<]*)<\/status>/;
+// "(Re-invocation of /raab — the skill instructions were previously loaded…)".
+const RE_REINVOCATION = /^\s*\(Re-invocation of (\/\S+)/;
+// The expanded body of a shortcut command such as /raab or /rar.
+const RE_SKILL_REQUEST = /^\s*Use the `([^`]+)` skill on the request below/;
 
 /** Cheap pre-check so non-command messages skip all regex work. */
 function hasHarnessTag(text: string): boolean {
@@ -57,6 +66,16 @@ export function classifyInjection(text: string): { kind: SystemKind; label: stri
   if (RE_SYSTEM_REMINDER.test(text)) return { kind: 'reminder', label: 'system reminder' };
 
   if (RE_HOOK_CONTEXT.test(text)) return { kind: 'hook', label: 'hook context' };
+
+  const skillRequest = text.match(RE_SKILL_REQUEST);
+  if (skillRequest) return { kind: 'skill', label: skillRequest[1] };
+
+  if (RE_TASK_NOTIFICATION.test(text)) {
+    return { kind: 'notification', label: text.match(RE_TASK_STATUS)?.[1].trim() || 'background task' };
+  }
+
+  const reinvocation = text.match(RE_REINVOCATION);
+  if (reinvocation) return { kind: 'plumbing', label: `re-invocation of ${reinvocation[1]}` };
 
   return null;
 }

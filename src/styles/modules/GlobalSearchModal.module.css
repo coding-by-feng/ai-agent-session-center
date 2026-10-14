@@ -60,7 +60,7 @@
 .hitCount {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -78,7 +78,7 @@
   text-align: center;
   font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
 }
 
 .hitRow {
@@ -138,7 +138,7 @@
   flex-shrink: 0;
 }
 
-.field_prompt   { background: rgba(0, 229, 255, 0.12); color: var(--accent-cyan, #00e5ff); }
+.field_prompt   { background: rgba(0, 229, 255, 0.12); color: var(--accent-text, var(--accent-cyan)); }
 .field_response { background: rgba(0, 200, 100, 0.12); color: var(--accent-green, #00c864); }
 .field_tool     { background: rgba(255, 160, 0, 0.12); color: var(--accent-orange, #ffa000); }
 .field_event    { background: rgba(160, 100, 255, 0.12); color: var(--accent-purple, #a064ff); }
@@ -146,7 +146,7 @@
 .snippet {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   line-height: 1.5;
   overflow: hidden;
   display: -webkit-box;
@@ -157,7 +157,7 @@
 
 .snippet :global(mark) {
   background: rgba(0, 229, 255, 0.22);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -172,5 +172,5 @@
   flex-shrink: 0;
   font-family: var(--font-mono, monospace);
   font-size: 10px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
 }

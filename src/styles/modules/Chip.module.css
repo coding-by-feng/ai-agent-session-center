@@ -3,7 +3,10 @@
    Filled-subtle with no border, so a mark never reads as a button: a bordered
    pill beside a real button gets clicked. Tone text is the accent mixed with
    --text-primary — the raw accents fall near 3:1 on the light and windows-xp
-   whites, mixed they hold 4.5:1 there and stay bright on the dark themes. */
+   whites, mixed they hold 4.5:1 there and stay bright on the dark themes.
+   AASC-11: the shares dropped (80/65/70% → 55/40%) after a ten-theme audit found
+   danger, accent and warning text at 2.9–3.6:1 on dracula / solarized / nord /
+   monokai; more --text-primary raises contrast on light AND dark themes alike. */
 
 /* Neutral text is --text-primary 60% / --text-secondary 40%. --text-secondary
    alone on --bg-subtle-strong measured 4.11 (default dark), 3.74 dracula, 3.14
@@ -28,22 +31,22 @@
   white-space: nowrap;
 }
 
-.info { background: var(--bg-accent); color: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary)); }
+.info { background: var(--bg-accent); color: color-mix(in srgb, var(--accent-cyan) 55%, var(--text-primary)); }
 .success {
   background: color-mix(in srgb, var(--accent-green) 14%, transparent);
-  color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+  color: color-mix(in srgb, var(--accent-green) 40%, var(--text-primary));
 }
 .warning {
   background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
-  color: color-mix(in srgb, var(--accent-orange) 65%, var(--text-primary));
+  color: color-mix(in srgb, var(--accent-orange) 40%, var(--text-primary));
 }
 .danger {
   background: color-mix(in srgb, var(--accent-red) 14%, transparent);
-  color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+  color: color-mix(in srgb, var(--accent-red) 40%, var(--text-primary));
 }
 .accent {
   background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
-  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
+  color: color-mix(in srgb, var(--accent-purple) 40%, var(--text-primary));
 }
 
 /* ---- CountBadge ------------------------------------------------------------
@@ -75,7 +78,7 @@
 /* Filled: the accent darkened toward the text colour on light themes and
    lightened on dark ones, under the theme's on-accent text colour. */
 .badgeAccent {
-  background: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  background: var(--accent-text);
   color: var(--selection-text, var(--bg-primary));
 }
 /* Same neutral mix as .chip (see the note there). */

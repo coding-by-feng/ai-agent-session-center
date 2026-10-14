@@ -5,8 +5,12 @@ import {
   advanceBlockedLoops,
   chainGateDecision,
   onceGateDecision,
+  isGateAtRest,
+  latestSessionStartAt,
+  isCompactCommand,
   NO_WORK_FALLBACK_MS,
   NO_WORK_FALLBACK_NO_AUTOENTER_MS,
+  LOCAL_COMMAND_RELEASE_MS,
   resolveNoWorkFallbackMs,
   applyTypeDefaults,
   itemType,
@@ -312,6 +316,63 @@ describe('queueScheduler', () => {
       expect(
         onceGateDecision(gate, true, true, NO_WORK_FALLBACK_NO_AUTOENTER_MS, resolveNoWorkFallbackMs(false)),
       ).toBe('fire');
+    });
+
+    // --- A silent local command (`/effort <level>`) ----------------------------
+    // Probed against Claude Code 2.1.296 in a throwaway tmux session with a hook
+    // on every event: three `/effort` commands produced ZERO hook events (only the
+    // launch SessionStart and the closing SessionEnd). So neither acceptance
+    // signal can ever fire for such a step and the gate looked exactly like an
+    // unacknowledged no-op — holding the next step for the full 5 minutes.
+    describe('a silent local command', () => {
+      it('gets the short release when autoEnter is on', () => {
+        expect(resolveNoWorkFallbackMs(true, true)).toBe(LOCAL_COMMAND_RELEASE_MS);
+      });
+
+      it('is a few seconds, nowhere near the 5-minute no-op fallback', () => {
+        expect(LOCAL_COMMAND_RELEASE_MS).toBeGreaterThanOrEqual(1_000);
+        expect(LOCAL_COMMAND_RELEASE_MS).toBeLessThanOrEqual(10_000);
+        expect(LOCAL_COMMAND_RELEASE_MS).toBeLessThan(NO_WORK_FALLBACK_MS);
+      });
+
+      it('NEVER shortens the autoEnter-off fallback: nothing was submitted, so quiet proves nothing', () => {
+        // Same concatenation hazard as the review-pause regression above — the
+        // text is only typed, the human decides when (or whether) to press Enter.
+        expect(resolveNoWorkFallbackMs(false, true)).toBe(NO_WORK_FALLBACK_NO_AUTOENTER_MS);
+      });
+
+      it('leaves every ordinary step on its existing fallback', () => {
+        expect(resolveNoWorkFallbackMs(true, false)).toBe(NO_WORK_FALLBACK_MS);
+        expect(resolveNoWorkFallbackMs(true)).toBe(NO_WORK_FALLBACK_MS);
+        expect(resolveNoWorkFallbackMs(false, false)).toBe(NO_WORK_FALLBACK_NO_AUTOENTER_MS);
+      });
+
+      it('REGRESSION: releases the next chain step seconds after `/effort`, not minutes', () => {
+        const gate = { itemId: 7, sawWork: false, openedAt: 0, activityAtOpen: 900 };
+        const sendable = true;
+        const ms = resolveNoWorkFallbackMs(true, true);
+        // The CLI is quiet: lastActivityAt never moved past what the gate sampled.
+        expect(chainGateDecision(gate, 7, true, sendable, ms - 1, ms, 900)).toBe('hold');
+        expect(chainGateDecision(gate, 7, true, sendable, ms, ms, 900)).toBe('fire');
+        // Without the carve-out the same quiet gate is still holding after a minute.
+        expect(
+          chainGateDecision(gate, 7, true, sendable, 60_000, resolveNoWorkFallbackMs(true, false), 900),
+        ).toBe('hold');
+      });
+
+      it('does not release while the session is busy', () => {
+        const gate = { itemId: 7, sawWork: false, openedAt: 0 };
+        expect(
+          chainGateDecision(gate, 7, false, false, 60_000, resolveNoWorkFallbackMs(true, true)),
+        ).toBe('hold');
+      });
+
+      it('releases a once-gate after a lone `/effort` item the same way', () => {
+        const gate = { sawWork: false, openedAt: 0 };
+        const ms = resolveNoWorkFallbackMs(true, true);
+        expect(onceGateDecision(gate, true, true, ms - 1, ms)).toBe('hold');
+        expect(onceGateDecision(gate, true, true, ms, ms)).toBe('fire');
+      });
     });
   });
 
@@ -1255,3 +1316,46 @@ describe('pickWhileHeld — what ⚡ NOW may send while the queue is held', () =
   });
 });
 
+describe('isGateAtRest / latestSessionStartAt (the state /compact leaves behind)', () => {
+  const evs = (...pairs: Array<[string, number]>) => pairs.map(([type, timestamp]) => ({ type, timestamp }));
+  const memo = { afterCompact: true, sessionStartAtOpen: 100 };
+
+  it('waiting is at rest once settled, whatever the events or gate say', () => {
+    expect(isGateAtRest('waiting', true, evs(['PreToolUse', 200]))).toBe(true);
+    expect(isGateAtRest('waiting', false, evs(['Stop', 200]), memo)).toBe(false);
+  });
+
+  it('idle is at rest only for a /compact gate, on a SessionStart newer than the one at open', () => {
+    expect(isGateAtRest('idle', true, evs(['Stop', 90], ['SessionStart', 200]), memo)).toBe(true);
+    // The gate guards an ordinary prompt: an automatic mid-turn compaction must not release it.
+    expect(isGateAtRest('idle', true, evs(['PreToolUse', 90], ['SessionStart', 200]), { sessionStartAtOpen: 100 })).toBe(false);
+    expect(isGateAtRest('idle', true, evs(['SessionStart', 200]))).toBe(false);
+    // The SessionStart was already there when the gate opened (a fresh or resumed session).
+    expect(isGateAtRest('idle', true, evs(['SessionStart', 100]), memo)).toBe(false);
+    // A turn that decayed to idle: its last event is the work, not a start.
+    expect(isGateAtRest('idle', true, evs(['SessionStart', 200], ['PreToolUse', 300]), memo)).toBe(false);
+    expect(isGateAtRest('idle', true, [], memo)).toBe(false);
+    expect(isGateAtRest('idle', true, undefined, memo)).toBe(false);
+    expect(isGateAtRest('idle', false, evs(['SessionStart', 200]), memo)).toBe(false);
+  });
+
+  it('a trailing idle-prompt Notification or PostCompact does not hide the SessionStart', () => {
+    expect(latestSessionStartAt(evs(['SessionStart', 7], ['PostCompact', 8], ['Notification', 9]))).toBe(7);
+    expect(latestSessionStartAt(evs(['SessionStart', 7], ['PreCompact', 8]))).toBeNull();
+    expect(latestSessionStartAt(evs(['SessionStart', 7], ['UserPromptSubmit', 8], ['Notification', 9]))).toBeNull();
+  });
+
+  it('busy and approval states are never at rest', () => {
+    for (const status of ['working', 'prompting', 'approval', 'ended', 'connecting']) {
+      expect(isGateAtRest(status, true, evs(['SessionStart', 200]), memo)).toBe(false);
+    }
+  });
+
+  it('recognises a queued /compact, with or without arguments, and nothing else', () => {
+    expect(isCompactCommand('/compact')).toBe(true);
+    expect(isCompactCommand('  /compact keep the plan')).toBe(true);
+    expect(isCompactCommand('/compactify')).toBe(false);
+    expect(isCompactCommand('please /compact')).toBe(false);
+    expect(isCompactCommand('/clear')).toBe(false);
+  });
+});

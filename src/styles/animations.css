@@ -813,7 +813,7 @@ body[data-effect-ended="none"] .css-robot[data-status="ended"] {
 }
 .movement-preview-label {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   text-align: center;
   pointer-events: none;
 }

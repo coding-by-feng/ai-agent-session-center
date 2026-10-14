@@ -6,10 +6,9 @@
   position: absolute;
   inset: 0;
   background: var(--bg-primary, #0a0a1a);
-  /* The HUD's footprint (SceneOverlay: right 20px, up to 260px wide, ~200px
-     tall at bottom 16px), plus a 24px gap. LiveBoard and LiveEmptyState keep
-     their content out from under it with these. */
-  --hud-clear-right: 304px;
+  /* The HUD's height (SceneOverlay: ~200px tall at bottom 16px) plus a 16px
+     gap. LiveBoard and LiveEmptyState leave this much room below their content,
+     so whatever is last can always scroll up clear of the HUD. */
   --hud-clear-bottom: 232px;
 }
 

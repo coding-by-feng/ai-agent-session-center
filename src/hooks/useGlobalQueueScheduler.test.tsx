@@ -31,6 +31,7 @@ import { SUBMIT_GIVE_UP_GRACE_MS, SUBMIT_RETRY_AFTER_MS } from '@/lib/submitConf
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem } from '@/stores/queueStore';
+import { readQueueSentLog } from '@/lib/queueSentLog';
 import type { Session } from '@/types';
 
 const T0 = 1_800_000_000_000;
@@ -98,6 +99,36 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     await advance(3000);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][1]).toBe('next prompt');
+  });
+
+  it('records what it sent, so the CONVERSATION tab can badge it as queue-sent', async () => {
+    localStorage.clear();
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(3000);
+    expect(readQueueSentLog()).toEqual([{ text: 'next prompt', sentAt: expect.any(Number) }]);
+  });
+
+  it('records nothing when the send failed', async () => {
+    localStorage.clear();
+    send.mockImplementation(async () => false);
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(3000);
+    expect(readQueueSentLog()).toEqual([]);
+  });
+
+  it('records nothing with Auto-Enter off — the text was only typed, not sent', async () => {
+    localStorage.clear();
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+    await advance(3000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(readQueueSentLog()).toEqual([]);
   });
 
   it('after an Esc-cancel (a real Stop), nothing sends', async () => {
@@ -347,5 +378,257 @@ describe('useGlobalQueueScheduler — a sent prompt the CLI never took', () => {
     });
     await advance(70_000);
     expect(pressEnter).toHaveBeenCalledTimes(presses);
+  });
+});
+
+describe('useGlobalQueueScheduler — the prompt queued after /compact', () => {
+  // /compact keeps the session id and ends with SessionStart(source: compact), which
+  // the server maps to `idle`. There is no Stop, so the status never reaches `waiting`.
+  const ev = (type: string, timestamp: number) => ({ type, timestamp, detail: '' });
+  const session = (over: Partial<Session>) =>
+    ({
+      sessionId: 's1', title: 'AASC Q & A', status: 'waiting', terminalId: 'term-1', lastActivityAt: T0,
+      interruption: null, subagentCount: 0, userCancelledAt: null, events: [ev('Stop', T0)], ...over,
+    }) as unknown as Session;
+  const queueCompactThenPrompt = () => {
+    const compact: QueueItem = { id: 1, sessionId: 's1', text: '/compact', position: 0, createdAt: T0, type: 'once' };
+    const next: QueueItem = { id: 2, sessionId: 's1', text: 'carry on with the plan', position: 1, createdAt: T0, type: 'once' };
+    useQueueStore.setState({ queues: new Map([['s1', [compact, next]]]), automation: new Map() });
+  };
+
+  it('sends the next prompt once compaction finishes (SessionStart, status idle)', async () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({})]]) } as never);
+    queueCompactThenPrompt();
+    render(<Harness />);
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/compact']);
+
+    // Compaction runs (~70 s, no hooks), then the CLI reports SessionStart.
+    await advance(70_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => {
+      const now = Date.now();
+      useSessionStore.getState().updateSession(
+        session({ status: 'idle', lastActivityAt: now, events: [ev('Stop', T0), ev('SessionStart', now)] }),
+      );
+    });
+    await advance(3000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/compact', 'carry on with the plan']);
+  });
+
+  it('an automatic mid-turn compaction does not release the gate of an ordinary prompt', async () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({})]]) } as never);
+    const a: QueueItem = { id: 1, sessionId: 's1', text: 'long task', position: 0, createdAt: T0, type: 'once' };
+    const b: QueueItem = { id: 2, sessionId: 's1', text: 'next', position: 1, createdAt: T0, type: 'once' };
+    useQueueStore.setState({ queues: new Map([['s1', [a, b]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['long task']);
+
+    // The long turn fills the context: Claude compacts by itself and carries on.
+    act(() => {
+      const t = Date.now();
+      useSessionStore.getState().updateSession(
+        session({ status: 'working', lastActivityAt: t, events: [ev('Stop', T0), ev('UserPromptSubmit', t)] }),
+      );
+    });
+    await advance(2000);
+    act(() => {
+      const t = Date.now();
+      useSessionStore.getState().updateSession(
+        session({ status: 'idle', lastActivityAt: t, events: [ev('UserPromptSubmit', T0), ev('PreToolUse', T0), ev('SessionStart', t)] }),
+      );
+    });
+    await advance(10_000); // the model thinks before its next tool call
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('a SessionStart from before the send does not release the gate', async () => {
+    // Fresh session: idle, last event SessionStart. Auto-Enter off, so /compact sits unsent.
+    useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', events: [ev('SessionStart', T0)] })]]) } as never);
+    queueCompactThenPrompt();
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // The idle-prompt Notification moves activity; the old SessionStart is still the latest start.
+    act(() => {
+      const t = Date.now();
+      useSessionStore.getState().updateSession(
+        session({ status: 'idle', lastActivityAt: t, events: [ev('SessionStart', T0), ev('Notification', t)] }),
+      );
+    });
+    await advance(30_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('still holds when the session merely decayed to idle after real work', async () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({})]]) } as never);
+    queueCompactThenPrompt();
+    render(<Harness />);
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // The CLI took the prompt (activity moved) and the status later decayed to idle,
+    // with no SessionStart: that is a stuck turn, not a finished one.
+    act(() => {
+      const now = Date.now();
+      useSessionStore.getState().updateSession(
+        session({ status: 'idle', lastActivityAt: now, events: [ev('Stop', T0), ev('PreToolUse', now)] }),
+      );
+    });
+    await advance(30_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useGlobalQueueScheduler — a queued /effort step', () => {
+  // `/effort <level>` is answered by the TUI itself and fires no hook (probed on Claude
+  // Code 2.1.296: three commands, zero events). The session therefore stays `waiting`
+  // with an unmoved lastActivityAt — exactly what a prompt the CLI never took looks like.
+  const effortChain = (before: string): QueueItem => ({
+    id: 1, sessionId: 's1', text: 'do the work', position: 0, createdAt: T0, type: 'once',
+    beforeChain: [{ id: 10, text: before }],
+    afterChain: [{ id: 11, text: '/effort high' }],
+  });
+  const queueChain = (item: QueueItem) =>
+    useQueueStore.setState({ queues: new Map([['s1', [item]]]), automation: new Map() });
+
+  it('REGRESSION: the main prompt follows a before-step `/effort` in seconds, not after the 5-minute no-op fallback', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort max'));
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max']);
+
+    await advance(60_000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max', 'do the work']);
+  });
+
+  it('holds the main prompt for a moment first, so the TUI has answered before it is typed', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort max'));
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+    await advance(1000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the AFTER-chain `/effort` once the main turn has finished, then the chain is done', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort max'));
+    render(<Harness />);
+    await advance(8000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max', 'do the work']);
+
+    // The main prompt is a real turn: hooks move activity, it goes busy, then Stop.
+    act(() => { setSession({ status: 'working', lastActivityAt: Date.now() }); });
+    await advance(1500);
+    act(() => { setSession({ status: 'waiting', lastActivityAt: Date.now() }); });
+    await advance(3000);
+
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max', 'do the work', '/effort high']);
+    expect(useQueueStore.getState().queues.get('s1') ?? []).toHaveLength(0);
+  });
+
+  it('with Auto-Enter off the long fallback stays: the command was only typed, never submitted', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort max'));
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max']);
+    await advance(10 * 60_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('REGRESSION: turning Auto-Enter ON after an `/effort` was only typed does not release the next step onto the unsent line', async () => {
+    // Auto-Enter off: `/effort max` sits typed in the input, never submitted. The gate must
+    // remember THAT, not just that the text looked like /effort — otherwise flipping
+    // Auto-Enter on later finds the 3 s long past and types "do the work" + Enter right
+    // after it, submitting `/effort maxdo the work`.
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort max'));
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort max']);
+    await advance(60_000);
+
+    act(() => {
+      useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: true }]]) });
+    });
+    await advance(10_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not extend the short release to other slash commands — `/context` still waits for its signal', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/context'));
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/context']);
+    await advance(60_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not release on a typo: `/effort turbo` is an ordinary step', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(effortChain('/effort turbo'));
+    render(<Harness />);
+
+    await advance(2000);
+    await advance(60_000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/effort turbo']);
+  });
+});
+
+describe('useGlobalQueueScheduler — a queued /model step', () => {
+  // `/model <name>` is a local command like `/effort <level>`: the TUI answers it and no
+  // turn runs, so the chain must not wait out the 5-minute no-op fallback behind it.
+  const modelChain = (before: string): QueueItem => ({
+    id: 1, sessionId: 's1', text: 'do the work', position: 0, createdAt: T0, type: 'once',
+    beforeChain: [{ id: 10, text: before }],
+  });
+  const queueChain = (item: QueueItem) =>
+    useQueueStore.setState({ queues: new Map([['s1', [item]]]), automation: new Map() });
+
+  it('the main prompt follows a before-step `/model <name>` in seconds', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(modelChain('/model opus'));
+    render(<Harness />);
+
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/model opus']);
+    await advance(60_000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/model opus', 'do the work']);
+  });
+
+  it('REGRESSION GUARD: a bare `/model` opens the CLI picker, so the next step is never released into it', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(modelChain('/model'));
+    render(<Harness />);
+
+    await advance(2000);
+    await advance(60_000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/model']);
+  });
+
+  it('with Auto-Enter off the long fallback stays: the command was only typed', async () => {
+    setSession({ status: 'waiting' });
+    queueChain(modelChain('/model haiku'));
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+
+    await advance(2000);
+    await advance(10 * 60_000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/model haiku']);
   });
 });

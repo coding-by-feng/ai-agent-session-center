@@ -42,10 +42,10 @@
 
 /* ---- Layout Preset Bar ---- */
 .presetsBar { display: flex; align-items: center; gap: 8px; padding: 8px 24px; user-select: none; }
-.presetsLabel { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase; margin-right: 4px; }
-.presetBtn { background: none; border: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); color: var(--text-dim); padding: 4px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
-.presetBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: rgba(0, 229, 255, 0.08); }
-.presetBtn.active { background: rgba(0, 229, 255, 0.12); color: var(--accent-cyan); border-color: var(--accent-cyan); box-shadow: 0 0 8px rgba(0, 229, 255, 0.15); }
+.presetsLabel { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; color: var(--text-secondary); text-transform: uppercase; margin-right: 4px; }
+.presetBtn { background: none; border: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); color: var(--text-secondary); padding: 4px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
+.presetBtn:hover { color: var(--accent-text, var(--accent-cyan)); border-color: var(--accent-cyan); background: rgba(0, 229, 255, 0.08); }
+.presetBtn.active { background: rgba(0, 229, 255, 0.12); color: var(--accent-text, var(--accent-cyan)); border-color: var(--accent-cyan); box-shadow: 0 0 8px rgba(0, 229, 255, 0.15); }
 
 /* ---- Room Header ---- */
 .header {
@@ -54,18 +54,18 @@
   border-bottom: 1px solid var(--border-subtle); user-select: none;
 }
 
-.collapse { cursor: pointer; font-size: 10px; color: var(--text-dim); transition: color 0.2s; width: 16px; text-align: center; }
+.collapse { cursor: pointer; font-size: 10px; color: var(--text-secondary); transition: color 0.2s; width: 16px; text-align: center; }
 .collapse:hover { color: var(--text-primary); }
 
-.name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent-cyan); letter-spacing: 0.5px; cursor: default; }
+.name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent-text, var(--accent-cyan)); letter-spacing: 0.5px; cursor: default; }
 .name:hover { color: var(--text-primary); }
 .name.editing { background: var(--bg-primary); border: 1px solid var(--accent-cyan); border-radius: 4px; padding: 2px 8px; outline: none; color: var(--text-primary); cursor: text; }
 
-.count { font-size: 11px; color: var(--text-dim); background: rgba(255, 255, 255, 0.06); padding: 2px 8px; border-radius: 10px; }
+.count { font-size: 11px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.06); padding: 2px 8px; border-radius: 10px; }
 
 .deleteBtn {
   margin-left: auto; background: none; border: 1px solid var(--border-subtle);
-  color: var(--text-dim); font-size: 16px; cursor: pointer;
+  color: var(--text-secondary); font-size: 16px; cursor: pointer;
   border-radius: 50%; width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.2s; opacity: 0; padding: 0; line-height: 1;
@@ -90,11 +90,11 @@
 .roomGrid.dragOver:empty::after {
   content: 'DROP HERE'; position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%); font-size: 11px; letter-spacing: 3px;
-  color: var(--accent-cyan); opacity: 0.5; pointer-events: none;
+  color: var(--accent-text, var(--accent-cyan)); opacity: 0.5; pointer-events: none;
 }
 
 .roomGrid:empty::after {
-  content: 'Drop sessions here'; color: var(--text-dim); font-size: 12px;
+  content: 'Drop sessions here'; color: var(--text-secondary); font-size: 12px;
   font-style: italic; display: flex; align-items: center; justify-content: center;
   grid-column: 1 / -1;
 }

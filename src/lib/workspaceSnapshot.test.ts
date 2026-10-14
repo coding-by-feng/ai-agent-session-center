@@ -17,6 +17,7 @@ import {
   importSnapshot,
   isFloatingSnapshot,
   scheduleAutoSave,
+  scheduleAutomationSave,
   cancelAutoSave,
   setRestorePending,
   _resetAutoSaveStateForTests,
@@ -30,6 +31,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 import { itemType } from './queueScheduler';
 import { clearLocalStorage } from '../__tests__/setup';
 
@@ -1241,5 +1243,168 @@ describe('saved scrollback claiming', () => {
     ]);
     expect(claimSavedOutput(index, KEY, 'aaa')).toBeUndefined();
     expect(claimSavedOutput(index, 'nope\0/tmp', 'x')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-send (and the other per-session queue switches) must survive a restart.
+//
+// A restart gives every session a NEW id, so the Dexie rows and the server's
+// session_queues rows (both keyed by the old id) cannot be found again: the
+// workspace snapshot is the only record the restore reads. Toggling a switch
+// changes neither `sessions` nor `rooms`, the only things that scheduled a
+// snapshot save, so on an idle board the snapshot predated the toggle and the
+// session came back with the default (Auto-send ON) after a hard exit.
+// ---------------------------------------------------------------------------
+
+describe('scheduleAutomationSave — an Auto-send toggle reaches the snapshot', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const saves = (): WorkspaceSnapshot[] =>
+    fetchMock.mock.calls
+      .filter((c) => String(c[0]).includes('/api/workspace/save'))
+      .map((c) => JSON.parse(String((c[1] as RequestInit).body)) as WorkspaceSnapshot);
+  const automationOf = (snap: WorkspaceSnapshot, id: string) =>
+    snap.sessions.find((x) => x.originalSessionId === id)?.automation;
+  const live = () => new Map<string, Session>([['s1', loopSession('s1')], ['s2', loopSession('s2')]]);
+
+  beforeEach(() => {
+    clearLocalStorage();
+    _resetAutoSaveStateForTests();
+    setRestorePending(false);
+    useQueueStore.setState({ queues: new Map(), automation: new Map() });
+    usePresenceStore.setState({ workspaceWriter: null } as never);
+    vi.useFakeTimers();
+    fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    cancelAutoSave();
+    setRestorePending(false);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('saves a snapshot carrying autoSend:false about a second after the toggle, for that session only', async () => {
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(live, () => []);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(saves()).toHaveLength(0); // not at once: a burst of toggles coalesces
+    await vi.advanceTimersByTimeAsync(200);
+    const [snap] = saves();
+    expect(automationOf(snap, 's1')?.autoSend).toBe(false);
+    expect(automationOf(snap, 's2')).toBeUndefined(); // the other session keeps the default
+  });
+
+  it('is not starved by session churn: updates every 250 ms keep resetting the session timer, the toggle still saves', async () => {
+    for (let t = 0; t < 32; t++) {
+      scheduleAutoSave(live, () => []); // a busy session: an update every 250 ms, for 8 s
+      if (t === 8) {
+        useQueueStore.getState().setAutoSend('s1', false);
+        scheduleAutomationSave(live, () => []);
+      }
+      await vi.advanceTimersByTimeAsync(250);
+    }
+    const withOff = saves().filter((snap) => automationOf(snap, 's1')?.autoSend === false);
+    expect(withOff.length).toBeGreaterThan(0);
+  });
+
+  it('saves again when it is turned back ON, so a stale OFF cannot come back after a restart', async () => {
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(live, () => []);
+    await vi.advanceTimersByTimeAsync(1_100);
+    useQueueStore.getState().setAutoSend('s1', true);
+    scheduleAutomationSave(live, () => []);
+    await vi.advanceTimersByTimeAsync(1_100);
+    const all = saves();
+    expect(all).toHaveLength(2);
+    expect(automationOf(all[0], 's1')?.autoSend).toBe(false);
+    // default again: the snapshot omits it, and that omission is what overwrites the OFF
+    expect(automationOf(all[1], 's1')).toBeUndefined();
+  });
+
+  it('coalesces a burst of toggles across sessions into one save that has all of them', async () => {
+    for (const id of ['s1', 's2']) {
+      useQueueStore.getState().setAutoSend(id, false);
+      scheduleAutomationSave(live, () => []);
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    await vi.advanceTimersByTimeAsync(1_500);
+    const all = saves();
+    expect(all).toHaveLength(1);
+    expect(automationOf(all[0], 's1')?.autoSend).toBe(false);
+    expect(automationOf(all[0], 's2')?.autoSend).toBe(false);
+  });
+
+  it('does nothing while the restore decision is pending (the snapshot must not be overwritten)', async () => {
+    _resetAutoSaveStateForTests(); // pending again
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(live, () => []);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(saves()).toHaveLength(0);
+  });
+
+  it('is cancelled by cancelAutoSave, like the session timer', async () => {
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(live, () => []);
+    cancelAutoSave();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(saves()).toHaveLength(0);
+  });
+
+  it('keeps the single-writer rule: a device that is not the workspace writer does not save', async () => {
+    usePresenceStore.setState({ workspaceWriter: 'another-device' } as never);
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(live, () => []);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(saves()).toHaveLength(0);
+  });
+
+  it('keeps the empty-snapshot guard: all sessions ended means nothing is written over the good snapshot', async () => {
+    const ended = new Map<string, Session>([['s1', { ...loopSession('s1'), status: 'ended' } as Session]]);
+    useQueueStore.getState().setAutoSend('s1', false);
+    scheduleAutomationSave(() => ended, () => []);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(saves()).toHaveLength(0);
+  });
+});
+
+describe('Auto-send round trip across a restart — per session', () => {
+  beforeEach(() => {
+    clearLocalStorage();
+    useSessionStore.getState().setSessions(new Map());
+    useRoomStore.setState({ rooms: [] });
+    useQueueStore.setState({ queues: new Map(), automation: new Map() });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('restores OFF for one session and the default for the other, under the new ids, and keeps both through the re-key', async () => {
+    useQueueStore.getState().setAutoSend('old-1', false);
+    const exported = JSON.parse(
+      JSON.stringify(buildSnapshot(new Map([['old-1', loopSession('old-1')], ['old-2', loopSession('old-2')]]), [])),
+    ) as WorkspaceSnapshot;
+
+    // the app restarts: nothing in memory
+    useQueueStore.setState({ queues: new Map(), automation: new Map() });
+    let n = 0;
+    setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: `new-${++n}` }),
+    });
+    await importSnapshot(exported, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    const q = useQueueStore.getState();
+    expect(q.getAutomation('new-1').autoSend).toBe(false); // old-1 (restored first)
+    expect(q.getAutomation('new-2').autoSend).toBe(true); // old-2 keeps the default
+
+    // the CLI reports its own id and the card is re-keyed: the OFF follows it
+    useQueueStore.getState().migrateSession('new-1', 'hook-1');
+    useQueueStore.getState().migrateSession('new-2', 'hook-2');
+    expect(useQueueStore.getState().getAutomation('hook-1').autoSend).toBe(false);
+    expect(useQueueStore.getState().getAutomation('hook-2').autoSend).toBe(true);
   });
 });

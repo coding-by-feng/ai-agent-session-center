@@ -12,7 +12,7 @@
    dark themes. */
 
 .container {
-  --prompts-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --prompts-accent: var(--accent-text);
   display: flex;
   flex-direction: column;
   height: 100%;

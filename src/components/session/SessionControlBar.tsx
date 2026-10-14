@@ -1,21 +1,25 @@
 /**
- * SessionControlBar renders action buttons for the selected session:
- * Resume, Kill, Mute/Unmute, Alert toggle, Room select.
- * Displayed in the detail panel below the header.
+ * SessionControlBar — the selected session's toggles and room:
+ * Resume (ended sessions only), Mute · Share · Alert, and the room it is in.
+ *
+ * Mute, Share and Alert are one control style, the shared Button as a toggle:
+ * a fixed label and icon, the state in aria-pressed and the "on" fill
+ * (AASC-11). Kill is not here: it is destructive, so it sits at the end of the
+ * header's title row (SessionSwitcher), away from these toggles.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { muteSession, unmuteSession, alertSession, unalertSession } from '@/lib/alarmEngine';
-import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
 import Tooltip from '@/components/ui/Tooltip';
+import Button from '@/components/ui/Button';
+import { AlertIcon, MuteIcon, ResumeIcon, ShareIcon } from '@/components/ui/icons';
 import { faultLabel } from '@/lib/resumeWatchdog';
 import { tooltips } from '@/lib/tooltips';
-import { KILL_MODAL_ID } from './KillConfirmModal';
 import SessionControlLock from './SessionControlLock';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -27,7 +31,6 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
   const toggleMute = useSessionStore((s) => s.toggleMute);
   const toggleAlert = useSessionStore((s) => s.toggleAlert);
   const toggleRemoteVisible = useSessionStore((s) => s.toggleRemoteVisible);
-  const openModal = useUiStore((s) => s.openModal);
   const rooms = useRoomStore((s) => s.rooms);
   const addSession = useRoomStore((s) => s.addSession);
   const removeSessionFromRoom = useRoomStore((s) => s.removeSession);
@@ -70,11 +73,6 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
       setResuming(false);
     }
   }, [session.sessionId, resuming, isDisconnected]);
-
-  // ---- Kill ----
-  const handleKill = useCallback(() => {
-    openModal(KILL_MODAL_ID);
-  }, [openModal]);
 
   // ---- Mute / Unmute ----
   const handleToggleMute = useCallback(() => {
@@ -165,48 +163,35 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
       )}
       {isDisconnected && (
         <Tooltip {...tooltips.ctrlResume}>
-          <button
-            className={`${styles.ctrlBtn} ${styles.resume}`}
+          <Button
+            size="sm"
+            variant="primary"
+            icon={<ResumeIcon />}
             onClick={handleResume}
             disabled={resuming}
+            aria-busy={resuming || undefined}
           >
-            {resuming ? 'RESUMING...' : 'RESUME'}
-          </button>
+            {resuming ? 'Resuming…' : 'Resume'}
+          </Button>
         </Tooltip>
       )}
-      <Tooltip {...tooltips.ctrlKill}>
-        <button
-          className={`${styles.ctrlBtn} ${styles.kill}`}
-          onClick={handleKill}
-        >
-          KILL
-        </button>
-      </Tooltip>
-      <Tooltip {...(session.muted ? tooltips.ctrlUnmute : tooltips.ctrlMute)}>
-        <button
-          className={`${styles.ctrlBtn} ${session.muted ? styles.muted : styles.mute}`}
-          onClick={handleToggleMute}
-        >
-          {session.muted ? 'UNMUTE' : 'MUTE'}
-        </button>
-      </Tooltip>
-      <Tooltip {...(session.remoteVisible ? tooltips.ctrlRemoteVisibleOn : tooltips.ctrlRemoteVisibleOff)}>
-        <button
-          className={`${styles.ctrlBtn} ${session.remoteVisible ? styles.remoteShared : ''}`}
-          onClick={handleToggleRemoteVisible}
-          aria-pressed={!!session.remoteVisible}
-        >
-          {session.remoteVisible ? 'SHARED' : 'HOST ONLY'}
-        </button>
-      </Tooltip>
-      <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>
-        <button
-          className={`${styles.ctrlBtn} ${session.alerted ? styles.alertActive : styles.alert}`}
-          onClick={handleToggleAlert}
-        >
-          {session.alerted ? 'ALERT ON' : 'ALERT'}
-        </button>
-      </Tooltip>
+      <span className={styles.ctrlToggles}>
+        <Tooltip {...(session.muted ? tooltips.ctrlUnmute : tooltips.ctrlMute)}>
+          <Button size="sm" icon={<MuteIcon />} pressed={!!session.muted} onClick={handleToggleMute}>
+            Mute
+          </Button>
+        </Tooltip>
+        <Tooltip {...(session.remoteVisible ? tooltips.ctrlRemoteVisibleOn : tooltips.ctrlRemoteVisibleOff)}>
+          <Button size="sm" icon={<ShareIcon />} pressed={!!session.remoteVisible} onClick={handleToggleRemoteVisible}>
+            Share
+          </Button>
+        </Tooltip>
+        <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>
+          <Button size="sm" icon={<AlertIcon />} pressed={!!session.alerted} onClick={handleToggleAlert}>
+            Alert
+          </Button>
+        </Tooltip>
+      </span>
 
       {/* Room select */}
       <Select
@@ -214,6 +199,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
         onChange={handleRoomChange}
         options={roomOptions}
         className={styles.roomSelect}
+        title="The room this session is in"
       />
     </div>
   );

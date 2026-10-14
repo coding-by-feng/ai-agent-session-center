@@ -66,7 +66,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(sb.root, { recursive: true, force: true });
+  // The tap's snapshot writers are `& disown`ed: one may still be creating a file while the
+  // sandbox is deleted (ENOTEMPTY). Node retries exactly those errors when asked.
+  rmSync(sb.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 });
 
 function tapEnv(extra: Record<string, string> = {}): Record<string, string> {
@@ -144,6 +146,88 @@ const foreignDirIsUsable = ((): boolean => {
 })();
 
 describe.skipIf(!hasJq || process.platform === 'win32')('dashboard-statusline.sh', () => {
+  describe('job 0 — the live model + effort snapshot', () => {
+    const runtimePath = (id: string = SID) => join(sb.queueDir, 'runtime', `${id}.json`);
+
+    it('writes session_id, ts, the model and effort.level beside usage/, on every render', async () => {
+      const r = runTap(payload({
+        model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
+        effort: { level: 'xhigh' },
+        rate_limits: undefined,
+      }));
+      expect(r.status).toBe(0);
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      const snap = JSON.parse(readFileSync(runtimePath(), 'utf8'));
+      expect(Object.keys(snap).sort()).toEqual(['effort', 'model', 'session_id', 'ts']);
+      expect(snap.model).toEqual({ id: 'claude-opus-5-5', display_name: 'Opus 5.5' });
+      expect(snap.effort).toEqual({ level: 'xhigh' });
+      // No rate_limits yet: job 1 writes nothing, job 0 still does.
+      expect(existsSync(snapshotPath())).toBe(false);
+    });
+
+    it('records the context window: used %, its size and the tokens in it', async () => {
+      runTap(payload({
+        context_window: {
+          total_input_tokens: 84312, total_output_tokens: 900, context_window_size: 200000,
+          used_percentage: 42, remaining_percentage: 58,
+          current_usage: { input_tokens: 12, output_tokens: 900, cache_creation_input_tokens: 300, cache_read_input_tokens: 84000 },
+        },
+      }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).context)
+        .toEqual({ used_percentage: 42, size: 200000, tokens: 84312 });
+    });
+
+    it('records no tokens before the first reply (current_usage is null)', async () => {
+      runTap(payload({
+        context_window: {
+          total_input_tokens: 0, total_output_tokens: 0, context_window_size: 200000,
+          used_percentage: null, remaining_percentage: null, current_usage: null,
+        },
+      }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).context)
+        .toEqual({ used_percentage: null, size: 200000, tokens: null });
+    });
+
+    it('a usage object with none of the input counts is no tokens, not 0 (which would read as 0%)', async () => {
+      runTap(payload({
+        context_window: { context_window_size: 200000, used_percentage: null, current_usage: { output_tokens: 5 } },
+      }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).context.tokens).toBeNull();
+    });
+
+    it('records no effort for a model that does not take one', async () => {
+      runTap(payload({ model: { id: 'claude-haiku-4-5', display_name: 'Haiku 4.5' } }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).effort).toBeNull();
+    });
+
+    it('keeps no cwd or transcript path', async () => {
+      runTap(payload({ transcript_path: '/Users/x/.claude/projects/p/s.jsonl' }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      const raw = readFileSync(runtimePath(), 'utf8');
+      expect(raw).not.toContain('transcript');
+      expect(raw).not.toContain(sb.proj);
+    });
+
+    it('never writes through a symlinked runtime directory', async () => {
+      const elsewhere = join(sb.root, 'elsewhere');
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, join(sb.queueDir, 'runtime'));
+      runTap(payload());
+      await waitUntilTapHasRun();
+      expect(readdirSync(elsewhere)).toEqual([]);
+    });
+
+    it('still prints nothing of its own: the footer is only the chained command', () => {
+      const r = runTap(payload({ effort: { level: 'high' } }));
+      expect(r.stdout).toBe('');
+      expect(r.stderr).toBe('');
+    });
+  });
+
   describe('job 1 — the plan-limit snapshot', () => {
     it('writes exactly session_id, ts and rate_limits, as one line', async () => {
       const before = Date.now();

@@ -122,7 +122,7 @@
   font-size: 8px;
   font-weight: 400;
   letter-spacing: 0;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   opacity: 0.7;
   padding: 0 3px;
   border-radius: 2px;
@@ -151,7 +151,7 @@
   z-index: 5;
 }
 .closedOverlayText {
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 12px;
   letter-spacing: 0.5px;
@@ -324,7 +324,7 @@
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   cursor: pointer;
   margin-right: 2px;
   transition: all 0.15s ease;
@@ -333,7 +333,7 @@
 .queueHistoryBtn:hover {
   opacity: 1;
   background: var(--bg-subtle);
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .queueHistoryBadge {
   position: absolute;
@@ -362,7 +362,7 @@
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   cursor: pointer;
   margin-right: 4px;
   transition: all 0.15s ease;
@@ -390,7 +390,7 @@
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
   cursor: pointer;
   margin-right: 2px;
   transition: all 0.15s ease;
@@ -401,7 +401,7 @@
   background: var(--bg-subtle);
 }
 .autoEnterOn {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   opacity: 1;
 }
 .autoEnterOn:hover {
@@ -576,7 +576,7 @@
 }
 .queueItem:hover .queueDragHandle {
   opacity: 0.9;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .queueText {
   flex: 1;
@@ -856,7 +856,7 @@
   border-color: rgba(255, 216, 102, 0.6) !important;
 }
 .queueEdit {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .queueEdit:hover {
   background: rgba(0, 229, 255, 0.1);
@@ -906,7 +906,7 @@
   border-color: rgba(80, 250, 123, 0.4);
 }
 .queueToggleBtnOff {
-  color: var(--text-dim, #555);
+  color: var(--text-secondary);
 }
 .queueToggleBtnOff:hover {
   color: var(--accent-green, #50fa7b);
@@ -939,7 +939,7 @@
 .queueFavBtn {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 12px;
   line-height: 1;
@@ -1030,7 +1030,7 @@
   padding: 3px 10px 5px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border-faint, rgba(255, 255, 255, 0.03));
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 9px;
   font-weight: 600;
@@ -1073,7 +1073,7 @@
 }
 .queueMovePickerItem:hover .queueMovePickerProject,
 .queueMovePickerItemActive .queueMovePickerProject {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .queueMovePickerItem:focus-visible {
   outline: none;
@@ -1092,7 +1092,7 @@
 
 .queueMovePickerEmpty {
   padding: 8px 10px;
-  color: var(--text-dim, #555577);
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 10px;
   text-align: center;
@@ -1200,7 +1200,7 @@
   color: var(--text-secondary);
 }
 .queueAttachBtn:hover {
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 
 /* Saved-prompt controls next to a prompt box: bookmark = keep THIS text,
@@ -1323,7 +1323,7 @@
 }
 .queueTypePillActive {
   background: rgba(0, 229, 255, 0.15);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .queueTypePillDisabled {
   opacity: 0.35;
@@ -1472,7 +1472,7 @@
   align-items: center;
   gap: 4px;
   font-size: 9px;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 .queueTypeChip {
@@ -1490,7 +1490,7 @@
   line-height: 1.4;
 }
 .queueTypeChipOnce {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: rgba(0, 229, 255, 0.4);
   background: rgba(0, 229, 255, 0.06);
 }
@@ -1505,7 +1505,7 @@
   background: rgba(189, 147, 249, 0.08);
 }
 .queueNextFire {
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   font-size: 9px;
   font-family: var(--font-mono);
 }
@@ -1539,7 +1539,7 @@
 }
 .queueStatusToggle:hover {
   background: rgba(0, 229, 255, 0.06);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: rgba(0, 229, 255, 0.3);
 }
 .queueStatusToggleOn {
@@ -1596,7 +1596,7 @@
   font-size: 13px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .chainCloseBtn {
   background: transparent;
@@ -1649,17 +1649,17 @@
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-text, var(--accent-cyan));
 }
 .chainSectionHint {
   font-size: 9px;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
 }
 .chainEmpty {
   padding: 4px 0;
   font-size: 10px;
   font-style: italic;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
 }
 
 .chainStepRow {
@@ -1671,7 +1671,7 @@
 .chainStepIdx {
   width: 18px;
   text-align: right;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   font-size: 10px;
   flex-shrink: 0;
 }
@@ -1721,7 +1721,7 @@
   align-self: flex-start;
   background: transparent;
   border: 1px dashed rgba(0, 229, 255, 0.3);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 3px 10px;
@@ -1742,6 +1742,15 @@
   gap: 6px;
   flex-wrap: wrap;
 }
+/* The two "insert a prepared step" pickers wrap as a PAIR. At phone width the three
+   chips total ~344px in a ~316px row, so one has to leave the line — this makes it a
+   chosen break ("+ Add" / "From saved… + Set effort…") instead of a stranded chip. */
+.chainPickerGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .chainFromSavedBtn {
   border-color: rgba(170, 102, 255, 0.35);
   color: var(--accent-purple, #aa66ff);
@@ -1752,6 +1761,63 @@
 .chainFromSavedBtn:hover {
   background: rgba(170, 102, 255, 0.08);
   border-style: solid;
+}
+
+/* "Set effort…" — the third action beside "+ Add step" and "From saved…". The orange
+   lives on the border and the bolt; the label is --text-primary because orange text
+   measured 3.07:1 on `light`, 2.75 on `solarized`, 3.48 on `windows-xp` (4.5 needed). */
+.chainEffortBtn {
+  border-color: rgba(255, 145, 0, 0.5);
+  color: var(--text-primary, #e0e0ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chainEffortBtn svg {
+  color: var(--accent-orange, #ff9100);
+}
+.chainEffortBtn:hover {
+  background: rgba(255, 145, 0, 0.08);
+  border-style: solid;
+}
+.chainEffortBtn:active {
+  background: rgba(255, 145, 0, 0.18);
+}
+.chainEffortBtn:focus-visible {
+  outline: 1px solid var(--accent-orange, #ff9100);
+  outline-offset: 1px;
+}
+.chainEffortBtn[aria-expanded='true'] {
+  background: rgba(255, 145, 0, 0.12);
+  border-style: solid;
+}
+
+/* "Set model…" — the fourth chain action. Same contrast rule as Set effort…: the cyan
+   lives on the border and the glyph, the label stays --text-primary. Solid border so it
+   does not read as the dashed cyan "+ Add step" next to it. */
+.chainModelBtn {
+  border-color: rgba(0, 229, 255, 0.5);
+  border-style: solid;
+  color: var(--text-primary, #e0e0ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chainModelBtn svg {
+  color: var(--accent-text, var(--accent-cyan));
+}
+.chainModelBtn:hover {
+  background: rgba(0, 229, 255, 0.08);
+}
+.chainModelBtn:active {
+  background: rgba(0, 229, 255, 0.18);
+}
+.chainModelBtn:focus-visible {
+  outline: 1px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+.chainModelBtn[aria-expanded='true'] {
+  background: rgba(0, 229, 255, 0.12);
 }
 
 /* Per-step "keep this text" — icon-only so a chain row stays ↑ ↓ 🔖 ✕. */
@@ -1790,7 +1856,7 @@
 
 .chainStats {
   font-size: 10px;
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   padding-top: 6px;
   border-top: 1px dashed rgba(255, 255, 255, 0.06);
 }
@@ -1828,7 +1894,7 @@
 }
 .chainBtnPrimary {
   background: rgba(0, 229, 255, 0.15);
-  color: var(--accent-cyan);
+  color: var(--accent-text, var(--accent-cyan));
   border-color: rgba(0, 229, 255, 0.4);
 }
 .chainBtnPrimary:hover:not(:disabled) {
@@ -1866,12 +1932,12 @@
   border-color: var(--accent-cyan);
 }
 .excludeWindowArrow {
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   font-size: 11px;
   flex-shrink: 0;
 }
 .excludeWindowHint {
-  color: var(--text-dim, #666);
+  color: var(--text-secondary);
   font-size: 9px;
   font-style: italic;
   padding-left: 4px;
@@ -2175,4 +2241,23 @@
    10050) so it can never render correctly-placed-but-hidden behind one. */
 .fullscreenContainer :global(.xterm-viewport) {
   overflow-y: auto !important;
+}
+
+/* ---- AASC-11: keyboard focus + touch targets for the queue header controls ---- */
+.queueHistoryBtn:focus-visible,
+.autoEnterToggle:focus-visible,
+.autoSendToggle:focus-visible,
+.queueToggle:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .queueToggle { min-height: 44px; }
+  /* The glyphs stay 24px; the hit area grows to 44px around them. */
+  .queueHistoryBtn,
+  .autoEnterToggle,
+  .autoSendToggle { position: relative; }
+  .queueHistoryBtn::after,
+  .autoEnterToggle::after,
+  .autoSendToggle::after { content: ''; position: absolute; inset: -10px; }
 }

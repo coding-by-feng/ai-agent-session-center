@@ -27,6 +27,7 @@ body[data-theme="monokai"] {
   --accent-purple: #ae81ff;
   --accent-yellow: #e6db74;
   --text-primary: #f8f8f2;
-  --text-secondary: #a6a28c;
+  /* AASC-11: #a6a28c was 3.58:1 on --bg-card-hover; mixed 25% toward --text-primary → 4.6:1. */
+  --text-secondary: #bab8a6;
   --text-dim: #75715e;
 }

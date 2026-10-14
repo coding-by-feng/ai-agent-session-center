@@ -220,7 +220,7 @@ function RobotEntry({
           borderRadius: 2,
           fontSize: 10,
           lineHeight: 1,
-          color: 'var(--text-dim)',
+          color: 'var(--text-secondary)',
           cursor: 'pointer',
           transition: 'all 0.15s ease',
         }}
@@ -287,7 +287,7 @@ function RoomGroupHeader({
         style={{
           fontSize: 11,
           letterSpacing: 1.5,
-          color: 'var(--text-dim)',
+          color: 'var(--text-secondary)',
           textTransform: 'uppercase',
           fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
           flex: 1,
@@ -301,7 +301,7 @@ function RoomGroupHeader({
       <span
         style={{
           fontSize: 10,
-          color: 'var(--text-dim)',
+          color: 'var(--text-secondary)',
           fontFamily: "'JetBrains Mono', monospace",
         }}
       >
@@ -527,7 +527,7 @@ export default function RobotListSidebar() {
               padding: '16px 8px',
               textAlign: 'center',
               fontSize: 11,
-              color: 'var(--text-dim)',
+              color: 'var(--text-secondary)',
               fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: 0.5,
             }}>
