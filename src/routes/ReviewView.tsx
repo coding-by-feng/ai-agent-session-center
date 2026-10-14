@@ -10,214 +10,41 @@
  */
 import { useEffect, useId, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router';
-import {
-  listLogs,
-  setArchived,
-  setNotes,
-  setFavorite,
-  setAlias,
-  deleteLog,
-  type ListFilters,
-} from '@/lib/translationLog';
-import type { DbTranslationLog } from '@/lib/db';
+import type { ListFilters } from '@/lib/translationLog';
+import { useReviewLog } from '@/hooks/useReviewLog';
 import { focusSiblingAfterRemoval } from '@/lib/focusAfterRemoval';
-import { formatDate } from '@/lib/historyFormat';
+import {
+  ARCHIVE_OPTIONS,
+  EMPTY_HINT,
+  FAVORITE_HINT,
+  MODE_ICONS,
+  MODE_LABELS,
+  MODE_OPTIONS,
+  NO_MATCH_HINT,
+  NO_SOURCE,
+  SEARCH_DEBOUNCE_MS,
+  SUMMARY_LABEL,
+  countEntries,
+  metaLine,
+  sourceTextOf,
+  type ArchiveFilter,
+  type ModeFilter,
+} from '@/lib/reviewEntry';
+import { EntryDetail, StarGlyph, type EntryDetailProps } from '@/components/review/ReviewEntry';
+import { useIsMobile } from '@/lib/platform';
+import PhoneReview from '@/components/mobile/views/PhoneReview';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import EmptyState from '@/components/ui/EmptyState';
 import Field from '@/components/ui/Field';
 import IconButton from '@/components/ui/IconButton';
-import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
+import NativeSelect from '@/components/ui/NativeSelect';
 import SearchInput from '@/components/ui/SearchInput';
 import StaleNote from '@/components/ui/StaleNote';
-import TextInput from '@/components/ui/TextInput';
-import TextArea from '@/components/ui/TextArea';
-import { showToast } from '@/components/ui/ToastContainer';
-import PopupResponse from '@/components/session/PopupResponse';
 import styles from '@/styles/modules/ReviewView.module.css';
 
-type ModeFilter = DbTranslationLog['mode'] | 'all';
-type ArchiveFilter = NonNullable<ListFilters['archived']>;
-
-const SEARCH_DEBOUNCE_MS = 200;
-const POLL_MS = 4000;
-const SUMMARY_LABEL = 'Saved explanations & translations';
-const NO_SOURCE = '(no source captured)';
-// The "Translate previous answer" / "Translate file" toolbar buttons this hint
-// used to point at no longer exist (no trigger anywhere in src/); the selection
-// popup's 🔎 / 🌐 still match.
-const EMPTY_HINT =
-  'Select text in the terminal or in a markdown file and click 🔎 / 🌐. ' +
-  'Your explanations and translations will be saved here for review.';
-const NO_MATCH_HINT = 'Try a broader search, or change the Mode, Show or Favorites filter.';
-const FAVORITE_HINT = 'Highlights it in the source file.';
 /** A row's expand button — where focus goes when a neighbouring row is deleted. */
 const ROW_TOGGLE = '[data-entry-toggle]';
-
-const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
-  'explain-learning': 'Explain (learning)',
-  'explain-native': 'Explain (native)',
-  'vocab-native': 'Vocabulary (native)',
-  'translate-selection-learning': 'Translate → learning',
-  'translate-selection-native': 'Translate → native',
-  'translate-answer': 'Translate answer',
-  'translate-file': 'Translate file',
-  'custom': 'Custom prompt',
-};
-
-const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
-  'explain-learning': '🔎',
-  'explain-native': '🌐',
-  'vocab-native': '📖',
-  'translate-selection-learning': '🔤',
-  'translate-selection-native': '🔤',
-  'translate-answer': '⤴',
-  'translate-file': '📝',
-  'custom': '✦',
-};
-
-// Every mode, from the label map. The list used to skip the two live
-// translate-selection modes (the ones the popup still creates) while offering
-// two that only old entries carry — so the commonest entries could not be
-// filtered to. Old modes stay listed: their entries still exist.
-const MODE_OPTIONS: readonly NativeSelectOption<ModeFilter>[] = [
-  { value: 'all', label: 'All modes' },
-  ...(Object.keys(MODE_LABELS) as DbTranslationLog['mode'][]).map((m) => ({ value: m, label: MODE_LABELS[m] })),
-];
-
-const ARCHIVE_OPTIONS: readonly NativeSelectOption<ArchiveFilter>[] = [
-  { value: 'active', label: 'Active only' },
-  { value: 'archived', label: 'Archived only' },
-  { value: 'all', label: 'All' },
-];
-
-/** "Oct 7, 21:08": 24-hour like every other tab, no seconds, the year only when it is not this one. */
-const stamp = (ts: number): string => formatDate(ts, Date.now());
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return stamp(ts);
-}
-
-function countEntries(n: number): string {
-  return `${n} ${n === 1 ? 'entry' : 'entries'}`;
-}
-
-/** Project, session and age on one line. A no-break space keeps each "·" with the word before it. */
-function metaLine(row: DbTranslationLog): string {
-  return [row.originProjectName || 'unknown project', row.originSessionTitle, relativeTime(row.createdAt)]
-    .filter(Boolean)
-    .join(' · ');
-}
-
-function sourceTextOf(row: DbTranslationLog): string {
-  return row.mode === 'translate-file' ? row.fileContent || row.filePath : row.selection;
-}
-
-/** The favourites mark: an outline star, filled while on. Sized by its button. */
-function StarGlyph({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={filled ? 'currentColor' : 'none'}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  );
-}
-
-/** What was selected, plus the line around it when that adds something. */
-function SourceSection({ row }: { row: DbTranslationLog }) {
-  return (
-    <div className={styles.section}>
-      <div className={styles.sectionLabel}>Source</div>
-      {row.mode === 'translate-file' && row.filePath && (
-        <div className={styles.filePath}>{row.filePath}</div>
-      )}
-      <pre className={styles.source}>{sourceTextOf(row) || NO_SOURCE}</pre>
-      {row.contextLine && row.contextLine !== row.selection && (
-        <div className={styles.contextLine}>
-          <span className={styles.metaLabel}>Surrounding line</span>
-          {row.contextLine}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface EntryDetailProps {
-  row: DbTranslationLog;
-  onAlias: (uuid: string, value: string) => void;
-  onNotes: (uuid: string, value: string) => void;
-  onArchive: (uuid: string, isArchived: boolean) => void;
-  onDelete: (uuid: string) => void;
-}
-
-/** The expanded body of a row: alias, source, conversation, notes, actions. */
-function EntryDetail({ row, onAlias, onNotes, onArchive, onDelete }: EntryDetailProps) {
-  const saved = stamp(row.createdAt);
-  const updated = stamp(row.updatedAt);
-  return (
-    <div className={styles.detail}>
-      <label className={styles.section}>
-        <span className={styles.sectionLabel}>Alias</span>
-        <TextInput
-          className={styles.aliasInput}
-          defaultValue={row.alias}
-          placeholder="Short label for this record (shown here and in the file highlight)"
-          onBlur={(e) => {
-            if (e.target.value.trim() !== row.alias) onAlias(row.uuid, e.target.value);
-          }}
-        />
-      </label>
-
-      <SourceSection row={row} />
-
-      <PopupResponse response={row.response} label="Conversation" />
-
-      <label className={styles.section}>
-        <span className={styles.sectionLabel}>Notes</span>
-        <TextArea
-          className={styles.notes}
-          rows={2}
-          defaultValue={row.notes}
-          placeholder="Personal notes for review (saved automatically)"
-          onBlur={(e) => {
-            if (e.target.value !== row.notes) onNotes(row.uuid, e.target.value);
-          }}
-        />
-      </label>
-
-      <div className={styles.actions}>
-        <Button size="sm" onClick={() => onArchive(row.uuid, row.archived === 1)}>
-          {row.archived === 1 ? 'Unarchive' : 'Archive'}
-        </Button>
-        <Button size="sm" variant="danger" onClick={() => onDelete(row.uuid)}>
-          Delete
-        </Button>
-        <span className={styles.timestamp}>
-          Saved {saved}
-          {updated !== saved && ` · Updated ${updated}`}
-        </span>
-      </div>
-    </div>
-  );
-}
 
 interface EntryRowProps extends EntryDetailProps {
   expanded: boolean;
@@ -281,7 +108,15 @@ function EntryRow({ expanded, onToggle, onFavorite, setRowRef, ...detail }: Entr
   );
 }
 
+/**
+ * The REVIEW tab. A phone gets its own one-column view (PhoneReview, AASC-20):
+ * an entry opens full screen instead of expanding in the list.
+ */
 export default function ReviewView() {
+  return useIsMobile() ? <PhoneReview /> : <DesktopReview />;
+}
+
+function DesktopReview() {
   // Deep-link from the md-highlight click (/review?uuid=…) — ReviewView is always
   // mounted fresh by that navigation, so we seed initial state from the param
   // (expand + widen the archived filter so the record is visible) and scroll to
@@ -302,67 +137,21 @@ export default function ReviewView() {
     [mode, archived, favoriteOnly, search],
   );
 
-  const [rows, setRows] = useState<DbTranslationLog[]>([]);
-  // False until the first read settles: before it, an empty list is not yet
-  // "nothing saved" (that state used to flash on every visit).
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [reloadTick, setReloadTick] = useState(0);
-  const reload = useCallback(() => setReloadTick((n) => n + 1), []);
-
-  // A failed IndexedDB read used to leave an empty list (reading as "nothing
-  // saved yet") and an unhandled rejection; it now says so, with a Retry. A
-  // failure with rows already on screen keeps them and says they are stale.
-  useEffect(() => {
-    let cancelled = false;
-    listLogs(filters).then(
-      (result) => {
-        if (cancelled) return;
-        setRows(result);
-        setLoadError(null);
-        setLoaded(true);
-      },
-      (err: unknown) => {
-        if (cancelled) return;
-        setLoadError(errorText(err));
-        setLoaded(true);
-      },
-    );
-    return () => { cancelled = true; };
-  }, [filters, reloadTick]);
-
-  // Periodic refresh — picks up response captures from float-close handlers and
-  // newly-saved entries from background spawns. Cheap (single IndexedDB read).
-  useEffect(() => {
-    const interval = setInterval(reload, POLL_MS);
-    return () => clearInterval(interval);
-  }, [reload]);
-
-  /** One write, then a re-read. A failed write says so (a toast) instead of
-   *  an unhandled rejection — notes saved on blur were otherwise lost silently. */
-  const persist = useCallback(async (write: Promise<unknown>, failure: string) => {
-    try {
-      await write;
-    } catch (err) {
-      showToast(`${failure}: ${errorText(err)}`, 'error');
-    }
-    reload();
-  }, [reload]);
-
-  const handleArchive = useCallback(
-    (uuid: string, isArchived: boolean) =>
-      persist(setArchived(uuid, !isArchived), isArchived ? 'Could not unarchive the entry' : 'Could not archive the entry'),
-    [persist],
-  );
+  const {
+    rows,
+    loaded,
+    loadError,
+    reload,
+    archive: handleArchive,
+    saveNotes: handleNotesChange,
+    favorite: handleFavorite,
+    saveAlias: handleAlias,
+    remove,
+  } = useReviewLog(filters);
 
   const handleDelete = useCallback(async (uuid: string) => {
     if (!confirm('Delete this saved entry? This cannot be undone.')) return;
-    try {
-      await deleteLog(uuid);
-    } catch (err) {
-      showToast(`Could not delete the entry: ${errorText(err)}`, 'error');
-      return;
-    }
+    if (!(await remove(uuid))) return;
     // The focused Delete leaves with its row: hand focus to a neighbouring
     // row, or to the search box when none is left.
     focusSiblingAfterRemoval(
@@ -372,22 +161,7 @@ export default function ReviewView() {
     );
     if (expandedUuid === uuid) setExpandedUuid(null);
     reload();
-  }, [expandedUuid, reload]);
-
-  const handleNotesChange = useCallback(
-    (uuid: string, value: string) => persist(setNotes(uuid, value), 'Could not save your notes'),
-    [persist],
-  );
-
-  const handleFavorite = useCallback(
-    (uuid: string, isFav: boolean) => persist(setFavorite(uuid, !isFav), 'Could not change the favorite'),
-    [persist],
-  );
-
-  const handleAlias = useCallback(
-    (uuid: string, value: string) => persist(setAlias(uuid, value.trim()), 'Could not save the alias'),
-    [persist],
-  );
+  }, [expandedUuid, remove, reload]);
 
   const toggleExpanded = useCallback(
     (uuid: string) => setExpandedUuid((current) => (current === uuid ? null : uuid)),

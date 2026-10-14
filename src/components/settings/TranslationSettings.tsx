@@ -70,7 +70,15 @@ const SPAWN_TARGET_OPTIONS = [
   { id: 'docked', label: 'Docked panel inside the app' },
 ] as const;
 
-export default function TranslationSettings() {
+interface TranslationSettingsProps {
+  /**
+   * The phone's Translation (AASC-20): no "where the result opens" (a phone
+   * has no windows to open it in) and no "Hold ⌥" trigger (no modifier keys).
+   */
+  phone?: boolean;
+}
+
+export default function TranslationSettings({ phone = false }: TranslationSettingsProps) {
   const enabled = useSettingsStore((s) => s.translationEnabled);
   const native = useSettingsStore((s) => s.translationNativeLanguage);
   const learning = useSettingsStore((s) => s.translationLearningLanguage);
@@ -173,6 +181,7 @@ export default function TranslationSettings() {
         />
       </div>
 
+      {!phone && (
       <div className={styles.section}>
         <h4>Where the result opens</h4>
         <p className={styles.settingsHint}>
@@ -189,17 +198,25 @@ export default function TranslationSettings() {
           onChange={setSpawnTarget}
         />
       </div>
+      )}
 
       <div className={styles.section}>
         <h4>Trigger</h4>
         <p className={styles.settingsHint}>
-          When the popup should appear. &ldquo;Auto&rdquo; shows it on every selection;
-          &ldquo;Hold ⌥&rdquo; only shows the popup if the Alt/Option key was held.
+          {phone ? (
+            <>When the popup should appear: &ldquo;Auto&rdquo; shows it on every selection.</>
+          ) : (
+            <>
+              When the popup should appear. &ldquo;Auto&rdquo; shows it on every selection;
+              &ldquo;Hold ⌥&rdquo; only shows the popup if the Alt/Option key was held.
+            </>
+          )}
         </p>
         <RadioGroup
           name="trans-trigger"
           value={trigger}
-          options={TRIGGER_OPTIONS}
+          // A phone has no ⌥ to hold; the option stays only while it is the one set.
+          options={phone && trigger !== 'alt' ? TRIGGER_OPTIONS.filter((o) => o.id !== 'alt') : TRIGGER_OPTIONS}
           onChange={setTrigger}
         />
       </div>

@@ -114,3 +114,24 @@ describe('roomStore', () => {
     });
   });
 });
+
+describe('roomStore — setRoomColor (AASC-20)', () => {
+  beforeEach(() => {
+    clearLocalStorage();
+    useRoomStore.setState({ rooms: [] });
+  });
+
+  it('sets and clears a room colour without touching its 3D slot', () => {
+    const id = useRoomStore.getState().createRoom('Work');
+    const before = useRoomStore.getState().rooms[0];
+    useRoomStore.getState().setRoomColor(id, '#ff69b4');
+    const coloured = useRoomStore.getState().rooms[0];
+    expect(coloured.color).toBe('#ff69b4');
+    expect(coloured.roomIndex).toBe(before.roomIndex);
+    expect(before.color).toBeUndefined(); // a new object, the old one untouched
+
+    useRoomStore.getState().setRoomColor(id, undefined);
+    expect('color' in useRoomStore.getState().rooms[0]).toBe(false);
+    expect(JSON.parse(localStorage.getItem('session-rooms') ?? '[]')[0].color).toBeUndefined();
+  });
+});

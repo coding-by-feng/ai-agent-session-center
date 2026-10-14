@@ -30,98 +30,33 @@ import SearchInput from '@/components/ui/SearchInput';
 import TextInput from '@/components/ui/TextInput';
 import TrashIcon from '@/components/ui/TrashIcon';
 import { showToast } from '@/components/ui/ToastContainer';
-import type { DistinctProject, SessionSearchParams, SessionSearchResponse, DbSessionRow } from '@/types';
+import type { DistinctProject, SessionSearchResponse, DbSessionRow } from '@/types';
+import { useIsMobile } from '@/lib/platform';
+import {
+  HISTORY_PAGE_SIZE as PAGE_SIZE,
+  HISTORY_SORT_OPTIONS as SORT_OPTIONS,
+  HISTORY_STATUS_OPTIONS as STATUS_OPTIONS,
+  INITIAL_HISTORY_FILTERS as INITIAL_FILTERS,
+  buildHistorySearchParams as buildSearchParams,
+  historySummaryLine as summaryLine,
+  type HistoryFilters as Filters,
+} from '@/lib/historyQuery';
+import PhoneHistory from '@/components/mobile/views/PhoneHistory';
 import styles from '@/styles/modules/History.module.css';
 
-interface Filters {
-  query: string;
-  project: string;
-  status: string;
-  dateFrom: string;
-  dateTo: string;
-  sortBy: string;
-  sortDir: 'asc' | 'desc';
-  page: number;
-}
-
-const PAGE_SIZE = 50;
 const DETAIL_MODAL_ID = 'history-session-detail';
 /** The stretched open button of a row — the focus target after a delete. */
 const ROW_OPEN = '[data-row-open]';
 
-const INITIAL_FILTERS: Filters = {
-  query: '',
-  project: '',
-  status: '',
-  dateFrom: '',
-  dateTo: '',
-  sortBy: 'date',
-  sortDir: 'desc',
-  page: 1,
-};
-
-const STATUS_OPTIONS: readonly NativeSelectOption[] = [
-  { value: '', label: 'All' },
-  { value: 'idle', label: 'Idle' },
-  { value: 'working', label: 'Working' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'ended', label: 'Ended' },
-  { value: 'archived', label: 'Archived' },
-];
-
-const SORT_OPTIONS: readonly NativeSelectOption[] = [
-  { value: 'date', label: 'Date' },
-  { value: 'duration', label: 'Activity' },
-  { value: 'prompts', label: 'Prompts' },
-  { value: 'tools', label: 'Tools' },
-];
-
-// "Prompts" and "Tools" mapped to started_at until Oct 2026 — the server's
-// sort whitelist (db.searchSessions) had no prompt/tool columns, so both
-// options silently sorted by date.
-const SORT_COLUMNS: Record<string, NonNullable<SessionSearchParams['sortBy']>> = {
-  date: 'started_at',
-  duration: 'last_activity_at',
-  prompts: 'total_prompts',
-  tools: 'total_tool_calls',
-};
-
-function buildSearchParams(filters: Filters): string {
-  const params = new URLSearchParams();
-  if (filters.query) params.set('query', filters.query);
-  if (filters.project) params.set('project', filters.project);
-  if (filters.status === 'archived') {
-    params.set('archived', 'true');
-  } else if (filters.status) {
-    params.set('status', filters.status);
-  }
-  // Both ends in LOCAL time. `new Date('YYYY-MM-DD')` parses as UTC midnight,
-  // so at GMT+13 a From date dropped every session before 13:00 that day while
-  // To (already local) did not — the range was lopsided by the UTC offset.
-  if (filters.dateFrom) {
-    params.set('dateFrom', String(new Date(`${filters.dateFrom}T00:00:00`).getTime()));
-  }
-  if (filters.dateTo) {
-    params.set('dateTo', String(new Date(`${filters.dateTo}T23:59:59`).getTime()));
-  }
-  params.set('sortBy', SORT_COLUMNS[filters.sortBy] ?? 'started_at');
-  params.set('sortDir', filters.sortDir);
-  params.set('page', String(filters.page));
-  params.set('pageSize', String(PAGE_SIZE));
-  return params.toString();
-}
-
-/** "137 sessions · showing 51–100" */
-function summaryLine(total: number, page: number, shown: number): string {
-  const from = (page - 1) * PAGE_SIZE + 1;
-  const range =
-    total > PAGE_SIZE && shown > 0
-      ? `showing ${from.toLocaleString('en-US')}–${(from + shown - 1).toLocaleString('en-US')}`
-      : '';
-  return [plural(total, 'session'), range].filter(Boolean).join(' · ');
-}
-
+/**
+ * The HISTORY tab. A phone gets its own one-column view (PhoneHistory,
+ * AASC-20), which also keeps a paired phone to the history routes it may call.
+ */
 export default function HistoryView() {
+  return useIsMobile() ? <PhoneHistory /> : <DesktopHistory />;
+}
+
+function DesktopHistory() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);

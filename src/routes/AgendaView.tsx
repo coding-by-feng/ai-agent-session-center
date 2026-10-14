@@ -14,74 +14,13 @@ import AddTaskForm from '@/components/agenda/AddTaskForm';
 import SectionHeader from '@/components/ui/SectionHeader';
 import EmptyState from '@/components/ui/EmptyState';
 import Button from '@/components/ui/Button';
-import type { AgendaTask, AgendaPriority } from '@/types';
+import { groupAgendaTasks } from '@/lib/agendaTasks';
+import { useIsMobile } from '@/lib/platform';
+import PhoneAgenda from '@/components/mobile/views/PhoneAgenda';
+import type { AgendaTask } from '@/types';
 import styles from '@/styles/modules/Agenda.module.css';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const PRIORITY_ORDER: AgendaPriority[] = ['urgent', 'high', 'medium', 'low'];
-
-const PRIORITY_WEIGHT: Record<AgendaPriority, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-const PRIORITY_LABELS: Record<AgendaPriority, string> = {
-  urgent: 'Urgent',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-};
-
 const COMPLETED_GROUP = '__completed__';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function matchesFilter(
-  task: AgendaTask,
-  search: string,
-  priority: AgendaPriority | 'all',
-  tag: string | 'all',
-): boolean {
-  if (priority !== 'all' && task.priority !== priority) return false;
-  if (tag !== 'all' && !task.tags.includes(tag)) return false;
-  if (search) {
-    const q = search.toLowerCase();
-    const titleMatch = task.title.toLowerCase().includes(q);
-    const descMatch = (task.description ?? '').toLowerCase().includes(q);
-    if (!titleMatch && !descMatch) return false;
-  }
-  return true;
-}
-
-function sortTasks(
-  tasks: AgendaTask[],
-  sortBy: 'priority' | 'dueDate' | 'createdAt',
-): AgendaTask[] {
-  return [...tasks].sort((a, b) => {
-    if (sortBy === 'priority') {
-      const pa = PRIORITY_WEIGHT[a.priority];
-      const pb = PRIORITY_WEIGHT[b.priority];
-      if (pa !== pb) return pa - pb;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-    if (sortBy === 'dueDate') {
-      // Tasks without due date go last
-      if (!a.dueDate && !b.dueDate) return 0;
-      if (!a.dueDate) return 1;
-      if (!b.dueDate) return -1;
-      return a.dueDate.localeCompare(b.dueDate);
-    }
-    // createdAt — newest first
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
-}
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -134,7 +73,15 @@ function TaskGroup({
 // Component
 // ---------------------------------------------------------------------------
 
+/**
+ * The AGENDA tab. A phone gets its own one-column view (PhoneAgenda, AASC-20):
+ * a task opens full screen to edit, and a new one is added from a sheet.
+ */
 export default function AgendaView() {
+  return useIsMobile() ? <PhoneAgenda /> : <DesktopAgenda />;
+}
+
+function DesktopAgenda() {
   const tasks = useAgendaStore((s) => s.tasks);
   const loading = useAgendaStore((s) => s.loading);
   const filter = useAgendaStore((s) => s.filter);
@@ -159,46 +106,10 @@ export default function AgendaView() {
     });
   }, []);
 
-  // Filter and group tasks
-  const { groups, completedTasks, totalIncomplete, totalCompleted } = useMemo(() => {
-    const allTasks = [...tasks.values()];
-    const filtered = allTasks.filter((t) =>
-      matchesFilter(t, filter.search, filter.priority, filter.tag),
-    );
-
-    const incomplete = filtered.filter((t) => !t.completed);
-    const completed = filtered.filter((t) => t.completed);
-
-    const sorted = sortTasks(incomplete, filter.sortBy);
-
-    // Group by priority
-    const grouped = new Map<AgendaPriority, AgendaTask[]>();
-    for (const p of PRIORITY_ORDER) {
-      grouped.set(p, []);
-    }
-    for (const task of sorted) {
-      const arr = grouped.get(task.priority);
-      if (arr) {
-        arr.push(task);
-      }
-    }
-
-    // Build non-empty groups
-    const nonEmpty: Array<{ id: AgendaPriority; label: string; tasks: AgendaTask[] }> = [];
-    for (const p of PRIORITY_ORDER) {
-      const arr = grouped.get(p) ?? [];
-      if (arr.length > 0) {
-        nonEmpty.push({ id: p, label: PRIORITY_LABELS[p], tasks: arr });
-      }
-    }
-
-    return {
-      groups: nonEmpty,
-      completedTasks: sortTasks(completed, filter.sortBy),
-      totalIncomplete: incomplete.length,
-      totalCompleted: completed.length,
-    };
-  }, [tasks, filter]);
+  const { groups, completedTasks, totalIncomplete, totalCompleted } = useMemo(
+    () => groupAgendaTasks(tasks.values(), filter),
+    [tasks, filter],
+  );
 
   const filtersActive = filter.search !== '' || filter.priority !== 'all' || filter.tag !== 'all';
   const showCompletedGroup = filter.showCompleted && completedTasks.length > 0;

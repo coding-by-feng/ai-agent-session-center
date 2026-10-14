@@ -90,3 +90,13 @@
   transform: translateY(-50%);
   border-right-color: var(--accent-cyan, #00e5ff);
 }
+
+/* A finger opens the tooltip by holding (Tooltip.tsx): keep iOS's callout and
+   text selection out of that gesture. Touch screens only. */
+@media (pointer: coarse) {
+  .trigger {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

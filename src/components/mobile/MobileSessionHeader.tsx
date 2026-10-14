@@ -26,11 +26,13 @@ import { faultLabel } from '@/lib/resumeWatchdog';
 import { muteSession, unmuteSession, alertSession, unalertSession } from '@/lib/alarmEngine';
 import { showToast } from '@/components/ui/ToastContainer';
 import Button from '@/components/ui/Button';
+import Tooltip from '@/components/ui/Tooltip';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import StatusBadge from '@/components/session/StatusBadge';
 import PlanUsageChip from '@/components/session/PlanUsageChip';
 import SessionRuntimeChip from '@/components/session/SessionRuntimeChip';
 import SheetAction, { SheetSection } from './SheetAction';
+import { ManageRoomsSheet, MoveToRoomSheet, RoomIcon } from './RoomSheets';
 import {
   BackIcon,
   BellIcon,
@@ -71,6 +73,10 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>(null);
   const [busy, setBusy] = useState<'restart' | 'kill' | 'resume' | null>(null);
+  // Rooms (AASC-20): the "Move to room…" and rooms sheets, from the ⋯ sheet.
+  const [roomSheet, setRoomSheet] = useState<'move' | 'manage' | null>(null);
+  const closeRoomSheet = useCallback(() => setRoomSheet(null), []);
+  const manageRooms = useCallback(() => setRoomSheet('manage'), []);
 
   // ---- Rename (tap the title) ----
   const [renaming, setRenaming] = useState(false);
@@ -249,9 +255,13 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
           </span>
         )}
         {session.interruption && (
-          <span className={`${styles.chip} ${styles.chipWarn}`} title={session.interruption.line}>
-            <span aria-hidden="true">⚠</span> {faultLabel(session.interruption.kind)}
-          </span>
+          // The failure's own line was a hover title, out of a finger's reach:
+          // a long press shows it (Tooltip's touch mode, AASC-20).
+          <Tooltip label={faultLabel(session.interruption.kind)} description={session.interruption.line} placement="bottom">
+            <span className={`${styles.chip} ${styles.chipWarn}`} tabIndex={0}>
+              <span aria-hidden="true">⚠</span> {faultLabel(session.interruption.kind)}
+            </span>
+          </Tooltip>
         )}
         <span className={styles.planSlot}><PlanUsageChip session={session} /></span>
         {hasRuntimeChip
@@ -274,6 +284,8 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
           />
           <SheetAction icon={<SpeakerIcon />} label="Mute sounds" pressed={!!session.muted} onClick={fromSheet(toggleMute)} />
           <SheetAction icon={<BellIcon />} label="Alert" pressed={!!session.alerted} onClick={fromSheet(toggleAlert)} />
+          <SheetAction icon={<RoomIcon />} label="Move to room…" onClick={fromSheet(() => setRoomSheet('move'))} />
+          <SheetAction icon={<RoomIcon />} label="Manage rooms…" onClick={fromSheet(() => setRoomSheet('manage'))} />
           <SheetAction
             icon={<PlusIcon />}
             label="New session…"
@@ -301,6 +313,8 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
         </SheetSection>
       </BottomSheet>
 
+      <MoveToRoomSheet sessionId={roomSheet === 'move' ? sessionId : null} onClose={closeRoomSheet} onManage={manageRooms} />
+      <ManageRoomsSheet open={roomSheet === 'manage'} onClose={closeRoomSheet} />
       <ConfirmSheet
         open={confirming === 'restart'}
         title="Restart this session?"

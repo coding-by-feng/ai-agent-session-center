@@ -1,0 +1,435 @@
+/* PhoneViews — HISTORY, PROMPTS, REVIEW and AGENDA on a phone (AASC-20):
+   components/mobile/views/*. Mounted only under useIsMobile(), so nothing here
+   reaches the desktop.
+
+   One column: a bar (search, Filters, summary) that stays put, the list that
+   scrolls under it, and a row that opens full screen in a BottomSheet with its
+   actions at the bottom. Every control is at least 44x44, spacing is on the 8px
+   grid, new text is --text-primary (4.5:1 in every theme), and colour is never
+   the only signal (a word says the same). Inputs are 16px: iOS zooms the page
+   into any smaller field on focus. */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ---- The bar ------------------------------------------------------------- */
+
+.bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px calc(16px + var(--safe-right, 0px)) 8px calc(16px + var(--safe-left, 0px));
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.barSearch { flex: 1 1 auto; min-width: 0; }
+/* Two classes and the element: beats FormControl's .control (and windows-xp's
+   `body[data-theme] input`) whatever order the sheets load in. */
+.bar .barSearch input { font-size: 16px; }
+
+.filterButton { flex: none; }
+
+.filterCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-text, var(--accent-cyan));
+  color: var(--bg-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  min-width: 0;
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.clearButton { flex: none; }
+
+/* What only the Mac can show: said once, in words. */
+.hostNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hostNote svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--accent-text, var(--accent-cyan));
+}
+.hostNote p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- The list ------------------------------------------------------------ */
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px calc(16px + var(--safe-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(16px + var(--safe-left, 0px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The row is one button: tapping anywhere on it opens it full screen. */
+.rowButton {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.rowButton:hover { background: var(--bg-card-hover); border-color: var(--border-accent-strong); }
+.rowButton:active { background: var(--bg-accent); transform: scale(0.99); }
+.rowButton:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.rowButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* A status, a priority: a bar at the start of the row, and a word in it. */
+.rowAccent { border-left: 4px solid var(--row-accent, var(--border-subtle-strong)); }
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rowTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Up to three lines of a prompt or a source text. */
+.rowText {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.rowStatus {
+  flex: none;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* A day's heading in a list grouped by day. */
+.groupHeading {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  margin: 8px 0 0;
+  padding: 8px 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.groupHeading:first-child { margin-top: 0; }
+
+.pager { padding-top: 16px; }
+
+/* ---- The filters sheet --------------------------------------------------- */
+
+.filterSheet {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0 16px;
+}
+
+/* A field is its caption over a full-width control. Two classes beat Field's
+   own inline layout and NativeSelect's max-width, in any load order. */
+.filterSheet .sheetField,
+.form .sheetField {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.filterSheet .sheetField > span:first-child,
+.form .sheetField > span:first-child {
+  color: var(--text-primary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.filterSheet select,
+.filterSheet input,
+.form select,
+.form input,
+.form textarea {
+  width: 100%;
+  max-width: none;
+  font-size: 16px;
+}
+
+.sheetPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* The source facet and other one-of-n choices: buttons that wrap. */
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.choiceRow > button { flex: 1 1 72px; min-height: 44px; }
+
+.sheetButtons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.sheetButtons > * { min-height: 44px; }
+
+/* ---- A row, full screen -------------------------------------------------- */
+
+/* Fills the sheet: the content scrolls, the actions stay at the bottom. */
+.detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.detailScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.detailActions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.detailActions > * { flex: 1 1 96px; min-height: 44px; }
+
+/* HISTORY's Conversation / Activity: the list inside is the scroll area. */
+.historyDetail {
+  --hist-accent: var(--accent-text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.detailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* A prompt, whole. */
+.fullText {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rowButton { transition: none; }
+  .rowButton:active { transform: none; }
+}
+
+/* ---- Fields outside a sheet, and groups inside one ------------------------ */
+
+/* A one-of-n choice in the filters sheet (PROMPTS' Source). */
+.sheetFieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.sheetFieldset > legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fieldHint {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The bar's own select (a remote device's session picker): caption, then a
+   control that takes the rest of the row. */
+.bar .inlineField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.bar .inlineField > span:first-child { color: var(--text-primary); font-size: 12px; }
+.bar .inlineField select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  font-size: 16px;
+}
+
+/* ---- REVIEW --------------------------------------------------------------- */
+
+.rowStar { flex: none; align-self: center; }
+.detailFavorite { align-self: flex-start; margin: 0 0 4px; }
+
+/* ---- AGENDA --------------------------------------------------------------- */
+
+/* The checkbox's target is the 44px label around it. */
+.check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.check input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent-text, var(--accent-cyan));
+  cursor: pointer;
+}
+.check input:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 4px; }
+
+.done { text-decoration: line-through; }
+.overdue { color: color-mix(in srgb, var(--accent-red) 70%, var(--text-primary)); font-weight: 600; }
+
+/* The full-screen task form. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0 16px;
+}
+.alignStart { align-self: flex-start; }
+/* The entry's body full screen: no list indent. Two classes beat
+   ReviewView.module.css's .detail in any load order. */
+.detailScroll .reviewDetailBody { padding: 16px 0 8px; }
+.detailScroll .reviewDetailBody input,
+.detailScroll .reviewDetailBody textarea { font-size: 16px; }
