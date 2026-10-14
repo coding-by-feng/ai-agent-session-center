@@ -15,7 +15,11 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
 import { useIsMobile } from '@/lib/platform';
+import PhoneTerminalInput from '@/components/mobile/PhoneTerminalInput';
+import TerminalActionsSheet from '@/components/mobile/TerminalActionsSheet';
+import { ExitFullscreenIcon } from '@/components/mobile/phoneIcons';
 import styles from '@/styles/modules/Terminal.module.css';
+import phoneStyles from '@/styles/modules/PhoneSession.module.css';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalContainerProps {
@@ -42,9 +46,17 @@ interface TerminalContainerProps {
    *  popups. When omitted, those actions are hidden (e.g. floating-terminal
    *  hosts that have no source session). */
   originSessionId?: string | null;
+  /** The session whose control baton gates typing from a phone (AASC-18): the
+   *  terminal's OWN session. Not `originSessionId`, which a floating fork sets to
+   *  its root. Omitted (an ops shell, a fork): no banner, the server still gates. */
+  controlSessionId?: string | null;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
+/** A phone gives the viewer what is left after the key bar and compose box
+ *  (AASC-18): in landscape that can be under 100px, and a 200px floor pushed
+ *  them out of the panel. The input must stay; the viewer shrinks. */
+const PHONE_MIN_HEIGHT = '48px';
 
 export default memo(function TerminalContainer({
   terminalId,
@@ -58,6 +70,7 @@ export default memo(function TerminalContainer({
   restartPending,
   onPopOut,
   originSessionId,
+  controlSessionId,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -82,6 +95,7 @@ export default memo(function TerminalContainer({
     sendArrowUp,
     sendArrowDown,
     sendEnter,
+    sendKeys,
     pasteToTerminal,
     refitTerminal,
     setTheme,
@@ -232,10 +246,29 @@ export default memo(function TerminalContainer({
     return () => document.body.classList.remove('term-fullscreen');
   }, [isFullscreen]);
 
-  // The wrap/pan toggle is only offered where panning is the default — a
-  // desktop terminal already fits its container, so there is nothing to pan to
-  // and the button would be a no-op control taking up toolbar space.
-  const showWrapToggle = useIsMobile();
+  // On a phone (AASC-18) the toolbar is not drawn: the terminal is a viewer with
+  // a key bar and a compose box under it, and the toolbar's actions are rows of
+  // an actions sheet. The wrap/pan toggle is only offered where panning is the
+  // default — a desktop terminal already fits its container, so there is
+  // nothing to pan to.
+  const isPhone = useIsMobile();
+  const showWrapToggle = isPhone;
+  const [phoneActionsOpen, setPhoneActionsOpen] = useState(false);
+  const openPhoneActions = useCallback(() => setPhoneActionsOpen(true), []);
+  const closePhoneActions = useCallback(() => setPhoneActionsOpen(false), []);
+  // One unsent draft per terminal: this container is reused when the panel
+  // switches session, and a draft must not follow you into another session.
+  const [phoneDrafts, setPhoneDrafts] = useState<Record<string, string>>({});
+  const phoneDraft = terminalId ? phoneDrafts[terminalId] ?? '' : '';
+  const setPhoneDraft = useCallback((text: string) => {
+    if (!terminalId) return;
+    setPhoneDrafts((prev) => ({ ...prev, [terminalId]: text }));
+  }, [terminalId]);
+  // The server's word on keystrokes that reached nothing (terminal_error, e.g.
+  // "A phone can type only while the agent is running"), kept per terminal.
+  const [socketNotice, setSocketNotice] = useState<{ terminalId: string; message: string } | null>(null);
+  const phoneNotice = socketNotice && socketNotice.terminalId === terminalId ? socketNotice.message : null;
+  const dismissPhoneNotice = useCallback(() => setSocketNotice(null), []);
   const toggleWrapMode = useCallback(() => {
     setWidthMode(widthMode === 'pan' ? 'wrap' : 'pan');
   }, [widthMode, setWidthMode]);
@@ -265,6 +298,9 @@ export default memo(function TerminalContainer({
           if (msg.terminalId === terminalId) {
             setIsClosed(true);
           }
+        } else if (isPhone && msg.type === 'terminal_error' && msg.terminalId === terminalId
+                   && typeof msg.error === 'string') {
+          setSocketNotice({ terminalId: msg.terminalId, message: msg.error });
         }
       } catch {
         // not JSON or not terminal message
@@ -273,7 +309,7 @@ export default memo(function TerminalContainer({
 
     ws.addEventListener('message', handler);
     return () => ws.removeEventListener('message', handler);
-  }, [ws, terminalId, handleTerminalOutput, handleTerminalGeometry, handleTerminalCleared, handleTerminalReady, handleTerminalClosed]);
+  }, [ws, terminalId, isPhone, handleTerminalOutput, handleTerminalGeometry, handleTerminalCleared, handleTerminalReady, handleTerminalClosed]);
 
   // Refit on visibility change
   useEffect(() => {
@@ -362,9 +398,27 @@ export default memo(function TerminalContainer({
     );
   }
 
+  // One compose draft, shown inline or in the full-screen overlay (never both).
+  const phoneInput = isPhone ? (
+    <PhoneTerminalInput
+      // Its send state (an error, a send in flight) belongs to this terminal:
+      // the container is reused when the panel switches session.
+      key={terminalId}
+      terminalId={terminalId}
+      sessionId={controlSessionId ?? null}
+      draft={phoneDraft}
+      onDraftChange={setPhoneDraft}
+      onKey={sendKeys}
+      socketNotice={phoneNotice}
+      onDismissSocketNotice={dismissPhoneNotice}
+      onOpenActions={openPhoneActions}
+      closed={terminalIsClosed}
+    />
+  ) : null;
+
   return (
     <div className={styles.wrapper} ref={rootRef}>
-      <TerminalToolbar
+      {!isPhone && <TerminalToolbar
         themeName={themeName}
         onThemeChange={handleThemeChange}
         onFullscreen={toggleFullscreen}
@@ -394,7 +448,7 @@ export default memo(function TerminalContainer({
         ttsActive={ttsActive}
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
-      />
+      />}
       {popup.active && originSessionId && (
         <SelectionPopup
           selection={popup.active}
@@ -424,7 +478,7 @@ export default memo(function TerminalContainer({
           <div
             ref={containerRef}
             className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}`}
-            style={{ minHeight: DEFAULT_MIN_HEIGHT }}
+            style={{ minHeight: isPhone ? PHONE_MIN_HEIGHT : DEFAULT_MIN_HEIGHT }}
           />
         </div>
         <div className={styles.mobileScrollOverlay}>
@@ -452,6 +506,28 @@ export default memo(function TerminalContainer({
           </button>
         </div>
       </div>
+      {isPhone && !isFullscreen && phoneInput}
+      {isPhone && (
+        <TerminalActionsSheet
+          open={phoneActionsOpen}
+          onClose={closePhoneActions}
+          onPaste={pasteToTerminal}
+          onScrollToBottom={scrollToBottom}
+          autoScrollEnabled={autoScrollEnabled}
+          onToggleAutoScroll={toggleAutoScroll}
+          widthMode={widthMode}
+          onToggleWidthMode={toggleWrapMode}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          onRefresh={refreshOutput}
+          onClear={clearOutput}
+          // Only as the toolbar offers it: reconnecting starts the agent again in
+          // a NEW terminal, so on a live one it would run a second agent.
+          onReconnect={showReconnect || terminalIsClosed ? onReconnect : undefined}
+          onFork={onFork}
+          onClone={onClone}
+        />
+      )}
       {/* Fullscreen overlay — always mounted, toggled via display.
           This avoids unmounting the portal while the xterm element is still inside it. */}
       {createPortal(
@@ -460,7 +536,19 @@ export default memo(function TerminalContainer({
           style={{ display: isFullscreen ? 'flex' : 'none' }}
         >
           <div className={styles.fullscreenTopbar}>
-            <TerminalToolbar
+            {isPhone ? (
+              <div className={phoneStyles.fsBar}>
+                <span className={phoneStyles.fsTitle}>Terminal</span>
+                <button
+                  type="button"
+                  className={phoneStyles.iconBtn}
+                  onClick={toggleFullscreen}
+                  aria-label="Leave full screen"
+                >
+                  <ExitFullscreenIcon />
+                </button>
+              </div>
+            ) : <TerminalToolbar
               themeName={themeName}
               onThemeChange={handleThemeChange}
               onFullscreen={toggleFullscreen}
@@ -484,7 +572,7 @@ export default memo(function TerminalContainer({
               restartPending={restartPending}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
-                                    />
+                                    />}
           </div>
           <div className={styles.fullscreenArea}>
             <div ref={fsContainerRef} className={styles.fullscreenContainer} />
@@ -513,6 +601,7 @@ export default memo(function TerminalContainer({
               </button>
             </div>
           </div>
+          {isPhone && isFullscreen && phoneInput}
         </div>,
         document.body,
       )}

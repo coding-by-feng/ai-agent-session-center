@@ -43,7 +43,9 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
-import { isNativeMobileApp } from '@/lib/platform';
+import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import MobileSessionHeader from '@/components/mobile/MobileSessionHeader';
+import CommandsUnavailable from '@/components/mobile/CommandsUnavailable';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -276,6 +278,7 @@ const TerminalContent = memo(function TerminalContent({
             onPopOut={terminalId && !isNativeMobileApp() ? handlePopOut : undefined}
             projectPath={projectPath}
             originSessionId={sessionId}
+            controlSessionId={sessionId}
           />
         )}
       </div>
@@ -519,6 +522,8 @@ export default function DetailPanel() {
   const navPosition = useUiStore((s) => s.navPosition);
   const maximized = useUiStore((s) => s.maximized);
   const setMaximized = useUiStore((s) => s.setMaximized);
+  // A phone gets its own session header (AASC-18) in place of the switcher's top row.
+  const isPhone = useIsMobile();
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -824,6 +829,14 @@ export default function DetailPanel() {
           isDisconnected={isDisconnected}
           onClose={minimizeDetailPanel}
           model={displaySession.model}
+          header={isPhone ? (
+            <MobileSessionHeader
+              key={displaySession.sessionId}
+              session={displaySession}
+              duration={durText}
+              onBack={minimizeDetailPanel}
+            />
+          ) : undefined}
           controls={
             <SessionControlBar
               session={displaySession}
@@ -909,6 +922,9 @@ export default function DetailPanel() {
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
           commandsContent={
+            // A paired phone never opens a plain shell on the Mac (AASC-28): say so
+            // instead of a terminal that can never connect.
+            isNativeMobileApp() ? <CommandsUnavailable /> :
             (displaySession.opsTerminalId || displaySession.hadOpsTerminal) ? (
               <OpsTerminalContent
                 sessionId={displaySession.sessionId}

@@ -6,10 +6,9 @@ import { useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
-import type { KillSessionResponse, ApiResponse } from '@/types';
 import Button from '@/components/ui/Button';
 import styles from '@/styles/modules/Modal.module.css';
-import { closeManagedTerminal } from '@/lib/terminalTransport';
+import { requestSessionKill } from '@/lib/sessionActions';
 
 export const KILL_MODAL_ID = 'kill-confirm';
 
@@ -34,46 +33,11 @@ export default function KillConfirmModal() {
   const handleConfirm = async () => {
     if (killing) return;
     setKilling(true);
-
     try {
-      const resp = await fetch(`/api/sessions/${selectedSessionId}/kill`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      });
-      const data: KillSessionResponse & ApiResponse & { killedPid?: number | null; stillAlivePid?: number } = await resp.json();
-      if (data.ok) {
-        const terminalId = data.terminalId === undefined ? session?.terminalId : data.terminalId;
-        if (terminalId) {
-          try {
-            await closeManagedTerminal(terminalId);
-          } catch {
-            showToast('Failed to close terminal', 'error');
-          }
-        }
-        // Distinguish "terminated a real process" from "no live process found" so
-        // we never claim a phantom kill ("PID N/A terminated").
-        const killedPid = data.killedPid ?? data.pid ?? null;
-        showToast(
-          data.processShared
-            ? 'Session terminal closed — shared Codex host left running'
-            : killedPid
-              ? `PID ${killedPid} terminated`
-              : 'Session closed — no running process found',
-          'success',
-        );
-        deselectSession();
-      } else {
-        // Server verified the process outlived SIGKILL — surface the survivor.
-        showToast(
-          data.stillAlivePid
-            ? `Failed to kill process ${data.stillAlivePid} — it survived SIGKILL`
-            : data.error || 'Kill failed',
-          'error',
-        );
-      }
-    } catch (err) {
-      showToast((err as Error).message, 'error');
+      const result = await requestSessionKill(selectedSessionId, session?.terminalId);
+      if (result.warning) showToast(result.warning, 'error');
+      showToast(result.message, result.ok ? 'success' : 'error');
+      if (result.ok) deselectSession();
     } finally {
       setKilling(false);
       closeModal();

@@ -1,0 +1,480 @@
+/* ============================================================
+   PhoneSession — a session on a phone (AASC-18): the header, the
+   actions sheets, the terminal's control banner, key bar and
+   compose box.
+   Only ever mounted under useIsMobile(), so nothing here needs a
+   media query of its own. Every control is a 44px target at least,
+   on the 8px grid; new text is --text-primary (the 4.5:1 rule).
+   ============================================================ */
+
+/* ---------- shared control face ---------- */
+
+.iconBtn,
+.key,
+.sendBtn,
+.toolsBtn,
+.bannerBtn,
+.sheetItem,
+.titleBtn {
+  font-family: inherit;
+  color: var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.iconBtn,
+.toolsBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.iconBtn:hover:not(:disabled),
+.toolsBtn:hover:not(:disabled) { background: var(--bg-subtle); }
+.iconBtn:active:not(:disabled),
+.toolsBtn:active:not(:disabled) { background: var(--bg-subtle-strong); transform: scale(0.96); }
+.iconBtn:focus-visible,
+.toolsBtn:focus-visible,
+.key:focus-visible,
+.sendBtn:focus-visible,
+.bannerBtn:focus-visible,
+.sheetItem:focus-visible,
+.titleBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+.iconBtn:disabled,
+.toolsBtn:disabled,
+.key:disabled,
+.sendBtn:disabled,
+.bannerBtn:disabled,
+.sheetItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- header ---------- */
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px 8px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-header, var(--bg-panel));
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.titleBtn {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: 48px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: text;
+}
+.titleBtn:hover { background: var(--bg-subtle); }
+.titleBtn:active { background: var(--bg-subtle-strong); }
+
+.title,
+.subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.subtitle {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.titleInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px keeps iOS from zooming the page when the field takes focus. */
+  font-size: 16px;
+}
+.titleInput:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+
+.primaryAction { flex: none; }
+.primaryAction > button { min-height: 44px; }
+
+/* Status, baton, interruption, plan and model: one swipeable line, never a page overflow. */
+.chipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.chipRow::-webkit-scrollbar { display: none; }
+.chipRow > * { flex: 0 0 auto; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chipLock { border-color: color-mix(in srgb, var(--accent-orange) 60%, transparent); }
+.chipDrive { border-color: color-mix(in srgb, var(--accent-green) 60%, transparent); }
+.chipWarn { border-color: color-mix(in srgb, var(--accent-yellow) 70%, transparent); }
+
+/* The plan-usage chip is a button (a tap syncs): its painted chip stays small,
+   its hit area grows to the row's 44px. */
+.planSlot { display: inline-flex; }
+.planSlot > button { position: relative; }
+.planSlot > button::after { content: ''; position: absolute; inset: -10px -4px; }
+
+/* ---------- actions sheets ---------- */
+
+.sheetSection + .sheetSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sheetHeading {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheetItem {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.sheetItem:hover:not(:disabled) { background: var(--bg-subtle); }
+.sheetItem:active:not(:disabled) { background: var(--bg-subtle-strong); transform: scale(0.99); }
+
+.sheetIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  color: var(--accent-text, var(--accent-cyan));
+}
+
+.sheetLabel { flex: 1 1 auto; min-width: 0; }
+
+/* A toggle's state, in words: the row is the switch, "On"/"Off" says where it is. */
+.sheetState {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sheetItem[aria-pressed='true'] .sheetState { color: var(--accent-text, var(--accent-cyan)); }
+
+.sheetDanger .sheetIcon { color: var(--accent-red); }
+.sheetDanger { color: var(--text-primary); }
+
+/* ---------- terminal on a phone ---------- */
+
+.phoneInput {
+  /* Above the viewer's floating page-up/down buttons (z 10), which overhang a
+     short terminal (a landscape phone) and must never cover these controls. */
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  padding: 8px 0 4px;
+  background: var(--bg-panel);
+}
+
+/* "<device> is driving this session" — above the compose box. */
+.banner,
+.notice,
+.composeRow { margin-inline: 4px; }
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-orange) 60%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-orange) 12%, var(--bg-panel));
+  color: var(--text-primary);
+}
+.bannerAsked {
+  border-color: color-mix(in srgb, var(--accent-cyan) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan) 12%, var(--bg-panel));
+}
+
+.bannerText {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.bannerNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.bannerActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bannerBtn {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--border-accent);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bannerBtn:hover:not(:disabled) { background: var(--bg-card-hover, var(--bg-subtle)); }
+.bannerBtn:active:not(:disabled) { transform: scale(0.98); background: var(--bg-subtle-strong); }
+.bannerPrimary {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 18%, var(--bg-card));
+}
+
+/* Why the last keystrokes went nowhere (409 AGENT_NOT_RUNNING / terminal_error). */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-red) 60%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-red) 10%, var(--bg-panel));
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 18px;
+}
+.noticeText { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+/* Esc Tab ↑ ↓ 1 2 3 Enter: one segmented bar, edge to edge like a keyboard's
+   accessory row. 8 × 44px fit a 360px screen (the tab gives up its side padding
+   for it, DetailPanel.module.css); narrower than that, the bar scrolls sideways
+   inside itself. Lines above and below, none at the sides: those 2px are what
+   make 360 fit. */
+.keyBar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(44px, 1fr);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-block: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+}
+.keyBar::-webkit-scrollbar { display: none; }
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  background: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.key:first-child { border-left: none; }
+.key:hover:not(:disabled) { background: var(--bg-subtle); }
+.key:active:not(:disabled) { background: var(--bg-accent, var(--bg-subtle-strong)); transform: scale(0.94); }
+.keyEnter { color: var(--accent-text, var(--accent-cyan)); }
+
+.composeRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 0;
+}
+
+.compose {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 120px;
+  padding: 11px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px: iOS zooms the page into any field set smaller. */
+  font-size: 16px;
+  line-height: 20px;
+  resize: none;
+  field-sizing: content;
+}
+.compose:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; border-color: transparent; }
+.compose:disabled { opacity: 0.6; cursor: not-allowed; }
+.compose::placeholder { color: var(--text-primary); opacity: 0.7; }
+
+.sendBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-cyan) 22%, var(--bg-card));
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sendBtn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 32%, var(--bg-card)); }
+.sendBtn:active:not(:disabled) { transform: scale(0.96); }
+
+/* Full screen on a phone: a bar with a way back, the keys and compose box below. */
+.fsBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: env(safe-area-inset-top, 0px) 8px 0;
+  box-sizing: border-box;
+}
+.fsTitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.fsActions { display: flex; gap: 4px; }
+
+/* COMMANDS in the phone app: a paired phone never opens a plain shell. */
+.unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  text-align: center;
+  color: var(--text-primary);
+}
+.unavailableTitle { margin: 0; font-size: 16px; font-weight: 700; }
+.unavailableText { margin: 0; max-width: 320px; font-size: 14px; line-height: 20px; }
+
+/* ---------- landscape: one row each, the terminal keeps the height ---------- */
+@media (max-height: 480px) {
+  /* Header: back · title · chips · actions in a single 48px row. */
+  .header { flex-direction: row; align-items: center; gap: 4px; padding: 0 8px; }
+  .headerRow { display: contents; }
+  .titleBtn { flex: 0 0 auto; max-width: 40%; min-height: 44px; padding: 0 8px; }
+  .subtitle { display: none; }
+  .chipRow { order: 1; flex: 1 1 auto; padding: 0 4px; }
+  .headerRow > .iconBtn:not(:first-child),
+  .headerRow > .primaryAction { order: 2; }
+
+  /* Keys and compose side by side; the banner a single row above them. */
+  .phoneInput { flex-flow: row wrap; align-items: center; gap: 8px; padding: 4px 0; }
+  .banner,
+  .notice { flex: 1 0 100%; }
+  .banner { flex-direction: row; align-items: center; flex-wrap: wrap; padding: 4px 8px; }
+  .bannerText { flex: 1 1 auto; min-width: 0; }
+  .bannerNote { display: none; }
+  .bannerActions { flex: 0 0 auto; grid-template-columns: auto auto; }
+  .bannerBtn { padding: 0 16px; }
+  .keyBar { flex: 0 0 auto; grid-auto-columns: 44px; border: 1px solid var(--border-subtle); border-radius: 8px; margin-left: 4px; }
+  .composeRow { flex: 1 1 240px; min-width: 0; margin-inline: 0 4px; }
+  .compose { max-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconBtn, .key, .sendBtn, .toolsBtn, .bannerBtn, .sheetItem, .titleBtn { transition: none; }
+  .iconBtn:active, .key:active, .sendBtn:active, .toolsBtn:active, .bannerBtn:active, .sheetItem:active { transform: none; }
+}

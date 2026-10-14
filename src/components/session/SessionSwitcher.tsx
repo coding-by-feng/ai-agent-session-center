@@ -101,13 +101,16 @@ interface Props {
   onClose?: () => void;
   controls?: React.ReactNode;
   model?: string;
+  /** Replaces the built-in top row (title, meta, controls): the phone's own
+   *  session header (AASC-18). The strip below is unchanged. */
+  header?: React.ReactNode;
 }
 
 export default function SessionSwitcher({
   currentSession, sessions, onSwitch,
   statusLabel, duration, isDisconnected,
   onClose,
-  controls, model,
+  controls, model, header,
 }: Props) {
   // Track sessions that finished work (transitioned to "waiting") but haven't been viewed
   const [attentionIds, setAttentionIds] = useState<Set<string>>(new Set());
@@ -594,7 +597,9 @@ export default function SessionSwitcher({
 
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
+      {header}
       {/* ── Top row: current session name + meta controls ── */}
+      {!header && (
       <div className={styles.switcherToggle}>
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
@@ -830,6 +835,7 @@ export default function SessionSwitcher({
           )}
         </div>
       </div>
+      )}
 
       {labelAnchor && (
         <LabelPicker

@@ -67,6 +67,9 @@ interface UseTerminalReturn {
   sendArrowUp: () => void;
   sendArrowDown: () => void;
   sendEnter: () => void;
+  /** Write raw keys to the active terminal without focusing it: the phone's key
+   *  bar (AASC-18), where focusing xterm would raise the on-screen keyboard. */
+  sendKeys: (data: string) => void;
   pasteToTerminal: () => void;
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
@@ -533,6 +536,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     widthRulesRef.current.mayDrivePty = mayDrive;
     setDeviceMayDrivePty(mayDrive);
   }, [isMobile, nativeApp]);
+  // Read by the file-link provider, installed once per terminal (AASC-18).
+  const isMobileRef = useRef(isMobile);
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
   /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */
@@ -991,6 +999,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                 activate(event: MouseEvent) {
                   const clean = filePath.replace(/^\.\//, '');
                   const pp = projectPathRef.current;
+                  // A phone opens the file in the app's viewer at once: the chooser's
+                  // other two choices (default app, Finder) act on the Mac, and a
+                  // paired phone may not call them (AASC-18).
+                  if (isMobileRef.current) {
+                    useUiStore.getState().openFileInProject(clean, pp || '');
+                    return;
+                  }
                   useUiStore.getState().openFileChooser(clean, pp || '', { x: event.clientX, y: event.clientY });
                 },
               });
@@ -1000,6 +1015,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         });
 
         term.open(container);
+
+        // On a phone the terminal is a viewer: typing goes through the compose box
+        // and key bar under it (AASC-18). Tapping the canvas (to select, or to open
+        // a link) must not raise the on-screen keyboard over it; a hardware
+        // keyboard still types, because the textarea still takes focus.
+        if (isMobileRef.current) term.textarea?.setAttribute('inputmode', 'none');
 
         // No auto-scroll tracking — terminal never auto-scrolls on output.
 
@@ -1420,6 +1441,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     activeRef.current.term.focus();
   }, []);
 
+  const sendKeys = useCallback((data: string) => {
+    if (!activeRef.current) return;
+    sendInput(wsRef.current, activeRef.current.terminalId, data);
+  }, []);
+
   const pasteToTerminal = useCallback(async () => {
     if (!activeRef.current) return;
     const { terminalId } = activeRef.current;
@@ -1779,6 +1805,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     sendArrowUp,
     sendArrowDown,
     sendEnter,
+    sendKeys,
     pasteToTerminal,
     refitTerminal,
     setTheme: setThemeFn,
