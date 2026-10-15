@@ -1,7 +1,9 @@
 // test/promptRouteWiring.test.ts — AASC-42: POST /api/sessions/:id/prompt wired as the server
 // wires it (promptWiring.ts): the real phone profile, apiRouter's visibility gate and device
-// binding, the control baton, the session store and the hook pipeline. Only the PTY layer is a
-// fake (sshManager is mocked): nothing is spawned, written to a real terminal or killed.
+// binding, the control baton, the session store and the hook pipeline. The PTY layer is a fake
+// (sshManager is mocked), the process monitor's scans and kills are switched off, and the
+// queue-image sweep runs on a scratch folder: nothing is spawned, written to a real terminal,
+// killed, or deleted from the Mac's own image folder.
 //
 // A remote device is a forwarding header on a loopback request (AASC-13 treats that as remote).
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
@@ -33,6 +35,27 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
     isOpsTerminal: () => false,
     getForegroundProcess: (id: string) => pty.fg.get(id) ?? null,
   };
+});
+
+// The session store starts the liveness monitor and the 20 s external-session scan on import;
+// neither may look at (or kill) a real process from a test.
+vi.mock('../server/processMonitor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/processMonitor.js')>();
+  return {
+    ...actual,
+    startMonitoring: vi.fn(), stopMonitoring: vi.fn(), startExternalDiscovery: vi.fn(), stopExternalDiscovery: vi.fn(),
+    findClaudeProcess: vi.fn(() => null), terminateProcessTree: vi.fn(async () => false),
+    reapPtyChildren: vi.fn(), listChildPids: vi.fn(() => []),
+  };
+});
+
+// apiRouter sweeps the queue-image folder when it loads: point it at a scratch folder.
+vi.mock('../server/queueImages.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/queueImages.js')>();
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  return { ...actual, QUEUE_IMAGES_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'aasc42-queue-images-')) };
 });
 
 import express from 'express';
@@ -101,6 +124,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   rmSync(tmp, { recursive: true, force: true });
+  const { QUEUE_IMAGES_DIR } = await import('../server/queueImages.js');
+  expect(QUEUE_IMAGES_DIR).toContain('aasc42-queue-images-');
+  rmSync(QUEUE_IMAGES_DIR, { recursive: true, force: true });
 });
 
 beforeEach(() => {

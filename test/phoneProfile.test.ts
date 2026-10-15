@@ -43,6 +43,16 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
   };
 });
 
+// apiRouter sweeps the queue-image folder when it loads, and an upload below writes to it:
+// keep both off the Mac's own folder.
+vi.mock('../server/queueImages.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/queueImages.js')>();
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  return { ...actual, QUEUE_IMAGES_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'aasc-phone-queue-images-')) };
+});
+
 import express from 'express';
 import { createServer, type Server } from 'http';
 import {
@@ -90,8 +100,10 @@ beforeAll(() => {
   mkdirSync(outside, { recursive: true });
 });
 
-afterAll(() => {
+afterAll(async () => {
   rmSync(tmp, { recursive: true, force: true });
+  const { QUEUE_IMAGES_DIR } = await import('../server/queueImages.js');
+  if (QUEUE_IMAGES_DIR.includes('aasc-phone-queue-images-')) rmSync(QUEUE_IMAGES_DIR, { recursive: true, force: true });
 });
 
 // ── The route table ──────────────────────────────────────────────────────────────────────────────────────
@@ -604,6 +616,7 @@ describe('a password sign-in keeps the dashboard’s full power', () => {
       expect(paths).toHaveLength(1);
       expect(res.json.ids).toEqual(paths.map((p) => basename(p)));
       expect((res.json.ids as string[]).every(isQueueImageId)).toBe(true);
+      expect(paths[0]).toContain('aasc-phone-queue-images-');
     } finally {
       for (const p of paths) rmSync(p, { force: true });
     }
