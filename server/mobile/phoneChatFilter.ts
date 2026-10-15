@@ -6,10 +6,10 @@
 // chat must not hand over the same content as a Read result or an Edit's new text. The phone
 // still sees that the agent touched the file, and which one, just not what was in it.
 //
-// Applied to paired phones only (the phone profile marks them); the Mac and a password sign-in see
-// all. The chat's page reader applies `phoneCallRedaction` to each call's RAW input, before the chat's
-// 2 KB cap, and to a result whose call came in an earlier page by looking that call up in the
-// transcript; a result whose call it can't find is hidden too (server/chat/transcriptPager.ts).
+// Applied by the phone profile to paired phones only; the Mac and a password sign-in see all. What
+// touched a secret file is decided by the chat's page reader, on each call's whole input and across
+// pages, and marked on the entries (server/chat/secretMarks.ts); this hides by those marks, and hides a
+// result whose call the reader couldn't find (fail closed, for phones only).
 
 import { pathLooksSecret } from './secretPaths.js';
 
@@ -22,49 +22,29 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 /** Argument names that hold the one file a tool reads or writes. */
 const PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const;
 
-/**
- * Files a patch touches: Codex's FileChange map, or `*** Add|Update|Delete File: x` lines anywhere in
- * a string (an apply_patch input, or a patch written inside an `exec` script, `\n` escapes and all).
- */
-const PATCH_FILE_RE = /\*\*\* (?:Add|Update|Delete) File: ([^\n\r"'`\\]+)/g;
-
-function patchPaths(input: unknown): string[] | null {
-  if (isRec(input) && isRec(input.changes)) return Object.keys(input.changes);
-  if (typeof input === 'string' && input.includes('*** Begin Patch')) {
-    return [...input.matchAll(PATCH_FILE_RE)].map((m) => m[1].trim());
-  }
-  return null;
+/** A tool_use whose input carries a secret file's content: which file(s) it was, not what was in them. */
+function redactedInput(entry: Rec): unknown {
+  const input = entry.input;
+  const field = isRec(input) ? PATH_FIELDS.find((f) => typeof input[f] === 'string') : undefined;
+  if (isRec(input) && field) return { [field]: input[field], redacted: true };
+  return { redacted: true, paths: Array.isArray(entry.editPaths) ? entry.editPaths : [] };
 }
 
-/** Characters split off between the words of a command, a script or an argument. */
-const WORD_BREAK_RE = /[\s'"`|;&<>()=,{}[\]]+/;
-/** How deep into nested arguments the check looks. */
-const MAX_DEPTH = 8;
-
-/**
- * Does any string in a call's input (a shell command as text or argv, Codex's `cmd` or
- * `action.command`, a script's code, any other argument) name a secret file or folder?
- */
-function mentionsSecret(value: unknown, depth = 0): boolean {
-  if (typeof value === 'string') return value.split(WORD_BREAK_RE).some((w) => w !== '' && pathLooksSecret(w));
-  if (depth >= MAX_DEPTH || value === null || typeof value !== 'object') return false;
-  const children = Array.isArray(value) ? value : Object.values(value);
-  return children.some((child) => mentionsSecret(child, depth + 1));
-}
-
-/**
- * What a phone may see of one tool call, judged on its raw input. Null: all of it. Otherwise its
- * result is hidden, and `input`, when set, replaces what the call showed (the content of an edit or a
- * patch to a secret file). A command that merely names one stays visible: it is what ran.
- */
-export function phoneCallRedaction(input: unknown): { input?: unknown } | null {
-  const patch = patchPaths(input);
-  if (patch && patch.some(pathLooksSecret)) return { input: { redacted: true, paths: patch } };
-  if (isRec(input)) {
-    const field = PATH_FIELDS.find((f) => typeof input[f] === 'string');
-    if (field && pathLooksSecret(input[field] as string)) return { input: { [field]: input[field], redacted: true } };
-  }
-  return mentionsSecret(input) ? {} : null;
+/** `GET /sessions/:id/chat` for a phone: secret files' content replaced, everything else as is. */
+export function filterPhoneChatAnswer(body: unknown): unknown {
+  if (!isRec(body) || !isRec(body.data) || !Array.isArray(body.data.entries)) return body;
+  const entries = body.data.entries.map((raw: unknown) => {
+    if (!isRec(raw)) return raw;
+    if (raw.kind === 'tool_use' && raw.secretInput === true) {
+      const { inputTruncated: _cut, ...rest } = raw;
+      return { ...rest, input: redactedInput(raw) };
+    }
+    if (raw.kind === 'tool_result' && (raw.secret === true || raw.callUnknown === true)) {
+      return { ...raw, output: HIDDEN_ON_PHONES, truncated: false };
+    }
+    return raw;
+  });
+  return { ...body, data: { ...body.data, entries } };
 }
 
 /**

@@ -66,6 +66,15 @@ export interface ChatToolUseEntry extends ChatEntryBase {
   input: unknown;
   /** `input` went over its cap: long strings were cut, or it became a cut JSON string. */
   inputTruncated?: boolean;
+  /**
+   * The call touched a secret file (`.env`, `~/.ssh`, keys…; server/mobile/secretPaths.ts), judged on
+   * its whole input. Only marked here: a paired phone gets it redacted, everyone else as is.
+   */
+  secret?: boolean;
+  /** …and its input carries that file's content (a read, an edit or a patch of it). */
+  secretInput?: boolean;
+  /** With `secretInput`: every file the call reads or edits (all of a patch's files). */
+  editPaths?: string[];
 }
 
 export interface ChatToolResultEntry extends ChatEntryBase {
@@ -75,6 +84,10 @@ export interface ChatToolResultEntry extends ChatEntryBase {
   /** At most 4 KB of text; images appear as `[image]`. */
   output: string;
   truncated: boolean;
+  /** Its call touched a secret file (see ChatToolUseEntry.secret). */
+  secret?: boolean;
+  /** Its call wasn't found (not on this page, nor within the reader's lookback): what it touched is unknown. */
+  callUnknown?: boolean;
 }
 
 export interface ChatTodoItem {

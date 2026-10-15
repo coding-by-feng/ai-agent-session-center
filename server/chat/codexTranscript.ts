@@ -19,7 +19,7 @@
 import type { ChatSystemKind } from '../../src/types/chat.js';
 import { capName, cappedText, todoItems, toolResultDraft, toolUseDraft, type ChatEntryDraft } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
-import type { RawCall } from './callRedaction.js';
+import type { RawCall } from './secretMarks.js';
 
 type Rec = Record<string, unknown>;
 

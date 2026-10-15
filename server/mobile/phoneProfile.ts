@@ -29,6 +29,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
 import { HOME_SECRET_SEGMENTS, segmentLooksSecret } from './secretPaths.js';
+import { filterPhoneChangesAnswer, filterPhoneChatAnswer } from './phoneChatFilter.js';
 
 /** The one permission set a paired phone has. The desktop shows it next to each phone. */
 export const PHONE_ACCESS = 'sessions-only' as const;
@@ -351,20 +352,6 @@ export interface PhoneProfileDeps {
 
 const NOT_FOUND = { error: 'Not found', code: 'PHONE_NOT_ALLOWED' } as const;
 
-/** Where the profile records, for the routes after it, which paired phone a request came from. */
-const PAIRED_PHONE = 'aascPairedPhone';
-
-/** Record that this request came from paired phone `phone` (the profile does, for each one it lets through). */
-export function markPairedPhone(res: Response, phone: string): void {
-  res.locals[PAIRED_PHONE] = phone;
-}
-
-/** The paired phone a request came from, as the profile recorded it; null for the Mac or a password sign-in. */
-export function pairedPhoneOf(res: Response): string | null {
-  const phone: unknown = res.locals[PAIRED_PHONE];
-  return typeof phone === 'string' && phone !== '' ? phone : null;
-}
-
 export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   const home = deps.home ?? homedir();
   const now = deps.now ?? Date.now;
@@ -463,9 +450,14 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const json = res.json.bind(res);
         res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
       }
-      // Routes downstream ask who this is: the chat and its edits hide secret files' content
-      // from a phone (phoneChatFilter.ts, applied by server/chat/chatRouter.ts).
-      markPairedPhone(res, phone);
+      // The chat and its edits show what the agent read and wrote: never a secret file's content.
+      // The chat's reader marks what touched one (server/chat/secretMarks.ts); this hides by the marks.
+      const chatRoute = /^\/sessions\/[^/]+\/(chat|changes)(?:\/[^/]+)?\/?$/.exec(req.path);
+      if (rule === 'allow' && req.method === 'GET' && chatRoute) {
+        const json = res.json.bind(res);
+        const filter = chatRoute[1] === 'chat' ? filterPhoneChatAnswer : filterPhoneChangesAnswer;
+        res.json = (body: unknown) => json(filter(body));
+      }
       next();
       return;
     }

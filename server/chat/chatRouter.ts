@@ -15,9 +15,10 @@
  * `fileIndex` is a file's index in `files` (newest edit first), so a client re-reads the list when
  * the session edits again.
  *
- * A paired phone (the phone profile marks it) never gets a secret file's content: the page reader
- * redacts calls and their results with `phoneCallRedaction`, across pages, and the edits keep a
- * secret file listed but marked `redacted`, without hunks (server/mobile/phoneChatFilter.ts).
+ * Every page marks the tool calls that touched a secret file and their results (`secret`,
+ * `callUnknown`; secretMarks.ts), judged on the calls' whole input and across pages. The content is
+ * the same for everyone: the phone profile hides what a paired phone may not see by those marks, and
+ * keeps a secret file in the edits list marked `redacted`, without hunks (phoneChatFilter.ts).
  *
  * Mounted on the `/api` chain BEFORE the main API router, so it can't lean on that router's
  * `/sessions/:id` visibility gate: each route applies the same rule itself (a remote device sees only
@@ -38,9 +39,6 @@ import { CursorError } from './transcriptPager.js';
 import { locateTranscript, transcriptCliOf, type LocatorSession } from './transcriptLocator.js';
 import { buildSessionChanges } from './sessionChanges.js';
 import type { ChangesSnapshot } from './changeSet.js';
-import type { CallRedactor } from './callRedaction.js';
-import { pairedPhoneOf } from '../mobile/phoneProfile.js';
-import { HIDDEN_ON_PHONES, filterPhoneChangesAnswer, phoneCallRedaction } from '../mobile/phoneChatFilter.js';
 
 export interface ChatRouterDeps {
   getSession(sessionId: string): Session | null | undefined;
@@ -56,13 +54,6 @@ const pageQuery = z
 const fileIndex = z.string().regex(/^\d{1,4}$/).transform(Number);
 
 const NOT_FOUND = { success: false, error: 'Session not found' } as const;
-
-/** What a paired phone may not see of the files an agent touched. */
-const PHONE_REDACTOR: CallRedactor = { call: phoneCallRedaction, hiddenOutput: HIDDEN_ON_PHONES };
-
-/** The answer as this device may see it: a phone's edits never carry a secret file's hunks. */
-const forDevice = (res: Response, body: { success: true; data: unknown }): unknown =>
-  (pairedPhoneOf(res) ? filterPhoneChangesAnswer(body) : body);
 
 /** Errors that mean "the file went away between finding and reading it". */
 const isMissingFile = (err: unknown): boolean =>
@@ -99,7 +90,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
       const read = location.cli === 'codex' ? readCodexChatPage : readClaudeChatPage;
-      const page = await read(location.path, { ...query.data, ...(pairedPhoneOf(res) ? { redact: PHONE_REDACTOR } : {}) });
+      const page = await read(location.path, { ...query.data, markSecrets: true });
       const data: ChatPage = { ...page, cli: location.cli };
       res.json({ success: true, data });
     } catch (err) {
@@ -139,7 +130,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         cli: transcriptCliOf(session),
         ...(changes?.truncated ? { truncated: true } : {}),
       };
-      res.json(forDevice(res, { success: true, data }));
+      res.json({ success: true, data });
     } catch (err) {
       log.warn('api', `changes read failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read what this session changed' });
@@ -158,7 +149,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         res.status(404).json({ success: false, error: 'No such file in this session’s changes' });
         return;
       }
-      res.json(forDevice(res, { success: true, data: file }));
+      res.json({ success: true, data: file });
     } catch (err) {
       log.warn('api', `changes read failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read what this session changed' });

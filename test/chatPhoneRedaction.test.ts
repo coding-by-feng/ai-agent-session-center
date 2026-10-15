@@ -3,7 +3,7 @@
 // a result whose call came in an earlier response (a live `after=` read, a page boundary) went out whole; and
 // it read only `input.command`, missing Codex's `cmd`, `action.command` and script tools.
 //
-// Synthetic transcripts in temp dirs; a header stands in for the phone profile marking a paired phone.
+// Synthetic transcripts in temp dirs; the phone profile's phoneOf reads a test header.
 import { mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -12,7 +12,7 @@ import express from 'express';
 import { createChatRouter } from '../server/chat/chatRouter.js';
 import { resetTranscriptLocatorCache } from '../server/chat/transcriptLocator.js';
 import { HIDDEN_ON_PHONES } from '../server/mobile/phoneChatFilter.js';
-import { markPairedPhone } from '../server/mobile/phoneProfile.js';
+import { createPhoneProfile } from '../server/mobile/phoneProfile.js';
 import type { ChatPage, ChatEntry } from '../src/types/chat.js';
 import { appendJsonl, claude, codex, tempDir, writeJsonl } from './chatFixtures.js';
 
@@ -42,12 +42,19 @@ beforeAll(async () => {
   sessions.set(CODEX_ID, { sessionId: CODEX_ID, cliSource: 'codex', projectPath: '/proj', remoteVisible: true });
 
   const app = express();
-  // Stands in for the phone profile, which records the paired phone on every request it lets through.
-  app.use((req, res, next) => {
-    if (req.headers['x-test-phone'] === '1') markPairedPhone(res, 'dev-phone-test');
-    next();
-  });
-  app.use('/api', createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null }));
+  // Mounted as server/index.ts mounts them: the phone profile (here a header names the paired phone), then
+  // the chat router, whose reader marks what touched a secret file for the profile to hide.
+  app.use('/api', createPhoneProfile({
+    phoneOf: (req) => (req.headers['x-test-phone'] === '1' ? 'dev-phone-test' : null),
+    sharedProjectPaths: () => [],
+    knownProjectPaths: () => [],
+    isOpsTerminal: () => false,
+    isSharedSession: () => true,
+    sessionOfTerminal: () => null,
+    terminalOfSession: () => null,
+    foregroundProcess: () => null,
+    home: join(tmp, 'home'),
+  }), createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null }));
   server = createServer(app);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
@@ -109,10 +116,10 @@ describe('a result whose call is not in the same response', () => {
     expect(JSON.stringify(newest)).not.toContain('abc-secret');
   });
 
-  it('is hidden when its call can’t be found at all (fail closed), and shown to the Mac', async () => {
+  it('is hidden on a phone when its call can’t be found at all (fail closed), and shown to the Mac', async () => {
     const s = claudeSession([claude.result('ghost', 'what was this?')]);
     expect(results(await page(s.id))[0].output).toBe(HIDDEN_ON_PHONES);
-    expect(results(await page(s.id, '', {}))[0].output).toBe('what was this?');
+    expect(results(await page(s.id, '', {}))[0]).toMatchObject({ output: 'what was this?', callUnknown: true });
   });
 
   it('is shown when its call, found earlier in the file, touched nothing secret', async () => {
@@ -171,11 +178,11 @@ describe('what counts as touching a secret file', () => {
     expect(JSON.stringify(p)).not.toContain('sk-999');
   });
 
-  it('leaves the Mac every byte', async () => {
+  it('leaves the Mac every byte, only marked', async () => {
     const s = claudeSession([claude.call('t1', 'Read', { file_path: '/proj/.env' }), claude.result('t1', 'API_KEY=sk-mac')]);
     const p = await page(s.id, '', {});
-    expect(uses(p)[0].input).toEqual({ file_path: '/proj/.env' });
-    expect(results(p)[0].output).toBe('API_KEY=sk-mac');
+    expect(uses(p)[0]).toMatchObject({ input: { file_path: '/proj/.env' }, secret: true });
+    expect(results(p)[0]).toMatchObject({ output: 'API_KEY=sk-mac', secret: true });
   });
 });
 

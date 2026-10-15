@@ -1,9 +1,15 @@
 // phoneChatFilter.test.ts — a paired phone reads a shared session's chat and edits, but never the
 // content of a secret file the agent touched (AASC-41 / AASC-44, the rule AASC-28 set for files).
 import { describe, it, expect } from 'vitest';
-import { filterPhoneChangesAnswer, phoneCallRedaction } from '../server/mobile/phoneChatFilter.js';
+import { filterPhoneChatAnswer, filterPhoneChangesAnswer } from '../server/mobile/phoneChatFilter.js';
 import { pathLooksSecret } from '../server/mobile/secretPaths.js';
 
+const HIDDEN = '[Hidden on phones: this touched a secret file]';
+
+function chat(entries: unknown[]): unknown {
+  return { success: true, data: { entries, before: 'b', after: 'a', cli: 'claude', hasMore: false } };
+}
+const entriesOf = (body: unknown) => (body as { data: { entries: Array<Record<string, unknown>> } }).data.entries;
 
 describe('pathLooksSecret', () => {
   it.each([
@@ -16,46 +22,64 @@ describe('pathLooksSecret', () => {
     'lets %s through', (p) => expect(pathLooksSecret(p)).toBe(false));
 });
 
-describe('phoneCallRedaction', () => {
+// Entries as the chat's page reader marks them (server/chat/secretMarks.ts): the filter hides by the marks.
+describe('filterPhoneChatAnswer', () => {
   it('hides what a Read of a secret file returned, keeping which file it was', () => {
-    expect(phoneCallRedaction({ file_path: '/Users/me/app/.env' })).toEqual({ input: { file_path: '/Users/me/app/.env', redacted: true } });
+    const out = entriesOf(filterPhoneChatAnswer(chat([
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Read', input: { file_path: '/Users/me/app/.env' }, secret: true, secretInput: true, editPaths: ['/Users/me/app/.env'] },
+      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 't1', isError: false, output: 'API_KEY=sk-123', truncated: false, secret: true },
+    ])));
+    expect(out[0].input).toEqual({ file_path: '/Users/me/app/.env', redacted: true });
+    expect(out[1]).toMatchObject({ output: HIDDEN, truncated: false });
   });
 
   it('hides the content of an edit or a write to a secret file', () => {
-    expect(phoneCallRedaction({ file_path: 'creds/server.key', old_string: 'a', new_string: 'SECRET' }))
-      .toEqual({ input: { file_path: 'creds/server.key', redacted: true } });
-    expect(phoneCallRedaction({ file_path: '/Users/me/.ssh/config', content: 'Host x' }))
-      .toEqual({ input: { file_path: '/Users/me/.ssh/config', redacted: true } });
+    const out = entriesOf(filterPhoneChatAnswer(chat([
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Edit', input: { file_path: 'creds/server.key', old_string: 'a', new_string: 'SECRET' }, secret: true, secretInput: true, editPaths: ['creds/server.key'] },
+      { kind: 'tool_use', key: '2:0', timestamp: 2, id: 't2', name: 'Write', input: { file_path: '/Users/me/.ssh/config', content: 'Host x' }, inputTruncated: true, secret: true, secretInput: true, editPaths: ['/Users/me/.ssh/config'] },
+    ])));
+    expect(out[0].input).toEqual({ file_path: 'creds/server.key', redacted: true });
+    expect(out[1].input).toEqual({ file_path: '/Users/me/.ssh/config', redacted: true });
+    expect(out[1]).not.toHaveProperty('inputTruncated');
   });
 
   it('hides what a shell command printed when it names a secret file, but keeps the command', () => {
-    expect(phoneCallRedaction({ command: 'cat .env | grep KEY' })).toEqual({});
-    expect(phoneCallRedaction({ command: ['bash', '-lc', 'cat ~/.aws/credentials'] })).toEqual({});
+    const out = entriesOf(filterPhoneChatAnswer(chat([
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Bash', input: { command: 'cat .env | grep KEY' }, secret: true },
+      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 't1', isError: false, output: 'KEY=abc', truncated: false, secret: true },
+      { kind: 'tool_use', key: '3:0', timestamp: 3, id: 't2', name: 'exec_command', input: { cmd: 'cat ~/.aws/credentials' }, secret: true },
+      { kind: 'tool_result', key: '4:0', timestamp: 4, toolUseId: 't2', isError: false, output: 'aws_secret=1', truncated: false, secret: true },
+    ])));
+    expect(out[0].input).toEqual({ command: 'cat .env | grep KEY' });
+    expect(out[1].output).toBe(HIDDEN);
+    expect(out[2].input).toEqual({ cmd: 'cat ~/.aws/credentials' });
+    expect(out[3].output).toBe(HIDDEN);
   });
 
-  it('reads Codex’s cmd and action.command, script code and any other argument', () => {
-    expect(phoneCallRedaction({ cmd: 'cat .env', workdir: '/p' })).toEqual({});
-    expect(phoneCallRedaction({ type: 'exec', command: ['bash', '-lc', 'cat ~/.ssh/config'] })).toEqual({});
-    expect(phoneCallRedaction('const r = await tools.exec_command({ cmd: "grep KEY .env.local" });')).toEqual({});
-    expect(phoneCallRedaction({ code: 'await fs.readFile("config/credentials.json")', title: 'Read' })).toEqual({});
-    expect(phoneCallRedaction({ server: 'fs', arguments: { target: { file: '/Users/me/.aws/credentials' } } })).toEqual({});
+  it('hides a Codex patch that touches a secret file, in either form', () => {
+    const out = entriesOf(filterPhoneChatAnswer(chat([
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 'c1', name: 'apply_patch', input: { changes: { '/Users/me/app/.env': { add: 'X=1' }, '/Users/me/app/a.ts': { add: 'y' } } }, secret: true, secretInput: true, editPaths: ['/Users/me/app/.env', '/Users/me/app/a.ts'] },
+      { kind: 'tool_use', key: '2:0', timestamp: 2, id: 'c2', name: 'exec', input: 'await tools.apply_patch("*** Begin Patch\\n*** Update File: config/credentials.json…', inputTruncated: true, secret: true, secretInput: true, editPaths: ['config/credentials.json'] },
+    ])));
+    expect(out[0].input).toEqual({ redacted: true, paths: ['/Users/me/app/.env', '/Users/me/app/a.ts'] });
+    expect(out[1].input).toEqual({ redacted: true, paths: ['config/credentials.json'] });
   });
 
-  it('hides a Codex patch that touches a secret file, in any form', () => {
-    expect(phoneCallRedaction({ changes: { '/Users/me/app/.env': { add: 'X=1' }, '/Users/me/app/a.ts': { add: 'y' } } }))
-      .toEqual({ input: { redacted: true, paths: ['/Users/me/app/.env', '/Users/me/app/a.ts'] } });
-    expect(phoneCallRedaction('*** Begin Patch\n*** Update File: config/credentials.json\n+token\n*** End Patch'))
-      .toEqual({ input: { redacted: true, paths: ['config/credentials.json'] } });
-    // A patch written inside an exec script, its newlines as \n escapes.
-    expect(phoneCallRedaction('await tools.apply_patch("*** Begin Patch\\n*** Add File: /p/.env\\n+S=1\\n*** End Patch");'))
-      .toEqual({ input: { redacted: true, paths: ['/p/.env'] } });
+  it('hides a result whose call the reader couldn’t find (fail closed)', () => {
+    const out = entriesOf(filterPhoneChatAnswer(chat([
+      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 'gone', isError: false, output: 'who knows', truncated: false, callUnknown: true },
+    ])));
+    expect(out[0]).toMatchObject({ output: HIDDEN, truncated: false });
   });
 
-  it('leaves ordinary tool calls alone', () => {
-    expect(phoneCallRedaction({ file_path: 'src/app.ts' })).toBeNull();
-    expect(phoneCallRedaction({ command: 'npm test -- src/env.test.ts' })).toBeNull();
-    expect(phoneCallRedaction('*** Begin Patch\n*** Update File: src/a.ts\n+x\n*** End Patch')).toBeNull();
-    expect(phoneCallRedaction(undefined)).toBeNull();
+  it('leaves unmarked tool calls, prose and other answers alone', () => {
+    const entries = [
+      { kind: 'user', key: '0:0', timestamp: 0, text: 'fix the build, see .env' },
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Read', input: { file_path: 'src/app.ts' } },
+      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 't1', isError: false, output: 'export {}', truncated: false },
+    ];
+    expect(entriesOf(filterPhoneChatAnswer(chat(entries)))).toEqual(entries);
+    expect(filterPhoneChatAnswer({ success: false, error: 'x' })).toEqual({ success: false, error: 'x' });
   });
 });
 

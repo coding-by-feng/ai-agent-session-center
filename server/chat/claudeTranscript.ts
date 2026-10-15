@@ -24,7 +24,7 @@ import {
   type ChatEntryDraft,
 } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
-import type { RawCall } from './callRedaction.js';
+import type { RawCall } from './secretMarks.js';
 
 type Rec = Record<string, unknown>;
 
