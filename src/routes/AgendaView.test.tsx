@@ -94,7 +94,7 @@ describe('AgendaView — groups', () => {
 });
 
 describe('AgendaTaskCard', () => {
-  it('is one line when the task has no tags, date or details — add-tag is in the icon group', () => {
+  it('has no footer when the task has no tags, date or details — add-tag is in the icon group', () => {
     seed([task('a')]);
     render(<AgendaView />);
     const card = screen.getByText('Task a').closest('[data-task-id]') as HTMLElement;
@@ -118,6 +118,33 @@ describe('AgendaTaskCard', () => {
     expect(select).toHaveValue('urgent');
     fireEvent.change(select, { target: { value: 'low' } });
     expect(actions.updateTask).toHaveBeenCalledWith('a', { priority: 'low' });
+  });
+
+  it('reads head first: priority and icons, then the title, then the footer', () => {
+    seed([task('a', { tags: ['health'] })]);
+    render(<AgendaView />);
+    const card = screen.getByText('Task a').closest('[data-task-id]') as HTMLElement;
+    const order = [
+      screen.getByRole('combobox', { name: 'Priority of "Task a"' }),
+      screen.getByRole('button', { name: 'Delete "Task a"' }),
+      screen.getByRole('button', { name: 'Task a' }),
+      card.querySelector('[data-task-meta]') as HTMLElement,
+    ];
+    for (let i = 1; i < order.length; i++) {
+      // DOCUMENT_POSITION_FOLLOWING: each comes after the one before it
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('lets the delete confirm take the whole head row, and gives it back on Cancel', () => {
+    seed([task('a')]);
+    render(<AgendaView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete "Task a"' }));
+    // at the card's minimum width the confirm does not fit beside the priority control
+    expect(screen.queryByRole('combobox', { name: 'Priority of "Task a"' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Delete "Task a"?' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('combobox', { name: 'Priority of "Task a"' })).toBeTruthy();
   });
 
   it('edits the title from a keyboard-reachable button', () => {

@@ -38,36 +38,16 @@
  *     disabled (we don't have a directory to search).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 // `useRef` is still used for the debounce timer ref.
-import {
-  fetchCommandIndex,
-  filterAndGroup,
-  entryToken,
-  entryDisplayName,
-  type CommandEntry,
-  type CommandGroup,
-} from '@/lib/commandIndex';
-import { menuShortcuts, type MenuShortcuts } from '@/lib/commandShortcuts';
+import { fetchCommandIndex } from '@/lib/commandIndex';
+import { buildCommandMenu, type CommandMenuItem } from '@/lib/commandMenu';
 import { parseTrigger, type TriggerType } from '@/lib/autocompleteTrigger';
 import { detectCli } from '@/lib/cliDetect';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
-import { lookupNote, type SkillNotes } from '@/lib/skillNotes';
-import styles from '@/styles/modules/AutocompleteTextarea.module.css';
+import CommandMenuDropdown from './CommandMenuDropdown';
 
-interface AcItem {
-  label: string;
-  insert: string;
-  sub?: string;
-  /** Shortcut link: `→ /target` on a shortcut command, `shortcut /alias` on its target. */
-  hint?: string;
-  /** Drives the icon shown before the label. */
-  kind?: 'command' | 'skill' | 'file';
-  /** The user's own note on this skill (favourite, abbreviation). */
-  fav?: boolean;
-  abbr?: string;
-}
+type AcItem = CommandMenuItem;
 
 interface AcMenu {
   type: TriggerType;
@@ -109,66 +89,6 @@ interface AutocompleteTextareaProps {
 }
 
 const DROPDOWN_MIN_DOWN_HEIGHT = 220;
-
-/** Shortcut links over the CLI's whole index — see src/lib/commandShortcuts.ts. */
-function shortcutsFor(entries: readonly CommandEntry[]): MenuShortcuts {
-  return menuShortcuts(entries.map((e) => ({
-    name: entryDisplayName(e),
-    description: e.description,
-    token: entryToken(e),
-    kind: e.kind,
-  })));
-}
-
-function commandEntriesToMenu(groups: CommandGroup[], shortcuts: MenuShortcuts, notes: SkillNotes): {
-  items: AcItem[];
-  groupSpans: Array<{ title: string; startIdx: number; count: number }>;
-} {
-  const items: AcItem[] = [];
-  const groupSpans: Array<{ title: string; startIdx: number; count: number }> = [];
-  for (const g of groups) {
-    const startIdx = items.length;
-    for (const e of g.entries) {
-      // `entryToken` owns the sigil so a Codex skill inserts `$name` while
-      // everything else inserts `/name` — deriving it per entry keeps the two
-      // menus from ever disagreeing with what the CLI accepts.
-      const token = entryToken(e);
-      const name = entryDisplayName(e);
-      const hint = shortcuts.hintFor(name);
-      const note = lookupNote(notes, e.cli, name);
-      items.push({
-        label: token,
-        insert: token,
-        sub: shortcuts.subFor(name, e.description) || (e.kind === 'skill' ? 'skill' : 'command'),
-        ...(hint ? { hint } : {}),
-        kind: e.kind,
-        ...(note?.fav ? { fav: true } : {}),
-        ...(note?.abbr ? { abbr: note.abbr } : {}),
-      });
-    }
-    if (items.length > startIdx) {
-      groupSpans.push({ title: g.title, startIdx, count: items.length - startIdx });
-    }
-  }
-  return { items, groupSpans };
-}
-
-/**
- * Merge the group lists of several `filterAndGroup` passes, preserving the
- * first list's group order and concatenating entries that share a title.
- */
-function mergeGroups(lists: CommandGroup[][]): CommandGroup[] {
-  const merged = new Map<string, CommandGroup>();
-  const order: string[] = [];
-  for (const g of lists.flat()) {
-    if (!merged.has(g.title)) {
-      merged.set(g.title, { title: g.title, source: g.source, entries: [] });
-      order.push(g.title);
-    }
-    merged.get(g.title)!.entries.push(...g.entries);
-  }
-  return order.map((k) => merged.get(k)!);
-}
 
 function sessionCli(sessionId: string): 'claude' | 'codex' {
   const session = useSessionStore.getState().sessions.get(sessionId);
@@ -256,17 +176,8 @@ export default function AutocompleteTextarea({
         );
         void (async () => {
           const entries = await fetchCommandIndex(cli, projectPath ?? null);
-          // `/` on Codex lists prompts only — its skills are `$`-invocable, so
-          // offering them here would queue a prompt the CLI silently ignores.
-          // Claude reaches both tiers through `/`, commands first.
-          const kinds: Array<'command' | 'skill'> =
-            menuType === 'skill' ? ['skill'] : cli === 'codex' ? ['command'] : ['command', 'skill'];
           const notes = useSkillNotesStore.getState().notes;
-          const { items, groupSpans } = commandEntriesToMenu(
-            mergeGroups(kinds.map((k) => filterAndGroup(entries, trigger.query, k, notes))),
-            shortcutsFor(entries),
-            notes,
-          );
+          const { items, groupSpans } = buildCommandMenu(entries, trigger.query, menuType, cli, notes);
           setAcMenu((prev) =>
             prev && prev.type === menuType && prev.triggerStart === trigger.triggerStart
               ? { ...prev, items, groups: groupSpans, selectedIdx: 0 }
@@ -424,14 +335,6 @@ export default function AutocompleteTextarea({
     // when the textarea element is mounted.
   }, [acMenu, textarea]);
 
-  const headerAt = useMemo(() => {
-    const map = new Map<number, string>();
-    if (acMenu?.groups) {
-      for (const g of acMenu.groups) map.set(g.startIdx, g.title);
-    }
-    return map;
-  }, [acMenu]);
-
   return (
     <>
       <textarea
@@ -456,43 +359,15 @@ export default function AutocompleteTextarea({
         aria-label={ariaLabel}
         disabled={disabled}
       />
-      {acMenu && acMenu.items.length > 0 && dropdownStyle && createPortal(
-        <div className={styles.acDropdown} style={dropdownStyle}>
-          {acMenu.items.map((item, i) => (
-            <div key={`row-${i}-${item.insert}`}>
-              {headerAt.has(i) && (
-                <div className={styles.acGroupHeader}>{headerAt.get(i)}</div>
-              )}
-              <div
-                className={`${styles.acItem}${
-                  i === acMenu.selectedIdx ? ` ${styles.acItemSelected}` : ''
-                }`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertItem(item);
-                }}
-              >
-                {item.kind && (
-                  <span className={styles.acKindIcon}>
-                    {item.kind === 'skill' ? '★' : item.kind === 'file' ? '@' : '▸'}
-                  </span>
-                )}
-                <span className={styles.acLabel}>{item.label}</span>
-                {item.fav && <span className={styles.acFav} role="img" aria-label="Favourite" title="Favourite">♥</span>}
-                {item.abbr && <span className={styles.acAbbr} title={`Abbreviation: ${item.abbr}`}>{item.abbr}</span>}
-                {item.hint && <span className={styles.acHint} title={item.hint}>{item.hint}</span>}
-                {item.sub && <span className={styles.acSub}>{item.sub}</span>}
-              </div>
-            </div>
-          ))}
-          <div className={styles.acFooter}>
-            <span>
-              {acMenu.items.length} match{acMenu.items.length === 1 ? '' : 'es'}
-            </span>
-            <span>↑↓ navigate · Enter select · Esc close</span>
-          </div>
-        </div>,
-        document.body,
+      {acMenu && acMenu.items.length > 0 && dropdownStyle && (
+        <CommandMenuDropdown
+          items={acMenu.items}
+          groups={acMenu.groups}
+          selectedIdx={acMenu.selectedIdx}
+          style={dropdownStyle}
+          onPick={insertItem}
+          keysHint="↑↓ navigate · Enter select · Esc close"
+        />
       )}
     </>
   );

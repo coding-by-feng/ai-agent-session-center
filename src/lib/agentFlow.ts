@@ -47,6 +47,8 @@ export interface FlowLogRow {
   /** What went wrong, for a failed call that recorded it. */
   error?: string;
   failed?: boolean;
+  /** The leader's subagent run this row belongs to (its calls, its start and finish). */
+  agentId?: string;
 }
 
 export interface AgentFlow {
@@ -71,6 +73,23 @@ export const AGENT_GAP_PX = 16;
 export const LOG_LIMIT = 60;
 /** Finished agents kept on the diagram; the log still has all of them. */
 export const MAX_FINISHED_CARDS = 6;
+
+/** How each state reads on a card and in the detail view; the glyph carries the colour. */
+export const AGENT_STATE_LABEL: Record<AgentState, string> = {
+  working: 'working',
+  attention: 'waiting on you',
+  idle: 'idle',
+  done: 'done',
+  ended: 'ended',
+};
+
+export const AGENT_STATE_GLYPH: Record<AgentState, string> = {
+  working: '●',
+  attention: '◐',
+  idle: '○',
+  done: '✓',
+  ended: '–',
+};
 
 const LEADER_LOG_NAME = 'leader';
 const UNKNOWN_SUBAGENT_NAME = 'subagent';
@@ -163,12 +182,13 @@ function visibleAgents(all: AgentNode[]): { shown: AgentNode[]; hidden: number }
   return { shown, hidden: finished.length - keep.size };
 }
 
-function toolRow(entry: ToolLogEntry, key: string, agent: string, kind: AgentKind): FlowLogRow {
+function toolRow(entry: ToolLogEntry, key: string, agent: string, kind: AgentKind, agentId?: string): FlowLogRow {
   return {
     key, at: entry.timestamp, agent, kind, action: entry.tool, target: entry.input,
     ...(entry.detail ? { detail: entry.detail } : {}),
     ...(entry.error ? { error: entry.error } : {}),
     ...(entry.failed ? { failed: true } : {}),
+    ...(agentId ? { agentId } : {}),
   };
 }
 
@@ -189,7 +209,12 @@ function toolKeys(prefix: string, log: readonly ToolLogEntry[]): string[] {
   });
 }
 
-function buildLog(leader: Session, runs: readonly SubagentRun[], teammates: readonly Session[]): FlowLogRow[] {
+function buildLog(
+  leader: Session,
+  runs: readonly SubagentRun[],
+  teammates: readonly Session[],
+  keep: (row: FlowLogRow) => boolean = () => true,
+): FlowLogRow[] {
   const typeById = new Map(runs.map((r) => [r.agentId, r.agentType]));
   const rows: FlowLogRow[] = [];
 
@@ -197,15 +222,18 @@ function buildLog(leader: Session, runs: readonly SubagentRun[], teammates: read
   const leaderKeys = toolKeys('L', leaderLog);
   leaderLog.forEach((t, i) => {
     rows.push(t.agentId
-      ? toolRow(t, leaderKeys[i], typeById.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME, 'subagent')
+      ? toolRow(t, leaderKeys[i], typeById.get(t.agentId) ?? UNKNOWN_SUBAGENT_NAME, 'subagent', t.agentId)
       : toolRow(t, leaderKeys[i], LEADER_LOG_NAME, 'leader'));
   });
   for (const r of runs) {
-    rows.push({ key: `S${r.agentId}`, at: r.startedAt, agent: r.agentType, kind: 'subagent', action: 'start', target: r.description ?? '' });
+    rows.push({
+      key: `S${r.agentId}`, at: r.startedAt, agent: r.agentType, kind: 'subagent', action: 'start',
+      target: r.description ?? '', agentId: r.agentId,
+    });
     if (r.endedAt !== null && r.status !== 'working') {
       rows.push({
         key: `E${r.agentId}`, at: r.endedAt, agent: r.agentType, kind: 'subagent',
-        action: r.status, target: `${r.toolCount} tool${r.toolCount === 1 ? '' : 's'}`,
+        action: r.status, target: `${r.toolCount} tool${r.toolCount === 1 ? '' : 's'}`, agentId: r.agentId,
       });
     }
   }
@@ -220,6 +248,7 @@ function buildLog(leader: Session, runs: readonly SubagentRun[], teammates: read
   }
   // Stable for equal timestamps: later-recorded rows first.
   return rows
+    .filter(keep)
     .map((row, order) => ({ row, order }))
     .sort((a, b) => b.row.at - a.row.at || b.order - a.order)
     .slice(0, LOG_LIMIT)
@@ -245,6 +274,17 @@ export function buildAgentFlow(leader: Session, teammates: readonly Session[]): 
     hiddenFinished: hidden,
     reportsSubagents: detectCli(leader) !== 'codex',
   };
+}
+
+/** One of the leader's subagent runs as a card node, or null when it has no such run. */
+export function subagentNode(leader: Session, agentId: string): AgentNode | null {
+  const run = (leader.subagents ?? []).find((r) => r.agentId === agentId);
+  return run ? runNode(run, leader.status === 'ended') : null;
+}
+
+/** The log rows of one subagent run (newest first): what the detail view shows without a transcript. */
+export function subagentLog(leader: Session, agentId: string): FlowLogRow[] {
+  return buildLog(leader, leader.subagents ?? [], [], (row) => row.agentId === agentId);
 }
 
 /** The members of the team this session leads (none unless it is a leader). */

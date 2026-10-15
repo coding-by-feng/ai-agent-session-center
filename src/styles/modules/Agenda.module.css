@@ -48,51 +48,75 @@
 
 /* ---- Groups ---- */
 
-.group { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
-.taskList { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.group { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+/* A grid of cards per group (Oct 15). min(): one column never wider than the
+   view, so a narrow window wraps instead of scrolling sideways. The <li> is the
+   grid item and the card fills it, so cards in one row share a height. */
+.taskList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.taskList > li { display: flex; min-width: 0; }
 
 /* ---- Task card ----
-   One line (36px) when a task has no tags, date or details; the meta row
-   appears only when there is meta. Status is a 3px inset bar on the left edge
-   (overdue red, due-today yellow) — the old red border + glow halo was the
-   loudest thing on the page for an ordinary state. */
+   Head (priority · icons), then checkbox + title, then a footer that appears
+   only when there is meta, pinned to the bottom so a row of cards lines up.
+   Status is a 3px inset bar on the left edge (overdue red, due-today yellow) —
+   the old red border + glow halo was the loudest thing on the page for an
+   ordinary state. No priority edge: the group heading and the select say it. */
 
 .card {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 4px 4px 4px 12px;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 8px 12px 16px;
   background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
 }
-.card:hover { background: var(--bg-card-hover); border-color: var(--border-subtle-strong); }
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-accent-strong);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent-cyan) 10%, transparent);
+}
 .card:focus-within { border-color: var(--border-accent-strong); }
 
 .overdue { box-shadow: inset 3px 0 0 var(--accent-red); }
 .dueToday { box-shadow: inset 3px 0 0 var(--accent-yellow); }
 
-/* Centred on the 28px first line: (28 - 16) / 2. */
+/* Head: the priority control on the left, the icons pushed right. Its height
+   is the icon buttons', so the confirm that replaces it does not jump. */
+/* margin-left: -3px centres the priority dot (8px + 3px into the select) on the
+   checkbox below it (16px padding + 8px): one left column down the card. */
+.cardHead { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; margin-left: -3px; }
+
+/* Checkbox + title. The checkbox is centred on the title's first line:
+   13px × 1.5 = 19.5px line, (19.5 - 16) / 2 ≈ 2px. */
+.cardBody { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding-right: 8px; }
 .checkbox {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   accent-color: var(--accent-cyan);
   cursor: pointer;
 }
 
-.cardMain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.cardLine { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
-
 /* The title is a button (keyboard-reachable click-to-edit), sized to its text
    — `flex: 1` would turn the empty width beside a short title into a hidden
-   edit target. The full text is in `title` for truncated rows. */
+   edit target. It wraps (URLs and CJK break anywhere) and clamps at three
+   lines; the full text is in `title`. */
 .title {
+  display: block;
   flex: 0 1 auto;
   min-width: 0;
-  min-height: 28px;
-  overflow: hidden;
   padding: 0;
   background: none;
   border: 0;
@@ -100,11 +124,18 @@
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
   line-height: 1.5;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: text;
+}
+.titleText {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .title:hover {
   color: var(--ag-accent);
@@ -125,7 +156,7 @@
   font: inherit;
   outline: none;
 }
-.titleInput { flex: 1 1 auto; height: 28px; padding: 0 8px; font-size: 13px; }
+.titleInput { flex: 1 1 auto; height: 28px; margin-top: -4px; padding: 0 8px; font-size: 13px; }
 .tagInput { height: 24px; min-width: 160px; padding: 0 8px; font-size: 11px; }
 
 .completed .title,
@@ -147,7 +178,6 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  margin-left: auto;
 }
 .priorityUrgent { --prio: color-mix(in srgb, var(--accent-red) 75%, var(--text-primary)); --prio-dot: var(--accent-red); }
 .priorityHigh { --prio: color-mix(in srgb, var(--accent-orange) 75%, var(--text-primary)); --prio-dot: var(--accent-orange); }
@@ -183,7 +213,9 @@
   color: var(--prio);
   font: inherit;
   font-size: 11px;
-  font-weight: 600;
+  /* 500, not 600: atop every card it would out-shout the title, and the group
+     heading already names the level. The colour carries it. */
+  font-weight: 500;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -198,7 +230,17 @@
 
 /* ---- Meta row: due date, tags, details ---- */
 
-.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding-bottom: 4px; }
+/* margin-top: auto pins the footer to the card's bottom, so a row of cards
+   (grid-stretched to one height) lines its footers up. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: auto;
+  padding: 8px 8px 0 28px;
+  border-top: 1px solid var(--border-subtle);
+}
 
 .tag {
   display: inline-flex;
@@ -218,7 +260,7 @@
 .tag:focus-visible { outline: 2px solid var(--ag-accent); outline-offset: 1px; }
 
 .description {
-  margin: 0 0 8px;
+  margin: 0 8px 0 28px;
   padding: 4px 12px;
   border-left: 2px solid var(--border-subtle-strong);
   color: var(--text-secondary);
@@ -230,8 +272,9 @@
 
 /* ---- Card actions: edit tags, delete (and the inline delete confirm) ---- */
 
-.cardActions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-height: 28px; }
-.confirm { display: flex; align-items: center; gap: 4px; }
+.cardActions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-height: 28px; margin-left: auto; }
+.confirm { display: flex; align-items: center; gap: 4px; width: 100%; padding-left: 8px; }
+.confirm .confirmText { margin-right: auto; }
 .confirmText { margin-right: 4px; color: color-mix(in srgb, var(--accent-red) 70%, var(--text-primary)); font-size: 11px; }
 
 /* ---- Add bar ---- */
@@ -270,12 +313,12 @@
 }
 
 @media (pointer: coarse) {
-  .cardLine,
+  .cardHead,
   .cardActions,
   .title { min-height: 44px; }
   /* A 16px checkbox is well under the 44px touch minimum, and mis-tapping it
-     silently completes a task. Centred on the 44px line. */
-  .checkbox { width: 22px; height: 22px; margin-top: 11px; }
+     silently completes a task. */
+  .checkbox { width: 22px; height: 22px; margin-top: 0; }
   .priority .prioritySelect { height: 44px; }
   .tag { position: relative; }
   .tag::after { content: ''; position: absolute; inset: -12px -2px; }

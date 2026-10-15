@@ -98,7 +98,8 @@ afterAll(() => {
 describe('phoneRuleFor', () => {
   it.each([
     ['GET', '/sessions'], ['GET', '/config'], ['GET', '/known-projects'], ['GET', '/presence'],
-    ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['PUT', '/sessions/abc/queue'],
+    ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['GET', '/sessions/abc/subagents/a1b2/transcript'],
+    ['PUT', '/sessions/abc/queue'],
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
     ['PUT', '/sessions/abc/title'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
@@ -137,6 +138,7 @@ describe('phoneRuleFor', () => {
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
     ['POST', '/snippets/import'],
     ['PUT', '/rooms'], ['GET', '/rooms/ops'], ['DELETE', '/rooms'],
+    ['POST', '/sessions/abc/subagents/a1b2/transcript'], ['GET', '/sessions/abc/subagents/a/b/transcript'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();

@@ -1,0 +1,185 @@
+/* SubagentDetail: one subagent's task, messages and result, shown in place of
+ * the AGENTS diagram (SubagentDetail.tsx). Inherits the tab's mono 12px and
+ * --text-primary from AgentsTab's .root. New text stays on --text-primary:
+ * --text-secondary misses 4.5:1 on a panel in dracula, solarized, nord and
+ * monokai. Colour is never alone: states have words, failures a ✗. */
+
+.root {
+  container: subagent / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* Focusable only from script (tabindex -1), to keep Esc in reach: no ring. */
+.root:focus { outline: none; }
+
+.topBar { display: flex; }
+
+/* ---- Who it is ---- */
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-purple);
+  border-radius: 6px;
+}
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 8px;
+  min-width: 0;
+}
+.name { margin: 0; min-width: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.state { flex-shrink: 0; font-size: 12px; white-space: nowrap; }
+.state > span { color: var(--text-secondary); }
+.state[data-state='working'] > span,
+.state[data-state='done'] > span { color: var(--accent-green); }
+.state[data-state='attention'] > span { color: var(--accent-yellow); }
+.meta { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.description { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+/* ---- Task / Messages / Result ---- */
+.section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.inlineButton { align-self: flex-start; }
+
+.task,
+.result {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.taskText { margin: 0; }
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.filters { display: inline-flex; gap: 4px; }
+
+.messages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border-subtle);
+}
+.item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.time { font-size: 11px; white-space: nowrap; }
+.main { min-width: 0; }
+
+/* label | text, the same columns for a text row and for a row that opens */
+.textRow,
+.toggle {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+}
+/* Same inset as the button, so labels and text line up down the list. */
+.textRow { padding: 2px 4px; }
+.label {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.text {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.toggle {
+  width: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.toggle:hover,
+.toggle:active,
+.toggle[aria-expanded='true'] { background: var(--bg-subtle); }
+.toggle:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.chevron { display: inline-block; width: 1.5ch; }
+.summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.failed .label,
+.failed .summary { color: var(--accent-red); }
+.failMark { font-weight: 700; }
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 6px;
+}
+.bodyHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; }
+.pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.note { margin: 0; font-style: italic; }
+.live { margin: 0; }
+.live > span { color: var(--accent-green); }
+
+.errorBox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.errorText { margin: 0; color: var(--accent-red); font-weight: 700; overflow-wrap: anywhere; }
+
+/* Sized by the panel, not the window (a docked panel is narrow on a wide
+   screen): under 480px the time goes, as in the activity log. */
+@container subagent (max-width: 480px) {
+  .item { grid-template-columns: minmax(0, 1fr); }
+  .time { display: none; }
+  .textRow,
+  .toggle { grid-template-columns: 88px minmax(0, 1fr); }
+}
+
+/* A phone (same query as MOBILE_MEDIA_QUERY): 44px rows to tap, a size up. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .item { padding: 0; }
+  .toggle { min-height: 44px; align-items: center; }
+  .textRow { padding: 8px 4px; }
+  .meta,
+  .time { font-size: 12px; }
+  .pre { max-height: 50vh; font-size: 12px; }
+}

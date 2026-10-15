@@ -1,12 +1,15 @@
 /**
- * AgendaTaskCard — one task: checkbox, title (click or Enter to edit), a quiet
- * priority control, an icon group (edit tags, delete), and a meta row (due
- * date, tags, details) that renders only when there is meta to show.
+ * AgendaTaskCard — one task as a card in its priority group's grid: a head row
+ * (quiet priority control, edit-tags and delete icons), the checkbox + title
+ * (click or Enter to edit; wraps up to 3 lines), and a footer (due date,
+ * tags, details) that renders only when there is meta to show.
  *
  * Layout notes (Oct 2026):
- * - A task with no tags, date or details is ONE line. The add-tag "+" used to
- *   sit alone on a second row of every such card; it is now the "Edit tags"
- *   icon beside delete.
+ * - Cards, not rows (Oct 15): a 1950px row put the title and its controls
+ *   1600px apart and cut every long title to one line. The card grid keeps
+ *   both within one glance and lets long URLs and CJK notes wrap.
+ * - The add-tag "+" used to sit alone on a second row of every card; it is
+ *   the "Edit tags" icon beside delete.
  * - The priority control is quiet (dot + sentence case, no box until hover):
  *   the group heading above already says URGENT, so a loud per-card URGENT
  *   badge repeated it on every row. It stays a real control.
@@ -233,170 +236,173 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
   const descId = `agenda-desc-${task.id}`;
   const named = `"${task.title}"`;
 
+  // The priority control and the two icons share the head row; the delete
+  // confirm needs that whole row at the card's minimum width, so it replaces
+  // them until it is answered (priority and icons come back on Cancel).
+  const head = confirming ? (
+    <div
+      className={styles.confirm}
+      role="group"
+      aria-label={`Delete ${named}?`}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') cancelDelete();
+      }}
+    >
+      <span className={styles.confirmText}>Delete?</span>
+      <Button variant="danger" size="sm" onClick={handleDelete}>Delete</Button>
+      <Button ref={cancelRef} variant="quiet" size="sm" onClick={cancelDelete}>Cancel</Button>
+    </div>
+  ) : (
+    <>
+      <span className={`${styles.priority} ${PRIORITY_CLASS[task.priority]}`}>
+        <span className={styles.priorityDot} aria-hidden="true" />
+        <select
+          className={styles.prioritySelect}
+          value={task.priority}
+          onChange={(e) => updateTask(task.id, { priority: e.target.value as AgendaPriority })}
+          aria-label={`Priority of ${named}`}
+          title="Change priority"
+        >
+          {PRIORITY_CHOICES.map((p) => (
+            <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
+          ))}
+        </select>
+        <span className={styles.priorityChevron} aria-hidden="true"><ChevronGlyph /></span>
+      </span>
+      <div className={styles.cardActions}>
+        <IconButton
+          ref={tagsButtonRef}
+          label="Edit tags"
+          ariaLabel={`Edit tags of ${named}`}
+          onClick={startEditingTags}
+        >
+          <TagGlyph />
+        </IconButton>
+        <IconButton
+          ref={deleteRef}
+          label="Delete task"
+          ariaLabel={`Delete ${named}`}
+          tone="danger"
+          onClick={() => setConfirming(true)}
+        >
+          <TrashIcon />
+        </IconButton>
+      </div>
+    </>
+  );
+
   return (
     <div ref={cardRef} className={cardClasses.join(' ')} data-task-id={task.id}>
-      <input
-        type="checkbox"
-        className={styles.checkbox}
-        checked={task.completed}
-        onChange={() => toggleTask(task.id)}
-        aria-label={`Mark ${named} as ${task.completed ? 'incomplete' : 'complete'}`}
-      />
+      <div className={styles.cardHead}>{head}</div>
 
-      <div className={styles.cardMain}>
-        <div className={styles.cardLine}>
-          {editing ? (
+      <div className={styles.cardBody}>
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={task.completed}
+          onChange={() => toggleTask(task.id)}
+          aria-label={`Mark ${named} as ${task.completed ? 'incomplete' : 'complete'}`}
+        />
+        {editing ? (
+          <input
+            ref={inputRef}
+            className={styles.titleInput}
+            aria-label="Task title"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (isImeEnter(e)) return;
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                restoreTitleFocus.current = true;
+                commitEdit();
+              }
+              if (e.key === 'Escape') {
+                restoreTitleFocus.current = true;
+                setDraft(task.title);
+                setEditing(false);
+              }
+            }}
+          />
+        ) : (
+          <button
+            ref={titleRef}
+            type="button"
+            className={styles.title}
+            onClick={startEditing}
+            title={task.title}
+            data-task-title=""
+          >
+            {/* The clamp lives on a span: a <button> is not a reliable
+                -webkit-box in every engine the app ships in. */}
+            <span className={styles.titleText}>{task.title}</span>
+          </button>
+        )}
+      </div>
+
+      {task.description && showDesc && (
+        <div id={descId} className={styles.description}>{task.description}</div>
+      )}
+
+      {hasMeta && (
+        <div className={styles.meta} data-task-meta="">
+          {task.dueDate && (
+            <Chip tone={task.completed ? 'neutral' : dueDateStatus === 'overdue' ? 'danger' : dueDateStatus === 'today' ? 'warning' : 'neutral'}>
+              {!task.completed && dueDateStatus === 'overdue' && 'Overdue · '}
+              {!task.completed && dueDateStatus === 'today' && 'Today · '}
+              {formatDueDate(task.dueDate)}
+            </Chip>
+          )}
+          {editingTags ? (
             <input
-              ref={inputRef}
-              className={styles.titleInput}
-              aria-label="Task title"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitEdit}
+              ref={tagsInputRef}
+              className={styles.tagInput}
+              aria-label={`Tags of ${named}, comma-separated`}
+              value={tagsDraft}
+              onChange={(e) => setTagsDraft(e.target.value)}
+              onBlur={commitTagsEdit}
               onKeyDown={(e) => {
                 if (isImeEnter(e)) return;
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  restoreTitleFocus.current = true;
-                  commitEdit();
+                  restoreTagsFocus.current = true;
+                  commitTagsEdit();
                 }
                 if (e.key === 'Escape') {
-                  restoreTitleFocus.current = true;
-                  setDraft(task.title);
-                  setEditing(false);
+                  restoreTagsFocus.current = true;
+                  setEditingTags(false);
                 }
               }}
+              placeholder="tag1, tag2"
             />
           ) : (
-            <button
-              ref={titleRef}
-              type="button"
-              className={styles.title}
-              onClick={startEditing}
-              title={task.title}
-              data-task-title=""
-            >
-              {task.title}
-            </button>
-          )}
-
-          <span className={`${styles.priority} ${PRIORITY_CLASS[task.priority]}`}>
-            <span className={styles.priorityDot} aria-hidden="true" />
-            <select
-              className={styles.prioritySelect}
-              value={task.priority}
-              onChange={(e) => updateTask(task.id, { priority: e.target.value as AgendaPriority })}
-              aria-label={`Priority of ${named}`}
-              title="Change priority"
-            >
-              {PRIORITY_CHOICES.map((p) => (
-                <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
-              ))}
-            </select>
-            <span className={styles.priorityChevron} aria-hidden="true"><ChevronGlyph /></span>
-          </span>
-        </div>
-
-        {hasMeta && (
-          <div className={styles.meta} data-task-meta="">
-            {task.dueDate && (
-              <Chip tone={task.completed ? 'neutral' : dueDateStatus === 'overdue' ? 'danger' : dueDateStatus === 'today' ? 'warning' : 'neutral'}>
-                {!task.completed && dueDateStatus === 'overdue' && 'Overdue · '}
-                {!task.completed && dueDateStatus === 'today' && 'Today · '}
-                {formatDueDate(task.dueDate)}
-              </Chip>
-            )}
-            {editingTags ? (
-              <input
-                ref={tagsInputRef}
-                className={styles.tagInput}
-                aria-label={`Tags of ${named}, comma-separated`}
-                value={tagsDraft}
-                onChange={(e) => setTagsDraft(e.target.value)}
-                onBlur={commitTagsEdit}
-                onKeyDown={(e) => {
-                  if (isImeEnter(e)) return;
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    restoreTagsFocus.current = true;
-                    commitTagsEdit();
-                  }
-                  if (e.key === 'Escape') {
-                    restoreTagsFocus.current = true;
-                    setEditingTags(false);
-                  }
-                }}
-                placeholder="tag1, tag2"
-              />
-            ) : (
-              task.tags.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={styles.tag}
-                  onClick={startEditingTags}
-                  title="Edit tags"
-                >
-                  #{t}
-                </button>
-              ))
-            )}
-            {task.description && (
-              <Button
-                variant="quiet"
-                size="sm"
-                icon={<UnfoldIcon expanded={showDesc} />}
-                aria-expanded={showDesc}
-                aria-controls={descId}
-                onClick={() => setShowDesc((v) => !v)}
+            task.tags.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={styles.tag}
+                onClick={startEditingTags}
+                title="Edit tags"
               >
-                Details
-              </Button>
-            )}
-          </div>
-        )}
-
-        {task.description && showDesc && (
-          <div id={descId} className={styles.description}>{task.description}</div>
-        )}
-      </div>
-
-      <div className={styles.cardActions}>
-        {confirming ? (
-          <div
-            className={styles.confirm}
-            role="group"
-            aria-label={`Delete ${named}?`}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') cancelDelete();
-            }}
-          >
-            <span className={styles.confirmText}>Delete?</span>
-            <Button variant="danger" size="sm" onClick={handleDelete}>Delete</Button>
-            <Button ref={cancelRef} variant="quiet" size="sm" onClick={cancelDelete}>Cancel</Button>
-          </div>
-        ) : (
-          <>
-            <IconButton
-              ref={tagsButtonRef}
-              label="Edit tags"
-              ariaLabel={`Edit tags of ${named}`}
-              onClick={startEditingTags}
+                #{t}
+              </button>
+            ))
+          )}
+          {task.description && (
+            <Button
+              variant="quiet"
+              size="sm"
+              icon={<UnfoldIcon expanded={showDesc} />}
+              aria-expanded={showDesc}
+              aria-controls={descId}
+              onClick={() => setShowDesc((v) => !v)}
             >
-              <TagGlyph />
-            </IconButton>
-            <IconButton
-              ref={deleteRef}
-              label="Delete task"
-              ariaLabel={`Delete ${named}`}
-              tone="danger"
-              onClick={() => setConfirming(true)}
-            >
-              <TrashIcon />
-            </IconButton>
-          </>
-        )}
-      </div>
+              Details
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

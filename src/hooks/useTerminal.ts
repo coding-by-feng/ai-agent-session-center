@@ -23,6 +23,7 @@ import {
 } from '@/lib/terminalGeometry';
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
 import { logicalLineAt, locateBookmark, rowAtOffset } from '@/lib/terminalBookmarks';
+import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,11 +120,56 @@ interface UseTerminalReturn {
   getXtermSelection: () => string | null;
   /** True when xterm currently has a non-empty selection. */
   hasXtermSelection: () => boolean;
+  /** Route typed input through `tap` first (the terminal's `/` list); null removes it. */
+  setInputTap: (tap: TerminalInputTap | null) => void;
+  /** The caret cell on screen, or null when it is scrolled out of view or nothing is attached. */
+  getCaretRect: () => CaretRect | null;
+}
+
+/**
+ * Sees the user's typing before the PTY does. Only one at a time: the
+ * terminal's `/` command list (TerminalCommandMenu).
+ */
+export interface TerminalInputTap {
+  /** True when the key is the tap's (xterm and the PTY never see it). Called for keydown, keypress and keyup. */
+  onKey: (e: KeyboardEvent) => boolean;
+  /** Each chunk of typed input, with the caret's surroundings before its echo. Still sent to the PTY. */
+  onData: (data: string, caret: CaretContext) => void;
+  /** Input is about to change where the tap can't follow it (blur, a paste, Shift+Enter): drop any token. */
+  onReset: () => void;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** The caret row's text left of the cursor, and the character just before it. */
+function readCaretContext(term: Terminal): CaretContext {
+  const buf = term.buffer.active;
+  const line = buf.getLine(buf.baseY + buf.cursorY);
+  if (!line) return { charBefore: '', lineBefore: '' };
+  const lineBefore = line.translateToString(false, 0, buf.cursorX);
+  // A wide character (CJK) fills two cells; its right half reads as width 0.
+  let x = buf.cursorX - 1;
+  if (x > 0 && line.getCell(x)?.getWidth() === 0) x -= 1;
+  const charBefore = x >= 0 ? line.getCell(x)?.getChars() ?? '' : '';
+  return { charBefore, lineBefore };
+}
+
+/** The cursor cell in viewport pixels; null when it is scrolled off screen. */
+function readCaretRect(term: Terminal): CaretRect | null {
+  const screen = term.element?.querySelector('.xterm-screen');
+  if (!screen || !term.cols || !term.rows) return null;
+  const rect = screen.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const buf = term.buffer.active;
+  const row = buf.baseY + buf.cursorY - buf.viewportY;
+  if (row < 0 || row >= term.rows) return null;
+  const cellWidth = rect.width / term.cols;
+  const cellHeight = rect.height / term.rows;
+  const top = rect.top + row * cellHeight;
+  return { left: rect.left + buf.cursorX * cellWidth, top, bottom: top + cellHeight };
+}
 
 /**
  * Decode and concatenate an array of base64 chunks into a single Uint8Array.
@@ -556,6 +602,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  /** The `/` list's view of typing (setInputTap); read by handlers installed once per terminal. */
+  const inputTapRef = useRef<TerminalInputTap | null>(null);
   /**
    * xterm scrollback depth, read through a ref so changing the setting does not
    * tear down and re-open the live terminal. xterm applies `scrollback` at
@@ -1035,6 +1083,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         // Custom key handler
         term.attachCustomKeyEventHandler((e) => {
+          // The `/` list owns ↑ ↓ Tab Enter Esc while it is open. preventDefault
+          // on keydown also stops the browser's keypress, which xterm would
+          // otherwise turn into a second Enter.
+          if (inputTapRef.current?.onKey(e)) {
+            e.preventDefault();
+            return false;
+          }
           if (e.key === 'Escape') {
             e.preventDefault();
             if (e.type === 'keydown') sendInput(wsRef.current, terminalId, '\x1b');
@@ -1043,7 +1098,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // Shift+Enter → same as Alt+Enter (sends ESC + newline)
           if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            if (e.type === 'keydown') sendInput(wsRef.current, terminalId, '\x1b\n');
+            if (e.type === 'keydown') {
+              inputTapRef.current?.onReset();
+              sendInput(wsRef.current, terminalId, '\x1b\n');
+            }
             return false;
           }
           // Cmd+Alt+1-9 (macOS) / Ctrl+Alt+1-9 (Win/Linux): session-switch
@@ -1059,6 +1117,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
             e.preventDefault();
             if (e.type === 'keydown') {
+              // The paste goes straight to the PTY, past onData: the `/` list can't follow it.
+              inputTapRef.current?.onReset();
               readClipboard().then(async ({ text, imageBlobs }) => {
                 const usePty = isPtyHostTerminal(terminalId);
                 // Handle image paste — upload and paste file path(s)
@@ -1105,7 +1165,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
         const CHUNK_SIZE = 4096;
         const usePtyIpc = isPtyHostTerminal(terminalId);
+        term.textarea?.addEventListener('blur', () => inputTapRef.current?.onReset());
         term.onData((data) => {
+          const tap = inputTapRef.current;
+          if (tap) tap.onData(data, readCaretContext(term));
           if (usePtyIpc) {
             // IPC transport — no chunking needed (no WS frame limit)
             sendInput(null, terminalId, data);
@@ -1424,6 +1487,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const sendEscapeKey = useCallback(() => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
     sendInput(wsRef.current, terminalId, '\x1b');
     activeRef.current.term.focus();
@@ -1431,6 +1495,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const sendArrowUp = useCallback(() => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
     sendInput(wsRef.current, terminalId, '\x1b[A');
     activeRef.current.term.focus();
@@ -1438,6 +1503,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const sendArrowDown = useCallback(() => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
     sendInput(wsRef.current, terminalId, '\x1b[B');
     activeRef.current.term.focus();
@@ -1445,18 +1511,31 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const sendEnter = useCallback(() => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
     sendInput(wsRef.current, terminalId, '\r');
     activeRef.current.term.focus();
   }, []);
 
+  // Toolbar, phone and `/`-list writes skip onData, so the `/` list drops its token first.
   const sendKeys = useCallback((data: string) => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     sendInput(wsRef.current, activeRef.current.terminalId, data);
+  }, []);
+
+  const setInputTap = useCallback((tap: TerminalInputTap | null) => {
+    inputTapRef.current = tap;
+  }, []);
+
+  const getCaretRect = useCallback((): CaretRect | null => {
+    const t = activeRef.current?.term;
+    return t ? readCaretRect(t) : null;
   }, []);
 
   const pasteToTerminal = useCallback(async () => {
     if (!activeRef.current) return;
+    inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
     const usePtyIpc = isPtyHostTerminal(terminalId);
     if (!usePtyIpc && (!wsRef.current || wsRef.current.readyState !== 1)) return;
@@ -1870,5 +1949,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       const t = activeRef.current?.term;
       return !!(t && t.hasSelection());
     },
+    setInputTap,
+    getCaretRect,
   };
 }

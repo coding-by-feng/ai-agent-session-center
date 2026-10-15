@@ -28,6 +28,7 @@ import { appendPausedItem } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
+import { createSubagentTranscriptRouter } from './subagentTranscript.js';
 import { createRoomsService } from './roomsRouter.js';
 import { parseRoomList } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -1559,6 +1560,10 @@ router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
     res.json({ success: true, data: [] });
   }
 });
+
+// One subagent's own conversation (AGENTS tab → click a subagent card). Under
+// /sessions/:id, so the remote-visibility gate above applies.
+router.use(createSubagentTranscriptRouter({ getSession }));
 
 // Update session title. setSessionTitle mutates the in-memory session AND
 // persists to SQLite (dbUpdateTitle); the new title rides the next SESSION_UPDATE

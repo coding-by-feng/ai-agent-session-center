@@ -1,7 +1,9 @@
 /**
  * AgentsTab — the AGENTS detail tab: a live diagram of the agents working for
  * this session (in-process subagents and agent-team teammates) and a log of
- * what each one did, newest first. Read-only.
+ * what each one did, newest first. Read-only. A subagent card opens that
+ * agent's own messages in place of the diagram (SubagentDetail); a teammate
+ * card switches to the teammate's session.
  *
  * All shaping lives in `lib/agentFlow.ts`; this file only lays it out. The
  * connectors are CSS: a spine from the leader, a bus per row of cards and a
@@ -12,35 +14,20 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, typ
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { formatDuration } from '@/lib/format';
-import Button from '@/components/ui/Button';
-import { showToast } from '@/components/ui/ToastContainer';
 import {
-  buildAgentFlow, teammatesOf, columnsFor, chunkRows,
+  buildAgentFlow, teammatesOf, columnsFor, chunkRows, subagentNode, subagentLog,
+  AGENT_STATE_GLYPH, AGENT_STATE_LABEL,
   type AgentNode, type AgentState, type FlowLogRow,
 } from '@/lib/agentFlow';
 import type { Session } from '@/types';
+import CopyTextButton from './CopyTextButton';
+import SubagentDetail from './SubagentDetail';
 import styles from '@/styles/modules/AgentsTab.module.css';
 
 /** Card columns the CSS has rules for (`data-cols`). */
 const MAX_COLS = 6;
 /** Left inset of the card rows, matching `.tree { margin-left }` in the CSS. */
 const TREE_INSET_PX = 40;
-
-const STATE_LABEL: Record<AgentState, string> = {
-  working: 'working',
-  attention: 'waiting on you',
-  idle: 'idle',
-  done: 'done',
-  ended: 'ended',
-};
-
-const STATE_GLYPH: Record<AgentState, string> = {
-  working: '●',
-  attention: '◐',
-  idle: '○',
-  done: '✓',
-  ended: '–',
-};
 
 const STATE_CLASS: Record<AgentState, string | undefined> = {
   working: styles.stateWorking,
@@ -98,31 +85,54 @@ function plural(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
 
-function AgentCard({ node, now }: { node: AgentNode; now: number }) {
+interface AgentCardProps {
+  node: AgentNode;
+  now: number;
+  /** Makes the card a button (subagents and teammates; the leader is the session itself). */
+  onOpen?: (node: AgentNode) => void;
+  buttonRef?: (el: HTMLButtonElement | null) => void;
+}
+
+function AgentCard({ node, now, onOpen, buttonRef }: AgentCardProps) {
   const elapsed = formatDuration((node.endedAt ?? now) - node.startedAt);
-  return (
-    <article
-      className={`${styles.card} ${KIND_CLASS[node.kind]}`}
-      aria-label={`${node.name}, ${node.kind}, ${STATE_LABEL[node.state]}`}
-    >
-      <header className={styles.cardHead}>
+  const label = `${node.name}, ${node.kind}, ${AGENT_STATE_LABEL[node.state]}`;
+  // Spans only: the same content sits inside a <button> for an openable card.
+  const content = (
+    <>
+      <span className={styles.cardHead}>
         <span className={styles.cardName} title={node.name}>{node.name}</span>
         <span className={`${styles.state} ${STATE_CLASS[node.state] ?? ''}`}>
-          <span aria-hidden="true">{STATE_GLYPH[node.state]}</span> {STATE_LABEL[node.state]}
+          <span aria-hidden="true">{AGENT_STATE_GLYPH[node.state]}</span> {AGENT_STATE_LABEL[node.state]}
         </span>
-      </header>
-      <div className={styles.cardRole}>
+      </span>
+      <span className={styles.cardRole}>
         {node.role}{elapsed ? ` · ${elapsed}` : ''}
-      </div>
+      </span>
       {node.tool && (
-        <div className={styles.cardTool}>
+        <span className={styles.cardTool}>
           <span className={styles.toolName}>{node.tool}</span>
           {node.target && <span className={styles.toolTarget} title={node.target}>{node.target}</span>}
-        </div>
+        </span>
       )}
-      {node.description && <p className={styles.cardDesc} title={node.description}>{node.description}</p>}
-      <div className={styles.cardMeta}>{plural(node.toolCount, 'tool')}</div>
-    </article>
+      {node.description && <span className={styles.cardDesc} title={node.description}>{node.description}</span>}
+      <span className={styles.cardMeta}>{plural(node.toolCount, 'tool')}</span>
+    </>
+  );
+  if (!onOpen) {
+    return <article className={`${styles.card} ${KIND_CLASS[node.kind]}`} aria-label={label}>{content}</article>;
+  }
+  return (
+    <button
+      type="button"
+      ref={buttonRef}
+      className={`${styles.card} ${styles.cardButton} ${KIND_CLASS[node.kind]}`}
+      aria-label={label}
+      title={node.kind === 'teammate' ? 'Open this teammate’s session' : 'Open this agent’s messages'}
+      onClick={() => onOpen(node)}
+    >
+      {content}
+      <span className={styles.cardOpen} aria-hidden="true">›</span>
+    </button>
   );
 }
 
@@ -131,29 +141,6 @@ const FULL_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 };
-
-/** How long the Copy button says "Copied" before it reverts. */
-const COPIED_MS = 1500;
-
-function CopyTarget({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      showToast('Could not copy to the clipboard', 'error');
-      return;
-    }
-    setCopied(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setCopied(false), COPIED_MS);
-  };
-
-  return <Button size="sm" onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>;
-}
 
 /** The server ends a `detail` it had to cut with this (`toolInputDetail` in server/sessionTrim.ts). */
 const CUT_MARK = '…';
@@ -171,7 +158,7 @@ function LogDetail({ row }: { row: FlowLogRow }) {
         <span className={styles.logDetailMeta}>
           {row.action} · {row.agent} · {new Date(row.at).toLocaleString([], FULL_TIME_FORMAT)}
         </span>
-        <CopyTarget text={text} />
+        <CopyTextButton text={text} />
       </div>
       <pre className={styles.logDetailText}>{shown}</pre>
       {cut && <p className={styles.logDetailNote}>Showing the first {text.length.toLocaleString('en-US')} characters.</p>}
@@ -264,7 +251,52 @@ export default function AgentsTab({ sessionId }: { sessionId: string }) {
   const now = useNow(running);
   const [width, setDiagramEl] = useWidth();
 
+  // The subagent whose messages are open, for the session it was opened in:
+  // showing another session closes it without an effect.
+  const [opened, setOpened] = useState<{ sessionId: string; agentId: string } | null>(null);
+  const openId = opened?.sessionId === sessionId ? opened.agentId : null;
+  const openNode = useMemo(() => (leader && openId ? subagentNode(leader, openId) : null), [leader, openId]);
+  const openRun = openId ? leader?.subagents?.find((r) => r.agentId === openId) : undefined;
+  // Every call and the finish change the run: the detail refetches on that.
+  const openVersion = openRun ? `${openRun.status}:${openRun.toolCount}:${openRun.lastActivityAt}:${openRun.endedAt ?? ''}` : '';
+  const fallbackRows = useMemo(() => (leader && openId ? subagentLog(leader, openId) : []), [leader, openId]);
+  // Back puts focus on the card the detail was opened from. Only in that commit:
+  // a card no longer drawn must not take focus when it reappears later.
+  const returnFocusTo = useRef<string | null>(null);
+  useEffect(() => { returnFocusTo.current = null; }, [openId]);
+
+  const openCard = useCallback((node: AgentNode) => {
+    if (node.kind === 'teammate') useSessionStore.getState().selectSession(node.id);
+    else if (node.kind === 'subagent') setOpened({ sessionId, agentId: node.id });
+  }, [sessionId]);
+  const closeDetail = useCallback(() => {
+    returnFocusTo.current = openId;
+    setOpened(null);
+  }, [openId]);
+  const cardRef = (id: string) => (el: HTMLButtonElement | null) => {
+    if (el && returnFocusTo.current === id) {
+      returnFocusTo.current = null;
+      el.focus();
+    }
+  };
+
   if (!flow) return null;
+
+  if (openNode) {
+    return (
+      <div className={styles.root}>
+        <SubagentDetail
+          key={`${sessionId}:${openNode.id}`}
+          sessionId={sessionId}
+          node={openNode}
+          version={openVersion}
+          now={now}
+          onBack={closeDetail}
+          fallback={fallbackRows.length > 0 ? <LogTable rows={fallbackRows} /> : null}
+        />
+      </div>
+    );
+  }
 
   const cols = Math.min(MAX_COLS, columnsFor(width - TREE_INSET_PX));
   const rows = chunkRows(flow.agents, cols);
@@ -308,7 +340,7 @@ export default function AgentsTab({ sessionId }: { sessionId: string }) {
                       aria-hidden="true"
                     />
                     <span className={styles.stub} data-stub={node.id} data-active={isWorking(node)} aria-hidden="true" />
-                    <AgentCard node={node} now={now} />
+                    <AgentCard node={node} now={now} onOpen={openCard} buttonRef={cardRef(node.id)} />
                   </div>
                 ))}
               </div>

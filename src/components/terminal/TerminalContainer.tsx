@@ -10,6 +10,8 @@ import TerminalToolbar from './TerminalToolbar';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
 import SelectionPopup from '@/components/translate/SelectionPopup';
+import TerminalCommandMenu from './TerminalCommandMenu';
+import { detectCli } from '@/lib/cliDetect';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { useSessionStore } from '@/stores/sessionStore';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
@@ -132,7 +134,20 @@ export default memo(function TerminalContainer({
     revealLine,
     getXtermSelection,
     hasXtermSelection,
+    setInputTap,
+    getCaretRect,
   } = useTerminal({ ws, themeName, projectPath });
+
+  // The CLI running in this terminal, for its `/` list: null for an ops shell or
+  // any terminal no live session owns (a `cd /usr` there must not open a menu).
+  const terminalCli = useSessionStore((st) => {
+    if (!terminalId) return null;
+    // More than one session can name a terminal for a moment (a re-key); the live one counts.
+    for (const s of st.sessions.values()) {
+      if (s.terminalId === terminalId && s.status !== 'ended') return detectCli(s);
+    }
+    return null;
+  });
 
   // ---- Hold-to-speak (TTS) ----
   const ttsEnabledSetting = useSettingsStore((s) => s.ttsEnabled);
@@ -503,6 +518,17 @@ export default memo(function TerminalContainer({
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
       />}
+      {/* A phone types through its compose box, which has its own suggestions. */}
+      {terminalCli && !isPhone && (
+        <TerminalCommandMenu
+          key={terminalId}
+          cli={terminalCli}
+          projectPath={projectPath}
+          setInputTap={setInputTap}
+          getCaretRect={getCaretRect}
+          sendKeys={sendKeys}
+        />
+      )}
       {popup.active && originSessionId && (
         <SelectionPopup
           selection={popup.active}

@@ -81,6 +81,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/tts/(synthesize|status)', 'allow'),
   // A shared session: the /sessions/:id gate answers 404 for every other one.
   route('GET', '/sessions/:id/(source|transcript|queue)', 'allow'),
+  // A subagent's own messages (AGENTS tab): the same session's content as its transcript.
+  route('GET', '/sessions/:id/subagents/[^/]+/transcript', 'allow'),
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),

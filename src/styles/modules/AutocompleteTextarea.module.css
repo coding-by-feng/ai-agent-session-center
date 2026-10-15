@@ -21,7 +21,8 @@
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--accent-text, var(--accent-cyan));
-  background: rgba(0, 229, 255, 0.06);
+  /* Sticky: the tint sits on the opaque panel colour, or scrolled rows show through. */
+  background: linear-gradient(rgba(0, 229, 255, 0.06), rgba(0, 229, 255, 0.06)), var(--bg-panel, #0d1117);
   border-top: 1px solid rgba(0, 229, 255, 0.18);
   border-bottom: 1px solid rgba(0, 229, 255, 0.18);
   position: sticky;
@@ -108,7 +109,8 @@
   white-space: nowrap;
 }
 .acItemSelected .acSub {
-  color: rgba(0, 229, 255, 0.5);
+  /* Was half-transparent cyan: unreadable on a light theme's pale-cyan row. */
+  color: var(--text-secondary);
 }
 
 .acFooter {
@@ -119,7 +121,8 @@
   font-size: 9px;
   color: var(--text-secondary);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.2);
+  /* Sticky: opaque underneath, or the rows scrolled below show through. */
+  background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)), var(--bg-panel, #0d1117);
   position: sticky;
   bottom: 0;
 }

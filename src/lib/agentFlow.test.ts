@@ -10,6 +10,8 @@ import {
   AGENT_GAP_PX,
   LOG_LIMIT,
   MAX_FINISHED_CARDS,
+  subagentNode,
+  subagentLog,
 } from './agentFlow';
 import { TOOL_DETAIL_KEEP } from '../../server/sessionTrim';
 
@@ -189,6 +191,41 @@ describe('buildAgentFlow: log', () => {
     const flow = buildAgentFlow(makeSession('L', { toolLog }), []);
     expect(flow.log).toHaveLength(LOG_LIMIT);
     expect(flow.log[0].target).toBe(`${LOG_LIMIT + 19}`);
+  });
+});
+
+describe('one subagent (the detail view)', () => {
+  const leader = (over: Partial<Session> = {}) => makeSession('L', {
+    status: 'working',
+    toolLog: [
+      { tool: 'Agent', input: 'Find hook files', timestamp: T0 + 5 },
+      { tool: 'Grep', input: 'agent_id', timestamp: T0 + 20, agentId: 'a1' },
+      { tool: 'Read', input: 'b.ts', timestamp: T0 + 21, agentId: 'b2' },
+    ],
+    subagents: [makeRun(), makeRun({ agentId: 'b2', agentType: 'Plan' })],
+    ...over,
+  });
+
+  it('subagentNode is the run as its card shows it, or null for an unknown id', () => {
+    expect(subagentNode(leader(), 'a1')).toMatchObject({ id: 'a1', kind: 'subagent', name: 'Explore', state: 'working' });
+    expect(subagentNode(leader(), 'nope')).toBeNull();
+  });
+
+  it('subagentNode shows a run still working under an ended leader as ended, like its card', () => {
+    expect(subagentNode(leader({ status: 'ended' }), 'a1')?.state).toBe('ended');
+  });
+
+  it('subagentLog keeps only that run\'s rows (its calls and its start), newest first', () => {
+    expect(subagentLog(leader(), 'a1').map((r) => [r.action, r.target])).toEqual([
+      ['Grep', 'agent_id'],
+      ['start', 'Find hook files'],
+    ]);
+  });
+
+  it('subagentLog is not crowded out by other agents\' rows in the capped log', () => {
+    const busy = Array.from({ length: LOG_LIMIT + 5 }, (_, i) => ({ tool: 'Read', input: `${i}`, timestamp: T0 + 100 + i, agentId: 'b2' }));
+    const rows = subagentLog(leader({ toolLog: [{ tool: 'Grep', input: 'mine', timestamp: T0 + 20, agentId: 'a1' }, ...busy] }), 'a1');
+    expect(rows.map((r) => r.target)).toContain('mine');
   });
 });
 
