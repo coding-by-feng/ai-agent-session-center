@@ -17,6 +17,7 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 import SettingsPanel from './SettingsPanel';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
 
 let resetDefaults: ReturnType<typeof vi.fn<() => void>>;
 
@@ -94,5 +95,17 @@ describe('Settings on a phone', () => {
     expect(screen.getByText('APPEARANCE')).toBeTruthy();
     expect(screen.getByText('HOOKS')).toBeTruthy();
     expect(screen.queryByTestId('phone-settings')).toBeNull();
+  });
+
+  it('offers the new design as a switch, and closes so the new app opens clean (AASC-38)', async () => {
+    const user = userEvent.setup();
+    writePhoneUi('classic');
+    await openSettings();
+    const sw = screen.getByRole('switch', { name: /New design/ });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    await user.click(sw);
+    expect(localStorage.getItem(PHONE_UI_KEY)).toBe('app');
+    expect(useUiStore.getState().activeModal).toBeNull();
+    writePhoneUi('classic');
   });
 });
