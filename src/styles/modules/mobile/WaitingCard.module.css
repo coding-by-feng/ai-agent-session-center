@@ -56,6 +56,21 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* Scroll shadows: a soft edge only where there is more to scroll, so a line cut
+     at the edge reads as "more below", never as broken. The covers are the card's
+     own colour and scroll with the content (local); the 12px shadows stay at the
+     edges (scroll). Each cover is opaque over its last 12px, so at an end it hides
+     its shadow completely, and when the body fits nothing shows; it is only 16px
+     tall, so a few px of overflow already show a clear band. Painting only: no layout. */
+  --scroll-shadow: color-mix(in srgb, var(--ph-text) 30%, transparent);
+  background:
+    linear-gradient(var(--ph-surface) 75%, transparent) center top,
+    linear-gradient(transparent, var(--ph-surface) 25%) center bottom,
+    linear-gradient(var(--scroll-shadow), transparent) center top,
+    linear-gradient(transparent, var(--scroll-shadow)) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 16px, 100% 16px, 100% 12px, 100% 12px;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .fixed {
