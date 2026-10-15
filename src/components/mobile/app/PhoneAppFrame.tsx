@@ -45,6 +45,9 @@ import {
   type PhoneTab,
 } from '@/lib/chat/phoneRoutes';
 import { usePhoneAppearanceOnBody } from '@/lib/chat/phoneAppearance';
+import { rekeyedSessions } from '@/lib/chat/sessionRekey';
+import { moveSessionRead } from '@/lib/chat/sessionReads';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import '@/styles/modules/mobile/phoneTokens.css';
 import styles from '@/styles/modules/mobile/PhoneAppFrame.module.css';
 
@@ -105,6 +108,23 @@ function useLegacyDeepLink(search: string): void {
   }, [search, snapshotReceived, sessions]);
 }
 
+/**
+ * A session re-keyed (/clear, a resume): every screen of it follows the new id in
+ * place, under the top too (Info, a diff, the session under them), on the same
+ * segment, and its composer draft and read stamp move with it. Subscribed before
+ * the selection bridge, so the selection following the new id finds the session
+ * screen already renamed and opens nothing.
+ */
+function useSessionRekey(): void {
+  useEffect(() => useSessionStore.subscribe((state, prev) => {
+    for (const [oldId, newId] of rekeyedSessions(prev.sessions, state.sessions)) {
+      usePhoneNavStore.getState().renameSession(oldId, newId);
+      useComposerDraftStore.getState().moveDraft(oldId, newId);
+      moveSessionRead(oldId, newId);
+    }
+  }), []);
+}
+
 /** Today's views select a session to open it; here that means pushing its screen. */
 function useSelectionBridge(): void {
   useEffect(() => {
@@ -122,6 +142,8 @@ function useSelectionBridge(): void {
   useEffect(() => useSessionStore.subscribe((state, prev) => {
     const id = state.selectedSessionId;
     if (!id || id === prev.selectedSessionId) return;
+    // The selection following a re-key is not an "open": useSessionRekey moved the screens.
+    if (prev.selectedSessionId && state.sessions.get(id)?.replacesId === prev.selectedSessionId) return;
     const nav = usePhoneNavStore.getState();
     const stack = nav.stacks[nav.tab];
     const top = parsePhonePath(stack[stack.length - 1]);
@@ -137,6 +159,7 @@ export default function PhoneAppFrame() {
   usePhoneAppearanceOnBody();
   usePhoneNavigation();
   useLegacyDeepLink(initialSearch);
+  useSessionRekey();
   useSelectionBridge();
 
   const tab = usePhoneNavStore((s) => s.tab);

@@ -386,3 +386,36 @@ describe('entries that are not the frame’s', () => {
     expect(history.left).toBe(true);
   });
 });
+
+describe('a session re-keyed (/clear, a resume)', () => {
+  it('follows it on every stack, in place: same screens, same segment, no history traversal', () => {
+    install('/?m=/sessions/old-1/terminal');
+    nav().push('/sessions/old-1/info');
+    nav().push('/sessions/old-1/info/notes');
+    usePhoneNavStore.setState({ stacks: { ...nav().stacks, inbox: ['/inbox', '/sessions/old-1/chat'], queue: ['/queue', '/sessions/other/chat'] } });
+    const depth = history.entries.length;
+    const go = vi.spyOn(history, 'go');
+
+    nav().renameSession('old-1', 'new-1');
+
+    expect(nav().stacks.sessions).toEqual(['/sessions', '/sessions/new-1/terminal', '/sessions/new-1/info', '/sessions/new-1/info/notes']);
+    expect(nav().stacks.inbox).toEqual(['/inbox', '/sessions/new-1/chat']);
+    expect(nav().stacks.queue).toEqual(['/queue', '/sessions/other/chat']);
+    expect(go).not.toHaveBeenCalled();
+    expect(history.entries.length).toBe(depth);
+    expect(history.url).toBe('/?m=/sessions/new-1/info/notes');
+    expect(nav().lastAction).toBe('replace');
+
+    // Back still walks the screens, now under the new id.
+    history.back();
+    expect(stack()).toEqual(['/sessions', '/sessions/new-1/terminal', '/sessions/new-1/info']);
+    expect(history.url).toBe('/?m=/sessions/new-1/info');
+  });
+
+  it('changes nothing when no screen shows the session', () => {
+    install('/?m=/sessions/s1/chat');
+    const before = nav().stacks;
+    nav().renameSession('gone', 'new');
+    expect(nav().stacks).toBe(before);
+  });
+});

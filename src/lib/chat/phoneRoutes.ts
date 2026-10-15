@@ -98,6 +98,18 @@ export function morePath(page: MorePage): string {
   return isOneOf(SETTINGS_SECTIONS, page) ? `/more/settings/${page}` : `/more/${page}`;
 }
 
+/**
+ * `path` with a re-keyed session's old id swapped for its new one (a /clear or a
+ * resume gives the session a new id): the same screen, segment and page.
+ * Anything else, or a new id this frame couldn't draw, comes back unchanged.
+ */
+export function renameSessionInPath(path: string, oldId: string, newId: string): string {
+  const parts = path.split('/');
+  if (parts[1] !== 'sessions' || parts[2] !== oldId || parts.length < 4) return path;
+  const renamed = [...parts.slice(0, 2), newId, ...parts.slice(3)].join('/');
+  return parsePhonePath(renamed) ? renamed : path;
+}
+
 /** The route a path names, or null for anything this frame doesn't draw. */
 export function parsePhonePath(path: string): PhoneRoute | null {
   if (typeof path !== 'string' || !path.startsWith('/')) return null;

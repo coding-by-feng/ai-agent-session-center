@@ -23,6 +23,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { PHONE_NAV_KEY, usePhoneNavStore } from '@/stores/phoneNavStore';
 import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
 import { PHONE_APPEARANCE_ATTR, resetPhoneAppearanceForTest, setPhoneAppearance } from '@/lib/chat/phoneAppearance';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
   return {
@@ -266,6 +267,34 @@ describe('PhoneAppFrame', () => {
     unmount();
     expect(document.body.hasAttribute(PHONE_APPEARANCE_ATTR)).toBe(false);
     act(() => setPhoneAppearance('system'));
+  });
+
+  it('follows a re-keyed session under the top screen: Info and the session under it', async () => {
+    goTo('/?m=/sessions/s2/info');
+    render(<PhoneAppFrame />);
+    expect(await screen.findByTestId('phone-info')).toBeTruthy();
+    act(() => useComposerDraftStore.getState().setDraft('s2', 'half a thought'));
+    const s2 = useSessionStore.getState().sessions.get('s2')!;
+    act(() => useSessionStore.getState().updateSession({ ...s2, sessionId: 's2b', replacesId: 's2' }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2b/chat', '/sessions/s2b/info']));
+    expect(window.location.search).toBe('?m=/sessions/s2b/info');
+    expect(await screen.findByTestId('phone-info')).toBeTruthy();
+    expect(screen.queryByText('This session isn’t here')).toBeNull();
+    expect(useComposerDraftStore.getState().drafts).toEqual({ s2b: 'half a thought' });
+    act(() => useComposerDraftStore.getState().setDraft('s2b', ''));
+  });
+
+  it('keeps the segment and the stack when the session on show re-keys', async () => {
+    goTo('/?m=/sessions/s2/terminal');
+    render(<PhoneAppFrame />);
+    expect(await screen.findByTestId('phone-session')).toBeTruthy();
+    await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBe('s2'));
+    const s2 = useSessionStore.getState().sessions.get('s2')!;
+    act(() => useSessionStore.getState().updateSession({ ...s2, sessionId: 's2b', replacesId: 's2' }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2b/terminal']));
+    expect(useSessionStore.getState().selectedSessionId).toBe('s2b');
+    expect(screen.getByTestId('terminal-container')).toBeTruthy();
+    expect(window.location.search).toBe('?m=/sessions/s2b/terminal');
   });
 
   it('drops a selection left from the classic layout, so opening that session still works', async () => {

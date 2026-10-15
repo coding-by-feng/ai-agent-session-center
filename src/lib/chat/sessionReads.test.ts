@@ -1,7 +1,7 @@
 // sessionReads.test.ts — this phone's "read" stamps per session (AASC-40).
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Session } from '@/types';
-import { MAX_READS, SESSION_READS_KEY, getSessionReads, markSessionRead, readStamp, resetSessionReadsForTest } from './sessionReads';
+import { MAX_READS, SESSION_READS_KEY, getSessionReads, markSessionRead, moveSessionRead, readStamp, resetSessionReadsForTest } from './sessionReads';
 import { useSessionStore } from '@/stores/sessionStore';
 
 describe('sessionReads', () => {
@@ -44,6 +44,14 @@ describe('sessionReads', () => {
     useSessionStore.setState({ selectedSessionId: null });
     useSessionStore.setState({ sessions: new Map([['s9', s('waiting', 30)]]) });
     expect(getSessionReads().s9).toBe(20);
+  });
+
+  it('moves a stamp to a session\'s new id when it re-keys', () => {
+    markSessionRead('old', 40);
+    moveSessionRead('old', 'new');
+    expect(getSessionReads().new).toBe(40);
+    moveSessionRead('never-read', 'x');
+    expect(getSessionReads().x).toBeUndefined();
   });
 
   it(`keeps the newest ${MAX_READS} stamps`, () => {

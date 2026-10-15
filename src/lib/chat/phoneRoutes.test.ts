@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   INFO_PAGES,
   PHONE_TABS,
+  renameSessionInPath,
   SETTINGS_SECTIONS,
   morePath,
   defaultSegment,
@@ -105,6 +106,23 @@ describe('parsePhonePath / phonePath', () => {
   it('builds session paths, chat by default', () => {
     expect(sessionPath('abc')).toBe('/sessions/abc/chat');
     expect(sessionPath('abc', 'terminal')).toBe('/sessions/abc/terminal');
+  });
+});
+
+describe('renameSessionInPath', () => {
+  it('moves every screen of a re-keyed session to its new id, keeping the screen', () => {
+    expect(renameSessionInPath('/sessions/term-1/terminal', 'term-1', 'abc')).toBe('/sessions/abc/terminal');
+    expect(renameSessionInPath('/sessions/term-1/info', 'term-1', 'abc')).toBe('/sessions/abc/info');
+    expect(renameSessionInPath('/sessions/term-1/info/notes', 'term-1', 'abc')).toBe('/sessions/abc/info/notes');
+    expect(renameSessionInPath('/sessions/term-1/changes/2', 'term-1', 'abc')).toBe('/sessions/abc/changes/2');
+  });
+
+  it('leaves other paths alone', () => {
+    expect(renameSessionInPath('/sessions', 'term-1', 'abc')).toBe('/sessions');
+    expect(renameSessionInPath('/sessions/term-10/chat', 'term-1', 'abc')).toBe('/sessions/term-10/chat');
+    expect(renameSessionInPath('/more/history', 'term-1', 'abc')).toBe('/more/history');
+    // A new id this frame couldn't draw is not written.
+    expect(renameSessionInPath('/sessions/term-1/chat', 'term-1', 'a b')).toBe('/sessions/term-1/chat');
   });
 });
 
