@@ -1,0 +1,15 @@
+/* ConfirmSheet — phone kit (AASC-38). */
+
+.message {
+  margin: 0 0 var(--ph-space-6);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ph-space-3);
+}

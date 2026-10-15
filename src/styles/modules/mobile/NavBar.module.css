@@ -1,0 +1,129 @@
+/* NavBar — phone kit (AASC-38). */
+
+.navBar {
+  position: relative;
+  z-index: var(--ph-z-bar);
+  flex: none;
+  padding: var(--ph-safe-top) var(--ph-safe-right) 0 var(--ph-safe-left);
+  background: var(--ph-bar-bg);
+  border-bottom: 0.5px solid var(--ph-separator);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  font-family: var(--ph-font);
+  transition: border-color var(--ph-motion-fast) ease, background-color var(--ph-motion-fast) ease;
+}
+
+/* A large-title screen at the top: the bar blends into the page. */
+.flat {
+  background: var(--ph-bg);
+  border-bottom-color: transparent;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(var(--ph-target), 1fr) minmax(0, auto) minmax(var(--ph-target), 1fr);
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: calc(var(--ph-navbar) + var(--ph-space-1));
+  padding: 0 var(--ph-space-1);
+}
+
+.leading,
+.trailing {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.trailing {
+  justify-content: flex-end;
+  gap: var(--ph-space-1);
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  text-align: center;
+  transition: opacity var(--ph-motion-fast) ease;
+}
+
+.concealed { opacity: 0; }
+.shown { opacity: 1; }
+
+.title {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--ph-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--ph-size-caption);
+  line-height: 16px;
+  color: var(--ph-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.back,
+.titleButton {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  border-radius: var(--ph-radius);
+  color: var(--ph-accent);
+}
+
+.titleButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--ph-target);
+  justify-content: center;
+  padding: 0 var(--ph-space-2);
+  border-radius: var(--ph-radius);
+}
+
+@media (hover: hover) {
+  .back:hover, .titleButton:hover { background: var(--ph-fill); }
+}
+
+.back:active, .titleButton:active { background: var(--ph-fill-strong); }
+
+.back:focus-visible, .titleButton:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navBar, .center { transition: none; }
+}

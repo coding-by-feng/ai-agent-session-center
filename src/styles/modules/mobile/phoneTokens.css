@@ -1,0 +1,253 @@
+/* ============================================================
+   Phone tokens (AASC-38) — the new phone frame's design tokens.
+
+   Plain (not a module) on purpose: PhoneAppFrame puts the class `phoneApp` on
+   <body> while it is mounted, so the frame AND everything portaled to <body>
+   (kit sheets and menus, today's BottomSheets, toasts) share one palette. The
+   frame lives in the lazy phone chunk, so the desktop never loads this file.
+
+   Colour (DU5): the phone follows the SYSTEM light / dark setting. Only the
+   accent and status hues come from the desktop theme chosen on the Mac, mixed
+   toward black (light) or white (dark) so text and rings keep their contrast on
+   phone surfaces. Chrome-heavy themes (Windows XP: tan surfaces, Tahoma, square
+   sunken fields, bevelled scrollbars) are not reproduced on the phone.
+
+   Themes declare their variables on <body>; the derived --ph-* tokens are
+   declared there too (different names, no cycle). The remap of the desktop's
+   own variables (--bg-panel, --text-primary, …) happens one level down, on
+   body's children, because a property can't read its own theme value on the
+   element that redefines it. That remap lets today's phone views, embedded in
+   the new frame until their own tickets restyle them, follow the same palette.
+   ============================================================ */
+
+.phoneApp {
+  /* ---- Type ---- */
+  --ph-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, Roboto, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --ph-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  /* A future text-size setting (S / M / L / XL) scales everything through this. */
+  --ph-text-scale: 1;
+  --ph-size-large-title: calc(32px * var(--ph-text-scale));
+  --ph-line-large-title: calc(40px * var(--ph-text-scale));
+  --ph-size-body: calc(17px * var(--ph-text-scale));
+  --ph-line-body: calc(24px * var(--ph-text-scale));
+  --ph-size-secondary: calc(15px * var(--ph-text-scale));
+  --ph-line-secondary: calc(20px * var(--ph-text-scale));
+  --ph-size-caption: calc(13px * var(--ph-text-scale));
+  --ph-line-caption: calc(18px * var(--ph-text-scale));
+  --ph-size-tab: calc(12px * var(--ph-text-scale));
+
+  /* ---- Spacing (4 / 8 / 12 / 16 / 24) ---- */
+  --ph-space-1: 4px;
+  --ph-space-2: 8px;
+  --ph-space-3: 12px;
+  --ph-space-4: 16px;
+  --ph-space-6: 24px;
+  --ph-gutter: 16px;
+
+  /* ---- Radii ---- */
+  --ph-radius-sm: 8px;
+  --ph-radius: 10px;
+  --ph-radius-card: 14px;
+  --ph-radius-sheet: 16px;
+  --ph-radius-pill: 999px;
+
+  /* ---- Sizes ---- */
+  --ph-target: 44px;
+  --ph-button: 48px;
+  --ph-row: 56px;
+  --ph-row-tall: 72px;
+  --ph-navbar: 44px;
+  --ph-tabbar: 56px;
+
+  /* ---- Motion (off under Reduce Motion, below) ---- */
+  --ph-motion-push: 250ms;
+  --ph-motion-sheet: 300ms;
+  --ph-motion-fast: 150ms;
+  --ph-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ---- Safe areas ---- */
+  --ph-safe-top: env(safe-area-inset-top, 0px);
+  --ph-safe-right: env(safe-area-inset-right, 0px);
+  --ph-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ph-safe-left: env(safe-area-inset-left, 0px);
+
+  /* ---- Layers (inside the frame; portals use the 10000+ band) ---- */
+  --ph-z-bar: 20;
+  --ph-z-swipe: 30;
+  --ph-z-sheet: 10030;
+  --ph-z-menu: 10040;
+
+  /* ---- Colour: light ---- */
+  --ph-bg: #f2f2f7;
+  --ph-surface: #ffffff;
+  --ph-surface-raised: #ffffff;
+  --ph-bar-bg: rgba(248, 248, 250, 0.94);
+  --ph-fill: rgba(118, 118, 128, 0.12);
+  --ph-fill-strong: rgba(118, 118, 128, 0.22);
+  --ph-separator: rgba(60, 60, 67, 0.22);
+  --ph-text: #111114;
+  --ph-text-secondary: #45454b;
+  --ph-text-tertiary: #636369;
+  --ph-overlay: rgba(0, 0, 0, 0.32);
+  /* A swipe action that is neither accent nor destructive (white text on it). */
+  --ph-neutral-action: #636369;
+  --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08);
+  --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.16);
+
+  --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 45%, #000);
+  --ph-on-accent: #ffffff;
+  --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 62%, #000);
+  --ph-on-danger: #ffffff;
+  --ph-badge: color-mix(in srgb, var(--accent-red, #dc2626) 70%, #000);
+
+  /* Status: amber approval, violet question, blue working, green finished,
+     red interrupted / error, grey idle. Always drawn with an icon or a word. */
+  --ph-status-approval: color-mix(in srgb, var(--accent-yellow, #d97706) 55%, #000);
+  --ph-status-question: color-mix(in srgb, var(--accent-purple, #7c3aed) 62%, #000);
+  --ph-status-working: color-mix(in srgb, var(--accent-cyan, #0284c7) 55%, #000);
+  --ph-status-finished: color-mix(in srgb, var(--accent-green, #16a34a) 55%, #000);
+  --ph-status-error: var(--ph-danger);
+  --ph-status-idle: var(--ph-text-tertiary);
+
+  --ph-accent-tint: color-mix(in srgb, var(--ph-accent) 12%, transparent);
+  --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 12%, transparent);
+  --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 14%, transparent);
+  --ph-focus: var(--ph-accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .phoneApp {
+    --ph-bg: #0b0b0f;
+    --ph-surface: #1c1c1f;
+    --ph-surface-raised: #2a2a2e;
+    --ph-bar-bg: rgba(22, 22, 25, 0.94);
+    --ph-fill: rgba(118, 118, 128, 0.24);
+    --ph-fill-strong: rgba(118, 118, 128, 0.36);
+    --ph-separator: rgba(235, 235, 245, 0.18);
+    --ph-text: #f2f2f7;
+    --ph-text-secondary: #c7c7cc;
+    --ph-text-tertiary: #a1a1a8;
+    --ph-overlay: rgba(0, 0, 0, 0.56);
+    --ph-neutral-action: #48484d;
+    --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+
+    --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 50%, #fff);
+    --ph-on-accent: #0b0b0f;
+    --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 65%, #fff);
+    --ph-on-danger: #0b0b0f;
+
+    --ph-status-approval: color-mix(in srgb, var(--accent-yellow, #d97706) 65%, #fff);
+    --ph-status-question: color-mix(in srgb, var(--accent-purple, #7c3aed) 55%, #fff);
+    --ph-status-working: color-mix(in srgb, var(--accent-cyan, #0284c7) 60%, #fff);
+    --ph-status-finished: color-mix(in srgb, var(--accent-green, #16a34a) 60%, #fff);
+
+    --ph-accent-tint: color-mix(in srgb, var(--ph-accent) 18%, transparent);
+    --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 18%, transparent);
+    --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 18%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phoneApp {
+    --ph-motion-push: 0ms;
+    --ph-motion-sheet: 0ms;
+    --ph-motion-fast: 0ms;
+  }
+}
+
+/* ---- The page under the frame ---- */
+
+body.phoneApp {
+  background: var(--ph-bg);
+  color: var(--ph-text);
+}
+
+/* The desktop's scanline overlay is desktop chrome. */
+body.phoneApp::after {
+  display: none;
+}
+
+/* The frame insets itself (nav bar, tab bar, sheets); without this the app's
+   #root padding (base.css) leaves bands of page colour under the bars. */
+body.native-app.phoneApp #root {
+  padding: 0;
+}
+
+/* ---- Today's components, embedded or portaled, on the phone palette ---- */
+
+.phoneApp > * {
+  color-scheme: light;
+  --bg-primary: var(--ph-bg);
+  --bg-card: var(--ph-surface);
+  --bg-card-hover: var(--ph-surface-raised);
+  --bg-panel: var(--ph-surface);
+  --bg-header: var(--ph-surface);
+  --border-glow: var(--ph-accent);
+  --border-subtle: var(--ph-separator);
+  --border-faint: var(--ph-separator);
+  --border-subtle-strong: var(--ph-separator);
+  --border-accent: color-mix(in srgb, var(--ph-accent) 35%, transparent);
+  --border-accent-strong: color-mix(in srgb, var(--ph-accent) 60%, transparent);
+  --bg-accent: var(--ph-accent-tint);
+  --bg-accent-strong: color-mix(in srgb, var(--ph-accent) 22%, transparent);
+  --bg-subtle: var(--ph-fill);
+  --bg-subtle-strong: var(--ph-fill-strong);
+  --glow-accent: transparent;
+  --glow-accent-strong: transparent;
+  --inset-highlight: transparent;
+  --inset-highlight-faint: transparent;
+  --accent-cyan: var(--ph-accent);
+  --accent-orange: var(--ph-status-approval);
+  --accent-yellow: var(--ph-status-approval);
+  --accent-green: var(--ph-status-finished);
+  --accent-red: var(--ph-danger);
+  --accent-purple: var(--ph-status-question);
+  --accent-text: var(--ph-accent);
+  --text-primary: var(--ph-text);
+  --text-secondary: var(--ph-text-secondary);
+  --text-dim: var(--ph-text-tertiary);
+  --overlay-bg: var(--ph-overlay);
+  --mute-bg: color-mix(in srgb, var(--ph-bg) 85%, transparent);
+  --selection-text: var(--ph-on-accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .phoneApp > * {
+    color-scheme: dark;
+  }
+}
+
+/* Windows XP: route its universal `font-family: var(--font-mono) !important`
+   to the system font (code keeps its monospace: the theme redefines the
+   variable on pre / code / kbd / samp), and undo its white, square fields and
+   bevelled scrollbars, which the phone palette can't sit on (white fields with
+   light text in dark mode). */
+body.phoneApp[data-theme="windows-xp"] {
+  --font-mono: var(--ph-font);
+}
+
+body.phoneApp[data-theme="windows-xp"] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+body.phoneApp[data-theme="windows-xp"] textarea,
+body.phoneApp[data-theme="windows-xp"] select {
+  background-color: var(--ph-surface);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius-sm);
+}
+
+body.phoneApp[data-theme="windows-xp"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body.phoneApp[data-theme="windows-xp"] ::-webkit-scrollbar-track,
+body.phoneApp[data-theme="windows-xp"] ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body.phoneApp[data-theme="windows-xp"] ::-webkit-scrollbar-thumb {
+  background: var(--ph-fill-strong);
+  border: none;
+  border-radius: 3px;
+  box-shadow: none;
+}

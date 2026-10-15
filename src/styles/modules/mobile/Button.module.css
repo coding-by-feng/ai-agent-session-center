@@ -1,0 +1,116 @@
+/* Button — phone kit (AASC-38). Tokens: phoneTokens.css. */
+
+.button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-2);
+  min-width: var(--ph-target);
+  min-height: var(--ph-button);
+  margin: 0;
+  padding: 0 var(--ph-space-4);
+  border: 0;
+  border-radius: var(--ph-radius);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: var(--ph-line-body);
+  text-align: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease, transform var(--ph-motion-fast) ease, opacity var(--ph-motion-fast) ease;
+}
+
+.small {
+  min-height: var(--ph-target);
+  padding: 0 var(--ph-space-3);
+  font-size: var(--ph-size-secondary);
+}
+
+.block { width: 100%; }
+
+.label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.primary {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+
+.secondary {
+  background: var(--ph-fill);
+  color: var(--ph-accent);
+}
+
+.plain {
+  background: transparent;
+  color: var(--ph-accent);
+}
+
+.destructive {
+  background: var(--ph-danger);
+  color: var(--ph-on-danger);
+}
+
+@media (hover: hover) {
+  .primary:hover, .destructive:hover { filter: brightness(1.06); }
+  .secondary:hover, .plain:hover { background: var(--ph-fill-strong); }
+}
+
+.button:active:not([aria-disabled='true']):not([data-loading]) {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.button[aria-disabled='true'] {
+  background: var(--ph-fill);
+  color: var(--ph-text-secondary);
+  cursor: not-allowed;
+}
+
+.button[data-loading] {
+  cursor: progress;
+}
+
+.withReason {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ph-space-1);
+  max-width: 100%;
+}
+
+.reason {
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+  text-align: center;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ph-spin 800ms linear infinite;
+}
+
+@keyframes ph-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; border-right-color: currentColor; border-top-color: transparent; }
+  .button { transition: none; }
+}

@@ -1,0 +1,52 @@
+/* EmptyState — phone kit (AASC-38). */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ph-space-2);
+  padding: var(--ph-space-6) var(--ph-space-6) var(--ph-space-6);
+  text-align: center;
+  font-family: var(--ph-font);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--ph-space-2);
+  border-radius: 50%;
+  background: var(--ph-fill);
+  color: var(--ph-text-secondary);
+}
+
+.icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: var(--ph-line-body);
+  color: var(--ph-text);
+}
+
+.message {
+  max-width: 320px;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ph-space-2);
+  margin-top: var(--ph-space-3);
+}

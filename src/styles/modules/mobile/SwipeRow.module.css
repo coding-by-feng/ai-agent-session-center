@@ -1,0 +1,65 @@
+/* SwipeRow — phone kit (AASC-38). */
+
+.swipeRow {
+  position: relative;
+  overflow: hidden;
+  --open-x: 0px;
+}
+
+.actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+}
+
+.action {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 80px;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-1);
+  border: 0;
+  background: var(--ph-neutral-action);
+  color: #ffffff;
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.action[data-tone='accent'] { background: var(--ph-accent); color: var(--ph-on-accent); }
+.action[data-tone='destructive'] { background: var(--ph-danger); color: var(--ph-on-danger); }
+
+.action:active { filter: brightness(0.9); }
+
+.action:focus-visible {
+  outline: 2px solid var(--ph-surface);
+  outline-offset: -4px;
+}
+
+.content {
+  position: relative;
+  background: var(--ph-surface);
+  touch-action: pan-y;
+  transform: translateX(var(--swipe-x, var(--open-x)));
+  transition: transform var(--ph-motion-push) var(--ph-ease);
+}
+
+.content[data-dragging] { transition: none; }
+
+/* Open = the actions' width (80px each, SWIPE_ACTION_WIDTH). */
+.swipeRow[data-open][data-count='1'] { --open-x: -80px; }
+.swipeRow[data-open][data-count='2'] { --open-x: -160px; }
+.swipeRow[data-open][data-count='3'] { --open-x: -240px; }
+.swipeRow[data-open][data-count='4'] { --open-x: -320px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .content { transition: none; }
+}
