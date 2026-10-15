@@ -52,6 +52,12 @@ describe('Claude Code', () => {
     }
   });
 
+  it('an ambiguous request (another dialog may be showing) is never answered', () => {
+    expect(answerKeysFor(request({ ambiguous: true }), { choice: 'allow_once' }, {})).toBeNull();
+    expect(answerKeysFor(question({ ambiguous: true }), { choice: 'option', optionIndex: 0 }, {})).toBeNull();
+    expect(answerKeysFor(request({ ambiguous: true }), { choice: 'deny' }, {})).toBeNull();
+  });
+
   it('a guess (timer or notification) is never answered: nobody saw what it asks', () => {
     expect(answerKeysFor(request({ source: 'timer', input: undefined }), { choice: 'allow_once' }, {})).toBeNull();
     expect(answerKeysFor(request({ source: 'notification', input: undefined }), { choice: 'deny' }, {})).toBeNull();

@@ -198,7 +198,7 @@ describe('pendingRequest is cleared', () => {
   it('by a newer request', () => {
     const id = waiting();
     hook(id, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'git push' }, tool_use_id: 'toolu_push' });
-    expect(pendingOf(id)?.id).toBe('toolu_push');
+    expect(pendingOf(id)).toMatchObject({ id: 'toolu_push', ambiguous: true });
   });
 
   it('by an answer the server wrote, only for the request it names', () => {

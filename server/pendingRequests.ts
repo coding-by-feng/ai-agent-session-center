@@ -125,7 +125,7 @@ export function answerableOptions(input: unknown): PendingRequestOption[] | unde
   return parsed.every((option): option is PendingRequestOption => option !== null) ? parsed : undefined;
 }
 
-function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, now: number): PendingRequest {
+function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, now: number, ambiguous: boolean): PendingRequest {
   const tool = saneString(hook.tool_name, MAX_ID_CHARS) ?? 'Unknown';
   const toolUseId = saneString(hook.tool_use_id, MAX_ID_CHARS);
   const kind = requestKindOf(tool);
@@ -140,6 +140,7 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
     ...(input !== undefined ? { input } : {}),
     ...(truncated ? { inputTruncated: true } : {}),
     ...(options ? { options } : {}),
+    ...(ambiguous ? { ambiguous: true } : {}),
     raisedAt: now,
     source,
   };
@@ -188,10 +189,13 @@ export function nextPendingRequest(
   const tool = saneString(hook.tool_name, MAX_ID_CHARS);
   const asking = event === 'PermissionRequest' || (event === 'PreToolUse' && tool !== undefined && ASKING_TOOLS.has(tool));
   if (!asking) return current;
-  const raised = raisedRequest(hook, event === 'PermissionRequest' ? 'permission_request' : 'pre_tool_use', cli, now);
+  const open = current !== null && !isGuess(current);
+  const raised = raisedRequest(hook, event === 'PermissionRequest' ? 'permission_request' : 'pre_tool_use', cli, now, open);
   // The PermissionRequest of a question already raised by its PreToolUse (or the other
-  // way round) is the same request: keep its id, a card may be showing it.
-  return current && !isGuess(current) && sameCall(current, raised) ? current : raised;
+  // way round) is the same request: keep its id, a card may be showing it. A different
+  // request while one is still open means parallel calls: the CLI queues their dialogs
+  // and may be showing the older one, so the newer one is kept but marked ambiguous.
+  return open && sameCall(current, raised) ? current : raised;
 }
 
 /**

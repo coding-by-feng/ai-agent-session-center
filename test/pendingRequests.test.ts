@@ -176,16 +176,39 @@ describe('nextPendingRequest: raised', () => {
     expect(again).toBe(asked);
   });
 
-  it('a newer request replaces the one before, even for the same tool', () => {
+  it('a newer request while the one before is still open replaces it, marked ambiguous', () => {
+    // Parallel tools or subagents: the CLI queues its dialogs and may be showing either one.
     const first = next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'make a' } });
     const second = next(first, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'make b' } });
     expect(second?.id).not.toBe(first?.id);
     expect(second?.input).toEqual({ command: 'make b' });
+    expect(second?.ambiguous).toBe(true);
+    expect(first?.ambiguous).toBeUndefined();
   });
 
   it('two calls with different ids are different requests, inputs alike', () => {
     const first = next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_a' });
-    expect(next(first, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_b' })?.id).toBe('toolu_b');
+    const second = next(first, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_b' });
+    expect(second).toMatchObject({ id: 'toolu_b', ambiguous: true });
+  });
+
+  it('a question raised while a permission is still open is ambiguous too', () => {
+    const bash = next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_a' });
+    expect(next(bash, 'PreToolUse', { tool_name: 'AskUserQuestion', tool_input: ask([{ label: 'A' }]), tool_use_id: 'toolu_q' })?.ambiguous).toBe(true);
+  });
+
+  it('a request raised after the one before ended, or over a guess, is not ambiguous', () => {
+    const first = next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_a' });
+    const ended = next(first, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_a' });
+    expect(next(ended, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'pwd' }, tool_use_id: 'toolu_b' })?.ambiguous).toBeUndefined();
+    const guess = guessPendingRequest(null, 'Bash', 'timer', 'claude', NOW);
+    expect(next(guess, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' } })?.ambiguous).toBeUndefined();
+  });
+
+  it('an ambiguous request stays ambiguous for its own repeated PermissionRequest', () => {
+    const first = next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'a' }, tool_use_id: 'toolu_a' });
+    const second = next(first, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'b' }, tool_use_id: 'toolu_b' });
+    expect(next(second, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'b' }, tool_use_id: 'toolu_b' })).toBe(second);
   });
 
   it('ignores an id or tool name that is not a sane string', () => {

@@ -241,6 +241,9 @@ export interface PendingRequest {
   options?: PendingRequestOption[];
   /** The hook's tool_use_id, when it sent one: matches the call's PostToolUse. */
   toolUseId?: string;
+  /** Raised while another request was still open (parallel tools or subagents): the CLI
+   *  may be showing either dialog, so no card can answer it. Lasts until it is cleared. */
+  ambiguous?: boolean;
   raisedAt: number;
   /** `timer` and `notification` are guesses (no input): only "Open terminal" can answer them. */
   source: 'permission_request' | 'notification' | 'pre_tool_use' | 'timer';
