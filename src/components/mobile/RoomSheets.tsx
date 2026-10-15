@@ -2,15 +2,15 @@
  * RoomSheets — rooms on a phone (AASC-20, features 10 and 11). The desktop
  * moves a session by dragging it between room frames or with the control
  * bar's room select, and manages rooms in the 3D scene's HUD; a phone has
- * neither, so both are sheets, opened from a session's ⋯ sheet (the drawer
- * row's, and the session header's):
+ * neither, so both are sheets, opened from a session's Info → Room and from a
+ * room's group menu on Sessions (AASC-40/46):
  *
  *  - MoveToRoomSheet: "No room", every room (colour, name, size, the current
  *    one ticked), and a new room made and moved into in one step.
  *  - ManageRoomsSheet: create, rename, colour and delete rooms.
  *
  * The Mac owns the rooms (lib/roomSync.ts). On the device that owns them — the
- * Mac's window, the workspace writer, in its phone layout — the sheets use the
+ * Mac's window at a phone's size, the workspace writer — the sheets use the
  * room store's actions, and never `setRoomIndex`: `roomIndex` is a 3D world
  * slot, and a colour is `Room.color`, not a slot change. On any other device (a
  * remote phone) they ask the Mac instead (lib/roomOps.ts) and leave the local
@@ -398,30 +398,3 @@ export function RoomIcon() {
     </svg>
   );
 }
-
-/**
- * A session's room in its actions sheet (the drawer row's ⋯): where it is, and
- * the way to move it or to manage the rooms. The sheets open over the actions
- * sheet, which shows the new room when they close.
- */
-export function RoomSection({ sessionId }: { sessionId: string }) {
-  const room = useRoomStore((s) => s.rooms.find((r) => r.sessionIds.includes(sessionId)));
-  const [sheet, setSheet] = useState<'move' | 'manage' | null>(null);
-  const close = useCallback(() => setSheet(null), []);
-  const manage = useCallback(() => setSheet('manage'), []);
-  return (
-    <section className={styles.section} aria-label="Room">
-      <h3 className={styles.sectionHeading}>Room</h3>
-      <p className={styles.current}>
-        {room ? <><Swatch color={roomColor(room)} /> {room.name}</> : <><span className={styles.swatchNone} aria-hidden="true" /> No room</>}
-      </p>
-      <div className={styles.sectionButtons}>
-        <Button onClick={() => setSheet('move')} aria-haspopup="dialog">Move to room…</Button>
-        <Button onClick={manage} aria-haspopup="dialog">Manage rooms…</Button>
-      </div>
-      <MoveToRoomSheet sessionId={sheet === 'move' ? sessionId : null} onClose={close} onManage={manage} />
-      <ManageRoomsSheet open={sheet === 'manage'} onClose={close} />
-    </section>
-  );
-}
-

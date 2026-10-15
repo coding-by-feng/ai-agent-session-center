@@ -9,9 +9,9 @@
  *   ACTIONS   Rename · Restart | Resume · Fork · Clone · Move to room · Manage rooms
  *             Kill session (red, confirms)
  *
- * It replaces the classic header's chip row and most of its ⋯ sheet, so
- * everything those offered is here (MobileSessionHeader / SessionActionsSheet),
- * and only what a paired phone may do: no Pin inside the app (AASC-50), no Share.
+ * It replaced the classic phone layout's header chips and ⋯ sheets (removed in
+ * AASC-48), so everything those offered is here, and only what a paired phone
+ * may do: no Pin inside the app (AASC-50), no Share.
  * Who is driving is said in plain words, with Ask / Take / Release control.
  */
 import { useCallback, useState } from 'react';

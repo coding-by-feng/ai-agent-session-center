@@ -52,7 +52,6 @@ import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { isPopoutWindow } from '@/lib/windowRole';
-import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const RECENT_FRAME_KEY = 'builtin:recent';
@@ -89,16 +88,13 @@ interface Props {
   onClose?: () => void;
   controls?: React.ReactNode;
   model?: string;
-  /** Replaces the built-in top row (title, meta, controls): the phone's own
-   *  session header (AASC-18). The strip below is unchanged. */
-  header?: React.ReactNode;
 }
 
 export default function SessionSwitcher({
   currentSession, sessions, onSwitch,
   statusLabel, duration, isDisconnected,
   onClose,
-  controls, model, header,
+  controls, model,
 }: Props) {
   // Sessions that finished work (transitioned to "waiting") but haven't been viewed
   const [attentionIds, acknowledgeAttention] = useCompletionAttention(sessions, currentSession.sessionId);
@@ -141,9 +137,8 @@ export default function SessionSwitcher({
   // The room filter, the view switch, the status legend, density, dock and
   // maximize live in one labelled View menu (SessionViewMenu, AASC-11).
 
-  const isMobile = useIsMobile();
   // The list itself (numbers, room filter, RECENT, the view's frames) is
-  // useSessionStrip, shared with the phone's session drawer (AASC-18).
+  // useSessionStrip.
   const {
     sessionIndexMap,
     currentIndex,
@@ -370,9 +365,7 @@ export default function SessionSwitcher({
 
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
-      {header}
       {/* ── Top row: current session name + meta controls ── */}
-      {!header && (
       <div className={styles.switcherToggle}>
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
@@ -608,7 +601,6 @@ export default function SessionSwitcher({
           )}
         </div>
       </div>
-      )}
 
       {labelAnchor && (
         <LabelPicker
@@ -618,9 +610,8 @@ export default function SessionSwitcher({
         />
       )}
 
-      {/* ── Session tab strip ── (hidden when the panel is maximized, and on a
-          phone, where the session drawer lists the sessions: components/mobile/) */}
-      {!maximized && !isMobile && filteredSessions.length > 0 && (
+      {/* ── Session tab strip ── (hidden when the panel is maximized) */}
+      {!maximized && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {tabRenderItems.map((item) => {
             if (item.type === 'recent') {

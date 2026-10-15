@@ -6,7 +6,7 @@
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import { isNativeMobileApp } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
@@ -62,15 +62,6 @@ const BASE_TABS = [
   { id: 'queue', label: 'QUEUE' },
   { id: 'agents', label: 'AGENTS' },
 ] as const;
-
-/**
- * The same tabs in a phone's order (AASC-18): what you watch and drive a session
- * with first — TERMINAL, CONVERSATION, QUEUE, AGENTS fill a 360px screen — and
- * the reading tabs after them. The strip scrolls for the rest, with faded edges
- * saying so (`data-overflow-*`).
- */
-const PHONE_TAB_ORDER = ['terminal', 'conversation', 'queue', 'agents', 'project', 'notes', 'aiPopups', 'commands'] as const;
-const PHONE_TABS = PHONE_TAB_ORDER.map((id) => BASE_TABS.find((t) => t.id === id)!);
 
 /** Hover/screen-reader text for a tab's count badge (the digit alone is mute). */
 function countTitle(tabId: string, count: number): string {
@@ -380,34 +371,12 @@ export default function DetailTabs({
     if (sessionId) void useNotesStore.getState().loadNotes(sessionId);
   }, [sessionId]);
 
-  const isMobile = useIsMobile();
-
   // The strip scrolls sideways with its scrollbar hidden, so on a narrow
   // panel the active tab (AGENTS, last) can sit past the edge with nothing
   // showing it is open. Scroll just enough to bring it into view — never
   // scrollIntoView, which would also scroll the panel's ancestors.
   const tabStripRef = useRef<HTMLDivElement>(null);
 
-  // On a phone the strip says when it has more tabs past an edge: that edge
-  // fades out (CSS, keyed on these flags). Measured on scroll and on resize,
-  // in the listeners' callbacks — never in an effect body.
-  const [stripOverflow, setStripOverflow] = useState({ start: false, end: false });
-  useEffect(() => {
-    const strip = tabStripRef.current;
-    if (!isMobile || !strip) return undefined;
-    const measure = () => {
-      const start = strip.scrollLeft > 1;
-      const end = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
-      setStripOverflow((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
-    };
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    ro?.observe(strip);
-    strip.addEventListener('scroll', measure, { passive: true });
-    return () => {
-      ro?.disconnect();
-      strip.removeEventListener('scroll', measure);
-    };
-  }, [isMobile]);
   useEffect(() => {
     const strip = tabStripRef.current;
     const btn = strip?.querySelector<HTMLElement>(`[data-tab="${activeTab}"]`);
@@ -440,12 +409,10 @@ export default function DetailTabs({
   }, [sessionId]);
 
   // Only offer split on wide panels (uses CSS too, but this prevents stale state)
-  // Never in the phone app: a landscape phone is wider than the threshold but
-  // still shows one tab at a time (AASC-17).
-  // Nor on any phone-sized screen (a phone browser in landscape is ~844px wide):
-  // split, stacked and the project window are desktop layouts (AASC-18).
+  // Never in the phone app, on any screen size: split, stacked and the project
+  // window are desktop layouts (AASC-17).
   const panelWideEnough =
-    typeof window !== 'undefined' && window.innerWidth >= SPLIT_MIN_WIDTH && !isNativeMobileApp() && !isMobile;
+    typeof window !== 'undefined' && window.innerWidth >= SPLIT_MIN_WIDTH && !isNativeMobileApp();
 
   const handleTabClick = useCallback(
     (tabId: string) => {
@@ -543,8 +510,6 @@ export default function DetailTabs({
     effectiveTab = activeTab;
   }
 
-  const tabs = isMobile ? PHONE_TABS : BASE_TABS;
-
   // projectContent is portaled into a stable always-mounted host so the file
   // tree, open files, and edit-mode state survive tab/layout switches.
   const [projectHostEl, setProjectHostEl] = useState<HTMLDivElement | null>(null);
@@ -599,10 +564,8 @@ export default function DetailTabs({
         className={styles.tabs}
         ref={tabStripRef}
         data-tab-strip
-        data-overflow-start={isMobile && stripOverflow.start ? '' : undefined}
-        data-overflow-end={isMobile && stripOverflow.end ? '' : undefined}
       >
-        {tabs.map((tab) => {
+        {BASE_TABS.map((tab) => {
           const tabIsTermOrProj = tab.id === 'terminal' || tab.id === 'project';
           const combinedTermProj = (isSplit || isStacked) && tabIsTermOrProj;
           const isActive = combinedTermProj

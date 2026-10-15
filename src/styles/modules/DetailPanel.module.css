@@ -151,32 +151,6 @@
 .tab:hover { color: var(--text-primary); }
 .tab.active { color: var(--accent-text, var(--accent-cyan)); border-bottom-color: var(--accent-cyan); }
 
-/* The tab strip on a phone (AASC-18). Same query as MOBILE_MEDIA_QUERY: one tab
-   at a time (DetailTabs drops split/stacked/float there), 44px targets, and an
-   edge that has more tabs past it fades out — DetailTabs sets data-overflow-start
-   / -end from the strip's scroll position — so a cut-off tab reads as "scroll
-   for more", not as the end of the strip. */
-@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
-  /* Every tab's content: an 8px gutter, not 20px — on a 360px screen that is a
-     tenth of the width. Two classes: the base `.tabContent` rule comes later. */
-  .tabs ~ .tabContent { padding: 8px; }
-  .tab { min-height: 44px; }
-  .tab:active { color: var(--text-primary); background: var(--bg-subtle); }
-  .tab:focus-visible { outline: 2px solid var(--accent-text, var(--accent-cyan)); outline-offset: -2px; }
-  .tabs[data-overflow-end] {
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
-  }
-  .tabs[data-overflow-start] {
-    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
-    mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
-  }
-  .tabs[data-overflow-start][data-overflow-end] {
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
-    mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
-  }
-}
-
 /* Count badge on the NOTES / QUEUE tabs — same accent pill as the session
    strip's queue-hint badge, so a count reads the same wherever it appears.
    Accent-coloured rather than `inherit` on purpose: the point is to be legible

@@ -22,7 +22,6 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import { settleLazy } from '@/__tests__/settleLazy';
-import PhoneFloatsButton from './PhoneFloatsButton';
 
 const float = (terminalId: string, label: string) => ({ terminalId, label, originSessionId: 'root', createdAt: 1 });
 const s = (sessionId: string, over: Partial<Session> = {}) => ({ sessionId, status: 'working', events: [], ...over }) as unknown as Session;
@@ -93,19 +92,5 @@ describe('the fork sheet', () => {
     render(<FloatingTerminalRoot />);
     await settleLazy(() => import('./PhoneFloatingSheet'));
     expect(screen.queryByRole('dialog')).toBeNull();
-  });
-});
-
-describe('the header’s ✦ button', () => {
-  it('counts the session’s running popups and brings the newest back', () => {
-    useFloatingSessionsStore.setState({ phoneShown: null });
-    render(<PhoneFloatsButton sessionId="root" />);
-    fireEvent.click(screen.getByRole('button', { name: 'AI popups: 2 running. Show' }));
-    expect(useFloatingSessionsStore.getState().phoneShown).toBe('t-2');
-  });
-
-  it('is absent with none', () => {
-    render(<PhoneFloatsButton sessionId="other" />);
-    expect(screen.queryByRole('button')).toBeNull();
   });
 });
