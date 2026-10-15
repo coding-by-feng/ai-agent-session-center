@@ -16,7 +16,10 @@ export interface ActiveCloudConnection {
   token: string;
   secretRef: string;
 }
+export type CloudBinaryConsumer = (body: ReadableStream<Uint8Array>) => Promise<void>;
 export interface CloudClient {
+  /** GET a binary body (resource package files) and hand it to `consume`; same allow-list as request. */
+  stream?(servicePath: string, consume: CloudBinaryConsumer, signal?: AbortSignal): Promise<void>;
   request<T>(method: string, servicePath: string, body?: unknown, signal?: AbortSignal): Promise<T>;
 }
 export interface CloudConnector {
@@ -40,6 +43,8 @@ export class CloudError extends Error {
     readonly code: string,
     message: string,
     readonly status = 502,
+    /** Validated resource conflict details (version_conflict / version_in_use) only. */
+    readonly details?: import('../../src/types/cloudResources.js').ResourceErrorDetails,
     readonly retryAfterMs?: number,
   ) {
     super(message);

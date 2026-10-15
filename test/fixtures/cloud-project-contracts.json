@@ -1,0 +1,141 @@
+{
+  "create": {
+    "mutationId": "00000000-0000-4000-8000-000000000021",
+    "baseVersion": null,
+    "value": {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "name": "Sample project",
+      "repository": {
+        "provider": "github",
+        "owner": "example-team",
+        "name": "sample",
+        "url": "https://github.com/example-team/sample",
+        "branch": "main"
+      },
+      "description": "Synthetic portable project metadata",
+      "resources": [],
+      "deleted": false
+    }
+  },
+  "createResponse": {
+    "success": true,
+    "data": {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "name": "Sample project",
+      "repository": {
+        "provider": "github",
+        "owner": "example-team",
+        "name": "sample",
+        "url": "https://github.com/example-team/sample",
+        "branch": "main"
+      },
+      "description": "Synthetic portable project metadata",
+      "resources": [],
+      "deleted": false
+    }
+  },
+  "update": {
+    "mutationId": "00000000-0000-4000-8000-000000000022",
+    "baseVersion": 1,
+    "value": {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "name": "Updated sample",
+      "repository": {
+        "provider": "github",
+        "owner": "example-team",
+        "name": "sample",
+        "url": "https://github.com/example-team/sample",
+        "branch": "main"
+      },
+      "description": "Synthetic portable project metadata",
+      "resources": [],
+      "deleted": false
+    }
+  },
+  "updateResponse": {
+    "success": true,
+    "data": {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "version": 2,
+      "name": "Updated sample",
+      "repository": {
+        "provider": "github",
+        "owner": "example-team",
+        "name": "sample",
+        "url": "https://github.com/example-team/sample",
+        "branch": "main"
+      },
+      "description": "Synthetic portable project metadata",
+      "resources": [],
+      "deleted": false
+    }
+  },
+  "listResponse": {
+    "success": true,
+    "data": {
+      "items": [
+        {
+          "id": "00000000-0000-4000-8000-000000000011",
+          "version": 1,
+          "name": "Sample project",
+          "repository": {
+            "provider": "github",
+            "owner": "example-team",
+            "name": "sample",
+            "url": "https://github.com/example-team/sample",
+            "branch": "main"
+          },
+          "description": "Synthetic portable project metadata",
+          "resources": [],
+          "deleted": false
+        }
+      ],
+      "nextCursor": null
+    }
+  },
+  "delete": {
+    "baseVersion": 2,
+    "mutationId": "00000000-0000-4000-8000-000000000023"
+  },
+  "deleteResponse": {
+    "success": true,
+    "data": {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "version": 3,
+      "name": "Updated sample",
+      "repository": {
+        "provider": "github",
+        "owner": "example-team",
+        "name": "sample",
+        "url": "https://github.com/example-team/sample",
+        "branch": "main"
+      },
+      "description": "Synthetic portable project metadata",
+      "resources": [],
+      "deleted": true
+    }
+  },
+  "versionConflict": {
+    "success": false,
+    "error": {
+      "code": "version_conflict",
+      "message": "Project revision changed",
+      "details": {
+        "headVersion": 2
+      }
+    }
+  },
+  "healthResponse": {
+    "success": true,
+    "data": {
+      "status": "ok",
+      "contractVersion": 1,
+      "ownerId": "00000000-0000-4000-8000-000000000001",
+      "deviceId": "00000000-0000-4000-8000-000000000002",
+      "services": ["resources", "projects"]
+    }
+  }
+}

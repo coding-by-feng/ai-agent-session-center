@@ -94,11 +94,11 @@ describe('ResourcesView — favourites and tags', () => {
     expect(within(detail()).queryByRole('region', { name: /My notes/ })).toBeNull();
   });
 
-  it('"Select visible" under a favourites filter selects only those, for a transfer', async () => {
+  it('"Select visible" under a favourites filter selects only those, for the cloud', async () => {
     renderView();
     await ready();
     fireEvent.click(screen.getByRole('button', { name: /Favourites/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Select for transfer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select resources' }));
     expect(screen.getByRole('button', { name: 'Select visible (2)' })).toBeInTheDocument();
   });
 });

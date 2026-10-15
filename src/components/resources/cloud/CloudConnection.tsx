@@ -229,7 +229,7 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
         )}
         <p className={styles.hint}>
           CLI intent is separate from installation on this device. Review the server-saved
-          abbreviation and target before Apply.
+          abbreviation and target before Apply. Downloading resources never opts this device in.
         </p>
         {notes.identity && (
           <>

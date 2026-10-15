@@ -284,7 +284,7 @@ async function linkInfo(entry: RawEntry, sc: ScanCtx): Promise<LinkInfo | null> 
   return { isSymlink: st.isSymbolicLink(), real, rootReal, outside: !isWithin(rootReal, real), target: real };
 }
 
-async function contentChecks(entry: RawEntry, mainFile: string, sc: ScanCtx): Promise<{ description?: string; findings: ResourceFinding[] }> {
+async function contentChecks(entry: RawEntry, mainFile: string, sc: ScanCtx): Promise<{ description?: string; managedAlias?: boolean; findings: ResourceFinding[] }> {
   const head = await readTextCapped(mainFile, HEAD_READ_BYTES).catch(() => null);
   if (!head?.content) return { findings: [] };
   const target = { resourceId: entry.id };
@@ -309,7 +309,7 @@ async function contentChecks(entry: RawEntry, mainFile: string, sc: ScanCtx): Pr
   if (sc.homeRe && entry.type !== 'memory' && sc.homeRe.test(head.content)) {
     found.push(finding('hardcoded-home-path', 'Contains this machine\'s home directory path', target));
   }
-  return { ...(description ? { description } : {}), findings: found };
+  return { ...(description ? { description } : {}), ...(head.content.includes('aasc-alias:v1') ? { managedAlias: true } : {}), findings: found };
 }
 
 /**
@@ -405,6 +405,7 @@ async function analysePath(entry: RawEntry, sc: ScanCtx): Promise<Analysis | nul
         ...measured.fields,
         origin: link.outside && entry.origin === 'user' ? 'linked' : entry.origin,
         ...(content.description ? { description: content.description } : {}),
+        ...(content.managedAlias ? { managedAlias: true } : {}),
         ...((link.outside || link.isSymlink) && link.target ? { linkTarget: sc.display(link.target) } : {}),
       },
     },

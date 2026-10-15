@@ -129,6 +129,10 @@
 
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
 
+/* The Cloud section stays mounted once opened (hidden while another section shows). */
+.cloudSection { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; }
+.cloudSection[hidden] { display: none; }
+
 .banner {
   display: flex;
   flex-wrap: wrap;

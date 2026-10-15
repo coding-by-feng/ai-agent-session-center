@@ -1,34 +1,39 @@
-/* RESOURCES → Cloud: connection, notes sync and cloud alias review (CloudPanel). */
+/* RESOURCES → Cloud (CloudPanel): connection, notes sync, cloud aliases, cloud
+   resources, project records and their jobs and reviews.
+
+   Controls, captions, status marks, stale notes and empty states are the shared
+   view-tab primitives (src/components/ui); this sheet only lays them out and
+   draws the cards. Text is --text-primary or --text-secondary, never
+   --text-dim. ResourcesView's .cloudSection is the scroller, so .panel is not. */
 .panel {
-  width: 100%;
   min-width: 0;
-  overflow: auto;
-  padding: 16px;
+  padding: 0 0 24px;
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.5;
 }
 .panel h3 {
+  margin: 0 0 8px;
   font-size: 16px;
 }
 .panel h4 {
+  margin: 0 0 8px;
   font-size: 14px;
-  margin: 0 0 6px;
 }
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin: 8px 0 16px;
 }
 .card {
+  min-width: 0;
+  margin: 8px 0;
+  padding: 16px;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   background: var(--bg-card);
-  padding: 16px;
-  margin: 8px 0;
-  min-width: 0;
   overflow-wrap: anywhere;
 }
 .grid {
@@ -37,33 +42,42 @@
   gap: 16px;
   align-items: start;
 }
-.form {
-  display: grid;
-  gap: 12px;
+.column {
   min-width: 0;
 }
+.form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+/* Field is a caption beside its control; in a form the caption sits above. */
 .form label {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
 }
-.form input {
+.form input,
+.form select,
+.form textarea {
   width: 100%;
+  max-width: none;
   min-width: 0;
   box-sizing: border-box;
 }
-.panel label:has(> select) {
+.panel .selectField {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
-  min-width: 0;
-}
-.panel label > select {
+  gap: 8px;
   width: 100%;
+  margin: 8px 0;
+}
+.panel .selectField select {
+  width: 100%;
+  max-width: none;
   min-width: 0;
-  box-sizing: border-box;
 }
 .hint {
   color: var(--text-secondary);
@@ -71,39 +85,157 @@
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+/* An inline action error. A div, not a <p>: inside the shared Modal, `.panel p`
+   (0-1-1) would repaint a one-class rule in secondary text. */
 .error {
-  color: var(--text-primary);
-  border-left: 3px solid var(--danger-color, #c04444);
-  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent-red);
   background: var(--bg-subtle);
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 .banner {
-  padding: 8px 12px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-subtle);
   margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
   overflow-wrap: anywhere;
 }
-/* The panel's one-line status: text, then its action, wrapping on a phone. */
+/* The panel's one-line status: text, then its actions, wrapping on a phone. */
 .statusBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 16px;
 }
 .statusBar > p {
   flex-basis: 100%;
   margin: 0;
 }
-@media (max-width: 480px) {
-  .panel {
-    padding: 8px;
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.title h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.steps {
+  margin: 8px 0;
+  padding-left: 16px;
+}
+.steps li + li {
+  margin-top: 8px;
+}
+.stepLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.files {
+  max-height: 220px;
+  margin: 8px 0;
+  padding-left: 24px;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.card details > summary {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.card details > summary:hover {
+  color: var(--text-primary);
+}
+.card details > summary:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.check input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-text);
+}
+.check input:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+/* Two classes: Modal's own .panel max-width (400px) loads first or last
+   depending on the chunk; this must win either way. */
+.dialog.dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.comparison dt {
+  margin-top: 8px;
+  font-weight: 600;
+}
+.comparison dd {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.comparison ul {
+  padding-left: 16px;
+}
+@media (pointer: coarse) {
+  .check,
+  .card details > summary {
+    min-height: 44px;
+    align-items: center;
   }
+  .check input {
+    width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+    margin: 0;
+  }
+}
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .card {
     padding: 8px;
   }
   .toolbar > * {
     max-width: 100%;
+  }
+  .dialog.dialog {
+    padding: 16px;
   }
 }

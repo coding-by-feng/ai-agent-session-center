@@ -21,8 +21,14 @@ export function cloudError(error: unknown) {
     const messages: Record<string, string> = {
       connection_changed:
         'Connection changed. Refresh connection and review again; your draft is preserved.',
-      offline: 'Cloud is offline. Saved notes stay on this device; reconnect to sync.',
+      version_conflict:
+        'Cloud version changed. Your draft is preserved. Load latest for comparison before making a new edit.',
+      review_required:
+        'The job or files changed. Wait for active work, then create a fresh review.',
+      offline:
+        'Cloud is offline. Saved notes and cached records stay on this device; reconnect to sync or make changes.',
       revoked: 'Device access was revoked. Reconnect to continue.',
+      unsupported: 'This operation is not supported by this backend.',
     };
     return messages[error.code] ?? error.message;
   }

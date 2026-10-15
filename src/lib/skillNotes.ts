@@ -9,7 +9,7 @@
  * both. `shared` notes (skills under `~/.agents`) apply to every agent.
  *
  * Pure and import-free: used by the Library, the prompt autocomplete and the
- * Transfers selection, and unit-tested without a store or a DOM. Every update
+ * Cloud resource selection, and unit-tested without a store or a DOM. Every update
  * returns a new object; stored text is untrusted and cleaned on the way in.
  */
 

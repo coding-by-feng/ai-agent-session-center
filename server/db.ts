@@ -4,8 +4,8 @@
 
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
+import { databaseDirectory } from './dbPaths.js';
 import log from './logger.js';
 import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
@@ -22,12 +22,7 @@ import type {
 } from '../src/types/analytics.js';
 import type { AgendaTask } from '../src/types/agenda.js';
 
-const __dbDirname = dirname(fileURLToPath(import.meta.url));
-// In packaged Electron, APP_USER_DATA is set to app.getPath('userData') — a writable directory.
-// In dev/CLI mode, fall back to the local data/ directory.
-const DB_DIR = process.env.APP_USER_DATA
-  ? join(process.env.APP_USER_DATA, 'data')
-  : join(__dbDirname, '..', 'data');
+const DB_DIR = databaseDirectory();
 const DB_PATH = join(DB_DIR, 'sessions.db');
 
 mkdirSync(DB_DIR, { recursive: true });
@@ -893,16 +888,12 @@ export function closeDb(): void {
   }
 }
 
-// Private resource-transfer metadata only: no resource payloads, passwords or private keys.
-db.exec('CREATE TABLE IF NOT EXISTS resource_transfer_state (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL)');
-export function loadResourceTransferState(): string | null {
-  return (db.prepare('SELECT body FROM resource_transfer_state WHERE id = 1').get() as { body: string } | undefined)?.body ?? null;
-}
-export function saveResourceTransferState(body: string): void {
-  db.prepare('INSERT INTO resource_transfer_state (id, body) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(body);
-}
+// SSH Resource Transfers and Project Sync were retired for the cloud (AASC-51).
+// Their tables (resource_transfer_state, project_sync_links/base/runs/entries)
+// are neither created nor dropped here: existing rows stay in this file as
+// recovery data, readable through server/cloud/legacyHistory.ts.
 
-/** The open handle, for feature stores that keep their own tables (server/projectSync/store.ts). */
+/** The open handle, for feature stores that keep their own tables (queueSent.ts, promptSnippets.ts). */
 export function dbHandle(): Database.Database {
   return db;
 }

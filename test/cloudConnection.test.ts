@@ -206,10 +206,57 @@ it('health identity mismatch fails closed without exposing a new account',async(
  const binding=await f.connect();await expect(f.cloud.recheckCloud()).rejects.toMatchObject({code:'invalid_response'});expect(f.cloud.status()).toMatchObject({state:'offline',connection:binding});
 });
 
-it.each(['/v1/resources', '/v1/projects/x', '/v1/account', '/v1/relay'])('never sends bearer outside notes/devices/push: %s', async path => {
+const cloudId='0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c', sha='a'.repeat(64);
+it.each([
+ ['GET','/v1/projects/x'],
+ ['GET','/v1/account'],
+ ['DELETE','/v1/account'],
+ ['GET','/v1/relay'],
+ ['POST','/v1/resources'],
+ ['GET',`/v1/resources/${cloudId}`],
+ ['DELETE',`/v1/resources/${cloudId}`],
+ ['GET',`/v1/projects/${cloudId}`],
+ ['DELETE',`/v1/projects/${cloudId}`],
+ ['GET',`/v1/resources/${cloudId}/versions/0`],
+ ['GET',`/v1/resources/${cloudId}/versions/1/files/not-a-hash`],
+ ['GET',`/v1/resources/uploads/${cloudId}/files/${sha}`],
+ ['PUT',`/v1/resources/uploads/${cloudId}/files/${sha}/extra`],
+ ['POST',`/v1/resources/uploads/x/commit`],
+])('never sends the bearer outside its allow-list: %s %s', async (method, path) => {
  const f=await fixture();await f.connect();
- await expect(f.cloud.client.request('GET',path)).rejects.toMatchObject({code:'invalid_path'});
+ await expect(f.cloud.client.request(method,path)).rejects.toMatchObject({code:'invalid_path'});
  expect(f.calls()).toBe(1);
+});
+it.each([
+ ['GET','/v1/resources?limit=10'],
+ ['GET',`/v1/resources/${cloudId}/head`],
+ ['GET',`/v1/resources/${cloudId}/versions/3`],
+ ['POST','/v1/resources/uploads'],
+ ['POST',`/v1/resources/uploads/${cloudId}/commit`],
+ ['GET','/v1/projects'],
+ ['POST','/v1/projects'],
+ ['PUT',`/v1/projects/${cloudId}`],
+])('only the exact cloud resource and project routes are allowed: %s %s', async (method, path) => {
+ const f=await fixture();await f.connect();
+ await expect(f.cloud.client.request(method,path,method==='GET'?undefined:{})).resolves.toBeDefined();
+ expect(f.calls()).toBe(2);
+});
+it.each([
+ [409, 'version_in_use', {references:[{kind:'project',id:cloudId,version:2}]}],
+ [410, 'upload_expired', undefined],
+ [400, 'hash_mismatch', undefined],
+ [404, 'not_found', undefined],
+] as const)('resource HTTP %s %s keeps only validated details and our own wording', async (status, errorCode, details) => {
+ const f=await fixture((req,res)=>{
+  if(req.url==='/v1/devices/pair') res.end(JSON.stringify({success:true,data:{token,ownerId:owner,deviceId:device}}));
+  else {res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify({success:false,error:{code:errorCode,message:'Remote text must remain redacted',details:details??{secret:'x'}}}));}
+ });
+ await f.connect();
+ const error=await f.cloud.client.request('GET','/v1/projects').catch(e=>e);
+ expect(error).toMatchObject({code:errorCode,status});
+ expect(error.message).not.toContain('Remote text');
+ expect(error.details).toEqual(details);
+ expect(f.cloud.status().state).toBe('connected');
 });
 it.each(['/v1/push/notify','/v1/devices/pairing-codes'])('the phone pairing and push paths are allowed: %s',async path=>{
  const f=await fixture();await f.connect();

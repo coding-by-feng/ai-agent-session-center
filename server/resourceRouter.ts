@@ -1,5 +1,5 @@
 /**
- * resourceRouter — `/api/resources`, the local RESOURCES catalog, transfer and cloud API.
+ * resourceRouter — `/api/resources`, the local RESOURCES catalog and cloud API.
  *
  * Mounted by the integrator as
  *   app.use('/api/resources', authMiddleware, createResourceRouter({...}))
@@ -13,8 +13,10 @@
  * loopback socket — see `isLocalResourceRequest` (DNS rebinding).
  *
  * The optional cloud connector (`deps.cloud`) mounts under `/cloud` behind the
- * same gate: connection status/actions, skill-notes sync and cloud aliases. A
- * remote device or a paired phone never reaches any of it.
+ * same gate: connection status/actions, skill-notes sync, cloud aliases, cloud
+ * resource packages (publish, install, download, restore) and cloud project
+ * records. A remote device or a paired phone never reaches any of it. SSH
+ * Resource Transfers and Project Sync were retired for the cloud (AASC-51).
  *
  * Every input is Zod-validated; every answer is `{ success, data | error }`;
  * no route ever sends a stack trace. index.ts parses JSON globally BEFORE this
@@ -24,7 +26,7 @@
 import { Router, json } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { homedir } from 'os';
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, resolve, join } from 'path';
 import { z } from 'zod';
 import { isLocalRequest } from './requestLocality.js';
 import { PathSafetyError } from './fsSafe.js';
@@ -32,12 +34,13 @@ import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
 import { ABBR_RE, TARGET_RE, AliasError, aliasCatalogRealNames, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
-import { createTransferRouter } from './resourceTransfers/router.js';
-import type { TransferServiceDeps } from './resourceTransfers/service.js';
-import { createSyncRouter } from './projectSync/router.js';
-import { createSyncService, type SyncServiceDeps } from './projectSync/service.js';
 import { createCloudRouter } from './cloud/router.js';
 import { createNotesRouter, notesErrorHandler } from './cloud/notesRouter.js';
+import { createResourceJobs, type ResourceJobs } from './cloud/resourceJobs.js';
+import { createProjectJobs, type ProjectJobs } from './cloud/projectJobs.js';
+import { createProjectRouter } from './cloud/projectRouter.js';
+import { createResourceJobsRouter } from './cloud/resourceRouter.js';
+import { globalRootPaths } from './resourceRoots.js';
 import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
 import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
 import type { CloudConnector } from './cloud/types.js';
@@ -47,10 +50,17 @@ export interface ResourceRouterDeps {
   cloud?: CloudConnector;
   /** Private directory for cloud alias state. Required with `cloud`. */
   cloudAliasDirectory?: string;
-  /** Hands the lazily created cloud alias service to its owner (a later verified-install retry). */
+  /** Private directory for cloud resource/project jobs, caches and install backups. Default `<cloudAliasDirectory>/resources`. */
+  cloudJobDirectory?: string;
+  onCloudProjectsReady?: (getCloudProjects: () => Promise<ProjectJobs>) => void;
+  /** Hands the lazily opened job store to its owner (index.ts opens it before listening, closes it at shutdown). */
+  onCloudJobsReady?: (getCloudJobs: () => Promise<ResourceJobs>) => void;
+  /** Hands the lazily created cloud alias service to its owner (the verified-install retry in resourceJobs). */
   onCloudAliasesReady?: (getCloudAliases: () => Promise<CloudAliasesService>) => void;
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
   sessionProjectPaths: () => string[];
+  /** Projects with a live session: cloud project actions refuse to touch them. Default `sessionProjectPaths`. */
+  cloudActiveProjectPaths?: () => string[];
   /** Tests override; default `isLocalResourceRequest`. */
   isLocalRequest?: (req: Request) => boolean;
   /** Tests override the environment and home dir (fixtures). Default process.env / os.homedir(). */
@@ -58,10 +68,6 @@ export interface ResourceRouterDeps {
   home?: string;
   /** Where uninstalled resources go. Default `DEFAULT_TRASH_DIR` (resourceUninstall.ts). */
   trashDir?: string;
-  /** Isolated persistence/transport in tests. */
-  transfers?: Omit<TransferServiceDeps, 'catalog'>;
-  /** Project Sync overrides; `eagerLoad` (production) loads links at start so Transfers sees them. */
-  sync?: Partial<Omit<SyncServiceDeps, 'catalog'>> & { eagerLoad?: boolean };
 }
 
 /**
@@ -78,7 +84,7 @@ export function isLocalResourceRequest(req: Request): boolean {
 }
 
 /**
- * The extra bar for resource WRITE routes (uninstall, restore and transfers): the request must
+ * The extra bar for resource WRITE routes (uninstall, restore, aliases and cloud): the request must
  * come from the AASC page itself, not merely from this machine. The local gate
  * above accepts any loopback Origin — a page on another localhost port is local
  * too — and for reads that is fine. For a write, a browser marks a different
@@ -218,27 +224,43 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     const getCloudAliases = () =>
       (cloudAliases ??= createCloudAliases({ cloud, home, directory, catalog: () => catalog.getOrStartCatalog() }));
     deps.onCloudAliasesReady?.(getCloudAliases);
+    let jobs: Promise<ResourceJobs> | undefined;
+    const getJobs = () =>
+      (jobs ??= createResourceJobs({
+        cloud,
+        catalog,
+        roots: globalRootPaths(deps.env ?? process.env, home),
+        directory: deps.cloudJobDirectory ?? join(directory, 'resources'),
+        getCloudAliases,
+      }));
+    let projects: Promise<ProjectJobs> | undefined;
+    const getProjects = () =>
+      (projects ??= getJobs().then((resources) =>
+        createProjectJobs({
+          cloud,
+          resources,
+          activeProjectPaths: deps.cloudActiveProjectPaths ?? deps.sessionProjectPaths,
+        }),
+      ));
+    deps.onCloudProjectsReady?.(getProjects);
+    // Attach the project owner before shared project job history/cancel/retry, including after a restart.
+    const getOwnedJobs = async () => {
+      await getProjects();
+      return getJobs();
+    };
+    deps.onCloudJobsReady?.(getOwnedJobs);
     // Specific prefixes first: the generic connection router answers every other /cloud path.
+    // The project and resource-job routers claim only their own prefixes and pass the rest on.
     router.use('/cloud/skill-notes', createNotesRouter(cloud));
     router.use('/cloud/aliases', createCloudAliasesRouter(getCloudAliases, isSameOriginWrite));
+    router.use('/cloud', createProjectRouter(getProjects, isSameOriginWrite));
+    router.use('/cloud', createResourceJobsRouter(getOwnedJobs, isSameOriginWrite));
     router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite));
   }
   router.use(json({ limit: '64kb' }));
-  const { eagerLoad, ...syncDeps } = deps.sync ?? {};
-  const sync = createSyncService({
-    ...syncDeps,
-    catalog,
-    ...(deps.home && !syncDeps.home ? { home: deps.home } : {}),
-  });
-  if (eagerLoad) void sync.load().catch((err) => log.warn('project-sync', `Could not load links: ${err instanceof Error ? err.message : String(err)}`));
-  router.use(
-    '/transfers',
-    createTransferRouter(
-      { linkedFolder: sync.linkedFolder, deviceInUse: sync.deviceInUse, ...deps.transfers, catalog },
-      isSameOriginWrite,
-    ),
-  );
-  router.use('/sync', createSyncRouter(sync, isSameOriginWrite));
+  // SSH Resource Transfers and Project Sync were retired for the cloud (AASC-51):
+  // their old prefixes answer like any unknown route, and no legacy service is built.
+  router.use(['/transfers', '/sync'], (_req, res) => fail(res, 404, 'Not found'));
 
   const idOf = (req: Request): string | null => {
     const parsed = resourceIdSchema.safeParse(str(req.params.id));

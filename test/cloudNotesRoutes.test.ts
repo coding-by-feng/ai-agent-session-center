@@ -113,7 +113,7 @@ it('a relayed request (tunnel / proxy on this Mac) is not this Mac and never rea
   }
   expect(open.request).not.toHaveBeenCalled();
 });
-it('the paired-phone profile grants no cloud route', () => {
+it('the paired-phone profile grants no cloud or retired resource route', () => {
   for (const method of ['GET', 'POST', 'PUT', 'DELETE'])
     for (const path of [
       '/resources/cloud/status',
@@ -121,6 +121,16 @@ it('the paired-phone profile grants no cloud route', () => {
       '/resources/cloud/skill-notes',
       '/resources/cloud/skill-notes/batch',
       '/resources/cloud/aliases/reconcile',
+      '/resources/cloud/projects',
+      '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/get',
+      '/resources/cloud/publish-plans',
+      '/resources/cloud/install-plans',
+      '/resources/cloud/downloads',
+      '/resources/cloud/jobs',
+      '/resources/cloud/installs',
+      '/resources/cloud/resources',
+      '/resources/transfers',
+      '/resources/sync',
       '/cloud/skill-notes',
     ])
       expect(phoneRuleFor(method, path)).toBeNull();
@@ -150,6 +160,20 @@ it('an authenticated remote device reaches no cloud route, reads included', asyn
     expect((await fetch(f.url + '/api/resources/cloud/status', { headers: auth })).status).toBe(
       404,
     );
+    for (const path of ['projects', 'jobs/x', 'resources', 'installs', 'downloads/x/file'])
+      expect(
+        (await fetch(f.url + '/api/resources/cloud/' + path, { headers: auth })).status,
+      ).toBe(404);
+    for (const path of ['projects', 'publish-plans', 'install-plans', 'downloads'])
+      expect(
+        (
+          await fetch(f.url + '/api/resources/cloud/' + path, {
+            method: 'POST',
+            headers: { ...auth, 'content-type': 'application/json' },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(404);
     expect(
       (
         await fetch(f.url + '/api/resources/install', {

@@ -20,6 +20,7 @@ export default defineConfig({
     testTimeout: 10_000,
     projects: [
       {
+        resolve: { alias: [{ find: '@', replacement: resolve(__dirname, 'src') }] },
         test: {
           name: 'server',
           environment: 'node',

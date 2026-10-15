@@ -21,6 +21,7 @@ import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFrom
 import { createRequestAnswerRouter } from './requestAnswer.js';
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
 import * as presence from './presenceManager.js';
+import type { ResourceJobs } from './cloud/resourceJobs.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -311,20 +312,26 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // itself answers loopback requests only (404 for every other device). The
   // cloud connection's routes live under it (/api/resources/cloud/*) for that
   // reason: a remote device or paired phone never reaches them.
+  let cloudJobs: Promise<ResourceJobs> | undefined;
   app.use('/api/resources', authMiddleware, createResourceRouter({
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
-    sync: {
-      eagerLoad: true,
-      // Project Sync asks before running while a session is busy in the project.
-      activeSessionPaths: () =>
-        Object.values(getAllSessions())
-          .filter((s) => ['prompting', 'working', 'approval', 'input'].includes(s.status))
-          .map((s) => s.projectPath)
-          .filter(Boolean),
-    },
-    ...(cloudSetup ? { cloud: cloudSetup.cloud, cloudAliasDirectory: cloudSetup.directory } : {}),
+    cloudActiveProjectPaths: () =>
+      Object.values(getAllSessions())
+        .filter((s) => s.status !== 'ended')
+        .map((s) => s.projectPath)
+        .filter(Boolean),
+    ...(cloudSetup
+      ? {
+          cloud: cloudSetup.cloud,
+          cloudAliasDirectory: cloudSetup.directory,
+          cloudJobDirectory: join(cloudSetup.directory, 'resources'),
+          onCloudJobsReady: (getJobs: () => Promise<ResourceJobs>) => { cloudJobs = getJobs(); },
+        }
+      : {}),
   }));
+  // Open durable job metadata before listening; interrupted jobs remain inactive.
+  await cloudJobs?.catch(() => log.warn('cloud', 'Private resource job storage is unavailable.'));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it
   // falls through to Express's default page, stack trace included.
@@ -666,6 +673,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       log.info('server', `Received ${signal}, shutting down...`);
       // Abort in-flight cloud requests; the saved connection is kept for next start.
       const cloudStopped = cloud ? cloud.stop() : Promise.resolve();
+      // Cloud jobs abort and drain their filesystem/Git work before the process exits.
+      const jobsClosed = cloudJobs?.then((jobs) => jobs.close());
       stopPeriodicSave();
       stopPlanUsage();
       stopSessionRuntime();
@@ -684,7 +693,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         }, 2000);
         server.close(() => { clearTimeout(timer); resolve(); });
       });
-      const results = await Promise.allSettled([cloudStopped, httpClosed]);
+      // HTTP's deadline never bypasses the cloud jobs' filesystem/Git drain: wait for every step.
+      const results = await Promise.allSettled([cloudStopped, jobsClosed, httpClosed]);
       try { closeDb(); } catch { /* best effort */ }
       // Never reject: SIGTERM/SIGINT exit in .then(), and Electron's quit awaits this.
       for (const r of results) {

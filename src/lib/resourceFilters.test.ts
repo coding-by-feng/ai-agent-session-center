@@ -646,3 +646,10 @@ describe('matchesFilters with skill notes', () => {
     expect(counts.find((c) => c.type === 'rule')?.count).toBe(0);
   });
 });
+
+// Stale SSH-tool bookmarks must open a usable Library without mounting old panels.
+describe('retired section URLs', () => {
+  it.each(['transfers','projects','devices'])('falls back from %s to Library', section => {
+    expect(readResourceParams(new URLSearchParams({section,agent:'codex',q:'test'}))).toMatchObject({section:'library',agent:'codex',query:'test'});
+  });
+});
