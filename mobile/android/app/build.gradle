@@ -17,8 +17,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing (AASC-35): only when the upload key is given through the environment, so the
+    // key and its password never live in the repository. mobile/scripts/build-signed-apk.sh reads the
+    // password from the macOS Keychain. Without them a release build stays unsigned, as before.
+    def uploadStore = System.getenv('AASC_UPLOAD_STORE_FILE')
+    signingConfigs {
+        release {
+            if (uploadStore) {
+                storeFile file(uploadStore)
+                storePassword System.getenv('AASC_UPLOAD_STORE_PASSWORD')
+                keyAlias System.getenv('AASC_UPLOAD_KEY_ALIAS') ?: 'aasc-upload'
+                keyPassword System.getenv('AASC_UPLOAD_STORE_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (uploadStore) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

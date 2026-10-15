@@ -47,17 +47,20 @@ AASC_RELEASE=1 npx cap sync      # release flags: no web inspector, no debug log
 
 **Android (signed APK)**:
 
-1. Create the upload keystore once and **back it up** (losing it means a new app id):
-   `keytool -genkeypair -v -keystore aasc-upload.jks -alias aasc -keyalg RSA -keysize 4096 -validity 10000`
-2. Note its fingerprint: `keytool -list -v -keystore aasc-upload.jks -alias aasc` → the SHA-256 line.
-3. Android Studio → Build → Generate Signed App Bundle / APK → APK, release.
-4. Add `google-services.json` from the Firebase project and restrict its API key to the package
+1. The upload key exists (AASC-35, 2026-10-15): `~/.aasc/android/aasc-upload.jks` (PKCS12, alias `aasc-upload`,
+   RSA 4096, valid to 2054), its password in the macOS Keychain item "AASC Android upload key" / `aasc-upload`.
+   **Back up both** (the file and the password), twice, offline: losing them means a new app id and every phone
+   pairing again. SHA-256: `A4:D2:4E:BC:7B:47:22:22:41:F5:BB:55:4C:32:CD:A9:B2:C0:47:92:BC:CA:C1:6D:38:15:96:57:34:0B:CA:8D`.
+2. `mobile/scripts/build-signed-apk.sh` builds the shell, syncs with `AASC_RELEASE=1` and assembles the release
+   APK signed with that key (Gradle signs only when `AASC_UPLOAD_STORE_FILE` and the password are in the
+   environment, which the script sets from the Keychain). It prints the certificate digest to compare with the above.
+3. Add `google-services.json` from the Firebase project (AASC-34) and restrict its API key to the package
    and this SHA-256.
 
 **Website** — build with both values so the pairing link opens the app:
 
 ```bash
-APPLE_TEAM_ID=XXXXXXXXXX ANDROID_SHA256=AA:BB:…:FF npm run build
+APPLE_TEAM_ID=XXXXXXXXXX ANDROID_SHA256=A4:D2:4E:BC:7B:47:22:22:41:F5:BB:55:4C:32:CD:A9:B2:C0:47:92:BC:CA:C1:6D:38:15:96:57:34:0B:CA:8D npm run build
 ```
 
 The host must serve `/.well-known/apple-app-site-association` as `application/json`, with no redirect.
