@@ -8,6 +8,7 @@ import log from './logger.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { HandleEventResult, Session } from '../src/types/session.js';
 import { coalesceSessionUpdate } from './sessionUpdateCoalescer.js';
+import { emitTerminalHook } from './hookSignals.js';
 
 // #80: Throttle session_update broadcasts to max 4/sec per session (250ms)
 const SESSION_UPDATE_THROTTLE_MS = 250;
@@ -138,6 +139,8 @@ export function processHookEvent(
     log.debug('hook', `Broadcasting session_update for ${hookData.session_id} status=${delta.session?.status}`);
     scheduleBroadcast(hookData.session_id, delta);
     broadcast({ type: WS_TYPES.HOOK_STATS, stats: getStats() });
+    // Unthrottled, unlike the broadcast: a prompt the Mac typed waits on this (promptSubmit.ts).
+    emitTerminalHook(eventType, delta.session);
   }
 
   return delta;
