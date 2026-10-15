@@ -65,7 +65,29 @@ Run on a Pixel 7 emulator; no real Mac was paired (a local stand-in page played 
 
 | Release build (RELEASE 4, 5) | `AASC_RELEASE=1 npx cap sync android` + `assembleRelease`, signed with the local debug key only to install it. On a **user** image (`google_apis_playstore`, `ro.debuggable=0`): no WebView DevTools socket (the debug build on the same image has one); Capacitor logs only "Starting BridgeActivity". Trap: on a `google_apis` (userdebug) image WebView exposes DevTools for every app, so check release builds on a Play Store image or a real phone |
 
-Not checked here: pairing with a real Mac (and the logs during it), push (no Firebase), the widget on a launcher, user-CA interception.
+| Pairing end to end (RELEASE 13) | Against `scripts/mobile-test-mac.ts` (the real `mobileRouter` + `deviceAuth`, below): link pasted → "Pair with Emu-Mac?" (home network switch required: no Tailscale address) → same 6-digit code on both sides → Allow → challenge/proof sign-in → native cookie → the Mac page's `/api` 200 and WebSocket authenticated. Phone calls carry no `Sec-Fetch-Site` (native HTTP), so the router's cross-site refusal doesn't hit them |
+| Restart and revoke | Force-stop + start: straight back to the Mac page, signed in again. Revoked on the Mac: the next start shows "Emu-Mac removed this phone. Pair again to use it.", the vault is empty and the cookie is gone (`/api` 401, WebSocket refused) |
+| Second phone, same QR | The code is single use: phone A 201, phone B 401, only A listed |
+
+Not checked here: the real Mac UI's Allow / revoke buttons and the logs during pairing (the test Mac stands in), push (no Firebase), the widget on a launcher, user-CA interception.
+
+### Pairing on an emulator (test Mac)
+
+`scripts/mobile-test-mac.ts` is a test-only Mac, not an AASC server: no hooks, no hook queue, no database, no
+terminals, 127.0.0.1:3439 only. It mounts the real pairing routes on an in-memory store and a stand-in page whose
+`/api/sessions` and WebSocket need the session cookie. The emulator reaches it at `10.0.2.2:3439`.
+
+```bash
+export HARNESS_SECRET=$(openssl rand -hex 16) APP_USER_DATA=$(mktemp -d)   # logs go there, not data/logs
+npx tsx scripts/mobile-test-mac.ts &
+H=(-H "x-harness: $HARNESS_SECRET" -H "Origin: http://127.0.0.1:3439" -H "content-type: application/json")
+curl -s -X POST "${H[@]}" -d '{}' http://127.0.0.1:3439/api/mobile/pairing      # → data.link: paste it in the app
+curl -s "${H[@]}" http://127.0.0.1:3439/api/mobile/devices                       # compare confirmCode with the phone
+curl -s -X POST "${H[@]}" -d '{}' http://127.0.0.1:3439/api/mobile/devices/<id>/approve   # "Allow"
+curl -s -X DELETE "${H[@]}" http://127.0.0.1:3439/api/mobile/devices/<id>                 # revoke
+```
+
+Use an emulator port other than 5554 (another project's emulator uses it), and a Play Store image for release checks.
 
 ### Turning push on (AASC-19)
 
