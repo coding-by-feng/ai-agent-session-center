@@ -14,7 +14,6 @@ const eligible: LiveHintInputs = {
   dismissed: false,
   onLiveRoute: true,
   scene3dEnabled: false,
-  isMobile: false,
   boardShown: true,
   panelOpen: false,
 };
@@ -28,7 +27,6 @@ describe('shouldShowLiveHint', () => {
     ['once dismissed (it is a one-time tip)', { dismissed: true }],
     ['on another tab', { onLiveRoute: false }],
     ['with the 3D scene on, where there is no board', { scene3dEnabled: true }],
-    ['on a phone, where the agent list is the page', { isMobile: true }],
     ['while there is no board: loading, or no sessions yet', { boardShown: false }],
     ['while a session panel covers the page', { panelOpen: true }],
   ])('hides %s', (_why, over) => {

@@ -1,6 +1,6 @@
 // PhoneFloatingSheet.test.tsx — the fork window on a phone (AASC-20): a full-height sheet instead of a
-// floating window. Hiding never ends the session; only End does, after a confirm. The header's ✦ button
-// brings a hidden popup back.
+// floating window. Hiding never ends the session; only End does, after a confirm. Info → AI popups
+// ("Open") brings a hidden popup back, even with its session's screen under Info (AASC-48).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Session } from '@/types';
@@ -22,7 +22,6 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import { settleLazy } from '@/__tests__/settleLazy';
-import PhoneFloatsButton from './PhoneFloatsButton';
 
 const float = (terminalId: string, label: string) => ({ terminalId, label, originSessionId: 'root', createdAt: 1 });
 const s = (sessionId: string, over: Partial<Session> = {}) => ({ sessionId, status: 'working', events: [], ...over }) as unknown as Session;
@@ -88,24 +87,25 @@ describe('the fork sheet', () => {
     expect(closeSpy).toHaveBeenCalledWith('t-2');
   });
 
+  it('opens from Info → AI popups, where no session is selected (AASC-48)', async () => {
+    useSessionStore.setState({ selectedSessionId: null });
+    render(<FloatingTerminalRoot />);
+    const dialog = await screen.findByRole('dialog', { name: 'Translate → 中文' });
+    expect(within(dialog).getByTestId('float-terminal').getAttribute('data-terminal')).toBe('t-2');
+  });
+
+  it('shows nothing with no session selected and no popup asked for', async () => {
+    useSessionStore.setState({ selectedSessionId: null });
+    useFloatingSessionsStore.setState({ phoneShown: null });
+    render(<FloatingTerminalRoot />);
+    await settleLazy(() => import('./PhoneFloatingSheet'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('shows nothing for another session’s popups', async () => {
     useSessionStore.setState({ selectedSessionId: 'other' });
     render(<FloatingTerminalRoot />);
     await settleLazy(() => import('./PhoneFloatingSheet'));
     expect(screen.queryByRole('dialog')).toBeNull();
-  });
-});
-
-describe('the header’s ✦ button', () => {
-  it('counts the session’s running popups and brings the newest back', () => {
-    useFloatingSessionsStore.setState({ phoneShown: null });
-    render(<PhoneFloatsButton sessionId="root" />);
-    fireEvent.click(screen.getByRole('button', { name: 'AI popups: 2 running. Show' }));
-    expect(useFloatingSessionsStore.getState().phoneShown).toBe('t-2');
-  });
-
-  it('is absent with none', () => {
-    render(<PhoneFloatsButton sessionId="other" />);
-    expect(screen.queryByRole('button')).toBeNull();
   });
 });

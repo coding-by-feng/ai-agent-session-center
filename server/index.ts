@@ -13,11 +13,14 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId } from './sshManager.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
-import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
+import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest } from './apiRouter.js';
+import { createRequestAnswerRouter } from './requestAnswer.js';
+import { refreshPendingSessionUpdate } from './hookProcessor.js';
+import * as presence from './presenceManager.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -35,6 +38,8 @@ import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
+import { createServerPromptRouter } from './promptWiring.js';
+import { createChatRouter } from './chat/chatRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -341,11 +346,38 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     isOpsTerminal,
     isSharedSession: (sessionId) => canSeeSession(false, getSession(sessionId)),
     sessionOfTerminal: (terminalId) => getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId),
+    terminalOfSession: (sessionId) => getSession(sessionId)?.terminalId ?? null,
     foregroundProcess: getForegroundProcess,
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
+  // A prompt the Mac types and confirms (AASC-42). In front of apiRouter, behind the
+  // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
+  const promptRouter = createServerPromptRouter();
+  // Answering a waiting request from a card (AASC-43). Mounted before apiRouter with
+  // apiRouter's own visibility gate, so it is gated whatever the mount order.
+  const requestAnswer = createRequestAnswerRouter({
+    requireVisibleSession,
+    getSession,
+    clientIdOf: clientIdFromRequest,
+    isLocal: isLocalRequest,
+    canControl: presence.canControl,
+    noteControlActivity: presence.noteControlActivity,
+    getController: presence.getController,
+    terminalExists: (terminalId) => getTerminals().some((t) => t.terminalId === terminalId),
+    terminalOutputTail: (terminalId) => getTerminalOutputTail(terminalId),
+    writeToTerminal,
+    clearPendingRequest,
+    broadcastSession: (session) => {
+      // A hook update still waiting out its throttle must not put the answered request back.
+      refreshPendingSessionUpdate(session.sessionId, session);
+      broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+    },
+  });
+  // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
+  // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
+  const chatRouter = createChatRouter({ getSession });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, chatRouter, requestAnswer, promptRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

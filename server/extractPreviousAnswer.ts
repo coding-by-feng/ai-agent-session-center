@@ -10,7 +10,7 @@
  *   { type: "assistant", message: { role: "assistant", content: <string|blocks[]> } }
  * but legacy variants exist; we accept several common shapes.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import log from './logger.js';
@@ -125,33 +125,25 @@ export function projectDirCandidates(projectPath: string, projectsRoot = claudeP
   return Array.from(variants).map((v) => join(projectsRoot, v));
 }
 
+/** A session id safe to interpolate into a single-quoted shell argument (or a file name). */
+const RESUMABLE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
 /**
- * Find the JSONL file for a given (sessionId, projectPath). If sessionId is missing
- * or doesn't correspond to a file, fall back to the newest .jsonl in the project dir.
+ * The session's own `<sessionId>.jsonl` in the encoded project directory, or null.
+ *
+ * There is deliberately NO "newest .jsonl in the dir" fallback (AASC-49): that
+ * file belongs to whichever conversation in the project ran last, so a Codex
+ * session (no transcriptPath, an id that never names a Claude file) or a Claude
+ * session whose transcript is missing showed somebody else's conversation.
  */
-function findTranscriptFile(sessionId: string | null, projectPath: string): string | null {
+export function findTranscriptFile(sessionId: string | null, projectPath: string): string | null {
+  if (!sessionId || !projectPath || !RESUMABLE_SESSION_ID_RE.test(sessionId)) return null;
   for (const dir of projectDirCandidates(projectPath)) {
-    if (!existsSync(dir)) continue;
-    if (sessionId) {
-      const direct = join(dir, `${sessionId}.jsonl`);
-      if (existsSync(direct)) return direct;
-    }
-    // Fallback: newest .jsonl in dir
-    try {
-      const files = readdirSync(dir)
-        .filter((f) => f.endsWith('.jsonl'))
-        .map((f) => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
-        .sort((a, b) => b.mtime - a.mtime);
-      if (files.length > 0) return join(dir, files[0].f);
-    } catch (err) {
-      log.warn('floating-spawn', `Failed to enumerate ${dir}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const direct = join(dir, `${sessionId}.jsonl`);
+    if (existsSync(direct)) return direct;
   }
   return null;
 }
-
-/** A session id safe to interpolate into a single-quoted shell argument. */
-const RESUMABLE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 /**
  * Resolve the session id that `claude --resume` will actually find on disk, or
@@ -166,7 +158,7 @@ const RESUMABLE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
  * Resuming it exits immediately with "No conversation found with session ID",
  * leaving the user a dead shell.
  *
- * Unlike `findTranscriptFile`, this deliberately has NO "newest .jsonl in the
+ * Like `findTranscriptFile`, this deliberately has NO "newest .jsonl in the
  * dir" fallback: an unrelated conversation in the same project directory does
  * not make THIS session resumable. The recorded `transcriptPath` is accepted as
  * a second source because a re-keyed/aliased card can carry a stale id while the
@@ -202,7 +194,7 @@ export function resolveResumableClaudeSessionId(
  * Lookup order:
  *   1. `transcriptPath` if provided and exists
  *   2. `<sessionId>.jsonl` in the encoded project directory
- *   3. Newest .jsonl in the encoded project directory (fallback)
+ * Nothing else: another conversation's file is never this session's (AASC-49).
  *
  * Returns null when no transcript exists or no assistant message can be parsed.
  */
@@ -316,10 +308,9 @@ export function transcriptLineEntries(line: unknown, timestamp: number): Convers
  * conversation entries (user text, assistant text, tool calls, tool results).
  *
  * Lookup order mirrors readClaudeLastAssistant:
- *   1. `transcriptPath` if provided and exists (constrained to ~/.claude/projects
- *      only when falling back to the encoded project directory)
+ *   1. `transcriptPath` if provided and exists
  *   2. `<sessionId>.jsonl` in the encoded project directory
- *   3. Newest .jsonl in the encoded project directory (fallback)
+ * Nothing else (AASC-49).
  *
  * Returns [] when no transcript exists or nothing parseable is found — callers
  * fall back to the in-memory logs.

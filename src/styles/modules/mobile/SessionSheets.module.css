@@ -1,0 +1,92 @@
+/* A session's sheets on the phone (AASC-40 / AASC-46): forms, label chips. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-4);
+  margin-bottom: var(--ph-space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+}
+
+.fieldLabel {
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* 16px or more: iOS zooms the page into a smaller field on focus. */
+.input {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ph-button);
+  margin: 0;
+  padding: var(--ph-space-3) var(--ph-space-4);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius);
+  background: var(--ph-sheet-group);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: max(16px, var(--ph-size-body));
+  line-height: var(--ph-line-body);
+  transition: border-color var(--ph-motion-fast) ease;
+}
+
+@media (hover: hover) {
+  .input:hover:not(:focus) { border-color: var(--ph-text-tertiary); }
+}
+
+.input:focus-visible,
+.input:focus {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.input:disabled {
+  cursor: not-allowed;
+  color: var(--ph-text-secondary);
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: var(--ph-space-3);
+}
+
+.actions > * { min-width: 0; }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--ph-space-2);
+  margin: 0 0 var(--ph-space-3);
+}
+
+.lead {
+  margin: 0 0 var(--ph-space-4);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+}
+
+.done {
+  margin-top: var(--ph-space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input { transition: none; }
+}

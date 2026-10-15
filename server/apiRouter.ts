@@ -29,6 +29,7 @@ import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
 import { createSubagentTranscriptRouter } from './subagentTranscript.js';
+import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
 import { createRoomsService } from './roomsRouter.js';
 import { parseRoomList } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -49,6 +50,8 @@ import { getCommandIndex } from './commandIndex.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
+import { locateTranscript, transcriptCliOf } from './chat/transcriptLocator.js';
+import { markTranscriptSecrets } from './chat/transcriptMarks.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 
@@ -155,7 +158,9 @@ function fixedSessionRoute(req: Request): ((req: Request, res: Response, next: N
   return req.path === '/' || req.path === '' ? fixed.gate : null;
 }
 
-function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
+// Also run by the prompt route (promptRouter.ts, AASC-42) and the answer route
+// (requestAnswer.ts, AASC-43), which are mounted in front of this router.
+export function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
   const fixedGate = fixedSessionRoute(req);
   if (fixedGate) { fixedGate(req, res, next); return; }
@@ -187,7 +192,7 @@ function refuseWhileRestarting(sessionId: string, res: Response): boolean {
  * sessions but can never take one from a named device, and can never claim the
  * workspace restore.
  */
-function clientIdFromRequest(req: Request): string {
+export function clientIdFromRequest(req: Request): string {
   const clientId = str(req.headers['x-aasc-client-id']).slice(0, 128);
   if (!clientId || requestIsLocal(req)) return clientId;
   // A remote device can't borrow a local device's id (the desktop's), nor
@@ -1540,12 +1545,13 @@ router.get('/sessions/:id/source', (req: Request, res: Response) => {
 // Full interleaved conversation transcript for the CONVERSATION tab. Reads the
 // real Claude Code JSONL (constrained to ~/.claude/projects by the helper) for
 // untruncated fidelity. Never 500s — on any error we return an empty array so
-// the client falls back to its in-memory logs.
-router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
+// the client falls back to its in-memory logs. Claude sessions only: a Codex
+// session's conversation is never in ~/.claude/projects (AASC-49).
+router.get('/sessions/:id/transcript', async (req: Request, res: Response) => {
   try {
     const id = str(req.params.id);
     const session = getSession(id);
-    if (!session || !session.projectPath) {
+    if (!session || !session.projectPath || transcriptCliOf(session) !== 'claude') {
       res.json({ success: true, data: [] });
       return;
     }
@@ -1554,7 +1560,9 @@ router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
       session.projectPath,
       session.transcriptPath ?? null,
     );
-    res.json({ success: true, data: entries });
+    // Marked so the phone profile can hide a secret file's content from a paired phone (AASC-41).
+    const marked = await markTranscriptSecrets(entries, await locateTranscript(session), session.projectPath);
+    res.json({ success: true, data: marked });
   } catch (err) {
     log.warn('api', `transcript read failed: ${err instanceof Error ? err.message : String(err)}`);
     res.json({ success: true, data: [] });
@@ -2191,7 +2199,6 @@ router.get('/terminals/:id/output', requireVisibleTerminal, async (req: Request,
 });
 
 // Write data to a terminal's PTY (used by queue prompt send)
-const QUEUE_IMAGES_DIR = '/tmp/claude-queue-images';
 const QUEUE_IMAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Delete queue-image files older than QUEUE_IMAGE_TTL_MS. Best-effort; never throws. */
@@ -2217,7 +2224,7 @@ function cleanupQueueImages(): void {
 cleanupQueueImages();
 setInterval(cleanupQueueImages, 60 * 60 * 1000).unref();
 
-/** POST /api/queue-images — save base64 images to temp files, return file paths */
+/** POST /api/queue-images — save base64 images to temp files, return their paths and ids (file names) */
 router.post('/queue-images', (req: Request, res: Response) => {
   const schema = z.object({
     images: z.array(z.object({
@@ -2246,7 +2253,7 @@ router.post('/queue-images', (req: Request, res: Response) => {
       paths.push(filepath);
     } catch { /* skip invalid */ }
   }
-  res.json({ ok: true, paths });
+  res.json({ ok: true, paths, ids: paths.map(queueImageId) });
 });
 
 // Prefill a terminal's output ring buffer with saved data (base64).

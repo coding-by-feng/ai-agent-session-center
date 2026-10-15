@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import {
@@ -13,7 +13,7 @@ import ApiKeySettings from './ApiKeySettings';
 import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
-import { isNativeMobileApp, useIsDesktopApp, useIsMobile } from '@/lib/platform';
+import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -31,22 +31,8 @@ const TABS: Array<{ id: SettingsTab; label: string; hideInNativeApp?: boolean }>
   { id: 'advanced', label: 'ADVANCED' },
 ];
 
-// The phone's settings (AASC-20): its own chunk, loaded the first time Settings
-// opens on a phone. SettingsPanel itself is in the eager entry (App.tsx).
-const PhoneSettings = lazy(() => import('./PhoneSettings'));
-
+// A phone has its own Settings in the phone app (More → Settings, AASC-47).
 export default function SettingsPanel() {
-  // SIZE decision (src/lib/platform.ts rule 3): a phone gets a full-screen
-  // list of sections instead of the tabbed modal.
-  const isMobile = useIsMobile();
-  const open = useUiStore((s) => s.activeModal === 'settings');
-  if (isMobile) {
-    return open ? <Suspense fallback={null}><PhoneSettings /></Suspense> : null;
-  }
-  return <DesktopSettingsPanel />;
-}
-
-function DesktopSettingsPanel() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const autosaveVisible = useSettingsStore((s) => s.autosaveVisible);
   const resetDefaults = useSettingsStore((s) => s.resetDefaults);

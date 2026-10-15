@@ -1,0 +1,82 @@
+/* PhoneStack — the shown tab's screens (AASC-39). The edge swipe writes
+   --edge-dx (px) and --edge-p (0…1) and data-swipe on .stack. */
+
+.stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ph-bg);
+}
+
+.slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ph-bg);
+  visibility: hidden;
+}
+
+.slot[data-top] {
+  z-index: 2;
+  visibility: visible;
+}
+
+/* Push: the new screen comes in from the right. */
+.slot[data-entering] {
+  animation: push-in var(--ph-motion-push) var(--ph-ease);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+/* Pop: the old screen leaves to the right over the one under it. */
+.slot[data-exiting] {
+  z-index: 3;
+  visibility: visible;
+  pointer-events: none;
+  animation: push-out var(--ph-motion-push) var(--ph-ease) forwards;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+/* Edge swipe: the top follows the finger, the one under shows through. */
+.stack[data-swipe] .slot[data-top] {
+  transform: translateX(var(--edge-dx, 0px));
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
+}
+
+.stack[data-swipe] .slot[data-under] {
+  visibility: visible;
+  transform: translateX(calc((1 - var(--edge-p, 0)) * -30%));
+}
+
+.stack[data-swipe] .slot[data-under]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: calc((1 - var(--edge-p, 0)) * 0.12);
+  pointer-events: none;
+}
+
+.stack[data-swipe='settle'] .slot[data-top],
+.stack[data-swipe='settle'] .slot[data-under] {
+  transition: transform var(--ph-motion-push) var(--ph-ease);
+}
+
+.loading {
+  margin: auto;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  color: var(--ph-text-secondary);
+}
+
+@keyframes push-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes push-out { from { transform: translateX(0); } to { transform: translateX(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .slot[data-entering] { animation: none; }
+  .slot[data-exiting] { display: none; }
+  .stack[data-swipe='settle'] .slot[data-top],
+  .stack[data-swipe='settle'] .slot[data-under] { transition: none; }
+}

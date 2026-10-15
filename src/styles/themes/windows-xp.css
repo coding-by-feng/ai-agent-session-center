@@ -74,7 +74,7 @@ body[data-theme="windows-xp"] {
 /* Route every text surface through --font-mono.
  *
  * This has to be universal + !important: ~27 module rules hardcode
- * `'JetBrains Mono', monospace`, and SceneOverlay/RobotListSidebar/LiveView set
+ * `'JetBrains Mono', monospace`, and SceneOverlay/LiveView set
  * `'Share Tech Mono'` as *inline* JSX styles, which nothing but !important can
  * outrank. Targeting those module classes directly isn't an option either —
  * CSS Modules hashes them, so they're unreachable from a plain stylesheet.

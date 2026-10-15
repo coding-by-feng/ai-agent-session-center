@@ -1,0 +1,72 @@
+/* The composer's sheets: commands, files, model and effort, saved prompts, ＋ (AASC-42). */
+
+.search {
+  position: sticky;
+  top: calc(-1 * var(--ph-space-2));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  margin: 0 0 var(--ph-space-3);
+  padding: 0 var(--ph-space-3);
+  min-height: var(--ph-target);
+  border-radius: var(--ph-radius);
+  background: var(--ph-sheet-group);
+  color: var(--ph-text-secondary);
+  box-shadow: 0 0 0 4px var(--ph-sheet-bg);
+}
+
+.search:focus-within {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 0;
+}
+
+.search svg { flex: none; }
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+}
+
+.searchInput::placeholder { color: var(--ph-text-tertiary); }
+
+.token {
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  overflow-wrap: anywhere;
+}
+
+.clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.note {
+  margin: 0 0 var(--ph-space-4);
+  padding: 0 var(--ph-space-4);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.check {
+  display: inline-flex;
+  color: var(--ph-accent);
+}
+
+.leading {
+  display: inline-flex;
+  color: var(--ph-accent);
+}

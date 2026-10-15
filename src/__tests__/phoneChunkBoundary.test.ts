@@ -19,7 +19,16 @@ const PHONE_ONLY = [
   'lib/phoneSuggestions.ts',
   'lib/queueImageAttach.ts',
   'lib/terminalCompose.ts',
+  // The new phone app's navigation (AASC-39).
+  'stores/phoneNavStore.ts',
+  // The phone chat, its Changes and the composer's draft (AASC-41/44).
+  'stores/chatStore.ts',
+  'stores/changesStore.ts',
+  'stores/composerDraftStore.ts',
 ];
+
+/** Phone-only folders outside components/mobile/ (the new phone app, AASC-38/39). */
+const PHONE_ONLY_DIRS = ['lib/chat/', 'styles/modules/mobile/'];
 
 function resolveImport(from: string, request: string): string | null {
   const specifier = request.replace(/\?.*$/, ''); // `?url`, `?raw`
@@ -75,11 +84,12 @@ describe('the desktop entry chunk', () => {
   const graph = entryGraph();
 
   it('reaches the components that host the phone screens (the walk itself works)', () => {
+    // Each lazy-loads a phone piece: the phone app, the app's COMMANDS notice, the
+    // queue's suggestion bar and photo buttons, the AI popup sheet, the terminal's
+    // compose box and actions sheet.
     for (const host of [
       'App.tsx',
-      'routes/LiveView.tsx',
       'components/session/DetailPanel.tsx',
-      'components/session/ConversationView.tsx',
       'components/session/QueueTab.tsx',
       'components/session/FloatingTerminalRoot.tsx',
       'components/terminal/TerminalContainer.tsx',
@@ -89,13 +99,23 @@ describe('the desktop entry chunk', () => {
   });
 
   it('statically imports no phone-only module', () => {
-    const leaked = [...graph].filter((f) => f.startsWith('components/mobile/') || PHONE_ONLY.includes(f));
+    const leaked = [...graph].filter((f) => f.startsWith('components/mobile/')
+      || PHONE_ONLY.includes(f)
+      || PHONE_ONLY_DIRS.some((dir) => f.startsWith(dir)));
     expect(leaked).toEqual([]);
+  });
+
+  it('lazy-loads the phone app: App.tsx picks it by screen size alone (AASC-48)', () => {
+    const app = readFileSync(resolve(SRC, 'App.tsx'), 'utf8');
+    expect(app).toMatch(/lazy\(\(\) => import\('@\/components\/mobile\/app\/PhoneAppFrame'\)\)/);
+    expect([...graph].filter((f) => f.startsWith('components/mobile/app/'))).toEqual([]);
+    // The "New design" switch it read until every phone had the app.
+    expect([...graph].some((f) => f.includes('usePhoneUi'))).toBe(false);
   });
 
   it('keeps the phone-only stylesheets out of it too', () => {
     const phoneSheets = [...graph].filter((f) =>
-      /styles\/modules\/(PhoneSession|PhoneExtras|PhoneLive|PhoneSuggestionBar|SessionDrawer|PhoneRooms)\.module\.css$/.test(f));
+      /styles\/modules\/(PhoneSession|PhoneExtras|PhoneSuggestionBar|PhoneRooms|PhoneProject|PhoneViews)\.module\.css$/.test(f));
     expect(phoneSheets).toEqual([]);
   });
 });

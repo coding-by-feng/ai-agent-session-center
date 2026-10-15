@@ -6,7 +6,6 @@
 //  - the rooms sheet creates, renames, colours and deletes rooms (delete asks
 //    first), and a colour is `Room.color`: `roomIndex`, a 3D world slot, is
 //    never written;
-//  - both are reachable from a drawer row's ⋯ sheet and the session header's ⋯;
 //  - on the device that owns the rooms (the Mac's window, the workspace writer) the sheets change the room
 //    store directly; on any other device (a remote phone) they ask the Mac with POST /api/rooms/ops and leave
 //    the local list alone, which the Mac's next `rooms_update` replaces (AASC-20).
@@ -25,7 +24,6 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 import { ManageRoomsSheet, MoveToRoomSheet } from './RoomSheets';
-import SessionActionsSheet from './SessionActionsSheet';
 
 const room = (id: string, name: string, sessionIds: string[], roomIndex: number, over: Partial<Room> = {}): Room =>
   ({ id, name, sessionIds, collapsed: false, createdAt: 1, roomIndex, ...over });
@@ -140,26 +138,6 @@ describe('ManageRoomsSheet', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Delete room' }));
     expect(useRoomStore.getState().rooms.map((r) => r.name)).toEqual(['Second']);
     expect(useSessionStore.getState().sessions.has('a')).toBe(true);
-  });
-});
-
-describe('the ⋯ sheets reach both', () => {
-  it('a drawer row\'s actions sheet shows the room and opens "Move to room…"', async () => {
-    const user = userEvent.setup();
-    render(<SessionActionsSheet sessionId="b" onClose={vi.fn()} />);
-    const section = screen.getByRole('region', { name: 'Room' });
-    expect(section.textContent).toContain('Second');
-    await user.click(within(section).getByRole('button', { name: 'Move to room…' }));
-    await user.click(within(await screen.findByTestId('move-to-room')).getByRole('button', { name: /First/ }));
-    expect(roomsOf('b')).toEqual(['First']);
-    expect(screen.getByRole('region', { name: 'Room' }).textContent).toContain('First');
-  });
-
-  it('opens the rooms sheet from the actions sheet', async () => {
-    const user = userEvent.setup();
-    render(<SessionActionsSheet sessionId="b" onClose={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'Manage rooms…' }));
-    expect(await screen.findByTestId('manage-rooms')).toBeTruthy();
   });
 });
 

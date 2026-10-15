@@ -47,6 +47,7 @@ import {
   insertFullPrompt as dbInsertFullPrompt,
 } from './db.js';
 import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
+import { nextPendingRequest, guessPendingRequest, requestCliOf } from './pendingRequests.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
 import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
@@ -146,7 +147,11 @@ export function saveSnapshot(mqOffset?: number): void {
       // (the PID is dead or OS-reused). The 20s discovery scan re-creates any that
       // are still alive. Hook-backed external sessions (real sessionId) DO persist.
       if (key.startsWith('external-')) continue;
-      sessionsObj[key] = { ...session };
+      // A waiting request is live-only: no PTY survives a restart, and its tool
+      // input (a command, a diff) has no business on disk.
+      const { pendingRequest: _liveOnly, ...persisted } = session;
+      void _liveOnly;
+      sessionsObj[key] = persisted;
     }
     const countersObj: Record<string, number> = {};
     for (const [name, count] of projectSessionCounters) {
@@ -905,6 +910,14 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   };
   if (hook_event_name !== EVENT_TYPES.PRE_TOOL_USE) applySubagentEvent(null);
 
+  // What the session waits on, structured for the phone's cards (AASC-43): raised by
+  // PermissionRequest and PreToolUse of a question or plan, cleared when the call ends.
+  const pendingRequest = nextPendingRequest(
+    session.pendingRequest ?? null, hook_event_name,
+    hookData as unknown as Record<string, unknown>, requestCliOf(session.cliSource), Date.now(),
+  );
+  if (pendingRequest !== (session.pendingRequest ?? null)) session.pendingRequest = pendingRequest;
+
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
       session.status = SESSION_STATUS.IDLE;
@@ -1214,6 +1227,10 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         clearApprovalTimer(session_id, null); // stop the heuristic; keep pendingTool for the robot
         session.status = SESSION_STATUS.APPROVAL;
         session.approvalSource = 'notification';
+        session.pendingRequest = guessPendingRequest(
+          session.pendingRequest ?? null, session.pendingTool || session.toolLog.at(-1)?.tool || 'Unknown',
+          'notification', requestCliOf(session.cliSource), Date.now(),
+        );
         session.animationState = ANIMATION_STATE.WAITING;
         session.waitingDetail = message || 'Approval needed';
       }
@@ -1312,6 +1329,21 @@ export function getAllSessions(): Record<string, Session> {
   sessionsCache = result;
   sessionsCacheDirty = false;
   return result;
+}
+
+/**
+ * Clear the session's pending request once the answer route wrote an answer to it
+ * (AASC-43), so a second tap or another device is told "already answered" instead of
+ * typing into whatever the CLI shows next. Only the request named. Returns the updated
+ * session for the caller to broadcast, or null when the session or request is gone.
+ */
+export function clearPendingRequest(sessionId: string, requestId: string): Session | null {
+  const resolved = resolveSessionId(sessionId);
+  const session = resolved ? sessions.get(resolved) : undefined;
+  if (!session?.pendingRequest || session.pendingRequest.id !== requestId) return null;
+  session.pendingRequest = null;
+  invalidateSessionsCache();
+  return { ...session };
 }
 
 export function getSession(sessionId: string): Session | null {
@@ -1598,6 +1630,7 @@ export function killSession(sessionId: string): Session | null {
   session.status = SESSION_STATUS.ENDED;
   session.animationState = ANIMATION_STATE.DEATH;
   session.archived = 1;
+  session.pendingRequest = null;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
   // No hook will ever close its subagents now.
@@ -2161,6 +2194,8 @@ registerTerminalExitCallback((terminalId: string) => {
   } else {
     target.session.lastTerminalId = terminalId;
     target.session.terminalId = null;
+    // Nothing is asking any more; a reconnect gets a fresh shell that must not take an answer.
+    target.session.pendingRequest = null;
     log.info('session', `Terminal ${terminalId} exited — unlinked from session ${target.id.slice(0, 8)}`);
   }
   invalidateSessionsCache();
@@ -2319,6 +2354,7 @@ export function beginSessionRestart(
   clearApprovalTimer(session.sessionId, session);
   session.pendingTool = null;
   session.waitingDetail = null;
+  session.pendingRequest = null;
   session.interruption = null;
   session.userCancelledAt = null;
   session.subagentCount = 0;
@@ -2357,6 +2393,7 @@ export function failSessionRestart(sessionId: string, oldTerminalId: string): Se
   session.lastActivityAt = Date.now();
   session.lastTerminalId = oldTerminalId;
   session.terminalId = null;
+  session.pendingRequest = null;
   if (session.source === 'ssh') session.isHistorical = true;
   session.events.push({
     type: 'RestartFailed',

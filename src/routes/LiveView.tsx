@@ -5,9 +5,8 @@
  * tab and the board's cards open the session panel (lib/liveSession.ts), whose
  * rail lists the sessions.
  *
- * A phone (useIsMobile) never gets the 3D scene or its HUD (units online,
- * sound, 3D, rooms): its LIVE page is PhoneLive, one column of the board's
- * cards with pull to refresh (AASC-18).
+ * A phone (useIsMobile) never gets here: App.tsx gives it the phone app
+ * (AASC-48), whose Sessions tab is its list.
  */
 import { lazy, Suspense, Component, useEffect, useMemo, useState } from 'react';
 import { isNativeMobileApp } from '@/lib/platform';
@@ -21,12 +20,9 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useLiveFlatState, useSceneEmptyState } from '@/hooks/useLiveBoard';
 import { boardSessions } from '@/lib/liveBoard';
-import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/LiveView.module.css';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
-/** A phone's LIVE page, loaded on a phone only (AASC-31). */
-const PhoneLive = lazy(() => import('@/components/mobile/PhoneLive'));
 
 // #57: Error boundary to catch 3D scene crashes gracefully
 class SceneErrorBoundary extends Component<
@@ -126,14 +122,12 @@ function DesktopFlatContent({ sessions }: { sessions: ReadonlyMap<string, Sessio
  *  error boundary, so a crashed scene shows its own error instead. */
 function SceneEmptyCard() {
   const { state, outside } = useSceneEmptyState();
-  const isMobile = useIsMobile();
-  if (isMobile || state !== 'empty') return null;
+  if (state !== 'empty') return null;
   return <LiveEmptyState overScene outsideCount={outside} />;
 }
 
 /**
- * Flat view shown when 3D is disabled (the default) — no WebGL. Desktop only
- * (a phone gets PhoneLive): the session board, or the "no sessions yet" card
+ * Flat view shown when 3D is disabled (the default) — no WebGL: the session board, or the "no sessions yet" card
  * (lib/liveBoard.ts decides, and waits for the first snapshot so neither
  * flashes), with the HUD over it.
  */
@@ -152,15 +146,9 @@ function FlatView() {
 }
 
 export default function LiveView() {
-  // A phone never gets the 3D scene (GPU, battery, bundle), in the app or a
-  // phone browser: its LIVE page is the card list. Unmounted, not hidden
-  // (lib/platform.ts, rule 3).
-  const isMobile = useIsMobile();
-  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp() && !isMobile;
-
-  if (isMobile) {
-    return <Suspense fallback={null}><PhoneLive /></Suspense>;
-  }
+  // The phone app never gets the 3D scene (GPU, battery, bundle), even on a
+  // screen big enough for this layout.
+  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp();
 
   if (!scene3dEnabled) {
     return (

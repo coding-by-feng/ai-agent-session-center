@@ -28,6 +28,8 @@ import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
+import { HOME_SECRET_SEGMENTS, segmentLooksSecret } from './secretPaths.js';
+import { filterPhoneChangesAnswer, filterPhoneChatAnswer, filterPhoneTranscriptAnswer } from './phoneChatFilter.js';
 
 /** The one permission set a paired phone has. The desktop shows it next to each phone. */
 export const PHONE_ACCESS = 'sessions-only' as const;
@@ -38,6 +40,9 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - allow     the route's own visibility and baton checks are enough
  * - terminal  never an ops shell (a plain command prompt)
  * - type      a terminal write: not an ops shell, and the agent must be in the foreground
+ * - prompt    a prompt the Mac types and confirms (AASC-42), within the phone's per-minute
+ *             prompt budget; the route itself checks the baton and that the agent is running
+ * - answer    a waiting request's answer: a shared session whose agent is in the foreground
  * - files     read-only, inside a shared session's project
  * - commands  the autocomplete catalog, for a shared project or none
  * - upload    an image upload, within the phone's per-minute budget
@@ -46,7 +51,7 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
-export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
+export type PhoneRule = 'allow' | 'terminal' | 'type' | 'prompt' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
 
 interface PhoneRoute {
   method: RegExp;
@@ -79,10 +84,15 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('PUT|DELETE', '/agenda/:id', 'allow'),
   route('PATCH', '/agenda/:id/toggle', 'allow'),
   route('POST', '/tts/(synthesize|status)', 'allow'),
-  // A shared session: the /sessions/:id gate answers 404 for every other one.
+  // A shared session: the /sessions/:id gate answers 404 for every other one. The phone's
+  // transcript reader is an AI popup's sheet ("Read last answer"); the chat has its own route.
   route('GET', '/sessions/:id/(source|transcript|queue)', 'allow'),
   // A subagent's own messages (AGENTS tab): the same session's content as its transcript.
   route('GET', '/sessions/:id/subagents/[^/]+/transcript', 'allow'),
+  // The phone chat (AASC-41) and what a session edited (AASC-44): the chat router's own
+  // /sessions/:id gate answers 404 for a session that isn't shared.
+  route('GET', '/sessions/:id/(chat|changes)', 'allow'),
+  route('GET', '/sessions/:id/changes/\\d+', 'allow'),
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
@@ -111,6 +121,14 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // Terminals of shared sessions, never an ops shell.
   route('GET', '/terminals/:id/output', 'terminal'),
   route('POST', '/terminals/:id/write', 'type'),
+  // A prompt for a shared session's agent, typed and confirmed by the Mac (AASC-42).
+  route('POST', '/sessions/:id/prompt', 'prompt'),
+  // What became of that prompt: typed and confirmed, or why not.
+  route('GET', '/sessions/:id/prompt/[A-Za-z0-9._:-]+', 'allow'),
+  // Answering a waiting request from its card (AASC-43): the Mac picks the keys and types
+  // them into the session's own agent terminal. The route checks visibility, the baton
+  // and a per-device limit itself.
+  route('POST', '/sessions/:id/requests/[^/]+/answer', 'answer'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session.
   route('POST', '/terminals', 'launch'),
@@ -128,21 +146,6 @@ export function phoneRuleFor(method: string, path: string): PhoneRule | null {
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
-/**
- * Never read by a phone, wherever they sit. Compared lower-cased: on a
- * case-insensitive disk `.AWS` is `.aws`. Agent and tool config folders are on
- * the list too: `~/.codex/auth.json` and `~/.config/gh/hosts.yml` hold tokens.
- */
-const SECRET_SEGMENTS = new Set([
-  '.ssh', '.gnupg', '.aws', '.azure', '.gcloud', '.kube', '.docker', '.netrc', '.git-credentials', '.npmrc', '.pypirc',
-  '.password-store', 'keychains', '.claude', '.codex', '.config', '.git',
-]);
-
-/** Secret-looking file names: env files, keys and certificates, credential files. */
-const SECRET_FILE_RE = /^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials(?:\.json)?|.*\.(?:pem|key|p12|pfx|jks|keystore|ppk))$/;
-
-/** Folders that are secret only directly under the home folder (a project may well be called "library"). */
-const HOME_SECRET_SEGMENTS = new Set(['library']);
 
 function realOrNull(p: string): string | null {
   try {
@@ -160,7 +163,7 @@ function inside(child: string, root: string): boolean {
 function touchesSecret(pathInHome: string): boolean {
   const segments = pathInHome.split(sep).filter(Boolean).map((s) => s.toLowerCase());
   if (segments.length > 0 && HOME_SECRET_SEGMENTS.has(segments[0])) return true;
-  return segments.some((s) => SECRET_SEGMENTS.has(s) || SECRET_FILE_RE.test(s));
+  return segments.some(segmentLooksSecret);
 }
 
 /**
@@ -218,6 +221,13 @@ export const PHONE_UPLOADS_PER_MINUTE = 20;
  * retry or a misbehaving app must not fill it. A person tapping makes a few.
  */
 export const PHONE_TERMINALS_PER_MINUTE = 10;
+
+/**
+ * Prompts one phone may send through the Mac per minute (AASC-42). Each one types
+ * into an agent's input box and presses Enter until the CLI takes it; a person sends
+ * a few, a stuck retry loop sends many.
+ */
+export const PHONE_PROMPTS_PER_MINUTE = 20;
 
 const BUDGET_WINDOW_MS = 60_000;
 
@@ -335,6 +345,8 @@ export interface PhoneProfileDeps {
   isSharedSession(sessionId: string): boolean;
   /** The session a terminal belongs to, or null when it can't be told. */
   sessionOfTerminal(terminalId: string): string | null;
+  /** The agent terminal a session runs in, or null when it has none. */
+  terminalOfSession(sessionId: string): string | null;
   /** The terminal's foreground program (node-pty's process name), or null when unknown. */
   foregroundProcess(terminalId: string): string | null;
   home?: string;
@@ -349,6 +361,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   type Bucket = { windowStart: number; count: number };
   const uploads = new Map<string, Bucket>();
   const terminalsOpened = new Map<string, Bucket>();
+  const prompts = new Map<string, Bucket>();
 
   /** Count one more in this phone's current minute; true when it goes over `limit`. */
   function overBudget(buckets: Map<string, Bucket>, phone: string, limit: number): boolean {
@@ -364,9 +377,9 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
 
   const overUploadBudget = (phone: string): boolean => overBudget(uploads, phone, PHONE_UPLOADS_PER_MINUTE);
 
-  /** Whole seconds until this phone's terminal budget starts over. */
-  function terminalRetryAfter(phone: string): number {
-    const bucket = terminalsOpened.get(phone);
+  /** Whole seconds until this phone's budget in `buckets` starts over. */
+  function retryAfter(buckets: Map<string, Bucket>, phone: string): number {
+    const bucket = buckets.get(phone);
     if (!bucket) return 0;
     return Math.max(1, Math.ceil((bucket.windowStart + BUDGET_WINDOW_MS - now()) / 1000));
   }
@@ -382,12 +395,22 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         if (rule === 'type' && !isAgentProcessName(deps.foregroundProcess(id))) return 'the agent is not running';
         return null;
       }
+      case 'answer': {
+        // The keys go to the session's own agent terminal. A hidden session is refused
+        // like a missing route before anything about its terminal can show.
+        const sessionId = decodeURIComponent(req.path.split('/')[2] ?? '');
+        if (!deps.isSharedSession(sessionId)) return 'not shared';
+        const terminalId = deps.terminalOfSession(sessionId);
+        return terminalId && isAgentProcessName(deps.foregroundProcess(terminalId)) ? null : 'the agent is not running';
+      }
       case 'commands': {
         const projectPath = one(req.query.projectPath);
         return !projectPath || phoneMayRead(projectPath, deps.sharedProjectPaths(), home) ? null : 'outside shared projects';
       }
       case 'upload':
         return overUploadBudget(phone) ? 'too many uploads' : null;
+      case 'prompt':
+        return overBudget(prompts, phone, PHONE_PROMPTS_PER_MINUTE) ? 'too many prompts' : null;
       case 'files': {
         const targets = filesTargets(req, home);
         const shared = deps.sharedProjectPaths();
@@ -420,7 +443,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         res.status(429).json({
           error: 'This phone opened a lot of terminals in the last minute. Wait a moment and try again.',
           code: 'PHONE_TERMINAL_LIMIT',
-          retryAfter: terminalRetryAfter(phone),
+          retryAfter: retryAfter(terminalsOpened, phone),
         });
         return;
       }
@@ -430,23 +453,41 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const json = res.json.bind(res);
         res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
       }
+      // The chat, its edits and the transcript show what the agent read and wrote: never a
+      // secret file's content. The readers mark what touched one (server/chat/secretMarks.ts,
+      // transcriptMarks.ts); this hides by the marks.
+      const chatRoute = /^\/sessions\/[^/]+\/(chat|changes|transcript)(?:\/[^/]+)?\/?$/.exec(req.path);
+      if (rule === 'allow' && req.method === 'GET' && chatRoute) {
+        const json = res.json.bind(res);
+        const filter = chatRoute[1] === 'chat' ? filterPhoneChatAnswer
+          : chatRoute[1] === 'transcript' ? filterPhoneTranscriptAnswer : filterPhoneChangesAnswer;
+        res.json = (body: unknown) => json(filter(body));
+      }
       next();
       return;
     }
     log.warn('mobile', `Paired phone ${phone.slice(0, 8)} refused: ${req.method} ${req.path} (${rule === 'launch' ? 'launch' : reason})`);
     // A launch says why, so the phone can show it; so does typing while the agent
-    // isn't running, and an upload over budget. Everything else answers like a
+    // isn't running, and an upload or a prompt over budget. Everything else answers like a
     // missing route, so a refused path can't be told from one that isn't there.
     if (rule === 'launch') {
       res.status(403).json({ ok: false, error: reason, code: 'PHONE_NOT_ALLOWED' });
       return;
     }
-    if (rule === 'type' && reason === 'the agent is not running') {
-      res.status(409).json({ error: 'A phone can type only while the agent is running', code: 'AGENT_NOT_RUNNING' });
+    if ((rule === 'type' || rule === 'answer') && reason === 'the agent is not running') {
+      res.status(409).json({ error: `A phone can ${rule} only while the agent is running`, code: 'AGENT_NOT_RUNNING' });
       return;
     }
     if (rule === 'upload') {
       res.status(429).json({ error: 'Too many uploads from this phone; try again in a minute', code: 'PHONE_RATE_LIMITED' });
+      return;
+    }
+    if (rule === 'prompt') {
+      res.status(429).json({
+        error: 'This phone sent a lot of prompts in the last minute. Wait a moment and try again.',
+        code: 'PHONE_PROMPT_LIMIT',
+        retryAfter: retryAfter(prompts, phone),
+      });
       return;
     }
     res.status(404).json(NOT_FOUND);

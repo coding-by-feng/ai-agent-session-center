@@ -1,0 +1,54 @@
+/* Banner — phone kit (AASC-38). */
+
+.banner {
+  --tone: var(--ph-accent);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ph-space-3);
+  margin: var(--ph-space-2) var(--ph-gutter);
+  padding: var(--ph-space-3) var(--ph-space-2) var(--ph-space-3) var(--ph-space-3);
+  border-radius: var(--ph-radius-card);
+  background: color-mix(in srgb, var(--tone) 12%, var(--ph-surface));
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  font-family: var(--ph-font);
+  color: var(--ph-text);
+}
+
+.banner[data-tone='success'] { --tone: var(--ph-status-finished); }
+.banner[data-tone='warning'] { --tone: var(--ph-status-approval); }
+.banner[data-tone='error'] { --tone: var(--ph-danger); }
+.banner[data-tone='offline'] { --tone: var(--ph-text-tertiary); }
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: 2px;
+  color: var(--tone);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  line-height: var(--ph-line-secondary);
+}
+
+.body {
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.action {
+  flex: none;
+  margin-top: -10px;
+  margin-bottom: -10px;
+  align-self: center;
+}

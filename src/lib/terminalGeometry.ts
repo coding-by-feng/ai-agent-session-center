@@ -21,10 +21,16 @@
  *
  * So the narrow device must never take the first option. That leaves soft-wrap
  * (`'wrap'`) or rendering at the PTY's real width and panning (`'pan'`).
+ *
+ * The phone app's Terminal segment (AASC-45) adds `'fit'`: render at the PTY's
+ * real width like pan, with the FONT shrunk until those columns fit the screen
+ * (a phone in landscape reads a 160-column PTY at ~9 px). Below
+ * {@link FIT_MIN_FONT_PX} it pans at the reading size instead. Still only the
+ * local canvas: the column count it renders is the PTY's own.
  */
 
 /** How a terminal reconciles its container width with the PTY's width. */
-export type TerminalWidthMode = 'pan' | 'wrap';
+export type TerminalWidthMode = 'pan' | 'wrap' | 'fit';
 
 /**
  * Bounds on a PTY width we're willing to render at, mirroring the server's own
@@ -60,6 +66,7 @@ export function resolveRenderCols(
   fittedCols: number,
   ptyCols: number | null | undefined,
 ): number {
+  // 'fit' renders the PTY's columns too; it shrinks the font so they fit.
   if (mode === 'wrap') return fittedCols;
   if (!isUsablePtyCols(ptyCols)) return fittedCols;
   // Never render NARROWER than the container can show. If the PTY is somehow
@@ -92,4 +99,62 @@ export function mayDrivePtyGeometry(isMobile: boolean, isNativeApp = false): boo
  *  else fits its container as it always has. */
 export function defaultWidthMode(isMobile: boolean, isNativeApp = false): TerminalWidthMode {
   return isMobile || isNativeApp ? 'pan' : 'wrap';
+}
+
+// ---------------------------------------------------------------------------
+// Fit (AASC-45): shrink the font, never the PTY
+// ---------------------------------------------------------------------------
+
+/** Below this a fitted terminal can't be read: fit pans at the reading size instead. */
+export const FIT_MIN_FONT_PX = 7;
+
+/** Fit sizes the font in quarter pixels: finer steps only blur the canvas. */
+const FIT_STEP_PX = 0.25;
+
+/**
+ * The font size at which `ptyCols` columns fit `availableWidth` px, for a
+ * monospace face `glyphWidthPerPx` px wide per px of font size (≈ 0.6),
+ * rounded down to a quarter pixel. Never above `readableFontPx` (the size the
+ * user reads at: fitting only shrinks). Null below `minFontPx`, or when an
+ * input is unusable: pan instead.
+ */
+export function fitFontSize(
+  availableWidth: number,
+  ptyCols: number | null | undefined,
+  glyphWidthPerPx: number,
+  readableFontPx: number,
+  minFontPx: number = FIT_MIN_FONT_PX,
+): number | null {
+  if (!isUsablePtyCols(ptyCols)) return null;
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return null;
+  if (!Number.isFinite(glyphWidthPerPx) || glyphWidthPerPx <= 0) return null;
+  const exact = availableWidth / (ptyCols * glyphWidthPerPx);
+  const size = Math.min(readableFontPx, Math.floor(exact / FIT_STEP_PX) * FIT_STEP_PX);
+  return size >= minFontPx ? size : null;
+}
+
+export interface FitDecision {
+  fontSize: number;
+  /** False: the PTY can't fit at a readable size (or its width is unknown), so this pans. */
+  fitted: boolean;
+}
+
+/** What fit mode renders at: the fitted font, or the reading size panned. */
+export function resolveFit(
+  availableWidth: number,
+  ptyCols: number | null | undefined,
+  glyphWidthPerPx: number,
+  readableFontPx: number,
+): FitDecision {
+  const size = fitFontSize(availableWidth, ptyCols, glyphWidthPerPx, readableFontPx);
+  return size === null ? { fontSize: readableFontPx, fitted: false } : { fontSize: size, fitted: true };
+}
+
+/** The phone's text sizes (A− / A+), in px. */
+export const TEXT_SIZES: readonly number[] = [8, 9, 10, 11, 12, 13, 14, 16, 18];
+
+/** The next text size up (+1) or down (-1); a size between steps moves to the next step that way. */
+export function stepTextSize(current: number, direction: 1 | -1): number {
+  if (direction > 0) return TEXT_SIZES.find((s) => s > current) ?? TEXT_SIZES[TEXT_SIZES.length - 1];
+  return [...TEXT_SIZES].reverse().find((s) => s < current) ?? TEXT_SIZES[0];
 }

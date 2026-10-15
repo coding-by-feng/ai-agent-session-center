@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
+import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -26,6 +28,30 @@ public class MainActivity extends BridgeActivity {
         // The app switcher never shows a terminal (AASC-22, RELEASE row 7). Android 13+ has a switch
         // for exactly that (screenshots still work); older versions are covered in onPause.
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false);
+        // Added after the plugins (super), so it is asked first: on a Mac's page the page decides
+        // (BackRules, AASC-48); the shell and an older Mac UI get Capacitor's own back.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                WebView web = getBridge() == null ? null : getBridge().getWebView();
+                if (web == null || !BackRules.INSTANCE.asksPage(getBridge().getLocalUrl(), web.getUrl())) {
+                    capacitorBack(this);
+                    return;
+                }
+                web.evaluateJavascript(BackRules.ASK_PAGE, (result) -> {
+                    BackRules.Answer answer = BackRules.INSTANCE.answer(result);
+                    if (answer == BackRules.Answer.LEAVE) moveTaskToBack(true);
+                    else if (answer == BackRules.Answer.NONE) capacitorBack(this);
+                });
+            }
+        });
+    }
+
+    /** Hand a back to the handler under `own` (Capacitor's App plugin: the WebView's history). */
+    private void capacitorBack(OnBackPressedCallback own) {
+        own.setEnabled(false);
+        getOnBackPressedDispatcher().onBackPressed();
+        own.setEnabled(true);
     }
 
     @Override

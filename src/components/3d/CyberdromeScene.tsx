@@ -30,7 +30,6 @@ import RoomLabels from './RoomLabels';
 import SubagentConnections from './SubagentConnections';
 import CameraController from './CameraController';
 import SceneOverlay from './SceneOverlay';
-import RobotListSidebar from './RobotListSidebar';
 import {
   computeRoomConfigs,
   buildDynamicWorkstations,
@@ -476,7 +475,6 @@ export default function CyberdromeScene() {
 
       <MapControls controlsRef={controlsRef} />
       <SceneOverlay sessionCount={sessionArray.length} />
-      <RobotListSidebar />
     </div>
   );
 }

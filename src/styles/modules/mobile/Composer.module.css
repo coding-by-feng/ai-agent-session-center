@@ -1,0 +1,360 @@
+/* ChatFooter + Composer — the session's waiting card and message box (AASC-42/43). Tokens: phoneTokens.css. */
+
+.footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  max-height: 100%;
+  padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
+  overflow: hidden;
+  border-top: 0.5px solid var(--ph-separator);
+  background: var(--ph-bar-bg);
+  font-family: var(--ph-font);
+}
+
+/* The waiting card: at most 55% of what the screen shows (less the keyboard), and
+   never more than the room the box leaves. It shrinks into that space and scrolls
+   what it asks inside, so its answers and the box under it always show whole. */
+.cardSlot {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(var(--visible-h, 100dvh) * 0.55);
+}
+
+.footer > .composer {
+  flex: none;
+}
+
+/* The keyboard covers the home indicator: no inset under the box then. */
+.footer[data-keyboard] {
+  padding-bottom: var(--ph-space-2);
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+/* ---- Lines above the box ---- */
+
+.status,
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding: 0 var(--ph-space-1);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.note svg { flex: none; width: 16px; height: 16px; }
+
+.status[data-tone='error'] {
+  color: var(--ph-danger);
+}
+
+.status > span { flex: 1; min-width: 0; }
+
+.dismiss {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: calc(-1 * var(--ph-space-3)) calc(-1 * var(--ph-space-2)) calc(-1 * var(--ph-space-3)) 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+}
+
+.dismiss:active { background: var(--ph-fill-strong); }
+.dismiss:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+/* ---- Chips: queued, model · effort · context ---- */
+
+.chips {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+.chip {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--ph-space-2);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.chip svg { flex: none; }
+
+.modelChip {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ph-text-secondary);
+}
+
+.modelText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.context[data-level='warn'] { color: var(--ph-status-approval); }
+.context[data-level='high'] { color: var(--ph-danger); }
+
+@media (hover: hover) {
+  .chip:hover:not([aria-disabled='true']) { background: var(--ph-fill); }
+}
+
+.chip:active:not([aria-disabled='true']) { background: var(--ph-fill-strong); }
+.chip:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+/* Off (another device drives, the session ended or is starting): the reason is spoken with it. */
+.chip[aria-disabled='true'] {
+  color: var(--ph-text-tertiary);
+  cursor: not-allowed;
+}
+
+/* ---- Photos to send ---- */
+
+.thumbs {
+  display: flex;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--ph-radius-sm);
+}
+
+.thumbRemove {
+  appearance: none;
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ph-on-accent);
+  cursor: pointer;
+}
+
+.thumbRemove svg {
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ph-text) 75%, transparent);
+  color: var(--ph-bg);
+}
+
+.thumbRemove:focus-visible { outline: none; }
+.thumbRemove:focus-visible svg { outline: 2px solid var(--ph-focus); outline-offset: 1px; }
+
+/* ---- The box ---- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ph-separator);
+  border-radius: 20px;
+  background: var(--ph-surface);
+  transition: border-color var(--ph-motion-fast) ease;
+}
+
+.field:focus-within {
+  border-color: var(--ph-accent);
+}
+
+.field[data-off] {
+  background: var(--ph-fill);
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: var(--ph-space-3) var(--ph-space-4) var(--ph-space-1);
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+}
+
+.input::placeholder { color: var(--ph-text-tertiary); }
+.input:disabled { cursor: not-allowed; }
+.input:disabled::placeholder { color: var(--ph-text-secondary); }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  padding: 0 var(--ph-space-1) var(--ph-space-1);
+}
+
+.spacer { flex: 1; }
+
+.tool {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+
+@media (hover: hover) {
+  .tool:hover:not(:disabled) { background: var(--ph-fill); }
+}
+
+.tool:active:not(:disabled) { background: var(--ph-fill-strong); }
+.tool:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+.tool:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.stop {
+  color: var(--ph-danger);
+}
+
+/* A long main label ("Deny and tell Claude") needs the room: / and @ stay in ＋. */
+@media (max-width: 430px) {
+  .toolbar[data-long] .optional { display: none; }
+}
+
+.primary {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3) 0 var(--ph-space-4);
+  border: 0;
+  border-radius: 22px;
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition: background-color var(--ph-motion-fast) ease, transform var(--ph-motion-fast) ease;
+}
+
+.primary[data-action='deny-and-tell'] {
+  background: var(--ph-danger);
+  color: var(--ph-on-danger);
+}
+
+@media (hover: hover) {
+  .primary:hover:not([aria-disabled='true']) { filter: brightness(1.06); }
+}
+
+.primary:active:not([aria-disabled='true']) { transform: scale(0.97); }
+.primary:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+
+.primary[aria-disabled='true'] {
+  background: var(--ph-fill-strong);
+  color: var(--ph-text-secondary);
+  cursor: not-allowed;
+}
+
+.primary[aria-busy='true'] { cursor: progress; }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field, .tool, .primary { transition: none; }
+  .primary:active:not([aria-disabled='true']) { transform: none; }
+}

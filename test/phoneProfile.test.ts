@@ -4,9 +4,9 @@
 // A remote device is simulated with a forwarding header on a loopback request (AASC-13 treats that as remote).
 // No PTY is ever spawned: createTerminal is mocked.
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, it, beforeAll, afterAll, beforeEach, expect, vi } from 'vitest';
 
 vi.mock('../server/db.js', () => ({
@@ -43,12 +43,23 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
   };
 });
 
+// apiRouter sweeps the queue-image folder when it loads, and an upload below writes to it:
+// keep both off the Mac's own folder.
+vi.mock('../server/queueImages.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/queueImages.js')>();
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  return { ...actual, QUEUE_IMAGES_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'aasc-phone-queue-images-')) };
+});
+
 import express from 'express';
 import { createServer, type Server } from 'http';
 import {
   phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile, isAgentProcessName,
   phoneFloatingRefusal, PHONE_UPLOADS_PER_MINUTE,
 } from '../server/mobile/phoneProfile.js';
+import { isQueueImageId } from '../server/queueImages.js';
 
 // ── A home folder with a project, an unknown folder and secrets ─────────────────────────────────────────
 
@@ -89,8 +100,10 @@ beforeAll(() => {
   mkdirSync(outside, { recursive: true });
 });
 
-afterAll(() => {
+afterAll(async () => {
   rmSync(tmp, { recursive: true, force: true });
+  const { QUEUE_IMAGES_DIR } = await import('../server/queueImages.js');
+  if (QUEUE_IMAGES_DIR.includes('aasc-phone-queue-images-')) rmSync(QUEUE_IMAGES_DIR, { recursive: true, force: true });
 });
 
 // ── The route table ──────────────────────────────────────────────────────────────────────────────────────
@@ -106,13 +119,17 @@ describe('phoneRuleFor', () => {
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
     ['GET', '/rooms'], ['POST', '/rooms/ops'],
+    // The phone chat (AASC-41) and what a session edited (AASC-44), behind the /sessions/:id gate.
+    ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
 
-  it('checks terminals, typing, files, commands, uploads and launches before letting them through', () => {
+  it('checks terminals, typing, prompts, files, commands, uploads and launches before letting them through', () => {
     expect(phoneRuleFor('GET', '/terminals/t1/output')).toBe('terminal');
     expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
+    expect(phoneRuleFor('POST', '/sessions/abc/prompt')).toBe('prompt');
+    expect(phoneRuleFor('GET', '/sessions/abc/prompt/key-00000001')).toBe('allow');
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
     expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');
@@ -139,6 +156,9 @@ describe('phoneRuleFor', () => {
     ['POST', '/snippets/import'],
     ['PUT', '/rooms'], ['GET', '/rooms/ops'], ['DELETE', '/rooms'],
     ['POST', '/sessions/abc/subagents/a1b2/transcript'], ['GET', '/sessions/abc/subagents/a/b/transcript'],
+    ['GET', '/sessions/abc/prompt'], ['PUT', '/sessions/abc/prompt'], ['POST', '/sessions/abc/prompt/now'],
+    ['POST', '/sessions/abc/chat'], ['DELETE', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/x'],
+    ['GET', '/sessions/abc/changes/3/raw'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
@@ -171,6 +191,90 @@ describe('phoneFloatingRefusal', () => {
     ]) {
       expect(phoneFloatingRefusal(body, deps), JSON.stringify(body)).toBe(true);
     }
+  });
+});
+
+// ── Answering a waiting request (AASC-43) ────────────────────────────────────────────────────────────────
+
+describe('answering a waiting request from a phone (AASC-43)', () => {
+  it('is open on the answer route, under the answer rule', () => {
+    expect(phoneRuleFor('POST', '/sessions/abc/requests/toolu_01/answer')).toBe('answer');
+    expect(phoneRuleFor('POST', '/sessions/abc/requests/0b9c6a3e-1f2d-4c5b-9a8e-7d6c5b4a3f21/answer/')).toBe('answer');
+  });
+
+  it.each([
+    ['GET', '/sessions/abc/requests/r1/answer'],
+    ['PUT', '/sessions/abc/requests/r1/answer'],
+    ['POST', '/sessions/abc/requests/answer'],
+    ['POST', '/sessions/abc/requests/r1/answer/again'],
+    ['POST', '/sessions/abc/requests/r1/r2/answer'],
+    ['GET', '/sessions/abc/requests'],
+  ])('stays closed for %s %s', (method, path) => {
+    expect(phoneRuleFor(method, path)).toBeNull();
+  });
+
+  // The rule alone, in front of a stand-in route: the route's own checks are in requestAnswerRoute.test.ts.
+  const fg = new Map<string, string>();
+  const terminalOf: Record<string, string> = { shared: 't-shared', hidden: 't-hidden' };
+  let tiny: Server;
+  let tinyBase = '';
+
+  beforeAll(async () => {
+    const auth = await import('../server/authManager.js');
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: (id) => id.startsWith('ops-'),
+      isSharedSession: (id) => id === 'shared' || id === 'shared-no-terminal',
+      sessionOfTerminal: () => null,
+      terminalOfSession: (id) => terminalOf[id] ?? null,
+      foregroundProcess: (id) => fg.get(id) ?? null,
+      home,
+    }), (_req, res) => { res.status(202).json({ reached: true }); });
+    tiny = createServer(app);
+    await new Promise<void>((r) => tiny.listen(0, '127.0.0.1', r));
+    const addr = tiny.address();
+    if (addr && typeof addr === 'object') tinyBase = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => tiny.close(() => r()));
+  });
+
+  async function post(sessionId: string) {
+    const auth = await import('../server/authManager.js');
+    const res = await fetch(`${tinyBase}/api/sessions/${sessionId}/requests/toolu_1/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '192.168.1.80', Authorization: `Bearer ${auth.createToken('dev-phone-answer')}` },
+      body: JSON.stringify({ choice: 'allow_once' }),
+    });
+    return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+  }
+
+  it('lets the answer through while the agent is the session terminal’s foreground program', async () => {
+    fg.set('t-shared', 'claude');
+    expect(await post('shared')).toEqual({ status: 202, json: { reached: true } });
+  });
+
+  it('refuses while the agent is not running there, and says why', async () => {
+    fg.set('t-shared', 'zsh');
+    const shell = await post('shared');
+    expect(shell.status).toBe(409);
+    expect(shell.json.code).toBe('AGENT_NOT_RUNNING');
+    fg.delete('t-shared'); // unknown counts as not running
+    expect((await post('shared')).status).toBe(409);
+    expect((await post('shared-no-terminal')).json.code).toBe('AGENT_NOT_RUNNING');
+  });
+
+  it('answers a hidden or unknown session like a missing route, whatever runs in it', async () => {
+    fg.set('t-hidden', 'zsh');
+    const hidden = await post('hidden');
+    const unknown = await post('nope');
+    expect(hidden.status).toBe(404);
+    expect(unknown).toEqual(hidden);
   });
 });
 
@@ -284,6 +388,7 @@ beforeAll(async () => {
     isOpsTerminal: (id) => id.startsWith('ops-'),
     isSharedSession: (id) => store.getSession(id)?.remoteVisible === true,
     sessionOfTerminal: (id) => pty.owner.get(id) ?? null,
+    terminalOfSession: (id) => store.getSession(id)?.terminalId ?? null,
     foregroundProcess: (id) => pty.fg.get(id) ?? null,
     home,
   }));
@@ -505,6 +610,19 @@ describe('a password sign-in keeps the dashboard’s full power', () => {
     expect(pty.created).toEqual([{ command: 'bash', workingDir: other }]);
     expect((await call('GET', `/files/read?${q({ root: project, path: 'keys/id_ed25519' })}`, IPAD)).status).toBe(200);
   });
+
+  it('gets an id for each uploaded image, which a prompt sent through the Mac names it by (AASC-42)', async () => {
+    const res = await call('POST', '/queue-images', IPAD, { images: [{ name: 'a.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }] });
+    const paths = res.json.paths as string[];
+    try {
+      expect(paths).toHaveLength(1);
+      expect(res.json.ids).toEqual(paths.map((p) => basename(p)));
+      expect((res.json.ids as string[]).every(isQueueImageId)).toBe(true);
+      expect(paths[0]).toContain('aasc-phone-queue-images-');
+    } finally {
+      for (const p of paths) rmSync(p, { force: true });
+    }
+  });
 });
 
 // ── The live connection ──────────────────────────────────────────────────────────────────────────────────
@@ -563,5 +681,90 @@ describe('ops shells on the live connection', () => {
     phone.say({ type: 'terminal_input', terminalId: 't-shared', data: 'hello' });
     expect(pty.write).toHaveBeenCalledWith('t-shared', 'hello');
     phone.emit('close');
+  });
+});
+
+// ── The chat and its edits on a phone (AASC-41 / AASC-44) ────────────────────────────────────────────
+// Mounted as server/index.ts mounts them: the phone profile, then the chat router, which redacts for the
+// phone the profile marked. HOME points at a temp dir for the transcript (the locator reads only there).
+describe('what a phone sees of a secret file in the chat and the edits', () => {
+  let chatServer: Server;
+  let chatBase = '';
+  let chatHome = '';
+  let transcript = '';
+  const savedHome = process.env.HOME;
+
+  beforeAll(async () => {
+    const auth = await import('../server/authManager.js');
+    const { createChatRouter } = await import('../server/chat/chatRouter.js');
+    const { resetTranscriptLocatorCache } = await import('../server/chat/transcriptLocator.js');
+    chatHome = realpathSync(mkdtempSync(join(tmpdir(), 'aasc-phone-chat-')));
+    process.env.HOME = chatHome;
+    resetTranscriptLocatorCache();
+    const dir = join(chatHome, '.claude', 'projects', '-proj');
+    mkdirSync(dir, { recursive: true });
+    transcript = join(dir, 'chat-shared.jsonl');
+    const line = (r: unknown) => `${JSON.stringify(r)}\n`;
+    writeFileSync(transcript, [
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:00.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/proj/.env' } }] } }),
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:01.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/proj/.env', content: 'API_KEY=sk-123\n' } }] } }),
+      line({ type: 'user', timestamp: '2026-10-16T10:00:02.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } }),
+    ].join(''));
+    const session = { sessionId: 'chat-shared', cliSource: 'claude', projectPath: '/proj', transcriptPath: transcript, remoteVisible: true };
+    const app = express();
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: () => false,
+      isSharedSession: () => true,
+      sessionOfTerminal: () => null,
+      terminalOfSession: () => null,
+      foregroundProcess: () => null,
+      home: home || tmpdir(),
+    }), createChatRouter({ getSession: (id) => (id === 'chat-shared' ? session as never : null), isLocal: () => false }));
+    chatServer = createServer(app);
+    await new Promise<void>((r) => chatServer.listen(0, '127.0.0.1', r));
+    const addr = chatServer.address();
+    if (addr && typeof addr === 'object') chatBase = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => chatServer.close(() => r()));
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    rmSync(chatHome, { recursive: true, force: true });
+  });
+
+  async function get(path: string, phone: boolean) {
+    const auth = await import('../server/authManager.js');
+    const headers: Record<string, string> = phone
+      ? { 'X-Forwarded-For': '192.168.1.80', Authorization: `Bearer ${auth.createToken('dev-phone-chat')}` }
+      : { 'X-Forwarded-For': '192.168.1.81', Authorization: `Bearer ${auth.createToken()}` };
+    const res = await fetch(`${chatBase}/api${path}`, { headers });
+    return await res.json() as { data: Record<string, unknown> };
+  }
+
+  it('hides a secret file’s content from a paired phone, even a result read after its call', async () => {
+    const first = await get('/sessions/chat-shared/chat', true);
+    expect(JSON.stringify(first)).not.toContain('sk-123');
+    // The Read's result lands later, in its own after= read.
+    appendFileSync(transcript, `${JSON.stringify({ type: 'user', timestamp: '2026-10-16T10:00:03.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'API_KEY=sk-123' }] } })}\n`);
+    const next = await get(`/sessions/chat-shared/chat?after=${encodeURIComponent(first.data.after as string)}`, true);
+    const entries = next.data.entries as Array<Record<string, unknown>>;
+    expect(entries).toMatchObject([{ kind: 'tool_result', toolUseId: 't1', output: '[Hidden on phones: this touched a secret file]' }]);
+    expect(JSON.stringify(next)).not.toContain('sk-123');
+  });
+
+  it('shows it to a password sign-in', async () => {
+    expect(JSON.stringify(await get('/sessions/chat-shared/chat', false))).toContain('sk-123');
+  });
+
+  it('marks a secret file in the edits list for a phone, and gives it no hunks', async () => {
+    const phone = await get('/sessions/chat-shared/changes', true);
+    expect((phone.data.files as Array<Record<string, unknown>>)[0]).toMatchObject({ path: '.env', redacted: true });
+    const one = await get('/sessions/chat-shared/changes/0', true);
+    expect(one.data).toMatchObject({ hunks: [], redacted: true });
+    expect(JSON.stringify(one)).not.toContain('sk-123');
   });
 });

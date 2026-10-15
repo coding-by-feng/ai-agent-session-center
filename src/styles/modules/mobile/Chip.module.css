@@ -1,0 +1,80 @@
+/* Chip — phone kit (AASC-38). */
+
+.chip,
+.static {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  font-family: var(--ph-font);
+}
+
+.chip {
+  appearance: none;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: 32px;
+  padding: 0 var(--ph-space-3);
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font-size: var(--ph-size-secondary);
+  font-weight: 500;
+  line-height: var(--ph-line-secondary);
+  white-space: nowrap;
+  transition: background-color var(--ph-motion-fast) ease, color var(--ph-motion-fast) ease;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.chip[aria-pressed='true'] .pill {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+
+@media (hover: hover) {
+  .chip:not([aria-pressed='true']):not([aria-disabled='true']):hover .pill { background: var(--ph-fill-strong); }
+}
+
+.chip:active:not([aria-disabled='true']) .pill { transform: scale(0.96); }
+
+.chip:focus-visible { outline: none; }
+.chip:focus-visible .pill {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.chip[aria-disabled='true'] { cursor: not-allowed; }
+.chip[aria-disabled='true'] .pill { color: var(--ph-text-secondary); }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill { transition: none; }
+  .chip:active:not([aria-disabled='true']) .pill { transform: none; }
+}

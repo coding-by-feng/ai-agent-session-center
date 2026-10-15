@@ -8,8 +8,8 @@
  *
  * The session exists before any of this is drawn (see the floating-fork
  * invariants): the sheet only shows it. Closing the sheet (×, Escape, the
- * backdrop) HIDES the popup and leaves it running, and the header's ✦ button
- * brings it back; only "End" closes it, after a confirm, through the store's
+ * backdrop) HIDES the popup and leaves it running, and Info → AI popups
+ * ("Open") brings it back; only "End" closes it, after a confirm, through the store's
  * close(), which saves the answer under AI POPUPS before the terminal is killed.
  */
 import { useCallback, useMemo, useState } from 'react';
@@ -23,7 +23,7 @@ import type { Session } from '@/types';
 import styles from '@/styles/modules/PhoneExtras.module.css';
 
 export interface PhoneFloatingSheetProps {
-  /** The selected session's popups, oldest first. */
+  /** The shown session's popups, oldest first. */
   floats: readonly FloatingSession[];
 }
 

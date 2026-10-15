@@ -1,0 +1,195 @@
+/* The phone's More pages (AASC-47): Settings pages, This phone, Saved prompts. */
+
+.banner {
+  margin: var(--ph-space-2) var(--ph-gutter) var(--ph-space-4);
+  overflow: hidden;
+  border-radius: var(--ph-radius-card);
+}
+
+.swatch {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ph-text) 18%, transparent);
+}
+
+.stepperRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-3);
+  min-height: var(--ph-row);
+  padding: var(--ph-space-2) var(--ph-space-4);
+  list-style: none;
+}
+
+.stepperValue {
+  font-size: var(--ph-size-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.stepperButtons {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ph-space-2);
+}
+
+/* Today's settings sections (API keys, Translation), on the phone palette. */
+.legacy {
+  margin: var(--ph-space-2) var(--ph-gutter) 0;
+  padding: var(--ph-space-4);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+}
+
+.legacy input:not([type='checkbox']):not([type='radio']),
+.legacy select,
+.legacy textarea {
+  min-height: var(--ph-target);
+  font-size: max(16px, var(--ph-size-body));
+}
+
+.legacy button {
+  min-height: var(--ph-target);
+}
+
+/* Today's checkboxes, redrawn: a 24px box inside a 44px target. */
+.legacy label input[type='checkbox'],
+.legacy input[type='checkbox'] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: 0 0 0 calc(-1 * var(--ph-space-3));
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.legacy input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border: 2px solid var(--ph-text-tertiary);
+  border-radius: 6px;
+  background: var(--ph-surface);
+  transition: background-color var(--ph-motion-fast) ease, border-color var(--ph-motion-fast) ease;
+}
+
+.legacy input[type='checkbox']:checked::before {
+  border-color: var(--ph-accent);
+  background: var(--ph-accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='5 12 10 17 19 7'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+
+@media (hover: hover) {
+  .legacy input[type='checkbox']:hover:not(:disabled)::before { border-color: var(--ph-accent); }
+}
+
+.legacy input[type='checkbox']:active:not(:disabled)::before { transform: scale(0.94); }
+
+.legacy input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -6px;
+  border-radius: var(--ph-radius);
+}
+
+.legacy input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.saved {
+  min-height: var(--ph-line-caption);
+  margin: 0 var(--ph-gutter) var(--ph-space-6);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* ---- Saved prompts ---- */
+
+.page {
+  padding-bottom: var(--ph-space-6);
+}
+
+.searchRow {
+  margin: var(--ph-space-2) var(--ph-gutter) var(--ph-space-4);
+}
+
+.search,
+.input {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: max(16px, var(--ph-size-body));
+}
+
+.input {
+  min-height: var(--ph-button);
+  border: 1px solid var(--ph-separator);
+  background: var(--ph-sheet-group);
+}
+
+.search::placeholder { color: var(--ph-text-tertiary); }
+
+.search:focus,
+.search:focus-visible,
+.input:focus,
+.input:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 0;
+}
+
+.promptText {
+  margin: 0 0 var(--ph-space-4);
+  padding: var(--ph-space-3) var(--ph-space-4);
+  max-height: 40dvh;
+  overflow: auto;
+  border-radius: var(--ph-radius);
+  background: var(--ph-sheet-group);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+}
+
+.fieldLabel {
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  color: var(--ph-text-secondary);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: var(--ph-space-3);
+}

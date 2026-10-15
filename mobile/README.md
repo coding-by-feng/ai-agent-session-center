@@ -68,6 +68,7 @@ Run on a Pixel 7 emulator; no real Mac was paired (a local stand-in page played 
 | Pairing end to end (RELEASE 13) | Against `scripts/mobile-test-mac.ts` (the real `mobileRouter` + `deviceAuth`, below): link pasted → "Pair with Emu-Mac?" (home network switch required: no Tailscale address) → same 6-digit code on both sides → Allow → challenge/proof sign-in → native cookie → the Mac page's `/api` 200 and WebSocket authenticated. Phone calls carry no `Sec-Fetch-Site` (native HTTP), so the router's cross-site refusal doesn't hit them |
 | Restart and revoke | Force-stop + start: straight back to the Mac page, signed in again. Revoked on the Mac: the next start shows "Emu-Mac removed this phone. Pair again to use it.", the vault is empty and the cookie is gone (`/api` 401, WebSocket refused) |
 | Second phone, same QR | The code is single use: phone A 201, phone B 401, only A listed |
+| Back button (AASC-48, 2026-10-16) | `MainActivity` asks the Mac's page (`window.__aascNativeBack`, `BackRules`): a sheet closes first, then screens pop, then a tab root warns "Press back again to leave" and a second back within 2.5 s sends the app to the background. Walking the WebView history instead failed: Chromium skips entries a page added without a tap, so after a launch with no touch the button did nothing at the root and never left. An older Mac UI without the hook keeps Capacitor's history back |
 
 Not checked here: the real Mac UI's Allow / revoke buttons and the logs during pairing (the test Mac stands in), push (no Firebase), the widget on a launcher, user-CA interception.
 
@@ -88,6 +89,13 @@ curl -s -X DELETE "${H[@]}" http://127.0.0.1:3439/api/mobile/devices/<id>       
 ```
 
 Use an emulator port other than 5554 (another project's emulator uses it), and a Play Store image for release checks.
+
+To see the real phone UI after pairing, build the phone harness (local, gitignored: `scratch/phone-harness`,
+`npx vite build --config scratch/phone-harness/vite.config.mjs --outDir <dir>`) and point the test Mac at it:
+`HARNESS_UI_DIR=<dir>` serves that page (index.html + assets/) as the Mac page instead of the stand-in. The
+harness answers `/api` and the WebSocket in-page with fake sessions, so nothing reaches a real AASC; the app's
+`AASC-Mobile/` user agent still applies. `MAC_PORT` runs a second instance (one per phone: the emulator pairs at
+`10.0.2.2`, the iPhone simulator at the LAN address).
 
 ### The iOS project (builds and runs in the iPhone simulator)
 

@@ -1,0 +1,155 @@
+/* Sheet — phone kit (AASC-38). Portaled to <body> in the 10000+ band. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ph-z-sheet, 10030);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--ph-overlay);
+  animation: sheet-fade var(--ph-motion-sheet) ease-out;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: calc(100dvh - var(--ph-safe-top) - var(--ph-space-3));
+  margin: 0 auto;
+  padding: 0 var(--ph-safe-right) var(--ph-safe-bottom) var(--ph-safe-left);
+  border-radius: var(--ph-radius-sheet) var(--ph-radius-sheet) 0 0;
+  background: var(--ph-sheet-bg);
+  box-shadow: var(--ph-shadow-sheet);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+  outline: none;
+  transform: translateY(var(--sheet-drag, 0px));
+  transition: height var(--ph-motion-sheet) var(--ph-ease), transform var(--ph-motion-sheet) var(--ph-ease);
+  animation: sheet-rise var(--ph-motion-sheet) var(--ph-ease);
+}
+
+.sheet[data-detent='medium'] { height: 50dvh; }
+.sheet[data-detent='large'] { height: calc(100dvh - var(--ph-safe-top) - var(--ph-space-3)); }
+
+.sheet[data-dragging] { transition: none; }
+
+.handle {
+  flex: none;
+  padding-top: var(--ph-space-2);
+  touch-action: none;
+  cursor: grab;
+}
+
+.grabber {
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: 0 auto var(--ph-space-1);
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-fill-strong);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  min-height: var(--ph-target);
+  padding: 0 var(--ph-space-2) 0 var(--ph-space-4);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.close {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.close::before {
+  content: '';
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ph-fill);
+  z-index: -1;
+}
+
+.close { position: relative; isolation: isolate; }
+
+@media (hover: hover) {
+  .close:hover::before { background: var(--ph-fill-strong); }
+}
+
+.close:active::before { background: var(--ph-fill-strong); }
+
+.close:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--ph-space-2) var(--ph-space-4) var(--ph-space-4);
+}
+
+/* A kit list inside a sheet: no second gutter, groups lifted off the sheet. */
+.body > section {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.body > section > ul {
+  background: var(--ph-sheet-group);
+}
+
+.footer {
+  flex: none;
+  padding: var(--ph-space-3) var(--ph-space-4) var(--ph-space-4);
+  border-top: 0.5px solid var(--ph-separator);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-rise { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop, .sheet { animation: none; transition: none; }
+}

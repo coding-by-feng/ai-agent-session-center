@@ -1,10 +1,7 @@
-// LiveView.test.tsx — the separate AGENTS list on the LIVE page.
-//
-// On desktop it duplicated the session panel's own rail, so it is gone there:
-// the LIVE tab opens the panel instead (see NavBar.live.test.tsx). The rule
-// lives inside RobotListSidebar, so the 3D scene (which mounts it too) follows
-// the same rule without its own check. A phone's LIVE page no longer mounts it
-// at all: it is PhoneLive's card list (AASC-18).
+// LiveView.test.tsx — the LIVE page on a desktop. It has no separate AGENTS list:
+// the session panel's own rail lists the sessions, and the LIVE tab opens that
+// panel (see NavBar.live.test.tsx). A phone never renders this page: App.tsx
+// gives it the phone app (AASC-48).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import type { Session } from '@/types';
@@ -20,15 +17,14 @@ vi.mock('@/components/3d/CyberdromeScene', () => ({
 vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => [] }));
 
 import LiveView from './LiveView';
-import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
 
-function phoneWidth(isPhone: boolean): void {
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-    matches: isPhone && query.includes('max-width: 480px'),
+function desktopWidth(): void {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches: false,
     addEventListener: () => {},
     removeEventListener: () => {},
   })));
@@ -49,55 +45,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the AGENTS list on the LIVE page', () => {
-  it('is not shown on desktop', () => {
-    phoneWidth(false);
-    const { container } = render(<RobotListSidebar />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it('is shown on a phone, where it is the session list', () => {
-    phoneWidth(true);
-    render(<RobotListSidebar />);
-    expect(screen.getByText(/Agents \(2\)/i)).toBeInTheDocument();
-  });
-
-  it('desktop LIVE page (3D off): no AGENTS list; the session board shows instead of the old "3D Scene Paused" label', () => {
-    phoneWidth(false);
+describe('the desktop LIVE page (3D off)', () => {
+  it('has no AGENTS list; the session board shows instead of the old "3D Scene Paused" label', () => {
+    desktopWidth();
     const { container } = render(<LiveView />);
     expect(screen.queryByText(/Agents \(/i)).toBeNull();
     expect(screen.queryByText(/3D Scene Paused/i)).toBeNull();
     expect(screen.getByRole('heading', { name: /Sessions \(2\)/i })).toBeInTheDocument();
     expect(container.querySelector('[class*="flatRoot"]')).not.toBeNull();
   });
-
-  // AASC-18: a phone's LIVE page is one column of the board's cards (PhoneLive),
-  // without the desktop HUD or the old AGENTS list.
-  it('phone LIVE page: the card list, no AGENTS list, no HUD, no desktop "no sessions" card', async () => {
-    phoneWidth(true);
-    render(<LiveView />);
-    expect(await screen.findByTestId('phone-live')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Sessions \(2\)/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Agents \(/i)).toBeNull();
-    expect(screen.queryByText(/Units Online/i)).toBeNull();
-    expect(screen.queryByRole('button', { name: '3D scene' })).toBeNull();
-    expect(screen.queryByText(/3D Scene Paused/i)).toBeNull();
-    expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
-  });
-
-  it('phone LIVE page: never the 3D scene, even with 3D switched on', async () => {
-    phoneWidth(true);
-    useSettingsStore.setState({ scene3dEnabled: true } as never);
-    render(<LiveView />);
-    expect(await screen.findByTestId('phone-live')).toBeInTheDocument();
-    expect(screen.queryByTestId('scene')).toBeNull();
-  });
 });
 
 // What a desktop LIVE page (3D off) shows depends on whether the session list
 // has loaded, and on whether there is anything in it. See lib/liveBoard.ts.
 describe('the desktop LIVE page (3D off) before and after sessions exist', () => {
-  beforeEach(() => phoneWidth(false));
+  beforeEach(() => desktopWidth());
 
   it('shows neither the board nor "no sessions" before the first snapshot, so returning users see no flash', () => {
     useWsStore.setState({ snapshotReceived: false });
@@ -155,7 +117,7 @@ describe('the desktop LIVE page with the 3D scene on', () => {
   const outside = (id: string): Session => ({ ...session(id), source: 'iterm' } as Session);
 
   beforeEach(() => {
-    phoneWidth(false);
+    desktopWidth();
     scene.crash = false;
     useSettingsStore.setState({ scene3dEnabled: true } as never);
   });
@@ -200,13 +162,6 @@ describe('the desktop LIVE page with the 3D scene on', () => {
     expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
   });
 
-  it('a phone gets no card, as on the flat page', () => {
-    phoneWidth(true);
-    useSessionStore.setState({ sessions: new Map() });
-    render(<LiveView />);
-    expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
-  });
-
   // The scene's error screen (with RETRY) is centred where the card would be.
   it('a crashed scene shows its error, not the card over it', async () => {
     scene.crash = true;
@@ -228,7 +183,7 @@ describe('the desktop LIVE page with the 3D scene on', () => {
 // refuses, would otherwise leave a blank page with only the HUD on it.
 describe('the desktop LIVE page while the session list has not arrived', () => {
   beforeEach(() => {
-    phoneWidth(false);
+    desktopWidth();
     vi.useFakeTimers();
     useWsStore.setState({ snapshotReceived: false });
   });

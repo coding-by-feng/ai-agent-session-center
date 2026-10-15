@@ -1,0 +1,550 @@
+/* The session screen's Terminal segment (AASC-45). Tokens: phoneTokens.css. */
+
+.segment {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ph-bg);
+  font-family: var(--ph-font);
+}
+
+/* ---- ● Live · 132×40   [Fit|Pan]  A−  A+  ⋯ ---- */
+
+.statusRow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ph-space-1);
+  padding: 0 var(--ph-space-2) 0 var(--ph-gutter);
+}
+
+.state {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.stateText {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+.stateText > span:first-child { color: var(--ph-text); font-weight: 600; }
+
+.size {
+  font-family: var(--ph-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ph-status-idle);
+}
+
+.dot[data-tone='live'] { background: var(--ph-status-finished); }
+.dot[data-tone='wait'] { background: var(--ph-status-approval); }
+.dot[data-tone='error'] { background: var(--ph-danger); }
+
+.modeGroup {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+}
+
+.modeButton {
+  appearance: none;
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-2);
+  border: 0;
+  border-radius: calc(var(--ph-radius) - 2px);
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.modeButton[aria-pressed='true'] {
+  background: var(--ph-segment-selected);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+
+.modeButton:active:not([aria-pressed='true']) { background: var(--ph-fill-strong); }
+.modeButton:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+.iconButton {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .iconButton:hover, .modeButton:hover:not([aria-pressed='true']) { background: var(--ph-fill); }
+}
+
+.iconButton:active { background: var(--ph-fill-strong); }
+.iconButton:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+.fitNote {
+  flex: none;
+  margin: 0 var(--ph-gutter) var(--ph-space-1);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* ---- The terminal: full width, zoomable ---- */
+
+.viewerWrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 48px;
+}
+
+.zoomViewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.zoomViewport::-webkit-scrollbar { display: none; }
+
+.zoomViewport[data-zoomed] { overflow: auto; }
+
+.zoomSizer {
+  width: calc(var(--base-w, 100%) * var(--zoom, 1));
+  height: calc(var(--base-h, 100%) * var(--zoom, 1));
+}
+
+.zoomContent {
+  display: flex;
+  flex-direction: column;
+  width: var(--base-w, 100%);
+  height: var(--base-h, 100%);
+}
+
+.zoomViewport[data-zoomed] .zoomContent {
+  transform: scale(var(--zoom, 1));
+  transform-origin: 0 0;
+}
+
+.xterm {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #0a0a1a;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.xterm :global(.xterm) {
+  height: 100%;
+  padding: 4px;
+}
+
+.xterm :global(.xterm-viewport) {
+  overflow-y: auto !important;
+}
+
+/* Fit and Pan render the PTY's own columns: the canvas may be wider than the screen. */
+.xterm[data-pan] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.xterm[data-pan] :global(.xterm) {
+  width: max-content;
+  min-width: 100%;
+}
+
+.zoomChip {
+  appearance: none;
+  position: absolute;
+  top: var(--ph-space-2);
+  right: var(--ph-space-2);
+  z-index: 2;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius-pill);
+  background: color-mix(in srgb, var(--ph-surface-raised) 92%, transparent);
+  box-shadow: var(--ph-shadow);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.zoomChip:active { background: var(--ph-fill-strong); }
+.zoomChip:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+
+.closed {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-3);
+  background: color-mix(in srgb, var(--ph-bg) 80%, transparent);
+  color: var(--ph-text);
+  font-size: var(--ph-size-secondary);
+}
+
+.closed p { margin: 0; }
+
+/* ---- Typing: the banner, the input line, the keys ---- */
+
+.inputs {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-1) + var(--ph-safe-bottom));
+  border-top: 0.5px solid var(--ph-separator);
+  background: var(--ph-bar-bg);
+}
+
+.inputs[data-keyboard] {
+  padding-bottom: var(--ph-space-1);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding-left: var(--ph-space-1);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-danger);
+}
+
+.notice > span { flex: 1; min-width: 0; }
+
+.noticeClose {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: -8px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+}
+
+.noticeClose:active { background: var(--ph-fill-strong); }
+.noticeClose:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+.inputLine {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  margin: 0;
+  padding-left: var(--ph-space-3);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius);
+  background: var(--ph-surface);
+}
+
+.inputLine:focus-within { border-color: var(--ph-accent); }
+
+.rawInput {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: 16px; /* 16px keeps iOS from zooming the page on focus */
+}
+
+.rawInput::placeholder { color: var(--ph-text-tertiary); font-family: var(--ph-font); }
+.rawInput:disabled { cursor: not-allowed; }
+
+.rawSend {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+}
+
+.rawSend:active:not(:disabled) { background: var(--ph-fill-strong); }
+.rawSend:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+.rawSend:disabled { color: var(--ph-text-tertiary); cursor: not-allowed; }
+
+.keyBar {
+  display: flex;
+  gap: var(--ph-space-1);
+  margin: 0 calc(-1 * var(--ph-gutter));
+  padding: 0 var(--ph-gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.keyBar::-webkit-scrollbar { display: none; }
+
+.key {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-2);
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-surface);
+  box-shadow: 0 1px 0 var(--ph-separator);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.key[data-key='enter'] {
+  min-width: 56px;
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+
+.key[aria-pressed='true'] {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  .key:hover:not(:disabled) { filter: brightness(0.96); }
+}
+
+.key:active:not(:disabled) { background: var(--ph-fill-strong); transform: scale(0.96); }
+.key:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+.key:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- Full screen ---- */
+
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: none;
+  flex-direction: column;
+  padding: var(--ph-safe-top) var(--ph-safe-right) 0 var(--ph-safe-left);
+  background: var(--ph-bg);
+}
+
+.fullscreen[data-open] { display: flex; }
+
+.fsBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  min-height: var(--ph-navbar);
+  padding: 0 var(--ph-space-2) 0 var(--ph-gutter);
+}
+
+.fsTitle {
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  color: var(--ph-text);
+}
+
+/* ---- The ⋯ sheet's bookmarks ---- */
+
+.bookmarkRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.bookmarkRow + .bookmarkRow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 0;
+  height: 0.5px;
+  background: var(--ph-separator);
+}
+
+.bookmarkJump {
+  appearance: none;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ph-space-3);
+  min-width: 0;
+  min-height: var(--ph-row);
+  margin: 0;
+  padding: var(--ph-space-2) 0 var(--ph-space-2) var(--ph-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bookmarkJump:active { background: var(--ph-fill-strong); }
+.bookmarkJump:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+.bookmarkIcon {
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  justify-content: center;
+  color: var(--ph-accent);
+}
+
+.bookmarkBody {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bookmarkText {
+  overflow: hidden;
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmarkTime {
+  font-size: var(--ph-size-caption);
+  color: var(--ph-text-secondary);
+}
+
+.rowAction {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0 var(--ph-space-2) 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+}
+
+.rowAction:active { background: var(--ph-fill-strong); }
+.rowAction:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+/* A phone on its side has height to spare for the terminal only: the input
+   line and the keys share one row, the banner and a notice keep theirs. */
+@media (max-height: 480px) {
+  .inputs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding-top: var(--ph-space-1);
+  }
+
+  .inputs > section,
+  .inputs > .notice {
+    flex: 1 1 100%;
+  }
+
+  .inputLine {
+    flex: 1 1 220px;
+  }
+
+  .keyBar {
+    flex: 1 1 340px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .key:active:not(:disabled) { transform: none; }
+}
