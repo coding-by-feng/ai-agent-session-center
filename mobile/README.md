@@ -128,8 +128,8 @@ codes, approve, signed-in Mac page and WebSocket, restart, revoke ("removed this
 failure (unsigned build) is handled safely: "This phone couldn't store the pairing key securely, so nothing was paired."
 
 Also checked in the simulator: the lock (lock on → "AASC is locked" at start → Unlock → the system prompt "Unlock AASC"
-→ passcode → `ok: true`, state saved) and the app-switcher card (blurred). Not yet run end to end: the resume path from a
-Mac page (its decision is unit-tested).
+→ passcode → `ok: true`, state saved), the app-switcher card (blurred), and the resume path: lock set to "every time",
+paired Mac page showing, app to the background and back → "AASC is locked".
 
 Still to do on iOS: your Apple ID / team in Xcode to run on a real iPhone; the iOS halves of the QR scanner (VisionKit),
 share extension and widget (App Group), and push (APNs, needs the Developer Program); associated domains for the pairing link.
