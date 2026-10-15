@@ -7,8 +7,9 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
 
-vi.mock('@/components/terminal/TerminalContainer', () => ({
-  default: ({ terminalId }: { terminalId: string | null }) => <div data-testid="terminal-container">{terminalId}</div>,
+// The Terminal segment (AASC-45) draws xterm itself; here only which terminal it shows matters.
+vi.mock('@/components/mobile/screens/SessionTerminal', () => ({
+  default: ({ session }: { session: { terminalId: string | null } }) => <div data-testid="terminal-container">{session.terminalId}</div>,
 }));
 vi.mock('@/routes/QueueView', () => ({ default: () => <div data-testid="queue-view" /> }));
 vi.mock('@/components/modals/NewSessionModal', () => ({ default: () => null }));
@@ -90,7 +91,7 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
   });
 
-  it('switches segments in place, the terminal being today’s phone terminal', async () => {
+  it('switches segments in place, the terminal segment showing the session’s terminal', async () => {
     const user = userEvent.setup();
     render(<PhoneAppFrame />);
     await user.click(await screen.findByRole('button', { name: /Working one/ }));

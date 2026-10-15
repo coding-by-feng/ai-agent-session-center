@@ -1,0 +1,299 @@
+/* WaitingCard — an approval or a question, above the composer (AASC-43). Tokens: phoneTokens.css. */
+
+.card {
+  --card-tone: var(--ph-status-approval);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding: var(--ph-space-3) var(--ph-space-3) var(--ph-space-1);
+  border: 1px solid color-mix(in srgb, var(--card-tone) 45%, transparent);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+}
+
+.card[data-tone='question'] { --card-tone: var(--ph-status-question); }
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ph-space-2);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: 3px;
+  color: var(--card-tone);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: var(--ph-line-body);
+  overflow-wrap: anywhere;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  min-width: 0;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  min-width: 0;
+}
+
+.caption,
+.where {
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.code {
+  box-sizing: border-box;
+  min-height: var(--ph-target);
+  max-height: min(30vh, 200px);
+  margin: 0;
+  padding: 13px var(--ph-space-3);
+  overflow: auto;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prose {
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+.code:focus-visible,
+.diff:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.url {
+  box-sizing: border-box;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: var(--ph-space-2) var(--ph-space-3);
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  overflow-wrap: anywhere;
+}
+
+.question {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Diff ---- */
+
+.file {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+}
+
+.fileName {
+  min-width: 0;
+  font-family: var(--ph-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.counts {
+  flex: none;
+  font-family: var(--ph-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.added { color: var(--ph-status-finished); }
+.removed { color: var(--ph-danger); }
+
+.diff {
+  min-height: var(--ph-target);
+  max-height: min(32vh, 220px);
+  overflow: auto;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  -webkit-overflow-scrolling: touch;
+}
+
+.diffLine {
+  display: flex;
+  min-width: max-content;
+}
+
+.diffLine[data-op='-'] { background: color-mix(in srgb, var(--ph-danger) 16%, transparent); }
+.diffLine[data-op='+'] { background: color-mix(in srgb, var(--ph-status-finished) 16%, transparent); }
+.diffLine[data-op='@'] { color: var(--ph-text-secondary); font-family: var(--ph-font); font-style: italic; }
+
+.gutter {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  color: var(--ph-text-secondary);
+  user-select: none;
+}
+
+.diffLine[data-op='-'] .gutter { color: var(--ph-danger); }
+.diffLine[data-op='+'] .gutter { color: var(--ph-status-finished); }
+
+.lineText {
+  padding-right: var(--ph-space-3);
+  white-space: pre;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- States ---- */
+
+.state,
+.reason,
+.error {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+.state { color: var(--ph-text); font-weight: 600; }
+.reason { color: var(--ph-text-secondary); }
+.error { color: var(--ph-danger); }
+
+/* ---- Answers ---- */
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ph-space-2);
+}
+
+/* Side by side when they fit; on a narrow card the last (Allow once) takes its own row. */
+.choices > * {
+  flex: 1 1 auto;
+}
+
+.choice {
+  padding: 0 var(--ph-space-3);
+  white-space: nowrap;
+}
+
+.choices .deny {
+  color: var(--ph-danger);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+}
+
+.option {
+  justify-content: flex-start;
+  width: 100%;
+  padding-top: var(--ph-space-2);
+  padding-bottom: var(--ph-space-2);
+  text-align: left;
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.optionNote {
+  font-size: var(--ph-size-caption);
+  font-weight: 400;
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  margin: 0 calc(-1 * var(--ph-space-3));
+  border-top: 0.5px solid var(--ph-separator);
+}
+
+.link {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.link + .link { border-top: 0.5px solid var(--ph-separator); }
+
+.link svg { flex: none; color: var(--ph-text-tertiary); }
+
+.linkLead {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+}
+
+.linkLead svg { color: var(--ph-accent); }
+
+@media (hover: hover) {
+  .link:hover { background: var(--ph-fill); }
+}
+
+.link:active { background: var(--ph-fill-strong); }
+
+.link:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}

@@ -1,0 +1,104 @@
+/* DrivingBanner — "Your Mac is driving · Take control" (AASC-42/45). Tokens: phoneTokens.css. */
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ph-space-2) var(--ph-space-3);
+  margin: 0;
+  padding: var(--ph-space-2) var(--ph-space-3) var(--ph-space-2) var(--ph-space-4);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-warning-tint);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+}
+
+.asked {
+  background: var(--ph-accent-tint);
+}
+
+.compact {
+  flex-wrap: nowrap;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.compact .text {
+  flex: 1 1 auto;
+}
+
+.text {
+  display: flex;
+  flex: 1 1 160px;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.title {
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  line-height: var(--ph-line-secondary);
+}
+
+.note {
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  gap: var(--ph-space-2);
+  margin-left: auto;
+}
+
+.button {
+  appearance: none;
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease, transform var(--ph-motion-fast) ease;
+}
+
+.primary {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+
+@media (hover: hover) {
+  .button:hover:not([aria-disabled='true']) { background: var(--ph-fill-strong); }
+  .primary:hover:not([aria-disabled='true']) { background: var(--ph-accent); filter: brightness(1.06); }
+}
+
+.button:active:not([aria-disabled='true']) { transform: scale(0.97); }
+
+.button:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.button[aria-disabled='true'] {
+  background: var(--ph-fill);
+  color: var(--ph-text-secondary);
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+  .button:active:not([aria-disabled='true']) { transform: none; }
+}

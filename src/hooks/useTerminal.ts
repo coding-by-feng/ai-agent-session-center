@@ -17,8 +17,11 @@ import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 import {
   resolveRenderCols,
+  resolveFit,
   mayDrivePtyGeometry,
   defaultWidthMode,
+  FIT_MIN_FONT_PX,
+  type FitDecision,
   type TerminalWidthMode,
 } from '@/lib/terminalGeometry';
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
@@ -78,9 +81,16 @@ interface UseTerminalReturn {
   /** Server-reported PTY width; drives pan mode. */
   handleTerminalGeometry: (terminalId: string, cols: number) => void;
   /** 'pan' renders at the PTY's width and scrolls horizontally; 'wrap' fits
-   *  the container and soft-wraps. Local-only — never resizes the PTY. */
+   *  the container and soft-wraps; 'fit' (the phone app, AASC-45) renders the
+   *  PTY's width with the font shrunk to fit. Local-only — never resizes the PTY. */
   widthMode: TerminalWidthMode;
   setWidthMode: (mode: TerminalWidthMode) => void;
+  /** In fit mode, what it settled on (the font, or a fall-back to panning); else null. */
+  fitState: FitDecision | null;
+  /** The text size a phone reads at (A− / A+). Undefined until one is chosen:
+   *  the terminal keeps the size it opened with, as the desktop always does. */
+  textSize: number | undefined;
+  setTextSize: (px: number) => void;
   handleTerminalReady: (terminalId: string) => void;
   handleTerminalClosed: (terminalId: string, reason?: string) => void;
   /** Move the xterm element to a different container (e.g. for fullscreen) */
@@ -349,6 +359,58 @@ export interface WidthRules {
   /** False on a phone: this device may render at any width it likes, but must
    *  never push that width to the shared PTY. */
   mayDrivePty: boolean;
+  /** The text size a phone chose (A− / A+); undefined leaves the font alone. In
+   *  fit mode it is the size fitting may shrink from, never grow past. */
+  fontSize?: number;
+  /** Told what fit mode settled on, each time it fits. */
+  onFit?: (decision: FitDecision) => void;
+}
+
+/** The width of a glyph per px of font size, for the terminal's face; 0 when it can't be measured. */
+function glyphWidthPerPx(term: Terminal): number {
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return 0;
+    ctx.font = `100px ${term.options.fontFamily ?? 'monospace'}`;
+    return ctx.measureText('W'.repeat(32)).width / 32 / 100;
+  } catch {
+    return 0;
+  }
+}
+
+/** The px xterm can draw columns in: its parent's width less its own padding. */
+function drawableWidth(term: Terminal): number {
+  const el = term.element;
+  const parent = el?.parentElement;
+  if (!el || !parent) return 0;
+  const style = window.getComputedStyle(el);
+  const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  return Math.max(0, parent.clientWidth - padding);
+}
+
+/**
+ * Fit mode's font (AASC-45): the size at which the PTY's columns fit, checked
+ * against the addon's own measure and stepped down a quarter pixel at a time
+ * while xterm's rounding still leaves it a column short. Below the floor it
+ * pans at the reading size. Only the font changes; the columns stay the PTY's.
+ */
+function applyFitFont(fitAddon: FitAddon, term: Terminal, rules: WidthRules): FitDecision {
+  const readable = rules.fontSize ?? (term.options.fontSize || 11);
+  rules.fontSize = readable;
+  let decision = resolveFit(drawableWidth(term), rules.ptyCols, glyphWidthPerPx(term), readable);
+  if (term.options.fontSize !== decision.fontSize) term.options.fontSize = decision.fontSize;
+  if (decision.fitted && rules.ptyCols !== null) {
+    let size = decision.fontSize;
+    let proposed = fitAddon.proposeDimensions()?.cols ?? 0;
+    while (proposed > 0 && proposed < rules.ptyCols && size - 0.25 >= FIT_MIN_FONT_PX) {
+      size -= 0.25;
+      term.options.fontSize = size;
+      proposed = fitAddon.proposeDimensions()?.cols ?? 0;
+    }
+    decision = proposed >= rules.ptyCols ? { fontSize: size, fitted: true } : { fontSize: readable, fitted: false };
+    if (term.options.fontSize !== decision.fontSize) term.options.fontSize = decision.fontSize;
+  }
+  return decision;
 }
 
 /**
@@ -373,8 +435,13 @@ export function installWidthModeFit(
 ): void {
   const baseFit = fitAddon.fit.bind(fitAddon);
   fitAddon.fit = () => {
+    const rules = rulesRef.current;
+    // The font first, so the measure below is taken at the size that will render.
+    // A desktop never sets fontSize or fit mode, so its font is never touched here.
+    if (rules.mode === 'fit') rules.onFit?.(applyFitFont(fitAddon, term, rules));
+    else if (rules.fontSize !== undefined && term.options.fontSize !== rules.fontSize) term.options.fontSize = rules.fontSize;
     baseFit();
-    const { mode, ptyCols } = rulesRef.current;
+    const { mode, ptyCols } = rules;
     const target = resolveRenderCols(mode, term.cols, ptyCols);
     // term.resize is a no-op when the value is unchanged, but guard anyway:
     // every resize invalidates xterm's render layers.
@@ -536,6 +603,17 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const [widthMode, setWidthModeState] = useState<TerminalWidthMode>(
     () => defaultWidthMode(isMobile, nativeApp),
   );
+  const [fitState, setFitState] = useState<FitDecision | null>(null);
+  const [textSize, setTextSizeState] = useState<number | undefined>(undefined);
+  // Fit reports from inside fitAddon.fit(), outside React's render: keep the
+  // last decision only when it changed, so a refit doesn't re-render for nothing.
+  useEffect(() => {
+    const rules = widthRulesRef.current;
+    rules.onFit = (decision) => {
+      setFitState((prev) => (prev && prev.fontSize === decision.fontSize && prev.fitted === decision.fitted ? prev : decision));
+    };
+    return () => { rules.onFit = undefined; };
+  }, []);
 
   // Keep the device rule current across an orientation change or a resized
   // desktop window crossing the breakpoint. Applied as an effect rather than
@@ -1694,6 +1772,24 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const setWidthMode = useCallback((mode: TerminalWidthMode) => {
     widthRulesRef.current.mode = mode;
     setWidthModeState(mode);
+    if (mode !== 'fit') setFitState(null);
+    const active = activeRef.current;
+    if (!active) return;
+    try {
+      active.fitAddon.fit();
+      active.term.refresh(0, active.term.rows - 1);
+    } catch { /* container mid-layout */ }
+  }, []);
+
+  /**
+   * A phone's text size (A− / A+, AASC-45). Local like the width mode: a refit
+   * at the new size, never a resize of the PTY (`sendResize` stays gated by
+   * the device rule).
+   */
+  const setTextSize = useCallback((px: number) => {
+    if (!Number.isFinite(px) || px <= 0) return;
+    widthRulesRef.current.fontSize = px;
+    setTextSizeState(px);
     const active = activeRef.current;
     if (!active) return;
     try {
@@ -1831,6 +1927,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     handleTerminalGeometry,
     widthMode,
     setWidthMode,
+    fitState,
+    textSize,
+    setTextSize,
     isAttached,
     activeTerminalId,
     terminalClosed,

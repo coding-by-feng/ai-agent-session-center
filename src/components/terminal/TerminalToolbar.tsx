@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { getThemeNames } from './themes';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
+import type { TerminalWidthMode } from '@/lib/terminalGeometry';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -267,7 +268,7 @@ interface TerminalToolbarProps {
   autoScrollEnabled?: boolean;
   onToggleAutoScroll?: () => void;
   /** Line-width mode. Omit both to hide the control (desktop keeps fitting). */
-  wrapMode?: 'pan' | 'wrap';
+  wrapMode?: TerminalWidthMode;
   onToggleWrapMode?: () => void;
   onFork?: () => void;
   onClone?: () => void;

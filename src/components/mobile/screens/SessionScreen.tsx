@@ -19,6 +19,7 @@ import type { Session } from '@/types';
 import { Button, EmptyState, Screen, SegmentedControl, useScreenSlot } from '../kit';
 import { ChevronRightIcon, EllipsisIcon } from '../kit/kitIcons';
 import SessionTerminal from './SessionTerminal';
+import ChatFooter from '../chat/ChatFooter';
 import ConnectionBanner from './ConnectionBanner';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
@@ -145,6 +146,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
         {segment === 'chat' && <ChatPlaceholder session={session} onTerminal={showTerminal} />}
         {segment === 'changes' && <ChangesPlaceholder onTerminal={showTerminal} />}
       </div>
+      {segment === 'chat' && <ChatFooter session={session} onTerminal={showTerminal} />}
       {actionsOpen && (
         <Suspense fallback={null}>
           <SessionActionsSheet sessionId={sessionId} onClose={closeActions} onOpened={closeActions} />
