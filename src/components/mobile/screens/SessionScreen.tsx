@@ -20,6 +20,8 @@ import { Button, EmptyState, Screen, SegmentedControl, useScreenSlot } from '../
 import { ChevronRightIcon, EllipsisIcon } from '../kit/kitIcons';
 import SessionTerminal from './SessionTerminal';
 import ConnectionBanner from './ConnectionBanner';
+import ChangesView, { ChangesBadge } from '../chat/ChangesView';
+import { useSessionChangesTotal } from '@/stores/changesStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
@@ -36,6 +38,19 @@ const SEGMENTS = [
   { value: 'changes', label: 'Changes' },
   { value: 'terminal', label: 'Terminal' },
 ] as const;
+
+/** The segments, with the session's edit total on Changes ("Changes +42 −7"). */
+function useSegments(sessionId: string) {
+  const total = useSessionChangesTotal(sessionId);
+  const added = total?.added ?? 0;
+  const removed = total?.removed ?? 0;
+  return useMemo(
+    () => SEGMENTS.map((s) => (s.value === 'changes' && (added || removed)
+      ? { ...s, badge: <ChangesBadge total={{ added, removed }} /> }
+      : s)),
+    [added, removed],
+  );
+}
 
 function useSelectWhileShown(sessionId: string): void {
   // Only the screen on show: one sliding out (or kept under another) never selects.
@@ -66,18 +81,6 @@ function ChatPlaceholder({ session, onTerminal }: { session: Session; onTerminal
   );
 }
 
-function ChangesPlaceholder({ onTerminal }: { onTerminal: () => void }) {
-  return (
-    <div className={styles.placeholder}>
-      <EmptyState
-        title="Changes are on their way"
-        message="The files this session edits will be listed here."
-        action={<Button onClick={onTerminal}>Open terminal</Button>}
-      />
-    </div>
-  );
-}
-
 export default function SessionScreen({ sessionId, segment }: { sessionId: string; segment: SessionSegment }) {
   const session = useSessionStore((s) => s.sessions.get(sessionId));
   const sessions = useSessionStore((s) => s.sessions);
@@ -87,6 +90,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
   const [actionsOpen, setActionsOpen] = useState(false);
   const closeActions = useCallback(() => setActionsOpen(false), []);
   useSelectWhileShown(sessionId);
+  const segments = useSegments(sessionId);
 
   const others = useMemo(
     () => waitingSessions(sessions).filter((s) => s.sessionId !== sessionId).length,
@@ -135,7 +139,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
             </button>
           )}
           <div className={styles.segments}>
-            <SegmentedControl segments={SEGMENTS} value={segment} onChange={show} label="Session view" panelId={panelId} idPrefix={segmentIds} />
+            <SegmentedControl segments={segments} value={segment} onChange={show} label="Session view" panelId={panelId} idPrefix={segmentIds} />
           </div>
         </>
       )}
@@ -143,7 +147,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
       <div id={panelId} role="tabpanel" aria-labelledby={`${segmentIds}-${segment}`} className={styles.panel}>
         {segment === 'terminal' && <SessionTerminal session={session} />}
         {segment === 'chat' && <ChatPlaceholder session={session} onTerminal={showTerminal} />}
-        {segment === 'changes' && <ChangesPlaceholder onTerminal={showTerminal} />}
+        {segment === 'changes' && <ChangesView session={session} onTerminal={showTerminal} />}
       </div>
       {actionsOpen && (
         <Suspense fallback={null}>

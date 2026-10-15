@@ -1,0 +1,317 @@
+/* What a session edited (AASC-44): the Changes segment and one file's diff.
+   Tokens: phoneTokens.css. */
+
+.changes {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--ph-space-6);
+}
+
+.summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--ph-space-2);
+  padding: var(--ph-space-2) calc(var(--ph-gutter) + var(--ph-space-4)) var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+}
+
+.summaryText {
+  font-weight: 600;
+}
+
+.empty {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: var(--ph-space-6);
+}
+
+.fileName {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.fileWhere {
+  overflow-wrap: anywhere;
+}
+
+.counts {
+  flex: none;
+  display: inline-flex;
+  gap: var(--ph-space-1);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.added { color: var(--ph-status-finished); }
+.removed { color: var(--ph-status-error); }
+
+.hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+}
+
+.stale {
+  margin: 0 var(--ph-gutter) var(--ph-space-4);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* The Changes segment's "+42 −7": the removed count only where it fits. */
+@media (max-width: 419px) {
+  .badgeRemoved { display: none; }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- One file's diff ---- */
+
+.navAction {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .navAction:hover { background: var(--ph-fill); }
+}
+
+.navAction:active { background: var(--ph-fill-strong); }
+
+.navAction[aria-pressed='true'] {
+  background: var(--ph-accent-tint);
+}
+
+.navAction:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.diffNotes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ph-space-2);
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
+}
+
+.toolbarCounts {
+  margin-left: auto;
+}
+
+.hunks {
+  border-top: 0.5px solid var(--ph-separator);
+}
+
+.hunk {
+  border-bottom: 0.5px solid var(--ph-separator);
+  background: var(--ph-surface);
+}
+
+.hunkHead {
+  appearance: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-gutter);
+  border: 0;
+  border-bottom: 0.5px solid var(--ph-separator);
+  background: var(--ph-bg);
+  color: var(--ph-text-secondary);
+  font-family: var(--ph-font-mono);
+  font-size: calc(13px * var(--ph-text-scale));
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .hunkHead:hover { background: var(--ph-fill); }
+}
+
+.hunkHead:active { background: var(--ph-fill-strong); }
+
+.hunkHead:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.hunkTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chev {
+  flex: none;
+  display: inline-flex;
+  transition: transform var(--ph-motion-fast) ease;
+}
+
+.chevOpen { transform: rotate(90deg); }
+
+.hunkBody {
+  padding: var(--ph-space-1) 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hunkBodyWrap {
+  overflow-x: hidden;
+}
+
+.lines {
+  display: inline-block;
+  min-width: 100%;
+  font-family: var(--ph-font-mono);
+  font-size: calc(13px * var(--ph-text-scale));
+  line-height: calc(20px * var(--ph-text-scale));
+}
+
+.hunkBodyWrap .lines {
+  display: block;
+}
+
+.line {
+  display: flex;
+  min-height: calc(20px * var(--ph-text-scale));
+}
+
+.num {
+  flex: none;
+  width: 44px;
+  padding-right: var(--ph-space-2);
+  text-align: right;
+  color: var(--ph-text-secondary);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.sign {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  color: var(--ph-text-secondary);
+  user-select: none;
+}
+
+.code {
+  flex: 1;
+  min-width: 0;
+  padding-right: var(--ph-gutter);
+  white-space: pre;
+  color: var(--ph-text);
+}
+
+.hunkBodyWrap .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.add {
+  background: color-mix(in srgb, var(--ph-status-finished) 16%, transparent);
+}
+
+.add .sign,
+.add .num { color: var(--ph-status-finished); font-weight: 700; }
+
+.del {
+  background: color-mix(in srgb, var(--ph-status-error) 14%, transparent);
+}
+
+.del .sign,
+.del .num { color: var(--ph-status-error); font-weight: 700; }
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: var(--ph-space-3) var(--ph-gutter);
+}
+
+.fileNav {
+  display: flex;
+  gap: var(--ph-space-2);
+  padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
+}
+
+.fileNav > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileNavRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fileNavLabel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.fileNavName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: var(--ph-size-caption);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chev { transition: none; }
+}

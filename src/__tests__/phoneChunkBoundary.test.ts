@@ -21,6 +21,10 @@ const PHONE_ONLY = [
   'lib/terminalCompose.ts',
   // The new phone app's navigation (AASC-39).
   'stores/phoneNavStore.ts',
+  // The phone chat, its Changes and the composer's draft (AASC-41/44).
+  'stores/chatStore.ts',
+  'stores/changesStore.ts',
+  'stores/composerDraftStore.ts',
 ];
 
 /** Phone-only folders outside components/mobile/ (the new phone app, AASC-38/39). */
