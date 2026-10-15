@@ -13,13 +13,13 @@
  * Hooks, shortcuts and import / export stay on the Mac (AASC-20).
  */
 import { lazy, Suspense, useCallback, useMemo, useState, type CSSProperties } from 'react';
-import { Banner, Button, ConfirmSheet, EmptyState, ListRow, ListSection, Screen, SegmentedControl } from '../kit';
+import { Banner, Button, ConfirmSheet, EmptyState, ListRow, ListSection, Screen } from '../kit';
 import { SettingsRows } from './MoreScreen';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
-import { PHONE_APPEARANCES, usePhoneAppearance, type PhoneAppearance } from '@/lib/chat/phoneAppearance';
+import { PHONE_APPEARANCES, usePhoneAppearance } from '@/lib/chat/phoneAppearance';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isNativeMobileApp } from '@/lib/platform';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
@@ -52,9 +52,15 @@ function AppearancePage() {
   return (
     <>
       <ListSection header="Light or dark" footer="System follows this phone’s own setting.">
-        <li className={styles.segmentRow}>
-          <SegmentedControl<PhoneAppearance> segments={PHONE_APPEARANCES} value={appearance} onChange={setAppearance} label="Light or dark" />
-        </li>
+        {PHONE_APPEARANCES.map((a) => (
+          <ListRow
+            key={a.value}
+            title={a.label}
+            value={appearance === a.value ? 'Selected' : undefined}
+            ariaLabel={`${a.label}${appearance === a.value ? ', selected' : ''}`}
+            onClick={() => setAppearance(a.value)}
+          />
+        ))}
       </ListSection>
       <ListSection header="Accent colour" footer="The phone takes its accent and status colours from one of AASC’s themes, kept readable in light and dark.">
         {THEMES.map((t) => (

@@ -73,7 +73,13 @@ export async function sendQueueItemNow(session: Session, item: QueueItem): Promi
     let imageCount = 0;
     if (item.images?.length) {
       const paths = await uploadImages(item.images);
-      if (paths.length > 0) toSend += `\n${paths.join('\n')}`;
+      // Never send it without its photos, or take it off the queue (a phone's
+      // upload budget can refuse them: 429).
+      if (paths.length < item.images.length) {
+        showToast('Couldn’t upload its photos to your Mac. It stays queued; try again in a moment.', 'error');
+        return false;
+      }
+      toSend += `\n${paths.join('\n')}`;
       imageCount = paths.length;
     }
     const ok = await sendPromptToTerminal(session.terminalId, toSend, automation.autoEnter, submitDelayFor(imageCount));

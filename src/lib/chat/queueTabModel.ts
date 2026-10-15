@@ -133,6 +133,22 @@ export function moveId(ids: readonly number[], from: number, to: number): number
   return next;
 }
 
+/**
+ * Where a held row lands: `mids` are every row's vertical centres when the hold
+ * started (list order), `from` the held row, `dy` how far it has been dragged.
+ * It lands after every other row whose centre its own centre has passed, so rows
+ * of different heights (a summary line) are counted right.
+ */
+export function dropIndex(mids: readonly number[], from: number, dy: number): number {
+  if (from < 0 || from >= mids.length) return from;
+  const centre = mids[from] + dy;
+  let target = 0;
+  mids.forEach((mid, i) => {
+    if (i !== from && mid < centre) target += 1;
+  });
+  return target;
+}
+
 /** The first line of a prompt, for a row (the full text is in the edit form). */
 export function promptLine(item: QueueItem): string {
   const text = item.text.replace(/\\n/g, '\n');

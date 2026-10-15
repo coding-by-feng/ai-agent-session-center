@@ -16,7 +16,7 @@
  * session's queue screen for adding prompts, automation switches and history.
  * The Mac's scheduler, not this phone, sends queued prompts.
  */
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type CSSProperties } from 'react';
 import type { Session } from '@/types';
 import { Banner, ConfirmSheet, ContextMenu, EmptyState, ListRow, ListSection, Screen, Sheet, SwipeRow } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
@@ -32,7 +32,7 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { infoPath } from '@/lib/chat/phoneRoutes';
-import { automationWords, itemSummary, moveId, promptLine, queueGroups, senderLine, type QueueGroup } from '@/lib/chat/queueTabModel';
+import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, senderLine, type QueueGroup } from '@/lib/chat/queueTabModel';
 import { sendQueueItemNow } from '@/lib/chat/queueSendNow';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/mobile/PhoneQueue.module.css';
@@ -42,13 +42,28 @@ export const REORDER_HOLD_MS = 250;
 const HOLD_SLOP_PX = 10;
 const FIT = ['fit'] as const;
 
+/** What the list draws while a row is held: where it is, and where it would land. */
 interface Drag {
   sessionId: string;
   itemId: number;
   from: number;
   target: number;
   dy: number;
+  /** The held row's height: the rows it passes step aside by this much. */
   rowH: number;
+}
+
+/** The hold in progress, kept off state: the geometry measured when it armed. */
+interface Hold {
+  x: number;
+  y: number;
+  pointer: number;
+  timer: ReturnType<typeof setTimeout>;
+  armed: boolean;
+  /** Each row's vertical centre when the hold armed, in list order. */
+  mids: number[];
+  rowH: number;
+  target: number;
 }
 
 function BoltIcon() {
@@ -82,7 +97,7 @@ interface RowProps {
 
 function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete, onReorder, onDragChange }: RowProps) {
   const rowRef = useRef<HTMLLIElement>(null);
-  const hold = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout>; armed: boolean; pointer: number } | null>(null);
+  const hold = useRef<Hold | null>(null);
   const [sendingNow, setSendingNow] = useState(false);
   const n = index + 1;
   const line = promptLine(item);
@@ -114,6 +129,14 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
     hold.current = null;
   };
 
+  // A row that goes mid-hold (the Mac sent it) leaves no list shifted behind it.
+  useEffect(() => () => {
+    const h = hold.current;
+    if (!h) return;
+    clearTimeout(h.timer);
+    if (h.armed) onDragChange(null);
+  }, [onDragChange]);
+
   const onHandleDown = (e: PointerEvent<HTMLButtonElement>) => {
     // The handle is its own gesture: not the row's swipe, not its long-press menu.
     e.stopPropagation();
@@ -129,12 +152,22 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
       y,
       pointer: pointerId,
       armed: false,
+      mids: [],
+      rowH: 0,
+      target: index,
       timer: setTimeout(() => {
-        if (!hold.current) return;
-        hold.current.armed = true;
+        const h = hold.current;
+        if (!h) return;
+        const row = rowRef.current;
+        const rows = Array.from(row?.parentElement?.children ?? []);
+        h.mids = rows.map((el) => {
+          const r = el.getBoundingClientRect();
+          return r.top + r.height / 2;
+        });
+        h.rowH = row?.getBoundingClientRect().height ?? 64;
+        h.armed = true;
         navigator.vibrate?.(10);
-        const rowH = rowRef.current?.getBoundingClientRect().height ?? 64;
-        onDragChange({ sessionId: sid, itemId: item.id, from: index, target: index, dy: 0, rowH });
+        onDragChange({ sessionId: sid, itemId: item.id, from: index, target: index, dy: 0, rowH: h.rowH });
       }, REORDER_HOLD_MS),
     };
   };
@@ -147,19 +180,18 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
       if (Math.hypot(e.clientX - h.x, dy) > HOLD_SLOP_PX) endHold();
       return;
     }
-    if (!drag) return;
-    const target = Math.max(0, Math.min(count - 1, index + Math.round(dy / drag.rowH)));
-    onDragChange({ ...drag, dy, target });
+    h.target = dropIndex(h.mids, index, dy);
+    onDragChange({ sessionId: sid, itemId: item.id, from: index, target: h.target, dy, rowH: h.rowH });
   };
 
   const onHandleUp = (e: PointerEvent<HTMLButtonElement>) => {
     const h = hold.current;
     if (!h || h.pointer !== e.pointerId) return;
-    const wasArmed = h.armed;
+    const { armed, target } = h;
     endHold();
-    if (!wasArmed || !drag) return;
+    if (!armed) return;
     onDragChange(null);
-    if (e.type !== 'pointercancel' && drag.target !== drag.from) onReorder(sid, drag.from, drag.target);
+    if (e.type !== 'pointercancel' && target !== index) onReorder(sid, index, target);
   };
 
   const onHandleKey = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -191,6 +223,7 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
       ref={rowRef}
       className={styles.item}
       data-dragging={dragging ? '' : undefined}
+      data-reordering={drag?.sessionId === sid ? '' : undefined}
       data-shifted={offset !== 0 ? '' : undefined}
       style={{ '--drag-y': `${dragging ? drag!.dy : offset}px` } as CSSProperties}
       data-testid={`queue-row-${item.id}`}
@@ -207,7 +240,11 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
               onPointerUp={onHandleUp}
               onPointerCancel={onHandleUp}
               onKeyDown={onHandleKey}
-              onContextMenu={(e) => e.preventDefault()}
+              onContextMenu={(e) => {
+                // A held grip is a drag: not the row's long-press menu (Android fires contextmenu on a hold).
+                e.preventDefault();
+                e.stopPropagation();
+              }}
             >
               <GripIcon />
             </button>
@@ -273,6 +310,11 @@ export default function QueueScreen() {
   const cancelDelete = useCallback(() => setDeleting(null), []);
   const closePicker = useCallback(() => setPicking(false), []);
 
+  // A held row the Mac took away (sent, moved, deleted elsewhere) ends the drag.
+  const activeDrag = drag && groups.some((g) => g.session.sessionId === drag.sessionId && g.items.some((i) => i.id === drag.itemId))
+    ? drag
+    : null;
+
   const onReorder = useCallback((sessionId: string, from: number, to: number) => {
     const items = useQueueStore.getState().queues.get(sessionId) ?? [];
     const ids = [...items].sort((a, b) => a.position - b.position).map((i) => i.id);
@@ -326,7 +368,7 @@ export default function QueueScreen() {
               item={item}
               index={index}
               count={group.items.length}
-              drag={drag}
+              drag={activeDrag}
               onEdit={(it) => setEditing({ sessionId: group.session.sessionId, itemId: it.id })}
               onMove={setMoving}
               onDelete={setDeleting}

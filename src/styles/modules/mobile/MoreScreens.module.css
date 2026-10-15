@@ -6,12 +6,6 @@
   border-radius: var(--ph-radius-card);
 }
 
-/* A segmented control as a list row (Appearance → Light or dark). */
-.segmentRow {
-  list-style: none;
-  padding: var(--ph-space-3) var(--ph-space-4);
-}
-
 .swatch {
   display: inline-block;
   width: 22px;

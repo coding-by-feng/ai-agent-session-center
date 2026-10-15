@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import type { DevicePresence, Session } from '@/types';
 import type { QueueItem } from '@/stores/queueStore';
 import { DEFAULT_AUTOMATION } from '@/stores/queueStore';
-import { automationWords, itemSummary, moveId, promptLine, queueGroups, sendNowPlan, senderLine } from './queueTabModel';
+import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, sendNowPlan, senderLine } from './queueTabModel';
 
 const sess = (id: string, over: Partial<Session> = {}) =>
   ({ sessionId: id, status: 'idle', title: id, projectName: id, lastActivityAt: 0, ...over }) as unknown as Session;
@@ -99,6 +99,24 @@ describe('sendNowPlan', () => {
   it('refuses a paused prompt or a paused session\'s chain, saying why', () => {
     expect(sendNowPlan(item(1, { disabled: true }), run)).toMatchObject({ kind: 'refuse' });
     expect(sendNowPlan(item(1, { type: 'loop' }), { paused: true })).toMatchObject({ kind: 'refuse', reason: expect.stringMatching(/paused/) });
+  });
+});
+
+describe('dropIndex', () => {
+  it('lands a held row after every row whose centre it passed', () => {
+    const mids = [32, 96, 160];
+    expect(dropIndex(mids, 0, 0)).toBe(0);
+    expect(dropIndex(mids, 0, 70)).toBe(1);
+    expect(dropIndex(mids, 0, 140)).toBe(2);
+    expect(dropIndex(mids, 2, -70)).toBe(1);
+    expect(dropIndex(mids, 2, -200)).toBe(0);
+  });
+
+  it('counts rows of different heights by their centres', () => {
+    // Row 1 is tall (a summary line): its centre is further down.
+    const mids = [28, 112, 196];
+    expect(dropIndex(mids, 0, 60)).toBe(0);
+    expect(dropIndex(mids, 0, 90)).toBe(1);
   });
 });
 

@@ -141,6 +141,27 @@ describe('QueueScreen', () => {
     }
   });
 
+  it('a held grip is a drag, never the row\'s long-press menu', () => {
+    render(<QueueScreen />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Reorder prompt 1 for web/ }));
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('ends the drag when the held prompt leaves the queue', () => {
+    vi.useFakeTimers();
+    try {
+      render(<QueueScreen />);
+      const handle = screen.getByRole('button', { name: /^Reorder prompt 1 for web/ });
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 10, clientY: 100, pointerType: 'touch' });
+      act(() => { vi.advanceTimersByTime(REORDER_HOLD_MS + 10); });
+      expect(screen.getByTestId('queue-row-1')).toHaveAttribute('data-dragging');
+      act(() => { useQueueStore.getState().remove('s1', 1); });
+      expect(screen.getByTestId('queue-row-2')).not.toHaveAttribute('data-reordering');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('deletes only after a confirm, from the long-press menu', async () => {
     const user = userEvent.setup();
     render(<QueueScreen />);

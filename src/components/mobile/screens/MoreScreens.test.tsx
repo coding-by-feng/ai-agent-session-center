@@ -79,9 +79,10 @@ describe('Settings pages', () => {
     const user = userEvent.setup();
     const setTheme = vi.spyOn(useSettingsStore.getState(), 'setThemeName');
     render(<SettingsScreen page="appearance" />);
-    expect(screen.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('tab', { name: 'Dark' }));
+    expect(screen.getByRole('button', { name: 'System, selected' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Dark' }));
     expect(readPhoneAppearance()).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Dark, selected' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /^Nord/ }));
     expect(setTheme).toHaveBeenCalledWith('nord');
   });

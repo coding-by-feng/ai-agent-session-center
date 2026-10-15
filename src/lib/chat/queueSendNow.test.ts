@@ -47,6 +47,15 @@ describe('sendQueueItemNow', () => {
     expect(sendPromptToTerminal).toHaveBeenCalledWith('term-1', 'run it\nplease\n/tmp/a.png', true, IMAGE_SUBMIT_ENTER_DELAY_MS);
   });
 
+  it('keeps a prompt whose photos couldn’t be uploaded, and sends nothing', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 429 }));
+    const withPhoto = item({ images: [{ name: 'a.png', dataUrl: 'data:image/png;base64,AA' }] });
+    useQueueStore.setState({ queues: new Map([['s1', [withPhoto]]]) });
+    await expect(sendQueueItemNow(session(), withPhoto)).resolves.toBe(false);
+    expect(sendPromptToTerminal).not.toHaveBeenCalled();
+    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+  });
+
   it('types without Enter when Auto-Enter is off, and records nothing', async () => {
     useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
     await sendQueueItemNow(session(), item());

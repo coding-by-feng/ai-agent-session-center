@@ -6,7 +6,7 @@
  * onto <body> as `data-ph-appearance="light|dark"` (absent = system), which
  * phoneTokens.css reads; the accent and status hues still come from the theme.
  */
-import { useEffect, useSyncExternalStore } from 'react';
+import { useLayoutEffect, useSyncExternalStore } from 'react';
 
 export type PhoneAppearance = 'system' | 'light' | 'dark';
 
@@ -63,10 +63,10 @@ export function applyPhoneAppearance(el: HTMLElement, value: PhoneAppearance): v
   else el.setAttribute(PHONE_APPEARANCE_ATTR, value);
 }
 
-/** The frame: keep <body> in step with the choice while mounted. */
+/** The frame: keep <body> in step with the choice while mounted (before paint: no flash of the other palette). */
 export function usePhoneAppearanceOnBody(): void {
   const [value] = usePhoneAppearance();
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyPhoneAppearance(document.body, value);
     return () => document.body.removeAttribute(PHONE_APPEARANCE_ATTR);
   }, [value]);
