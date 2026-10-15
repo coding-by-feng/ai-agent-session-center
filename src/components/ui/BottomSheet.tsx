@@ -14,6 +14,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Button from '@/components/ui/Button';
+import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/BottomSheet.module.css';
 
 export interface BottomSheetProps {
@@ -43,6 +44,8 @@ const openSheets: HTMLElement[] = [];
 export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight, headerAction, flush }: BottomSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // In the phone app, Android's back closes the sheet, not the screen under it (AASC-48).
+  useBackLayer(open, onClose);
 
   useEffect(() => {
     if (!open) return;

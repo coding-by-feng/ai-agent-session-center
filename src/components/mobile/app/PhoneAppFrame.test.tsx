@@ -98,6 +98,24 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /Working one/ })));
   });
 
+  it('Android’s back with the ⋯ sheet open closes the sheet, not the session (AASC-48)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const screenEl = await screen.findByTestId('phone-session');
+    await user.click(within(screenEl).getByRole('button', { name: 'Session actions' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2/chat']);
+    expect(screen.getByTestId('phone-session')).toBeTruthy();
+
+    // The next back pops the session as usual.
+    act(() => window.history.back());
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+  });
+
   it('keeps the tab bar hidden on the screens pushed from a session: Info and a diff', async () => {
     render(<PhoneAppFrame />);
     await screen.findByRole('navigation', { name: 'Main' });

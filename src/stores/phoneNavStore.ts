@@ -28,6 +28,9 @@
  * desktop layout's router, when a window was narrowed to a phone's size
  * mid-session) are walked straight through on the way out.
  *
+ * A back the frame didn't start, with a sheet or menu open (lib/backLayers.ts),
+ * closes that layer instead and pushes its entry back.
+ *
  * The tab and stacks persist in localStorage (`aasc.phoneNav`, paths only) and
  * the address bar carries the shown screen as `?m=<path>`; a reload or a link
  * restores both (initialPhoneNav).
@@ -46,6 +49,7 @@ import {
   type PhoneTab,
   type SessionSegment,
 } from '@/lib/chat/phoneRoutes';
+import { closeTopBackLayer } from '@/lib/backLayers';
 
 export type PhoneStacks = Record<PhoneTab, string[]>;
 
@@ -340,6 +344,14 @@ function onForeignEntry(): void {
 
 function onPopState(state: unknown): void {
   if (!binding) return;
+  // A back the frame didn't start (Android's button, a browser's) with a sheet or
+  // menu open closes that instead: the entry it used goes back, the screen stays.
+  if (!inFlight && isEntry(state) && state.idx === binding.idx - 1 && closeTopBackLayer()) {
+    const { tab, stacks } = usePhoneNavStore.getState();
+    const stack = stacks[tab];
+    writeEntry('push', binding.idx, tab, stack[binding.idx - 1] ?? stack[stack.length - 1]);
+    return;
+  }
   if (!isEntry(state)) {
     onForeignEntry();
     if (inFlight) settle(0);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { useUiStore } from '@/stores/uiStore';
+import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/Modal.module.css';
 
 interface ModalProps {
@@ -22,6 +23,8 @@ export default function Modal({ modalId, children, title, onClose, panelClassNam
     closeModal();
     onClose?.();
   }, [closeModal, onClose]);
+  // In the phone app, Android's back closes the dialog, not the screen under it (AASC-48).
+  useBackLayer(isOpen, handleClose);
 
   // ESC to close
   useEffect(() => {

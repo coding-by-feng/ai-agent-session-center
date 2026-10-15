@@ -12,6 +12,7 @@ import {
   usePhoneNavStore,
   type NavHistory,
 } from './phoneNavStore';
+import { openBackLayer } from '@/lib/backLayers';
 
 /** A browser history: entries, an index, popstate delivered on flush() (browsers deliver it later). */
 class FakeHistory implements NavHistory {
@@ -239,6 +240,58 @@ describe('the root sentinel (Android back at a tab root)', () => {
     expect(stack()).toEqual(['/sessions']);
     history.back();
     expect(onLeaveAttempt).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a sheet or menu open on top (AASC-48)', () => {
+  const releases: Array<() => void> = [];
+  const layer = (close: () => void) => { releases.push(openBackLayer(close)); };
+  afterEach(() => { while (releases.length) releases.pop()!(); });
+
+  it('the system back closes it, and the screen under it stays', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    layer(close);
+    history.back();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    // The entry the back used is back: the next back pops the screen.
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('at a tab root it closes the sheet instead of warning', () => {
+    install('/');
+    const close = vi.fn();
+    layer(close);
+    history.back();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(onLeaveAttempt).not.toHaveBeenCalled();
+    expect(nav().leaveArmed).toBe(false);
+  });
+
+  it('closes only the top one of two', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const under = vi.fn();
+    const top = vi.fn();
+    layer(under);
+    layer(top);
+    history.back();
+    expect(top).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
+  });
+
+  it('never swallows the app’s own back (a sheet action that pops the screen)', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    layer(close);
+    nav().pop();
+    history.flush();
+    expect(close).not.toHaveBeenCalled();
+    expect(stack()).toEqual(['/sessions']);
   });
 });
 

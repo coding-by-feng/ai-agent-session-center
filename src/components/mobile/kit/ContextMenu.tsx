@@ -23,6 +23,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD, clampMenuPosition } from './menuPosition';
+import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/mobile/ContextMenu.module.css';
 
 export interface ContextMenuItem {
@@ -72,6 +73,8 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     const target = triggerRef.current?.querySelector<HTMLElement>('button, [href], [tabindex]') ?? triggerRef.current;
     target?.focus?.({ preventScroll: true });
   }, []);
+  // Android's back closes the menu, not the screen under it (AASC-48).
+  useBackLayer(at !== null, close);
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse') return; // a mouse has a right button (contextmenu)
