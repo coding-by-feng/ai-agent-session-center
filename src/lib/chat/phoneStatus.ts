@@ -7,6 +7,7 @@
  * (`session.interruption`) outranks the status: the turn stopped and waits.
  */
 
+import { formatModelLabel } from '@/lib/modelLabel';
 import type { Session } from '@/types';
 
 export type PhoneStatusTone = 'approval' | 'question' | 'working' | 'finished' | 'error' | 'idle';
@@ -47,7 +48,9 @@ export function sessionStatusLine(session: LineFields): string {
 /** A session screen's subtitle: "Working · Opus 5.5 · high" (live model and effort first). */
 export function sessionSubtitle(session: SubtitleFields): string {
   const { label } = phoneStatus(session.status, !!session.interruption);
-  const model = session.runtime?.model || session.model;
+  // The model as people say it (`claude-opus-5-5` → `Opus 5.5`); other CLIs' names stay as they are.
+  const rawModel = session.runtime?.model || session.model;
+  const model = rawModel ? formatModelLabel(rawModel) : rawModel;
   const effort = session.runtime?.effort || session.effortLevel;
   return [label, model, effort].filter(Boolean).join(' · ');
 }

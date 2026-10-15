@@ -91,6 +91,16 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
   });
 
+  it('keeps the tab bar hidden on the screens pushed from a session: Info and a diff', async () => {
+    render(<PhoneAppFrame />);
+    await screen.findByRole('navigation', { name: 'Main' });
+    act(() => { usePhoneNavStore.getState().push('/sessions/s2/info'); });
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull());
+    act(() => { usePhoneNavStore.getState().replace('/sessions/s2/changes/0'); });
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions.at(-1)).toBe('/sessions/s2/changes/0'));
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+  });
+
   it('switches segments in place, the terminal segment showing the session’s terminal', async () => {
     const user = userEvent.setup();
     render(<PhoneAppFrame />);

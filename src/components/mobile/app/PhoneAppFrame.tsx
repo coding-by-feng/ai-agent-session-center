@@ -167,7 +167,9 @@ export default function PhoneAppFrame() {
   }, []);
 
   const top = parsePhonePath(stack[stack.length - 1]);
-  const tabBarHidden = keyboardOpen || top?.kind === 'session';
+  // Hidden inside a session and on every screen pushed from it (Info, a diff): the composer
+  // owns the bottom there, and the bar shouldn't come back one level deeper.
+  const tabBarHidden = keyboardOpen || top?.kind === 'session' || top?.kind === 'session-info' || top?.kind === 'diff';
   const items = TABS.map((t) => (t.id === 'inbox' ? { ...t, badge: waiting } : t));
 
   return (

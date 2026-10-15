@@ -33,6 +33,7 @@ describe('sessionStatusLine / sessionSubtitle', () => {
 
   it('prefers the live model and effort for the session subtitle', () => {
     expect(sessionSubtitle({ ...base, runtime: { model: 'Opus 5.5', effort: 'high' } })).toBe('Working · Opus 5.5 · high');
-    expect(sessionSubtitle({ ...base, effortLevel: 'max' })).toBe('Working · claude-opus-5-5 · max');
+    expect(sessionSubtitle({ ...base, effortLevel: 'max' })).toBe('Working · Opus 5.5 · max');
+    expect(sessionSubtitle({ ...base, model: 'gpt-5.5-codex' })).toBe('Working · gpt-5.5-codex');
   });
 });
