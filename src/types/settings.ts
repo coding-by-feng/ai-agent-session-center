@@ -24,6 +24,12 @@ export interface ServerConfig {
    * null = off. `AASC_REMOTE_LISTENER_PORT` overrides it.
    */
   remoteListenerPort?: number | null;
+  /**
+   * Offer "Pair a phone" on the desktop (AASC-30). Off until the phone app can
+   * be installed and aasc.work/pair is live. `AASC_PHONE_PAIRING=1` / `0`
+   * overrides it. Phones paired before are listed and revocable either way.
+   */
+  phonePairing?: boolean;
 }
 
 // ---------------------------------------------------------------------------

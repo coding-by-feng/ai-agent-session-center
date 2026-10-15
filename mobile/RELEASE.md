@@ -62,6 +62,10 @@ APPLE_TEAM_ID=XXXXXXXXXX ANDROID_SHA256=AA:BB:…:FF npm run build
 
 The host must serve `/.well-known/apple-app-site-association` as `application/json`, with no redirect.
 
+**Desktop** — once the app installs from TestFlight and the APK, and aasc.work/pair is live, turn on "Pair a phone"
+for everyone by changing the default in `server/mobile/pairingOffer.ts` (or per Mac: `"phonePairing": true` in
+`server-config.json`, or `AASC_PHONE_PAIRING=1`). Until then a desktop release doesn't offer it (AASC-30).
+
 ## 3. After installing
 
 Run section 1's device checks on both phones, then pair (see the [pairing guide](README.md#pairing-guide)),

@@ -32,6 +32,7 @@ import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
+import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { isLocalRequest } from './requestLocality.js';
@@ -284,6 +285,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
+    // Off until the phone app ships (AASC-30): server-config.json "phonePairing" or AASC_PHONE_PAIRING.
+    pairingOffered: () => isPhonePairingOffered(config, process.env),
     requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,

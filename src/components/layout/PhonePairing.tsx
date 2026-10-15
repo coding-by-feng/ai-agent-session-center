@@ -9,13 +9,17 @@
  *
  * Desktop only: the routes answer the AASC page on this machine and nothing
  * else, so the section renders only when this device is local.
+ *
+ * Until the phone app ships, the Mac doesn't offer pairing (AASC-30): no Pair
+ * button, and no section at all unless phones were paired before, which still
+ * list here with Allow / Revoke.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
 import { showToast } from '@/components/ui/ToastContainer';
 import { qrSvg } from '@/lib/qrSvg';
 import {
-  approvePhone, formatConfirmCode, formatPairingCode, listPairedPhones, removePhone, startPhonePairing,
+  approvePhone, formatConfirmCode, formatPairingCode, loadPhonePairing, removePhone, startPhonePairing,
   type PairedPhone, type PhonePairing as Pairing,
 } from '@/lib/mobilePairingApi';
 import styles from '@/styles/modules/PhonePairing.module.css';
@@ -65,6 +69,8 @@ function PairingQr({ link }: { link: string }) {
 export default function PhonePairing() {
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [phones, setPhones] = useState<PairedPhone[]>([]);
+  /** Null until the Mac says; the Pair button shows only on a clear yes. */
+  const [offered, setOffered] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -72,7 +78,9 @@ export default function PhonePairing() {
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      setPhones(await listPairedPhones(signal));
+      const state = await loadPhonePairing(signal);
+      setPhones(state.devices);
+      setOffered(state.pairingOffered);
     } catch (err) {
       if (signal?.aborted) return;
       setError(err instanceof Error ? err.message : String(err));
@@ -124,11 +132,14 @@ export default function PhonePairing() {
   const pending = phones.filter((p) => p.status === 'pending');
   const active = phones.filter((p) => p.status === 'active');
 
+  // Not offered and nothing paired: a release without the phone app shows nothing about phones.
+  if (offered !== true && phones.length === 0 && !pairingLive && !error) return null;
+
   return (
     <section className={styles.section} aria-label="Paired phones">
       <div className={styles.head}>
         <span className={styles.title}>Phones</span>
-        {!pairingLive && (
+        {offered === true && !pairingLive && (
           <Button size="sm" onClick={handleStart} disabled={busy}>
             {busy ? 'Starting…' : 'Pair a phone'}
           </Button>
@@ -200,7 +211,7 @@ export default function PhonePairing() {
 
       {active.length > 0 && <p className={styles.note}>{ACCESS_DETAIL}</p>}
 
-      {active.length === 0 && pending.length === 0 && !pairingLive && (
+      {offered === true && active.length === 0 && pending.length === 0 && !pairingLive && (
         <p className={styles.empty}>No phones paired.</p>
       )}
 

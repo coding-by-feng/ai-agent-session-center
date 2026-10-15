@@ -32,6 +32,7 @@ let server: http.Server;
 let port: number;
 let passwordEnabled: boolean;
 let signedIn: boolean;
+let offered: boolean;
 let failures: Map<string, number>;
 const createSessionToken = vi.fn((deviceId: string) => `session-for-${deviceId}`);
 const onRevoked = vi.fn();
@@ -39,6 +40,7 @@ const onRevoked = vi.fn();
 beforeEach(async () => {
   passwordEnabled = true;
   signedIn = true;
+  offered = true;
   failures = new Map();
   createSessionToken.mockClear();
   onRevoked.mockClear();
@@ -48,6 +50,7 @@ beforeEach(async () => {
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled: () => passwordEnabled,
+    pairingOffered: () => offered,
     // Stands in for authMiddleware: the desktop page holds a dashboard session.
     requireSession: (_req, res, next) => (signedIn ? next() : res.status(401).json({ error: 'Unauthorized' })),
     createSessionToken,
@@ -139,6 +142,33 @@ describe('POST /pairing (desktop)', () => {
   ])('is invisible to %s', async (_label, headers) => {
     const res = await call('POST', '/pairing', { body: {}, headers });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('before the phone app ships (AASC-30)', () => {
+  it('makes no pairing code and says why', async () => {
+    offered = false;
+    const res = await call('POST', '/pairing', { body: {} });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('PAIRING_NOT_OFFERED');
+    expect(res.body.data).toBeUndefined();
+  });
+
+  it('the device list says whether pairing is offered', async () => {
+    expect((await call('GET', '/devices')).body.data.pairingOffered).toBe(true);
+    offered = false;
+    expect((await call('GET', '/devices')).body.data.pairingOffered).toBe(false);
+  });
+
+  it('phones paired before still list, get approved and revoked', async () => {
+    const a = await pairedPhone();
+    const b = await pairedPhone();
+    offered = false;
+    expect((await call('GET', '/devices')).body.data.devices.map((d: { id: string }) => d.id).sort())
+      .toEqual([a.deviceId, b.deviceId].sort());
+    expect((await call('POST', `/devices/${a.deviceId}/approve`)).status).toBe(200);
+    expect((await signIn(a.deviceId, a.deviceToken)).status).toBe(200);
+    expect((await call('DELETE', `/devices/${b.deviceId}`)).status).toBe(200);
   });
 });
 

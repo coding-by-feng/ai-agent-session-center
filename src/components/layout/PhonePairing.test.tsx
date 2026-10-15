@@ -8,6 +8,7 @@ import { qrSvg } from '@/lib/qrSvg';
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 
 let phones: PairedPhone[] = [];
+let offered = true;
 let calls: Array<{ url: string; method: string }> = [];
 
 function json(status: number, body: unknown) {
@@ -23,11 +24,12 @@ function phone(overrides: Partial<PairedPhone>): PairedPhone {
 
 beforeEach(() => {
   phones = [];
+  offered = true;
   calls = [];
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ url, method });
-    if (url === '/api/mobile/devices') return json(200, { success: true, data: { devices: phones } });
+    if (url === '/api/mobile/devices') return json(200, { success: true, data: { devices: phones, pairingOffered: offered } });
     if (url === '/api/mobile/pairing') {
       return json(200, {
         success: true,
@@ -98,10 +100,39 @@ describe('PhonePairing', () => {
   it('shows the server’s reason when pairing is refused (no password)', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => (url === '/api/mobile/pairing'
       ? json(409, { error: 'Set a dashboard password first', code: 'PASSWORD_REQUIRED' })
-      : json(200, { success: true, data: { devices: [] } }))));
+      : json(200, { success: true, data: { devices: [], pairingOffered: true } }))));
     render(<PhonePairing />);
     fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone' }));
     expect(await screen.findByText('Set a dashboard password first')).toBeTruthy();
+  });
+
+  it('before the phone app ships: nothing about phones when none are paired (AASC-30)', async () => {
+    offered = false;
+    const { container } = render(<PhonePairing />);
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices')).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.textContent).toBe('');
+    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
+  });
+
+  it('before the phone app ships: phones paired before still list and can be revoked, with no Pair button', async () => {
+    offered = false;
+    phones = [phone({ status: 'active', confirmCode: null })];
+    render(<PhonePairing />);
+    expect(await screen.findByText('Kason iPhone')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true));
+  });
+
+  it('a server that doesn’t say counts as not offered: no Pair button while unsure', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => (url === '/api/mobile/devices'
+      ? json(200, { success: true, data: { devices: [] } })
+      : json(404, { error: 'Not found' }))));
+    render(<PhonePairing />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
   });
 });
 
@@ -113,5 +144,13 @@ describe('qrSvg', () => {
     expect(qr.path).toMatch(/^M\d+ \d+h1v1h-1z/);
     // The quiet zone stays light: no module starts in the first 4 rows/columns.
     expect(qr.path).not.toMatch(/M[0-3] /);
+  });
+});
+
+describe('loadPhonePairing', () => {
+  it('reads an answer without a device list as no phones, not a crash', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => json(200, { ok: true, success: true, data: [] })));
+    const { loadPhonePairing } = await import('@/lib/mobilePairingApi');
+    await expect(loadPhonePairing()).resolves.toEqual({ devices: [], pairingOffered: false });
   });
 });

@@ -49,6 +49,12 @@ export interface BackendPhoneCode {
 export interface MobileRouterDeps {
   deviceAuth: DeviceAuth;
   isPasswordEnabled: () => boolean;
+  /**
+   * Is "Pair a phone" offered (AASC-30, pairingOffer.ts)? Off: no pairing code
+   * is made. Listing, approving and revoking phones paired before still work.
+   * Omitted: offered.
+   */
+  pairingOffered?: () => boolean;
   /** The dashboard's own sign-in check (authMiddleware), required on desktop routes. */
   requireSession: RequestHandler;
   /** Mint the normal one-hour session token, bound to the device. */
@@ -147,7 +153,16 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
 
   // ── Desktop ──────────────────────────────────────────────────────────────
 
+  const pairingOffered = (): boolean => deps.pairingOffered?.() ?? true;
+
   router.post('/pairing', async (req, res) => {
+    if (!pairingOffered()) {
+      res.status(409).json({
+        error: 'Pairing a phone isn’t available yet: the AASC phone app hasn’t been released.',
+        code: 'PAIRING_NOT_OFFERED',
+      });
+      return;
+    }
     if (!deps.isPasswordEnabled()) {
       res.status(409).json({
         error: 'Set a dashboard password first: phones are remote devices, and remote access needs one.',
@@ -186,7 +201,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   });
 
   router.get('/devices', (_req, res) => {
-    res.json({ success: true, data: { devices: deps.deviceAuth.list() } });
+    res.json({ success: true, data: { devices: deps.deviceAuth.list(), pairingOffered: pairingOffered() } });
   });
 
   router.post('/devices/:id/approve', (req, res) => {

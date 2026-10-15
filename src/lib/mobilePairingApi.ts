@@ -37,10 +37,25 @@ export async function startPhonePairing(): Promise<PhonePairing> {
   return body.data;
 }
 
-export async function listPairedPhones(signal?: AbortSignal): Promise<PairedPhone[]> {
+export interface PhonePairingState {
+  devices: PairedPhone[];
+  /**
+   * Does this Mac offer "Pair a phone" (AASC-30)? Off until the phone app
+   * ships; a server that doesn't say counts as off.
+   */
+  pairingOffered: boolean;
+}
+
+/** The paired phones, and whether new ones may be paired. */
+export async function loadPhonePairing(signal?: AbortSignal): Promise<PhonePairingState> {
   const res = await fetch('/api/mobile/devices', { signal });
-  const body = await readJson<{ data: { devices: PairedPhone[] } }>(res, 'Could not load paired phones');
-  return body.data.devices;
+  const body = await readJson<{ data?: { devices?: unknown; pairingOffered?: unknown } }>(res, 'Could not load paired phones');
+  const devices = Array.isArray(body.data?.devices) ? (body.data.devices as PairedPhone[]) : [];
+  return { devices, pairingOffered: body.data?.pairingOffered === true };
+}
+
+export async function listPairedPhones(signal?: AbortSignal): Promise<PairedPhone[]> {
+  return (await loadPhonePairing(signal)).devices;
 }
 
 export async function approvePhone(id: string): Promise<void> {
