@@ -167,7 +167,8 @@ export default function PhoneAppFrame() {
   }, []);
 
   const top = parsePhonePath(stack[stack.length - 1]);
-  const tabBarHidden = keyboardOpen || top?.kind === 'session';
+  // Inside a session, and one level deeper on its Info (pushed from it): no tab bar.
+  const tabBarHidden = keyboardOpen || top?.kind === 'session' || top?.kind === 'session-info';
   const items = TABS.map((t) => (t.id === 'inbox' ? { ...t, badge: waiting } : t));
 
   return (

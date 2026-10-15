@@ -21,6 +21,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { PHONE_NAV_KEY, usePhoneNavStore } from '@/stores/phoneNavStore';
 import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
+import { PHONE_APPEARANCE_ATTR, resetPhoneAppearanceForTest, setPhoneAppearance } from '@/lib/chat/phoneAppearance';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
   return {
@@ -208,6 +209,52 @@ describe('PhoneAppFrame', () => {
     unmount();
     expect(document.body.classList.contains('phoneApp')).toBe(false);
     expect(window.location.search).toBe('');
+  });
+
+  it('hides the tab bar on a session\'s Info too, one level deeper than the session', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const sessionEl = await screen.findByTestId('phone-session');
+    await user.click(within(sessionEl).getByRole('button', { name: /^Working one/ }));
+    expect(await screen.findByTestId('phone-info')).toBeTruthy();
+    expect(window.location.search).toBe('?m=/sessions/s2/info');
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+  });
+
+  it('goes back from a Settings page to the Settings list, by back or a link', async () => {
+    const user = userEvent.setup();
+    goTo('/?m=/more/settings');
+    const { unmount } = render(<PhoneAppFrame />);
+    const list = await screen.findByTestId('phone-more-settings');
+    await user.click(within(list).getByRole('button', { name: /^Appearance/ }));
+    expect(await screen.findByTestId('phone-more-appearance')).toBeTruthy();
+    expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings', '/more/settings/appearance']);
+    // The Android back button walks the browser history.
+    act(() => window.history.back());
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings']));
+    expect(await screen.findByTestId('phone-more-settings')).toBeTruthy();
+    unmount();
+
+    // A link straight to a Settings page stacks the Settings list under it.
+    goTo('/?m=/more/settings/notifications');
+    localStorage.removeItem(PHONE_NAV_KEY);
+    render(<PhoneAppFrame />);
+    expect(await screen.findByTestId('phone-more-notifications')).toBeTruthy();
+    expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings', '/more/settings/notifications']);
+    act(() => window.history.back());
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/settings'));
+  });
+
+  it('keeps a chosen Dark on <body> while mounted, and clears it when the frame goes', async () => {
+    resetPhoneAppearanceForTest();
+    act(() => setPhoneAppearance('dark'));
+    const { unmount } = render(<PhoneAppFrame />);
+    await screen.findByTestId('phone-sessions');
+    expect(document.body.getAttribute(PHONE_APPEARANCE_ATTR)).toBe('dark');
+    unmount();
+    expect(document.body.hasAttribute(PHONE_APPEARANCE_ATTR)).toBe(false);
+    act(() => setPhoneAppearance('system'));
   });
 
   it('drops a selection left from the classic layout, so opening that session still works', async () => {
