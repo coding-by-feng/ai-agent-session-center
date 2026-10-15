@@ -5,9 +5,11 @@
 // The phone sends an intent, never bytes: "answer request R with choice C". The Mac
 // answers only if the session is visible to the caller, still waits on R (a card the
 // desktop already answered gets 409 stale instead of a stray keystroke), and the caller
-// may drive it under the control baton. Then it types the keys its own map gives
-// (answerKeys/) through the terminals' write path, clears the request and tells every
-// device. The hooks that follow move the session on.
+// may drive it under the control baton. A terminal showing the agent at work means
+// the dialog was answered on the Mac: stale too. An input cut to fit the card can be
+// denied but never allowed. Then it types the keys its own map gives (answerKeys/)
+// through the terminals' write path, clears the request and tells every device. The
+// hooks that follow move the session on.
 //
 // Answering through the PermissionRequest hook's own decision output was rejected:
 // the hook would have to block until a phone answers (plan 11 §3.3).
@@ -16,6 +18,9 @@ import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import { answerKeysFor } from './answerKeys/index.js';
+import { isAgentBusyOutput } from './approvalDetector.js';
+import { extractToken, getTokenDeviceId, getTokenLineage } from './authManager.js';
+import { SESSION_STATUS } from './constants.js';
 import log from './logger.js';
 import type { ControlHolderView } from './presenceManager.js';
 import type { Session } from '../src/types/session.js';
@@ -24,6 +29,8 @@ import type { Session } from '../src/types/session.js';
 export const ANSWERS_PER_MINUTE = 30;
 
 const BUDGET_WINDOW_MS = 60_000;
+/** Past this many devices in the budget map, expired windows are swept. */
+const BUDGET_SWEEP_SIZE = 256;
 
 export interface RequestAnswerDeps {
   /** apiRouter's /sessions/:id gate: 404 for a session the caller may not see. */
@@ -37,6 +44,8 @@ export interface RequestAnswerDeps {
   noteControlActivity(sessionId: string, clientId: string): boolean;
   getController(sessionId: string): ControlHolderView | null;
   terminalExists(terminalId: string): boolean;
+  /** The last of the terminal's output, to see whether the agent already moved on. */
+  terminalOutputTail(terminalId: string): string | null;
   /** The PTY write path POST /terminals/:id/write uses. */
   writeToTerminal(terminalId: string, data: string): void;
   clearPendingRequest(sessionId: string, requestId: string): Session | null;
@@ -59,6 +68,19 @@ function str(value: unknown): string {
   return value != null ? String(value) : '';
 }
 
+/**
+ * Who an answer counts against: the paired phone, else the sign-in, else this Mac. Not
+ * the client id: one sign-in may bind any number of them (clientBinding.ts).
+ */
+function deviceOf(req: Request, local: boolean): string {
+  if (local) return 'local';
+  const token = extractToken(req);
+  const phone = getTokenDeviceId(token);
+  if (phone) return `phone:${phone}`;
+  const lineage = getTokenLineage(token);
+  return lineage ? `signin:${lineage}` : `remote:${req.ip ?? ''}`;
+}
+
 function refuse(res: Response, status: number, code: string, error: string, extra: Record<string, unknown> = {}): void {
   res.status(status).json({ success: false, error, code, ...extra });
 }
@@ -72,6 +94,9 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
   /** Count one more answer in this device's minute; the seconds to wait when it goes over, else 0. */
   function overBudget(device: string): number {
     const t = now();
+    if (budgets.size > BUDGET_SWEEP_SIZE) {
+      for (const [key, old] of budgets) if (t - old.windowStart >= BUDGET_WINDOW_MS) budgets.delete(key);
+    }
     const bucket = budgets.get(device);
     if (!bucket || t - bucket.windowStart >= BUDGET_WINDOW_MS) {
       budgets.set(device, { windowStart: t, count: 1 });
@@ -98,7 +123,7 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     const requestId = str(req.params.requestId);
     const local = deps.isLocal(req);
     const clientId = deps.clientIdOf(req);
-    const device = clientId || (local ? 'local' : `remote:${req.ip ?? ''}`);
+    const device = deviceOf(req, local);
 
     const retryAfter = overBudget(device);
     if (retryAfter > 0) {
@@ -107,7 +132,20 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     }
 
     const pending = session.pendingRequest;
-    if (!pending || pending.id !== requestId) {
+    const gone = session.status === SESSION_STATUS.ENDED || session.status === SESSION_STATUS.CONNECTING;
+    if (!pending || pending.id !== requestId || gone) {
+      refuse(res, 409, 'stale', 'Already answered');
+      return;
+    }
+
+    // A dialog answered at the Mac leaves the request until the call's PostToolUse,
+    // which a long command delays for its whole run. The spinner says the agent is past
+    // the dialog (it never shows at one): drop the request for every device.
+    const terminalId = session.terminalId;
+    const live = !!terminalId && deps.terminalExists(terminalId);
+    if (live && isAgentBusyOutput(deps.terminalOutputTail(terminalId))) {
+      const updated = deps.clearPendingRequest(sessionId, requestId);
+      if (updated) deps.broadcastSession(updated);
       refuse(res, 409, 'stale', 'Already answered');
       return;
     }
@@ -125,9 +163,12 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
       refuse(res, 422, 'unknown_prompt', 'AASC can’t answer this prompt from here; open the terminal');
       return;
     }
+    if (pending.inputTruncated && (answer.choice === 'allow_once' || answer.choice === 'allow_always')) {
+      refuse(res, 422, 'input_truncated', 'This request is too long to show in full; open the terminal to allow it');
+      return;
+    }
 
-    const terminalId = session.terminalId;
-    if (!terminalId || !deps.terminalExists(terminalId)) {
+    if (!live || !terminalId) {
       refuse(res, 409, 'no_terminal', 'The session has no live terminal');
       return;
     }
@@ -137,7 +178,7 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     const updated = deps.clearPendingRequest(sessionId, requestId);
     if (updated) deps.broadcastSession(updated);
     const option = answer.optionIndex !== undefined ? ` option=${answer.optionIndex}` : '';
-    log.info('answer', `session=${sessionId.slice(0, 8)} request=${requestId.slice(0, 64)} choice=${answer.choice}${option} device=${device.slice(0, 64)}`);
+    log.info('answer', `session=${sessionId.slice(0, 8)} request=${requestId.slice(0, 64)} choice=${answer.choice}${option} device=${device.slice(0, 15)} client=${clientId.slice(0, 12) || '-'}`);
     res.status(202).json({ success: true, data: { accepted: true } });
   });
 

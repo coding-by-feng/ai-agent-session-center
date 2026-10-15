@@ -14,7 +14,7 @@ import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, writeToTerminal } from './sshManager.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest } from './apiRouter.js';
@@ -360,6 +360,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     noteControlActivity: presence.noteControlActivity,
     getController: presence.getController,
     terminalExists: (terminalId) => getTerminals().some((t) => t.terminalId === terminalId),
+    terminalOutputTail: (terminalId) => getTerminalOutputTail(terminalId),
     writeToTerminal,
     clearPendingRequest,
     broadcastSession: (session) => {

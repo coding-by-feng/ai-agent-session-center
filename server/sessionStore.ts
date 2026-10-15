@@ -1630,6 +1630,7 @@ export function killSession(sessionId: string): Session | null {
   session.status = SESSION_STATUS.ENDED;
   session.animationState = ANIMATION_STATE.DEATH;
   session.archived = 1;
+  session.pendingRequest = null;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
   // No hook will ever close its subagents now.
@@ -2193,6 +2194,8 @@ registerTerminalExitCallback((terminalId: string) => {
   } else {
     target.session.lastTerminalId = terminalId;
     target.session.terminalId = null;
+    // Nothing is asking any more; a reconnect gets a fresh shell that must not take an answer.
+    target.session.pendingRequest = null;
     log.info('session', `Terminal ${terminalId} exited — unlinked from session ${target.id.slice(0, 8)}`);
   }
   invalidateSessionsCache();
@@ -2351,6 +2354,7 @@ export function beginSessionRestart(
   clearApprovalTimer(session.sessionId, session);
   session.pendingTool = null;
   session.waitingDetail = null;
+  session.pendingRequest = null;
   session.interruption = null;
   session.userCancelledAt = null;
   session.subagentCount = 0;
@@ -2389,6 +2393,7 @@ export function failSessionRestart(sessionId: string, oldTerminalId: string): Se
   session.lastActivityAt = Date.now();
   session.lastTerminalId = oldTerminalId;
   session.terminalId = null;
+  session.pendingRequest = null;
   if (session.source === 'ssh') session.isHistorical = true;
   session.events.push({
     type: 'RestartFailed',
