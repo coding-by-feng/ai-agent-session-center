@@ -28,11 +28,11 @@ internal object ShareInbox {
     private var pending: PendingShare? = null
 
     /** Keep a share intent; true when it was one. A newer share replaces an untaken one. */
-    fun accept(intent: Intent?): Boolean {
+    fun accept(intent: Intent?, ownPackage: String): Boolean {
         val action = intent?.action
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return false
         val rawText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
-        val uris = streams(intent)
+        val uris = streams(intent, ownPackage)
         val share = PendingShare(
             text = ShareRules.carriedText(rawText),
             textTooLong = rawText != null && ShareRules.carriedText(rawText) == null,
@@ -45,7 +45,7 @@ internal object ShareInbox {
     }
 
     @Suppress("DEPRECATION")
-    private fun streams(intent: Intent): List<Uri> {
+    private fun streams(intent: Intent, ownPackage: String): List<Uri> {
         val list = if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
             if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
@@ -54,8 +54,8 @@ internal object ShareInbox {
             else intent.getParcelableExtra(Intent.EXTRA_STREAM)
             listOfNotNull(one)
         }
-        // Only content: URIs from another app; never a file: path into this app's own storage.
-        return list.orEmpty().filter { it.scheme == ContentResolver.SCHEME_CONTENT }
+        // Only content: URIs from another app; never a file: path or a link into this app's own storage.
+        return list.orEmpty().filter { it.scheme == ContentResolver.SCHEME_CONTENT && !ShareRules.isOwnAuthority(it.authority, ownPackage) }
     }
 
     /** Hand the share to the shell once (then it is gone), reading the images now. Off the main thread. */

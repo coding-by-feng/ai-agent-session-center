@@ -16,7 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DeviceVaultPlugin.class);
         registerPlugin(ShellBridgePlugin.class);
         // A cold start from the share sheet: the shell takes the item when it starts (AASC-21).
-        ShareInbox.INSTANCE.accept(getIntent());
+        ShareInbox.INSTANCE.accept(getIntent(), getPackageName());
         super.onCreate(savedInstanceState);
     }
 
@@ -24,7 +24,7 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Shared while running: the Mac's page may be showing, so go back to the shell to pick a session.
-        if (ShareInbox.INSTANCE.accept(intent) && getBridge() != null) {
+        if (ShareInbox.INSTANCE.accept(intent, getPackageName()) && getBridge() != null) {
             getBridge().getWebView().loadUrl(getBridge().getLocalUrl() + "/?share=1");
         }
     }

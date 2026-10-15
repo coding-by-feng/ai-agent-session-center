@@ -56,6 +56,18 @@ class ExtrasRulesTest {
         assertEquals("Confirm kill", PromptRules.title("Confirm\n kill".replace("\n", "")))
         assertEquals(60, PromptRules.title("y".repeat(200)).length)
     }
+    @Test
+    fun shareRefusesLinksIntoTheAppsOwnStorage() {
+        // Another app can share content://work.aasc.mobile.fileprovider/...: AASC would read its own files.
+        assertTrue(ShareRules.isOwnAuthority("work.aasc.mobile.fileprovider", "work.aasc.mobile"))
+        assertTrue(ShareRules.isOwnAuthority("work.aasc.mobile", "work.aasc.mobile"))
+        assertTrue(ShareRules.isOwnAuthority("WORK.AASC.MOBILE.fileprovider", "work.aasc.mobile"))
+        assertTrue(ShareRules.isOwnAuthority(null, "work.aasc.mobile"))
+        assertFalse(ShareRules.isOwnAuthority("com.google.android.apps.photos.contentprovider", "work.aasc.mobile"))
+        assertFalse(ShareRules.isOwnAuthority("work.aasc.mobileother", "work.aasc.mobile"))
+        // A user-info prefix can't hide our authority.
+        assertTrue(ShareRules.isOwnAuthority("0@work.aasc.mobile.fileprovider", "work.aasc.mobile"))
+    }
 }
 
 class LockRulesTest {

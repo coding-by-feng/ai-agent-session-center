@@ -33,6 +33,18 @@ internal object ShareRules {
         return clean.ifEmpty { "shared-image-${index + 1}" }
     }
 
+    /**
+     * Does a shared content: URI point into this app's own providers (its FileProvider serves its
+     * own cache and external files)? Then reading it would hand AASC's own files to the share flow.
+     * Android resolves `<userId>@<authority>`, so the user prefix is dropped first; no authority
+     * at all counts as ours (refused).
+     */
+    fun isOwnAuthority(authority: String?, ownPackage: String): Boolean {
+        val bare = authority?.substringAfterLast('@')?.lowercase() ?: return true
+        val own = ownPackage.lowercase()
+        return bare == own || bare.startsWith("$own.")
+    }
+
     /** Text the shell may still accept, or null when it is certainly too long. */
     fun carriedText(raw: CharSequence?): String? = raw?.takeIf { it.length <= MAX_TEXT_CHARS }?.toString()
 }
