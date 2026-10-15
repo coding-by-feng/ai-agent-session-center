@@ -269,16 +269,30 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     else nav.switchTab('queue');
   };
 
-  const pickCommand = (entry: CommandEntry, start: number | null) => {
+  // Stable handlers for the sheets (they re-render with every session update).
+  const triggerStart = sheet && (sheet.type === 'command' || sheet.type === 'file') ? sheet.start : null;
+  const closeToBox = useCallback(() => {
+    closeSheet();
+    focusAt(inputRef.current?.selectionStart ?? (useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
+  }, [closeSheet, focusAt, inputRef, sessionId]);
+  const pickCommand = useCallback((entry: CommandEntry) => {
     const picker = pickerSheetFor(entry);
     if (picker) {
-      dropTrigger(start);
+      dropTrigger(triggerStart);
       setSheet({ type: 'model', focus: picker });
       return;
     }
     closeSheet();
-    insertToken(entryToken(entry), start);
-  };
+    insertToken(entryToken(entry), triggerStart);
+  }, [dropTrigger, closeSheet, insertToken, triggerStart]);
+  const pickFile = useCallback((path: string) => {
+    closeSheet();
+    insertToken(`@${path}`, triggerStart);
+  }, [closeSheet, insertToken, triggerStart]);
+  const pickSnippet = useCallback((snippet: string) => {
+    appendToDraft(sessionId, snippet);
+    focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
+  }, [appendToDraft, sessionId, focusAt]);
 
   const line = statusLine(sender.state, cliName, windowOpen);
   const failed = sender.state.phase === 'failed';
@@ -418,27 +432,17 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {cli && (
         <CommandSheet
           open={sheet?.type === 'command'}
-          onClose={() => {
-            closeSheet();
-            focusAt(inputRef.current?.selectionStart ?? draft.length);
-          }}
+          onClose={closeToBox}
           cli={cli}
           projectPath={session.projectPath}
-          onPick={(entry) => pickCommand(entry, sheet?.type === 'command' ? sheet.start : null)}
+          onPick={pickCommand}
         />
       )}
       <FilePickerSheet
         open={sheet?.type === 'file'}
-        onClose={() => {
-          closeSheet();
-          focusAt(inputRef.current?.selectionStart ?? draft.length);
-        }}
+        onClose={closeToBox}
         projectPath={session.projectPath}
-        onPick={(path) => {
-          const start = sheet?.type === 'file' ? sheet.start : null;
-          closeSheet();
-          insertToken(`@${path}`, start);
-        }}
+        onPick={pickFile}
       />
       <ModelEffortSheet
         open={sheet?.type === 'model'}
@@ -450,10 +454,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       <SavedPromptSheet
         open={sheet?.type === 'saved'}
         onClose={closeSheet}
-        onPick={(snippet) => {
-          appendToDraft(sessionId, snippet);
-          focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
-        }}
+        onPick={pickSnippet}
       />
 
       <ConfirmSheet

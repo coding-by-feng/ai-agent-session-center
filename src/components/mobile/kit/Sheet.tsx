@@ -11,7 +11,8 @@
  * clip it); <body> carries `phoneApp` while the frame is up, so the sheet wears
  * the phone tokens. Focus moves in on open, is trapped while open (only the
  * topmost sheet answers Escape and Tab), and returns to the opener on close.
- * Give it a stable `onClose`: its focus handling re-runs when that changes.
+ * The focus handling runs on opening only: a parent re-rendering with a new
+ * `onClose` (a session update, every hook) never pulls focus out of the sheet.
  */
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -63,6 +64,11 @@ export default function Sheet({
     if (open) setDetent(initialDetent ?? detents[0]);
   }
   const drag = useRef<{ startY: number; lastY: number; lastT: number; velocity: number; pointer: number } | null>(null);
+  // The newest onClose, for Escape: the effect below runs per opening, not per render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +84,7 @@ export default function Sheet({
       if (panel && openSheets[openSheets.length - 1] !== panel) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -104,7 +110,7 @@ export default function Sheet({
       if (at !== -1) openSheets.splice(at, 1);
       opener?.focus?.({ preventScroll: true });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const onPointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
