@@ -49,17 +49,35 @@ export function hunksFrom(value: unknown): DiffHunk[] | null {
 /** Text ending in a newline, so a last line without one doesn't diff as changed. */
 const withEol = (text: string): string => (text === '' || text.endsWith('\n') ? text : `${text}\n`);
 
-function diff(before: string, after: string): DiffHunk[] {
-  const patch = structuredPatch('a', 'b', withEol(before), withEol(after), '', '', { context: 3 });
-  return patch.hunks.map((h) => ({ ...h, lines: h.lines.filter(isChangeLine) }));
+/**
+ * A diff runs on the server's event loop, and two very different 1 MB texts take minutes: past
+ * this many edits or this long, it gives up and the change shows as a rewrite.
+ */
+const DIFF_MAX_EDIT_LENGTH = 5000;
+const DIFF_TIMEOUT_MS = 100;
+
+/** The hunks between two texts, or null when they are too different to diff cheaply. */
+function diff(before: string, after: string): DiffHunk[] | null {
+  const patch = structuredPatch('a', 'b', withEol(before), withEol(after), '', '', {
+    context: 3,
+    maxEditLength: DIFF_MAX_EDIT_LENGTH,
+    timeout: DIFF_TIMEOUT_MS,
+  });
+  return patch ? patch.hunks.map((h) => ({ ...h, lines: h.lines.filter(isChangeLine) })) : null;
 }
 
-/** Two versions of a whole file: real line numbers. */
-export const contentHunks = (before: string, after: string): DiffHunk[] => diff(before, after);
+/** Two versions of a whole file: real line numbers; null when too different to diff cheaply. */
+export const contentHunks = (before: string, after: string): DiffHunk[] | null => diff(before, after);
 
 /** Two versions of an edited piece of a file: where in the file isn't known, so starts are 0. */
-export function snippetHunks(before: string, after: string): DiffHunk[] {
-  return diff(before, after).map((h) => ({ ...h, oldStart: 0, newStart: 0 }));
+export function snippetHunks(before: string, after: string): DiffHunk[] | null {
+  return diff(before, after)?.map((h) => ({ ...h, oldStart: 0, newStart: 0 })) ?? null;
+}
+
+/** A rewrite shown whole: every old line removed, every new line added. */
+export function rewriteHunks(before: string, after: string, whereKnown: boolean): DiffHunk[] {
+  const hunks = [...allRemoved(before), ...allAdded(after)];
+  return whereKnown ? hunks : hunks.map((h) => ({ ...h, oldStart: 0, newStart: 0 }));
 }
 
 /** The lines of a file's content (a last newline ends the last line, it doesn't start one). */

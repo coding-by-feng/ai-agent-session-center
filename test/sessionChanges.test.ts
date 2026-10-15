@@ -105,6 +105,20 @@ describe('Claude edits', () => {
     expect(files[0]).not.toHaveProperty('created');
   });
 
+  it('shows a rewrite too different to diff quickly as replaced, without stalling', async () => {
+    const before = Array.from({ length: 6000 }, (_, i) => `a${i}`).join('\n') + '\n';
+    const after = Array.from({ length: 6000 }, (_, i) => `b${i}`).join('\n') + '\n';
+    const started = Date.now();
+    const { files } = await claudeChanges([
+      claude.call('w1', 'Write', { file_path: p('big.ts'), content: before }),
+      claude.result('w1', 'ok'),
+      claude.call('w2', 'Write', { file_path: p('big.ts'), content: after }),
+      claude.result('w2', 'ok'),
+    ]);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(files[0]).toMatchObject({ replaced: true, added: 12_000, removed: 6000 });
+  });
+
   it('shows a NotebookEdit at cell level', async () => {
     const { files } = await claudeChanges([
       claude.call('n1', 'NotebookEdit', { notebook_path: p('nb.ipynb'), cell_id: 'c1', new_source: 'x = 1\nprint(x)', edit_mode: 'replace' }),

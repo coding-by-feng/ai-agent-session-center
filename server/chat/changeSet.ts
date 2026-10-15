@@ -10,10 +10,14 @@ import { countLines, hunkChars } from './diffHunks.js';
 
 /** Files listed. */
 export const MAX_FILES = 200;
-/** Characters of hunks kept per file. */
+/** Characters of hunks kept per file… */
 export const MAX_HUNK_CHARS = 512 * 1024;
-/** A file's content is remembered (for diffing a later Write) only up to this size. */
+/** …and for the whole session (a kept tally stays in memory between requests). */
+export const MAX_HUNK_CHARS_TOTAL = 32 * 1024 * 1024;
+/** A file's content is remembered (for diffing a later Write) only up to this size… */
 export const MAX_KNOWN_CONTENT = 1024 * 1024;
+/** …and only while all the remembered contents of one session fit in this. */
+export const MAX_KNOWN_CONTENT_TOTAL = 8 * 1024 * 1024;
 
 /** One edit to one file. */
 export interface FileEdit {
@@ -51,6 +55,8 @@ export interface ChangesSnapshot {
 export class ChangeSet {
   private readonly files = new Map<string, FileState>();
   private seq = 0;
+  private knownChars = 0;
+  private hunkCharsTotal = 0;
 
   constructor(private readonly projectPath: string) {}
 
@@ -78,19 +84,21 @@ export class ChangeSet {
     const key = this.resolvePath(path);
     const prev = this.files.get(key);
     const counts = countLines(edit.hunks);
-    let hunks = prev?.hunks ?? [];
+    // The hunk list is this tally's own (snapshots copy it), so it grows in place.
+    const hunks = prev?.hunks ?? [];
     let chars = prev?.hunkChars ?? 0;
     let truncated = prev?.truncated ?? false;
     for (const hunk of edit.hunks) {
       const size = hunkChars(hunk);
-      if (truncated || chars + size > MAX_HUNK_CHARS) {
+      if (truncated || chars + size > MAX_HUNK_CHARS || this.hunkCharsTotal + size > MAX_HUNK_CHARS_TOTAL) {
         truncated = true;
         continue;
       }
-      hunks = [...hunks, hunk];
+      hunks.push(hunk);
       chars += size;
+      this.hunkCharsTotal += size;
     }
-    const content = edit.content === undefined ? prev?.content ?? null : edit.content;
+    const content = this.remember(prev?.content ?? null, edit.content === undefined ? prev?.content ?? null : edit.content);
     this.files.set(key, {
       path: this.display(key),
       added: (prev?.added ?? 0) + counts.added,
@@ -103,8 +111,16 @@ export class ChangeSet {
       created: prev ? prev.created : edit.created === true,
       deleted: edit.deleted === true,
       replaced: (prev?.replaced ?? false) || edit.replaced === true,
-      content: content !== null && content.length <= MAX_KNOWN_CONTENT ? content : null,
+      content,
     });
+  }
+
+  /** The content to keep for a file (null when too big for the file or session budget). */
+  private remember(prev: string | null, next: string | null): string | null {
+    this.knownChars -= prev?.length ?? 0;
+    if (next === null || next.length > MAX_KNOWN_CONTENT || this.knownChars + next.length > MAX_KNOWN_CONTENT_TOTAL) return null;
+    this.knownChars += next.length;
+    return next;
   }
 
   get size(): number {
@@ -119,7 +135,7 @@ export class ChangeSet {
       added: f.added,
       removed: f.removed,
       lastAt: f.lastAt,
-      hunks: f.hunks,
+      hunks: [...f.hunks],
       ...(f.created ? { created: true } : {}),
       ...(f.deleted ? { deleted: true } : {}),
       ...(f.replaced ? { replaced: true } : {}),

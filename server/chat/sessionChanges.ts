@@ -19,7 +19,17 @@
 import { open, type FileHandle } from 'node:fs/promises';
 import type { TranscriptLocation } from './transcriptLocator.js';
 import { ChangeSet, type ChangesSnapshot, type FileEdit } from './changeSet.js';
-import { allAdded, allRemoved, contentHunks, hunksFrom, parseApplyPatch, snippetHunks, unifiedHunks, type PatchOp } from './diffHunks.js';
+import {
+  allAdded,
+  allRemoved,
+  contentHunks,
+  hunksFrom,
+  parseApplyPatch,
+  rewriteHunks,
+  snippetHunks,
+  unifiedHunks,
+  type PatchOp,
+} from './diffHunks.js';
 import { parseArgs, shellPatch, toolOutput } from './codexTranscript.js';
 
 type Rec = Record<string, unknown>;
@@ -94,10 +104,20 @@ class ClaudeScanner implements Scanner {
       const edits = name === 'Edit' ? [input] : Array.isArray(input.edits) ? input.edits.filter(isRec) : [];
       let content = typeof cli?.originalFile === 'string' ? cli.originalFile : this.changes.contentOf(path);
       for (const e of edits) content = replaced(content, str(e.old_string), str(e.new_string), e.replace_all === true);
-      const hunks = cliHunks && cliHunks.length > 0
-        ? cliHunks
-        : edits.flatMap((e) => snippetHunks(str(e.old_string), str(e.new_string)));
-      this.changes.apply(path, { hunks, content }, at);
+      if (cliHunks && cliHunks.length > 0) {
+        this.changes.apply(path, { hunks: cliHunks, content }, at);
+        return;
+      }
+      let rewritten = false;
+      const hunks = edits.flatMap((e) => {
+        const before = str(e.old_string);
+        const after = str(e.new_string);
+        const h = snippetHunks(before, after);
+        if (h) return h;
+        rewritten = true;
+        return rewriteHunks(before, after, false);
+      });
+      this.changes.apply(path, { hunks, content, ...(rewritten ? { replaced: true } : {}) }, at);
       return;
     }
     if (name === 'Write') {
@@ -116,9 +136,11 @@ class ClaudeScanner implements Scanner {
 
   private writeEdit(path: string, content: string, cli: Rec | null, cliHunks: ReturnType<typeof hunksFrom>): FileEdit {
     if (cliHunks && cliHunks.length > 0) return { hunks: cliHunks, content };
-    const known = this.changes.contentOf(path);
-    if (known !== null) return { hunks: contentHunks(known, content), content };
-    if (typeof cli?.originalFile === 'string') return { hunks: contentHunks(cli.originalFile, content), content };
+    const before = this.changes.contentOf(path) ?? (typeof cli?.originalFile === 'string' ? cli.originalFile : null);
+    if (before !== null) {
+      const hunks = contentHunks(before, content);
+      return hunks ? { hunks, content } : { hunks: rewriteHunks(before, content, true), replaced: true, content };
+    }
     if (cli?.type === 'update') return { hunks: [], content };
     if (this.changes.has(path)) return { hunks: allAdded(content), replaced: true, content };
     return { hunks: allAdded(content), created: true, content };
@@ -276,7 +298,7 @@ async function build(location: TranscriptLocation, projectPath: string): Promise
   const fh = await open(location.path, 'r');
   try {
     const st = await fh.stat();
-    const tag = `${st.ino}-${Math.trunc(st.birthtimeMs)}`;
+    const tag = `${st.dev}-${st.ino}`;
     const kept = tallies.get(key);
     const tally: Tally = kept && (await stillValid(fh, kept, tag, st.size))
       ? kept
