@@ -26,12 +26,18 @@ vi.mock('@/lib/alarmEngine', () => ({
 }));
 // The chips have their own tests; here they only need to render.
 vi.mock('@/components/session/PlanUsageChip', () => ({ default: () => <span>plan</span> }));
+// A phone browser by default; individual tests switch to the phone app.
+vi.mock('@/lib/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/platform')>()),
+  useIsNativeMobileApp: vi.fn(() => false),
+}));
 
 import MobileSessionHeader from './MobileSessionHeader';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { requestSessionRestart } from '@/lib/restartSession';
 import { requestSessionKill, requestSessionResume } from '@/lib/sessionActions';
+import { useIsNativeMobileApp } from '@/lib/platform';
 
 function makeSession(over: Partial<Session> = {}): Session {
   return {
@@ -47,6 +53,7 @@ function renderHeader(session = makeSession()) {
 }
 
 beforeEach(() => {
+  vi.mocked(useIsNativeMobileApp).mockReturnValue(false);
   vi.mocked(requestSessionRestart).mockClear();
   vi.mocked(requestSessionKill).mockClear();
   vi.mocked(requestSessionResume).mockClear();
@@ -112,6 +119,14 @@ describe('MobileSessionHeader', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
     fireEvent.click(screen.getByRole('button', { name: /Pin session/ }));
     expect(togglePin).toHaveBeenCalledWith('s1');
+  });
+
+  it('does not offer Pin inside the phone app: a paired phone may not pin (AASC-50)', () => {
+    vi.mocked(useIsNativeMobileApp).mockReturnValue(true);
+    renderHeader();
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
+    expect(screen.queryByRole('button', { name: /Pin session/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Mute sounds/ })).toBeInTheDocument();
   });
 
   it('has no Share toggle: that route answers localhost only', () => {
