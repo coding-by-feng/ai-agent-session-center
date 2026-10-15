@@ -14,13 +14,13 @@ import type { DbTranslationLog } from '@/lib/db';
 import type { ListFilters } from '@/lib/translationLog';
 import {
   ARCHIVE_OPTIONS,
-  EMPTY_HINT,
   FAVORITE_HINT,
   MODE_ICONS,
   MODE_LABELS,
   MODE_OPTIONS,
   NO_MATCH_HINT,
   NO_SOURCE,
+  PHONE_EMPTY_HINT,
   SEARCH_DEBOUNCE_MS,
   countEntries,
   metaLine,
@@ -118,7 +118,7 @@ export default function PhoneReview() {
     if (rows.length === 0) {
       return filtersMayHide
         ? <EmptyState fill title="No entries match these filters" hint={NO_MATCH_HINT} />
-        : <EmptyState fill title="No saved entries yet" hint={EMPTY_HINT} />;
+        : <EmptyState fill title="No saved entries yet" hint={PHONE_EMPTY_HINT} />;
     }
     return (
       <>
