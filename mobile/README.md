@@ -89,6 +89,13 @@ curl -s -X DELETE "${H[@]}" http://127.0.0.1:3439/api/mobile/devices/<id>       
 
 Use an emulator port other than 5554 (another project's emulator uses it), and a Play Store image for release checks.
 
+To see the real phone UI after pairing, build the phone harness (local, gitignored: `scratch/phone-harness`,
+`npx vite build --config scratch/phone-harness/vite.config.mjs --outDir <dir>`) and point the test Mac at it:
+`HARNESS_UI_DIR=<dir>` serves that page (index.html + assets/) as the Mac page instead of the stand-in. The
+harness answers `/api` and the WebSocket in-page with fake sessions, so nothing reaches a real AASC; the app's
+`AASC-Mobile/` user agent still applies. `MAC_PORT` runs a second instance (one per phone: the emulator pairs at
+`10.0.2.2`, the iPhone simulator at the LAN address).
+
 ### The iOS project (builds and runs in the iPhone simulator)
 
 `ios/` is the Capacitor iOS project (SPM). Checked on 2026-10-15 with Xcode 27.0 and the iOS 27 simulator
