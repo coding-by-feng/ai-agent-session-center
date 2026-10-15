@@ -1,0 +1,187 @@
+// test/promptRouteWiring.test.ts — AASC-42: POST /api/sessions/:id/prompt wired as the server
+// wires it (promptWiring.ts): the real phone profile, apiRouter's visibility gate and device
+// binding, the control baton, the session store and the hook pipeline. Only the PTY layer is a
+// fake (sshManager is mocked): nothing is spawned, written to a real terminal or killed.
+//
+// A remote device is a forwarding header on a loopback request (AASC-13 treats that as remote).
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it, beforeAll, afterAll, beforeEach, expect, vi } from 'vitest';
+
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(), updateSessionTitle: vi.fn(), updateSessionSummary: vi.fn(), updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(), migrateSessionId: vi.fn(), getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(), getRecentSessions: vi.fn(() => []), getSessionById: vi.fn(() => null),
+  deleteSession: vi.fn(), getAllSessionQueues: vi.fn(() => []), default: {},
+}));
+
+const pty = vi.hoisted(() => ({
+  terminals: new Set<string>(),
+  fg: new Map<string, string>(),
+  write: vi.fn(),
+}));
+vi.mock('../server/sshManager.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/sshManager.js')>();
+  return {
+    ...actual,
+    createTerminal: vi.fn(async () => { throw new Error('no terminals in this test'); }),
+    writeWhenReady: vi.fn(),
+    getTerminals: () => [...pty.terminals].map((terminalId) => ({ terminalId, isOps: false })),
+    writeToTerminal: pty.write,
+    getTerminalSessionId: () => null,
+    isOpsTerminal: () => false,
+    getForegroundProcess: (id: string) => pty.fg.get(id) ?? null,
+  };
+});
+
+import express from 'express';
+import { createServer, type Server } from 'http';
+import { createPhoneProfile } from '../server/mobile/phoneProfile.js';
+
+let tmp = '';
+let project = '';
+let server: Server;
+let base = '';
+let store: typeof import('../server/sessionStore.js');
+let hooks: typeof import('../server/hookProcessor.js');
+let presence: typeof import('../server/presenceManager.js');
+const PHONE: Record<string, string> = { 'X-Forwarded-For': '192.168.1.70', 'X-AASC-Client-Id': 'phone-w' };
+
+const SHARED = 'uuid-shared-w';
+const HIDDEN = 'uuid-hidden-w';
+const T_SHARED = 'term-shared-w';
+const T_HIDDEN = 'term-hidden-w';
+
+/** One hook through the real pipeline, as the MQ reader would hand it over. */
+function hook(event: string, sessionId: string, terminalId: string, extra: Record<string, unknown> = {}): void {
+  hooks.processHookEvent({
+    session_id: sessionId, hook_event_name: event, agent_terminal_id: terminalId, cwd: project, tty_path: '/dev/ttys950', ...extra,
+  } as never);
+}
+
+beforeAll(async () => {
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), 'aasc42-wiring-')));
+  project = join(tmp, 'home', 'proj');
+  mkdirSync(project, { recursive: true });
+  store = await import('../server/sessionStore.js');
+  hooks = await import('../server/hookProcessor.js');
+  presence = await import('../server/presenceManager.js');
+  const auth = await import('../server/authManager.js');
+  PHONE.Authorization = `Bearer ${auth.createToken('dev-phone-w')}`;
+
+  for (const [terminalId, sessionId] of [[T_SHARED, SHARED], [T_HIDDEN, HIDDEN]]) {
+    pty.terminals.add(terminalId);
+    await store.createTerminalSession(terminalId, { host: 'localhost', workingDir: project, command: 'claude' });
+    hook('SessionStart', sessionId, terminalId);
+  }
+  store.setSessionRemoteVisible(SHARED, true);
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api', createPhoneProfile({
+    phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+    sharedProjectPaths: () => [project],
+    knownProjectPaths: () => [project],
+    isOpsTerminal: () => false,
+    isSharedSession: (id) => store.getSession(id)?.remoteVisible === true,
+    sessionOfTerminal: () => null,
+    foregroundProcess: (id) => pty.fg.get(id) ?? null,
+    home: join(tmp, 'home'),
+  }));
+  const { createServerPromptRouter } = await import('../server/promptWiring.js');
+  const { default: apiRouter } = await import('../server/apiRouter.js');
+  app.use('/api', createServerPromptRouter(), apiRouter);
+  server = createServer(app);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const addr = server.address();
+  if (addr && typeof addr === 'object') base = `http://127.0.0.1:${addr.port}`;
+});
+
+afterAll(async () => {
+  await new Promise<void>((r) => server.close(() => r()));
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  pty.write.mockClear();
+  pty.fg.set(T_SHARED, 'claude');
+  pty.fg.set(T_HIDDEN, 'claude');
+  presence.releaseAllControls('phone-w');
+  presence.releaseAllControls('mac-w');
+});
+
+let keyN = 0;
+async function prompt(sessionId: string, body: Record<string, unknown> = {}) {
+  const res = await fetch(`${base}/api/sessions/${sessionId}/prompt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...PHONE },
+    body: JSON.stringify({ text: 'hello from the phone', key: `wiring-key-${++keyN}`, ...body }),
+  });
+  return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+}
+
+const writesTo = (terminalId: string) => pty.write.mock.calls.filter(([id]) => id === terminalId).map(([, data]) => data);
+
+describe('the prompt route on the live server', () => {
+  it('sessions are set up as an agent terminal each, one of them shared', () => {
+    expect(store.getSession(SHARED)?.terminalId).toBe(T_SHARED);
+    expect(store.getSession(SHARED)?.remoteVisible).toBe(true);
+    expect(store.getSession(HIDDEN)?.terminalId).toBe(T_HIDDEN);
+    expect(store.getSession(HIDDEN)?.remoteVisible).not.toBe(true);
+  });
+
+  it('a phone sends to a shared session: 202, the text is typed, then Enter on its own', async () => {
+    const res = await prompt(SHARED);
+    expect(res.status).toBe(202);
+    expect(res.json).toMatchObject({ success: true, data: { accepted: true } });
+    expect(writesTo(T_SHARED)).toEqual(['hello from the phone']);
+    // The phone now drives the session.
+    expect(presence.getController(SHARED)?.clientId).toBe('phone-w');
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['hello from the phone', '\r']), { timeout: 3_000 });
+    hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'hello from the phone' });
+    hook('Stop', SHARED, T_SHARED);
+  });
+
+  it('a hidden session is a 404, and nothing is typed', async () => {
+    const res = await prompt(HIDDEN);
+    expect(res.status).toBe(404);
+    expect(writesTo(T_HIDDEN)).toEqual([]);
+  });
+
+  it('423 while another connected device drives it, naming that device', async () => {
+    presence.registerClient({ clientId: 'mac-w', label: 'Studio Mac', address: '127.0.0.1', isLocal: true });
+    try {
+      expect(presence.claimControl(SHARED, 'mac-w', { label: 'Studio Mac' }).ok).toBe(true);
+      const res = await prompt(SHARED);
+      expect(res.status).toBe(423);
+      expect(res.json).toMatchObject({ code: 'control_held', driver: { label: 'Studio Mac', online: true } });
+      expect(writesTo(T_SHARED)).toEqual([]);
+    } finally {
+      presence.unregisterClient('mac-w');
+    }
+  });
+
+  it('409 once the agent exited and the shell is in front', async () => {
+    pty.fg.set(T_SHARED, 'zsh');
+    const res = await prompt(SHARED);
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('agent_not_running');
+    expect(writesTo(T_SHARED)).toEqual([]);
+  });
+
+  it('an interrupt types only once the turn’s Stop hook has come through the pipeline', async () => {
+    hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'a long task' });
+    hook('PreToolUse', SHARED, T_SHARED, { tool_name: 'Bash', tool_input: { command: 'sleep 100' } });
+    expect(store.getSession(SHARED)?.status).toBe('working');
+
+    const res = await prompt(SHARED, { text: 'stop and do this', mode: 'interrupt' });
+    expect(res.status).toBe(202);
+    expect(writesTo(T_SHARED)).toEqual(['\x1b']);
+    hook('Stop', SHARED, T_SHARED);
+    expect(writesTo(T_SHARED)).toEqual(['\x1b']);
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['\x1b', 'stop and do this']), { timeout: 500 });
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['\x1b', 'stop and do this', '\r']), { timeout: 3_000 });
+    hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'stop and do this' });
+  });
+});

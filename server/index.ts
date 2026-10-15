@@ -35,6 +35,7 @@ import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
+import { createServerPromptRouter } from './promptWiring.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -345,7 +346,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
+  // A prompt the Mac types and confirms (AASC-42). In front of apiRouter, behind the
+  // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
+  const promptRouter = createServerPromptRouter();
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, promptRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
