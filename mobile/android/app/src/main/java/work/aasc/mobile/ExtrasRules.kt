@@ -127,3 +127,19 @@ internal object LockRules {
         return "$shellUrl/?resume=1&away=$pausedAt&back=${java.net.URLEncoder.encode(back, "UTF-8")}"
     }
 }
+
+/**
+ * A notification tap while a Mac's page is showing (AASC-19). The push plugin holds the tap
+ * until something listens, and only the shell listens; so the app goes back to the shell, with
+ * ?tap=1 so the shell doesn't open a Mac's home page in the meantime.
+ */
+internal object PushRules {
+    /** Firebase puts its message id in the extras of the intent a notification tap opens. */
+    fun isTap(keys: Set<String>?): Boolean = keys?.contains("google.message_id") == true
+
+    /** Where to send the WebView for a tap, or null when the shell is (or is about to be) showing. */
+    fun tapUrl(shellUrl: String, currentUrl: String?): String? {
+        if (currentUrl == null || ShellRules.isShellPage(currentUrl, shellUrl)) return null
+        return "$shellUrl/?tap=1"
+    }
+}

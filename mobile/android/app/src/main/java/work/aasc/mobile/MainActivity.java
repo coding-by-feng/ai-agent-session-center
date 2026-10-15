@@ -12,6 +12,9 @@ public class MainActivity extends BridgeActivity {
     /** When the app last went to the background (biometric lock, AASC-21). */
     private long pausedAt = 0;
 
+    /** A notification tap just sent the WebView back to the shell, which checks the lock itself. */
+    private boolean returningForTap = false;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // The app's own plugins (AASC-17): both serve the bundled shell page only.
@@ -31,6 +34,17 @@ public class MainActivity extends BridgeActivity {
         // Shared while running: the Mac's page may be showing, so go back to the shell to pick a session.
         if (ShareInbox.INSTANCE.accept(intent, getPackageName()) && getBridge() != null) {
             getBridge().getWebView().loadUrl(getBridge().getLocalUrl() + "/?share=1");
+            return;
+        }
+        // A notification tap (AASC-19): the push plugin (in super) held it for a listener, and only
+        // the shell listens, so a Mac's page sends the WebView back to the shell to open it.
+        Bundle extras = intent.getExtras();
+        if (extras != null && PushRules.INSTANCE.isTap(extras.keySet()) && getBridge() != null && getBridge().getWebView() != null) {
+            String target = PushRules.INSTANCE.tapUrl(getBridge().getLocalUrl(), getBridge().getWebView().getUrl());
+            if (target != null) {
+                returningForTap = true;
+                getBridge().getWebView().loadUrl(target);
+            }
         }
     }
 
@@ -48,6 +62,11 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT < 33) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         // With the lock on and a Mac's page showing, the shell decides whether to ask (LockRules).
         if (getBridge() == null || getBridge().getWebView() == null) return;
+        if (returningForTap) {
+            // The tap's shell start runs the lock check; a resume reload here would race the tap.
+            returningForTap = false;
+            return;
+        }
         String settings = getSharedPreferences(LockRules.PREFS, Context.MODE_PRIVATE).getString(LockRules.SETTINGS_KEY, null);
         String target = LockRules.INSTANCE.resumeUrl(
             settings, getBridge().getLocalUrl(), getBridge().getWebView().getUrl(), pausedAt, System.currentTimeMillis());

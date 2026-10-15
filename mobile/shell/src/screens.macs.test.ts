@@ -51,6 +51,17 @@ describe('Your Macs', () => {
     expect(t.navigations).toEqual([`${TAILNET}/`]);
   });
 
+  it('does not open the Mac by itself when the phone sent the app back for a notification tap', async () => {
+    // AASC-19: a tap while a Mac's page showed reloads the shell with ?tap=1; the held tap picks the
+    // session, so opening the Mac's home page here would race it.
+    const t = createHarness({ search: '?tap=1' });
+    await seedMac(t, KASON_MBP);
+    await t.app.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.navigations).toEqual([]);
+    expect(heading(t.root)).toBe('Your Macs');
+  });
+
   it('adds another Mac from the list, with a way back', async () => {
     const t = await twoMacs();
     click(t.root, 'Pair another Mac');

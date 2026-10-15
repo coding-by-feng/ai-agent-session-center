@@ -404,6 +404,12 @@ export function createShellApp(
         return;
       }
     }
+    // The phone sent the app back for a notification tap (AASC-19, MainActivity): the tap, held
+    // until push starts listening, picks the session. Opening a Mac here would race it.
+    if (new URLSearchParams(search).get('tap') === '1') {
+      show(homeScreen(null));
+      return;
+    }
     // One paired Mac: open it straight away. Several: the list, so the user picks.
     if (macs.length === 1 && macs[0].status === 'active') {
       await connect(macs[0], '/', false);

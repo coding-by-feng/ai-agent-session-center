@@ -70,6 +70,26 @@ class ExtrasRulesTest {
     }
 }
 
+class PushRulesTest {
+    private val shell = "https://localhost"
+
+    @Test
+    fun aTapIsAnIntentCarryingAFirebaseMessageId() {
+        assertTrue(PushRules.isTap(setOf("google.message_id", "kind", "session")))
+        assertFalse(PushRules.isTap(setOf("android.intent.extra.TEXT")))
+        assertFalse(PushRules.isTap(null))
+    }
+
+    @Test
+    fun aTapOnAMacsPageGoesBackToTheShellOnlyThen() {
+        assertEquals("$shell/?tap=1", PushRules.tapUrl(shell, "http://100.64.1.2:3333/sessions"))
+        assertNull(PushRules.tapUrl(shell, "$shell/"))
+        assertNull(PushRules.tapUrl(shell, "$shell/?share=1"))
+        // Nothing loaded yet: the shell is about to start and listens anyway.
+        assertNull(PushRules.tapUrl(shell, null))
+    }
+}
+
 class LockRulesTest {
     private val shell = "https://localhost"
     private val on5 = """{"enabled":true,"relockAfterMinutes":5}"""
