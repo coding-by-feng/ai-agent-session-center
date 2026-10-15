@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import { createChatRouter } from '../server/chat/chatRouter.js';
 import { resetTranscriptLocatorCache } from '../server/chat/transcriptLocator.js';
-import type { ChatPage } from '../src/types/chat.js';
+import type { ChatPage, FileChanges, SessionChanges } from '../src/types/chat.js';
 import { claude, codex, tempDir, writeJsonl, appendJsonl } from './chatFixtures.js';
 
 const CODEX_ID = '01a1288a-2ace-70c2-95a6-0b63700796e5';
@@ -37,6 +37,14 @@ beforeAll(async () => {
   writeJsonl(join(day, `rollout-2026-10-15T10-00-00-${CODEX_ID}.jsonl`), [codex.meta(CODEX_ID), codex.user('hi codex'), codex.assistant('hello')]);
 
   const project = join(tmp, 'home', 'proj');
+  const edits = writeJsonl(join(tmp, 'edits.jsonl'), [
+    claude.call('w1', 'Write', { file_path: join(project, 'src/a.ts'), content: 'one\ntwo\n' }),
+    claude.result('w1', 'File created'),
+    claude.call('e1', 'Edit', { file_path: join(project, 'README.md'), old_string: 'old line', new_string: 'new line\nmore' }),
+    claude.result('e1', 'ok'),
+  ]);
+  sessions.set('edits', { sessionId: 'edits', cliSource: 'claude', projectPath: project, transcriptPath: edits, remoteVisible: true });
+  sessions.set('hidden-edits', { sessionId: 'hidden-edits', cliSource: 'claude', projectPath: project, transcriptPath: edits });
   sessions.set('shared', { sessionId: 'shared', cliSource: 'claude', projectPath: project, transcriptPath: transcript, remoteVisible: true });
   sessions.set('hidden', { sessionId: 'hidden', cliSource: 'claude', projectPath: project, transcriptPath: transcript });
   sessions.set('empty', { sessionId: 'empty', cliSource: 'claude', projectPath: project, remoteVisible: true });
@@ -132,5 +140,60 @@ describe('GET /sessions/:id/chat', () => {
     const c = encodeURIComponent(last.body.data.after as string);
     expect((await get(`/sessions/shared/chat?before=${c}&after=${c}`)).status).toBe(400);
     expect((await get(`/sessions/shared/chat?after=${c}&after=${c}`)).status).toBe(400);
+  });
+});
+
+describe('GET /sessions/:id/changes', () => {
+  async function getJson<T>(path: string, headers: Record<string, string> = {}) {
+    const res = await fetch(`${base}/api${path}`, { headers });
+    return { status: res.status, body: (await res.json()) as { success: boolean; data: T; error?: string } };
+  }
+
+  it('lists the files the session edited, newest first, with totals', async () => {
+    const res = await getJson<SessionChanges>('/sessions/edits/changes', REMOTE);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toMatchObject({
+      cli: 'claude',
+      files: [
+        { path: 'README.md', added: 2, removed: 1 },
+        { path: 'src/a.ts', added: 2, removed: 0 },
+      ],
+      total: { added: 4, removed: 1 },
+    });
+    expect(res.body.data.files[0]).not.toHaveProperty('hunks');
+    expect(typeof res.body.data.files[0].lastAt).toBe('number');
+  });
+
+  it('opens one file’s hunks by its index in the list', async () => {
+    const res = await getJson<FileChanges>('/sessions/edits/changes/1', REMOTE);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      path: 'src/a.ts',
+      created: true,
+      hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+one', '+two'] }],
+    });
+  });
+
+  it('answers 404 for an index past the list, and 400 for one that isn’t a number', async () => {
+    expect((await getJson('/sessions/edits/changes/9')).status).toBe(404);
+    expect((await getJson('/sessions/edits/changes/x')).status).toBe(400);
+  });
+
+  it('answers a remote device 404 for a hidden session’s changes, like for an unknown one', async () => {
+    const hidden = await getJson('/sessions/hidden-edits/changes', REMOTE);
+    const missing = await getJson('/sessions/nope/changes', REMOTE);
+    expect(hidden.status).toBe(404);
+    expect(hidden.body).toEqual(missing.body);
+    expect((await getJson('/sessions/hidden-edits/changes/0', REMOTE)).status).toBe(404);
+    expect((await getJson('/sessions/hidden-edits/changes')).status).toBe(200);
+  });
+
+  it('gives no files when the session has no transcript', async () => {
+    expect((await getJson('/sessions/empty/changes')).body).toEqual({
+      success: true,
+      data: { files: [], total: { added: 0, removed: 0 }, cli: 'claude' },
+    });
+    expect((await getJson('/sessions/empty/changes/0')).status).toBe(404);
   });
 });

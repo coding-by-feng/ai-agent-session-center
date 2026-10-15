@@ -206,6 +206,10 @@ export type {
   ChatSystemEntry,
   ChatEntry,
   ChatPage,
+  ChangedFile,
+  SessionChanges,
+  DiffHunk,
+  FileChanges,
 } from './chat.js';
 
 // Agent Resources (RESOURCES tab)

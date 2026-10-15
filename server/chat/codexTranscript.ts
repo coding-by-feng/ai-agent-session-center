@@ -71,7 +71,8 @@ function assistantMessage(content: unknown): ChatEntryDraft[] {
   return text ? [{ kind: 'assistant', ...cappedText(text) }] : [];
 }
 
-function parseArgs(raw: unknown): unknown {
+/** A function call's arguments: parsed JSON, or the raw value when it isn't JSON. */
+export function parseArgs(raw: unknown): unknown {
   if (typeof raw !== 'string') return raw;
   try {
     return JSON.parse(raw);
@@ -81,7 +82,7 @@ function parseArgs(raw: unknown): unknown {
 }
 
 /** The patch of a shell call that runs `apply_patch` (older Codex), or null. */
-function shellPatch(args: unknown): string | null {
+export function shellPatch(args: unknown): string | null {
   const command = isRec(args) ? args.command : undefined;
   if (!Array.isArray(command) || command.length < 2) return null;
   return command[0] === 'apply_patch' && typeof command[1] === 'string' ? command[1] : null;
@@ -115,7 +116,7 @@ function blocksText(blocks: unknown[]): string {
 }
 
 /** A tool output's text and whether it failed, from the shapes Codex has written. */
-function toolOutput(output: unknown): { text: string; isError: boolean } {
+export function toolOutput(output: unknown): { text: string; isError: boolean } {
   if (Array.isArray(output)) {
     const text = blocksText(output);
     return { text, isError: RE_SCRIPT_FAILED.test(text) };

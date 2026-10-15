@@ -157,3 +157,55 @@ export interface ChatPage {
    */
   reset?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// What a session edited (AASC-44), built from the edit calls in its own transcript.
+// ---------------------------------------------------------------------------
+
+/** One edited file in `GET /api/sessions/:id/changes`. */
+export interface ChangedFile {
+  /** Relative to the session's project when inside it, else absolute. */
+  path: string;
+  added: number;
+  removed: number;
+  /** Epoch ms of the last edit to it. */
+  lastAt: number;
+}
+
+/** `GET /api/sessions/:id/changes` → `{ success: true, data: SessionChanges }`. */
+export interface SessionChanges {
+  /** Newest edit first; at most 200. `GET …/changes/<index>` opens one by its index here. */
+  files: ChangedFile[];
+  total: { added: number; removed: number };
+  cli: ChatCli | null;
+  /** More than 200 files were edited: the ones edited longest ago are left out. */
+  truncated?: boolean;
+}
+
+/** A hunk of a unified diff. */
+export interface DiffHunk {
+  /**
+   * 1-based line numbers in the file when the transcript says where (the CLI's own diff, a Codex
+   * unified diff); 0 when it doesn't (a diff of just the edited text, a patch hunk with no numbers).
+   */
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  /** Each prefixed with ' ' (context), '-' (removed) or '+' (added). */
+  lines: string[];
+}
+
+/** `GET /api/sessions/:id/changes/:fileIndex` → `{ success: true, data: FileChanges }`. */
+export interface FileChanges extends ChangedFile {
+  /** Every edit's hunks, oldest edit first. */
+  hunks: DiffHunk[];
+  /** The first edit created the file (all of it is added). */
+  created?: boolean;
+  /** The file was deleted. */
+  deleted?: boolean;
+  /** Overwritten with content whose earlier version isn't in the transcript: all lines show as added. */
+  replaced?: boolean;
+  /** The hunks passed 512 KB and the rest were left out (the counts still include them). */
+  truncated?: boolean;
+}

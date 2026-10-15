@@ -346,8 +346,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
-  // The phone chat's paged transcript (AASC-41). Ahead of apiRouter, with its own per-route
-  // visibility gate, so it never depends on apiRouter's /sessions/:id gate.
+  // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
+  // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
   const chatRouter = createChatRouter({ getSession });
   app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, chatRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {

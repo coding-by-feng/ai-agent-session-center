@@ -7,6 +7,14 @@
  *
  * No cursor gives the newest page; `before` the page above it; `after` what was written since.
  *
+ * And what the session edited (AASC-44), from the edit calls in that same transcript:
+ *
+ *   GET /api/sessions/:id/changes            → { success: true, data: { files, total, cli, truncated? } }
+ *   GET /api/sessions/:id/changes/:fileIndex → { success: true, data: { path, added, removed, lastAt, hunks, … } }
+ *
+ * `fileIndex` is a file's index in `files` (newest edit first), so a client re-reads the list when
+ * the session edits again.
+ *
  * Mounted on the `/api` chain BEFORE the main API router, so it can't lean on that router's
  * `/sessions/:id` visibility gate: each route applies the same rule itself (a remote device sees only
  * a session shared with it; hidden and unknown both answer 404, so ids can't be probed). The gate is
@@ -16,7 +24,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { Session } from '../../src/types/session.js';
-import type { ChatPage } from '../../src/types/chat.js';
+import type { ChatPage, ChangedFile, SessionChanges } from '../../src/types/chat.js';
 import { isLocalRequest } from '../requestLocality.js';
 import { canSeeSession } from '../sessionVisibility.js';
 import log from '../logger.js';
@@ -24,6 +32,8 @@ import { readClaudeChatPage } from './claudeTranscript.js';
 import { readCodexChatPage } from './codexTranscript.js';
 import { CursorError } from './transcriptPager.js';
 import { locateTranscript, transcriptCliOf, type LocatorSession } from './transcriptLocator.js';
+import { buildSessionChanges } from './sessionChanges.js';
+import type { ChangesSnapshot } from './changeSet.js';
 
 export interface ChatRouterDeps {
   getSession(sessionId: string): Session | null | undefined;
@@ -35,6 +45,8 @@ const cursor = z.string().min(1).max(64);
 const pageQuery = z
   .object({ before: cursor.optional(), after: cursor.optional() })
   .refine((q) => q.before === undefined || q.after === undefined);
+
+const fileIndex = z.string().regex(/^\d{1,4}$/).transform(Number);
 
 const NOT_FOUND = { success: false, error: 'Session not found' } as const;
 
@@ -87,6 +99,55 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       }
       log.warn('api', `chat read failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read the conversation' });
+    }
+  });
+
+  /** The session's changes, or null when it has no transcript AASC can read. */
+  async function changesOf(session: Session): Promise<ChangesSnapshot | null> {
+    const location = await locateTranscript(session as LocatorSession);
+    if (!location) return null;
+    try {
+      return await buildSessionChanges(location, session.projectPath || '');
+    } catch (err) {
+      if (isMissingFile(err)) return null;
+      throw err;
+    }
+  }
+
+  router.get('/sessions/:id/changes', visibleSession, async (_req: Request, res: Response) => {
+    const session = res.locals.session as Session;
+    try {
+      const changes = await changesOf(session);
+      const files: ChangedFile[] = (changes?.files ?? []).map(({ path, added, removed, lastAt }) => ({ path, added, removed, lastAt }));
+      const data: SessionChanges = {
+        files,
+        total: changes?.total ?? { added: 0, removed: 0 },
+        cli: transcriptCliOf(session),
+        ...(changes?.truncated ? { truncated: true } : {}),
+      };
+      res.json({ success: true, data });
+    } catch (err) {
+      log.warn('api', `changes read failed: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ success: false, error: 'Could not read what this session changed' });
+    }
+  });
+
+  router.get('/sessions/:id/changes/:fileIndex', visibleSession, async (req: Request, res: Response) => {
+    const index = fileIndex.safeParse(req.params.fileIndex);
+    if (!index.success) {
+      res.status(400).json({ success: false, error: 'fileIndex is a file’s index in the changes list' });
+      return;
+    }
+    try {
+      const file = (await changesOf(res.locals.session as Session))?.files[index.data];
+      if (!file) {
+        res.status(404).json({ success: false, error: 'No such file in this session’s changes' });
+        return;
+      }
+      res.json({ success: true, data: file });
+    } catch (err) {
+      log.warn('api', `changes read failed: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ success: false, error: 'Could not read what this session changed' });
     }
   });
 
