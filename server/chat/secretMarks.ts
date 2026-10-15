@@ -32,6 +32,8 @@ export type CallsOf = (record: unknown) => RawCall[];
 
 /** Where a page's results may find their calls. */
 export interface Lookback {
+  /** The session's project, whose own paths are judged from its root down (secretCalls.ts). */
+  projectRoot?: string | null;
   /** Lines the page read before its first entry, in file order (searched first, no further reads). */
   prior: readonly Line[];
   /** The byte before which the file is read further back for calls still missing. */
@@ -80,13 +82,15 @@ export async function markSecretEntries(
 ): Promise<ChatEntry[]> {
   const decided = new Map<string, SecretTouch | null>();
   for (const { record } of records) {
-    for (const call of callsOf(record)) decided.set(call.id, secretTouch(call.input));
+    for (const call of callsOf(record)) decided.set(call.id, secretTouch(call.input, lookback.projectRoot));
   }
   const missing = new Set(
     entries.flatMap((e) => (e.kind === 'tool_result' && !decided.has(e.toolUseId) ? [e.toolUseId] : [])),
   );
   if (missing.size > 0) {
-    for (const [id, call] of await findCalls(fh, callsOf, missing, lookback)) decided.set(id, secretTouch(call.input));
+    for (const [id, call] of await findCalls(fh, callsOf, missing, lookback)) {
+      decided.set(id, secretTouch(call.input, lookback.projectRoot));
+    }
   }
   return entries.map((entry): ChatEntry => {
     if (entry.kind === 'tool_use') return markUse(entry, decided.get(entry.id));

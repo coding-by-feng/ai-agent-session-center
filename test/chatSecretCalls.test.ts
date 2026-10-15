@@ -2,7 +2,7 @@
 // judged on the call's raw input: Claude's file_path / path / notebook_path and Bash command, Codex's cmd,
 // action.command, exec / js code and patches in any form.
 import { describe, it, expect } from 'vitest';
-import { secretTouch } from '../server/chat/secretCalls.js';
+import { pathLooksSecretIn, secretTouch } from '../server/chat/secretCalls.js';
 
 describe('secretTouch', () => {
   it('a Read, Edit or Write of a secret file carries its content', () => {
@@ -40,5 +40,45 @@ describe('secretTouch', () => {
     expect(secretTouch({ command: 'npm test -- src/env.test.ts' })).toBeNull();
     expect(secretTouch('*** Begin Patch\n*** Update File: src/a.ts\n+x\n*** End Patch')).toBeNull();
     expect(secretTouch(undefined)).toBeNull();
+  });
+});
+
+// Decision 2: a path inside the session's project is judged from the project root down, so a worktree
+// under <repo>/.claude/worktrees isn't hidden for the `.claude` above it; outside the project, in full.
+describe('judged from the session’s project root', () => {
+  const root = '/Users/me/repo/.claude/worktrees/x';
+
+  it('lets a worktree project’s own files through', () => {
+    expect(pathLooksSecretIn(`${root}/src/a.ts`, root)).toBe(false);
+    expect(pathLooksSecretIn('src/a.ts', root)).toBe(false);
+    expect(pathLooksSecretIn(root, root)).toBe(false);
+    expect(secretTouch({ file_path: `${root}/src/a.ts`, content: 'x' }, root)).toBeNull();
+    expect(secretTouch({ command: `cd ${root} && npm test`, description: 'Test' }, root)).toBeNull();
+  });
+
+  it('still hides a secret folder or file inside the project', () => {
+    expect(pathLooksSecretIn(`${root}/.claude/settings.local.json`, root)).toBe(true);
+    expect(pathLooksSecretIn(`${root}/.env`, root)).toBe(true);
+    expect(pathLooksSecretIn(`${root}/keys/id_rsa`, root)).toBe(true);
+    expect(secretTouch({ file_path: `${root}/.env` }, root)).toEqual({ content: true, paths: [`${root}/.env`] });
+    expect(secretTouch({ command: `cat ${root}/.claude/settings.local.json` }, root)).toEqual({ content: false, paths: [] });
+  });
+
+  it('judges a path outside the project in full, absolute or relative', () => {
+    expect(pathLooksSecretIn('/Users/me/repo/.claude/settings.json', root)).toBe(true);
+    expect(pathLooksSecretIn('/Users/me/repo/.claude/worktrees/other/src/a.ts', root)).toBe(true);
+    expect(pathLooksSecretIn('../../settings.local.json', root)).toBe(true);
+    expect(pathLooksSecretIn('/Users/me/other-app/src/a.ts', root)).toBe(false);
+    expect(secretTouch({ command: 'cat ../../settings.local.json' }, root)).toEqual({ content: false, paths: [] });
+  });
+
+  it('never trusts a project that is itself a secrets folder', () => {
+    expect(pathLooksSecretIn('/Users/me/.ssh/config', '/Users/me/.ssh')).toBe(true);
+    expect(pathLooksSecretIn('config', '/Users/me/.ssh')).toBe(true);
+  });
+
+  it('judges everything in full without a project root', () => {
+    expect(pathLooksSecretIn(`${root}/src/a.ts`, null)).toBe(true);
+    expect(pathLooksSecretIn('src/a.ts', undefined)).toBe(false);
   });
 });

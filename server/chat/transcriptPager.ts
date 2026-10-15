@@ -51,6 +51,8 @@ export interface PageOptions {
    * whose call is older than the page looks for it within one more `scanBytes` of the file.
    */
   markSecrets?: boolean;
+  /** The session's project: its own paths are judged from its root down when marking secrets. */
+  projectRoot?: string | null;
 }
 
 type PageRecords = Array<{ offset: number; record: unknown }>;
@@ -211,7 +213,12 @@ export async function readChatPage(file: string, reader: LineReader, opts: PageO
     const entriesOf = async (records: PageRecords, prior: Line[], readFrom: number): Promise<ChatEntry[]> => {
       const entries = toEntries(reader, records);
       if (!opts.markSecrets) return entries;
-      return markSecretEntries(entries, records, fh, (r) => reader.calls(r), { prior, end: readFrom, budget: scanBytes });
+      return markSecretEntries(entries, records, fh, (r) => reader.calls(r), {
+        prior,
+        end: readFrom,
+        budget: scanBytes,
+        projectRoot: opts.projectRoot,
+      });
     };
 
     const stale = cursor !== null && (cursor.tag !== tag || cursor.offset > end);

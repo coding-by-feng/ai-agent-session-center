@@ -178,6 +178,30 @@ describe('what counts as touching a secret file', () => {
     expect(JSON.stringify(p)).not.toContain('sk-999');
   });
 
+  it('hides the text of a command that names a secret file, keeping the tool (decision 1)', async () => {
+    const s = claudeSession([claude.call('t1', 'Bash', { command: 'echo API_KEY=sk-inline >> .env' }), claude.result('t1', '')]);
+    const p = await page(s.id);
+    expect(uses(p)[0]).toMatchObject({ name: 'Bash', input: { redacted: true, note: 'Ran a command that touches a secret file' } });
+    expect(JSON.stringify(p)).not.toContain('sk-inline');
+    expect(JSON.stringify(await page(s.id, '', {}))).toContain('sk-inline');
+  });
+
+  it('judges a worktree project from its own root (decision 2)', async () => {
+    const root = '/Users/me/repo/.claude/worktrees/x';
+    const s = claudeSession([
+      claude.call('t1', 'Write', { file_path: `${root}/src/a.ts`, content: 'export const a = 1;' }), claude.result('t1', 'ok'),
+      claude.call('t2', 'Write', { file_path: `${root}/.env`, content: 'K=sk-wt' }), claude.result('t2', 'ok'),
+      claude.call('t3', 'Read', { file_path: '/Users/me/repo/.claude/settings.json' }), claude.result('t3', 'outside-secret'),
+    ]);
+    sessions.set(s.id, { ...sessions.get(s.id), projectPath: root });
+    const p = await page(s.id);
+    const byId = Object.fromEntries(uses(p).map((u) => [u.id, u.input]));
+    expect(byId.t1).toEqual({ file_path: `${root}/src/a.ts`, content: 'export const a = 1;' });
+    expect(byId.t2).toEqual({ file_path: `${root}/.env`, redacted: true });
+    expect(byId.t3).toEqual({ file_path: '/Users/me/repo/.claude/settings.json', redacted: true });
+    expect(JSON.stringify(p)).not.toMatch(/sk-wt|outside-secret/);
+  });
+
   it('leaves the Mac every byte, only marked', async () => {
     const s = claudeSession([claude.call('t1', 'Read', { file_path: '/proj/.env' }), claude.result('t1', 'API_KEY=sk-mac')]);
     const p = await page(s.id, '', {});

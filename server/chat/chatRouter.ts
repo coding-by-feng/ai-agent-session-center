@@ -90,7 +90,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
       const read = location.cli === 'codex' ? readCodexChatPage : readClaudeChatPage;
-      const page = await read(location.path, { ...query.data, markSecrets: true });
+      const page = await read(location.path, { ...query.data, markSecrets: true, projectRoot: session.projectPath || null });
       const data: ChatPage = { ...page, cli: location.cli };
       res.json({ success: true, data });
     } catch (err) {
