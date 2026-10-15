@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { z } from 'zod';
+import log from '../logger.js';
 import {
   ResourceVersionSchema,
   ResourceDependencySchema,
@@ -15,7 +17,13 @@ import type { ResourceCatalogService } from '../resourceCatalog.js';
 import type { AdapterRoots } from '../resourcePackages/adapters.js';
 import { resourceDestination } from '../resourcePackages/adapters.js';
 import { CloudError, type CloudConnector } from './types.js';
-import { assertCloudBinding, abortCheck, type CloudBinding, type RetryDelay } from './binding.js';
+import {
+  accountKey,
+  assertCloudBinding,
+  abortCheck,
+  type CloudBinding,
+  type RetryDelay,
+} from './binding.js';
 import { createJobStore, type JobStore } from './jobStore.js';
 import { preparePublication, type PrivatePublication } from './publication.js';
 import { exactClosure } from './packageFiles.js';
@@ -29,6 +37,7 @@ import {
   type JobInput,
 } from './jobRunners.js';
 import { publicReceipt, type InstallReceipt } from './receipts.js';
+import { EXPORT_TTL_MS, removeExport, sweepExports } from './download.js';
 import type { CloudAliasesService } from './aliases.js';
 export interface ResourceJobsOptions {
   cloud: CloudConnector;
@@ -51,6 +60,20 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
   );
   const controllers = new Map<string, AbortController>(),
     running = new Map<string, Promise<void>>();
+  // Prepared ZIPs: deleted once served, and swept when stale (at open, on each new
+  // download and on a timer). Only `<directory>/exports` is ever touched.
+  const exportsDir = join(store.directory, 'exports');
+  const sweepStale = async () => {
+    for (const id of await sweepExports(exportsDir, { keep: (id) => running.has(id) }))
+      if (!running.has(id)) store.remove('download', id);
+  };
+  const sweepSafely = () =>
+    sweepStale().catch((error) =>
+      log.warn('cloud', `Could not sweep prepared downloads: ${(error as Error).message}`),
+    );
+  await sweepSafely();
+  const sweeper = setInterval(() => void sweepSafely(), EXPORT_TTL_MS / 4);
+  sweeper.unref?.();
   let queue = Promise.resolve();
   let projectOwner:
     | {
@@ -374,6 +397,8 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
     async download(ref: ResourceRef, binding: CloudBinding) {
       bind(binding);
       ResourceDependencySchema.parse(ref);
+      await sweepSafely();
+      bind(binding);
       const id = randomUUID();
       store.put('download-plan', id, { binding, ref });
       return start(
@@ -391,7 +416,25 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
       bind(value.binding);
       return value.path;
     },
+    /** The ZIP streamed completely: it was for one save, so delete it and its record. */
+    async downloadServed(id: string) {
+      z.uuid().parse(id);
+      await removeExport(exportsDir, id);
+      store.remove('download', id);
+    },
     getJob,
+    /**
+     * Job read and cancel. The reviewed binding must be the current connection (409, like
+     * every bound route; no backend round trip, so it works offline), and the job must belong
+     * to that backend and account in any generation: another account's job is a missing one.
+     */
+    accountJob(id: string, binding: CloudBinding): CloudJob {
+      bind(binding);
+      const saved = store.getJob(id);
+      if (!saved || accountKey(saved.binding) !== accountKey(binding))
+        throw new CloudError('not_found', 'Cloud job was not found.', 404);
+      return saved.job;
+    },
     cancel(id: string): CloudJob {
       if (isProjectJob(id)) {
         if (!projectOwner)
@@ -402,12 +445,15 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
       controllers.get(id)?.abort();
       if (['queued', 'running', 'interrupted'].includes(job.state) && !controllers.has(id)) {
         const saved = store.getJob(id)!;
-        job.state = 'cancelled';
-        store.saveJob(job, saved.binding, saved.private);
+        const cancelled: CloudJob = { ...saved.job, state: 'cancelled' };
+        store.saveJob(cancelled, saved.binding, saved.private);
+        return cancelled;
       }
       return job;
     },
     async retry(id: string, binding: CloudBinding): Promise<CloudJob> {
+      // Another backend+account's job answers like a missing one, before anything else.
+      api.accountJob(id, binding);
       if (isProjectJob(id)) {
         bind(binding);
         if (!projectOwner)
@@ -467,6 +513,7 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
       return getJob(id);
     },
     async close() {
+      clearInterval(sweeper);
       await projectOwner?.close();
       for (const c of controllers.values()) c.abort();
       await queue;

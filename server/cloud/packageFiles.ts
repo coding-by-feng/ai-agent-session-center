@@ -34,6 +34,8 @@ export function validatedVersion(input: unknown, ref: ResourceRef): ResourceVers
     throw new CloudError('invalid_response', 'Cloud version integrity check failed.', 502);
   return v;
 }
+/** The most one install or download may declare across a resource and all its dependencies. */
+export const MAX_CLOSURE_BYTES = 256 * 1024 * 1024;
 export async function exactClosure(
   client: CloudClient,
   ref: ResourceRef | ResourceRef[],
@@ -43,6 +45,7 @@ export async function exactClosure(
   const result: ResourceVersion[] = [],
     versions = new Map<string, number>(),
     visiting = new Set<string>();
+  let totalBytes = 0;
   async function visit(pin: ResourceRef) {
     check();
     if (visiting.has(pin.resourceId))
@@ -71,6 +74,14 @@ export async function exactClosure(
       pin,
     );
     check();
+    // Only manifests have been read so far: refuse before any file is fetched or installed.
+    totalBytes += value.manifest.files.reduce((n, f) => n + f.bytes, 0);
+    if (totalBytes > MAX_CLOSURE_BYTES)
+      throw new CloudError(
+        'closure_too_large',
+        `This resource and its dependencies exceed ${MAX_CLOSURE_BYTES / 1024 / 1024} MB in total, the most this Mac downloads or installs at once. Nothing was downloaded or installed.`,
+        413,
+      );
     for (const dep of value.manifest.dependencies) await visit(dep);
     visiting.delete(pin.resourceId);
     result.push(value);

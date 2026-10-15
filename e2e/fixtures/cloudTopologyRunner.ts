@@ -181,6 +181,7 @@ for (const name of ['a', 'b']) {
     resources: c.jobs,
     git: c.git,
     activeProjectPaths: () => [],
+    home,
   });
   const app = express();
   // Same order as server/index.ts: cloud caps first, then the global parser.

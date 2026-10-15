@@ -29,6 +29,10 @@ export function cloudError(error: unknown) {
         'Cloud is offline. Saved notes and cached records stay on this device; reconnect to sync or make changes.',
       revoked: 'Device access was revoked. Reconnect to continue.',
       unsupported: 'This operation is not supported by this backend.',
+      closure_too_large:
+        'This resource and its dependencies are larger than 256 MB, so nothing was fetched or installed.',
+      path_not_allowed:
+        'Choose a folder inside your home folder, written out in full without symlinks, and not under ~/Library or any hidden folder (a name starting with a dot, such as .ssh or .claude).',
     };
     return messages[error.code] ?? error.message;
   }

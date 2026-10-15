@@ -4,6 +4,7 @@ import { ProjectMutationSchema, GetProjectSchema } from '../../src/types/cloudPr
 import { ResourceDependencySchema } from '../../src/types/cloudResources.js';
 import { bindingFromHeaders } from './binding.js';
 import { CloudError } from './types.js';
+import { LocalPathSchema } from './projectPaths.js';
 import type { ProjectJobs } from './projectJobs.js';
 const empty = z.object({}).strict(),
   id = z.uuid();
@@ -74,10 +75,7 @@ export function createProjectRouter(
     }),
   );
   router.post('/projects/:id/associate', async (req, res) => {
-    const body = z
-      .object({ path: z.string().min(1).max(4096) })
-      .strict()
-      .parse(req.body);
+    const body = z.object({ path: LocalPathSchema }).strict().parse(req.body);
     res.json({
       success: true,
       data: await (
@@ -85,18 +83,16 @@ export function createProjectRouter(
       ).associateProject(id.parse(req.params.id), body.path, bindingFromHeaders(req)),
     });
   });
-  router.post('/projects/:id/get', async (req, res) =>
+  router.post('/projects/:id/get', async (req, res) => {
+    const body = GetProjectSchema.parse(req.body);
+    LocalPathSchema.parse(body.parentPath);
     res.json({
       success: true,
       data: await (
         await getService()
-      ).getProject(
-        id.parse(req.params.id),
-        GetProjectSchema.parse(req.body),
-        bindingFromHeaders(req),
-      ),
-    }),
-  );
+      ).getProject(id.parse(req.params.id), body, bindingFromHeaders(req)),
+    });
+  });
   router.post('/projects/:id/pull', async (req, res) => {
     empty.parse(req.body);
     res.json({

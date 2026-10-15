@@ -12,7 +12,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),tmp=await mkdte
 const screenshotDir=join(root,'test-screenshots/task13');await mkdir(screenshotDir,{recursive:true});
 const account=randomUUID(),resourceId=randomUUID(),projectId=randomUUID();
 const connection={backendOrigin:'https://fixture.invalid',accountId:account,generation:1,deviceId:randomUUID(),deviceName:'Fixture Mac'};
-let state='connected',installAction='add',conflict=false,localState='missing';
+let state='connected',installAction='add',conflict=false,localState='missing',blockFirstPlan=true;
 const files=[{path:'test-workflow/SKILL.md',sha256:'a'.repeat(64),bytes:240,mode:420}];
 const manifest={resourceId,agent:'claude',kind:'skill',name:'Test workflow',scope:'global',projectId:null,files,dependencies:[]};
 const version={manifest,version:1,digest:'a'.repeat(64),createdAt:'2026-10-10T00:00:00.000Z'};
@@ -37,7 +37,7 @@ const vite=await createServer({root,configFile:false,cacheDir:join(tmp,'vite'),o
   if(req.headers['x-aasc-cloud-backend']!==connection.backendOrigin||req.headers['x-aasc-cloud-account']!==account||req.headers['x-aasc-cloud-generation']!=='1')return fail('connection_changed','Review the current account.');
  }
  if(p==='/resources')return state==='offline'?fail('offline','Fixture offline',503):send({items:[version],nextCursor:null});
- if(p==='/publish-plans'){const publication={id:randomUUID(),items:[{catalogId:summary.id,manifest,sourceDigest:'a'.repeat(64),baseVersion:null}],blocked:[{catalogId:'blocked',reason:'Settings require a dedicated credential-free adapter.'}]};plans.set(publication.id,publication);return send(publication);}
+ if(p==='/publish-plans'){const publication={id:randomUUID(),items:[{catalogId:summary.id,manifest,sourceDigest:'a'.repeat(64),baseVersion:null}],blocked:blockFirstPlan?[{catalogId:'blocked',reason:'Settings require a dedicated credential-free adapter.'}]:[]};blockFirstPlan=false;plans.set(publication.id,publication);return send(publication);}
  if(/^\/publish-plans\/[^/]+\/run$/.test(p))return send(newJob('publish'));
  if(p==='/install-plans')return send(plan());
  if(/^\/install-plans\/[^/]+\/run$/.test(p)){installs++;return send(newJob('install','complete',[{id:'resource',label:'Test workflow',state:'complete',receiptId:randomUUID()}]));}
@@ -75,7 +75,9 @@ try{await vite.listen();const origin=`http://127.0.0.1:${vite.httpServer.address
   assert.equal(errors.length,0,errors.join('\n'));
   console.log(JSON.stringify({pass:true,mode:'comparison-only',runtimeErrors:errors,requests:calls.length,scope:'Synthetic API; actual themed project editor and explicit revision adoption.'}));
  } else {
- await page.getByRole('checkbox',{name:/Select global resources/}).check();await page.getByRole('button',{name:'Review selected resources'}).click();await page.getByText('1 ready · 1 blocked').waitFor();await page.screenshot({animations:'disabled',path:join(screenshotDir,'publication-desktop.png')});await page.getByRole('button',{name:'Publish reviewed resources'}).click();await page.getByText('Save to cloud · complete').waitFor();
+ await page.getByRole('checkbox',{name:/Select global resources/}).check();await page.getByRole('button',{name:'Review selected resources'}).click();await page.getByText('1 ready · 1 blocked').waitFor();await page.screenshot({animations:'disabled',path:join(screenshotDir,'publication-desktop.png')});
+ // A plan with any blocked item never publishes; a fresh review without one does.
+ assert.equal(await page.getByRole('button',{name:'Publish reviewed resources'}).isEnabled(),false);await page.getByRole('button',{name:'Close review'}).click();await page.getByRole('button',{name:'Review selected resources'}).click();await page.getByText('1 ready · 0 blocked').waitFor();await page.getByRole('button',{name:'Publish reviewed resources'}).click();await page.getByText('Save to cloud · complete').waitFor();
  // Fresh independent browser storage: installation must still be an explicit action.
  const receiver=await browser.newContext({viewport:{width:1365,height:900}}),second=await receiver.newPage();second.on('pageerror',e=>errors.push(e.message));await second.goto(origin+'/resources?section=cloud&cloudTab=resources');await second.getByRole('button',{name:'Install on this device',exact:true}).click();await second.getByRole('button',{name:'Install reviewed resources'}).click();await second.getByText('Install · complete').waitFor();assert.equal(installs,1);await receiver.close();
  installAction='replace';await page.getByRole('button',{name:'Install on this device',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Install reviewed resources'}).isEnabled(),false);await page.getByLabel('Decision for ~/.claude/skills/test-workflow').selectOption('replace-with-backup');await page.screenshot({animations:'disabled',path:join(screenshotDir,'replacement-desktop.png')});await page.getByRole('button',{name:'Install reviewed resources'}).click();await page.getByText('Install · complete').waitFor();assert.equal(installs,2);
@@ -86,7 +88,7 @@ try{await vite.listen();const origin=`http://127.0.0.1:${vite.httpServer.address
  await page.getByRole('tab',{name:'Connection',exact:true}).click();await page.getByRole('heading',{name:'Device connection'}).waitFor();await page.screenshot({animations:'disabled',path:join(screenshotDir,'connection-390.png')});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  // Keyboard review focus trap + restoration on Escape.
  await page.getByRole('tab',{name:'Resources',exact:true}).click();const trigger=page.getByRole('button',{name:'Install on this device',exact:true});await trigger.click();await page.getByRole('dialog').waitFor();await page.keyboard.press('Shift+Tab');assert.ok(await page.getByRole('dialog').evaluate(el=>el.contains(document.activeElement)));await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});assert.ok(await trigger.evaluate(el=>el===document.activeElement));await page.screenshot({animations:'disabled',path:join(screenshotDir,'resources-390.png')});
- state='offline';await page.getByRole('button',{name:'Refresh connection',exact:true}).click();await page.getByText(/Cached browse · stale/).waitFor();assert.equal(await trigger.isEnabled(),false);await page.screenshot({animations:'disabled',path:join(screenshotDir,'offline-390.png')});assert.equal(errors.length,0,errors.join('\n'));
+ state='offline';await page.getByRole('button',{name:'Refresh connection',exact:true}).click();await page.getByText(/Showing results saved in this browser/).waitFor();assert.equal(await trigger.isEnabled(),false);await page.screenshot({animations:'disabled',path:join(screenshotDir,'offline-390.png')});assert.equal(errors.length,0,errors.join('\n'));
  const report={pass:true,runtimeErrors:errors,installs,cloneCalls,requests:calls.length,screenshots:screenshotDir,scope:'Themed production React components against synthetic fixture APIs; no live BE, Git or filesystem install exercised.'};await writeFile(join(screenshotDir,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 }
 }finally{await browser?.close();await vite.close();await rm(tmp,{recursive:true,force:true});}

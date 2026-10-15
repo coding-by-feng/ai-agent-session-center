@@ -81,6 +81,9 @@ export async function createJobStore(directory: string) {
       'INSERT INTO cloud_local_values VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET value=excluded.value',
     ).run(kind, id, JSON.stringify(value));
   };
+  const remove = (kind: string, id: string) => {
+    db.prepare('DELETE FROM cloud_local_values WHERE kind=? AND id=?').run(kind, id);
+  };
   const list = <T>(kind: string): T[] =>
     (
       db.prepare('SELECT value FROM cloud_local_values WHERE kind=?').all(kind) as {
@@ -88,15 +91,22 @@ export async function createJobStore(directory: string) {
       }[]
     ).map((row) => JSON.parse(row.value) as T);
   for (const saved of list<SavedJob>('job'))
-    if (['queued', 'running'].includes(saved.job.state)) {
-      saved.job.state = 'interrupted';
-      for (const s of saved.job.steps) if (s.state === 'running') s.state = 'failed';
-      put('job', saved.job.id, saved);
-    }
+    if (['queued', 'running'].includes(saved.job.state))
+      put('job', saved.job.id, {
+        ...saved,
+        job: {
+          ...saved.job,
+          state: 'interrupted',
+          steps: saved.job.steps.map((s) =>
+            s.state === 'running' ? { ...s, state: 'failed' as const } : s,
+          ),
+        },
+      });
   return {
     directory,
     get,
     put,
+    remove,
     list,
     close: () => {
       db.close();

@@ -550,3 +550,58 @@ it('publication review recovers a pending same-byte installation identity after 
     await f.cleanup();
   }
 });
+it('a dependency closure over the total size cap is refused before any file is fetched or installed', async () => {
+  const { cloudFixture } = await import('./cloudPackagesFixture.js');
+  const { randomUUID } = await import('node:crypto');
+  const { canonicalManifest, MAX_CLOSURE_BYTES } = await import('../server/cloud/packageFiles.js');
+  const { sha256 } = await import('../server/cloud/installFs.js');
+  const f = await cloudFixture();
+  try {
+    // Each version is schema-valid on its own (4 x 15 MB files, under the 64 MB manifest cap).
+    const make = (id: string, deps: { resourceId: string; version: number }[]) => {
+      const m = canonicalManifest({
+        resourceId: id,
+        agent: 'claude',
+        kind: 'skill',
+        name: 'large',
+        scope: 'global',
+        projectId: null,
+        dependencies: deps,
+        files: [0, 1, 2, 3].map((n) => ({
+          path: `pkg-${id}/f${n}.md`,
+          sha256: sha256(`${id}-${n}`),
+          bytes: 15 * 1024 * 1024,
+          mode: 420,
+        })),
+      });
+      f.versions.set(`${id}:1`, {
+        manifest: m,
+        version: 1,
+        digest: sha256(JSON.stringify(m)),
+        createdAt: new Date().toISOString(),
+      });
+    };
+    const deps = Array.from({ length: Math.ceil(MAX_CLOSURE_BYTES / (60 * 1024 * 1024)) }, () =>
+      randomUUID(),
+    );
+    for (const id of deps) make(id, []);
+    const root = randomUUID();
+    make(
+      root,
+      deps.map((resourceId) => ({ resourceId, version: 1 })),
+    );
+    const ref = { resourceId: root, version: 1 };
+    await expect(f.jobs.planInstall(ref, f.binding)).rejects.toMatchObject({
+      code: 'closure_too_large',
+      status: 413,
+    });
+    const job = await f.jobs.wait((await f.jobs.download(ref, f.binding)).id);
+    expect(job.state).toBe('failed');
+    expect(job.steps[0].error).toMatch(/256 MB/);
+    // Only version manifests were read: no file was streamed and no upload happened.
+    expect(f.calls.some((c) => c.path.includes('/files/'))).toBe(false);
+    expect(f.calls.every((c) => c.method === 'GET')).toBe(true);
+  } finally {
+    await f.cleanup();
+  }
+});

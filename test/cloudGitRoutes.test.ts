@@ -117,3 +117,72 @@ it('real transport project conflict strips hostile upstream text and keeps exact
   expect(body.error).toMatchObject({ code: 'version_conflict', details: { headVersion: 9 } });
   expect(JSON.stringify(body)).not.toMatch(/secret|credential|evil/);
 });
+it('project paths are absolute, normalized, canonical and confined to home outside secret folders', async () => {
+  const { mkdir, mkdtemp, realpath, rm, symlink } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const f = await fixture();
+  const post = (path: string, body: unknown) =>
+    fetch(f.url + path, { method: 'POST', headers: f.headers, body: JSON.stringify(body) });
+  const refused = async (response: Response) => {
+    expect(response.status).toBe(400);
+    expect(['invalid_request', 'path_not_allowed']).toContain((await response.json()).error.code);
+  };
+  const outside = await realpath(await mkdtemp(join(tmpdir(), 'aasc-outside-home-')));
+  try {
+    await mkdir(join(f.home, 'real', 'checkout'), { recursive: true });
+    await mkdir(join(f.home, '.ssh', 'proj'), { recursive: true });
+    await mkdir(join(f.home, 'Library', 'proj'), { recursive: true });
+    await mkdir(join(f.home, 'code', '.config', 'proj'), { recursive: true });
+    await mkdir(join(f.home, '.gemini', 'extensions'), { recursive: true });
+    await mkdir(join(f.home, 'code', '.vim', 'pack'), { recursive: true });
+    await symlink(join(f.home, 'real'), join(f.home, 'link'));
+    for (const path of [
+      'relative/checkout',
+      `${f.home}/real/checkout\0`,
+      `${f.home}/real/../real/checkout`,
+      `${f.home}/real//checkout`,
+      `${f.home}/real/checkout/`,
+      f.home,
+      outside,
+      join(f.home, '.ssh', 'proj'),
+      join(f.home, 'Library', 'proj'),
+      join(f.home, 'code', '.config', 'proj'),
+      join(f.home, 'code', '.vim', 'pack'),
+      join(f.home, 'link', 'checkout'),
+    ])
+      await refused(await post(`/projects/${f.project.id}/associate`, { path }));
+    const get = (parentPath: string, directoryName = 'clone') =>
+      post(`/projects/${f.project.id}/get`, {
+        parentPath,
+        directoryName,
+        transport: 'https',
+        resourceVersions: [],
+      });
+    for (const parentPath of [
+      'relative',
+      `${f.home}/real/../real`,
+      outside,
+      join(f.home, '.ssh'),
+      join(f.home, 'Library'),
+      join(f.home, '.gemini', 'extensions'),
+      join(f.home, 'link'),
+    ])
+      await refused(await get(parentPath));
+    await refused(await get(f.home, 'credentials'));
+    await refused(await get(f.home, 'Library'));
+    expect(f.git.clone).not.toHaveBeenCalled();
+    expect(f.calls).toHaveLength(0);
+    // The home folder itself may hold a clone; a checkout strictly inside it may be associated.
+    expect((await get(f.home)).status).toBe(200);
+    expect(
+      (
+        await post(`/projects/${f.project.id}/associate`, {
+          path: join(f.home, 'real', 'checkout'),
+        })
+      ).status,
+    ).not.toBe(400);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});

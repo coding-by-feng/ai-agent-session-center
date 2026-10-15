@@ -54,7 +54,12 @@ export async function projectFixture(actualGit?: import('../server/cloud/git.js'
     inspectCheckout: vi.fn(async () => ({ state: 'ready' as const, branch: 'main' })),
     pull: vi.fn(async () => {}),
   };
-  const service = await createProjectJobs({ cloud, resources: f.jobs, git: actualGit ?? git });
+  const service = await createProjectJobs({
+    cloud,
+    resources: f.jobs,
+    git: actualGit ?? git,
+    home: f.home,
+  });
   return {
     ...f,
     get jobs() {

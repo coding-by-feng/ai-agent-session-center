@@ -174,7 +174,13 @@ test('real clone survives resource conflict; reviewed retry retains checkout; di
   await b.setViewportSize({ width: 390, height: 844 });
   await b.screenshot({ animations: 'disabled', path: 'test-screenshots/task14/project-390.png' });
   expect(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // The project browser opens in its own window (like every Project Browser entry point).
+  const opened = b.context().waitForEvent('page');
   await b.getByRole('link', { name: 'Open project', exact: true }).click();
-  await expect(b.getByText('Fixture project-browser boundary', { exact: true })).toBeVisible();
-  expect(b.url()).toBe(new URL(local.openUrl, t.bUrl).href);
+  const browser = await opened;
+  await expect(
+    browser.getByText('Fixture project-browser boundary', { exact: true }),
+  ).toBeVisible();
+  expect(browser.url()).toBe(new URL(local.openUrl, t.bUrl).href);
+  await browser.close();
 });

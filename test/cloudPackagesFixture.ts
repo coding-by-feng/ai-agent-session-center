@@ -185,6 +185,12 @@ export async function cloudFixture() {
     },
     switchAccount() {
       current = { ...current, accountId: randomUUID(), generation: current.generation + 1 };
+      return { ...current };
+    },
+    /** Pair the same account again: a new connection generation, the same backend+account. */
+    reconnectSameAccount() {
+      current = { ...current, generation: current.generation + 1 };
+      return { ...current };
     },
     setHook(fn: (path: string) => void) {
       hook = fn;

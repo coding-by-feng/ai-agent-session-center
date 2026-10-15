@@ -203,3 +203,58 @@ it('every cloud call stays under /api/resources/cloud, never /api/cloud', async 
   await cloudApi.listProjects(binding).catch(() => {});
   for (const [url] of fetcher.mock.calls) expect(String(url)).toMatch(/^\/api\/resources\/cloud\//);
 });
+it('job status and cancel carry the reviewed binding so the server can refuse another account', async () => {
+  const id = '00000000-0000-4000-8000-000000000009';
+  const fetcher = vi.fn<typeof fetch>(
+    async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { id, kind: 'install', state: 'cancelled', steps: [] },
+        }),
+      ),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const binding = {
+    backendOrigin: 'https://reviewed.invalid',
+    accountId: '00000000-0000-4000-8000-000000000001',
+    generation: 4,
+  };
+  await cloudApi.job(id, binding);
+  await cloudApi.cancel(id, binding);
+  const headers = {
+    'x-aasc-cloud-backend': binding.backendOrigin,
+    'x-aasc-cloud-account': binding.accountId,
+    'x-aasc-cloud-generation': '4',
+  };
+  expect(fetcher.mock.calls[0]).toMatchObject([
+    `/api/resources/cloud/jobs/${id}`,
+    { method: 'GET', headers },
+  ]);
+  expect(fetcher.mock.calls[1]).toMatchObject([
+    `/api/resources/cloud/jobs/${id}/cancel`,
+    { method: 'POST', headers },
+  ]);
+});
+it('a job another account owns surfaces the server 404 as an error', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: false,
+            error: { code: 'not_found', message: 'Job not found.' },
+          }),
+          { status: 404 },
+        ),
+    ),
+  );
+  await expect(
+    cloudApi.job('00000000-0000-4000-8000-000000000009', {
+      backendOrigin: 'https://reviewed.invalid',
+      accountId: '00000000-0000-4000-8000-000000000001',
+      generation: 1,
+    }),
+  ).rejects.toMatchObject({ code: 'not_found' });
+});

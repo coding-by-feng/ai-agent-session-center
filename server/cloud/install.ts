@@ -1,7 +1,9 @@
 /** Per-owned-resource staged replacement. Unrelated files are copied intact, never mirror-deleted. */
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { chmod, mkdir, rename, rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import log from '../logger.js';
+import { excludeInstallWorkspaces } from './gitExclude.js';
 import type { PackageManifest } from '../../src/types/cloudResources.js';
 import type { ResourceDestination } from '../resourcePackages/adapters.js';
 import type { CloudBinding } from './binding.js';
@@ -118,6 +120,10 @@ export function createInstaller(store: JobStore) {
     const d = plan.destination;
     await assertDestination(d.root, d.path, plan.before);
     await safeParents(dirname(d.path), true);
+    // A workspace inside a checkout (project resources) must not make the next Pull "dirty".
+    await excludeInstallWorkspaces(d.root).catch((error) =>
+      log.warn('cloud', `Could not exclude install backups from git: ${(error as Error).message}`),
+    );
     const workspace = join(dirname(d.path), `.aasc-install-${randomUUID()}`);
     await mkdir(workspace, { mode: 0o700 });
     const stage = join(workspace, basename(d.path)),
@@ -206,6 +212,8 @@ export function createInstaller(store: JobStore) {
       await assertDestination(d.root, d.path, after);
       receipt.state = 'installed';
       save(receipt);
+      // A new installation keeps no backup: its emptied workspace goes (rmdir refuses anything else).
+      if (!plan.before) await rmdir(workspace).catch(() => {});
       return receipt;
     } catch (error) {
       if (receipt) {

@@ -506,6 +506,10 @@ export default function CloudProjects({
                   ]}
                 />
               </Field>
+              <p className={styles.hint}>
+                Only a checkout inside your home folder can be used, not one under ~/Library or a
+                hidden folder such as .config.
+              </p>
               <Button
                 disabled={!associate || !action.enabled || action.busy || !currentDraft}
                 onClick={() =>
@@ -656,6 +660,10 @@ export default function CloudProjects({
                   placeholder="/Users/you/Projects"
                 />
               </Field>
+              <p className={styles.hint}>
+                A full path inside your home folder (your home folder itself is fine), not under
+                ~/Library or a hidden folder such as .ssh or .claude.
+              </p>
               <Field label="New directory name">
                 <TextInput value={directory} onChange={(e) => setDirectory(e.target.value)} />
               </Field>

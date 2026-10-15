@@ -27,6 +27,14 @@ const selection = z
   .max(10000);
 const install = ResourceDependencySchema.extend({ localProjectId: text.optional() }).strict();
 const decisions = z.record(id, z.enum(['keep-local', 'replace-with-backup', 'skip']));
+/** A job asked for without a usable binding is a job that does not exist. */
+function jobBinding(req: Request) {
+  try {
+    return bindingFromHeaders(req);
+  } catch {
+    throw new CloudError('not_found', 'Cloud job was not found.', 404);
+  }
+}
 /** Only local Resources mount may expose these routes. Identity headers are preconditions. */
 export function createResourceJobsRouter(
   getService: () => Promise<ResourceJobs>,
@@ -106,14 +114,20 @@ export function createResourceJobsRouter(
     }),
   );
   router.get('/downloads/:id/file', async (req, res) => {
-    const path = (await getService()).downloadFile(
-      id.parse(req.params.id),
-      bindingFromHeaders(req),
-    );
+    const service = await getService(),
+      jobId = id.parse(req.params.id);
+    const path = service.downloadFile(jobId, bindingFromHeaders(req));
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new CloudError('not_found', 'Prepared download is unavailable.', 404);
+      throw error;
+    });
     res.type('application/zip');
     res.set('Content-Disposition', 'attachment; filename="aasc-resources.zip"');
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     await pipeline(file.createReadStream(), res);
+    // Streamed completely: the ZIP was for this one save. An aborted save keeps it until the
+    // sweep, and a HEAD (Express answers it with this GET handler) never uses it up.
+    if (req.method === 'GET') await service.downloadServed(jobId);
   });
   router.get('/resources', async (req, res) => {
     const query = z
@@ -130,18 +144,25 @@ export function createResourceJobsRouter(
     });
   });
   router.get('/jobs/:id', async (req, res) =>
-    res.json({ success: true, data: (await getService()).getJob(id.parse(req.params.id)) }),
+    res.json({
+      success: true,
+      data: (await getService()).accountJob(id.parse(req.params.id), jobBinding(req)),
+    }),
   );
   router.post('/jobs/:id/cancel', async (req, res) => {
     empty.parse(req.body);
-    res.json({ success: true, data: (await getService()).cancel(id.parse(req.params.id)) });
+    const service = await getService(),
+      jobId = id.parse(req.params.id);
+    service.accountJob(jobId, jobBinding(req));
+    res.json({ success: true, data: service.cancel(jobId) });
   });
   router.post('/jobs/:id/retry', async (req, res) => {
     empty.parse(req.body);
-    res.json({
-      success: true,
-      data: await (await getService()).retry(id.parse(req.params.id), bindingFromHeaders(req)),
-    });
+    const service = await getService(),
+      jobId = id.parse(req.params.id),
+      binding = jobBinding(req);
+    service.accountJob(jobId, binding);
+    res.json({ success: true, data: await service.retry(jobId, binding) });
   });
   router.post('/installs/:id/restore', async (req, res) => {
     empty.parse(req.body);

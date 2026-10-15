@@ -1,6 +1,7 @@
 /** Metadata comes first; local checkout mappings never cross the backend boundary. */
 import { randomUUID, createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
+import { homedir } from 'node:os';
 import { z } from 'zod';
 import {
   ProjectRecordSchema,
@@ -20,6 +21,7 @@ import { CloudError, type CloudConnector } from './types.js';
 import type { ResourceJobs } from './resourceJobs.js';
 import { createGitOperations, type GitOperations, type CloneIntent } from './git.js';
 import { safeError } from './jobRunners.js';
+import { assertSafeFolderName, confinedProjectPath } from './projectPaths.js';
 export interface CheckoutMapping {
   projectId: string;
   canonicalRemote: string;
@@ -44,10 +46,13 @@ export interface ProjectJobsOptions {
   resources: ResourceJobs;
   git?: GitOperations;
   activeProjectPaths?: () => string[];
+  /** The home folder project paths are confined to (projectPaths.ts). Default os.homedir(). */
+  home?: string;
 }
 export async function createProjectJobs(options: ProjectJobsOptions) {
   const { cloud, resources } = options,
-    store = resources.store;
+    store = resources.store,
+    home = options.home ?? homedir();
   const git =
     options.git ??
     (await createGitOperations({
@@ -104,6 +109,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
   }
   async function associateChecked(project: ProjectRecord, path: string, binding: CloudBinding) {
     bind(binding);
+    await confinedProjectPath(path, home);
     const inspected = await git.inspectCheckout(path, project);
     if (['missing', 'wrong-remote', 'detached', 'busy'].includes(inspected.state))
       throw new CloudError(
@@ -165,6 +171,19 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
     if (!s || !['get-project', 'pull-project'].includes(s.job.kind))
       throw new CloudError('not_found', 'Project job was not found.', 404);
     return s;
+  }
+  /** A job driven with a reviewed binding: another backend+account's job is a missing one. */
+  function owned(id: string, binding: CloudBinding) {
+    bind(binding);
+    const s = saved(id);
+    if (accountKey(s.binding) !== accountKey(binding))
+      throw new CloudError('not_found', 'Project job was not found.', 404);
+    return s;
+  }
+  /** Every write through a saved mapping re-checks today's folder rule first. */
+  async function confinedMapping(m: CheckoutMapping) {
+    await confinedProjectPath(m.localRoot, home);
+    return m;
   }
   function dispatch(job: CloudJob, input: ProjectInput, binding: CloudBinding) {
     const c = new AbortController(),
@@ -363,8 +382,10 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       return p;
     },
     async associateProject(id: string, path: string, binding: CloudBinding) {
+      bind(binding);
+      const real = await confinedProjectPath(path, home);
       const p = await getRecord(id, binding);
-      await associate(p, path, binding);
+      await associate(p, real, binding);
       return api.localProject(id, binding);
     },
     async localProject(id: string, binding: CloudBinding) {
@@ -388,6 +409,10 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
     async getProject(id: string, input: GetProjectInput, binding: CloudBinding) {
       bind(binding);
       const parsed = GetProjectSchema.parse(input);
+      // The clone's parent may be home itself; the new folder's name may not look secret.
+      await confinedProjectPath(parsed.parentPath, home, { allowHome: true });
+      await assertSafeFolderName(parsed.directoryName, parsed.parentPath, home);
+      bind(binding);
       ensureNoActiveProject(id, binding);
       if (mapping(id, binding))
         throw new CloudError(
@@ -430,6 +455,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
           'Get or associate this project first.',
           409,
         );
+      await confinedMapping(m);
       const p = await getRecord(id, binding);
       if (p.repository.url !== m.canonicalRemote || p.repository.branch !== m.branch)
         throw new CloudError(
@@ -449,8 +475,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       binding: CloudBinding,
       resourceVersions?: GetProjectInput['resourceVersions'],
     ) {
-      bind(binding);
-      const s = saved(id);
+      const s = owned(id, binding);
       const revision = jobRevisions.get(id) ?? 0;
       const snapshot = JSON.stringify(s);
       bind(s.binding);
@@ -460,6 +485,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       const m = mapping(input.project.id, binding);
       if (!m)
         throw new CloudError('project_mapping_required', 'Associate the checkout first.', 409);
+      await confinedMapping(m);
       let refs = input.refs;
       if (resourceVersions) {
         const current = await getRecord(input.project.id, binding);
@@ -505,8 +531,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       binding: CloudBinding,
       review?: { planId: string; decisions: InstallDecisions },
     ) {
-      bind(binding);
-      const s = saved(id);
+      const s = owned(id, binding);
       bind(s.binding);
       if (running.has(id)) return s.job;
       const input = s.private as ProjectInput;
@@ -540,14 +565,14 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       const s = saved(id);
       controllers.get(id)?.abort();
       if (!controllers.has(id) && ['interrupted', 'queued', 'running'].includes(s.job.state)) {
-        s.job.state = 'cancelled';
-        saveJob(s.job, s.binding, s.private);
+        const cancelled: CloudJob = { ...s.job, state: 'cancelled' };
+        saveJob(cancelled, s.binding, s.private);
+        return cancelled;
       }
       return s.job;
     },
     async retry(id: string, binding: CloudBinding) {
-      bind(binding);
-      const s = saved(id);
+      const s = owned(id, binding);
       bind(s.binding);
       if (running.has(id)) return s.job;
       if (s.job.steps[0].state === 'complete') return api.retryResources(id, binding);

@@ -240,6 +240,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
           cloud,
           resources,
           activeProjectPaths: deps.cloudActiveProjectPaths ?? deps.sessionProjectPaths,
+          home,
         }),
       ));
     deps.onCloudProjectsReady?.(getProjects);

@@ -1,7 +1,8 @@
 import { it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { projectFixture } from './cloudProjectsFixture.js';
 it('metadata save acknowledges revision before exact private association and never uploads local path', async () => {
   const f = await projectFixture();
@@ -227,7 +228,12 @@ it('durable publish intent recovers rename-before-ack after restart without clon
   f.jobs.store.saveJob(record.job, record.binding, record.private);
   await f.restartJobs();
   const { createProjectJobs } = await import('../server/cloud/projectJobs.js');
-  const restarted = await createProjectJobs({ cloud: f.cloud, resources: f.jobs, git: native.ops });
+  const restarted = await createProjectJobs({
+    cloud: f.cloud,
+    resources: f.jobs,
+    git: native.ops,
+    home: f.home,
+  });
   expect(f.jobs.getJob(j.id).state).toBe('interrupted');
   expect((await restarted.localProject(f.project.id, f.binding)).openUrl).toBe(null);
   await f.jobs.retry(j.id, f.binding);
@@ -312,3 +318,39 @@ it.each(['running', 'complete'] as const)(
     expect(done.private).toMatchObject({ resourcePlanId: oldPlan.id, resourceJobId: childId });
   },
 );
+it('another account cannot see or drive a project job, and a saved mapping outside home is refused', async () => {
+  const { accountKey } = await import('../server/cloud/binding.js');
+  const f = await projectFixture();
+  const j = await f.service.getProject(
+    f.project.id,
+    { parentPath: f.home, directoryName: 'owned', transport: 'https', resourceVersions: [] },
+    f.binding,
+  );
+  await f.jobs.wait(j.id);
+  // A mapping that never passed today's rule (an outside folder) is refused before any Git work.
+  const outside = await realpath(await mkdtemp(join(tmpdir(), 'aasc-outside-mapping-')));
+  try {
+    const key = JSON.stringify([accountKey(f.binding), f.project.id]);
+    const saved = f.jobs.store.get<Record<string, unknown>>('checkout', key)!;
+    f.jobs.store.put('checkout', key, { ...saved, localRoot: outside });
+    await expect(f.service.pullProject(f.project.id, f.binding)).rejects.toMatchObject({
+      code: 'path_not_allowed',
+    });
+    expect(f.git.pull).not.toHaveBeenCalled();
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+  f.switchProjectAccount();
+  const c = f.cloud.status().connection!;
+  const other = {
+    backendOrigin: c.backendOrigin,
+    accountId: c.accountId,
+    generation: c.generation,
+  };
+  for (const attempt of [
+    () => f.service.resourcePlan(j.id, other),
+    () => f.service.retryResources(j.id, other),
+    () => f.service.retry(j.id, other),
+  ])
+    await expect(attempt()).rejects.toMatchObject({ code: 'not_found' });
+});

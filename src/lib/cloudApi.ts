@@ -252,10 +252,12 @@ export const cloudApi = {
     }
     return response.blob();
   },
-  job: (id: string, signal?: AbortSignal) =>
-    request(`/jobs/${uuid(id)}`, 'GET', undefined, undefined, CloudJobSchema, signal),
-  cancel: (id: string, signal?: AbortSignal) =>
-    request(`/jobs/${uuid(id)}/cancel`, 'POST', undefined, {}, CloudJobSchema, signal),
+  // A job is this Mac's local state, but it belongs to one account: the server answers 404 for
+  // a job that isn't the bound account's, so these carry the binding like every other call.
+  job: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(`/jobs/${uuid(id)}`, 'GET', binding, undefined, CloudJobSchema, signal),
+  cancel: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(`/jobs/${uuid(id)}/cancel`, 'POST', binding, {}, CloudJobSchema, signal),
   retry: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request(`/jobs/${uuid(id)}/retry`, 'POST', binding, {}, CloudJobSchema, signal),
   restore: (receiptId: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
