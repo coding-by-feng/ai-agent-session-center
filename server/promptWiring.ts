@@ -4,7 +4,7 @@
 // without the session store, and this wiring is testable on its own.
 
 import type { Router } from 'express';
-import { getSession, getSessionIdByTerminalId } from './sessionStore.js';
+import { getSession } from './sessionStore.js';
 import { getForegroundProcess, getTerminals, writeToTerminal } from './sshManager.js';
 import * as presence from './presenceManager.js';
 import { clientIdFromRequest, requireVisibleSession } from './apiRouter.js';
@@ -13,16 +13,9 @@ import { onTerminalHook } from './hookSignals.js';
 import { resolveQueueImage } from './queueImages.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { createPromptRouter } from './promptRouter.js';
-import { createPromptSubmitter, type PromptSessionView } from './promptSubmit.js';
+import { createPromptSubmitter } from './promptSubmit.js';
 
 const terminalExists = (terminalId: string): boolean => getTerminals().some((t) => t.terminalId === terminalId);
-
-/** The session that owns a terminal now, as the submitter reads it. */
-function sessionOfTerminal(terminalId: string): PromptSessionView | null {
-  const sessionId = getSessionIdByTerminalId(terminalId);
-  const session = sessionId ? getSession(sessionId) : null;
-  return session ? { sessionId: session.sessionId, status: session.status, userCancelledAt: session.userCancelledAt ?? null } : null;
-}
 
 export function createServerPromptRouter(): Router {
   const submitter = createPromptSubmitter({
@@ -31,7 +24,7 @@ export function createServerPromptRouter(): Router {
       writeToTerminal(terminalId, data);
       return true;
     },
-    sessionOfTerminal,
+    getSession,
     isAgentForeground: (terminalId) => isAgentProcessName(getForegroundProcess(terminalId)),
     onTerminalHook,
   });

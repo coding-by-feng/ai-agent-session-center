@@ -18,6 +18,11 @@
 //     the send, or another device took the session over;
 //   - never confirm a slash command (`/model` opens a picker an Enter would answer);
 //   - give up 15 s after the last retry.
+// On top of the queue's rules, the Mac checks before EVERY keystroke it writes (the
+// text, the first Enter, each repeat) that the session still runs in that terminal,
+// shows no dialog, still has its agent in the foreground (a crashed agent sends no
+// SessionEnd, and an Enter would reach the shell), and that the requesting device
+// may still drive it: seconds pass between the route's checks and the last Enter.
 // Unlike the browser, the Mac sees which hook arrived: the acknowledgement is the
 // UserPromptSubmit hook for that terminal (or the session going busy), never just
 // any hook, so an idle notification can't pass for a submitted prompt.
@@ -25,7 +30,8 @@
 // `interrupt` presses Esc first and waits (at most 10 s) for the turn to stop.
 // Claude Code fires an ordinary Stop for an Esc; the transcript check that follows
 // it stamps `userCancelledAt` (sessionStore), which is why only a cancel stamped
-// after this prompt's own Enter counts as the user taking over.
+// after this prompt's own Enter counts as the user taking over, and for an
+// interrupt only once INTERRUPT_CANCEL_GRACE_MS have passed.
 
 import { EVENT_TYPES, SESSION_STATUS } from './constants.js';
 import log from './logger.js';
@@ -40,6 +46,14 @@ export { SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, SUBMIT_ENTER_DELAY_MS, 
 /** The longest an interrupt waits for the turn to stop before it types anyway. */
 export const INTERRUPT_WAIT_MS = 10_000;
 
+/**
+ * After an interrupt, cancel stamps this long after the prompt's Enter still belong
+ * to the turn its Esc stopped: the transcript is read 150 and 600 ms after that
+ * turn's Stop, and the read itself is slower on a busy Mac, so the stamp can land
+ * after the Enter (Stop + 1 s). The first repeated Enter is due at 3 s.
+ */
+export const INTERRUPT_CANCEL_GRACE_MS = 5_000;
+
 /** How long a request key is remembered: a repeat inside this window never sends twice. */
 export const PROMPT_KEY_TTL_MS = 5 * 60_000;
 
@@ -53,6 +67,8 @@ const ENTER = '\r';
 const RETRYABLE_STATUSES: ReadonlySet<string> = new Set([SESSION_STATUS.WAITING, SESSION_STATUS.IDLE]);
 /** The CLI took a prompt and is working on it. */
 const BUSY_STATUSES: ReadonlySet<string> = new Set([SESSION_STATUS.PROMPTING, SESSION_STATUS.WORKING]);
+/** Statuses in which typing reaches the input box (a busy CLI queues it); anything else could answer a dialog. */
+const TYPABLE_STATUSES: ReadonlySet<string> = new Set([...RETRYABLE_STATUSES, ...BUSY_STATUSES]);
 /** Something an Esc stops: a running turn, or a dialog it declines. */
 const INTERRUPTIBLE_STATUSES: ReadonlySet<string> = new Set([
   SESSION_STATUS.PROMPTING, SESSION_STATUS.WORKING, SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT,
@@ -74,9 +90,10 @@ export type PromptMode = 'now' | 'interrupt';
  */
 export type PromptOutcome = 'submitted' | 'unconfirmed' | 'stopped' | 'gave-up' | 'failed' | 'superseded';
 
-/** What the submitter reads of the session that owns a terminal. */
+/** What the submitter reads of the session a prompt is for. */
 export interface PromptSessionView {
   sessionId: string;
+  terminalId?: string | null;
   status: string;
   userCancelledAt?: number | null;
 }
@@ -84,8 +101,8 @@ export interface PromptSessionView {
 export interface PromptSubmitDeps {
   /** Write to the terminal's PTY; false when the terminal is gone. */
   write(terminalId: string, data: string): boolean;
-  /** The session that owns this terminal now, or null. */
-  sessionOfTerminal(terminalId: string): PromptSessionView | null;
+  /** The session by id, following re-keys (term-* → the CLI's id), or null. */
+  getSession(sessionId: string): PromptSessionView | null;
   /** Is the agent itself the terminal's foreground program (not the shell underneath)? */
   isAgentForeground(terminalId: string): boolean;
   /** Hear every hook processed for the terminal's session (hookSignals.onTerminalHook). */
@@ -93,12 +110,14 @@ export interface PromptSubmitDeps {
 }
 
 export interface PromptRequest {
+  /** The session the route checked; the prompt is dropped if it moves to another terminal. */
+  sessionId: string;
   terminalId: string;
   text: string;
   /** Absolute paths of uploaded images, typed under the text as the queue does. */
   imagePaths?: readonly string[];
   mode: PromptMode;
-  /** May the requesting device still drive the session? Checked before each repeated Enter. */
+  /** May the requesting device still drive the session? Checked before every keystroke. */
   mayDrive?: (sessionId: string) => boolean;
 }
 
@@ -123,10 +142,28 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
   /** The newest job per terminal: one prompt types into an input box at a time. */
   const active = new Map<string, Job>();
 
+  /** The prompt's session, while it still runs in the prompt's terminal. */
+  function current(req: PromptRequest): PromptSessionView | null {
+    const session = deps.getSession(req.sessionId);
+    return session && session.terminalId === req.terminalId ? session : null;
+  }
+
+  /** May the requesting device still drive it, and is its agent still in front? */
+  function stillOurs(req: PromptRequest, session: PromptSessionView): boolean {
+    return deps.isAgentForeground(req.terminalId) && (!req.mayDrive || req.mayDrive(session.sessionId));
+  }
+
+  /** Is a keystroke now safe: the session in its terminal, no dialog open, the agent in front, ours to drive? */
+  function mayType(req: PromptRequest): boolean {
+    const session = current(req);
+    return !!session && TYPABLE_STATUSES.has(session.status) && stillOurs(req, session);
+  }
+
   /** Press Esc and wait for the turn to stop, at most INTERRUPT_WAIT_MS. Nothing running: no Esc. */
-  function interrupt(terminalId: string): Promise<void> {
-    const session = deps.sessionOfTerminal(terminalId);
-    if (!session || !INTERRUPTIBLE_STATUSES.has(session.status)) return Promise.resolve();
+  function interrupt(req: PromptRequest): Promise<void> {
+    const { terminalId } = req;
+    const session = current(req);
+    if (!session || !INTERRUPTIBLE_STATUSES.has(session.status) || !stillOurs(req, session)) return Promise.resolve();
     return new Promise<void>((resolve) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (): void => {
@@ -138,7 +175,7 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
         if (TURN_OVER_EVENTS.has(signal.event) || TURN_OVER_STATUSES.has(signal.status)) finish();
       });
       timer = setTimeout(() => {
-        log.info('prompt', `Interrupt of ${terminalId.slice(0, 12)}: no Stop within ${INTERRUPT_WAIT_MS} ms, typing anyway`);
+        log.info('prompt', `Interrupt of ${terminalId.slice(0, 12)}: no Stop within ${INTERRUPT_WAIT_MS} ms`);
         finish();
       }, INTERRUPT_WAIT_MS);
       // A failed Esc means the terminal is gone; the text write that follows fails too.
@@ -150,6 +187,7 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
   function confirm(req: PromptRequest, job: Job, enterAt: number): Promise<PromptOutcome> {
     const { terminalId } = req;
     if (job.superseded) return Promise.resolve('superseded');
+    const cancelFloor = enterAt + (req.mode === 'interrupt' ? INTERRUPT_CANCEL_GRACE_MS : 0);
     return new Promise<PromptOutcome>((resolve) => {
       let attempts = 0;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -173,16 +211,15 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
           ?? SUBMIT_RETRY_AFTER_MS[SUBMIT_RETRY_AFTER_MS.length - 1] + SUBMIT_GIVE_UP_GRACE_MS;
         timer = setTimeout(tick, Math.max(0, enterAt + after - Date.now()));
       };
-      const tick = (): void => {
-        const session = deps.sessionOfTerminal(terminalId);
-        if (!session || (req.mayDrive && !req.mayDrive(session.sessionId))) { done('stopped'); return; }
+      const step = (): void => {
+        const session = current(req);
+        if (!session || !stillOurs(req, session)) { done('stopped'); return; }
         const now = Date.now();
         const decision = submitRetryDecision({ terminalId, enterAt, attempts }, {
           now,
           status: session.status,
           terminalId,
-          // The interrupt's own Esc stamps a cancel before this Enter; only a later one is the user's.
-          userCancelled: (session.userCancelledAt ?? 0) > enterAt,
+          userCancelled: (session.userCancelledAt ?? 0) > cancelFloor,
           // This request IS the submit: there is no Auto-Enter toggle to switch off.
           autoEnter: true,
         });
@@ -194,6 +231,15 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
         }
         schedule();
       };
+      // A timer callback: an exception here would be uncaught and leave the listener behind.
+      const tick = (): void => {
+        try {
+          step();
+        } catch (err: unknown) {
+          log.error('prompt', `Enter retry for ${terminalId.slice(0, 12)} failed: ${err instanceof Error ? err.message : String(err)}`);
+          done('failed');
+        }
+      };
       schedule();
     });
   }
@@ -201,14 +247,15 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
   async function run(req: PromptRequest, job: Job): Promise<PromptOutcome> {
     const { terminalId, text } = req;
     const imagePaths = req.imagePaths ?? [];
-    if (req.mode === 'interrupt') await interrupt(terminalId);
-    // Re-checked here: an interrupt or a previous prompt may have waited seconds, and
-    // once the agent exits the same keystrokes would run in the shell underneath.
-    const session = deps.sessionOfTerminal(terminalId);
-    if (!session || session.status === SESSION_STATUS.ENDED || !deps.isAgentForeground(terminalId)) return 'stopped';
+    if (req.mode === 'interrupt') await interrupt(req);
+    // Checked again before each keystroke: an interrupt or a previous prompt may have
+    // waited seconds, and the pause before Enter is one or two more.
+    if (!mayType(req)) return 'stopped';
     const typed = imagePaths.length > 0 ? `${text}\n${imagePaths.join('\n')}` : text;
     if (!deps.write(terminalId, typed)) return 'failed';
     await sleep(submitDelayFor(imagePaths.length));
+    // A dialog that opened meanwhile would take this Enter as its answer.
+    if (!mayType(req)) return 'stopped';
     if (!deps.write(terminalId, ENTER)) return 'failed';
     const enterAt = Date.now();
     job.markEntered();
@@ -229,7 +276,7 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): { submit(req: Pro
     }
     try {
       const outcome = await run(req, job);
-      const level = outcome === 'failed' || outcome === 'gave-up' ? 'warn' : 'debug';
+      const level = outcome === 'failed' || outcome === 'gave-up' ? 'warn' : outcome === 'stopped' ? 'info' : 'debug';
       log[level]('prompt', `Prompt for ${req.terminalId.slice(0, 12)} (${req.mode}): ${outcome}`);
       return outcome;
     } finally {

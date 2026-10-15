@@ -12,7 +12,7 @@ vi.mock('../server/logger.js', () => ({
 import {
   createPromptSubmitter, createPromptKeyCache, SUBMIT_ENTER_DELAY_MS, IMAGE_SUBMIT_ENTER_DELAY_MS,
   SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, INTERRUPT_WAIT_MS, PROMPT_KEY_TTL_MS,
-  type PromptOutcome, type PromptSessionView,
+  INTERRUPT_CANCEL_GRACE_MS, type PromptOutcome, type PromptRequest, type PromptSessionView,
 } from '../server/promptSubmit.js';
 import { onTerminalHook, emitTerminalHook, _resetHookSignalsForTests } from '../server/hookSignals.js';
 
@@ -22,29 +22,35 @@ let writes: Array<{ at: number; data: string }>;
 let sessions: Map<string, PromptSessionView>;
 let terminalAlive: boolean;
 let agentForeground: boolean;
+let throwOnEnter: boolean;
 
 function makeSubmitter() {
   return createPromptSubmitter({
     write: (terminalId, data) => {
       if (terminalId !== T || !terminalAlive) return false;
+      if (data === '\r' && throwOnEnter) throw new Error('pty write threw');
       writes.push({ at: Date.now() - t0, data });
       return true;
     },
-    sessionOfTerminal: (terminalId) => sessions.get(terminalId) ?? null,
+    getSession: (sessionId) => sessions.get(sessionId) ?? null,
     isAgentForeground: () => agentForeground,
     onTerminalHook,
   });
 }
 
+/** A prompt request for session s1's terminal. */
+const req = (r: Omit<PromptRequest, 'sessionId' | 'terminalId'> & Partial<PromptRequest>): PromptRequest =>
+  ({ sessionId: 's1', terminalId: T, ...r });
+
 function setStatus(status: string, extra: Partial<PromptSessionView> = {}): void {
-  const current = sessions.get(T) ?? { sessionId: 's1', status };
-  sessions.set(T, { ...current, status, ...extra });
+  const current = sessions.get('s1') ?? { sessionId: 's1', terminalId: T, status };
+  sessions.set('s1', { ...current, status, ...extra });
 }
 
 /** A hook for the session: the session's state changes, then the pipeline announces it. */
 function hook(event: string, status: string, extra: Partial<PromptSessionView> = {}): void {
   setStatus(status, extra);
-  const s = sessions.get(T)!;
+  const s = sessions.get('s1')!;
   emitTerminalHook(event, { sessionId: s.sessionId, terminalId: T, status: s.status, userCancelledAt: s.userCancelledAt ?? null });
 }
 
@@ -62,9 +68,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   t0 = Date.now();
   writes = [];
-  sessions = new Map([[T, { sessionId: 's1', status: 'waiting', userCancelledAt: null }]]);
+  sessions = new Map([['s1', { sessionId: 's1', terminalId: T, status: 'waiting', userCancelledAt: null }]]);
   terminalAlive = true;
   agentForeground = true;
+  throwOnEnter = false;
   _resetHookSignalsForTests();
 });
 
@@ -85,7 +92,7 @@ describe('the timings are the desktop queue’s', () => {
 
 describe('a prompt sent now', () => {
   it('types the text, presses Enter on its own 1 s later, and stops once the hook acknowledges it', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'fix the build', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'fix the build', mode: 'now' })));
     expect(writes).toEqual([{ at: 0, data: 'fix the build' }]);
     await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
     expect(writes).toEqual([{ at: 0, data: 'fix the build' }, { at: 1_000, data: '\r' }]);
@@ -100,7 +107,7 @@ describe('a prompt sent now', () => {
   });
 
   it('waits 2.5 s before Enter when images are attached, and lists their paths under the text', async () => {
-    track(makeSubmitter().submit({ terminalId: T, text: 'what is this?', imagePaths: ['/tmp/q/a.png', '/tmp/q/b.jpg'], mode: 'now' }));
+    track(makeSubmitter().submit(req({ text: 'what is this?', imagePaths: ['/tmp/q/a.png', '/tmp/q/b.jpg'], mode: 'now' })));
     expect(writes[0]).toEqual({ at: 0, data: 'what is this?\n/tmp/q/a.png\n/tmp/q/b.jpg' });
     await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
     expect(enters()).toEqual([]);
@@ -109,7 +116,7 @@ describe('a prompt sent now', () => {
   });
 
   it('presses Enter again at 3, 8, 15, 30 and 60 s while nothing acknowledges it, then gives up', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'run the tests', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'run the tests', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + LAST_RETRY);
     expect(enters()).toEqual([1_000, ...SUBMIT_RETRY_AFTER_MS.map((ms) => 1_000 + ms)]);
     expect(result.outcome).toBeNull();
@@ -123,7 +130,7 @@ describe('a prompt sent now', () => {
   });
 
   it('stops retrying as soon as a later Enter is acknowledged', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(1_000 + 8_000);
     expect(enters()).toEqual([1_000, 4_000, 9_000]);
     hook('UserPromptSubmit', 'prompting');
@@ -134,7 +141,7 @@ describe('a prompt sent now', () => {
   });
 
   it('takes a busy status as acknowledged (the CLI started work)', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(1_500);
     hook('PreToolUse', 'working');
     await vi.advanceTimersByTimeAsync(0);
@@ -142,7 +149,7 @@ describe('a prompt sent now', () => {
   });
 
   it('does not count an unrelated hook (an idle notification) as the acknowledgement', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(1_500);
     hook('Notification', 'waiting');
     await vi.advanceTimersByTimeAsync(0);
@@ -152,7 +159,7 @@ describe('a prompt sent now', () => {
   });
 
   it('never presses Enter again for a slash command: it may have opened a picker', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: '  /model', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: '  /model', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(1_000);
     expect(result.outcome).toBe('unconfirmed');
     await vi.advanceTimersByTimeAsync(120_000);
@@ -160,7 +167,7 @@ describe('a prompt sent now', () => {
   });
 
   it('stops without pressing Enter once a dialog opens (approval or a question)', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(1_500);
     setStatus('approval');
     await vi.advanceTimersByTimeAsync(3_000);
@@ -169,7 +176,7 @@ describe('a prompt sent now', () => {
   });
 
   it('stops when the user cancels after the send', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(2_000);
     setStatus('waiting', { userCancelledAt: Date.now() });
     await vi.advanceTimersByTimeAsync(2_000);
@@ -179,7 +186,7 @@ describe('a prompt sent now', () => {
 
   it('stops when another device takes the session over', async () => {
     let mayDrive = true;
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now', mayDrive: () => mayDrive }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now', mayDrive: () => mayDrive })));
     await vi.advanceTimersByTimeAsync(2_000);
     mayDrive = false;
     await vi.advanceTimersByTimeAsync(2_000);
@@ -187,17 +194,72 @@ describe('a prompt sent now', () => {
     expect(enters()).toEqual([1_000]);
   });
 
-  it('stops when the terminal no longer belongs to a session', async () => {
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+  it('stops when the session is gone, or now runs in another terminal (a restart)', async () => {
+    const gone = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(2_000);
-    sessions.delete(T);
+    sessions.delete('s1');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(gone.outcome).toBe('stopped');
+
+    writes = [];
+    t0 = Date.now();
+    setStatus('waiting');
+    const moved = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(2_000);
+    setStatus('waiting', { terminalId: 'term-restarted' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(moved.outcome).toBe('stopped');
+    expect(enters()).toEqual([1_000]);
+  });
+
+  it('presses no first Enter when a dialog opened during the pause: it would answer the dialog', async () => {
+    setStatus('working');
+    const result = track(makeSubmitter().submit(req({ text: 'also check the docs', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(500);
+    hook('PermissionRequest', 'approval');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(result.outcome).toBe('stopped');
+    expect(writes.map((w) => w.data)).toEqual(['also check the docs']);
+  });
+
+  it('presses no first Enter once the agent exited or another device took over during the pause', async () => {
+    const exited = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(500);
+    agentForeground = false;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(exited.outcome).toBe('stopped');
+    expect(enters()).toEqual([]);
+
+    agentForeground = true;
+    let mayDrive = true;
+    const takenOver = track(makeSubmitter().submit(req({ text: 'go', mode: 'now', mayDrive: () => mayDrive })));
+    await vi.advanceTimersByTimeAsync(500);
+    mayDrive = false;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(takenOver.outcome).toBe('stopped');
+    expect(enters()).toEqual([]);
+  });
+
+  it('presses no repeated Enter once the agent exited without a SessionEnd (a crash): it would reach the shell', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(2_000);
+    agentForeground = false;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(result.outcome).toBe('stopped');
+    expect(enters()).toEqual([1_000]);
+  });
+
+  it('ends as failed, not as an uncaught error, when a repeated Enter throws', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(1_000);
+    throwOnEnter = true;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(result.outcome).toBe('failed');
   });
 
   it('fails without pressing Enter when the text could not be written', async () => {
     terminalAlive = false;
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'go', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(5_000);
     expect(result.outcome).toBe('failed');
     expect(writes).toEqual([]);
@@ -205,7 +267,7 @@ describe('a prompt sent now', () => {
 
   it('types nothing once the agent is no longer the terminal’s foreground program', async () => {
     agentForeground = false;
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'rm -rf build', mode: 'now' }));
+    const result = track(makeSubmitter().submit(req({ text: 'rm -rf build', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(5_000);
     expect(result.outcome).toBe('stopped');
     expect(writes).toEqual([]);
@@ -213,9 +275,9 @@ describe('a prompt sent now', () => {
 
   it('never interleaves two prompts for one terminal: the second waits for the first one’s Enter', async () => {
     const submitter = makeSubmitter();
-    const first = track(submitter.submit({ terminalId: T, text: 'one', mode: 'now' }));
+    const first = track(submitter.submit(req({ text: 'one', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(300);
-    track(submitter.submit({ terminalId: T, text: 'two', mode: 'now' }));
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
     expect(writes.map((w) => w.data)).toEqual(['one']);
     await vi.advanceTimersByTimeAsync(700);
     expect(writes).toEqual([
@@ -232,7 +294,7 @@ describe('a prompt sent now', () => {
 describe('a prompt that interrupts', () => {
   it('presses Esc, waits for the turn to stop, then sends', async () => {
     setStatus('working');
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'stop, do this instead', mode: 'interrupt' }));
+    const result = track(makeSubmitter().submit(req({ text: 'stop, do this instead', mode: 'interrupt' })));
     expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(writes).toHaveLength(1);
@@ -248,7 +310,7 @@ describe('a prompt that interrupts', () => {
 
   it('sends anyway after 10 s when no Stop arrives', async () => {
     setStatus('working');
-    track(makeSubmitter().submit({ terminalId: T, text: 'now', mode: 'interrupt' }));
+    track(makeSubmitter().submit(req({ text: 'now', mode: 'interrupt' })));
     await vi.advanceTimersByTimeAsync(INTERRUPT_WAIT_MS - 1);
     expect(writes).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -256,14 +318,14 @@ describe('a prompt that interrupts', () => {
   });
 
   it('presses no Esc when nothing is running', async () => {
-    track(makeSubmitter().submit({ terminalId: T, text: 'hello', mode: 'interrupt' }));
+    track(makeSubmitter().submit(req({ text: 'hello', mode: 'interrupt' })));
     await vi.advanceTimersByTimeAsync(0);
     expect(writes).toEqual([{ at: 0, data: 'hello' }]);
   });
 
   it('keeps retrying although the interrupt itself marked the turn as cancelled by the user', async () => {
     setStatus('working');
-    track(makeSubmitter().submit({ terminalId: T, text: 'instead', mode: 'interrupt' }));
+    track(makeSubmitter().submit(req({ text: 'instead', mode: 'interrupt' })));
     await vi.advanceTimersByTimeAsync(500);
     hook('Stop', 'waiting');
     // The transcript check after that Stop (sessionStore) stamps the cancel 150 ms later.
@@ -273,9 +335,31 @@ describe('a prompt that interrupts', () => {
     expect(enters()).toEqual([1_500, 4_500]);
   });
 
+  it('types nothing when a dialog is still open after the wait', async () => {
+    setStatus('approval');
+    const result = track(makeSubmitter().submit(req({ text: 'no, do this', mode: 'interrupt' })));
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+    await vi.advanceTimersByTimeAsync(INTERRUPT_WAIT_MS);
+    expect(result.outcome).toBe('stopped');
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+  });
+
+  it('still retries when the interrupted turn’s cancel is stamped late, after this prompt’s Enter', async () => {
+    setStatus('working');
+    track(makeSubmitter().submit(req({ text: 'instead', mode: 'interrupt' })));
+    await vi.advanceTimersByTimeAsync(500);
+    hook('Stop', 'waiting');
+    // A slow transcript read under load: the stamp lands after the Enter at 1.5 s.
+    await vi.advanceTimersByTimeAsync(1_200);
+    setStatus('waiting', { userCancelledAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(SUBMIT_RETRY_AFTER_MS[0]);
+    expect(enters()).toEqual([1_500, 4_500]);
+    expect(INTERRUPT_CANCEL_GRACE_MS).toBeGreaterThan(1_200);
+  });
+
   it('types nothing when the session ended while it waited', async () => {
     setStatus('working');
-    const result = track(makeSubmitter().submit({ terminalId: T, text: 'instead', mode: 'interrupt' }));
+    const result = track(makeSubmitter().submit(req({ text: 'instead', mode: 'interrupt' })));
     await vi.advanceTimersByTimeAsync(500);
     agentForeground = false;
     hook('SessionEnd', 'ended');

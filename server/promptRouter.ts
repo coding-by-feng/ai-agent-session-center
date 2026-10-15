@@ -10,18 +10,23 @@
 //   - the session must be visible to the caller: apiRouter's own /sessions/:id gate,
 //     404 for hidden and unknown alike;
 //   - its agent must be the terminal's foreground program, or the text would run in
-//     the shell underneath: 409 agent_not_running;
+//     the shell underneath: 409 agent_not_running (also for an ended session);
+//   - a session still starting (`connecting`) may be showing a dialog that fires no
+//     hook (trusting the folder): 409 agent_not_ready;
 //   - `now` never types into an open dialog (approval or a question), where the text
 //     could pick an option: 409 awaiting_answer (`interrupt` declines it first);
 //   - a remote caller must be able to drive the session (the control baton): 423
 //     control_held, with who holds it. The Mac itself is not arbitrated, as for writes.
 // A paired phone's per-minute budget is the phone profile's (`prompt` rule).
 //
-// Then 202 at once; the send and its confirmation run in the background, and a
-// repeated key answers with the first answer without sending again.
+// Then 202 at once; the send and its confirmation run in the background
+// (promptSubmit.ts checks again before every keystroke). A repeated key answers with
+// the first answer without sending again; the same key with a different prompt is a
+// client bug and gets 409 key_reused rather than a silent drop.
 //
 // Mounted in front of the main API router, so it applies the visibility gate itself.
 
+import { createHash } from 'crypto';
 import { Router } from 'express';
 import type { Request, Response, RequestHandler } from 'express';
 import { z } from 'zod';
@@ -65,6 +70,10 @@ export const MAX_PROMPT_TEXT = 65_536;
 
 /** Statuses where the CLI shows a dialog: typed text would answer it. */
 const DIALOG_STATUSES: ReadonlySet<string> = new Set([SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT]);
+/** Statuses where typed text reaches the input box (a busy CLI queues it). */
+const SENDABLE_STATUSES: ReadonlySet<string> = new Set([
+  SESSION_STATUS.WAITING, SESSION_STATUS.IDLE, SESSION_STATUS.PROMPTING, SESSION_STATUS.WORKING,
+]);
 
 /**
  * The text as typed: line breaks as "\n" (a "\r" would press Enter mid-prompt),
@@ -93,13 +102,23 @@ interface Accepted {
   data: { accepted: true; key: string };
 }
 
+/** What a key was first used for: a repeat must be the same request. */
+function requestDigest(sessionParam: string, text: string, images: readonly string[], mode: string): string {
+  return createHash('sha256').update(JSON.stringify([sessionParam, text, images, mode])).digest('hex');
+}
+
+function refuse(res: Response, status: number, code: string, error: string): void {
+  res.status(status).json({ success: false, error, code });
+}
+
 export function createPromptRouter(deps: PromptRouterDeps): Router {
   const router = Router();
   // Keyed by the request key alone: it survives the session's re-key (term-* → the CLI's id).
-  const answered = createPromptKeyCache<Accepted>();
+  const answered = createPromptKeyCache<{ body: Accepted; digest: string }>();
 
   router.post('/sessions/:id/prompt', deps.requireVisibleSession, (req: Request, res: Response) => {
-    const session = deps.getSession(str(req.params.id));
+    const sessionParam = str(req.params.id);
+    const session = deps.getSession(sessionParam);
     if (!session) {
       res.status(404).json({ success: false, error: 'Session not found' });
       return;
@@ -112,25 +131,37 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     }
     const { text, images, mode, key } = parsed.data;
 
+    const digest = requestDigest(sessionParam, text, images, mode);
     const first = answered.get(key);
     if (first) {
-      res.status(202).json(first);
+      if (first.digest === digest) res.status(202).json(first.body);
+      else refuse(res, 409, 'key_reused', 'This request key was already used for another prompt');
       return;
     }
 
     const imagePaths = images.map((id) => deps.resolveImage(id));
     if (imagePaths.some((p) => p === null)) {
-      res.status(400).json({ success: false, error: 'An image is no longer on the Mac; attach it again', code: 'image_not_found' });
+      refuse(res, 400, 'image_not_found', 'An image is no longer on the Mac; attach it again');
       return;
     }
 
-    const terminalId = session.terminalId ?? null;
-    if (!terminalId || !deps.terminalExists(terminalId) || !isAgentProcessName(deps.foregroundProcess(terminalId))) {
-      res.status(409).json({ success: false, error: 'The agent is not running in this session’s terminal', code: 'agent_not_running' });
+    if (session.status === SESSION_STATUS.CONNECTING) {
+      refuse(res, 409, 'agent_not_ready', 'The agent is still starting; try again in a moment');
       return;
     }
-    if (mode === 'now' && DIALOG_STATUSES.has(session.status)) {
-      res.status(409).json({ success: false, error: 'The agent is waiting for an answer; answer it or interrupt', code: 'awaiting_answer' });
+    const terminalId = session.terminalId ?? null;
+    if (!terminalId || session.status === SESSION_STATUS.ENDED || !deps.terminalExists(terminalId)
+      || !isAgentProcessName(deps.foregroundProcess(terminalId))) {
+      refuse(res, 409, 'agent_not_running', 'The agent is not running in this session’s terminal');
+      return;
+    }
+    if (DIALOG_STATUSES.has(session.status)) {
+      if (mode === 'now') {
+        refuse(res, 409, 'awaiting_answer', 'The agent is waiting for an answer; answer it or interrupt');
+        return;
+      }
+    } else if (!SENDABLE_STATUSES.has(session.status)) {
+      refuse(res, 409, 'agent_not_ready', 'The agent can’t take a prompt right now');
       return;
     }
 
@@ -149,11 +180,12 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     }
 
     const accepted: Accepted = { success: true, data: { accepted: true, key } };
-    answered.set(key, accepted);
+    answered.set(key, { body: accepted, digest });
     res.status(202).json(accepted);
 
     log.info('prompt', `Prompt for ${session.sessionId.slice(0, 8)} accepted (${mode}, ${imagePaths.length} image(s)) from ${remote ? `device ${clientId.slice(0, 8)}` : 'this Mac'}`);
     deps.submitter.submit({
+      sessionId: session.sessionId,
       terminalId,
       text,
       imagePaths: imagePaths as string[],

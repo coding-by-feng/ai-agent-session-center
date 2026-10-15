@@ -111,7 +111,13 @@ describe('accepting a prompt', () => {
     expect(res.status).toBe(202);
     expect(res.json).toEqual({ success: true, data: { accepted: true, key: 'key-00000001' } });
     expect(submit).toHaveBeenCalledTimes(1);
-    expect(submit.mock.calls[0][0]).toMatchObject({ terminalId: 'term-1', text: 'fix the build', imagePaths: [], mode: 'now' });
+    expect(submit.mock.calls[0][0]).toMatchObject({ sessionId: 's1', terminalId: 'term-1', text: 'fix the build', imagePaths: [], mode: 'now' });
+  });
+
+  it('hands over the session’s current id, not the one the phone used before a re-key', async () => {
+    sessions.set('term-old-id', { sessionId: 's1', terminalId: 'term-1', status: 'waiting' });
+    expect((await send('term-old-id', {})).status).toBe(202);
+    expect(submit.mock.calls[0][0].sessionId).toBe('s1');
   });
 
   it('passes interrupt mode through', async () => {
@@ -179,11 +185,34 @@ describe('accepting a prompt', () => {
 });
 
 describe('the same request key twice', () => {
-  it('sends once and answers the repeat with the first answer, even with other text', async () => {
-    const first = await send('s1', { key: 'retry-key-1' });
-    const again = await send('s1', { key: 'retry-key-1', text: 'something else' });
+  it('sends once and answers the repeat with the first answer', async () => {
+    const first = await send('s1', { key: 'retry-key-1', images: ['queue-img-1-a.png'] });
+    const again = await send('s1', { key: 'retry-key-1', images: ['queue-img-1-a.png'] });
     expect(again.status).toBe(202);
     expect(again.json).toEqual(first.json);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers the repeat even once the session got busy or the image was swept: it was already sent', async () => {
+    await send('s1', { key: 'retry-key-3', images: ['queue-img-1-a.png'] });
+    sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'approval' });
+    images.clear();
+    expect((await send('s1', { key: 'retry-key-3', images: ['queue-img-1-a.png'] })).status).toBe(202);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a key reused for a different prompt with 409, and sends nothing', async () => {
+    await send('s1', { key: 'retry-key-4' });
+    for (const body of [
+      { key: 'retry-key-4', text: 'something else' },
+      { key: 'retry-key-4', mode: 'interrupt' },
+      { key: 'retry-key-4', images: ['queue-img-1-a.png'] },
+    ]) {
+      const res = await send('s1', body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(res.json).toMatchObject({ success: false, code: 'key_reused' });
+    }
+    expect((await send('s2', { key: 'retry-key-4' })).status).toBe(409);
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
@@ -247,6 +276,28 @@ describe('who may send', () => {
     expect(submit).not.toHaveBeenCalled();
     // A refused request takes no baton.
     expect(baton.has('s1')).toBe(false);
+  });
+
+  it('answers 409 agent_not_ready while the agent is still starting (a trust dialog fires no hook)', async () => {
+    sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'connecting' });
+    for (const mode of ['now', 'interrupt']) {
+      const res = await send('s1', { key: `key-start-${mode}`, mode });
+      expect(res.status).toBe(409);
+      expect(res.json).toMatchObject({ success: false, code: 'agent_not_ready' });
+    }
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 agent_not_running for an ended session', async () => {
+    sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'ended' });
+    const res = await send('s1', { mode: 'interrupt' });
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('agent_not_running');
+  });
+
+  it('sends to a busy session (the CLI queues it) and interrupts one', async () => {
+    expect((await send('s2', {})).status).toBe(202);
+    expect((await send('s2', { key: 'key-00000005', mode: 'interrupt' })).status).toBe(202);
   });
 
   it('won’t type into an open dialog, where the text could pick an option; interrupt declines it first', async () => {

@@ -143,6 +143,15 @@ describe('the prompt route on the live server', () => {
     hook('Stop', SHARED, T_SHARED);
   });
 
+  it('a phone still holding the id from before the re-key (term-*) reaches the same session', async () => {
+    const res = await prompt(T_SHARED, { text: 'by the old id' });
+    expect(res.status).toBe(202);
+    expect(writesTo(T_SHARED)).toEqual(['by the old id']);
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['by the old id', '\r']), { timeout: 3_000 });
+    hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'by the old id' });
+    hook('Stop', SHARED, T_SHARED);
+  });
+
   it('a hidden session is a 404, and nothing is typed', async () => {
     const res = await prompt(HIDDEN);
     expect(res.status).toBe(404);
