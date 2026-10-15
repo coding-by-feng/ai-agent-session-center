@@ -11,7 +11,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { BOARD_TICK_MS, liveFlatState, type FlatState } from '@/lib/liveBoard';
 import { shouldShowLiveHint } from '@/lib/liveHint';
 import { isListedSession, isSceneRobotSession } from '@/lib/sessionSort';
-import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import { isNativeMobileApp } from '@/lib/platform';
 import type { Session } from '@/types';
 
 function countWhere(sessions: ReadonlyMap<string, Session>, keep: (s: Session) => boolean): number {
@@ -48,8 +48,8 @@ export function useLiveFlatState(): FlatState {
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   // A restore running, or not yet decided (the first snapshot of a fresh server is empty).
   // The phone app never restores a workspace (DesktopAutomation is the desktop's
-  // job, AASC-17), so nothing is ever pending there: without this, a phone with
-  // no sessions said "Loading…" for ever (AASC-18).
+  // job, AASC-17), so nothing is ever pending there: without this, the app on a
+  // screen big enough for this page, with no sessions, said "Loading…" for ever.
   const restoring = useUiStore((s) => s.workspaceLoad.active || (s.workspaceRestorePending && !isNativeMobileApp()));
   return liveFlatState({ snapshotReceived, restoring, listedCount });
 }
@@ -64,13 +64,11 @@ export function useLiveHint(onLiveRoute: boolean): { visible: boolean; dismiss: 
   const minimized = useUiStore((s) => s.detailPanelMinimized);
   const selected = useSessionStore((s) => s.selectedSessionId !== null);
   const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
-  const isMobile = useIsMobile();
   const flatState = useLiveFlatState();
   const visible = shouldShowLiveHint({
     dismissed,
     onLiveRoute,
     scene3dEnabled,
-    isMobile,
     boardShown: flatState === 'board',
     panelOpen: selected && !minimized,
   });

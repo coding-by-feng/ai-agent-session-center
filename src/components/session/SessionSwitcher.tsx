@@ -329,7 +329,7 @@ export default function SessionSwitcher({
   }
 
   // Same togglePin action the other-session tab cards below (their own
-  // handlePinClick) and RobotListSidebar already use — one shared session.pinned.
+  // handlePinClick) already use — one shared session.pinned.
   const handleTogglePin = useCallback(() => {
     useSessionStore.getState().togglePin(currentSession.sessionId);
   }, [currentSession.sessionId]);

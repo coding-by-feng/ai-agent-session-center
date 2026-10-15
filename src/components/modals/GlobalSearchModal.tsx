@@ -27,7 +27,7 @@ interface SearchHit {
 }
 
 // ---------------------------------------------------------------------------
-// Status colors (matches RobotListSidebar)
+// Status colors
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, string> = {
