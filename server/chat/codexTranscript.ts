@@ -19,6 +19,7 @@
 import type { ChatSystemKind } from '../../src/types/chat.js';
 import { capName, cappedText, todoItems, toolResultDraft, toolUseDraft, type ChatEntryDraft } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
+import type { RawCall } from './callRedaction.js';
 
 type Rec = Record<string, unknown>;
 
@@ -197,8 +198,34 @@ export function codexRecordEntries(record: unknown, offset: number): ChatEntryDr
   }
 }
 
+/** The tool calls one rollout record makes, with their full input, under the ids its entries carry. */
+export function codexRecordCalls(record: unknown): RawCall[] {
+  if (!isRec(record) || !isRec(record.payload)) return [];
+  const p = record.payload;
+  if (record.type === 'event_msg') {
+    const item = p.type === 'item_completed' && isRec(p.item) && p.item.type === 'FileChange' ? p.item : null;
+    return item ? [{ id: capName(str(item.id)), name: 'apply_patch', input: { changes: isRec(item.changes) ? item.changes : {} } }] : [];
+  }
+  if (record.type !== 'response_item') return [];
+  const id = capName(str(p.call_id));
+  switch (p.type) {
+    case 'function_call': {
+      const args = parseArgs(p.arguments);
+      const patch = shellPatch(args);
+      return [patch !== null ? { id, name: 'apply_patch', input: patch } : { id, name: str(p.name) || 'tool', input: args }];
+    }
+    case 'custom_tool_call':
+      return [{ id, name: str(p.name) || 'tool', input: str(p.input) }];
+    case 'local_shell_call':
+      return [{ id: capName(str(p.call_id) || str(p.id)), name: 'shell', input: p.action }];
+    default:
+      return [];
+  }
+}
+
 export const codexLineReader: LineReader = {
   entries: (record, { offset }) => codexRecordEntries(record, offset),
+  calls: codexRecordCalls,
   timestamp: (record) => (isRec(record) && typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN),
 };
 

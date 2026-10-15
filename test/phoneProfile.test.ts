@@ -4,7 +4,7 @@
 // A remote device is simulated with a forwarding header on a loopback request (AASC-13 treats that as remote).
 // No PTY is ever spawned: createTerminal is mocked.
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { describe, it, beforeAll, afterAll, beforeEach, expect, vi } from 'vitest';
@@ -683,19 +683,32 @@ describe('ops shells on the live connection', () => {
 });
 
 // ── The chat and its edits on a phone (AASC-41 / AASC-44) ────────────────────────────────────────────
+// Mounted as server/index.ts mounts them: the phone profile, then the chat router, which redacts for the
+// phone the profile marked. HOME points at a temp dir for the transcript (the locator reads only there).
 describe('what a phone sees of a secret file in the chat and the edits', () => {
   let chatServer: Server;
   let chatBase = '';
-  const answer = {
-    entries: [
-      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Read', input: { file_path: '/Users/me/app/.env' } },
-      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 't1', isError: false, output: 'API_KEY=sk-123', truncated: false },
-    ],
-    before: null, after: null, cli: 'claude', hasMore: false,
-  };
+  let chatHome = '';
+  let transcript = '';
+  const savedHome = process.env.HOME;
 
   beforeAll(async () => {
     const auth = await import('../server/authManager.js');
+    const { createChatRouter } = await import('../server/chat/chatRouter.js');
+    const { resetTranscriptLocatorCache } = await import('../server/chat/transcriptLocator.js');
+    chatHome = realpathSync(mkdtempSync(join(tmpdir(), 'aasc-phone-chat-')));
+    process.env.HOME = chatHome;
+    resetTranscriptLocatorCache();
+    const dir = join(chatHome, '.claude', 'projects', '-proj');
+    mkdirSync(dir, { recursive: true });
+    transcript = join(dir, 'chat-shared.jsonl');
+    const line = (r: unknown) => `${JSON.stringify(r)}\n`;
+    writeFileSync(transcript, [
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:00.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/proj/.env' } }] } }),
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:01.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/proj/.env', content: 'API_KEY=sk-123\n' } }] } }),
+      line({ type: 'user', timestamp: '2026-10-16T10:00:02.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } }),
+    ].join(''));
+    const session = { sessionId: 'chat-shared', cliSource: 'claude', projectPath: '/proj', transcriptPath: transcript, remoteVisible: true };
     const app = express();
     app.use('/api', createPhoneProfile({
       phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
@@ -707,10 +720,7 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
       terminalOfSession: () => null,
       foregroundProcess: () => null,
       home: home || tmpdir(),
-    }), (req, res) => {
-      if (req.path.endsWith('/chat')) { res.json({ success: true, data: answer }); return; }
-      res.json({ success: true, data: { files: [{ path: '.env', added: 1, removed: 0, lastAt: 1 }], total: { added: 1, removed: 0 }, cli: 'claude' } });
-    });
+    }), createChatRouter({ getSession: (id) => (id === 'chat-shared' ? session as never : null), isLocal: () => false }));
     chatServer = createServer(app);
     await new Promise<void>((r) => chatServer.listen(0, '127.0.0.1', r));
     const addr = chatServer.address();
@@ -719,28 +729,40 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
 
   afterAll(async () => {
     await new Promise<void>((r) => chatServer.close(() => r()));
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    rmSync(chatHome, { recursive: true, force: true });
   });
 
   async function get(path: string, phone: boolean) {
     const auth = await import('../server/authManager.js');
     const headers: Record<string, string> = phone
       ? { 'X-Forwarded-For': '192.168.1.80', Authorization: `Bearer ${auth.createToken('dev-phone-chat')}` }
-      : {};
+      : { 'X-Forwarded-For': '192.168.1.81', Authorization: `Bearer ${auth.createToken()}` };
     const res = await fetch(`${chatBase}/api${path}`, { headers });
     return await res.json() as { data: Record<string, unknown> };
   }
 
-  it('hides the content a Read of .env returned from a paired phone, not from the Mac', async () => {
-    const phone = await get('/sessions/shared/chat', true);
-    const entries = phone.data.entries as Array<Record<string, unknown>>;
-    expect(entries[1].output).toBe('[Hidden on phones: this touched a secret file]');
-    expect(JSON.stringify(phone)).not.toContain('sk-123');
-    const mac = await get('/sessions/shared/chat', false);
-    expect(JSON.stringify(mac)).toContain('sk-123');
+  it('hides a secret file’s content from a paired phone, even a result read after its call', async () => {
+    const first = await get('/sessions/chat-shared/chat', true);
+    expect(JSON.stringify(first)).not.toContain('sk-123');
+    // The Read's result lands later, in its own after= read.
+    appendFileSync(transcript, `${JSON.stringify({ type: 'user', timestamp: '2026-10-16T10:00:03.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'API_KEY=sk-123' }] } })}\n`);
+    const next = await get(`/sessions/chat-shared/chat?after=${encodeURIComponent(first.data.after as string)}`, true);
+    const entries = next.data.entries as Array<Record<string, unknown>>;
+    expect(entries).toMatchObject([{ kind: 'tool_result', toolUseId: 't1', output: '[Hidden on phones: this touched a secret file]' }]);
+    expect(JSON.stringify(next)).not.toContain('sk-123');
   });
 
-  it('marks a secret file in the edits list for a phone', async () => {
-    const phone = await get('/sessions/shared/changes', true);
+  it('shows it to a password sign-in', async () => {
+    expect(JSON.stringify(await get('/sessions/chat-shared/chat', false))).toContain('sk-123');
+  });
+
+  it('marks a secret file in the edits list for a phone, and gives it no hunks', async () => {
+    const phone = await get('/sessions/chat-shared/changes', true);
     expect((phone.data.files as Array<Record<string, unknown>>)[0]).toMatchObject({ path: '.env', redacted: true });
+    const one = await get('/sessions/chat-shared/changes/0', true);
+    expect(one.data).toMatchObject({ hunks: [], redacted: true });
+    expect(JSON.stringify(one)).not.toContain('sk-123');
   });
 });
