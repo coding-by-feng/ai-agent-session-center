@@ -69,6 +69,7 @@ let base = '';
 let store: typeof import('../server/sessionStore.js');
 let hooks: typeof import('../server/hookProcessor.js');
 let presence: typeof import('../server/presenceManager.js');
+let auth: typeof import('../server/authManager.js');
 const PHONE: Record<string, string> = { 'X-Forwarded-For': '192.168.1.70', 'X-AASC-Client-Id': 'phone-w' };
 
 const SHARED = 'uuid-shared-w';
@@ -90,7 +91,7 @@ beforeAll(async () => {
   store = await import('../server/sessionStore.js');
   hooks = await import('../server/hookProcessor.js');
   presence = await import('../server/presenceManager.js');
-  const auth = await import('../server/authManager.js');
+  auth = await import('../server/authManager.js');
   PHONE.Authorization = `Bearer ${auth.createToken('dev-phone-w')}`;
 
   for (const [terminalId, sessionId] of [[T_SHARED, SHARED], [T_HIDDEN, HIDDEN]]) {
@@ -139,12 +140,19 @@ beforeEach(() => {
 
 let keyN = 0;
 async function prompt(sessionId: string, body: Record<string, unknown> = {}) {
+  const key = `wiring-key-${++keyN}`;
   const res = await fetch(`${base}/api/sessions/${sessionId}/prompt`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...PHONE },
-    body: JSON.stringify({ text: 'hello from the phone', key: `wiring-key-${++keyN}`, ...body }),
+    body: JSON.stringify({ text: 'hello from the phone', key, ...body }),
   });
-  return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+  return { status: res.status, key, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+}
+
+/** What became of a prompt, asked from the Mac itself (it sees hidden sessions too). */
+async function stateOf(sessionId: string, key: string): Promise<unknown> {
+  const res = await fetch(`${base}/api/sessions/${sessionId}/prompt/${key}`);
+  return ((await res.json()) as { data?: { state?: unknown } }).data?.state;
 }
 
 const writesTo = (terminalId: string) => pty.write.mock.calls.filter(([id]) => id === terminalId).map(([, data]) => data);
@@ -219,4 +227,29 @@ describe('the prompt route on the live server', () => {
     await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['\x1b', 'stop and do this', '\r']), { timeout: 3_000 });
     hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'stop and do this' });
   });
+  it('un-sharing the session mid-send stops the Enter retries', async () => {
+    hook('Stop', SHARED, T_SHARED); // waiting for a prompt: a swallowed Enter is retried
+    const res = await prompt(SHARED, { text: 'until it is hidden' });
+    expect(res.status).toBe(202);
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['until it is hidden', '\r']), { timeout: 3_000 });
+    store.setSessionRemoteVisible(SHARED, false);
+    try {
+      // The first repeated Enter is due 3 s after the Enter; it must not come.
+      await vi.waitFor(async () => expect(await stateOf(SHARED, res.key)).toBe('stopped'), { timeout: 6_000, interval: 200 });
+      expect(writesTo(T_SHARED)).toEqual(['until it is hidden', '\r']);
+    } finally {
+      store.setSessionRemoteVisible(SHARED, true);
+    }
+  }, 15_000);
+
+  // Last: it ends the phone's sign-in.
+  it('removing the phone mid-send stops the Enter retries', async () => {
+    hook('Stop', SHARED, T_SHARED);
+    const res = await prompt(SHARED, { text: 'until the phone is removed' });
+    expect(res.status).toBe(202);
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['until the phone is removed', '\r']), { timeout: 3_000 });
+    expect(auth.revokeTokensForDevice('dev-phone-w')).toBeGreaterThan(0);
+    await vi.waitFor(async () => expect(await stateOf(SHARED, res.key)).toBe('stopped'), { timeout: 6_000, interval: 200 });
+    expect(writesTo(T_SHARED)).toEqual(['until the phone is removed', '\r']);
+  }, 15_000);
 });

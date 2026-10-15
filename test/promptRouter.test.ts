@@ -25,6 +25,9 @@ let foreground: Map<string, string>;
 let baton: Map<string, { clientId: string; label: string }>;
 let images: Set<string>;
 let submit: ReturnType<typeof vi.fn<(req: PromptRequest) => Promise<PromptResult>>>;
+let room: boolean;
+/** Per sign-in: may the remote caller (by client id) still reach the session? */
+let access: Map<string, boolean>;
 
 const ended = (outcome: PromptOutcome, typed = true): PromptResult => ({ outcome, typed });
 
@@ -39,6 +42,8 @@ beforeEach(async () => {
   baton = new Map();
   images = new Set(['queue-img-1-a.png', 'queue-img-2-b.jpg']);
   submit = vi.fn(async () => ended('submitted'));
+  room = true;
+  access = new Map();
   log.error.mockClear();
 
   const app = express();
@@ -50,6 +55,10 @@ beforeEach(async () => {
       next();
     },
     isLocal: (req) => req.headers['x-test-remote'] === undefined,
+    remoteAccess: (req) => {
+      const client = String(req.headers['x-test-client'] ?? '');
+      return (sessionId) => access.get(`${client}:${sessionId}`) !== false;
+    },
     clientIdOf: (req) => (typeof req.headers['x-test-client'] === 'string' ? req.headers['x-test-client'] : ''),
     getSession: (id) => sessions.get(id) ?? null,
     terminalExists: (id) => terminals.has(id),
@@ -69,7 +78,7 @@ beforeEach(async () => {
       return holder ? { label: holder.label, online: true } : null;
     },
     resolveImage: (id) => (images.has(id) ? `/tmp/claude-queue-images/${id}` : null),
-    submitter: { submit },
+    submitter: { submit, hasRoom: () => room },
   }));
   // Anything the router doesn't own falls through to the rest of the API.
   app.use('/api', (_req, res) => { res.status(418).json({ fellThrough: true }); });
@@ -203,6 +212,42 @@ describe('the same request key twice', () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
+  it('sends again on a repeat when the first send stopped before typing anything', async () => {
+    submit.mockResolvedValueOnce(ended('stopped', false));
+    expect((await send('s1', { key: 'retry-key-5' })).status).toBe(202);
+    await vi.waitFor(async () => {
+      expect((await call('/sessions/s1/prompt/retry-key-5', undefined, {}, 'GET')).json.data).toMatchObject({ state: 'stopped' });
+    });
+    expect((await send('s1', { key: 'retry-key-5' })).status).toBe(202);
+    expect(submit).toHaveBeenCalledTimes(2);
+    // The new send is the one the key reports now.
+    expect((await call('/sessions/s1/prompt/retry-key-5', undefined, {}, 'GET')).json.data).toMatchObject({ state: 'submitted' });
+  });
+
+  it('never sends again once text was typed, nor after a send that typed nothing but is still running', async () => {
+    submit.mockResolvedValueOnce(ended('stopped', true));
+    await send('s1', { key: 'retry-key-6' });
+    await vi.waitFor(async () => {
+      expect((await call('/sessions/s1/prompt/retry-key-6', undefined, {}, 'GET')).json.data).toMatchObject({ state: 'stopped' });
+    });
+    expect((await send('s1', { key: 'retry-key-6' })).status).toBe(202);
+    submit.mockImplementationOnce(() => new Promise<PromptResult>(() => {}));
+    await send('s1', { key: 'retry-key-7' });
+    expect((await send('s1', { key: 'retry-key-7' })).status).toBe(202);
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it('matches a repeat by terminal, so a retry after the session was re-keyed is still the same request', async () => {
+    sessions.set('term-x', { sessionId: 'term-x', terminalId: 'term-1', status: 'waiting' });
+    await send('term-x', { key: 'retry-key-8' });
+    const moved = { sessionId: 'cli-456', terminalId: 'term-1', status: 'waiting' };
+    sessions.set('cli-456', moved);
+    sessions.set('term-x', moved);
+    const again = await send('cli-456', { key: 'retry-key-8' });
+    expect(again.status).toBe(202);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a key reused for a different prompt with 409, and sends nothing', async () => {
     await send('s1', { key: 'retry-key-4' });
     for (const body of [
@@ -259,6 +304,16 @@ describe('who may send', () => {
     expect(mayDrive?.('s1')).toBe(false);
   });
 
+  it('stops a running send once the session is no longer shared with the caller or its sign-in ended', async () => {
+    expect((await send('s1', {}, REMOTE('phone-a'))).status).toBe(202);
+    const { mayDrive } = submit.mock.calls[0][0];
+    expect(mayDrive?.('s1')).toBe(true);
+    access.set('phone-a:s1', false);
+    expect(mayDrive?.('s1')).toBe(false);
+    // The baton alone stays with the phone: it is the access check that says no.
+    expect(baton.get('s1')?.clientId).toBe('phone-a');
+  });
+
   it('never asks the Mac itself for the baton', async () => {
     baton.set('s1', { clientId: 'phone-a', label: 'Phone' });
     expect((await send('s1', {})).status).toBe(202);
@@ -295,6 +350,33 @@ describe('who may send', () => {
     const res = await send('s1', { mode: 'interrupt' });
     expect(res.status).toBe(409);
     expect(res.json.code).toBe('AGENT_NOT_RUNNING');
+  });
+
+  it('answers 409 busy while another prompt already waits for this terminal, and takes no baton', async () => {
+    room = false;
+    const res = await send('s1', {}, REMOTE('phone-a'));
+    expect(res.status).toBe(409);
+    expect(res.json).toMatchObject({ success: false, code: 'busy' });
+    expect(submit).not.toHaveBeenCalled();
+    expect(baton.has('s1')).toBe(false);
+    room = true;
+    expect((await send('s1', {}, REMOTE('phone-a'))).status).toBe(202);
+  });
+
+  it.each(['/model', ' /resume ', '/config', '/effort', '/permissions'])(
+    'refuses a bare %j with 400 needs_argument: it would open a picker the next prompt answers',
+    async (text) => {
+      const res = await send('s1', { text });
+      expect(res.status).toBe(400);
+      expect(res.json).toMatchObject({ success: false, code: 'needs_argument' });
+      expect(submit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('sends a picker command with its argument, and slash commands that need none', async () => {
+    for (const [i, text] of ['/model sonnet', '/effort high', '/clear', '/compact', '/my-skill'].entries()) {
+      expect((await send('s1', { key: `key-slash-00${i}`, text })).status, text).toBe(202);
+    }
   });
 
   it('sends to a busy session (the CLI queues it) and interrupts one', async () => {

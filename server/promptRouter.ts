@@ -15,14 +15,19 @@
 //     hook (trusting the folder): 409 agent_not_ready;
 //   - `now` never types into an open dialog (approval or a question), where the text
 //     could pick an option: 409 awaiting_answer (`interrupt` declines it first);
+//   - one prompt may wait behind the one being typed into a terminal, no more: 409 busy;
+//   - a picker-opening slash command needs its argument (`/model sonnet`): 400 needs_argument;
 //   - a remote caller must be able to drive the session (the control baton): 423
 //     control_held, with who holds it. The Mac itself is not arbitrated, as for writes.
+//     While the send runs, a remote caller's prompt stops as soon as it may no longer
+//     drive the session, the session stops being shared, or its sign-in ends.
 // A paired phone's per-minute budget is the phone profile's (`prompt` rule).
 //
 // Then 202 at once; the send and its confirmation run in the background
 // (promptSubmit.ts checks again before every keystroke). A repeated key answers with
-// the first answer without sending again; the same key with a different prompt is a
-// client bug and gets 409 key_reused rather than a silent drop.
+// the first answer without sending again, unless that send ended before typing a
+// thing: then the repeat sends it. The same key with a different prompt is a client
+// bug and gets 409 key_reused rather than a silent drop.
 //
 // Mounted in front of the main API router, so it applies the visibility gate itself.
 
@@ -32,7 +37,7 @@ import type { Request, Response, RequestHandler } from 'express';
 import { z } from 'zod';
 import log from './logger.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
-import { createPromptKeyCache, type PromptOutcome, type PromptRequest, type PromptResult } from './promptSubmit.js';
+import { createPromptKeyCache, type PromptOutcome, type PromptResult, type PromptSubmitter } from './promptSubmit.js';
 import { SESSION_STATUS } from './constants.js';
 
 /** What the route reads of a session. */
@@ -47,6 +52,12 @@ export interface PromptRouterDeps {
   requireVisibleSession: RequestHandler;
   /** Did the request come from this Mac (requestLocality)? */
   isLocal(req: Request): boolean;
+  /**
+   * For a remote caller, taken when its prompt is accepted: may that caller still
+   * reach the session (still shared with remote devices, its sign-in not revoked,
+   * signed out or expired)? Checked before every keystroke of the send.
+   */
+  remoteAccess(req: Request): (sessionId: string) => boolean;
   /** The device the request speaks for (bound to its sign-in), or '' for none. */
   clientIdOf(req: Request): string;
   getSession(sessionId: string): PromptRouterSession | null;
@@ -61,12 +72,31 @@ export interface PromptRouterDeps {
   controller(sessionId: string): { label: string; online: boolean } | null;
   /** The path of an uploaded queue image, by id, or null when it is gone. */
   resolveImage(id: string): string | null;
-  submitter: { submit(req: PromptRequest): Promise<PromptResult> };
+  submitter: Pick<PromptSubmitter, 'submit' | 'hasRoom'>;
 }
 
 /** Prompt images per send, as the phone's composer allows. */
 export const MAX_PROMPT_IMAGES = 4;
 export const MAX_PROMPT_TEXT = 65_536;
+
+/**
+ * Slash commands that open a picker, a dialog or a panel when sent with no argument
+ * (Claude Code and Codex). The Mac never confirms a slash command, so the next prompt
+ * would land in that picker. The phone's sheet sends them with their argument
+ * (`/model sonnet`, `/effort high`), as the desktop queue's chips do.
+ */
+const BARE_PICKER_COMMANDS: ReadonlySet<string> = new Set([
+  'model', 'effort', 'resume', 'config', 'settings', 'permissions', 'allowed-tools', 'agents', 'mcp', 'hooks',
+  'memory', 'theme', 'output-style', 'add-dir', 'login', 'logout', 'export', 'status', 'help', 'doctor', 'ide',
+  'plugin', 'plugins', 'rewind', 'terminal-setup', 'privacy-settings', 'install-github-app', 'bashes', 'usage',
+  'context', 'feedback', 'bug', 'approvals', 'mention', 'diff',
+]);
+
+/** Is this a picker-opening slash command with no argument? */
+export function isBarePickerCommand(text: string): boolean {
+  const match = /^\/([A-Za-z][\w:-]*)$/.exec(text.trim());
+  return !!match && BARE_PICKER_COMMANDS.has(match[1].toLowerCase());
+}
 
 /** Statuses where the CLI shows a dialog: typed text would answer it. */
 const DIALOG_STATUSES: ReadonlySet<string> = new Set([SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT]);
@@ -116,11 +146,19 @@ interface KeyRecord {
   sessionParam: string;
   sessionId: string;
   state: PromptState;
+  /** Which send of this key the record is about (a key may be sent again, see `retryable`). */
+  sendId: number;
+  /** The send ended before typing anything: a repeat sends it again instead of replaying. */
+  retryable: boolean;
 }
 
-/** What a key was first used for: a repeat must be the same request. */
-function requestDigest(sessionParam: string, text: string, images: readonly string[], mode: string): string {
-  return createHash('sha256').update(JSON.stringify([sessionParam, text, images, mode])).digest('hex');
+/**
+ * What a key was first used for: a repeat must be the same request. By terminal, not
+ * by the id in the path: that one changes when the session re-keys (term-* → the
+ * CLI's id, a /clear), and a retry after it is still the same prompt.
+ */
+function requestDigest(terminalId: string, text: string, images: readonly string[], mode: string): string {
+  return createHash('sha256').update(JSON.stringify([terminalId, text, images, mode])).digest('hex');
 }
 
 function refuse(res: Response, status: number, code: string, error: string): void {
@@ -131,11 +169,14 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
   const router = Router();
   // Keyed by the request key alone: it survives the session's re-key (term-* → the CLI's id).
   const answered = createPromptKeyCache<KeyRecord>();
+  let sends = 0;
   // The outcome lands seconds later; keep it on the key's record (a new object: the
   // cache holds immutable values) so the phone can ask what became of its prompt.
-  const settle = (key: string, state: PromptOutcome): void => {
+  const settle = (key: string, sendId: number, result: PromptResult): void => {
     const record = answered.get(key);
-    if (record) answered.set(key, { ...record, state });
+    if (!record || record.sendId !== sendId) return;
+    const retryable = !result.typed && (result.outcome === 'stopped' || result.outcome === 'failed');
+    answered.set(key, { ...record, state: result.outcome, retryable });
   };
   // Does this key belong to the session the caller named? Either the id it was sent
   // with, or the same session after a re-key (term-* → the CLI's id).
@@ -171,12 +212,20 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       return;
     }
     const { text, images, mode, key } = parsed.data;
+    if (isBarePickerCommand(text)) {
+      refuse(res, 400, 'needs_argument', 'This command opens a picker; send it with its choice, like /model sonnet');
+      return;
+    }
 
-    const digest = requestDigest(sessionParam, text, images, mode);
+    const digest = requestDigest(session.terminalId ?? '', text, images, mode);
     const first = answered.get(key);
-    if (first) {
-      if (first.digest === digest) res.status(202).json(first.body);
-      else refuse(res, 409, 'key_reused', 'This request key was already used for another prompt');
+    if (first && first.digest !== digest) {
+      refuse(res, 409, 'key_reused', 'This request key was already used for another prompt');
+      return;
+    }
+    // A repeat replays the first answer, unless that send ended without typing a thing.
+    if (first && !first.retryable) {
+      res.status(202).json(first.body);
       return;
     }
 
@@ -206,6 +255,11 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       return;
     }
 
+    if (!deps.submitter.hasRoom(terminalId)) {
+      refuse(res, 409, 'busy', 'Another prompt is already waiting to be typed here; try again in a moment');
+      return;
+    }
+
     // Last, because it takes the baton: a refused request must not.
     const remote = !deps.isLocal(req);
     const clientId = remote ? deps.clientIdOf(req) : '';
@@ -221,8 +275,10 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     }
 
     const accepted: Accepted = { success: true, data: { accepted: true, key } };
-    answered.set(key, { body: accepted, digest, sessionParam, sessionId: session.sessionId, state: 'pending' });
+    const sendId = ++sends;
+    answered.set(key, { body: accepted, digest, sessionParam, sessionId: session.sessionId, state: 'pending', sendId, retryable: false });
     res.status(202).json(accepted);
+    const reachable = remote ? deps.remoteAccess(req) : null;
 
     log.info('prompt', `Prompt for ${session.sessionId.slice(0, 8)} accepted (${mode}, ${imagePaths.length} image(s)) from ${remote ? `device ${clientId.slice(0, 8)}` : 'this Mac'}`);
     deps.submitter.submit({
@@ -231,9 +287,9 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       text,
       imagePaths: imagePaths as string[],
       mode,
-      ...(remote ? { mayDrive: (sessionId: string) => deps.canControl(sessionId, clientId) } : {}),
-    }).then((result) => settle(key, result.outcome)).catch((err: unknown) => {
-      settle(key, 'failed');
+      ...(reachable ? { mayDrive: (sessionId: string) => deps.canControl(sessionId, clientId) && reachable(sessionId) } : {}),
+    }).then((result) => settle(key, sendId, result)).catch((err: unknown) => {
+      settle(key, sendId, { outcome: 'failed', typed: true });
       log.error('prompt', `Prompt for ${session.sessionId.slice(0, 8)} failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   });

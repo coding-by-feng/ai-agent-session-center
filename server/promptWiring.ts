@@ -3,12 +3,14 @@
 // apart from promptRouter.ts so that the router and the submitter stay testable
 // without the session store, and this wiring is testable on its own.
 
-import type { Router } from 'express';
+import type { Request, Router } from 'express';
 import { getSession } from './sessionStore.js';
 import { getForegroundProcess, getTerminals, writeToTerminal } from './sshManager.js';
 import * as presence from './presenceManager.js';
 import { clientIdFromRequest, requireVisibleSession } from './apiRouter.js';
 import { isLocalRequest } from './requestLocality.js';
+import { canSeeSession } from './sessionVisibility.js';
+import { extractToken, getTokenLineage, isLineageAlive } from './authManager.js';
 import { onTerminalHook } from './hookSignals.js';
 import { resolveQueueImage } from './queueImages.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
@@ -16,6 +18,17 @@ import { createPromptRouter } from './promptRouter.js';
 import { createPromptSubmitter } from './promptSubmit.js';
 
 const terminalExists = (terminalId: string): boolean => getTerminals().some((t) => t.terminalId === terminalId);
+
+/**
+ * May the remote caller behind `req` still reach a session? Its sign-in (token
+ * lineage, which survives token refreshes) must still be alive: removing a phone
+ * revokes its tokens, signing out removes them. And the session must still be
+ * shared with remote devices: the same rule as the /sessions/:id gate.
+ */
+function remoteAccess(req: Request): (sessionId: string) => boolean {
+  const lineage = getTokenLineage(extractToken(req));
+  return (sessionId) => lineage !== null && isLineageAlive(lineage) && canSeeSession(false, getSession(sessionId));
+}
 
 export function createServerPromptRouter(): Router {
   const submitter = createPromptSubmitter({
@@ -31,6 +44,7 @@ export function createServerPromptRouter(): Router {
   return createPromptRouter({
     requireVisibleSession,
     isLocal: isLocalRequest,
+    remoteAccess,
     clientIdOf: clientIdFromRequest,
     getSession,
     terminalExists,
