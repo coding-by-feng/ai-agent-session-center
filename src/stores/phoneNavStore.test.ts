@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   LEAVE_WINDOW_MS,
+  PENDING_TIMEOUT_MS,
   PHONE_NAV_KEY,
   initialPhoneNav,
   installPhoneNav,
@@ -160,6 +161,7 @@ describe('tabs', () => {
     nav().push('/sessions/s1/chat');
     nav().switchTab('more');
     expect(stack()).toEqual(['/more']);
+    history.flush(); // a shallower tab walks history back first
     nav().push('/more/history');
     nav().switchTab('sessions');
     expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
@@ -276,5 +278,111 @@ describe('restoring on reopen', () => {
     install('/?m=/sessions/s1/chat', { aascPhone: true, idx: 2, tab: 'sessions', path: '/sessions/s1/chat' });
     expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
     expect(history.entries).toHaveLength(2);
+  });
+});
+
+describe('taps that arrive before the browser has traversed', () => {
+  it('a double tap on back pops one screen, not off the stack', () => {
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().pop();
+    nav().pop();
+    history.flush();
+    expect(stack()).toEqual(['/sessions']);
+    expect(onLeaveAttempt).not.toHaveBeenCalled();
+    expect(nav().leaveArmed).toBe(false);
+  });
+
+  it('a double tap on the active tab pops to the root once and stays on the page', () => {
+    install('/?m=/more/gallery');
+    nav().popToRoot();
+    nav().popToRoot();
+    history.flush();
+    expect(stack()).toEqual(['/more']);
+    expect(history.left).toBe(false);
+  });
+
+  it('a push made while a pop is on its way lands after it', () => {
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().pop();
+    nav().push('/sessions/s2/chat');
+    history.flush();
+    expect(stack()).toEqual(['/sessions', '/sessions/s2/chat']);
+    expect(history.url).toBe('/?m=/sessions/s2/chat');
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('a push right after switching to a shallower tab lands on that tab', () => {
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().switchTab('more');
+    nav().push('/more/about');
+    history.flush();
+    expect(nav().tab).toBe('more');
+    expect(stack()).toEqual(['/more', '/more/about']);
+    expect(history.url).toBe('/?m=/more/about');
+  });
+
+  it('a pop right after opening a session from a deep stack pops that session', () => {
+    install('/?m=/more/gallery');
+    nav().openSession('s9');
+    nav().pop();
+    history.flush();
+    expect(nav().tab).toBe('sessions');
+    expect(stack()).toEqual(['/sessions']);
+    expect(onLeaveAttempt).not.toHaveBeenCalled();
+  });
+
+  it('gives up waiting for a traversal that never comes', () => {
+    vi.useFakeTimers();
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().pop(); // the browser never answers
+    nav().push('/sessions/s2/chat');
+    vi.advanceTimersByTime(PENDING_TIMEOUT_MS + 10);
+    expect(stack()[stack().length - 1]).toBe('/sessions/s2/chat');
+  });
+});
+
+describe('entries that are not the frame’s', () => {
+  it('keeps leaving through the classic layout’s entries under the sentinel', () => {
+    history = new FakeHistory('/history', { usr: null, key: 'b', idx: 1 });
+    history.entries = [{ state: null, url: '/shell' }, { state: { usr: null, key: 'a', idx: 0 }, url: '/' }, history.entries[1]];
+    history.index = 2;
+    onLeaveAttempt = vi.fn<() => void>();
+    uninstall = installPhoneNav({ history, onLeaveAttempt, search: '' });
+    history.back(); // the sentinel: warn
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(1);
+    history.back(); // a router entry: carry on out
+    expect(history.left).toBe(true);
+  });
+
+  it('treats a foreign entry reached without a warning as the sentinel', () => {
+    history = new FakeHistory('/history', { usr: null, key: 'b', idx: 1 });
+    history.entries = [{ state: null, url: '/shell' }, { state: { usr: null, key: 'a', idx: 0 }, url: '/' }, history.entries[1]];
+    history.index = 2;
+    onLeaveAttempt = vi.fn<() => void>();
+    uninstall = installPhoneNav({ history, onLeaveAttempt, search: '' });
+    history.go(-2); // straight past the sentinel (a long-press on a browser's back)
+    history.flush();
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(1);
+    expect(history.state).toMatchObject({ aascPhone: true, idx: 0 });
+  });
+
+  it('adopts its own entry after a reload even when the restored stack is shallower', () => {
+    const own = (idx: number, path: string) => ({ aascPhone: true, idx, tab: 'sessions', path });
+    history = new FakeHistory('/?m=/sessions', own(2, '/sessions/s1/chat'));
+    history.entries = [{ state: null, url: '/shell' }, { state: own(0, '/sessions'), url: '/?m=/sessions' }, { state: own(1, '/sessions'), url: '/?m=/sessions' }, history.entries[1]];
+    history.index = 3;
+    onLeaveAttempt = vi.fn<() => void>();
+    uninstall = installPhoneNav({ history, onLeaveAttempt, search: '' }); // storage empty: the default stack, length 1
+    history.flush(); // walks back to the root entry
+    expect(history.index).toBe(2);
+    history.back(); // the original sentinel
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(1);
+    history.back();
+    expect(history.left).toBe(true);
   });
 });

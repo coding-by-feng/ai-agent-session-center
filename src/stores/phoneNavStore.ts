@@ -16,13 +16,17 @@
  * `history.go(-k)`, and the popstate that follows applies the pop, so the in-app
  * back chevron, the edge swipe and the Android back button share one path. Every
  * landing re-writes its entry, so an entry left over from another tab is fixed
- * the moment it is reached.
+ * the moment it is reached. While a history.go() is on its way, every action
+ * waits for it to land and then runs in order: a double tap on back pops once,
+ * and a push right after a pop lands after it instead of being cut off.
  *
  * Android has no bridge on Mac-served pages (AASC-17): its back button is the
  * WebView's own, which walks this history. Landing on the sentinel means "back at
  * a tab root": the frame warns ("Press back again to leave") and a second back
  * within LEAVE_WINDOW_MS leaves the Mac page; after the window the root entry is
- * pushed again so the next back warns again.
+ * pushed again so the next back warns again. Entries that aren't the frame's (the
+ * classic layout's router, when "New design" was turned on mid-session) are
+ * walked straight through on the way out.
  *
  * The tab and stacks persist in localStorage (`aasc.phoneNav`, paths only) and
  * the address bar carries the shown screen as `?m=<path>`; a reload or a link
@@ -85,35 +89,36 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
   lastAction: 'restore',
 
   push: (path) => {
-    if (!parsePhonePath(path)) return;
+    if (!parsePhonePath(path) || deferred(() => get().push(path))) return;
     const { tab, stacks } = get();
     showStack(tab, { ...stacks, [tab]: [...stacks[tab], path] }, 'push');
   },
 
   pop: () => {
-    const { tab, stacks } = get();
-    traverseBack(stacks[tab].length - 1, 1);
+    if (deferred(() => get().pop())) return;
+    traverseBack(1);
   },
 
   popToRoot: () => {
-    const { tab, stacks } = get();
-    traverseBack(stacks[tab].length - 1, stacks[tab].length - 1);
+    if (deferred(() => get().popToRoot())) return;
+    traverseBack(Infinity);
   },
 
   replace: (path) => {
-    if (!parsePhonePath(path)) return;
+    if (!parsePhonePath(path) || deferred(() => get().replace(path))) return;
     const { tab, stacks } = get();
     showStack(tab, { ...stacks, [tab]: [...stacks[tab].slice(0, -1), path] }, 'replace');
   },
 
   switchTab: (tab) => {
+    if (deferred(() => get().switchTab(tab))) return;
     if (tab === get().tab) return;
     showStack(tab, get().stacks, 'switch');
   },
 
   openSession: (sessionId, segment = 'chat', tab = 'sessions') => {
     const path = sessionPath(sessionId, segment);
-    if (!parsePhonePath(path)) return;
+    if (!parsePhonePath(path) || deferred(() => get().openSession(sessionId, segment, tab))) return;
     showStack(tab, { ...get().stacks, [tab]: [tabRootPath(tab), path] }, 'switch');
   },
 }));
@@ -205,9 +210,21 @@ interface Binding {
   idx: number;
   onLeaveAttempt: () => void;
   rearm: ReturnType<typeof setTimeout> | null;
+  /** Actions that came while a traversal was on its way; they run once it lands. */
+  queue: Array<() => void>;
 }
 
 let binding: Binding | null = null;
+
+/**
+ * A history.go() on its way: where it should land. Module-level, not on the
+ * binding, so a frame re-installed meanwhile (StrictMode mounts twice) waits
+ * for it instead of starting a second one.
+ */
+let inFlight: { target: number; timer: ReturnType<typeof setTimeout> } | null = null;
+
+/** How long to wait for a popstate before assuming the traversal landed. */
+export const PENDING_TIMEOUT_MS = 1000;
 
 function writeEntry(mode: 'push' | 'replace', idx: number, tab: PhoneTab, path: string): void {
   if (!binding) return;
@@ -215,6 +232,32 @@ function writeEntry(mode: 'push' | 'replace', idx: number, tab: PhoneTab, path: 
   const url = withPhonePath(binding.history.currentUrl(), path);
   if (mode === 'push') binding.history.pushState(state, url);
   else binding.history.replaceState(state, url);
+}
+
+/** Run `action` now, or, while a traversal is on its way, once it has landed. True if deferred. */
+function deferred(action: () => void): boolean {
+  if (!binding || !inFlight) return false;
+  binding.queue.push(action);
+  return true;
+}
+
+function startTraversal(target: number, delta: number): void {
+  if (!binding) return;
+  if (inFlight) clearTimeout(inFlight.timer);
+  // A popstate that never comes (a browser that coalesced it) must not freeze the queue.
+  inFlight = { target, timer: setTimeout(() => settle(target), PENDING_TIMEOUT_MS) };
+  binding.history.go(delta);
+}
+
+/** The traversal landed (or timed out): run what waited for it, in order. */
+function settle(landedIdx: number): void {
+  if (inFlight) clearTimeout(inFlight.timer);
+  inFlight = null;
+  if (!binding) return;
+  binding.idx = landedIdx;
+  const waiting = binding.queue;
+  binding.queue = [];
+  for (const action of waiting) action();
 }
 
 function clearLeave(): void {
@@ -230,7 +273,7 @@ function writeHistory(tab: PhoneTab, stack: string[]): void {
   const target = stack.length;
   if (from > target) {
     // The landing popstate rewrites the entry it reaches (onPopState).
-    binding.history.go(target - from);
+    startTraversal(target, target - from);
     return;
   }
   if (from >= 1) writeEntry('replace', from, tab, stack[from - 1]);
@@ -244,56 +287,88 @@ function showStack(tab: PhoneTab, stacks: PhoneStacks, lastAction: NavAction): v
   writeHistory(tab, stacks[tab]);
 }
 
-/** Go back `steps` screens (at most `available`): through history when bound, else directly. */
-function traverseBack(available: number, steps: number): void {
-  const n = Math.min(available, steps);
+/** Go back `steps` screens (at most to the root): through history when bound, else directly. */
+function traverseBack(steps: number): void {
+  const { tab, stacks } = usePhoneNavStore.getState();
+  const n = Math.min(stacks[tab].length - 1, steps);
   if (n <= 0) return;
   if (binding) {
-    binding.history.go(-n);
+    startTraversal(binding.idx - n, -n);
     return;
   }
-  const { tab, stacks } = usePhoneNavStore.getState();
   usePhoneNavStore.setState({ stacks: { ...stacks, [tab]: stacks[tab].slice(0, stacks[tab].length - n) }, lastAction: 'pop' });
 }
 
+/** Back at a tab root (the sentinel): warn, and give the next back a short window to leave. */
+function landOnSentinel(): void {
+  if (!binding) return;
+  const { tab, stacks } = usePhoneNavStore.getState();
+  const stack = stacks[tab];
+  binding.idx = 0;
+  usePhoneNavStore.setState({
+    leaveArmed: true,
+    ...(stack.length > 1 ? { stacks: { ...stacks, [tab]: stack.slice(0, 1) }, lastAction: 'pop' as const } : {}),
+  });
+  binding.onLeaveAttempt();
+  if (binding.rearm) clearTimeout(binding.rearm);
+  binding.rearm = setTimeout(() => {
+    if (!binding) return;
+    binding.rearm = null;
+    usePhoneNavStore.setState({ leaveArmed: false });
+    const now = usePhoneNavStore.getState();
+    if (binding.idx === 0) writeHistory(now.tab, now.stacks[now.tab]);
+  }, LEAVE_WINDOW_MS);
+}
+
+/**
+ * An entry that isn't the frame's: the classic layout's router entries sit under
+ * the sentinel when "New design" was turned on mid-session. Reached with leave
+ * armed, the user is on the way out: keep going. Reached without (a jump past the
+ * sentinel), this entry becomes the sentinel.
+ */
+function onForeignEntry(): void {
+  if (!binding) return;
+  if (usePhoneNavStore.getState().leaveArmed) {
+    binding.history.go(-1);
+    return;
+  }
+  const { tab, stacks } = usePhoneNavStore.getState();
+  binding.idx = 0;
+  writeEntry('replace', 0, tab, stacks[tab][0]);
+  landOnSentinel();
+}
+
 function onPopState(state: unknown): void {
-  if (!binding || !isEntry(state)) return;
+  if (!binding) return;
+  if (!isEntry(state)) {
+    onForeignEntry();
+    if (inFlight) settle(0);
+    return;
+  }
   const { tab, stacks } = usePhoneNavStore.getState();
   const stack = stacks[tab];
   binding.idx = state.idx;
 
   if (state.idx === 0) {
-    // Back at a tab root: warn, and give the next back a short window to leave.
-    usePhoneNavStore.setState({
-      leaveArmed: true,
-      ...(stack.length > 1 ? { stacks: { ...stacks, [tab]: stack.slice(0, 1) }, lastAction: 'pop' as const } : {}),
-    });
-    binding.onLeaveAttempt();
-    if (binding.rearm) clearTimeout(binding.rearm);
-    binding.rearm = setTimeout(() => {
-      if (!binding) return;
-      binding.rearm = null;
-      usePhoneNavStore.setState({ leaveArmed: false });
-      const now = usePhoneNavStore.getState();
-      if (binding.idx === 0) writeHistory(now.tab, now.stacks[now.tab]);
-    }, LEAVE_WINDOW_MS);
-    return;
-  }
-
-  clearLeave();
-  if (state.idx < stack.length) {
-    const next = stack.slice(0, state.idx);
-    usePhoneNavStore.setState({ stacks: { ...stacks, [tab]: next }, lastAction: 'pop' });
-    writeEntry('replace', state.idx, tab, next[next.length - 1]);
-  } else if (state.idx === stack.length) {
-    writeEntry('replace', state.idx, tab, stack[stack.length - 1]);
-  } else if (state.idx === stack.length + 1 && state.tab === tab && parsePhonePath(state.path)) {
-    // Forward (a desktop browser's button): the screen is still named in the entry.
-    usePhoneNavStore.setState({ stacks: { ...stacks, [tab]: [...stack, state.path] }, lastAction: 'push' });
+    landOnSentinel();
   } else {
-    // Further forward than the stack can follow: walk back to where it is.
-    binding.history.go(stack.length - state.idx);
+    clearLeave();
+    if (state.idx < stack.length) {
+      const next = stack.slice(0, state.idx);
+      usePhoneNavStore.setState({ stacks: { ...stacks, [tab]: next }, lastAction: 'pop' });
+      writeEntry('replace', state.idx, tab, next[next.length - 1]);
+    } else if (state.idx === stack.length) {
+      writeEntry('replace', state.idx, tab, stack[stack.length - 1]);
+    } else if (state.idx === stack.length + 1 && state.tab === tab && parsePhonePath(state.path)) {
+      // Forward (a desktop browser's button): the screen is still named in the entry.
+      usePhoneNavStore.setState({ stacks: { ...stacks, [tab]: [...stack, state.path] }, lastAction: 'push' });
+    } else {
+      // Further forward than the stack can follow: walk back to where it is.
+      startTraversal(stack.length, stack.length - state.idx);
+      return;
+    }
   }
+  if (inFlight && state.idx <= inFlight.target) settle(state.idx);
 }
 
 export interface InstallOptions {
@@ -314,11 +389,14 @@ export function installPhoneNav({ history, onLeaveAttempt, search }: InstallOpti
   const stack = nav.stacks[nav.tab];
   const current = history.state;
 
-  binding = { history, idx: 0, onLeaveAttempt, rearm: null };
-  if (isEntry(current) && current.idx >= 1 && current.idx === stack.length) {
+  binding = { history, idx: 0, onLeaveAttempt, rearm: null, queue: [] };
+  if (inFlight) {
+    // A traversal from a frame mounted a moment ago is still landing: its popstate fixes the entry.
+    binding.idx = inFlight.target;
+  } else if (isEntry(current) && current.idx >= 1) {
     // A reload on our own entry: the sentinel and the stack's entries are still under it.
     binding.idx = current.idx;
-    writeEntry('replace', current.idx, nav.tab, stack[stack.length - 1]);
+    writeHistory(nav.tab, stack);
   } else {
     writeEntry('replace', 0, nav.tab, stack[0]);
     writeHistory(nav.tab, stack);
@@ -335,6 +413,13 @@ export function installPhoneNav({ history, onLeaveAttempt, search }: InstallOpti
     unsubscribeStore();
     if (binding?.rearm) clearTimeout(binding.rearm);
     binding = null;
+    // A traversal in flight survives only an immediate re-install (StrictMode's
+    // second mount, in the same task); a frame really gone forgets it.
+    queueMicrotask(() => {
+      if (binding || !inFlight) return;
+      clearTimeout(inFlight.timer);
+      inFlight = null;
+    });
   };
 }
 
