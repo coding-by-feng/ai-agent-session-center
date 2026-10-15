@@ -21,13 +21,14 @@ import { open, type FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import type { ChatEntry } from '../../src/types/chat.js';
 import { foldCommandOutput, type ChatEntryDraft } from './chatEntries.js';
+import { NEWLINE, parseRecord, readRange, splitLines, type Line } from './jsonlFile.js';
+import { markSecretEntries, type RawCall } from './secretMarks.js';
 
 /** Entries in one page (a record's entries are never split, so a page can run a little over). */
 export const PAGE_ENTRIES = 200;
 /** Bytes one call may scan. */
 export const SCAN_BYTES = 4 * 1024 * 1024;
 
-const NEWLINE = 0x0a;
 const CHUNK = 64 * 1024;
 
 /** How one CLI's records become chat entries. */
@@ -36,6 +37,8 @@ export interface LineReader {
   entries(record: unknown, ctx: { offset: number }): ChatEntryDraft[];
   /** The record's own time in epoch ms, or NaN when it has none. */
   timestamp(record: unknown): number;
+  /** The tool calls a record makes, with their full input (ids as its entries carry them). */
+  calls(record: unknown): RawCall[];
 }
 
 export interface PageOptions {
@@ -43,7 +46,16 @@ export interface PageOptions {
   after?: string;
   limit?: number;
   scanBytes?: number;
+  /**
+   * Mark the tool calls that touched a secret file, and their results (secretMarks.ts). A result
+   * whose call is older than the page looks for it within one more `scanBytes` of the file.
+   */
+  markSecrets?: boolean;
+  /** The session's project: its own paths are judged from its root down when marking secrets. */
+  projectRoot?: string | null;
 }
+
+type PageRecords = Array<{ offset: number; record: unknown }>;
 
 export interface TranscriptPage {
   entries: ChatEntry[];
@@ -76,26 +88,6 @@ function parseCursor(raw: string): { tag: string; offset: number } {
   const m = CURSOR_RE.exec(raw);
   if (!m) throw new CursorError('Not a chat cursor');
   return { tag: m[1], offset: Number(m[2]) };
-}
-
-async function readRange(fh: FileHandle, from: number, to: number): Promise<Buffer> {
-  const length = Math.max(0, to - from);
-  const buf = Buffer.alloc(length);
-  let done = 0;
-  while (done < length) {
-    const { bytesRead } = await fh.read(buf, done, length - done, from + done);
-    if (bytesRead === 0) break;
-    done += bytesRead;
-  }
-  return buf.subarray(0, done);
-}
-
-function parseRecord(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 /** Offset of the last newline before `end`, or -1. Reads backwards in chunks, holding none of them. */
@@ -135,36 +127,6 @@ async function readableEnd(fh: FileHandle, size: number, scanBytes: number): Pro
   return record !== null && typeof record === 'object' ? size : tailStart;
 }
 
-interface Line {
-  offset: number;
-  /** Offset just past the line (past its newline when it has one). */
-  next: number;
-  text: string;
-  complete: boolean;
-}
-
-/**
- * The lines of `buf`, which starts at byte `base`. Unless `startsAtLine`, the first segment is the
- * tail of a line that began earlier and is dropped.
- */
-function splitLines(buf: Buffer, base: number, startsAtLine: boolean): Line[] {
-  let at = 0;
-  if (!startsAtLine) {
-    const nl = buf.indexOf(NEWLINE);
-    if (nl < 0) return [];
-    at = nl + 1;
-  }
-  const lines: Line[] = [];
-  while (at < buf.length) {
-    const nl = buf.indexOf(NEWLINE, at);
-    const stop = nl < 0 ? buf.length : nl;
-    const next = nl < 0 ? buf.length : nl + 1;
-    lines.push({ offset: base + at, next: base + next, text: buf.toString('utf8', at, stop), complete: nl >= 0 });
-    at = next;
-  }
-  return lines;
-}
-
 /** Keys, times and folded command output for records in file order. */
 function toEntries(reader: LineReader, records: ReadonlyArray<{ offset: number; record: unknown }>): ChatEntry[] {
   const out: ChatEntry[] = [];
@@ -188,10 +150,10 @@ async function backwardPage(
   end: number,
   limit: number,
   scanBytes: number,
-): Promise<{ entries: ChatEntry[]; start: number }> {
+): Promise<{ records: PageRecords; start: number; prior: Line[]; base: number }> {
   const base = Math.max(0, end - scanBytes);
   const lines = splitLines(await readRange(fh, base, end), base, base === 0).filter((l) => nonEmpty(l.text));
-  const records: Array<{ offset: number; record: unknown }> = [];
+  const records: PageRecords = [];
   let count = 0;
   let first = lines.length;
   while (first > 0 && count < limit) {
@@ -202,7 +164,7 @@ async function backwardPage(
   }
   // A window with no line start in it (one line longer than the budget) still moves the next page back.
   const start = first < lines.length ? lines[first].offset : base;
-  return { entries: toEntries(reader, records), start };
+  return { records, start, prior: lines.slice(0, first), base };
 }
 
 async function forwardPage(
@@ -212,16 +174,16 @@ async function forwardPage(
   end: number,
   limit: number,
   scanBytes: number,
-): Promise<{ entries: ChatEntry[]; after: number }> {
+): Promise<{ records: PageRecords; after: number }> {
   const stop = Math.min(end, from + scanBytes);
   // Inside the readable end every line is whole; at a budget cut the last one may not be.
   const lines = splitLines(await readRange(fh, from, stop), from, true).filter((l) => l.complete || stop === end);
   if (lines.length === 0 && stop < end) {
     // One line longer than the whole budget: step over it.
     const nl = await nextNewlineFrom(fh, stop, end);
-    return { entries: [], after: nl < 0 ? end : nl + 1 };
+    return { records: [], after: nl < 0 ? end : nl + 1 };
   }
-  const records: Array<{ offset: number; record: unknown }> = [];
+  const records: PageRecords = [];
   let count = 0;
   let after = from;
   for (const line of lines) {
@@ -232,7 +194,7 @@ async function forwardPage(
     records.push({ offset: line.offset, record });
     count += reader.entries(record, { offset: line.offset }).length;
   }
-  return { entries: toEntries(reader, records), after };
+  return { records, after };
 }
 
 /** One page of chat entries from `file`. Throws CursorError for a malformed cursor. */
@@ -247,16 +209,32 @@ export async function readChatPage(file: string, reader: LineReader, opts: PageO
     const tag = fileTag(file, st);
     const end = await readableEnd(fh, st.size, scanBytes);
     const at = (offset: number) => `${tag}:${offset}`;
+    // Results look for their calls in what the page read but didn't show, then one more budget back.
+    const entriesOf = async (records: PageRecords, prior: Line[], readFrom: number): Promise<ChatEntry[]> => {
+      const entries = toEntries(reader, records);
+      if (!opts.markSecrets) return entries;
+      return markSecretEntries(entries, records, fh, (r) => reader.calls(r), {
+        prior,
+        end: readFrom,
+        budget: scanBytes,
+        projectRoot: opts.projectRoot,
+      });
+    };
 
     const stale = cursor !== null && (cursor.tag !== tag || cursor.offset > end);
     if (cursor && !stale && opts.after !== undefined) {
       const page = await forwardPage(fh, reader, cursor.offset, end, limit, scanBytes);
-      return { entries: page.entries, before: at(cursor.offset), after: at(page.after), hasMore: page.after < end };
+      return {
+        entries: await entriesOf(page.records, [], cursor.offset),
+        before: at(cursor.offset),
+        after: at(page.after),
+        hasMore: page.after < end,
+      };
     }
     const from = cursor && !stale ? cursor.offset : end;
     const page = await backwardPage(fh, reader, from, limit, scanBytes);
     return {
-      entries: page.entries,
+      entries: await entriesOf(page.records, page.prior, page.prior.length > 0 ? page.prior[0].offset : page.start),
       before: at(page.start),
       after: at(from),
       hasMore: page.start > 0,

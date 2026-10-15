@@ -15,6 +15,11 @@
  * `fileIndex` is a file's index in `files` (newest edit first), so a client re-reads the list when
  * the session edits again.
  *
+ * Every page marks the tool calls that touched a secret file and their results (`secret`,
+ * `callUnknown`; secretMarks.ts), judged on the calls' whole input and across pages. The content is
+ * the same for everyone: the phone profile hides what a paired phone may not see by those marks, and
+ * keeps a secret file in the edits list marked `redacted`, without hunks (phoneChatFilter.ts).
+ *
  * Mounted on the `/api` chain BEFORE the main API router, so it can't lean on that router's
  * `/sessions/:id` visibility gate: each route applies the same rule itself (a remote device sees only
  * a session shared with it; hidden and unknown both answer 404, so ids can't be probed). The gate is
@@ -85,7 +90,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
       const read = location.cli === 'codex' ? readCodexChatPage : readClaudeChatPage;
-      const page = await read(location.path, query.data);
+      const page = await read(location.path, { ...query.data, markSecrets: true, projectRoot: session.projectPath || null });
       const data: ChatPage = { ...page, cli: location.cli };
       res.json({ success: true, data });
     } catch (err) {

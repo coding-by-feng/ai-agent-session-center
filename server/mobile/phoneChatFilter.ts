@@ -6,12 +6,20 @@
 // chat must not hand over the same content as a Read result or an Edit's new text. The phone
 // still sees that the agent touched the file, and which one, just not what was in it.
 //
-// Applied by the phone profile to paired phones only; the Mac and a password sign-in see all.
+// Applied by the phone profile to paired phones only; the Mac and a password sign-in see all. What
+// touched a secret file is decided by the server's readers, on each call's whole input and across
+// pages, and marked on the entries (server/chat/secretMarks.ts for the chat, transcriptMarks.ts for the
+// classic layout's transcript); this hides by those marks. A call that only names a secret file (a
+// command) loses its text too, since `echo KEY=… >> .env` carries the secret itself; and a result or
+// call the reader couldn't judge is hidden (fail closed, for phones only).
 
 import { pathLooksSecret } from './secretPaths.js';
 
 /** What a phone sees instead of output that came from a secret file. */
 export const HIDDEN_ON_PHONES = '[Hidden on phones: this touched a secret file]';
+
+/** What a phone sees instead of a command (or any call) that names a secret file. */
+export const SECRET_COMMAND_NOTE = 'Ran a command that touches a secret file';
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -19,61 +27,56 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 /** Argument names that hold the one file a tool reads or writes. */
 const PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const;
 
-/** Files a patch touches: Codex's FileChange map, or the free-form `*** Update File: x` text. */
-function patchPaths(input: unknown): string[] | null {
-  if (isRec(input) && isRec(input.changes)) return Object.keys(input.changes);
-  if (typeof input === 'string' && input.includes('*** Begin Patch')) {
-    return [...input.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((m) => m[1].trim());
-  }
-  return null;
-}
+const editPathsOf = (entry: Rec): unknown[] => (Array.isArray(entry.editPaths) ? entry.editPaths : []);
 
-/** The words of a shell command, as a string or an argv array (`bash -lc "…"` included). */
-function commandWords(input: unknown): string[] {
-  if (!isRec(input)) return [];
-  const { command } = input;
-  const text = Array.isArray(command) ? command.filter((c) => typeof c === 'string').join(' ')
-    : typeof command === 'string' ? command : '';
-  return text.split(/[\s'"`|;&<>()=]+/).filter(Boolean);
-}
-
-/** The tool_use as a phone may see it, and whether its result must be hidden too. */
-function redactToolUse(entry: Rec): { entry: Rec; hideResult: boolean } {
+/**
+ * A tool_use that touched a secret file, as a phone sees it: for a read or an edit of one, which
+ * file(s) it was, not what was in them; for a command that names one, only that it ran.
+ */
+function redactedInput(entry: Rec): unknown {
+  if (entry.secretInput !== true) return { redacted: true, note: SECRET_COMMAND_NOTE };
   const input = entry.input;
-  const patch = patchPaths(input);
-  if (patch) {
-    return patch.some(pathLooksSecret)
-      ? { entry: { ...entry, input: { redacted: true, paths: patch } }, hideResult: true }
-      : { entry, hideResult: false };
-  }
-  if (isRec(input)) {
-    const field = PATH_FIELDS.find((f) => typeof input[f] === 'string');
-    if (field && pathLooksSecret(input[field] as string)) {
-      return { entry: { ...entry, input: { [field]: input[field], redacted: true } }, hideResult: true };
-    }
-    // A command stays visible (it is what ran); what it printed from a secret file does not.
-    if (commandWords(input).some(pathLooksSecret)) return { entry, hideResult: true };
-  }
-  return { entry, hideResult: false };
+  const field = isRec(input) ? PATH_FIELDS.find((f) => typeof input[f] === 'string') : undefined;
+  if (isRec(input) && field) return { [field]: input[field], redacted: true };
+  return { redacted: true, paths: editPathsOf(entry) };
 }
 
 /** `GET /sessions/:id/chat` for a phone: secret files' content replaced, everything else as is. */
 export function filterPhoneChatAnswer(body: unknown): unknown {
   if (!isRec(body) || !isRec(body.data) || !Array.isArray(body.data.entries)) return body;
-  const hidden = new Set<string>();
   const entries = body.data.entries.map((raw: unknown) => {
     if (!isRec(raw)) return raw;
-    if (raw.kind === 'tool_use') {
-      const { entry, hideResult } = redactToolUse(raw);
-      if (hideResult && typeof raw.id === 'string') hidden.add(raw.id);
-      return entry;
+    if (raw.kind === 'tool_use' && raw.secret === true) {
+      const { inputTruncated: _cut, ...rest } = raw;
+      return { ...rest, input: redactedInput(raw) };
     }
-    if (raw.kind === 'tool_result' && typeof raw.toolUseId === 'string' && hidden.has(raw.toolUseId)) {
+    if (raw.kind === 'tool_result' && (raw.secret === true || raw.callUnknown === true)) {
       return { ...raw, output: HIDDEN_ON_PHONES, truncated: false };
     }
     return raw;
   });
   return { ...body, data: { ...body.data, entries } };
+}
+
+/**
+ * `GET /sessions/:id/transcript` (the classic layout) for a phone. Its tool inputs are JSON strings,
+ * so a hidden one becomes the JSON of what a phone may see.
+ */
+export function filterPhoneTranscriptAnswer(body: unknown): unknown {
+  if (!isRec(body) || !Array.isArray(body.data)) return body;
+  const data = body.data.map((raw: unknown) => {
+    if (!isRec(raw)) return raw;
+    const unjudged = raw.callUnknown === true;
+    if (raw.role === 'tool_use' && (raw.secret === true || unjudged)) {
+      const seen = raw.secretInput === true
+        ? { redacted: true, paths: editPathsOf(raw) }
+        : { redacted: true, note: SECRET_COMMAND_NOTE };
+      return { ...raw, input: JSON.stringify(seen) };
+    }
+    if (raw.role === 'tool_result' && (raw.secret === true || unjudged)) return { ...raw, output: HIDDEN_ON_PHONES };
+    return raw;
+  });
+  return { ...body, data };
 }
 
 /**

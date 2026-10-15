@@ -30,6 +30,10 @@ interface ContentBlock {
   input?: unknown;
   content?: unknown;
   is_error?: boolean;
+  /** A tool_use block's call id. */
+  id?: string;
+  /** A tool_result block's call id: the tool_use it answers. */
+  tool_use_id?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,8 +45,8 @@ interface ContentBlock {
 export type ConversationEntry =
   | { role: 'user'; text: string; timestamp: number }
   | { role: 'assistant'; text: string; timestamp: number }
-  | { role: 'tool_use'; tool: string; input: string; timestamp: number }
-  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean }
+  | { role: 'tool_use'; tool: string; input: string; timestamp: number; id?: string }
+  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean; toolUseId?: string }
   | { role: 'event'; eventType: string; detail: string; timestamp: number };
 
 /** Per-entry payload caps so a single record can't bloat the response. */
@@ -274,6 +278,7 @@ export function readClaudeTranscript(
                 tool: typeof block.name === 'string' ? block.name : 'tool',
                 input: cap(stringifyToolPayload(block.input), TOOL_INPUT_CAP),
                 timestamp,
+                ...(typeof block.id === 'string' ? { id: block.id } : {}),
               });
             }
           }
@@ -291,7 +296,13 @@ export function readClaudeTranscript(
             if (block?.type === 'tool_result') {
               const output = cap(stringifyToolPayload(block.content), TOOL_RESULT_CAP);
               if (output.trim()) {
-                entries.push({ role: 'tool_result', output, timestamp, isError: block.is_error === true });
+                entries.push({
+                  role: 'tool_result',
+                  output,
+                  timestamp,
+                  isError: block.is_error === true,
+                  ...(typeof block.tool_use_id === 'string' ? { toolUseId: block.tool_use_id } : {}),
+                });
               }
             } else if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
               entries.push({ role: 'user', text: block.text, timestamp });

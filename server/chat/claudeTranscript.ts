@@ -24,6 +24,7 @@ import {
   type ChatEntryDraft,
 } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
+import type { RawCall } from './secretMarks.js';
 
 type Rec = Record<string, unknown>;
 
@@ -224,8 +225,19 @@ export function claudeRecordEntries(record: unknown): ChatEntryDraft[] {
   }
 }
 
+/** The tool calls one Claude record makes, with their full input. */
+export function claudeRecordCalls(record: unknown): RawCall[] {
+  if (!isRec(record) || record.isSidechain === true || record.type !== 'assistant' || !isRec(record.message)) return [];
+  const content = record.message.content;
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((b): b is Rec => isRec(b) && b.type === 'tool_use')
+    .map((b) => ({ id: capName(str(b.id)), name: str(b.name) || 'tool', input: b.input }));
+}
+
 export const claudeLineReader: LineReader = {
   entries: (record) => claudeRecordEntries(record),
+  calls: claudeRecordCalls,
   timestamp: (record) => (isRec(record) && typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN),
 };
 

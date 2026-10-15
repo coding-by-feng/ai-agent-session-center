@@ -49,7 +49,8 @@ import { getCommandIndex } from './commandIndex.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
-import { transcriptCliOf } from './chat/transcriptLocator.js';
+import { locateTranscript, transcriptCliOf } from './chat/transcriptLocator.js';
+import { markTranscriptSecrets } from './chat/transcriptMarks.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 
@@ -1545,7 +1546,7 @@ router.get('/sessions/:id/source', (req: Request, res: Response) => {
 // untruncated fidelity. Never 500s — on any error we return an empty array so
 // the client falls back to its in-memory logs. Claude sessions only: a Codex
 // session's conversation is never in ~/.claude/projects (AASC-49).
-router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
+router.get('/sessions/:id/transcript', async (req: Request, res: Response) => {
   try {
     const id = str(req.params.id);
     const session = getSession(id);
@@ -1558,7 +1559,9 @@ router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
       session.projectPath,
       session.transcriptPath ?? null,
     );
-    res.json({ success: true, data: entries });
+    // Marked so the phone profile can hide a secret file's content from a paired phone (AASC-41).
+    const marked = await markTranscriptSecrets(entries, await locateTranscript(session), session.projectPath);
+    res.json({ success: true, data: marked });
   } catch (err) {
     log.warn('api', `transcript read failed: ${err instanceof Error ? err.message : String(err)}`);
     res.json({ success: true, data: [] });
