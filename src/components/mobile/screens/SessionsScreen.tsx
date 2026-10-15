@@ -39,7 +39,7 @@ import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
 import { refreshSessionList } from '@/lib/sessionRefresh';
 import { liveRoomSessions, killRoomSessions } from '@/lib/roomKill';
-import { defaultSegment, sessionPath } from '@/lib/chat/phoneRoutes';
+import { defaultSegment, infoPath, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { restartBlocker } from '@/lib/chat/sessionInfoModel';
@@ -426,7 +426,12 @@ export default function SessionsScreen() {
       </div>
 
       <NewSessionSheet open={newOpen} onClose={closeNew} blocker={blocker} />
-      <SessionSheets sessionId={sheetFor} sheet={sheet} onSheet={setSheet} />
+      <SessionSheets
+        sessionId={sheetFor}
+        sheet={sheet}
+        onSheet={setSheet}
+        onOpenInfo={sheetFor ? () => push(infoPath(sheetFor)) : undefined}
+      />
       <Sheet open={groupSheet} onClose={closeGroupSheet} title="Group sessions by" detents={FIT} testId="group-by-sheet">
         <ListSection label="Group by" footer="Rooms and projects are listed in your Mac’s order.">
           {GROUP_BY_OPTIONS.map((o) => (

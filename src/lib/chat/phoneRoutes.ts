@@ -3,6 +3,8 @@
  *
  *   /sessions                     Sessions tab root
  *   /sessions/<id>/chat|changes|terminal   a session, on one segment
+ *   /sessions/<id>/info           its Info screen (AASC-46), and what Info opens:
+ *   /sessions/<id>/info/files|notes|queue|agents|popups
  *   /inbox   /queue   /more        the other tab roots
  *   /more/<page>                  History, Prompts, Review, Agenda, Settings, About, UI kit
  *
@@ -23,9 +25,15 @@ export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 export const MORE_PAGES = ['history', 'prompts', 'review', 'agenda', 'settings', 'about', 'gallery'] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
 
+/** What a session's Info screen opens (AASC-46). */
+export const INFO_PAGES = ['files', 'notes', 'queue', 'agents', 'popups'] as const;
+export type InfoPage = (typeof INFO_PAGES)[number];
+
 export type PhoneRoute =
   | { kind: 'tab-root'; tab: PhoneTab }
   | { kind: 'session'; sessionId: string; segment: SessionSegment }
+  /** `page` null: Info itself. */
+  | { kind: 'session-info'; sessionId: string; page: InfoPage | null }
   | { kind: 'more'; page: MorePage };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
@@ -45,9 +53,15 @@ export function sessionPath(sessionId: string, segment: SessionSegment = 'chat')
   return `/sessions/${sessionId}/${segment}`;
 }
 
+/** A session's Info screen, or one of the screens it opens. */
+export function infoPath(sessionId: string, page: InfoPage | null = null): string {
+  return page ? `/sessions/${sessionId}/info/${page}` : `/sessions/${sessionId}/info`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
+  if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
   return `/more/${route.page}`;
 }
 
@@ -59,8 +73,15 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   if (parts.length === 1) return isOneOf(PHONE_TABS, head) ? { kind: 'tab-root', tab: head } : null;
   if (head === 'sessions' && parts.length === 3) {
     const [, sessionId, segment] = parts;
-    if (!SESSION_ID.test(sessionId) || !isOneOf(SESSION_SEGMENTS, segment)) return null;
+    if (!SESSION_ID.test(sessionId)) return null;
+    if (segment === 'info') return { kind: 'session-info', sessionId, page: null };
+    if (!isOneOf(SESSION_SEGMENTS, segment)) return null;
     return { kind: 'session', sessionId, segment };
+  }
+  if (head === 'sessions' && parts.length === 4 && parts[2] === 'info') {
+    const [, sessionId, , page] = parts;
+    if (!SESSION_ID.test(sessionId) || !isOneOf(INFO_PAGES, page)) return null;
+    return { kind: 'session-info', sessionId, page };
   }
   if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1])) {
     return { kind: 'more', page: parts[1] };
@@ -73,7 +94,7 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'session' ? 'sessions' : 'more';
+  return route.kind === 'more' ? 'more' : 'sessions';
 }
 
 /** The stack a link to `path` restores: its tab's root, any parent screens, then the path. */
@@ -82,6 +103,12 @@ export function pathChain(path: string): string[] {
   if (!route) return [tabRootPath('sessions')];
   if (route.kind === 'tab-root') return [path];
   if (route.kind === 'session') return [tabRootPath('sessions'), path];
+  if (route.kind === 'session-info') {
+    // Under its session (on Chat: what a reload knows of it), and Info under its screens.
+    const info = infoPath(route.sessionId);
+    const base = [tabRootPath('sessions'), sessionPath(route.sessionId), info];
+    return route.page ? [...base, path] : base;
+  }
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(`/more/${page}`);
