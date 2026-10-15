@@ -1,0 +1,91 @@
+/* ============================================================
+   PhoneSuggestionBar — suggestions above the phone keyboard (AASC-20).
+   Mounted only under useIsMobile(), so no media query of its own.
+   One swipeable row, never a page overflow; every chip is a 44px
+   target on the 8px grid; text is --text-primary (4.5:1).
+   ============================================================ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.bar::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 70vw;
+  padding: 0 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 22px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.chip:hover { background: var(--bg-card-hover); border-color: var(--border-accent-strong); }
+.chip:active { background: var(--bg-subtle-strong); transform: scale(0.96); }
+.chip:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.sigil {
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fav { border-color: color-mix(in srgb, var(--accent-red) 55%, transparent); }
+
+.heart {
+  color: var(--accent-red);
+  font-size: 12px;
+}
+
+.token {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.abbr {
+  padding: 0 4px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.empty {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip { transition: none; }
+  .chip:active { transform: none; }
+}

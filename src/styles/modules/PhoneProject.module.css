@@ -1,0 +1,617 @@
+/* ============================================================
+   PhoneProject — the PROJECT tab on a phone (AASC-20): folder →
+   folder → file screens, search, and the read-only viewers.
+   Mounted only under useIsMobile(), so nothing here needs a media
+   query of its own (landscape gets one, for its short height).
+   Every control is a 44px target on the 8px grid, all five states,
+   text is --text-primary (4.5:1). Nothing is revealed by :hover.
+   ============================================================ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.root {
+  flex: 1 1 auto;
+  height: 100%;
+}
+/* The portal host: in the tab it fills the tab; full screen it covers the whole
+   app, under the bottom sheets (10020) so the outline still opens. The same
+   element moves between the two, so the file inside never remounts. */
+.slot {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.inlineHost {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.fullscreenHost {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  display: flex;
+  flex-direction: column;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  background: var(--bg-primary);
+}
+
+/* ---------- shared control faces ---------- */
+
+.iconBtn,
+.textBtn,
+.segmentBtn,
+.row,
+.crumb,
+.hitLine,
+.outlineItem,
+.moreLines {
+  font-family: inherit;
+  color: var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.iconBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+}
+.textBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+}
+
+.iconBtn:hover:not(:disabled),
+.textBtn:hover:not(:disabled),
+.segmentBtn:hover:not(:disabled),
+.row:hover,
+.crumb:hover,
+.hitLine:hover,
+.outlineItem:hover,
+.moreLines:hover { background: var(--bg-subtle); }
+
+.iconBtn:active:not(:disabled),
+.textBtn:active:not(:disabled),
+.segmentBtn:active:not(:disabled),
+.row:active,
+.crumb:active,
+.hitLine:active,
+.outlineItem:active,
+.moreLines:active { background: var(--bg-subtle-strong); transform: scale(0.98); }
+
+.iconBtn:focus-visible,
+.textBtn:focus-visible,
+.segmentBtn:focus-visible,
+.row:focus-visible,
+.crumb:focus-visible,
+.hitLine:focus-visible,
+.outlineItem:focus-visible,
+.moreLines:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+
+.iconBtn:disabled,
+.textBtn:disabled,
+.segmentBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.iconBtn[aria-pressed='true'],
+.textBtn[aria-pressed='true'],
+.segmentBtn[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent-cyan) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan) 14%, transparent);
+}
+
+/* ---------- header: Back · path · Search ---------- */
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 4px 4px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-header, var(--bg-panel));
+}
+.headerPad {
+  flex: none;
+  width: 4px;
+}
+
+.crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.crumbs::-webkit-scrollbar { display: none; }
+.crumbList {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.crumbItem {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.crumb {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-size: 14px;
+  text-decoration: underline;
+  text-decoration-color: var(--border-subtle-strong);
+  text-underline-offset: 4px;
+  white-space: nowrap;
+}
+.crumbSep {
+  padding: 0 2px;
+  color: var(--text-primary);
+  opacity: 0.6;
+}
+.crumbCurrent {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.screenTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.screenTitleSub {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.notice {
+  flex: none;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--accent-yellow) 10%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- a folder's list ---------- */
+
+.list {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  list-style: none;
+}
+.list > li + li { margin-top: 4px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  text-align: left;
+}
+.rowIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-primary);
+}
+.rowIcon svg {
+  width: 20px;
+  height: 20px;
+}
+.rowIconDir { color: var(--accent-text, var(--accent-cyan)); }
+.rowText {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rowName {
+  overflow: hidden;
+  font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rowMeta {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.rowChevron { flex: none; }
+
+/* ---------- search ---------- */
+
+.search {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.searchForm {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px 0;
+}
+.searchForm > button { min-height: 44px; }
+.searchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px: iOS zooms the page into any smaller field on focus. */
+  font-size: 16px;
+  transition: border-color 150ms ease;
+}
+.searchInput:hover { border-color: var(--border-accent-strong); }
+.searchInput:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+
+.segment {
+  flex: none;
+  display: inline-flex;
+  margin: 8px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fileBar .segment { margin: 0; }
+.segmentBtn {
+  min-width: 72px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 13px;
+}
+.segmentBtn + .segmentBtn { border-left: 1px solid var(--border-subtle-strong); }
+
+.searchResults {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.searchResults > .list { overflow: visible; padding-top: 0; }
+.searchHint {
+  margin: 0;
+  padding: 0 16px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hitGroups {
+  margin: 0;
+  padding: 0 8px 16px;
+  list-style: none;
+}
+.hitGroup + .hitGroup { margin-top: 8px; }
+.hitFile {
+  margin: 0;
+  padding: 8px 8px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.hitLines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.hitLines > li + li { border-top: 1px solid var(--border-subtle); }
+.hitLine {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  box-sizing: border-box;
+  border: none;
+  background: var(--bg-card);
+  text-align: left;
+}
+.hitNum {
+  flex: none;
+  min-width: 32px;
+  font-size: 12px;
+  text-align: right;
+  opacity: 0.85;
+}
+.hitText {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ---------- a file ---------- */
+
+.fileView {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.fileBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.fileMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fileBody {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The desktop's Markdown look at phone size: 15px body text, and the scroller is
+   the file view's own (two classes, so it wins over ProjectTab's `.markdown`). */
+.scroll .markdown {
+  flex: none;
+  overflow: visible;
+  padding: 8px 16px 32px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.scroll .markdown img { max-width: 100%; height: auto; }
+.scroll .markdown pre,
+.scroll .markdown table { max-width: 100%; overflow-x: auto; }
+
+.code {
+  padding: 8px 0 32px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.codeLine {
+  display: flex;
+  min-width: max-content;
+}
+.codeWrap .codeLine { min-width: 0; }
+.codeLineTarget { background: color-mix(in srgb, var(--accent-yellow) 18%, transparent); }
+.lineNum {
+  position: sticky;
+  left: 0;
+  flex: none;
+  min-width: 48px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+  text-align: right;
+  user-select: none;
+  opacity: 0.75;
+}
+.codeLineTarget .lineNum { opacity: 1; font-weight: 700; }
+.lineText {
+  padding: 0 16px 0 8px;
+  white-space: pre;
+}
+.codeWrap .lineText {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.moreLines {
+  display: block;
+  width: calc(100% - 16px);
+  min-height: 44px;
+  margin: 8px;
+  border: 1px dashed var(--border-subtle-strong);
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+}
+
+.media {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 16px;
+}
+.media video,
+.media audio { max-width: 100%; max-height: 100%; }
+
+/* ---------- outline sheet ---------- */
+
+.outline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.outline > li + li { margin-top: 4px; }
+.outlineItem {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.outlineItem[data-level='1'] { font-weight: 700; }
+.outlineItem[data-level='2'] { padding-left: 24px; }
+.outlineItem[data-level='3'] { padding-left: 40px; }
+.outlineItem[data-level='4'] { padding-left: 56px; }
+
+/* ---------- image ---------- */
+
+.imageViewer {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.imageStage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  /* Every touch is the picture's: a pinch zooms it, never the page. */
+  touch-action: none;
+  background: #14141f;
+}
+.image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.imageBar {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+/* A phone held sideways has the width but not the height: one tight header row. */
+@media (max-height: 480px) {
+  .header { min-height: 48px; padding: 2px 4px; }
+  .fileBar { padding: 2px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconBtn, .textBtn, .segmentBtn, .row, .crumb, .hitLine, .outlineItem, .moreLines { transition: none; }
+  .iconBtn:active:not(:disabled),
+  .textBtn:active:not(:disabled),
+  .segmentBtn:active:not(:disabled),
+  .row:active, .crumb:active, .hitLine:active, .outlineItem:active, .moreLines:active { transform: none; }
+}
+
+/* A search hit: dark on yellow, 12:1 in every theme. */
+.mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: #ffcc00;
+  color: #0a0a1a;
+}

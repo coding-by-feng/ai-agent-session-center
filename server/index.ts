@@ -33,6 +33,7 @@ import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
+import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -339,7 +340,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     sessionOfTerminal: (terminalId) => getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId),
     foregroundProcess: getForegroundProcess,
   });
-  app.use('/api', authMiddleware, phoneProfile, apiRouter);
+  // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
+  const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

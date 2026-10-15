@@ -1995,6 +1995,20 @@
   padding: 0 16px;
   border-radius: 8px;
 }
+/* Quiet-hours rows (AASC-20): two native time pickers, then the hint and the
+   delete on the line below when the screen is narrow — never clipped. */
+.chainModalPhone .excludeWindowRow {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.chainModalPhone .excludeWindowHint,
+.chainModalPhone .excludeWindowInvalid {
+  font-size: 12px;
+}
+.chainModalPhone .excludeWindowRow .chainStepBtn {
+  margin-left: auto;
+}
 
 /* ---- Item edit inline type controls ---- */
 .queueEditTypeRow {

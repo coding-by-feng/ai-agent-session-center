@@ -3,20 +3,33 @@ import type { PDFViewer as Viewer } from 'pdfjs-dist/types/web/pdf_viewer';
 import Button from '@/components/ui/Button';
 import TextInput from '@/components/ui/TextInput';
 import NativeSelect from '@/components/ui/NativeSelect';
+import { SearchIcon } from '@/components/mobile/projectIcons';
 import { readPdfPosition, writePositionValue, type PdfPosition } from '@/lib/fileReadingPosition';
 import { LocalCMapReader, LocalStandardFonts } from '@/lib/pdfAssets';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import styles from '@/styles/modules/PdfViewer.module.css';
 
+/** Zoom steps of the phone toolbar's − and + (AASC-20). */
+const COMPACT_ZOOM_STEP = 1.25;
+const COMPACT_ZOOM_MIN = 0.25;
+const COMPACT_ZOOM_MAX = 5;
+
 export default function PdfViewer({
   src,
   name,
   positionKey,
+  compact = false,
 }: {
   src: string;
   name: string;
   positionKey: string;
+  /**
+   * A phone (AASC-20): one row of 44px controls (page, zoom, find) instead of
+   * the desktop's eleven. Rotate, download and "open original" act on another
+   * window, which the phone app does not have.
+   */
+  compact?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const pages = useRef<HTMLDivElement>(null);
@@ -28,6 +41,7 @@ export default function PdfViewer({
   const [page, setPage] = useState('1');
   const [zoom, setZoom] = useState('page-width');
   const [error, setError] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
   useEffect(() => {
     const el = container.current;
     const pageEl = pages.current;
@@ -185,6 +199,120 @@ export default function PdfViewer({
       disposed = true;
     };
   }, [src, positionKey]);
+  const goToPage = () => {
+    const v = viewerRef.current;
+    if (v) {
+      v.currentPageNumber = Math.max(1, Math.min(count, Math.trunc(Number(page)) || 1));
+      setPage(String(v.currentPageNumber));
+    }
+  };
+  const stepZoom = (factor: number) => {
+    const v = viewerRef.current;
+    if (v) v.currentScale = Math.max(COMPACT_ZOOM_MIN, Math.min(COMPACT_ZOOM_MAX, v.currentScale * factor));
+  };
+  const status = error ? (
+    <div role="alert" className={styles.status}>
+      {error}
+    </div>
+  ) : (
+    !count && (
+      <div role="status" className={styles.status}>
+        Loading PDF…
+      </div>
+    )
+  );
+  const frame = (
+    <div className={styles.frame}>
+      <div ref={container} className={styles.scroller} tabIndex={0} aria-label="PDF pages">
+        <div ref={pages} className="pdfViewer" />
+      </div>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <section className={styles.root} aria-label={`PDF: ${name}`}>
+        <div className={styles.compactBar} role="toolbar" aria-label="PDF controls">
+          {/* Pages scroll under the finger; the number jumps. */}
+          <form
+            className={styles.compactPage}
+            onSubmit={(e) => {
+              e.preventDefault();
+              goToPage();
+            }}
+          >
+            <TextInput
+              className={styles.compactPageInput}
+              type="number"
+              inputMode="numeric"
+              enterKeyHint="go"
+              min={1}
+              max={count || 1}
+              aria-label={`PDF page, of ${count || 'unknown'}`}
+              value={page}
+              onChange={(e) => setPage(e.target.value)}
+              onBlur={goToPage}
+            />
+            <span className={styles.compactCount} aria-hidden="true">/ {count || '…'}</span>
+          </form>
+          <div className={styles.compactZoom} role="group" aria-label="Zoom">
+            <Button aria-label="Zoom out" disabled={!count} onClick={() => stepZoom(1 / COMPACT_ZOOM_STEP)}>
+              −
+            </Button>
+            <Button
+              aria-label="Fit page width"
+              pressed={zoom === 'page-width'}
+              disabled={!count}
+              onClick={() => {
+                if (viewerRef.current) viewerRef.current.currentScaleValue = 'page-width';
+              }}
+            >
+              Fit
+            </Button>
+            <Button aria-label="Zoom in" disabled={!count} onClick={() => stepZoom(COMPACT_ZOOM_STEP)}>
+              +
+            </Button>
+          </div>
+          <span className={styles.compactSpacer} />
+          <Button aria-label="Find in PDF" pressed={findOpen} disabled={!count} onClick={() => setFindOpen((o) => !o)}>
+            <SearchIcon />
+          </Button>
+        </div>
+        {findOpen && (
+          <form
+            className={styles.compactFind}
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              findRef.current?.(query);
+            }}
+          >
+            <TextInput
+              className={styles.compactFindInput}
+              type="search"
+              aria-label="Find in PDF"
+              placeholder="Find in PDF"
+              enterKeyHint="search"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setMatches('');
+              }}
+            />
+            <Button type="submit" disabled={!query}>
+              Next
+            </Button>
+            <span role="status" className={styles.compactMatches}>
+              {matches}
+            </span>
+          </form>
+        )}
+        {status}
+        {frame}
+      </section>
+    );
+  }
+
   return (
     <section className={styles.root} aria-label={`PDF: ${name}`}>
       <div className={styles.toolbar} aria-label="PDF controls">
@@ -295,22 +423,8 @@ export default function PdfViewer({
           Open original / print
         </a>
       </div>
-      {error ? (
-        <div role="alert" className={styles.status}>
-          {error}
-        </div>
-      ) : (
-        !count && (
-          <div role="status" className={styles.status}>
-            Loading PDF…
-          </div>
-        )
-      )}
-      <div className={styles.frame}>
-        <div ref={container} className={styles.scroller} tabIndex={0} aria-label="PDF pages">
-          <div ref={pages} className="pdfViewer" />
-        </div>
-      </div>
+      {status}
+      {frame}
     </section>
   );
 }

@@ -48,3 +48,54 @@
   margin-left: 4px;
   min-width: 44px;
 }
+
+/* ---- On a phone (AASC-20): the platform's own time picker ----
+   Rendered only under useIsMobile(): 44px targets, 16px text (iOS zooms the
+   page into a smaller field), 8px grid, all five states. */
+.nativeGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.native {
+  min-width: 120px;
+  min-height: 44px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle-strong, rgba(255, 255, 255, 0.2));
+  border-radius: 8px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 16px;
+  /* No color-scheme here: the theme's own (base.css / themes/*) draws the picker. */
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.native:hover:not(:disabled) { border-color: var(--border-accent-strong, rgba(0, 229, 255, 0.3)); }
+.native:active:not(:disabled) { background: var(--bg-subtle-strong, rgba(255, 255, 255, 0.1)); }
+.native:focus-visible { outline: 2px solid var(--accent-cyan, #00e5ff); outline-offset: 2px; }
+.native:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.nativeClear {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle-strong, rgba(255, 255, 255, 0.2));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.nativeClear:hover:not(:disabled) { background: var(--bg-subtle, rgba(255, 255, 255, 0.06)); }
+.nativeClear:active:not(:disabled) { transform: scale(0.97); }
+.nativeClear:focus-visible { outline: 2px solid var(--accent-cyan, #00e5ff); outline-offset: 2px; }
+.nativeClear:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  .native, .nativeClear { transition: none; }
+  .nativeClear:active:not(:disabled) { transform: none; }
+}

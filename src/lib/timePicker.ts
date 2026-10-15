@@ -72,3 +72,24 @@ export function formatHHMM(hour: number, minute: number, ampm: Ampm): string {
 /** Pre-built option arrays so render code doesn't have to map() each time. */
 export const HOUR_OPTIONS_12: number[] = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 export const MINUTE_OPTIONS: number[] = Array.from({ length: 60 }, (_, i) => i);
+
+/**
+ * A stored `HH:MM` as an `<input type="time">` value (always two-digit hours),
+ * or '' when unset or invalid. The phone's native picker (AASC-20) reads this.
+ */
+export function toTimeInputValue(hhmm: string | undefined | null): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm ?? '');
+  if (!m || !parseHHMM(hhmm)) return '';
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
+/**
+ * An `<input type="time">` value back to the stored `HH:MM` 24-hour format:
+ * seconds dropped, '' (cleared) or anything malformed is undefined.
+ */
+export function fromTimeInputValue(value: string): string | undefined {
+  const m = /^(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(value);
+  if (!m) return undefined;
+  const hhmm = `${m[1]}:${m[2]}`;
+  return parseHHMM(hhmm) ? hhmm : undefined;
+}

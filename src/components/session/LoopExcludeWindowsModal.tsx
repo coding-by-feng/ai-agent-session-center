@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExcludeWindow } from '@/stores/queueStore';
 import TimePicker12 from '@/components/ui/TimePicker12';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface LoopExcludeWindowsModalProps {
@@ -33,6 +34,9 @@ export default function LoopExcludeWindowsModal({
     windows.map((w) => ({ ...w })),
   );
   const overlayRef = useRef<HTMLDivElement>(null);
+  // On a phone (AASC-20) the editor takes the screen like the item editor does,
+  // with native time pickers and 44px controls.
+  const isMobile = useIsMobile();
 
   // ESC closes the sheet.
   useEffect(() => {
@@ -67,8 +71,12 @@ export default function LoopExcludeWindowsModal({
   };
 
   return (
-    <div ref={overlayRef} className={styles.chainModalOverlay} onClick={handleOverlayClick}>
-      <div className={styles.chainModalPanel} role="dialog" aria-modal="true">
+    <div
+      ref={overlayRef}
+      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone}` : ''}`}
+      onClick={handleOverlayClick}
+    >
+      <div className={styles.chainModalPanel} role="dialog" aria-modal="true" aria-label="Session quiet hours">
         <div className={styles.chainModalHeader}>
           <h3>Session quiet hours</h3>
           <button className={styles.chainCloseBtn} onClick={onClose} aria-label="Close">✕</button>
@@ -117,6 +125,7 @@ export default function LoopExcludeWindowsModal({
                   <button
                     className={`${styles.chainStepBtn} ${styles.chainStepDel}`}
                     onClick={() => removeWindow(w.id)}
+                    aria-label={`Delete quiet hours ${w.startHHMM} to ${w.endHHMM}`}
                     title="Delete window"
                   >
                     ✕
