@@ -14,7 +14,7 @@ import type { Session } from '@/types';
 import { Button, ConfirmSheet } from '../kit';
 import { ChevronRightIcon } from '../kit/kitIcons';
 import { inboxAge, type InboxItem } from '@/lib/chat/inboxItems';
-import { waitingCardModel } from '@/lib/chat/waitingCardModel';
+import { offeredChoices, waitingCardModel } from '@/lib/chat/waitingCardModel';
 import { choiceKey, useRequestAnswer } from './useRequestAnswer';
 import { ContinueIcon, DoneIcon, QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Inbox.module.css';
@@ -44,6 +44,7 @@ function Answers({ item, session, onOpen, onRead }: { item: InboxItem; session: 
   const { busy, outcome, confirm, cancelConfirm, answer, spectator, driver } = useRequestAnswer(session.sessionId, card?.requestId ?? null, card?.cliName);
   if (!card) return null;
   const terminalOnly = card.terminalOnly || outcome?.kind === 'terminal-only';
+  const { offered, reasons } = offeredChoices(card.choices);
   const isQuestion = card.kind === 'question';
   return (
     <>
@@ -59,9 +60,10 @@ function Answers({ item, session, onOpen, onRead }: { item: InboxItem; session: 
       )}
       {!terminalOnly && !outcome && (
         <>
+          {reasons.map((reason) => <p key={reason} className={styles.note}>{reason}</p>)}
           {spectator && <p className={styles.note}>{driver} is driving. Answering takes control.</p>}
           <div className={isQuestion ? styles.options : styles.actions} role="group" aria-label={`Answers for ${item.title}`}>
-            {card.choices.map((choice) => (
+            {offered.map((choice) => (
               <Button
                 key={choiceKey(choice.answer)}
                 small
@@ -69,7 +71,6 @@ function Answers({ item, session, onOpen, onRead }: { item: InboxItem; session: 
                 className={choice.tone === 'destructive' ? styles.deny : undefined}
                 onClick={() => { onRead(item.id); answer(choice); }}
                 loading={busy === choiceKey(choice.answer)}
-                disabledReason={choice.disabledReason}
               >
                 {spectator && choice.tone === 'primary' ? `Take control and ${choice.label.toLowerCase()}` : choice.label}
               </Button>

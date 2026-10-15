@@ -1,7 +1,7 @@
 // waitingCardModel.test.ts — what a waiting card shows and which choices it offers (AASC-43).
 import { describe, it, expect } from 'vitest';
 import type { PendingRequest, Session } from '@/types';
-import { lineDiff, waitingCardModel, type CardDetail } from './waitingCardModel';
+import { lineDiff, offeredChoices, waitingCardModel, type CardDetail } from './waitingCardModel';
 
 function request(extra: Partial<PendingRequest>): PendingRequest {
   return { id: 'toolu_1', kind: 'permission', cli: 'claude', tool: 'Bash', raisedAt: 1, source: 'permission_request', ...extra };
@@ -250,5 +250,19 @@ describe('long diffs on the card', () => {
     expect(detail.truncated).toBe(true);
     expect(detail.lines.length).toBeLessThanOrEqual(401);
     expect(detail.added).toBe(900);
+  });
+});
+
+describe('offeredChoices', () => {
+  it('offers what can be answered, and says once why the rest can’t', () => {
+    const card = waitingCardModel(session({ pendingRequest: request({ input: { command: 'echo … [truncated]' }, inputTruncated: true }) }))!;
+    const { offered, reasons } = offeredChoices(card.choices);
+    expect(offered.map((c) => c.label)).toEqual(['Deny']);
+    expect(reasons).toEqual(['Too long to show in full: allow it in the terminal.']);
+  });
+
+  it('offers everything when nothing is blocked', () => {
+    const card = waitingCardModel(session({ pendingRequest: request({ input: { command: 'ls' } }) }))!;
+    expect(offeredChoices(card.choices)).toEqual({ offered: card.choices, reasons: [] });
   });
 });

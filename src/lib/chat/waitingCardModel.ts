@@ -379,3 +379,14 @@ export function waitingCardModel(session: CardSession, opts: CardOptions = {}): 
     terminalOnly: false,
   };
 }
+
+/**
+ * The choices a card shows as buttons, and why the others can't be pressed, each
+ * reason once. Two blocked Allow buttons each repeating "Too long to show in full"
+ * under itself took the room the card's other answers needed.
+ */
+export function offeredChoices(choices: readonly CardChoice[]): { offered: CardChoice[]; reasons: string[] } {
+  if (choices.every((c) => !c.disabledReason)) return { offered: [...choices], reasons: [] };
+  const reasons = [...new Set(choices.flatMap((c) => (c.disabledReason ? [c.disabledReason] : [])))];
+  return { offered: choices.filter((c) => !c.disabledReason), reasons };
+}

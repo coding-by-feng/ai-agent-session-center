@@ -108,6 +108,16 @@ describe('WaitingCard', () => {
     expect(screen.getByTestId('waiting-card-terminal')).toBeInTheDocument();
   });
 
+  it('for an input cut to fit, offers Deny and says once why it can’t be allowed here', () => {
+    stubAnswer();
+    renderCard(session({ ...bash, input: { command: 'echo … [truncated]' }, inputTruncated: true }));
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always allow' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument();
+    expect(screen.getAllByText('Too long to show in full: allow it in the terminal.')).toHaveLength(1);
+    expect(screen.getByTestId('waiting-card-terminal')).toBeInTheDocument();
+  });
+
   it('asks before "Always allow" (no Face ID bridge on a Mac-served page)', async () => {
     const calls = stubAnswer();
     renderCard(session(bash));
@@ -127,6 +137,15 @@ describe('WaitingCard', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Take control and allow once' }).at(-1)!);
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(claimControl).toHaveBeenCalledWith('s1', true);
+  });
+
+  it('while another device drives, offers no "Tell Claude…" (the box is off), but always "Open terminal"', () => {
+    stubAnswer();
+    presence(true);
+    renderCard(session(bash));
+    expect(screen.queryByRole('button', { name: /Tell Claude what to do instead/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('waiting-card-terminal')).toBeInTheDocument();
+    expect(screen.getByText('Your Mac is driving. Answering takes control.')).toBeInTheDocument();
   });
 
   it('a question shows its options, then Other…, which hands over to the composer', async () => {
