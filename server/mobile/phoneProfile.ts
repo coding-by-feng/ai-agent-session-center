@@ -43,6 +43,8 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - upload    an image upload, within the phone's per-minute budget
  * - launch    a known project folder and a CLI AASC launches, nothing else
  * - origin    an AI popup: from a shared session, asked from a shared session's terminal
+ * On top of the rule, every route that opens a new agent terminal (opensTerminal)
+ * counts against the phone's per-minute terminal budget (AASC-32).
  */
 export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
 
@@ -208,6 +210,27 @@ export function isAgentProcessName(name: string | null | undefined): boolean {
 /** Uploads (queue images, note media) one phone may make per minute. */
 export const PHONE_UPLOADS_PER_MINUTE = 20;
 
+/**
+ * New agent terminals one phone may open per minute (AASC-32). Each one is a
+ * PTY on the Mac, and the Mac has a hard ceiling (terminalCapacity.ts): a stuck
+ * retry or a misbehaving app must not fill it. A person tapping makes a few.
+ */
+export const PHONE_TERMINALS_PER_MINUTE = 10;
+
+const BUDGET_WINDOW_MS = 60_000;
+
+/** The routes that open a new agent terminal: launch, resume, restart, reconnect, fork, clone, AI popup. */
+const TERMINAL_OPENING: ReadonlyArray<{ method: string; path: RegExp }> = [
+  { method: 'POST', path: /^\/terminals\/?$/ },
+  { method: 'POST', path: /^\/sessions\/[^/]+\/(resume|restart-terminal|reconnect-terminal|fork|clone)\/?$/ },
+  { method: 'POST', path: /^\/sessions\/spawn-floating\/?$/ },
+];
+
+/** Does this request open a new agent terminal on the Mac? */
+export function opensTerminal(method: string, path: string): boolean {
+  return TERMINAL_OPENING.some((r) => r.method === method.toUpperCase() && r.path.test(path));
+}
+
 const one = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typeof v === 'string' ? v : '');
 
 function expandHome(p: string, home: string): string {
@@ -321,17 +344,29 @@ const NOT_FOUND = { error: 'Not found', code: 'PHONE_NOT_ALLOWED' } as const;
 export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   const home = deps.home ?? homedir();
   const now = deps.now ?? Date.now;
-  const uploads = new Map<string, { windowStart: number; count: number }>();
+  type Bucket = { windowStart: number; count: number };
+  const uploads = new Map<string, Bucket>();
+  const terminalsOpened = new Map<string, Bucket>();
 
-  function overUploadBudget(phone: string): boolean {
+  /** Count one more in this phone's current minute; true when it goes over `limit`. */
+  function overBudget(buckets: Map<string, Bucket>, phone: string, limit: number): boolean {
     const t = now();
-    const bucket = uploads.get(phone);
-    if (!bucket || t - bucket.windowStart >= 60_000) {
-      uploads.set(phone, { windowStart: t, count: 1 });
+    const bucket = buckets.get(phone);
+    if (!bucket || t - bucket.windowStart >= BUDGET_WINDOW_MS) {
+      buckets.set(phone, { windowStart: t, count: 1 });
       return false;
     }
     bucket.count++;
-    return bucket.count > PHONE_UPLOADS_PER_MINUTE;
+    return bucket.count > limit;
+  }
+
+  const overUploadBudget = (phone: string): boolean => overBudget(uploads, phone, PHONE_UPLOADS_PER_MINUTE);
+
+  /** Whole seconds until this phone's terminal budget starts over. */
+  function terminalRetryAfter(phone: string): number {
+    const bucket = terminalsOpened.get(phone);
+    if (!bucket) return 0;
+    return Math.max(1, Math.ceil((bucket.windowStart + BUDGET_WINDOW_MS - now()) / 1000));
   }
 
   function refusal(rule: PhoneRule, req: Request, phone: string): string | null {
@@ -377,6 +412,16 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       reason = 'malformed request';
     }
     if (reason === null) {
+      // Counted only once the profile lets it through: a refused request opens nothing.
+      if (opensTerminal(req.method, req.path) && overBudget(terminalsOpened, phone, PHONE_TERMINALS_PER_MINUTE)) {
+        log.warn('mobile', `Paired phone ${phone.slice(0, 8)} refused: ${req.method} ${req.path} (terminal budget)`);
+        res.status(429).json({
+          error: 'This phone opened a lot of terminals in the last minute. Wait a moment and try again.',
+          code: 'PHONE_TERMINAL_LIMIT',
+          retryAfter: terminalRetryAfter(phone),
+        });
+        return;
+      }
       if (rule === 'files' && /^\/files\/(grep|search)\/?$/.test(req.path)) {
         const root = one(req.query.root);
         const shared = deps.sharedProjectPaths();
