@@ -7,20 +7,22 @@
 //    first), and a colour is `Room.color`: `roomIndex`, a 3D world slot, is
 //    never written;
 //  - both are reachable from a drawer row's ⋯ sheet and the session header's ⋯;
-//  - a remote phone is told its room changes stay on the phone.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+//  - on the device that owns the rooms (the Mac's window, the workspace writer) the sheets change the room
+//    store directly; on any other device (a remote phone) they ask the Mac with POST /api/rooms/ops and leave
+//    the local list alone, which the Mac's next `rooms_update` replaces (AASC-20).
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
 
-vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
-const host = vi.hoisted(() => ({ isHost: false }));
-vi.mock('./views/hostAccess', () => ({ useIsHostDevice: () => host.isHost }));
+const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
+vi.mock('@/components/ui/ToastContainer', () => toast);
 vi.mock('@/lib/deviceIdentity', () => ({ getClientId: () => 'phone', getClientLabel: () => 'iPhone' }));
 vi.mock('@/lib/sessionCopy', () => ({ copySession: vi.fn() }));
 
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 import { ManageRoomsSheet, MoveToRoomSheet } from './RoomSheets';
 import SessionActionsSheet from './SessionActionsSheet';
@@ -31,8 +33,14 @@ const room = (id: string, name: string, sessionIds: string[], roomIndex: number,
 const session = (id: string, title: string): Session =>
   ({ sessionId: id, title, projectName: 'app', status: 'idle', lastActivityAt: 1, events: [], promptHistory: [] }) as unknown as Session;
 
+/** Which device owns the rooms (the workspace writer). 'phone' is this device. */
+function setWriter(writer: string | null): void {
+  usePresenceStore.getState().applyPresence({ devices: [], controllers: [], restoreOwner: null, workspaceWriter: writer });
+}
+
 beforeEach(() => {
-  host.isHost = false;
+  setWriter('phone');
+  toast.showToast.mockClear();
   localStorage.clear();
   useRoomStore.setState({
     rooms: [
@@ -83,13 +91,9 @@ describe('MoveToRoomSheet', () => {
     expect(byName).toEqual({ Second: 1, First: 0, Fresh: 2 });
   });
 
-  it('says a remote phone\'s room changes stay on the phone, and not on the Mac itself', () => {
-    const { unmount } = render(<MoveToRoomSheet sessionId="a" onClose={vi.fn()} />);
-    expect(screen.getByText(/stay on this phone/)).toBeTruthy();
-    unmount();
-    host.isHost = true;
+  it('says nothing about the Mac on the device that owns the rooms', () => {
     render(<MoveToRoomSheet sessionId="a" onClose={vi.fn()} />);
-    expect(screen.queryByText(/stay on this phone/)).toBeNull();
+    expect(screen.queryByText(/come from your Mac/)).toBeNull();
   });
 });
 
@@ -156,5 +160,113 @@ describe('the ⋯ sheets reach both', () => {
     render(<SessionActionsSheet sessionId="b" onClose={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Manage rooms…' }));
     expect(await screen.findByTestId('manage-rooms')).toBeTruthy();
+  });
+});
+
+// ── A device that doesn't own the rooms ──────────────────────────────────────────────────────────────────
+
+describe('on a remote phone, the sheets ask the Mac', () => {
+  const fetchMock = vi.fn();
+  /** The ops POSTed so far. */
+  const ops = () => fetchMock.mock.calls
+    .filter(([url]) => url === '/api/rooms/ops')
+    .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+  const answer = (status: number, body: Record<string, unknown>) =>
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(body), { status }));
+
+  beforeEach(() => {
+    setWriter('the-mac');
+    fetchMock.mockReset();
+    answer(202, { ok: true, opId: 'op-1' });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('moves a session by asking the Mac, and leaves the local list to the Mac\'s answer', async () => {
+    const onClose = vi.fn();
+    render(<MoveToRoomSheet sessionId="a" onClose={onClose} />);
+    await userEvent.setup().click(screen.getByRole('button', { name: /Second/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(ops()).toEqual([{ type: 'move', sessionId: 'a', roomId: 'r2' }]);
+    expect(roomsOf('a')).toEqual(['First']);
+    expect(toast.showToast).toHaveBeenCalledWith(expect.stringContaining('Second'), 'info');
+  });
+
+  it('takes a session out of its room, and makes a room and moves into it, in one op each', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<MoveToRoomSheet sessionId="a" onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: /No room/ }));
+    await waitFor(() => expect(ops()).toHaveLength(1));
+    unmount();
+    render(<MoveToRoomSheet sessionId="a" onClose={vi.fn()} />);
+    await user.type(screen.getByRole('textbox', { name: 'New room name' }), 'Fresh');
+    await user.click(screen.getByRole('button', { name: 'Create and move' }));
+    await waitFor(() => expect(ops()).toHaveLength(2));
+    expect(ops()).toEqual([
+      { type: 'move', sessionId: 'a', roomId: null },
+      { type: 'create', name: 'Fresh', sessionId: 'a' },
+    ]);
+    expect(useRoomStore.getState().rooms.map((r) => r.name)).toEqual(['Second', 'First']);
+  });
+
+  it('creates, renames, colours and deletes rooms by asking the Mac', async () => {
+    const user = userEvent.setup();
+    render(<ManageRoomsSheet open onClose={vi.fn()} />);
+    await user.type(screen.getByRole('textbox', { name: 'New room name' }), 'Games');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(ops()).toHaveLength(1));
+    expect((screen.getByRole('textbox', { name: 'New room name' }) as HTMLInputElement).value).toBe('');
+
+    await user.click(screen.getByRole('button', { name: 'Rename First' }));
+    const field = screen.getByRole('textbox', { name: 'New name for First' });
+    await user.clear(field);
+    await user.type(field, 'Main');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(ops()).toHaveLength(2));
+
+    await user.click(screen.getByRole('button', { name: 'Colour of Second' }));
+    await user.click(screen.getByRole('button', { name: 'Pink' }));
+    await waitFor(() => expect(ops()).toHaveLength(3));
+    await user.click(screen.getByRole('button', { name: 'Colour of Second' }));
+    await user.click(screen.getByRole('button', { name: 'Default' }));
+    await waitFor(() => expect(ops()).toHaveLength(4));
+
+    await user.click(screen.getByRole('button', { name: 'Delete First' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Delete room "First"?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Delete room' }));
+    await waitFor(() => expect(ops()).toHaveLength(5));
+
+    expect(ops()).toEqual([
+      { type: 'create', name: 'Games' },
+      { type: 'rename', roomId: 'r1', name: 'Main' },
+      { type: 'color', roomId: 'r2', color: ROOM_COLOR_PALETTE[5] },
+      { type: 'color', roomId: 'r2', color: null },
+      { type: 'delete', roomId: 'r1' },
+    ]);
+    // Nothing changed here: the Mac's rooms_update brings the result.
+    expect(useRoomStore.getState().rooms.map((r) => [r.name, r.color])).toEqual([['Second', undefined], ['First', undefined]]);
+  });
+
+  it('says to open AASC on the Mac when no Mac window can apply it, and keeps the sheet open', async () => {
+    answer(409, { ok: false, error: 'no-writer' });
+    const onClose = vi.fn();
+    render(<MoveToRoomSheet sessionId="a" onClose={onClose} />);
+    await userEvent.setup().click(screen.getByRole('button', { name: /Second/ }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith('Open AASC on your Mac to change rooms.', 'error'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('explains a refused delete of a room that holds sessions not shared with the phone', async () => {
+    answer(409, { ok: false, error: 'room-has-hidden-sessions' });
+    const user = userEvent.setup();
+    render(<ManageRoomsSheet open onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Delete First' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Delete room "First"?' })).getByRole('button', { name: 'Delete room' }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(expect.stringMatching(/not shared with this device/), 'error'));
+  });
+
+  it('says the rooms come from the Mac and changes are saved there', () => {
+    render(<ManageRoomsSheet open onClose={vi.fn()} />);
+    expect(screen.getByText(/Rooms come from your Mac/).textContent).toMatch(/saved there/);
   });
 });

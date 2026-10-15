@@ -27,6 +27,8 @@ import { listKnownProjects } from './knownProjects.js';
 import { appendPausedItem } from './sessionQueueCodec.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
+import { createRoomsService } from './roomsRouter.js';
+import { parseRoomList } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
@@ -1729,6 +1731,9 @@ router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
   const visible = req.body?.remoteVisible === true;
   setSessionRemoteVisible(id, visible);
+  // Rooms name their sessions, so a remote device's copy of the room list
+  // changes with the sharing: re-cut and re-send it either way.
+  roomsService.republish();
   // Un-sharing cuts remote devices off at once (AASC-27): their terminal
   // subscriptions end and the card disappears, instead of streaming on until
   // they happen to resubscribe. wsManager is loaded lazily (see broadcastPresence).
@@ -3479,6 +3484,50 @@ router.get('/workspace/load', (_req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to load workspace snapshot' });
   }
 });
+
+// ---- Rooms (AASC-20) ----
+
+/**
+ * The rooms of the last saved workspace: what the room list starts as until the
+ * writer's window pushes its own, so a phone that connects first still has room
+ * names. A missing or malformed snapshot is no rooms.
+ */
+function savedSnapshotRooms() {
+  if (!existsSync(WORKSPACE_SNAPSHOT_PATH)) return [];
+  const snapshot = JSON.parse(readFileSync(WORKSPACE_SNAPSHOT_PATH, 'utf8')) as { rooms?: unknown };
+  return parseRoomList({ rooms: snapshot?.rooms ?? [] }) ?? [];
+}
+
+/**
+ * The device that applies room changes asked for by others: the workspace
+ * writer, unless that is a paired phone — its profile refuses PUT /rooms, so it
+ * could apply nothing (the case when only phones are connected).
+ */
+async function roomOwner(): Promise<string | null> {
+  const writer = presence.getWorkspaceWriter();
+  if (!writer) return null;
+  const ws = await import('./wsManager.js');
+  return ws.isPairedPhoneClient(writer) ? null : writer;
+}
+
+const roomsService = createRoomsService({
+  seed: savedSnapshotRooms,
+  isLocal: requestIsLocal,
+  clientId: clientIdFromRequest,
+  canWriteRooms: (clientId) => presence.canWriteWorkspace(clientId),
+  roomOwner,
+  getSession,
+  publish: async (local, remote) => {
+    const ws = await import('./wsManager.js');
+    ws.broadcastByLocality(local, remote);
+  },
+  sendToClient: async (clientId, msg) => {
+    const ws = await import('./wsManager.js');
+    return ws.sendToClientId(clientId, msg);
+  },
+});
+
+router.use(roomsService.router);
 
 // ---- Workspace restore ownership + device presence ----
 

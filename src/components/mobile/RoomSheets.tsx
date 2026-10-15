@@ -9,11 +9,13 @@
  *    one ticked), and a new room made and moved into in one step.
  *  - ManageRoomsSheet: create, rename, colour and delete rooms.
  *
- * Rooms live in roomStore (this device's localStorage). Only its actions are
- * used, and never `setRoomIndex`: `roomIndex` is a 3D world slot, and a colour
- * is `Room.color`, not a slot change. A remote phone's rooms are seeded from
- * the Mac's workspace each time the app opens, so its changes stay on the
- * phone until then; the sheet says so.
+ * The Mac owns the rooms (lib/roomSync.ts). On the device that owns them — the
+ * Mac's window, the workspace writer, in its phone layout — the sheets use the
+ * room store's actions, and never `setRoomIndex`: `roomIndex` is a 3D world
+ * slot, and a colour is `Room.color`, not a slot change. On any other device (a
+ * remote phone) they ask the Mac instead (lib/roomOps.ts) and leave the local
+ * list alone: the Mac applies the change and its `rooms_update` brings it back.
+ * The sheet says so.
  */
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
@@ -21,10 +23,12 @@ import Button from '@/components/ui/Button';
 import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
+import { moveSessionToRoom, sendRoomOp } from '@/lib/roomOps';
+import { useIsRoomWriter } from '@/lib/roomSync';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useIsHostDevice } from './views/hostAccess';
+import type { RoomOp } from '@/types';
 import styles from '@/styles/modules/PhoneRooms.module.css';
 
 const ROOM_NAME_MAX = 40;
@@ -44,15 +48,26 @@ function Swatch({ color }: { color: string }) {
   return <span className={styles.swatch} style={{ '--swatch': color } as CSSProperties} aria-hidden="true" />;
 }
 
-/** The phone-only note: a remote phone's room changes are its own. */
-function LocalRoomsNote() {
-  const isHost = useIsHostDevice();
-  if (isHost) return null;
+/** Where the rooms live, on every device but the one that owns them. */
+function RoomsFromMacNote() {
+  const isWriter = useIsRoomWriter();
+  if (isWriter) return null;
   return (
     <p className={styles.note}>
-      Rooms you change here stay on this phone. Your Mac&rsquo;s rooms replace them the next time the app opens.
+      Rooms come from your Mac, and changes you make here are saved there.
     </p>
   );
+}
+
+/**
+ * Ask the Mac for a room change (a device that doesn't own the rooms). Toasts
+ * the change as under way, or why it was refused. True when the Mac has it.
+ */
+async function askTheMac(op: RoomOp, underWay: string): Promise<boolean> {
+  const outcome = await sendRoomOp(op);
+  if (outcome.ok) showToast(underWay, 'info');
+  else showToast(outcome.message, 'error');
+  return outcome.ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,27 +86,41 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
   const session = useSessionStore((s) => (sessionId ? s.sessions.get(sessionId) : undefined));
   const rooms = useRoomStore((s) => s.rooms);
   const ordered = useMemo(() => roomsInListOrder(rooms), [rooms]);
+  const isWriter = useIsRoomWriter();
   const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
   const open = !!sessionId && !!session;
   const current = sessionId ? rooms.find((r) => r.sessionIds.includes(sessionId)) : undefined;
 
-  const moveTo = useCallback((roomId: string | null, label?: string) => {
+  const moveTo = useCallback(async (roomId: string | null, label?: string) => {
     if (!sessionId) return;
-    const store = useRoomStore.getState();
-    for (const r of store.rooms) {
-      if (r.id !== roomId && r.sessionIds.includes(sessionId)) store.removeSession(r.id, sessionId);
+    if (isWriter) {
+      moveSessionToRoom(sessionId, roomId);
+      showToast(roomId ? `Moved to ${label}` : 'Removed from its room', 'info');
+      onClose();
+      return;
     }
-    if (roomId) store.addSession(roomId, sessionId);
-    showToast(roomId ? `Moved to ${label}` : 'Removed from its room', 'info');
-    onClose();
-  }, [sessionId, onClose]);
+    setBusy(true);
+    const sent = await askTheMac({ type: 'move', sessionId, roomId }, roomId ? `Moving to ${label}…` : 'Taking it out of its room…');
+    setBusy(false);
+    if (sent) onClose();
+  }, [sessionId, onClose, isWriter]);
 
-  const createAndMove = () => {
+  const createAndMove = async () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    const id = useRoomStore.getState().createRoom(trimmed);
+    if (!trimmed || !sessionId) return;
+    if (isWriter) {
+      const id = useRoomStore.getState().createRoom(trimmed);
+      setName('');
+      void moveTo(id, trimmed);
+      return;
+    }
+    setBusy(true);
+    const sent = await askTheMac({ type: 'create', name: trimmed, sessionId }, `Making "${trimmed}" and moving into it…`);
+    setBusy(false);
+    if (!sent) return;
     setName('');
-    moveTo(id, trimmed);
+    onClose();
   };
 
   return (
@@ -105,7 +134,8 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
                 type="button"
                 className={styles.option}
                 aria-pressed={!current}
-                onClick={() => (current ? moveTo(null) : onClose())}
+                disabled={busy}
+                onClick={() => (current ? void moveTo(null) : onClose())}
               >
                 <span className={styles.swatchNone} aria-hidden="true" />
                 <span className={styles.optionName}>No room</span>
@@ -120,7 +150,8 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
                     type="button"
                     className={styles.option}
                     aria-pressed={here}
-                    onClick={() => (here ? onClose() : moveTo(room.id, room.name))}
+                    disabled={busy}
+                    onClick={() => (here ? onClose() : void moveTo(room.id, room.name))}
                   >
                     <Swatch color={roomColor(room)} />
                     <span className={styles.optionName}>{room.name}</span>
@@ -134,7 +165,7 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
             className={styles.inlineForm}
             onSubmit={(e) => {
               e.preventDefault();
-              createAndMove();
+              void createAndMove();
             }}
           >
             <TextInput
@@ -145,12 +176,12 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
               maxLength={ROOM_NAME_MAX}
               className={styles.grow}
             />
-            <Button type="submit" disabled={!name.trim()}>Create and move</Button>
+            <Button type="submit" disabled={!name.trim() || busy}>Create and move</Button>
           </form>
           {onManage && (
             <Button variant="quiet" className={styles.alignStart} onClick={onManage}>Manage rooms…</Button>
           )}
-          <LocalRoomsNote />
+          <RoomsFromMacNote />
         </div>
       )}
     </BottomSheet>
@@ -164,23 +195,37 @@ export function MoveToRoomSheet({ sessionId, onClose, onManage }: MoveToRoomShee
 export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const rooms = useRoomStore((s) => s.rooms);
   const ordered = useMemo(() => roomsInListOrder(rooms), [rooms]);
+  const isWriter = useIsRoomWriter();
   const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<Room | null>(null);
   const cancelDelete = useCallback(() => setDeleting(null), []);
 
-  const create = () => {
+  const create = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    useRoomStore.getState().createRoom(trimmed);
-    setName('');
-    showToast(`Room "${trimmed}" created`, 'info');
+    if (isWriter) {
+      useRoomStore.getState().createRoom(trimmed);
+      setName('');
+      showToast(`Room "${trimmed}" created`, 'info');
+      return;
+    }
+    setBusy(true);
+    const sent = await askTheMac({ type: 'create', name: trimmed }, `Making room "${trimmed}"…`);
+    setBusy(false);
+    if (sent) setName('');
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleting) return;
-    useRoomStore.getState().deleteRoom(deleting.id);
-    showToast(`Room "${deleting.name}" deleted`, 'info');
+    const room = deleting;
     setDeleting(null);
+    if (isWriter) {
+      useRoomStore.getState().deleteRoom(room.id);
+      showToast(`Room "${room.name}" deleted`, 'info');
+      return;
+    }
+    await askTheMac({ type: 'delete', roomId: room.id }, `Deleting room "${room.name}"…`);
   };
 
   return (
@@ -191,7 +236,7 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
             className={styles.inlineForm}
             onSubmit={(e) => {
               e.preventDefault();
-              create();
+              void create();
             }}
           >
             <TextInput
@@ -202,7 +247,7 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
               maxLength={ROOM_NAME_MAX}
               className={styles.grow}
             />
-            <Button type="submit" variant="primary" disabled={!name.trim()}>Create</Button>
+            <Button type="submit" variant="primary" disabled={!name.trim() || busy}>Create</Button>
           </form>
           {ordered.length === 0 ? (
             <p className={styles.note}>No rooms yet. A room groups sessions in the session list.</p>
@@ -213,7 +258,7 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
               ))}
             </ul>
           )}
-          <LocalRoomsNote />
+          <RoomsFromMacNote />
         </div>
       </BottomSheet>
       <ConfirmSheet
@@ -224,7 +269,7 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
           : 'The room is empty.'}
         confirmLabel="Delete room"
         danger
-        onConfirm={confirmDelete}
+        onConfirm={() => void confirmDelete()}
         onCancel={cancelDelete}
       />
     </>
@@ -234,19 +279,39 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
 type CardMode = 'view' | 'rename' | 'color';
 
 function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => void }) {
+  const isWriter = useIsRoomWriter();
   const [mode, setMode] = useState<CardMode>('view');
   const [draft, setDraft] = useState(room.name);
+  const [busy, setBusy] = useState(false);
   const color = roomColor(room);
 
-  const rename = () => {
+  const rename = async () => {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== room.name) useRoomStore.getState().renameRoom(room.id, trimmed);
-    setMode('view');
+    if (!trimmed || trimmed === room.name) {
+      setMode('view');
+      return;
+    }
+    if (isWriter) {
+      useRoomStore.getState().renameRoom(room.id, trimmed);
+      setMode('view');
+      return;
+    }
+    setBusy(true);
+    const sent = await askTheMac({ type: 'rename', roomId: room.id, name: trimmed }, `Renaming to "${trimmed}"…`);
+    setBusy(false);
+    if (sent) setMode('view');
   };
 
-  const pick = (value: string | undefined) => {
-    useRoomStore.getState().setRoomColor(room.id, value);
-    setMode('view');
+  const pick = async (value: string | undefined) => {
+    if (isWriter) {
+      useRoomStore.getState().setRoomColor(room.id, value);
+      setMode('view');
+      return;
+    }
+    setBusy(true);
+    const sent = await askTheMac({ type: 'color', roomId: room.id, color: value ?? null }, `Changing the colour of ${room.name}…`);
+    setBusy(false);
+    if (sent) setMode('view');
   };
 
   return (
@@ -262,7 +327,7 @@ function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => vo
           className={styles.inlineForm}
           onSubmit={(e) => {
             e.preventDefault();
-            rename();
+            void rename();
           }}
         >
           <TextInput
@@ -274,7 +339,7 @@ function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => vo
             autoFocus
           />
           <Button variant="quiet" onClick={() => { setDraft(room.name); setMode('view'); }}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={!draft.trim()}>Save</Button>
+          <Button type="submit" variant="primary" disabled={!draft.trim() || busy}>Save</Button>
         </form>
       ) : (
         <div className={styles.roomActions}>
@@ -300,13 +365,15 @@ function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => vo
               style={{ '--swatch': value } as CSSProperties}
               aria-pressed={room.color === value}
               aria-label={COLOR_NAMES[i] ?? `Colour ${i + 1}`}
-              onClick={() => pick(value)}
+              disabled={busy}
+              onClick={() => void pick(value)}
             />
           ))}
           <Button
             className={styles.paletteDefault}
             pressed={!room.color}
-            onClick={() => pick(undefined)}
+            disabled={busy}
+            onClick={() => void pick(undefined)}
           >
             Default
           </Button>

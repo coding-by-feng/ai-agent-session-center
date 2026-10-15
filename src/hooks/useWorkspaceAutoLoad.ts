@@ -25,6 +25,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { loadFromConfig, importSnapshot, setRestorePending } from '@/lib/workspaceSnapshot';
 import { reportWorkspaceLoadErrors } from '@/components/ui/WorkspaceLoadingOverlay';
 import { claimWorkspaceRestore, releaseWorkspaceRestore } from '@/lib/presenceClient';
+import { hasServerRooms } from '@/lib/roomSync';
 import {
   requestRestoreSelection,
   getAutoResumeAll,
@@ -69,10 +70,15 @@ export function useWorkspaceAutoLoad(): void {
         // sessions, which is precisely what the denied claim above exists to
         // prevent. Best-effort — a viewer with no rooms is degraded, not
         // broken, so a failure here must not surface as an error.
+        //
+        // Skipped once the room list has come from the server (lib/roomSync.ts):
+        // that is the writer's current list, and the saved snapshot can only be
+        // older than it.
+        if (hasServerRooms()) return;
         try {
           const snapshot = await loadFromConfig();
           const rooms = snapshot?.rooms ?? [];
-          if (rooms.length > 0) {
+          if (rooms.length > 0 && !hasServerRooms()) {
             useRoomStore.getState().hydrateRooms(rooms);
             console.info(`[workspace] Viewer: hydrated ${rooms.length} room(s) from the server snapshot.`);
           }

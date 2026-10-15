@@ -171,6 +171,12 @@ export const WS_TYPES = {
   QUEUE_SENT: 'queue_sent',
   /** The saved-prompt library changed (AASC-20): the whole list with its revision. */
   SNIPPETS_UPDATE: 'snippets_update',
+  /** The Mac's room list changed (AASC-20): the whole list, cut per device for
+   *  what it may see (server/roomsMirror.ts), with its revision. */
+  ROOMS_UPDATE: 'rooms_update',
+  /** Server -> the workspace writer only: a room change another device asked
+   *  for (POST /api/rooms/ops), for the writer to apply with its room store. */
+  ROOM_OP: 'room_op',
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',

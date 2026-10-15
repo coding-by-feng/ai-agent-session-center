@@ -45,6 +45,9 @@ interface PresenceState {
   controllers: Map<string, ControlHolderView>;
   restoreOwner: string | null;
   workspaceWriter: string | null;
+  /** True once the server's presence has arrived: before it, `workspaceWriter`
+   *  null means "not known yet", not "nobody" (roomSync waits on it). */
+  received: boolean;
   /** sessionId -> incoming hand-over request aimed at THIS device. */
   pendingRequests: Map<string, PendingControlRequest>;
   lastDenial: ControlDenial | null;
@@ -65,6 +68,7 @@ export const usePresenceStore = create<PresenceState>((set) => ({
   controllers: new Map(),
   restoreOwner: null,
   workspaceWriter: null,
+  received: false,
   pendingRequests: new Map(),
   lastDenial: null,
 
@@ -74,6 +78,7 @@ export const usePresenceStore = create<PresenceState>((set) => ({
       controllers: new Map(update.controllers.map((c) => [c.sessionId, c])),
       restoreOwner: update.restoreOwner,
       workspaceWriter: update.workspaceWriter,
+      received: true,
     })),
 
   addRequest: (req) =>

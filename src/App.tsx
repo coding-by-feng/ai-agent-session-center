@@ -32,6 +32,7 @@ import { isNativeMobileApp } from '@/lib/platform';
 import DesktopAutomationGate from '@/components/layout/DesktopAutomation';
 import NativeReauth from '@/components/auth/NativeReauth';
 import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
+import { useRoomSync } from '@/hooks/useRoomSync';
 import { useUiStore } from '@/stores/uiStore';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 
@@ -119,6 +120,7 @@ function Dashboard({ token }: { token: string | null }) {
   useSettingsInit();
   useWebSocket(token);
   useSessionDeepLink();
+  useRoomSync();
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);

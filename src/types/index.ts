@@ -70,6 +70,8 @@ export type {
   PresenceUpdateMessage,
   ControlDeniedMessage,
   ControlRequestedMessage,
+  RoomsUpdateMessage,
+  RoomOpMessage,
   ServerMessage,
   TerminalInputMessage,
   TerminalResizeMessage,
@@ -168,6 +170,13 @@ export type {
   ShortcutActionId,
   ShortcutBinding,
 } from './shortcut.js';
+
+// Rooms
+export type {
+  Room,
+  RoomOp,
+  RoomList,
+} from './room.js';
 
 // Agenda
 export type {

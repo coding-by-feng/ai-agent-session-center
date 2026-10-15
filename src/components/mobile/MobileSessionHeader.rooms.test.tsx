@@ -48,7 +48,9 @@ function renderHeader(session = makeSession()) {
 }
 
 beforeEach(() => {
-  usePresenceStore.getState().applyPresence({ devices: [], controllers: [], restoreOwner: null, workspaceWriter: null });
+  // This device owns the rooms (the Mac's own phone layout), so the sheets change the store directly;
+  // RoomSheets.test.tsx covers a remote phone asking the Mac (AASC-20).
+  usePresenceStore.getState().applyPresence({ devices: [], controllers: [], restoreOwner: null, workspaceWriter: 'phone' });
   useRoomStore.setState({ rooms: [{ id: 'r1', name: 'Work', sessionIds: [], collapsed: false, createdAt: 1, roomIndex: 0 }] });
 });
 afterEach(() => {

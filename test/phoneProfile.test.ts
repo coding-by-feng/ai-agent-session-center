@@ -104,6 +104,7 @@ describe('phoneRuleFor', () => {
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
+    ['GET', '/rooms'], ['POST', '/rooms/ops'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -135,6 +136,7 @@ describe('phoneRuleFor', () => {
     ['GET', '/teams/x/config'], ['POST', '/teams/x/members/y/terminal'],
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
     ['POST', '/snippets/import'],
+    ['PUT', '/rooms'], ['GET', '/rooms/ops'], ['DELETE', '/rooms'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
@@ -445,6 +447,32 @@ describe('a paired phone through the API', () => {
     expect((await call('GET', '/sessions/history', PHONE)).status).toBe(404);
     expect((await call('GET', `/sessions/resume-command?${q({ path: project })}`, PHONE)).status).toBe(404);
     expect(store.getSession('ph-shared')).toBeDefined();
+  });
+
+  it('reads the Mac’s rooms and asks for changes, but never sets the list (AASC-20)', async () => {
+    // The Mac (local, no device connected yet so any local caller is the writer) pushes its list.
+    const rooms = [
+      { id: 'r-mixed', name: 'Mixed', sessionIds: ['ph-shared', 'ph-hidden'], collapsed: false, createdAt: 1, roomIndex: 0 },
+      { id: 'r-secret', name: 'Secret', sessionIds: ['ph-hidden'], collapsed: false, createdAt: 1, roomIndex: 1 },
+    ];
+    expect((await call('PUT', '/rooms', {}, { rooms })).status).toBe(200);
+
+    const read = await call('GET', '/rooms', PHONE);
+    expect(read.status).toBe(200);
+    expect(read.json.rooms).toEqual([{ ...rooms[0], sessionIds: ['ph-shared'] }]);
+
+    const set = await call('PUT', '/rooms', PHONE, { rooms: [] });
+    expect(set.status).toBe(404);
+    expect(set.json.code).toBe('PHONE_NOT_ALLOWED');
+
+    // Through the profile to the rooms router, whose own visibility checks still run.
+    const hidden = await call('POST', '/rooms/ops', PHONE, { type: 'move', sessionId: 'ph-hidden', roomId: null });
+    expect(hidden.status).toBe(404);
+    expect(hidden.json.code).toBeUndefined();
+    // No Mac window is connected to apply a change.
+    const noWriter = await call('POST', '/rooms/ops', PHONE, { type: 'move', sessionId: 'ph-shared', roomId: null });
+    expect(noWriter.status).toBe(409);
+    expect(noWriter.json.error).toBe('no-writer');
   });
 
   it('has an upload budget per minute', async () => {

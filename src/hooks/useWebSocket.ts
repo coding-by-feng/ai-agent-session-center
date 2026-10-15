@@ -18,6 +18,7 @@ import type { Session, ServerMessage } from '@/types';
 import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
 import { useQueueSentStore } from '@/stores/queueSentStore';
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
+import { receiveRooms, handleRoomOpMessage, onRoomsSocketConnected } from '@/lib/roomSync';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -241,6 +242,19 @@ export function useWebSocket(token: string | null): WsClient | null {
           break;
         }
 
+        // The Mac's room list changed (AASC-20): the whole list, cut for what
+        // this device may see. The Mac's own window ignores it (it is the source).
+        case 'rooms_update': {
+          receiveRooms({ revision: msg.revision, rooms: msg.rooms });
+          break;
+        }
+
+        // Another device asked for a room change; only the Mac's main window applies it.
+        case 'room_op': {
+          handleRoomOpMessage(msg);
+          break;
+        }
+
         // Terminal and stats messages are handled by other hooks/components
         case 'team_update':
         case 'hook_stats':
@@ -255,6 +269,9 @@ export function useWebSocket(token: string | null): WsClient | null {
     function handleStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
       setConnected(status === 'connected');
       setReconnecting(status === 'reconnecting');
+      // Every window reads the room list on each (re)connect: a paired phone may
+      // not read the workspace snapshot, and the server may have restarted.
+      if (status === 'connected') onRoomsSocketConnected();
     }
 
     const { setClient } = useWsStore.getState();

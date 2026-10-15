@@ -5,6 +5,7 @@
 
 import type { Session } from './session.js';
 import type { TeamSerialized } from './team.js';
+import type { Room, RoomOp } from './room.js';
 
 // ---------------------------------------------------------------------------
 // Hook Stats (broadcast via HookStatsMessage)
@@ -202,9 +203,34 @@ export interface SnippetsUpdateMessage {
   snippets: Array<{ id: number; text: string; label: string; useCount: number; lastUsedAt: number | null; createdAt: number }>;
 }
 
+/**
+ * The Mac's room list changed (AASC-20): the whole list as this device may see
+ * it. A remote device's copy leaves out every session not shared with it, and
+ * every room holding only such sessions (server/roomsMirror.ts).
+ */
+export interface RoomsUpdateMessage {
+  type: 'rooms_update';
+  /** Newer lists replace older ones; a lower revision is a late broadcast. */
+  revision: number;
+  rooms: Room[];
+}
+
+/**
+ * Server → the workspace writer only: another device asked for a room change
+ * (POST /api/rooms/ops), already checked against what that device may see. The
+ * writer applies it with its room store and its next push carries the result.
+ */
+export interface RoomOpMessage {
+  type: 'room_op';
+  opId: string;
+  op: RoomOp;
+}
+
 export type ServerMessage =
   | QueueSentMessage
   | SnippetsUpdateMessage
+  | RoomsUpdateMessage
+  | RoomOpMessage
   | SnapshotMessage
   | SessionUpdateMessage
   | SessionRemovedMessage

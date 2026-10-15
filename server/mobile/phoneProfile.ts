@@ -93,6 +93,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET|POST', '/snippets', 'allow'),
   route('PATCH|DELETE', '/snippets/:id', 'allow'),
   route('POST', '/snippets/:id/use', 'allow'),
+  // Rooms come from the Mac (AASC-20): read the cut it may see, and ask the Mac
+  // for a change. Never PUT /rooms: only the Mac's window sets the list.
+  route('GET', '/rooms', 'allow'),
+  route('POST', '/rooms/ops', 'allow'),
   // Notes and history of a shared session (the history and note gates check the owner).
   route('GET', '/db/sessions/:id', 'allow'),
   route('GET|POST', '/db/sessions/:id/notes', 'allow'),

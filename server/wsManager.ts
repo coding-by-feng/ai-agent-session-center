@@ -545,6 +545,53 @@ export function disconnectDevice(deviceId: string): number {
   return closed;
 }
 
+/**
+ * Send one device a message on every socket it has open (a desktop window and
+ * its pop-outs share one device id). Returns how many sockets got it; 0 means
+ * the device is not connected right now.
+ */
+export function sendToClientId<T extends { type: string }>(clientId: string, data: T): number {
+  if (!clientId) return 0;
+  const msg = JSON.stringify(data);
+  let sent = 0;
+  for (const client of clients) {
+    if (client._clientId !== clientId || client.readyState !== 1) continue;
+    try {
+      client.send(msg);
+      sent++;
+    } catch { /* socket closed between the check and the write */ }
+  }
+  return sent;
+}
+
+/** Is this device a paired phone (its socket signed in with a phone's session, AASC-15)? */
+export function isPairedPhoneClient(clientId: string): boolean {
+  if (!clientId) return false;
+  for (const client of clients) {
+    if (client._clientId === clientId && client._deviceId) return true;
+  }
+  return false;
+}
+
+/**
+ * Send this machine's sockets one payload and remote devices another, for a
+ * message whose content depends on what a remote device may see (the room list,
+ * AASC-20). A side given null gets nothing. Each payload is serialized once.
+ */
+export function broadcastByLocality<L extends { type: string }, R extends { type: string }>(
+  local: L | null,
+  remote: R | null,
+): void {
+  const localMsg = local ? JSON.stringify(local) : null;
+  const remoteMsg = remote ? JSON.stringify(remote) : null;
+  for (const client of clients) {
+    if (client.readyState !== 1) continue;
+    const msg = client._isLocal ? localMsg : remoteMsg;
+    if (!msg) continue;
+    try { client.send(msg); } catch { /* client disconnected */ }
+  }
+}
+
 type BroadcastListener = (data: { type: string; [key: string]: unknown }) => void;
 const broadcastListeners = new Set<BroadcastListener>();
 
