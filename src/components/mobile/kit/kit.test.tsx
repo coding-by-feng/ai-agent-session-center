@@ -136,6 +136,28 @@ describe('Sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps focus where it is when its parent re-renders with a new onClose', async () => {
+    // A session update re-renders the composer every hook; an inline onClose is new
+    // each time. The search field being typed into must keep its focus.
+    const first = vi.fn();
+    const body = (onClose: () => void) => (
+      <Sheet open onClose={onClose} title="Commands">
+        <button type="button">Top</button>
+        <input aria-label="Search" />
+      </Sheet>
+    );
+    const { rerender } = render(<><button type="button">Opener</button>{body(first)}</>);
+    const search = screen.getByRole('textbox', { name: 'Search' });
+    act(() => search.focus());
+    const latest = vi.fn();
+    rerender(<><button type="button">Opener</button>{body(latest)}</>);
+    expect(search).toHaveFocus();
+    // And the newest onClose is the one Escape calls.
+    await userEvent.keyboard('{Escape}');
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
   it('renders nothing while closed', () => {
     render(<Sheet open={false} onClose={() => {}} title="Hidden">x</Sheet>);
     expect(screen.queryByRole('dialog')).toBeNull();

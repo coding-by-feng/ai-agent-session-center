@@ -213,6 +213,33 @@ describe('Composer', () => {
     await waitFor(() => expect(calls.find((c) => c.url.endsWith('/prompt'))?.body).toMatchObject({ text: '/model sonnet', mode: 'now' }));
   });
 
+  it('offers the model chip with an empty box', async () => {
+    stubMac();
+    renderComposer(session());
+    const chip = screen.getByRole('button', { name: /^Model / });
+    expect(chip).not.toHaveAttribute('aria-disabled');
+    fireEvent.click(chip);
+    expect(await screen.findByTestId('model-sheet')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['another device drives', () => presence({ held: true }), session(), 'Your Mac is driving'],
+    ['the session has ended', () => {}, session({ status: 'ended' }), 'This session has ended'],
+    ['the agent is still starting', () => {}, session({ status: 'connecting' }), 'The agent is still starting'],
+  ])('turns the model chip off, saying why, while %s', async (_label, setup, s, reason) => {
+    const calls = stubMac();
+    setup();
+    renderComposer(s);
+    const chip = screen.getByRole('button', { name: /^Model / });
+    expect(chip).toHaveAttribute('aria-disabled', 'true');
+    expect(chip).toHaveAccessibleDescription(reason);
+    fireEvent.click(chip);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(screen.queryByTestId('model-sheet')).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith('/prompt'))).toBe(false);
+    expect(useComposerDraftStore.getState().drafts.s1).toBeUndefined();
+  });
+
   it('opens the queue from the "N queued" chip', () => {
     stubMac();
     useQueueStore.setState({ queues: new Map([['s1', [{ id: 1, sessionId: 's1', text: 'x', position: 0, createdAt: 1 }]]]) });

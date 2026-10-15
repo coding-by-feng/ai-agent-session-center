@@ -17,7 +17,7 @@
  * - Sending is the Mac's confirmed send, polled until it lands (usePromptSender).
  * - While another device drives, the box is off and says who, with Take control.
  */
-import { useCallback, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import type { Session } from '@/types';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { ChevronRightIcon, CloseIcon, InfoIcon } from '../kit/kitIcons';
@@ -71,9 +71,10 @@ const PLUS_DETENTS = ['fit'] as const;
 function statusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
   switch (state.phase) {
     case 'sending': return 'Sending…';
-    case 'pending': return `Sent to your Mac · waiting for ${cliName} to take it…`;
+    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
     case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
     case 'failed': return state.message;
+    case 'unsure': return state.message;
     default: return null;
   }
 }
@@ -192,10 +193,15 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     void deliver(message, how);
   }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, sessionId, setDraft, deliver]);
 
+  // While another device drives, or the session has ended or is still starting,
+  // the Mac would refuse a /model too: the chip is off and says why.
+  const blocked = decision.fieldDisabledReason ?? decision.blockedReason;
+  const chipReasonId = useId();
   const chooseCommand = useCallback((command: string) => {
+    if (blocked) return;
     // A dialog or a turn in progress would take the keys: queue it after them.
     void deliver({ text: command }, decision.action === 'send' ? 'send' : 'queue');
-  }, [deliver, decision.action]);
+  }, [blocked, deliver, decision.action]);
 
   // ---- The box ----
 
@@ -269,19 +275,34 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     else nav.switchTab('queue');
   };
 
-  const pickCommand = (entry: CommandEntry, start: number | null) => {
+  // Stable handlers for the sheets (they re-render with every session update).
+  const triggerStart = sheet && (sheet.type === 'command' || sheet.type === 'file') ? sheet.start : null;
+  const closeToBox = useCallback(() => {
+    closeSheet();
+    focusAt(inputRef.current?.selectionStart ?? (useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
+  }, [closeSheet, focusAt, inputRef, sessionId]);
+  const pickCommand = useCallback((entry: CommandEntry) => {
     const picker = pickerSheetFor(entry);
     if (picker) {
-      dropTrigger(start);
+      dropTrigger(triggerStart);
       setSheet({ type: 'model', focus: picker });
       return;
     }
     closeSheet();
-    insertToken(entryToken(entry), start);
-  };
+    insertToken(entryToken(entry), triggerStart);
+  }, [dropTrigger, closeSheet, insertToken, triggerStart]);
+  const pickFile = useCallback((path: string) => {
+    closeSheet();
+    insertToken(`@${path}`, triggerStart);
+  }, [closeSheet, insertToken, triggerStart]);
+  const pickSnippet = useCallback((snippet: string) => {
+    appendToDraft(sessionId, snippet);
+    focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
+  }, [appendToDraft, sessionId, focusAt]);
 
   const line = statusLine(sender.state, cliName, windowOpen);
   const failed = sender.state.phase === 'failed';
+  const dismissable = failed || sender.state.phase === 'unsure';
   const longLabel = decision.label.length > 8;
 
   return (
@@ -290,7 +311,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {line && (
         <p className={styles.status} data-tone={failed ? 'error' : undefined} role={failed ? 'alert' : 'status'}>
           <span>{line}</span>
-          {failed && (
+          {dismissable && (
             <button type="button" className={styles.dismiss} onClick={sender.dismiss} aria-label="Dismiss">
               <CloseIcon />
             </button>
@@ -311,8 +332,10 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             <button
               type="button"
               className={`${styles.chip} ${styles.modelChip}`}
-              onClick={() => setSheet({ type: 'model', focus: 'model' })}
+              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
               aria-label={`Model ${modelLabel}${context ? `, context ${context.pct}% used` : ''}: change`}
+              aria-disabled={blocked ? true : undefined}
+              aria-describedby={blocked ? chipReasonId : undefined}
             >
               <span className={styles.modelText}>{modelLabel}</span>
               {context && (
@@ -320,6 +343,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
                   <ContextRing pct={context.pct} /> {Math.round(context.pct)}%
                 </span>
               )}
+              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
             </button>
           )}
         </div>
@@ -418,27 +442,17 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {cli && (
         <CommandSheet
           open={sheet?.type === 'command'}
-          onClose={() => {
-            closeSheet();
-            focusAt(inputRef.current?.selectionStart ?? draft.length);
-          }}
+          onClose={closeToBox}
           cli={cli}
           projectPath={session.projectPath}
-          onPick={(entry) => pickCommand(entry, sheet?.type === 'command' ? sheet.start : null)}
+          onPick={pickCommand}
         />
       )}
       <FilePickerSheet
         open={sheet?.type === 'file'}
-        onClose={() => {
-          closeSheet();
-          focusAt(inputRef.current?.selectionStart ?? draft.length);
-        }}
+        onClose={closeToBox}
         projectPath={session.projectPath}
-        onPick={(path) => {
-          const start = sheet?.type === 'file' ? sheet.start : null;
-          closeSheet();
-          insertToken(`@${path}`, start);
-        }}
+        onPick={pickFile}
       />
       <ModelEffortSheet
         open={sheet?.type === 'model'}
@@ -450,10 +464,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       <SavedPromptSheet
         open={sheet?.type === 'saved'}
         onClose={closeSheet}
-        onPick={(snippet) => {
-          appendToDraft(sessionId, snippet);
-          focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
-        }}
+        onPick={pickSnippet}
       />
 
       <ConfirmSheet

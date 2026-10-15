@@ -61,10 +61,18 @@ export interface PromptBody {
   key: string;
 }
 
-/** Poll the prompt's state this often… */
+/**
+ * Polling what became of a prompt. The Mac's own Enter retries end within about
+ * 75 s, but it may hold an accepted prompt much longer before typing it: up to
+ * 90 s behind an earlier prompt, and up to 15 min parked while the agent is busy
+ * (server/promptSubmit.ts). So the phone asks once a second at first, then
+ * every 5 s, for as long as the Mac remembers the key (PROMPT_KEY_TTL_MS, 5 min);
+ * giving up sooner and putting the text back would invite a second send.
+ */
 export const PROMPT_POLL_INTERVAL_MS = 1_000;
-/** …for at most this long: the Mac's own retries end within about 75 s. */
-export const PROMPT_POLL_TIMEOUT_MS = 90_000;
+export const PROMPT_FAST_POLL_MS = 90_000;
+export const PROMPT_SLOW_POLL_INTERVAL_MS = 5_000;
+export const PROMPT_POLL_TIMEOUT_MS = 5 * 60_000;
 /** Photos per prompt, as the route allows. */
 export const MAX_PROMPT_IMAGES = 4;
 
@@ -220,6 +228,8 @@ export interface WaitOptions {
   intervalMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Called once when the fast phase is over and the prompt is still waiting on the Mac. */
+  onSlow?: () => void;
   /** Injected in tests. */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -241,8 +251,9 @@ async function readPromptState(sessionId: string, key: string): Promise<PromptSt
 
 /**
  * Ask the Mac what became of a prompt until it says (submitted, sent once, or
- * why not), the key is unknown (the Mac restarted), `timeoutMs` passes, or the
- * signal aborts. A request that fails just waits for the next round.
+ * why not), the key is unknown (the Mac restarted or forgot it), `timeoutMs`
+ * passes, or the signal aborts. Once a second for the first 90 s, then every
+ * 5 s (`onSlow` hears the switch). A request that fails just waits for the next round.
  */
 export async function waitForPrompt(sessionId: string, key: string, opts: WaitOptions = {}): Promise<PromptWaitResult> {
   const intervalMs = opts.intervalMs ?? PROMPT_POLL_INTERVAL_MS;
@@ -250,36 +261,49 @@ export async function waitForPrompt(sessionId: string, key: string, opts: WaitOp
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? sleepFor;
   const start = now();
+  let slow = false;
   for (;;) {
     if (opts.signal?.aborted) return 'aborted';
     const state = await readPromptState(sessionId, key);
+    if (opts.signal?.aborted) return 'aborted';
     if (state === null) return 'unknown';
     if (state && state !== 'pending') return state;
-    if (now() - start >= timeoutMs) return 'timeout';
-    await sleep(intervalMs);
+    const waited = now() - start;
+    if (waited >= timeoutMs) return 'timeout';
+    if (!slow && waited >= PROMPT_FAST_POLL_MS) {
+      slow = true;
+      opts.onSlow?.();
+    }
+    await sleep(slow ? Math.max(intervalMs, PROMPT_SLOW_POLL_INTERVAL_MS) : intervalMs);
   }
 }
 
+export interface PromptOutcome {
+  ok: boolean;
+  message: string;
+  /** The Mac may still send it (no word yet, or it forgot the key): never put the text back for a retry. */
+  unsure: boolean;
+}
+
 /** What to tell the person once the wait is over. */
-export function promptOutcome(result: PromptWaitResult): { ok: boolean; message: string } {
+export function promptOutcome(result: PromptWaitResult): PromptOutcome {
   switch (result) {
     case 'submitted':
-      return { ok: true, message: 'Sent' };
     case 'unconfirmed':
-      return { ok: true, message: 'Sent' };
+      return { ok: true, message: 'Sent', unsure: false };
     case 'stopped':
-      return { ok: false, message: 'Not sent: the session changed before it could be typed (a question, a stop, or another device).' };
+      return { ok: false, message: 'Not sent: the session changed before it could be typed (a question, a stop, or another device).', unsure: false };
     case 'gave-up':
-      return { ok: false, message: 'Typed, but the agent never took it. Check the terminal.' };
+      return { ok: false, message: 'Typed, but the agent never took it. Check the terminal.', unsure: false };
     case 'failed':
-      return { ok: false, message: 'Not sent: the session’s terminal is gone.' };
+      return { ok: false, message: 'Not sent: the session’s terminal is gone.', unsure: false };
     case 'timeout':
-      return { ok: false, message: 'No word from your Mac about that message. Check the terminal.' };
+      return { ok: false, message: 'No word from your Mac yet. Check the chat before sending it again.', unsure: true };
     case 'unknown':
-      return { ok: false, message: 'Your Mac lost track of that message (did AASC restart?). Check the terminal.' };
+      return { ok: false, message: 'Your Mac lost track of that message (did AASC restart?). Check the chat before sending it again.', unsure: true };
     case 'aborted':
-      return { ok: false, message: 'Stopped waiting for that message.' };
+      return { ok: false, message: 'Stopped waiting for that message.', unsure: true };
     default:
-      return { ok: false, message: 'Not sent.' };
+      return { ok: false, message: 'Not sent.', unsure: false };
   }
 }

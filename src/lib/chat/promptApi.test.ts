@@ -2,7 +2,9 @@
 // queue-image upload, the refusals in words, and polling what became of the prompt.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  PROMPT_FAST_POLL_MS,
   PROMPT_POLL_TIMEOUT_MS,
+  PROMPT_SLOW_POLL_INTERVAL_MS,
   newPromptKey,
   postPrompt,
   promptOutcome,
@@ -194,18 +196,48 @@ describe('waitForPrompt', () => {
     expect(await waitForPrompt('s1', 'k', fastClock())).toBe('unknown');
   });
 
-  it(`gives up after ${PROMPT_POLL_TIMEOUT_MS / 1000} s of pending`, async () => {
+  it('keeps asking as long as the Mac may still hold the prompt, slower after the first 90 s', async () => {
+    // The Mac can hold an accepted prompt behind an earlier one (90 s) or while the
+    // agent is busy (minutes): giving up sooner would invite a second send.
+    expect(PROMPT_FAST_POLL_MS).toBe(90_000);
+    expect(PROMPT_SLOW_POLL_INTERVAL_MS).toBe(5_000);
+    expect(PROMPT_POLL_TIMEOUT_MS).toBe(5 * 60_000); // the Mac remembers a key this long
     const calls = stubFetch({ status: 200, body: { success: true, data: { key: 'k', state: 'pending' } } });
-    expect(await waitForPrompt('s1', 'k', fastClock())).toBe('timeout');
-    expect(calls.length).toBeGreaterThan(60);
-    expect(calls.length).toBeLessThan(100);
+    const clock = fastClock();
+    const onSlow = vi.fn();
+    expect(await waitForPrompt('s1', 'k', { ...clock, onSlow })).toBe('timeout');
+    expect(clock.now()).toBeGreaterThanOrEqual(PROMPT_POLL_TIMEOUT_MS);
+    // ~90 polls a second apart, then ~42 five seconds apart.
+    expect(calls.length).toBeGreaterThan(125);
+    expect(calls.length).toBeLessThan(140);
+    expect(onSlow).toHaveBeenCalledTimes(1);
   });
 
-  it('stops when asked to', async () => {
+  it('still hears a late answer in the slow phase', async () => {
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n += 1;
+      const state = n > 100 ? 'submitted' : 'pending';
+      return { ok: true, status: 200, json: async () => ({ success: true, data: { key: 'k', state } }) };
+    }));
+    expect(await waitForPrompt('s1', 'k', fastClock())).toBe('submitted');
+  });
+
+  it('stops when asked to, before or between polls', async () => {
     stubFetch({ status: 200, body: { success: true, data: { key: 'k', state: 'pending' } } });
-    const controller = new AbortController();
-    controller.abort();
-    expect(await waitForPrompt('s1', 'k', { ...fastClock(), signal: controller.signal })).toBe('aborted');
+    const before = new AbortController();
+    before.abort();
+    expect(await waitForPrompt('s1', 'k', { ...fastClock(), signal: before.signal })).toBe('aborted');
+
+    const between = new AbortController();
+    const clock = fastClock();
+    const sleep = async (ms: number) => {
+      await clock.sleep(ms);
+      if (clock.now() > 10_000) between.abort();
+    };
+    const calls = stubFetch({ status: 200, body: { success: true, data: { key: 'k', state: 'pending' } } });
+    expect(await waitForPrompt('s1', 'k', { now: clock.now, sleep, signal: between.signal })).toBe('aborted');
+    expect(calls.length).toBeLessThan(15);
   });
 });
 
@@ -220,5 +252,15 @@ describe('promptOutcome', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.message).toMatch(/\S/);
     expect(outcome.message).not.toMatch(/PTY|hook|gave-up/);
+  });
+
+  it.each(['stopped', 'gave-up', 'failed'] as const)('a %s prompt surely went nowhere: its text may go back in the box', (state) => {
+    expect(promptOutcome(state).unsure).toBe(false);
+  });
+
+  it.each(['timeout', 'unknown'] as const)('after %s the Mac may still send it: no text back, just "Check the chat"', (state) => {
+    const outcome = promptOutcome(state);
+    expect(outcome.unsure).toBe(true);
+    expect(outcome.message).toMatch(/Check the chat/);
   });
 });
