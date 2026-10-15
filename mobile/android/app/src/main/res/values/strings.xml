@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AASC</string>
+    <string name="title_activity_main">AASC</string>
+    <string name="package_name">work.aasc.mobile</string>
+    <!-- No custom_url_scheme: the app opens only from verified https://aasc.work/pair links (plan 08 §5). -->
+</resources>

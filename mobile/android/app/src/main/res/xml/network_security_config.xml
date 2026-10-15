@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AASC-17, plan 08 §6. Trust only the system's certificates: a user-installed CA can't
+     intercept anything (no <certificates src="user"/>, no debug-overrides).
+
+     Plain HTTP is allowed app-wide because the paired Macs are reached at http://<LAN or
+     Tailscale IPv4>:<port>, and a network security config can't name IP ranges or hosts that
+     are only known after pairing. What keeps that safe instead:
+       - the shell's isAllowedNavigation (shell/src/connectionPlan.ts) only navigates to the
+         exact address and port of a paired Mac (Tailscale, or the home network if allowed);
+       - ShellBridge.shouldOverrideLoad lets the WebView load only those http origins; any
+         other http page opens in the system browser, without the app's bridge;
+       - Tailscale traffic is WireGuard-encrypted; the home network is opt-in per Mac and
+         marked unencrypted. aasc.work itself is HTTPS only (below). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">aasc.work</domain>
+    </domain-config>
+</network-security-config>
