@@ -31,8 +31,6 @@ import {
   type ModeFilter,
 } from '@/lib/reviewEntry';
 import { EntryDetail, StarGlyph, type EntryDetailProps } from '@/components/review/ReviewEntry';
-import { useIsMobile } from '@/lib/platform';
-import PhoneReview from '@/components/mobile/views/PhoneReview';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import EmptyState from '@/components/ui/EmptyState';
@@ -108,15 +106,8 @@ function EntryRow({ expanded, onToggle, onFavorite, setRowRef, ...detail }: Entr
   );
 }
 
-/**
- * The REVIEW tab. A phone gets its own one-column view (PhoneReview, AASC-20):
- * an entry opens full screen instead of expanding in the list.
- */
+/** The REVIEW tab. A phone has its own, in the phone app (More → Review). */
 export default function ReviewView() {
-  return useIsMobile() ? <PhoneReview /> : <DesktopReview />;
-}
-
-function DesktopReview() {
   // Deep-link from the md-highlight click (/review?uuid=…) — ReviewView is always
   // mounted fresh by that navigation, so we seed initial state from the param
   // (expand + widen the archived filter so the record is visible) and scroll to

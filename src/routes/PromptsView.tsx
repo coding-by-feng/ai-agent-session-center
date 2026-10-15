@@ -37,7 +37,6 @@ import { uniqueProjectOptions } from '@/lib/projectOptions';
 import { canRetry, readJson } from '@/lib/requestJson';
 import { clipToMatch, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 import type { DistinctProject, PromptSearchResponse, PromptTraceRow } from '@/types';
-import { useIsMobile } from '@/lib/platform';
 import {
   INITIAL_PROMPT_FILTERS as INITIAL_FILTERS,
   PROMPTS_PAGE_SIZE as PAGE_SIZE,
@@ -49,7 +48,6 @@ import {
   groupPromptsByDay as groupByDay,
   type PromptFilters as Filters,
 } from '@/lib/promptTraceQuery';
-import PhonePrompts from '@/components/mobile/views/PhonePrompts';
 import styles from '@/styles/modules/Prompts.module.css';
 
 function Highlighted({ text, query }: { text: string; query: string }) {
@@ -216,15 +214,8 @@ function PromptRow({
 // View
 // ---------------------------------------------------------------------------
 
-/**
- * The PROMPTS tab. A phone gets its own one-column view (PhonePrompts,
- * AASC-20), which also keeps a remote device to one shared session's trace.
- */
+/** The PROMPTS tab. A phone has its own, in the phone app (More → Prompt Trace). */
 export default function PromptsView() {
-  return useIsMobile() ? <PhonePrompts /> : <DesktopPrompts />;
-}
-
-function DesktopPrompts() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   // The ids only, compared shallowly: reading the sessions Map re-rendered the

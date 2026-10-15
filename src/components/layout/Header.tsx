@@ -4,7 +4,6 @@ import DevicePresenceChip from './DevicePresenceChip';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
-import { useIsMobile } from '@/lib/platform';
 import { showToast } from '@/components/ui/ToastContainer';
 import {
   buildSnapshot,
@@ -243,9 +242,6 @@ function ExitButton() {
 }
 
 export default function Header() {
-  // SIZE decision, not a capability one — a desktop browser keeps the full
-  // header. See src/lib/platform.ts.
-  const isMobile = useIsMobile();
   return (
     <header className={styles.header}>
       <div className={styles.title}>AI AGENT SESSION CENTER</div>
@@ -262,15 +258,10 @@ export default function Header() {
             collapses when you're on one device, nudging the icons to its right.
             That shift was previously absorbed by NavBar's flex spacer. */}
         <DevicePresenceChip />
-        {/* Workspace export/import is a desktop file-system workflow: it opens
-            OS file dialogs and writes snapshot files. UNMOUNTED rather than
-            CSS-hidden (see src/lib/platform.ts rule 3) because these buttons
-            carry their own menu state and handlers that would otherwise mount
-            and run on a phone for UI that can never be reached. */}
-        {!isMobile && <WorkspaceButtons />}
-        {/* Settings stays on mobile — deliberately: it is the only route to
-            theme, TTS and translation preferences, all of which do apply on a
-            phone. */}
+        {/* Workspace export/import: a desktop file-system workflow (OS file
+            dialogs, snapshot files). A phone never gets this header: it has the
+            phone app (AASC-48). */}
+        <WorkspaceButtons />
         <SettingsButton />
         <ExitButton />
       </div>

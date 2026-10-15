@@ -31,7 +31,6 @@ import TextInput from '@/components/ui/TextInput';
 import TrashIcon from '@/components/ui/TrashIcon';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { DistinctProject, SessionSearchResponse, DbSessionRow } from '@/types';
-import { useIsMobile } from '@/lib/platform';
 import {
   HISTORY_PAGE_SIZE as PAGE_SIZE,
   HISTORY_SORT_OPTIONS as SORT_OPTIONS,
@@ -41,22 +40,14 @@ import {
   historySummaryLine as summaryLine,
   type HistoryFilters as Filters,
 } from '@/lib/historyQuery';
-import PhoneHistory from '@/components/mobile/views/PhoneHistory';
 import styles from '@/styles/modules/History.module.css';
 
 const DETAIL_MODAL_ID = 'history-session-detail';
 /** The stretched open button of a row — the focus target after a delete. */
 const ROW_OPEN = '[data-row-open]';
 
-/**
- * The HISTORY tab. A phone gets its own one-column view (PhoneHistory,
- * AASC-20), which also keeps a paired phone to the history routes it may call.
- */
+/** The HISTORY tab. A phone has its own, in the phone app (More → History). */
 export default function HistoryView() {
-  return useIsMobile() ? <PhoneHistory /> : <DesktopHistory />;
-}
-
-function DesktopHistory() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
