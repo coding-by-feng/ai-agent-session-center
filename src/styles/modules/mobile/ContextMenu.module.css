@@ -26,11 +26,13 @@
   background: var(--ph-surface-raised);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
   font-family: var(--ph-font);
-  visibility: hidden;
+  /* Unplaced for the one layout pass before it is measured; opacity (not
+     visibility) so focus can land on it. */
+  opacity: 0;
 }
 
 .menu[data-placed] {
-  visibility: visible;
+  opacity: 1;
   animation: menu-in var(--ph-motion-fast) var(--ph-ease);
 }
 

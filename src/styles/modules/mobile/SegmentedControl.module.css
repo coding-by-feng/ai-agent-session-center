@@ -36,7 +36,7 @@
 }
 
 .segment[aria-selected='true'] {
-  background: var(--ph-surface-raised);
+  background: var(--ph-segment-selected);
   box-shadow: var(--ph-shadow);
   font-weight: 600;
 }

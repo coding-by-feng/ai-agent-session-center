@@ -118,13 +118,32 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     menu.style.setProperty('--menu-left', `${Math.round(left)}px`);
     menu.style.setProperty('--menu-top', `${Math.round(top)}px`);
     menu.dataset.placed = '';
-    menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    // After placing, in the next frame: a real browser drops focus given in the
+    // same tick as the hidden render (ui-primitives.md; jsdom keeps it).
+    const first = menu.querySelector<HTMLElement>('[role="menuitem"]');
+    first?.focus();
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement !== first) first?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [at]);
+
+  // Escape closes it wherever focus is (a tap can leave focus on <body>).
+  useEffect(() => {
+    if (!at) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      close();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [at, close]);
 
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const list = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
     const i = list.indexOf(document.activeElement as HTMLElement);
-    if (e.key === 'Escape' || e.key === 'Tab') {
+    if (e.key === 'Tab') {
       e.preventDefault();
       e.stopPropagation();
       close();

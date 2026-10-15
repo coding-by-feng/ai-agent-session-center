@@ -82,6 +82,11 @@
   --ph-surface: #ffffff;
   --ph-surface-raised: #ffffff;
   --ph-bar-bg: rgba(248, 248, 250, 0.94);
+  /* A sheet's own background and the groups on it (grouped, as iOS sheets). */
+  --ph-sheet-bg: #f2f2f7;
+  --ph-sheet-group: #ffffff;
+  /* The selected segment of a segmented control, on its fill track. */
+  --ph-segment-selected: #ffffff;
   --ph-fill: rgba(118, 118, 128, 0.12);
   --ph-fill-strong: rgba(118, 118, 128, 0.22);
   --ph-separator: rgba(60, 60, 67, 0.22);
@@ -94,7 +99,7 @@
   --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08);
   --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.16);
 
-  --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 45%, #000);
+  --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 40%, #000);
   --ph-on-accent: #ffffff;
   --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 62%, #000);
   --ph-on-danger: #ffffff;
@@ -121,6 +126,9 @@
     --ph-surface: #1c1c1f;
     --ph-surface-raised: #2a2a2e;
     --ph-bar-bg: rgba(22, 22, 25, 0.94);
+    --ph-sheet-bg: #1c1c1f;
+    --ph-sheet-group: #2a2a2e;
+    --ph-segment-selected: #5b5b62;
     --ph-fill: rgba(118, 118, 128, 0.24);
     --ph-fill-strong: rgba(118, 118, 128, 0.36);
     --ph-separator: rgba(235, 235, 245, 0.18);
@@ -134,7 +142,7 @@
 
     --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 50%, #fff);
     --ph-on-accent: #0b0b0f;
-    --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 65%, #fff);
+    --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 55%, #fff);
     --ph-on-danger: #0b0b0f;
 
     --ph-status-approval: color-mix(in srgb, var(--accent-yellow, #d97706) 65%, #fff);

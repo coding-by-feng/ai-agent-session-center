@@ -20,7 +20,7 @@
   margin: 0 auto;
   padding: 0 var(--ph-safe-right) var(--ph-safe-bottom) var(--ph-safe-left);
   border-radius: var(--ph-radius-sheet) var(--ph-radius-sheet) 0 0;
-  background: var(--ph-surface);
+  background: var(--ph-sheet-bg);
   box-shadow: var(--ph-shadow-sheet);
   color: var(--ph-text);
   font-family: var(--ph-font);
@@ -120,6 +120,16 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: var(--ph-space-2) var(--ph-space-4) var(--ph-space-4);
+}
+
+/* A kit list inside a sheet: no second gutter, groups lifted off the sheet. */
+.body > section {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.body > section > ul {
+  background: var(--ph-sheet-group);
 }
 
 .footer {
