@@ -190,6 +190,15 @@ export function filterInbox(items: readonly InboxItem[], filter: InboxFilter): I
   return items.filter((item) => (filter === 'waiting' ? item.waiting : !item.waiting));
 }
 
+/**
+ * How many sessions wait (the Waiting chip): a "continue all" card acts on
+ * sessions already counted, or on ones that don't wait, so it adds none. Says
+ * the same number as the tab bar's Inbox badge (inboxModel.inboxCount).
+ */
+export function waitingCount(items: readonly InboxItem[]): number {
+  return items.filter((item) => item.waiting && item.kind !== 'continue-all').length;
+}
+
 // ---------------------------------------------------------------------------
 // Read state: this phone's own
 // ---------------------------------------------------------------------------

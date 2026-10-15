@@ -3,9 +3,11 @@
 // offer, and what this phone has read.
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { PendingRequest, Session } from '@/types';
+import { inboxCount } from './inboxModel';
 import {
   FINISHED_WINDOW_MS,
   filterInbox,
+  waitingCount,
   inboxAge,
   inboxItems,
   loadReadState,
@@ -136,6 +138,21 @@ describe('filterInbox', () => {
     expect(filterInbox(items, 'waiting').map((i) => i.kind)).toEqual(['approval']);
     expect(filterInbox(items, 'finished').map((i) => i.kind)).toEqual(['finished']);
     expect(filterInbox(items, 'all')).toHaveLength(2);
+  });
+});
+
+describe('waitingCount', () => {
+  it('counts the sessions waiting, as the tab badge does: a "continue all" card is no extra wait (AASC-48)', () => {
+    const interruption = (at: number) => ({ kind: 'network', line: 'Network error', detectedAt: at } as Session['interruption']);
+    const sessions = map(
+      session('a', 'approval', { pendingRequest: bash() }),
+      session('x', 'waiting', { interruption: interruption(NOW - 30) }),
+      session('y', 'idle', { interruption: interruption(NOW - 20) }),
+    );
+    const items = inboxItems(sessions, { titleOf, now: NOW });
+    expect(filterInbox(items, 'waiting')).toHaveLength(4);
+    expect(waitingCount(items)).toBe(3);
+    expect(waitingCount(items)).toBe(inboxCount(sessions));
   });
 });
 
