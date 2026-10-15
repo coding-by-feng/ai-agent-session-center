@@ -1,5 +1,6 @@
-// composerDraftStore.test.ts — the composer's per-session draft (AASC-41/44): set,
-// clear, and text appended on a line of its own (Pull back, a diff line's Comment).
+// composerDraftStore.test.ts — the composer's per-session draft (AASC-41/44/42): set,
+// clear, text appended on a line of its own (Pull back, a diff line's Comment), and
+// kept in localStorage so a reload keeps it.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { appendedDraft, useComposerDraftStore } from './composerDraftStore';
 
@@ -21,6 +22,22 @@ describe('composerDraftStore', () => {
     setDraft('a', 'Please also');
     appendToDraft('a', 'pulled back prompt');
     expect(useComposerDraftStore.getState().drafts.a).toBe('Please also\npulled back prompt');
+  });
+
+  it('keeps a Comment’s trailing space and ignores blank text', () => {
+    const { appendToDraft } = useComposerDraftStore.getState();
+    appendToDraft('a', '   ');
+    expect(useComposerDraftStore.getState().drafts).toEqual({});
+    appendToDraft('a', 'a.ts:3 — ');
+    expect(useComposerDraftStore.getState().drafts.a).toBe('a.ts:3 — ');
+  });
+
+  it('writes the drafts to localStorage', () => {
+    const { setDraft } = useComposerDraftStore.getState();
+    setDraft('a', 'keep me');
+    expect(JSON.parse(localStorage.getItem('aasc.composerDrafts') ?? '{}')).toEqual({ a: 'keep me' });
+    setDraft('a', '');
+    expect(JSON.parse(localStorage.getItem('aasc.composerDrafts') ?? '{}')).toEqual({});
   });
 
   it('does not add a blank line after one that already ends', () => {

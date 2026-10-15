@@ -62,7 +62,7 @@ export const useComposerDraftStore = create<ComposerDraftState>((set) => ({
     }),
   appendToDraft: (sessionId, text) =>
     set((s) => {
-      if (!text) return s;
+      if (!text.trim()) return s;
       const drafts = withDraft(s.drafts, sessionId, appendedDraft(s.drafts[sessionId] ?? '', text));
       save(drafts);
       return { drafts };
