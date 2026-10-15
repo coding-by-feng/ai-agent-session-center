@@ -698,6 +698,7 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
     const auth = await import('../server/authManager.js');
     const { createChatRouter } = await import('../server/chat/chatRouter.js');
     const { resetTranscriptLocatorCache } = await import('../server/chat/transcriptLocator.js');
+    const { createSubagentTranscriptRouter } = await import('../server/subagentTranscript.js');
     chatHome = realpathSync(mkdtempSync(join(tmpdir(), 'aasc-phone-chat-')));
     process.env.HOME = chatHome;
     resetTranscriptLocatorCache();
@@ -710,7 +711,18 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
       line({ type: 'assistant', timestamp: '2026-10-16T10:00:01.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/proj/.env', content: 'API_KEY=sk-123\n' } }] } }),
       line({ type: 'user', timestamp: '2026-10-16T10:00:02.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'ok' }] } }),
     ].join(''));
-    const session = { sessionId: 'chat-shared', cliSource: 'claude', projectPath: '/proj', transcriptPath: transcript, remoteVisible: true };
+    // A subagent of the session that read the same secret file (AGENTS tab).
+    mkdirSync(join(dir, 'chat-shared', 'subagents'), { recursive: true });
+    writeFileSync(join(dir, 'chat-shared', 'subagents', 'agent-a1.jsonl'), [
+      line({ type: 'user', timestamp: '2026-10-16T10:00:00.000Z', message: { role: 'user', content: 'Check the env file' } }),
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:01.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 's1', name: 'Read', input: { file_path: '/proj/.env' } }] } }),
+      line({ type: 'user', timestamp: '2026-10-16T10:00:02.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's1', content: 'API_KEY=sk-999' }] } }),
+      line({ type: 'assistant', timestamp: '2026-10-16T10:00:03.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'It holds one key.' }] } }),
+    ].join(''));
+    const session = {
+      sessionId: 'chat-shared', cliSource: 'claude', projectPath: '/proj', transcriptPath: transcript, remoteVisible: true,
+      subagents: [{ agentId: 'a1' }],
+    };
     const app = express();
     app.use('/api', createPhoneProfile({
       phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
@@ -722,7 +734,8 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
       terminalOfSession: () => null,
       foregroundProcess: () => null,
       home: home || tmpdir(),
-    }), createChatRouter({ getSession: (id) => (id === 'chat-shared' ? session as never : null), isLocal: () => false }));
+    }), createChatRouter({ getSession: (id) => (id === 'chat-shared' ? session as never : null), isLocal: () => false }),
+    createSubagentTranscriptRouter({ getSession: (id) => (id === 'chat-shared' ? session as never : null) }));
     chatServer = createServer(app);
     await new Promise<void>((r) => chatServer.listen(0, '127.0.0.1', r));
     const addr = chatServer.address();
@@ -758,6 +771,15 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
 
   it('shows it to a password sign-in', async () => {
     expect(JSON.stringify(await get('/sessions/chat-shared/chat', false))).toContain('sk-123');
+  });
+
+  it('hides what a subagent read from a secret file from a paired phone (AGENTS tab)', async () => {
+    const phone = await get('/sessions/chat-shared/subagents/a1/transcript', true);
+    expect(JSON.stringify(phone)).not.toContain('sk-999');
+    const entries = phone.data.entries as Array<Record<string, unknown>>;
+    expect(entries.find((e) => e.role === 'tool_result')).toMatchObject({ output: '[Hidden on phones: this touched a secret file]' });
+    expect(entries.find((e) => e.role === 'assistant')).toMatchObject({ text: 'It holds one key.' });
+    expect(JSON.stringify(await get('/sessions/chat-shared/subagents/a1/transcript', false))).toContain('sk-999');
   });
 
   it('marks a secret file in the edits list for a phone, and gives it no hunks', async () => {

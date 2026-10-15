@@ -30,6 +30,7 @@ import {
   transcriptLineTimestamp,
   type ConversationEntry,
 } from './extractPreviousAnswer.js';
+import { markTranscriptSecrets } from './chat/transcriptMarks.js';
 import log from './logger.js';
 
 /** An agent id that is safe as a file-name part (Claude's are `a<hex>` or `a<name>-<hex>`). */
@@ -382,7 +383,11 @@ export function createSubagentTranscriptRouter(deps: SubagentTranscriptRouterDep
         res.json({ success: true, data: null });
         return;
       }
-      res.json({ success: true, data: await readSubagentTranscriptPage(file, query.data) });
+      const page = await readSubagentTranscriptPage(file, query.data);
+      // Marked like the session transcript, so the phone profile can hide what a subagent
+      // read from a secret file from a paired phone (AASC-41).
+      const entries = await markTranscriptSecrets(page.entries, { cli: 'claude', path: file }, session.projectPath);
+      res.json({ success: true, data: { ...page, entries } });
     } catch (err) {
       log.warn('api', `subagent transcript read failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read the subagent transcript' });

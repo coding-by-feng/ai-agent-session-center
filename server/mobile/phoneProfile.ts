@@ -29,7 +29,12 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
 import { HOME_SECRET_SEGMENTS, segmentLooksSecret } from './secretPaths.js';
-import { filterPhoneChangesAnswer, filterPhoneChatAnswer, filterPhoneTranscriptAnswer } from './phoneChatFilter.js';
+import {
+  filterPhoneChangesAnswer,
+  filterPhoneChatAnswer,
+  filterPhoneSubagentTranscriptAnswer,
+  filterPhoneTranscriptAnswer,
+} from './phoneChatFilter.js';
 
 /** The one permission set a paired phone has. The desktop shows it next to each phone. */
 export const PHONE_ACCESS = 'sessions-only' as const;
@@ -453,14 +458,15 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const json = res.json.bind(res);
         res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
       }
-      // The chat, its edits and the transcript show what the agent read and wrote: never a
-      // secret file's content. The readers mark what touched one (server/chat/secretMarks.ts,
-      // transcriptMarks.ts); this hides by the marks.
-      const chatRoute = /^\/sessions\/[^/]+\/(chat|changes|transcript)(?:\/[^/]+)?\/?$/.exec(req.path);
+      // The chat, its edits and the transcripts (a subagent's too) show what the agent read and
+      // wrote: never a secret file's content. The readers mark what touched one
+      // (server/chat/secretMarks.ts, transcriptMarks.ts); this hides by the marks.
+      const chatRoute = /^\/sessions\/[^/]+\/(chat|changes|transcript|subagents\/[^/]+\/transcript)(?:\/[^/]+)?\/?$/.exec(req.path);
       if (rule === 'allow' && req.method === 'GET' && chatRoute) {
         const json = res.json.bind(res);
         const filter = chatRoute[1] === 'chat' ? filterPhoneChatAnswer
-          : chatRoute[1] === 'transcript' ? filterPhoneTranscriptAnswer : filterPhoneChangesAnswer;
+          : chatRoute[1] === 'transcript' ? filterPhoneTranscriptAnswer
+            : chatRoute[1] === 'changes' ? filterPhoneChangesAnswer : filterPhoneSubagentTranscriptAnswer;
         res.json = (body: unknown) => json(filter(body));
       }
       next();

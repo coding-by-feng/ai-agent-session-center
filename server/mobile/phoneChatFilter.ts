@@ -58,25 +58,30 @@ export function filterPhoneChatAnswer(body: unknown): unknown {
   return { ...body, data: { ...body.data, entries } };
 }
 
-/**
- * `GET /sessions/:id/transcript` (the classic layout) for a phone. Its tool inputs are JSON strings,
- * so a hidden one becomes the JSON of what a phone may see.
- */
+/** One transcript entry as a phone sees it. Tool inputs are JSON strings, so a hidden one becomes the JSON of what a phone may see. */
+function phoneTranscriptEntry(raw: unknown): unknown {
+  if (!isRec(raw)) return raw;
+  const unjudged = raw.callUnknown === true;
+  if (raw.role === 'tool_use' && (raw.secret === true || unjudged)) {
+    const seen = raw.secretInput === true
+      ? { redacted: true, paths: editPathsOf(raw) }
+      : { redacted: true, note: SECRET_COMMAND_NOTE };
+    return { ...raw, input: JSON.stringify(seen) };
+  }
+  if (raw.role === 'tool_result' && (raw.secret === true || unjudged)) return { ...raw, output: HIDDEN_ON_PHONES };
+  return raw;
+}
+
+/** `GET /sessions/:id/transcript` (the classic layout) for a phone. */
 export function filterPhoneTranscriptAnswer(body: unknown): unknown {
   if (!isRec(body) || !Array.isArray(body.data)) return body;
-  const data = body.data.map((raw: unknown) => {
-    if (!isRec(raw)) return raw;
-    const unjudged = raw.callUnknown === true;
-    if (raw.role === 'tool_use' && (raw.secret === true || unjudged)) {
-      const seen = raw.secretInput === true
-        ? { redacted: true, paths: editPathsOf(raw) }
-        : { redacted: true, note: SECRET_COMMAND_NOTE };
-      return { ...raw, input: JSON.stringify(seen) };
-    }
-    if (raw.role === 'tool_result' && (raw.secret === true || unjudged)) return { ...raw, output: HIDDEN_ON_PHONES };
-    return raw;
-  });
-  return { ...body, data };
+  return { ...body, data: body.data.map(phoneTranscriptEntry) };
+}
+
+/** `GET /sessions/:id/subagents/:agentId/transcript` (AGENTS tab) for a phone: a page of the same entries. */
+export function filterPhoneSubagentTranscriptAnswer(body: unknown): unknown {
+  if (!isRec(body) || !isRec(body.data) || !Array.isArray(body.data.entries)) return body;
+  return { ...body, data: { ...body.data, entries: body.data.entries.map(phoneTranscriptEntry) } };
 }
 
 /**
