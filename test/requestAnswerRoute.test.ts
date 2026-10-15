@@ -251,8 +251,9 @@ describe('refusals (nothing is typed)', () => {
       expect(presence.claimControl(id, 'phone-other', { label: 'Other phone' }).ok).toBe(true);
       const res = await answer(id, requestId, { choice: 'allow_once' });
       expect(res.status).toBe(423);
-      expect(res.json).toMatchObject({ success: false, code: 'control_held', driver: { label: 'Other phone' } });
-      expect((res.json.driver as Record<string, unknown>).clientId).toBeUndefined();
+      expect(res.json).toMatchObject({ success: false, code: 'control_held' });
+      // Only what the card shows: never another device's client id.
+      expect(res.json.driver).toEqual({ label: 'Other phone', online: true });
       expect(store.getSession(id)?.pendingRequest?.id).toBe(requestId);
       // The driver itself answers.
       expect((await answer(id, requestId, { choice: 'allow_once' }, OTHER_PHONE)).status).toBe(202);
