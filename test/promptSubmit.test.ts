@@ -12,7 +12,8 @@ vi.mock('../server/logger.js', () => ({
 import {
   createPromptSubmitter, createPromptKeyCache, SUBMIT_ENTER_DELAY_MS, IMAGE_SUBMIT_ENTER_DELAY_MS,
   SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, INTERRUPT_WAIT_MS, PROMPT_KEY_TTL_MS,
-  INTERRUPT_CANCEL_GRACE_MS, type PromptOutcome, type PromptRequest, type PromptSessionView,
+  INTERRUPT_CANCEL_GRACE_MS, PREVIOUS_PROMPT_WAIT_MS, SLASH_SETTLE_MS, BUSY_PARK_CHECK_MS, BUSY_PARK_MAX_MS,
+  type PromptOutcome, type PromptRequest, type PromptResult, type PromptSessionView,
 } from '../server/promptSubmit.js';
 import { onTerminalHook, emitTerminalHook, _resetHookSignalsForTests } from '../server/hookSignals.js';
 
@@ -55,9 +56,9 @@ function hook(event: string, status: string, extra: Partial<PromptSessionView> =
 }
 
 /** Track a submit's outcome without awaiting it (the timers have to be advanced first). */
-function track(p: Promise<PromptOutcome>): { outcome: PromptOutcome | null } {
-  const box: { outcome: PromptOutcome | null } = { outcome: null };
-  void p.then((o) => { box.outcome = o; });
+function track(p: Promise<PromptResult>): { outcome: PromptOutcome | null; typed: boolean | null } {
+  const box: { outcome: PromptOutcome | null; typed: boolean | null } = { outcome: null, typed: null };
+  void p.then((r) => { box.outcome = r.outcome; box.typed = r.typed; });
   return box;
 }
 
@@ -87,6 +88,9 @@ describe('the timings are the desktop queue’s', () => {
     expect(SUBMIT_GIVE_UP_GRACE_MS).toBe(15_000);
     expect(INTERRUPT_WAIT_MS).toBe(10_000);
     expect(PROMPT_KEY_TTL_MS).toBe(5 * 60_000);
+    // Longer than the previous prompt's slowest path: interrupt wait, image pause, every retry.
+    expect(PREVIOUS_PROMPT_WAIT_MS).toBeGreaterThan(INTERRUPT_WAIT_MS + IMAGE_SUBMIT_ENTER_DELAY_MS + LAST_RETRY + SUBMIT_GIVE_UP_GRACE_MS);
+    expect(SLASH_SETTLE_MS).toBe(3_000);
   });
 });
 
@@ -273,21 +277,16 @@ describe('a prompt sent now', () => {
     expect(writes).toEqual([]);
   });
 
-  it('never interleaves two prompts for one terminal: the second waits for the first one’s Enter', async () => {
-    const submitter = makeSubmitter();
-    const first = track(submitter.submit(req({ text: 'one', mode: 'now' })));
-    await vi.advanceTimersByTimeAsync(300);
-    track(submitter.submit(req({ text: 'two', mode: 'now' })));
-    expect(writes.map((w) => w.data)).toEqual(['one']);
-    await vi.advanceTimersByTimeAsync(700);
-    expect(writes).toEqual([
-      { at: 0, data: 'one' }, { at: 1_000, data: '\r' }, { at: 1_000, data: 'two' },
-    ]);
+  it('says whether it typed anything: a send that stopped before typing can be sent again', async () => {
+    agentForeground = false;
+    const untouched = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(0);
-    // The first stops confirming: an Enter for it would now submit the second's text early.
-    expect(first.outcome).toBe('superseded');
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(enters()).toEqual([1_000, 2_000]);
+    expect(untouched).toEqual({ outcome: 'stopped', typed: false });
+
+    agentForeground = true;
+    const typed = track(makeSubmitter().submit(req({ text: 'go', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + LAST_RETRY + SUBMIT_GIVE_UP_GRACE_MS);
+    expect(typed).toEqual({ outcome: 'gave-up', typed: true });
   });
 });
 
@@ -366,6 +365,178 @@ describe('a prompt that interrupts', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(result.outcome).toBe('stopped');
     expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+  });
+});
+
+describe('one prompt at a time per terminal', () => {
+  it('types the second only once the first is confirmed, not just entered', async () => {
+    const submitter = makeSubmitter();
+    const first = track(submitter.submit(req({ text: 'one', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(300);
+    const second = track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    // The first's Enter was swallowed: it presses Enter again at 4 s, acknowledged at 5 s.
+    await vi.advanceTimersByTimeAsync(4_700);
+    expect(writes.map((w) => w.data)).toEqual(['one', '\r', '\r']);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first.outcome).toBe('submitted');
+    expect(writes.at(-1)).toEqual({ at: 5_000, data: 'two' });
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    expect(enters()).toEqual([1_000, 4_000, 6_000]);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second.outcome).toBe('submitted');
+  });
+
+  it('never types onto the first one’s unsent text: when the first gives up, the second stops', async () => {
+    const submitter = makeSubmitter();
+    const first = track(submitter.submit(req({ text: 'one', imagePaths: ['/tmp/q/a.png'], mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(300);
+    const second = track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(IMAGE_SUBMIT_ENTER_DELAY_MS + LAST_RETRY + SUBMIT_GIVE_UP_GRACE_MS);
+    expect(first.outcome).toBe('gave-up');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second).toEqual({ outcome: 'stopped', typed: false });
+    expect(writes.some((w) => w.data === 'two')).toBe(false);
+  });
+
+  it('follows a first one that typed nothing', async () => {
+    const submitter = makeSubmitter();
+    const first = track(submitter.submit(req({ text: 'one', mode: 'now', mayDrive: () => false })));
+    const second = track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first).toEqual({ outcome: 'stopped', typed: false });
+    expect(writes.map((w) => w.data)).toEqual(['two']);
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second.outcome).toBe('submitted');
+  });
+
+  it('holds the next prompt after a slash command until a hook arrives (it may still be running)', async () => {
+    const submitter = makeSubmitter();
+    const first = track(submitter.submit(req({ text: '/clear', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(300);
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(700);
+    expect(first.outcome).toBe('unconfirmed');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(writes.map((w) => w.data)).toEqual(['/clear', '\r']);
+    hook('SessionStart', 'idle');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(writes.at(-1)).toEqual({ at: 2_000, data: 'two' });
+  });
+
+  it('holds it at most 3 s when no hook comes, also for a prompt that arrives after the slash command finished', async () => {
+    const submitter = makeSubmitter();
+    track(submitter.submit(req({ text: '/compact', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(1_500);
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SLASH_SETTLE_MS - 500 - 1);
+    expect(writes.map((w) => w.data)).toEqual(['/compact', '\r']);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(writes.at(-1)).toEqual({ at: 1_000 + SLASH_SETTLE_MS, data: 'two' });
+  });
+
+  it('waits at most 90 s for the one before, then stops without typing', async () => {
+    setStatus('working');
+    const submitter = makeSubmitter();
+    // Sent while the agent works: it waits for the turn to end before any retry.
+    track(submitter.submit(req({ text: 'one', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(500);
+    const second = track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(PREVIOUS_PROMPT_WAIT_MS - 1);
+    expect(second.outcome).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(second).toEqual({ outcome: 'stopped', typed: false });
+    expect(writes.some((w) => w.data === 'two')).toBe(false);
+  });
+
+  it('has room for one prompt waiting behind the one typing, and no more', async () => {
+    const submitter = makeSubmitter();
+    expect(submitter.hasRoom(T)).toBe(true);
+    track(submitter.submit(req({ text: 'one', mode: 'now' })));
+    expect(submitter.hasRoom(T)).toBe(true);
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    expect(submitter.hasRoom(T)).toBe(false);
+    expect(submitter.hasRoom('term-other')).toBe(true);
+    const third = track(submitter.submit(req({ text: 'three', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(third).toEqual({ outcome: 'stopped', typed: false });
+
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(submitter.hasRoom(T)).toBe(true);
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(submitter.hasRoom(T)).toBe(true);
+    expect(writes.some((w) => w.data === 'three')).toBe(false);
+  });
+});
+
+describe('a prompt sent while the agent is working', () => {
+  beforeEach(() => setStatus('working'));
+
+  it('counts only its own UserPromptSubmit as confirmation, not the running turn’s hooks', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(1_500);
+    hook('PreToolUse', 'working');
+    hook('PostToolUse', 'working');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.outcome).toBeNull();
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.outcome).toBe('submitted');
+  });
+
+  it('presses no Enter while the turn runs, then retries from when the session is waiting again', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(enters()).toEqual([1_000]);
+    hook('Stop', 'waiting');
+    await vi.advanceTimersByTimeAsync(SUBMIT_RETRY_AFTER_MS[0] - 1);
+    expect(enters()).toEqual([1_000]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(enters()).toEqual([1_000, 9_000 + SUBMIT_RETRY_AFTER_MS[0]]);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.outcome).toBe('submitted');
+  });
+
+  it('notices the turn ended without a hook (a silent status change) within a few seconds', async () => {
+    track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(2_000);
+    setStatus('idle');
+    await vi.advanceTimersByTimeAsync(BUSY_PARK_CHECK_MS + SUBMIT_RETRY_AFTER_MS[0]);
+    expect(enters()).toHaveLength(2);
+  });
+
+  it('stops once the user cancelled the running turn: they took over', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(5_000);
+    hook('Stop', 'waiting');
+    await vi.advanceTimersByTimeAsync(150);
+    setStatus('waiting', { userCancelledAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(SUBMIT_RETRY_AFTER_MS[0]);
+    expect(result.outcome).toBe('stopped');
+    expect(enters()).toEqual([1_000]);
+  });
+
+  it('gives up after waiting 15 minutes for the turn to end', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + BUSY_PARK_MAX_MS + BUSY_PARK_CHECK_MS);
+    expect(result.outcome).toBe('gave-up');
+    expect(enters()).toEqual([1_000]);
+  });
+
+  it('stops when the session ends meanwhile', async () => {
+    const result = track(makeSubmitter().submit(req({ text: 'also this', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(2_000);
+    hook('SessionEnd', 'ended');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.outcome).toBe('stopped');
   });
 });
 

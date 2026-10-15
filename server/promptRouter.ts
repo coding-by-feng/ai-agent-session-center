@@ -32,7 +32,7 @@ import type { Request, Response, RequestHandler } from 'express';
 import { z } from 'zod';
 import log from './logger.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
-import { createPromptKeyCache, type PromptOutcome, type PromptRequest } from './promptSubmit.js';
+import { createPromptKeyCache, type PromptOutcome, type PromptRequest, type PromptResult } from './promptSubmit.js';
 import { SESSION_STATUS } from './constants.js';
 
 /** What the route reads of a session. */
@@ -61,7 +61,7 @@ export interface PromptRouterDeps {
   controller(sessionId: string): { label: string; online: boolean } | null;
   /** The path of an uploaded queue image, by id, or null when it is gone. */
   resolveImage(id: string): string | null;
-  submitter: { submit(req: PromptRequest): Promise<PromptOutcome> };
+  submitter: { submit(req: PromptRequest): Promise<PromptResult> };
 }
 
 /** Prompt images per send, as the phone's composer allows. */
@@ -232,7 +232,7 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       imagePaths: imagePaths as string[],
       mode,
       ...(remote ? { mayDrive: (sessionId: string) => deps.canControl(sessionId, clientId) } : {}),
-    }).then((outcome) => settle(key, outcome)).catch((err: unknown) => {
+    }).then((result) => settle(key, result.outcome)).catch((err: unknown) => {
       settle(key, 'failed');
       log.error('prompt', `Prompt for ${session.sessionId.slice(0, 8)} failed: ${err instanceof Error ? err.message : String(err)}`);
     });

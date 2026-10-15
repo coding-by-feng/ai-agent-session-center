@@ -14,7 +14,7 @@ const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), de
 vi.mock('../server/logger.js', () => ({ default: log }));
 
 import { createPromptRouter, type PromptRouterSession } from '../server/promptRouter.js';
-import type { PromptRequest, PromptOutcome } from '../server/promptSubmit.js';
+import type { PromptRequest, PromptOutcome, PromptResult } from '../server/promptSubmit.js';
 
 let server: http.Server;
 let port: number;
@@ -24,7 +24,9 @@ let terminals: Set<string>;
 let foreground: Map<string, string>;
 let baton: Map<string, { clientId: string; label: string }>;
 let images: Set<string>;
-let submit: ReturnType<typeof vi.fn<(req: PromptRequest) => Promise<PromptOutcome>>>;
+let submit: ReturnType<typeof vi.fn<(req: PromptRequest) => Promise<PromptResult>>>;
+
+const ended = (outcome: PromptOutcome, typed = true): PromptResult => ({ outcome, typed });
 
 beforeEach(async () => {
   sessions = new Map([
@@ -36,7 +38,7 @@ beforeEach(async () => {
   foreground = new Map([['term-1', 'claude'], ['term-2', 'codex']]);
   baton = new Map();
   images = new Set(['queue-img-1-a.png', 'queue-img-2-b.jpg']);
-  submit = vi.fn(async () => 'submitted' as const);
+  submit = vi.fn(async () => ended('submitted'));
   log.error.mockClear();
 
   const app = express();
@@ -317,20 +319,20 @@ describe('what became of a prompt (GET /sessions/:id/prompt/:key)', () => {
     call(`/sessions/${session}/prompt/${key}`, undefined, headers, 'GET');
 
   it('says pending while the Mac is still typing and confirming, then the outcome', async () => {
-    let finish: (o: PromptOutcome) => void = () => {};
-    submit.mockImplementationOnce(() => new Promise<PromptOutcome>((r) => { finish = r; }));
+    let finish: (o: PromptResult) => void = () => {};
+    submit.mockImplementationOnce(() => new Promise<PromptResult>((r) => { finish = r; }));
     expect((await send('s1', {})).status).toBe(202);
     const pending = await status('s1', 'key-00000001');
     expect(pending.status).toBe(200);
     expect(pending.json).toEqual({ success: true, data: { key: 'key-00000001', state: 'pending' } });
-    finish('submitted');
+    finish(ended('submitted'));
     await vi.waitFor(async () => {
       expect((await status('s1', 'key-00000001')).json).toEqual({ success: true, data: { key: 'key-00000001', state: 'submitted' } });
     });
   });
 
   it('reports a send that gave up or failed', async () => {
-    submit.mockResolvedValueOnce('gave-up');
+    submit.mockResolvedValueOnce(ended('gave-up'));
     await send('s1', { key: 'key-gaveup01' });
     await vi.waitFor(async () => expect((await status('s1', 'key-gaveup01')).json.data).toMatchObject({ state: 'gave-up' }));
     submit.mockRejectedValueOnce(new Error('pty exploded'));
