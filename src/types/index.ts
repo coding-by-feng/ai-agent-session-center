@@ -192,6 +192,28 @@ export type {
   DistinctProject,
 } from './analytics.js';
 
+// Chat transcript (phone chat, AASC-41)
+export type {
+  ChatCli,
+  ChatSystemKind,
+  ChatUserEntry,
+  ChatAssistantEntry,
+  ChatThinkingEntry,
+  ChatToolUseEntry,
+  ChatToolResultEntry,
+  ChatTodoItem,
+  ChatTodoEntry,
+  ChatSubagentEntry,
+  ChatCommandEntry,
+  ChatSystemEntry,
+  ChatEntry,
+  ChatPage,
+  ChangedFile,
+  SessionChanges,
+  DiffHunk,
+  FileChanges,
+} from './chat.js';
+
 // Agent Resources (RESOURCES tab)
 export type {
   ResourceType,

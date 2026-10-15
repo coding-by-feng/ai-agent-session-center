@@ -39,6 +39,7 @@ import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { createServerPromptRouter } from './promptWiring.js';
+import { createChatRouter } from './chat/chatRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -373,7 +374,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
     },
   });
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, requestAnswer, promptRouter, apiRouter);
+  // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
+  // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
+  const chatRouter = createChatRouter({ getSession });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, chatRouter, requestAnswer, promptRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

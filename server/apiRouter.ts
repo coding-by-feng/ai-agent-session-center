@@ -49,6 +49,7 @@ import { getCommandIndex } from './commandIndex.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
+import { transcriptCliOf } from './chat/transcriptLocator.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 
@@ -1542,12 +1543,13 @@ router.get('/sessions/:id/source', (req: Request, res: Response) => {
 // Full interleaved conversation transcript for the CONVERSATION tab. Reads the
 // real Claude Code JSONL (constrained to ~/.claude/projects by the helper) for
 // untruncated fidelity. Never 500s — on any error we return an empty array so
-// the client falls back to its in-memory logs.
+// the client falls back to its in-memory logs. Claude sessions only: a Codex
+// session's conversation is never in ~/.claude/projects (AASC-49).
 router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
   try {
     const id = str(req.params.id);
     const session = getSession(id);
-    if (!session || !session.projectPath) {
+    if (!session || !session.projectPath || transcriptCliOf(session) !== 'claude') {
       res.json({ success: true, data: [] });
       return;
     }
