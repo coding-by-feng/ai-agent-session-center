@@ -118,8 +118,9 @@ export function capacitorDeps(): ShellDeps {
       clear: (origin) => ShellBridge.clearSessionCookie({ origin }),
     },
     scanner: {
-      // Google's code scanner on Android (no camera permission); nothing on iOS yet.
-      available: os === 'android',
+      // Google's code scanner on Android (no camera permission); VisionKit's live scanner on iOS 16+
+      // (asks for the camera once). A phone without it answers SCANNER_UNAVAILABLE and the user pastes.
+      available: os === 'android' || os === 'ios',
       scan: async () => (await ShellBridge.scanQr()).value ?? null,
     },
     navigator: {

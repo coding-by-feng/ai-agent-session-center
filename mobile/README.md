@@ -131,8 +131,12 @@ Also checked in the simulator: the lock (lock on → "AASC is locked" at start �
 → passcode → `ok: true`, state saved), the app-switcher card (blurred), and the resume path: lock set to "every time",
 paired Mac page showing, app to the background and back → "AASC is locked".
 
-Still to do on iOS: your Apple ID / team in Xcode to run on a real iPhone; the iOS halves of the QR scanner (VisionKit),
-share extension and widget (App Group), and push (APNs, needs the Developer Program); associated domains for the pairing link.
+Real iPhone (2026-10-15): signed with the Personal Team (CCP2NQHY8N), installed and launched on an iPhone 17 after trusting the
+developer certificate (Settings → General → VPN & Device Management). `QrScanSession.swift`: the pairing QR with VisionKit's
+live scanner (iOS 16+, QR only, camera asked once); the shell shows "Scan the QR code" on iOS too. Not yet scanned on the phone.
+
+Still to do on iOS: the share extension and widget (App Group), and push (APNs, needs the Developer Program); associated domains
+for the pairing link.
 
 ### Turning push on (AASC-19)
 

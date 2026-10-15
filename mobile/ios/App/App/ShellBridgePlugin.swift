@@ -1,9 +1,10 @@
 // ShellBridgePlugin.swift — the shell's other native needs on iOS (AASC-17):
 //   setSessionCookie / clearSessionCookie  the Mac's session cookie, HttpOnly, in the WebView's store
 //   allowOrigins                           which paired-Mac http origins the WebView may load
+//   scanQr                                 the pairing QR with VisionKit's live scanner (QrScanSession.swift)
 //   pushConfigured                         false until APNs is set up (Apple Developer Program, AASC-19)
 //   biometricStatus / authenticate / bootId  the biometric lock's native half (AASC-21, biometricLock.ts decides)
-// The QR scanner, share extension and widget come with their iOS halves later. Serves the bundled
+// The share extension and widget come with their iOS halves later. Serves the bundled
 // shell page only (ShellOnly.swift).
 import Capacitor
 import Foundation
@@ -18,6 +19,7 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setSessionCookie", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearSessionCookie", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "allowOrigins", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pushConfigured", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "biometricStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
@@ -91,6 +93,18 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.allowed = Set(origins.compactMap { $0 })
             call.resolve()
+        }
+    }
+
+    /// The pairing QR (iOS 16+, a phone with the scanner). The shell parses the text like a pasted link.
+    @objc func scanQr(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            guard #available(iOS 16.0, *) else {
+                call.reject("The scanner isn't available on this phone.", "SCANNER_UNAVAILABLE")
+                return
+            }
+            // fromShellOnly runs this on the main queue.
+            MainActor.assumeIsolated { QrScanSession.start(from: self.bridge?.viewController, call: call) }
         }
     }
 
