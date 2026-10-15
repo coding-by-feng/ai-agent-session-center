@@ -20,6 +20,7 @@ import {
 import { createResourceJobsRouter } from '../server/cloud/resourceRouter.js';
 import { EXPORT_TTL_MS, sweepExports } from '../server/cloud/download.js';
 import { cloudFixture } from './cloudPackagesFixture.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const f of cleanups.splice(0).reverse()) await f();
@@ -70,7 +71,7 @@ const headersFor = (b: { backendOrigin: string; accountId: string; generation: n
   'x-aasc-cloud-generation': String(b.generation),
 });
 
-it('a ZIP that streamed completely is deleted with its job folder; asking again is a 404', async () => {
+sqliteIt('a ZIP that streamed completely is deleted with its job folder; asking again is a 404', async () => {
   const { f, download, exportsDir } = await publishedDownload();
   expect(await readdir(exportsDir)).toEqual([download.id]);
   const url = await serve(f);
@@ -97,7 +98,7 @@ it('a ZIP that streamed completely is deleted with its job folder; asking again 
   expect((await second.json()).error.code).toBe('not_found');
 });
 
-it('an export older than the TTL is swept when the jobs reopen and is no longer offered', async () => {
+sqliteIt('an export older than the TTL is swept when the jobs reopen and is no longer offered', async () => {
   const { f, download, exportsDir } = await publishedDownload();
   const folder = join(exportsDir, download.id);
   const old = new Date(Date.now() - EXPORT_TTL_MS - 60_000);
@@ -110,7 +111,7 @@ it('an export older than the TTL is swept when the jobs reopen and is no longer 
   );
 });
 
-it('a new download sweeps stale exports first', async () => {
+sqliteIt('a new download sweeps stale exports first', async () => {
   const { f, ref, download, exportsDir } = await publishedDownload();
   const folder = join(exportsDir, download.id);
   const old = new Date(Date.now() - EXPORT_TTL_MS - 60_000);

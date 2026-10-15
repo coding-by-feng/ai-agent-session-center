@@ -6,6 +6,13 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 const processCalls = vi.hoisted(() => vi.fn(() => { throw new Error('Retired route attempted subprocess'); }));
 vi.mock('child_process', async original => ({...await original<typeof import('child_process')>(), spawn:processCalls, exec:processCalls, execFile:processCalls, spawnSync:processCalls,execSync:processCalls,execFileSync:processCalls}));
+// The API router imports db.ts, which opens SQLite at import: mocked (as in
+// apiRouter.openExternal.test.ts) so this file runs whatever ABI the native binding has.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(), updateSessionTitle: vi.fn(), updateSessionSummary: vi.fn(), updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(), migrateSessionId: vi.fn(), getPromptsForSession: vi.fn(() => []), insertFullPrompt: vi.fn(),
+  getRecentSessions: vi.fn(() => []), getSessionById: vi.fn(() => null), deleteSession: vi.fn(), default: {},
+}));
 import { createResourceRouter } from '../server/resourceRouter.js';
 let server: Server, url: string, home: string;
 beforeAll(async () => {

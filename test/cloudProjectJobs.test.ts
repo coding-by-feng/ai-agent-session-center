@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { projectFixture } from './cloudProjectsFixture.js';
-it('metadata save acknowledges revision before exact private association and never uploads local path', async () => {
+import { sqliteIt } from './helpers/nativeSqlite.js';
+sqliteIt('metadata save acknowledges revision before exact private association and never uploads local path', async () => {
   const f = await projectFixture();
   const path = join(f.home, 'checkout');
   await mkdir(path);
@@ -18,7 +19,7 @@ it('metadata save acknowledges revision before exact private association and nev
   expect(local.openUrl).toContain('/project-browser?path=');
   expect(JSON.stringify(f.calls)).not.toContain(f.home);
 });
-it('stale browser rejects before any outbound or Git', async () => {
+sqliteIt('stale browser rejects before any outbound or Git', async () => {
   const f = await projectFixture();
   f.switchProjectAccount();
   await expect(
@@ -31,7 +32,7 @@ it('stale browser rejects before any outbound or Git', async () => {
   expect(f.calls).toHaveLength(0);
   expect(f.git.clone).not.toHaveBeenCalled();
 });
-it('resource_failure_keeps_successful_checkout and shared job owner retry never reruns clone', async () => {
+sqliteIt('resource_failure_keeps_successful_checkout and shared job owner retry never reruns clone', async () => {
   const f = await projectFixture();
   const pin = { resourceId: randomUUID(), version: 1 };
   f.project.resources.push(pin as never);
@@ -47,7 +48,7 @@ it('resource_failure_keeps_successful_checkout and shared job owner retry never 
   await f.jobs.wait(job.id);
   expect(f.git.clone).toHaveBeenCalledTimes(1);
 });
-it('combined project roots detect conflicting exact pins before any installation', async () => {
+sqliteIt('combined project roots detect conflicting exact pins before any installation', async () => {
   const f = await projectFixture();
   const plan = await f.jobs.buildPublicationPlan(
     [{ resourceId: f.resource.summary.id, include: true }],
@@ -69,7 +70,7 @@ it('combined project roots detect conflicting exact pins before any installation
   ).rejects.toMatchObject({ code: 'dependency_version_conflict' });
   expect(f.jobs.store.list('receipt')).toHaveLength(0);
 });
-it('combined independent roots block overlapping destinations before writes', async () => {
+sqliteIt('combined independent roots block overlapping destinations before writes', async () => {
   const f = await projectFixture();
   const p = await f.jobs.buildPublicationPlan(
     [{ resourceId: f.resource.summary.id, include: true }],
@@ -92,7 +93,7 @@ it('combined independent roots block overlapping destinations before writes', as
   });
   expect(f.jobs.store.list('receipt')).toHaveLength(0);
 });
-it('successful clone records mapping and ordinary shared cancel/history dispatch remains owned', async () => {
+sqliteIt('successful clone records mapping and ordinary shared cancel/history dispatch remains owned', async () => {
   const f = await projectFixture();
   const j = await f.service.getProject(
     f.project.id,
@@ -106,7 +107,7 @@ it('successful clone records mapping and ordinary shared cancel/history dispatch
   expect(f.git.clone).toHaveBeenCalledTimes(1);
   await expect(f.jobs.retry(j.id, f.binding)).rejects.toMatchObject({ code: 'review_required' });
 });
-it('metadata is not locally associated when backend save fails', async () => {
+sqliteIt('metadata is not locally associated when backend save fails', async () => {
   const f = await projectFixture();
   f.cloud.client.request = async () => {
     throw new Error('unavailable');
@@ -123,7 +124,7 @@ it('metadata is not locally associated when backend save fails', async () => {
   expect(f.jobs.store.list('checkout')).toHaveLength(0);
   expect(f.jobs.store.list('project')).toHaveLength(0);
 });
-it('duplicate active project jobs are refused before a second clone', async () => {
+sqliteIt('duplicate active project jobs are refused before a second clone', async () => {
   const f = await projectFixture();
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
@@ -150,7 +151,7 @@ it('duplicate active project jobs are refused before a second clone', async () =
   }
   expect(f.git.clone).toHaveBeenCalledTimes(1);
 });
-it('frozen generation is checked after metadata response before Git starts', async () => {
+sqliteIt('frozen generation is checked after metadata response before Git starts', async () => {
   const f = await projectFixture();
   const request = f.cloud.client.request;
   f.cloud.client.request = async (...args) => {
@@ -168,7 +169,7 @@ it('frozen generation is checked after metadata response before Git starts', asy
   expect(f.git.clone).not.toHaveBeenCalled();
   expect(f.jobs.store.list('checkout')).toHaveLength(0);
 });
-it('pull persists fetched result independently when fast-forward is refused', async () => {
+sqliteIt('pull persists fetched result independently when fast-forward is refused', async () => {
   const f = await projectFixture();
   const path = join(f.home, 'checkout');
   await mkdir(path);
@@ -183,7 +184,7 @@ it('pull persists fetched result independently when fast-forward is refused', as
   expect(done.steps.find((s) => s.id === 'git')?.state).toBe('failed');
   expect(done.state).toBe('partial');
 });
-it('real native Git checkout survives resource failure and opens through persisted mapping', async () => {
+sqliteIt('real native Git checkout survives resource failure and opens through persisted mapping', async () => {
   const { gitFixture } = await import('./cloudGitFixture.js');
   const native = await gitFixture();
   const f = await projectFixture(native.ops);
@@ -207,7 +208,7 @@ it('real native Git checkout survives resource failure and opens through persist
   );
   expect(f.jobs.store.list('checkout')).toHaveLength(1);
 });
-it('durable publish intent recovers rename-before-ack after restart without cloning again', async () => {
+sqliteIt('durable publish intent recovers rename-before-ack after restart without cloning again', async () => {
   const { gitFixture } = await import('./cloudGitFixture.js');
   const native = await gitFixture({
     afterPublish: async () => {
@@ -241,7 +242,7 @@ it('durable publish intent recovers rename-before-ack after restart without clon
   expect((await restarted.localProject(f.project.id, f.binding)).openUrl).toContain('published');
 });
 
-it.each(['running', 'complete'] as const)(
+sqliteIt.each(['running', 'complete'] as const)(
   'stale resource preview cannot overwrite a %s retry using its prior review',
   async (phase) => {
     const f = await projectFixture();
@@ -318,7 +319,7 @@ it.each(['running', 'complete'] as const)(
     expect(done.private).toMatchObject({ resourcePlanId: oldPlan.id, resourceJobId: childId });
   },
 );
-it('another account cannot see or drive a project job, and a saved mapping outside home is refused', async () => {
+sqliteIt('another account cannot see or drive a project job, and a saved mapping outside home is refused', async () => {
   const { accountKey } = await import('../server/cloud/binding.js');
   const f = await projectFixture();
   const j = await f.service.getProject(

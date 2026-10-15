@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { nativeSqlite } from './helpers/nativeSqlite.js';
 
 let root: string;
 let dbPath: string;
@@ -38,7 +39,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
-describe('inert legacy history', () => {
+describe.skipIf(!nativeSqlite)('inert legacy history', () => {
   it('legacy_export_preserves_row_counts and exact raw bodies without database writes', async () => {
     seed();
     const before = rows(), bytes = readFileSync(dbPath);

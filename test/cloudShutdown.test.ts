@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { projectFixture } from './cloudProjectsFixture.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => (resolve = r));
@@ -87,7 +88,7 @@ it('without a cloud connection shutdown still closes HTTP then the database', as
   await result;
   expect(h.closeDb).toHaveBeenCalledTimes(1);
 });
-it('shutdown waits for a running project clone and resource queue cleanup before closing DB', async () => {
+sqliteIt('shutdown waits for a running project clone and resource queue cleanup before closing DB', async () => {
   const f = await projectFixture();
   const clone = deferred(),
     resource = deferred();

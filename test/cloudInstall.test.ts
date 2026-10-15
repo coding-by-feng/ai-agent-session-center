@@ -13,6 +13,7 @@ import { createInstaller } from '../server/cloud/install.js';
 import { sha256 } from '../server/cloud/installFs.js';
 import { resourceDestination } from '../server/resourcePackages/adapters.js';
 import type { PackageManifest } from '../src/types/cloudResources.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 const dirs: string[] = [];
 const cleanups: (() => void)[] = [];
 afterEach(async () => {
@@ -52,7 +53,7 @@ async function fixture() {
   await writeFile(join(destination.path, 'unrelated.txt'), 'keep');
   return { dir, store, m, destination, installer: createInstaller(store) };
 }
-it('backs up before replacement, preserves unrelated bytes, and restores only unchanged installed bytes', async () => {
+sqliteIt('backs up before replacement, preserves unrelated bytes, and restores only unchanged installed bytes', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const receipt = await f.installer.install(
@@ -67,7 +68,7 @@ it('backs up before replacement, preserves unrelated bytes, and restores only un
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('old');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('changed destination stops without touching original or unrelated files', async () => {
+sqliteIt('changed destination stops without touching original or unrelated files', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   await writeFile(join(f.destination.path, 'SKILL.md'), 'edited');
@@ -82,7 +83,7 @@ it('changed destination stops without touching original or unrelated files', asy
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('edited');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('changed installed bytes block restore and brand-new installation is never removed by restore', async () => {
+sqliteIt('changed installed bytes block restore and brand-new installation is never removed by restore', async () => {
   const f = await fixture();
   await rm(f.destination.path, { recursive: true });
   const plan = await f.installer.review(f.m, 1, f.destination);
@@ -97,7 +98,7 @@ it('changed installed bytes block restore and brand-new installation is never re
   });
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('new');
 });
-it('single-file command replacements and restores keep exact original bytes', async () => {
+sqliteIt('single-file command replacements and restores keep exact original bytes', async () => {
   const f = await fixture();
   const manifest: PackageManifest = {
     ...f.m,
@@ -124,7 +125,7 @@ it('single-file command replacements and restores keep exact original bytes', as
   await f.installer.restore(r.id);
   expect(await readFile(destination.path, 'utf8')).toBe('old');
 });
-it('recovery restores original after interrupted backup and refuses changed destinations', async () => {
+sqliteIt('recovery restores original after interrupted backup and refuses changed destinations', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const receipt = await f.installer.install(
@@ -140,7 +141,7 @@ it('recovery restores original after interrupted backup and refuses changed dest
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('new');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('user changed');
 });
-it('an existing root replaced after review is rejected even if destination bytes match', async () => {
+sqliteIt('an existing root replaced after review is rejected even if destination bytes match', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const { rename } = await import('node:fs/promises');
@@ -158,7 +159,7 @@ it('an existing root replaced after review is rejected even if destination bytes
   ).rejects.toMatchObject({ code: 'destination_changed' });
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('recovers a durable backed-up receipt without auto-installing after a crash', async () => {
+sqliteIt('recovers a durable backed-up receipt without auto-installing after a crash', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const receipt = await f.installer.install(
@@ -176,7 +177,7 @@ it('recovers a durable backed-up receipt without auto-installing after a crash',
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('old');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('bad downloaded hash never replaces original; destination hard links are blocked', async () => {
+sqliteIt('bad downloaded hash never replaces original; destination hard links are blocked', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   await expect(
@@ -194,7 +195,7 @@ it('bad downloaded hash never replaces original; destination hard links are bloc
   await expect(f.installer.review(f.m, 1, f.destination)).rejects.toThrow();
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('interrupted restore retains both copies and resumes only the recorded original', async () => {
+sqliteIt('interrupted restore retains both copies and resumes only the recorded original', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const receipt = await f.installer.install(
@@ -213,7 +214,7 @@ it('interrupted restore retains both copies and resumes only the recorded origin
   expect(await readFile(join(receipt.displaced, 'SKILL.md'), 'utf8')).toBe('new');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('managed generated alias destinations are not silently rewritten', async () => {
+sqliteIt('managed generated alias destinations are not silently rewritten', async () => {
   const f = await fixture();
   await writeFile(join(f.destination.path, 'SKILL.md'), '<!-- aasc-alias:v1 -->');
   await expect(f.installer.review(f.m, 1, f.destination)).rejects.toMatchObject({
@@ -221,7 +222,7 @@ it('managed generated alias destinations are not silently rewritten', async () =
   });
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('downloaded managed alias content is blocked before originals move', async () => {
+sqliteIt('downloaded managed alias content is blocked before originals move', async () => {
   const f = await fixture();
   const text = '<!-- aasc-alias:v1 -->';
   const manifest = {
@@ -240,7 +241,7 @@ it('downloaded managed alias content is blocked before originals move', async ()
   expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('old');
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it.skipIf(process.platform === 'win32')(
+(process.platform === 'win32' ? it.skip : sqliteIt)(
   'preserves exact private file and directory permissions, including original backup and restore',
   async () => {
     const f = await fixture();
@@ -276,7 +277,7 @@ it.skipIf(process.platform === 'win32')(
     expect(await readFile(join(f.destination.path, 'SKILL.md'), 'utf8')).toBe('old');
   },
 );
-it.skipIf(process.platform === 'win32').each(['unrelated.txt', '', 'SKILL.md'])(
+(process.platform === 'win32' ? it.skip : sqliteIt).each(['unrelated.txt', '', 'SKILL.md'])(
   'refuses mode-only destination edits: %s',
   async (p) => {
     const f = await fixture();
@@ -295,7 +296,7 @@ it.skipIf(process.platform === 'win32').each(['unrelated.txt', '', 'SKILL.md'])(
     expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
   },
 );
-it('walks every Windows drive and UNC parent component and refuses an intermediate junction', async () => {
+sqliteIt('walks every Windows drive and UNC parent component and refuses an intermediate junction', async () => {
   const fs = await import('../server/cloud/installFs.js');
   const { win32 } = await import('node:path');
   expect(fs.parentPaths('C:\\Users\\fixture\\.claude\\skills', win32)).toEqual([
@@ -345,7 +346,7 @@ function expectRenameFlush(events: string[], from: string, to: string) {
   expect(syncs).toContain(`sync:${dirname(from)}`);
   expect(syncs).toContain(`sync:${dirname(to)}`);
 }
-it('flushes workspace creation and both rename directories before backup/install/restore receipts advance', async () => {
+sqliteIt('flushes workspace creation and both rename directories before backup/install/restore receipts advance', async () => {
   const f = await fixture(),
     events = observeDurability(f.store);
   const plan = await f.installer.review(f.m, 1, f.destination);
@@ -366,7 +367,7 @@ it('flushes workspace creation and both rename directories before backup/install
   expectRenameFlush(events, r.backup, f.destination.path);
   expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it.each(['backup', 'restore'] as const)(
+sqliteIt.each(['backup', 'restore'] as const)(
   'flushes both directories before acknowledging %s recovery',
   async (kind) => {
     const f = await fixture();
@@ -388,7 +389,7 @@ it.each(['backup', 'restore'] as const)(
     expect(await readFile(join(f.destination.path, 'unrelated.txt'), 'utf8')).toBe('keep');
   },
 );
-it('a workspace flush failure after original rename cannot advance a durable backed-up or installed receipt', async () => {
+sqliteIt('a workspace flush failure after original rename cannot advance a durable backed-up or installed receipt', async () => {
   const f = await fixture(),
     events = observeDurability(f.store);
   const plan = await f.installer.review(f.m, 1, f.destination);
@@ -421,7 +422,7 @@ it('a workspace flush failure after original rename cannot advance a durable bac
   expect(await readFile(join(originalPath, 'SKILL.md'), 'utf8')).toBe('old');
   expect(await readFile(join(originalPath, 'unrelated.txt'), 'utf8')).toBe('keep');
 });
-it('a stage-placement flush failure leaves the last durable receipt retryable with original backup intact', async () => {
+sqliteIt('a stage-placement flush failure leaves the last durable receipt retryable with original backup intact', async () => {
   const f = await fixture(),
     events = observeDurability(f.store);
   const plan = await f.installer.review(f.m, 1, f.destination);
@@ -450,7 +451,7 @@ it('a stage-placement flush failure leaves the last durable receipt retryable wi
   vi.restoreAllMocks();
   expect((await f.installer.recover(r)).state).toBe('installed');
 });
-it('restore flush failure retains restoring intent and both verified copies for explicit recovery', async () => {
+sqliteIt('restore flush failure retains restoring intent and both verified copies for explicit recovery', async () => {
   const f = await fixture();
   const plan = await f.installer.review(f.m, 1, f.destination);
   const r = await f.installer.install(

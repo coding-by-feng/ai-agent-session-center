@@ -19,6 +19,7 @@ import { sha256 } from '../server/cloud/installFs.js';
 import { INSTALL_WORKSPACE_PATTERN, excludeInstallWorkspaces } from '../server/cloud/gitExclude.js';
 import { resourceDestination } from '../server/resourcePackages/adapters.js';
 import type { PackageManifest } from '../src/types/cloudResources.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 const dirs: string[] = [];
 const closers: (() => void)[] = [];
 afterEach(async () => {
@@ -104,7 +105,7 @@ it('leaves a folder that is not a plain checkout, and every link, untouched', as
   expect(await readFile(join(target, 'exclude'), 'utf8')).toBe('outside\n');
 });
 
-it('a replacement inside a checkout keeps its backup out of git status; a new install leaves no workspace', async () => {
+sqliteIt('a replacement inside a checkout keeps its backup out of git status; a new install leaves no workspace', async () => {
   const root = await checkout();
   const store = await createJobStore(join(await tempDir(), 'private'));
   closers.push(() => store.close());

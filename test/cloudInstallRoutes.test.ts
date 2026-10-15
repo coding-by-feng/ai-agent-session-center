@@ -3,6 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { createResourceJobsRouter } from '../server/cloud/resourceRouter.js';
 import { cloudFixture } from './cloudPackagesFixture.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const f of cleanups.splice(0).reverse()) await f();
@@ -38,7 +39,7 @@ async function fixture() {
   };
   return { ...f, url, headers };
 }
-it('strict stale binding and unknown request fields reject before outbound work', async () => {
+sqliteIt('strict stale binding and unknown request fields reject before outbound work', async () => {
   const f = await fixture();
   f.switchAccount();
   const response = await fetch(f.url + '/publish-plans', {
@@ -53,7 +54,7 @@ it('strict stale binding and unknown request fields reject before outbound work'
   });
   expect(f.calls).toHaveLength(0);
 });
-it('rejects non-json and unreviewed local destination fields; exposes typed jobs and no private paths', async () => {
+sqliteIt('rejects non-json and unreviewed local destination fields; exposes typed jobs and no private paths', async () => {
   const f = await fixture();
   const bad = await fetch(f.url + '/install-plans', {
     method: 'POST',
@@ -89,7 +90,7 @@ const bound = (b: { backendOrigin: string; accountId: string; generation: number
   'x-aasc-cloud-account': b.accountId,
   'x-aasc-cloud-generation': String(b.generation),
 });
-it('job read and cancel answer only the reviewed account; a missing binding or another account is a 404', async () => {
+sqliteIt('job read and cancel answer only the reviewed account; a missing binding or another account is a 404', async () => {
   const f = await fixture();
   const plan = await f.jobs.buildPublicationPlan(
     [{ resourceId: f.resource.summary.id, include: true }],

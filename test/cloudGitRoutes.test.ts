@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { projectFixture } from './cloudProjectsFixture.js';
 import { createProjectRouter } from '../server/cloud/projectRouter.js';
 import { CloudError } from '../server/cloud/types.js';
+import { sqliteIt } from './helpers/nativeSqlite.js';
 const servers: Server[] = [];
 afterEach(async () => {
   for (const s of servers.splice(0)) {
@@ -37,7 +38,7 @@ async function fixture() {
     },
   };
 }
-it('stale A browser/new B connector rejects before wrong-account outbound', async () => {
+sqliteIt('stale A browser/new B connector rejects before wrong-account outbound', async () => {
   const f = await fixture();
   f.switchProjectAccount();
   const r = await fetch(f.url + '/projects', { headers: f.headers });
@@ -45,7 +46,7 @@ it('stale A browser/new B connector rejects before wrong-account outbound', asyn
   expect((await r.json()).error.code).toBe('connection_changed');
   expect(f.calls).toHaveLength(0);
 });
-it('stale project edit remains an actionable safe conflict', async () => {
+sqliteIt('stale project edit remains an actionable safe conflict', async () => {
   const f = await fixture();
   f.cloud.client.request = async () => {
     throw new CloudError(
@@ -66,7 +67,7 @@ it('stale project edit remains an actionable safe conflict', async () => {
     error: { code: 'version_conflict', details: { headVersion: 5 } },
   });
 });
-it('routes reject origin mismatch and arbitrary command fields', async () => {
+sqliteIt('routes reject origin mismatch and arbitrary command fields', async () => {
   const f = await fixture();
   const r = await fetch(f.url + `/projects/${f.project.id}/get`, {
     method: 'POST',
@@ -88,7 +89,7 @@ it('routes reject origin mismatch and arbitrary command fields', async () => {
   expect(bad.status).toBe(400);
   expect(f.calls).toHaveLength(0);
 });
-it('real transport project conflict strips hostile upstream text and keeps exact revision', async () => {
+sqliteIt('real transport project conflict strips hostile upstream text and keeps exact revision', async () => {
   const f = await fixture();
   const { createCloudTransport } = await import('../server/cloud/client.js');
   const t = createCloudTransport({
@@ -117,7 +118,7 @@ it('real transport project conflict strips hostile upstream text and keeps exact
   expect(body.error).toMatchObject({ code: 'version_conflict', details: { headVersion: 9 } });
   expect(JSON.stringify(body)).not.toMatch(/secret|credential|evil/);
 });
-it('project paths are absolute, normalized, canonical and confined to home outside secret folders', async () => {
+sqliteIt('project paths are absolute, normalized, canonical and confined to home outside secret folders', async () => {
   const { mkdir, mkdtemp, realpath, rm, symlink } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');

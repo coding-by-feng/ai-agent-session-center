@@ -14,7 +14,7 @@ const binding = {
   accountId: 'd23c54de-1b99-4802-87bf-d84ddba2fdf1',
   generation: 1,
 };
-it('keeps stable account-scoped UUIDs and marks active durable jobs interrupted on reopen', async () => {
+sqliteIt('keeps stable account-scoped UUIDs and marks active durable jobs interrupted on reopen', async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'aasc-jobs-')));
   dirs.push(directory);
   const s = await createJobStore(directory);
@@ -32,7 +32,7 @@ it('keeps stable account-scoped UUIDs and marks active durable jobs interrupted 
   expect(r.resourceId(binding, 'catalog')).toBe(id);
   r.close();
 });
-it('rejects stale browser identity before any outbound work', () => {
+sqliteIt('rejects stale browser identity before any outbound work', () => {
   expect(() =>
     assertCloudBinding(
       { status: () => ({ connection: { ...binding, generation: 2 } }) } as never,
@@ -40,7 +40,7 @@ it('rejects stale browser identity before any outbound work', () => {
     ),
   ).toThrow(/connection/i);
 });
-it('retries bounded rate limits with injected delay and stable operation; cancellation blocks retries', async () => {
+sqliteIt('retries bounded rate limits with injected delay and stable operation; cancellation blocks retries', async () => {
   let n = 0;
   const delay = vi.fn(async () => {});
   const op = vi.fn(async () => {
@@ -59,7 +59,8 @@ it('retries bounded rate limits with injected delay and stable operation; cancel
 
 import { cloudFixture } from './cloudPackagesFixture.js';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
-it('publishes frozen bytes with stable UUID and retries 429 during multi-file upload', async () => {
+import { sqliteIt } from './helpers/nativeSqlite.js';
+sqliteIt('publishes frozen bytes with stable UUID and retries 429 during multi-file upload', async () => {
   const f = await cloudFixture();
   try {
     await writeFile(join(f.resource.entry.absPath, 'extra.txt'), 'extra');
@@ -87,7 +88,7 @@ it('publishes frozen bytes with stable UUID and retries 429 during multi-file up
     await f.cleanup();
   }
 });
-it('source changes after review block publication before any upload', async () => {
+sqliteIt('source changes after review block publication before any upload', async () => {
   const f = await cloudFixture();
   try {
     const plan = await f.jobs.buildPublicationPlan(
@@ -103,7 +104,7 @@ it('source changes after review block publication before any upload', async () =
     await f.cleanup();
   }
 });
-it('stale browser cannot create a plan under a new account and switch between steps stops upload', async () => {
+sqliteIt('stale browser cannot create a plan under a new account and switch between steps stops upload', async () => {
   const f = await cloudFixture();
   try {
     const plan = await f.jobs.buildPublicationPlan(
@@ -125,7 +126,7 @@ it('stale browser cannot create a plan under a new account and switch between st
     await f.cleanup();
   }
 });
-it('download makes a portable ZIP without installing; install and explicit restore remain separate', async () => {
+sqliteIt('download makes a portable ZIP without installing; install and explicit restore remain separate', async () => {
   const f = await cloudFixture();
   try {
     const plan = await f.jobs.buildPublicationPlan(
@@ -154,7 +155,7 @@ it('download makes a portable ZIP without installing; install and explicit resto
     await f.cleanup();
   }
 });
-it('exact dependency versions install first and conflicting dependency diamonds never choose silently', async () => {
+sqliteIt('exact dependency versions install first and conflicting dependency diamonds never choose silently', async () => {
   const f = await cloudFixture();
   try {
     const { randomUUID } = await import('node:crypto');
@@ -203,7 +204,7 @@ it('exact dependency versions install first and conflicting dependency diamonds 
     await f.cleanup();
   }
 });
-it('missing source dependencies and broad memory selection produce actionable blockers', async () => {
+sqliteIt('missing source dependencies and broad memory selection produce actionable blockers', async () => {
   const f = await cloudFixture();
   try {
     await writeFile(join(f.resource.entry.absPath, 'SKILL.md'), 'Use ../absent/SKILL.md');
@@ -214,7 +215,7 @@ it('missing source dependencies and broad memory selection produce actionable bl
     await f.cleanup();
   }
 });
-it('same-byte install is a verified no-op with no backup receipt', async () => {
+sqliteIt('same-byte install is a verified no-op with no backup receipt', async () => {
   const f = await cloudFixture();
   try {
     const p = await f.jobs.buildPublicationPlan(
@@ -235,7 +236,7 @@ it('same-byte install is a verified no-op with no backup receipt', async () => {
     await f.cleanup();
   }
 });
-it('project metadata association is required before publication; nested resources and explicit memory retain their paths', async () => {
+sqliteIt('project metadata association is required before publication; nested resources and explicit memory retain their paths', async () => {
   const f = await cloudFixture();
   try {
     const { randomUUID } = await import('node:crypto');
@@ -287,7 +288,7 @@ it('project metadata association is required before publication; nested resource
     await f.cleanup();
   }
 });
-it('rate-limit waiting is cancellable and stops before the next operation', async () => {
+sqliteIt('rate-limit waiting is cancellable and stops before the next operation', async () => {
   const controller = new AbortController();
   let started!: () => void;
   const pending = new Promise<void>((resolve) => {
@@ -308,7 +309,7 @@ it('rate-limit waiting is cancellable and stops before the next operation', asyn
   await expect(wait).rejects.toMatchObject({ code: 'cancelled' });
   expect(calls).toBe(1);
 });
-it('two resource identities cannot claim the same reviewed destination', async () => {
+sqliteIt('two resource identities cannot claim the same reviewed destination', async () => {
   const f = await cloudFixture();
   try {
     const { randomUUID } = await import('node:crypto');
@@ -344,7 +345,7 @@ it('two resource identities cannot claim the same reviewed destination', async (
   }
 });
 
-it('replays ambiguous commit with the same upload after restart without reuploading committed bytes', async () => {
+sqliteIt('replays ambiguous commit with the same upload after restart without reuploading committed bytes', async () => {
   const f = await cloudFixture();
   try {
     const plan = await f.jobs.buildPublicationPlan(
@@ -400,7 +401,7 @@ async function installedVersion(
   f.blobs.set(sha256(body), body);
   return { version, ref: { resourceId: manifest.resourceId, version: 2 } };
 }
-it.each([
+sqliteIt.each([
   ['skill', 'claude', 'received/SKILL.md'],
   ['skill', 'codex', 'received/SKILL.md'],
   ['skill', 'shared', 'received/SKILL.md'],
@@ -446,7 +447,7 @@ it.each([
     }
   },
 );
-it('retains package success while failed catalog refresh defers association/aliases and explicit retry after restart recovers it', async () => {
+sqliteIt('retains package success while failed catalog refresh defers association/aliases and explicit retry after restart recovers it', async () => {
   const f = await cloudFixture();
   try {
     const { ref } = await installedVersion(f, 'skill', 'claude', 'received/SKILL.md');
@@ -477,7 +478,7 @@ it('retains package success while failed catalog refresh defers association/alia
     await f.cleanup();
   }
 });
-it('catalog failure cannot invoke alias retry against a stale existing target', async () => {
+sqliteIt('catalog failure cannot invoke alias retry against a stale existing target', async () => {
   const f = await cloudFixture();
   try {
     const { ref } = await installedVersion(f, 'skill', 'claude', 'demo/SKILL.md');
@@ -496,7 +497,7 @@ it('catalog failure cannot invoke alias retry against a stale existing target', 
     await f.cleanup();
   }
 });
-it('an incompatible existing catalog association is explicit and never overwritten or republished under the wrong UUID', async () => {
+sqliteIt('an incompatible existing catalog association is explicit and never overwritten or republished under the wrong UUID', async () => {
   const f = await cloudFixture();
   try {
     const original = f.jobs.store.resourceId(f.binding, f.resource.summary.id);
@@ -522,7 +523,7 @@ it('an incompatible existing catalog association is explicit and never overwritt
     await f.cleanup();
   }
 });
-it('publication review recovers a pending same-byte installation identity after restart without a replacement', async () => {
+sqliteIt('publication review recovers a pending same-byte installation identity after restart without a replacement', async () => {
   const f = await cloudFixture();
   try {
     const { ref, version } = await installedVersion(f, 'skill', 'claude', 'demo/SKILL.md');
@@ -550,7 +551,7 @@ it('publication review recovers a pending same-byte installation identity after 
     await f.cleanup();
   }
 });
-it('a dependency closure over the total size cap is refused before any file is fetched or installed', async () => {
+sqliteIt('a dependency closure over the total size cap is refused before any file is fetched or installed', async () => {
   const { cloudFixture } = await import('./cloudPackagesFixture.js');
   const { randomUUID } = await import('node:crypto');
   const { canonicalManifest, MAX_CLOSURE_BYTES } = await import('../server/cloud/packageFiles.js');
