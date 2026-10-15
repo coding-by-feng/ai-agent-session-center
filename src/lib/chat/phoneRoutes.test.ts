@@ -5,6 +5,8 @@ import { describe, it, expect } from 'vitest';
 import {
   INFO_PAGES,
   PHONE_TABS,
+  SETTINGS_SECTIONS,
+  morePath,
   defaultSegment,
   infoPath,
   legacyDeepLinkToPath,
@@ -44,10 +46,23 @@ describe('parsePhonePath / phonePath', () => {
   });
 
   it('round-trips the More pages AASC-47 adds', () => {
-    for (const page of ['saved-prompts', 'phone', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const) {
+    for (const page of ['saved-prompts', 'phone'] as const) {
       expect(parsePhonePath(`/more/${page}`)).toEqual({ kind: 'more', page });
       expect(phonePath({ kind: 'more', page })).toBe(`/more/${page}`);
     }
+  });
+
+  it('puts each Settings page under /more/settings, and only there', () => {
+    for (const page of SETTINGS_SECTIONS) {
+      const path = `/more/settings/${page}`;
+      expect(parsePhonePath(path)).toEqual({ kind: 'more', page });
+      expect(phonePath({ kind: 'more', page })).toBe(path);
+      expect(morePath(page)).toBe(path);
+      expect(parsePhonePath(`/more/${page}`), page).toBeNull();
+    }
+    expect(parsePhonePath('/more/settings/history')).toBeNull();
+    expect(parsePhonePath('/more/settings/appearance/x')).toBeNull();
+    expect(morePath('history')).toBe('/more/history');
   });
 
   it('round-trips a session\'s Info and each screen it opens (AASC-46)', () => {
@@ -90,7 +105,7 @@ describe('tabOfPath / pathChain', () => {
     expect(tabOfPath('/queue')).toBe('queue');
     expect(tabOfPath('/more/gallery')).toBe('more');
     expect(tabOfPath('/sessions/x/info/files')).toBe('sessions');
-    expect(tabOfPath('/more/appearance')).toBe('more');
+    expect(tabOfPath('/more/settings/appearance')).toBe('more');
   });
 
   it('lists the screens a deep link stacks, root first', () => {
@@ -106,8 +121,8 @@ describe('tabOfPath / pathChain', () => {
   });
 
   it('stacks a settings page over Settings', () => {
-    for (const page of ['appearance', 'notifications', 'api-keys', 'translation', 'advanced']) {
-      expect(pathChain(`/more/${page}`)).toEqual(['/more', '/more/settings', `/more/${page}`]);
+    for (const page of SETTINGS_SECTIONS) {
+      expect(pathChain(`/more/settings/${page}`)).toEqual(['/more', '/more/settings', `/more/settings/${page}`]);
     }
     expect(pathChain('/more/phone')).toEqual(['/more', '/more/phone']);
     expect(pathChain('/more/saved-prompts')).toEqual(['/more', '/more/saved-prompts']);
