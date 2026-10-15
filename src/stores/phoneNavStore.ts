@@ -20,11 +20,13 @@
  * waits for it to land and then runs in order: a double tap on back pops once,
  * and a push right after a pop lands after it instead of being cut off.
  *
- * Android has no bridge on Mac-served pages (AASC-17): its back button is the
- * WebView's own, which walks this history. Landing on the sentinel means "back at
- * a tab root": the frame warns ("Press back again to leave") and a second back
+ * A browser's back walks this history. Landing on the sentinel means "back at a
+ * tab root": the frame warns ("Press back again to leave") and a second back
  * within LEAVE_WINDOW_MS leaves the Mac page; after the window the root entry is
- * pushed again so the next back warns again. Entries that aren't the frame's (the
+ * pushed again so the next back warns again. The Android app's back button
+ * doesn't walk it: the WebView skips entries a page added without a tap, so
+ * MainActivity asks `handleSystemBack()` instead (same outcomes, 'leave' sends
+ * the app to the background). Entries that aren't the frame's (the
  * desktop layout's router, when a window was narrowed to a phone's size
  * mid-session) are walked straight through on the way out.
  *
