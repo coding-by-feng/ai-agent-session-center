@@ -7,6 +7,7 @@ import {
   LEAVE_WINDOW_MS,
   PENDING_TIMEOUT_MS,
   PHONE_NAV_KEY,
+  handleSystemBack,
   initialPhoneNav,
   installPhoneNav,
   usePhoneNavStore,
@@ -292,6 +293,48 @@ describe('a sheet or menu open on top (AASC-48)', () => {
     history.flush();
     expect(close).not.toHaveBeenCalled();
     expect(stack()).toEqual(['/sessions']);
+  });
+});
+
+describe('the app’s back button, asked by the native shell (AASC-48)', () => {
+  // Android's WebView skips history entries a page added without a tap, so the
+  // button can't be left to walk the history: MainActivity asks the page instead.
+  it('pops a pushed screen', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    expect(handleSystemBack()).toBe('handled');
+    history.flush();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('closes an open sheet first', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    const release = openBackLayer(close);
+    expect(handleSystemBack()).toBe('handled');
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    release();
+  });
+
+  it('at a tab root warns once, then says leave within the window', () => {
+    install('/');
+    expect(handleSystemBack()).toBe('handled');
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(1);
+    expect(nav().leaveArmed).toBe(true);
+    expect(handleSystemBack()).toBe('leave');
+    expect(nav().leaveArmed).toBe(false);
+  });
+
+  it('warns again once the window has passed', () => {
+    vi.useFakeTimers();
+    install('/');
+    handleSystemBack();
+    vi.advanceTimersByTime(LEAVE_WINDOW_MS + 10);
+    expect(nav().leaveArmed).toBe(false);
+    expect(handleSystemBack()).toBe('handled');
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(2);
   });
 });
 

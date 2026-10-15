@@ -116,6 +116,27 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
   });
 
+  it('answers the app’s back button: pops, then at the root warns and says leave (AASC-48)', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    await screen.findByTestId('phone-session');
+    expect(typeof window.__aascNativeBack).toBe('function');
+
+    let answer: string | undefined;
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('handled');
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('handled');
+    expect(await screen.findByText('Press back again to leave')).toBeTruthy();
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('leave');
+
+    unmount();
+    expect(window.__aascNativeBack).toBeUndefined();
+  });
+
   it('keeps the tab bar hidden on the screens pushed from a session: Info and a diff', async () => {
     render(<PhoneAppFrame />);
     await screen.findByRole('navigation', { name: 'Main' });

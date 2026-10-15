@@ -324,6 +324,42 @@ function landOnSentinel(): void {
   }, LEAVE_WINDOW_MS);
 }
 
+/** At a tab root without the sentinel (the app's own back button): warn, and give the next back a window to leave. */
+function armLeave(): void {
+  usePhoneNavStore.setState({ leaveArmed: true });
+  if (!binding) return;
+  binding.onLeaveAttempt();
+  if (binding.rearm) clearTimeout(binding.rearm);
+  binding.rearm = setTimeout(() => {
+    if (binding) binding.rearm = null;
+    usePhoneNavStore.setState({ leaveArmed: false });
+  }, LEAVE_WINDOW_MS);
+}
+
+/**
+ * The phone app's back button (AASC-48). Android's WebView skips history entries
+ * a page added without a tap (Chromium's history-manipulation intervention), so
+ * after a launch with no touch the button walked straight past the sentinel and
+ * the stack, or did nothing. MainActivity asks the page instead (window
+ * `__aascNativeBack`, installed by the frame): close the top sheet, else pop a
+ * screen (a script's history.go(-1) is never skipped), else at a tab root warn
+ * once and say 'leave' to a second back within the window.
+ */
+export function handleSystemBack(): 'handled' | 'leave' {
+  if (closeTopBackLayer()) return 'handled';
+  const { tab, stacks, leaveArmed, pop } = usePhoneNavStore.getState();
+  if (stacks[tab].length > 1) {
+    pop();
+    return 'handled';
+  }
+  if (leaveArmed) {
+    clearLeave();
+    return 'leave';
+  }
+  armLeave();
+  return 'handled';
+}
+
 /**
  * An entry that isn't the frame's: the desktop layout's router entries sit under
  * the sentinel when a window was narrowed to a phone's size. Reached with leave

@@ -12,7 +12,8 @@
  *  - puts `phoneApp` on <body>, which scopes the phone tokens (phoneTokens.css)
  *    to the frame and to everything portaled to <body>;
  *  - owns the browser history through phoneNavStore (?m=<path>, a root sentinel,
- *    "Press back again to leave" on Android);
+ *    "Press back again to leave" on Android), and answers the app's own back
+ *    button (`window.__aascNativeBack`, asked by MainActivity);
  *  - maps an old `?session=<id>&tab=…` link onto the new screens once the first
  *    snapshot says the session is visible (hidden or unknown: nothing happens);
  *  - turns any `selectSession(id)` from the views it reuses (History "Open",
@@ -34,6 +35,7 @@ import { useWsStore } from '@/stores/wsStore';
 import {
   LEAVE_WINDOW_MS,
   browserNavHistory,
+  handleSystemBack,
   installPhoneNav,
   usePhoneNavStore,
 } from '@/stores/phoneNavStore';
@@ -49,6 +51,16 @@ import '@/styles/modules/mobile/phoneTokens.css';
 import styles from '@/styles/modules/mobile/PhoneAppFrame.module.css';
 
 const LEGACY_PARAMS = ['session', 'tab', 'kind'];
+
+declare global {
+  interface Window {
+    /**
+     * The Android app's back button (MainActivity asks it through evaluateJavascript):
+     * 'handled', or 'leave' for a second back at a tab root. Absent outside the frame.
+     */
+    __aascNativeBack?: () => 'handled' | 'leave';
+  }
+}
 
 const TABS = [
   { id: 'sessions' as const, label: 'Sessions', icon: <SessionsTabIcon /> },
@@ -80,7 +92,9 @@ function usePhoneNavigation(): void {
       onLeaveAttempt: () => showToast('Press back again to leave', 'info', LEAVE_WINDOW_MS),
       search: url.search,
     });
+    window.__aascNativeBack = handleSystemBack;
     return () => {
+      delete window.__aascNativeBack;
       uninstall();
       window.history.replaceState(window.history.state, '', withoutPhonePath(window.location.href));
     };
