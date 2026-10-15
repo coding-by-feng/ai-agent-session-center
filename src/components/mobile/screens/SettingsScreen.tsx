@@ -69,7 +69,7 @@ function AppearancePage() {
             leading={<span className={styles.swatch} style={{ '--swatch': t.colors[1] } as CSSProperties} aria-hidden="true" />}
             title={t.label}
             value={themeName === t.name ? 'Selected' : undefined}
-            ariaLabel={`${t.label}${themeName === t.name ? ', selected' : ''}`}
+            ariaLabel={`${t.label} accent${themeName === t.name ? ', selected' : ''}`}
             onClick={() => setThemeName(t.name as ThemeName)}
           />
         ))}
