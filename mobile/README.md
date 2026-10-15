@@ -1,17 +1,53 @@
 # AASC phone app (Android + iOS)
 
-Status (2026-10-15, AASC-17 + the TypeScript of AASC-19 and AASC-21): **foundation only, not built into an app yet.**
+Status (2026-10-15, AASC-17 + the TypeScript of AASC-19 and AASC-21): **shell screens done; Android debug build
+done; iOS not generated (no Xcode); not tried on a real phone.**
 
 | Part | State |
 |---|---|
 | Server UI inside the app (`src/`) | Done on `krt/aasc-17`: native-app detection (`src/lib/platform.ts`), the phone never resizes the shared terminal, desktop automation not mounted, 3D / split view / pop-outs / HOOKS / SHORTCUTS hidden, safe areas, no token in web storage or the WebSocket URL, `?session=` deep links, re-auth through the shell |
 | Shell logic (`shell/src`) | Done and tested: pairing-link parser, connection order + navigation guard, pairing/session client, re-auth parsing |
-| Shell screens (pair, approve-wait, servers, offline) | Not started |
-| `DeviceVault` (Keychain / Keystore) plugin | Not started (needs Xcode / Android Studio) |
-| Native projects (`ios/`, `android/`) | Not generated: this Mac has no Xcode, CocoaPods or Android SDK |
+| Shell screens (`shell/src/app.ts`, `ui/`) | **Done** (vanilla TS + DOM, no framework): Pair (scan / paste / typed code), "Pair with *Mac*?", Approve on your Mac (6-digit code, polling, refused / expired / unreachable / stalled, cancel), Your Macs, per-Mac settings (home network opt-in, unpair by proof, remove anyway), Can't reach (paths tried), signing in again (`?reauth=1&back=…`). Tests with a fake phone and a fake Mac: `shell/src/screens.*.test.ts` |
+| `DeviceVault` + `ShellBridge` plugins | **Android done** (Kotlin, `android/app/src/main/java/work/aasc/mobile`): Keystore AES-GCM vault; HttpOnly session cookie; allowed Mac origins (`shouldOverrideLoad`); QR scan with Google's code scanner (no camera permission). Both refuse any page but the bundled shell. iOS: not written (needs Xcode) |
+| Native projects | **`android/` generated and hardened** (see RELEASE.md rows 1, 6, 9, 11), `./gradlew assembleDebug` builds; `ios/` not generated: no Xcode on this Mac |
+| Push native glue | Not wired: needs the Firebase project's `google-services.json`. Until then `POST_NOTIFICATIONS` is removed from the manifest (restore it with the Firebase file) |
 | Website: `/.well-known/apple-app-site-association`, `assetlinks.json`, `/pair` | Done on the website's `krt/aasc-17-pair` (not deployed): `/pair` page; the two link files are generated at build time once `APPLE_TEAM_ID` / `ANDROID_SHA256` are given |
 | Release flags (no web inspector, no debug logging) | Done: `AASC_RELEASE=1 npx cap sync`; checklist and steps in [RELEASE.md](RELEASE.md) (AASC-22) |
-| Trial on a real iPhone and Android phone | Not done |
+| Trial on a real iPhone and Android phone | Not done; the debug APK has not run on a device or emulator yet (this Mac had too little disk for an emulator) |
+
+### Shell screens: how they fit
+
+```
+launch ─┬─ ?reauth=1&back=/p ─▶ sign in again on the last Mac ─▶ http://<mac>/p
+        ├─ verified pair link ─▶ "Pair with Mac?" (never without a tap)
+        ├─ one paired Mac ─────▶ open it
+        └─ else ──────────────▶ Your Macs / Pair
+Pair ─▶ "Pair with Mac?" ─▶ Pair ─▶ Approve on your Mac ─(Mac allows)─▶ cookie set ─▶ Mac UI
+open a Mac: probe paths (LAN if allowed, then Tailscale) ─▶ challenge/proof ─▶ HttpOnly cookie
+            ─▶ isAllowedNavigation + ShellBridge.allowOrigins ─▶ navigate
+            pending ─▶ Approve · revoked ─▶ wiped, Pair · no answer ─▶ Can't reach
+```
+
+Tokens: the device and backend tokens go from the HTTP answer into `DeviceVault` only; the one-hour session token
+only into the native cookie. Preferences holds the Mac list (names, addresses, port, home-network choice), validated
+on every load because built-in plugins have no origin check. The development build (`vite build shell --mode
+development`) swaps in in-memory fakes and a pretend Mac (`shell/src/platform/dev.ts`, `?seed=1`, `?scenario=offline|lan|wait|deny`);
+a release build opened in a plain browser only says it needs the app.
+
+### Building the Android app
+
+```bash
+cd mobile
+npm ci && npm run shell:build && npx cap sync android
+cd android
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools ANDROID_SDK_ROOT=$ANDROID_HOME
+export JAVA_HOME=/opt/homebrew/opt/openjdk     # JDK 21+ (Capacitor 8 compiles Java 21); 25 works
+./gradlew assembleDebug testDebugUnitTest lintDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+```
+
+The wrapper is Gradle 9.1.0, not the 8.14.3 `cap add` generated: 8.14 can't compile its build scripts on JDK 25,
+and JDK 17 can't compile Capacitor 8's Java 21 code. With a JDK 21 installed either Gradle works.
 
 ### AASC-19 push notifications
 
@@ -78,6 +114,8 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 
 | Interface (file) | Implemented with | Notes |
 |---|---|---|
+| `DeviceVault` (`native.ts`) | Android: `DeviceVaultPlugin.kt` (Keystore AES-256-GCM, entry name as associated data, app-private prefs, no backup). iOS: Keychain `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (to write) | Refuses every page but the bundled shell (`ShellOnly.kt`) |
+| `SessionCookies`, `ShellNavigator.allowOrigins`, `QrScanner` (`native.ts`) | Android: `ShellBridgePlugin.kt` (`CookieManager` with `HttpOnly; SameSite=Strict`, `shouldOverrideLoad` for paired http origins, `play-services-code-scanner`). iOS: `WKHTTPCookieStore`, `WKNavigationDelegate`, a VisionKit scanner (to write) | Same origin check |
 | `PushPlatform` (`pushRegistration.ts`) | `@capacitor/push-notifications`: `checkPermissions`, `requestPermissions`, `register`, `unregister`, `addListener('registration' \| 'registrationError')`; `Capacitor.getPlatform()` | `environment()`: iOS reads the `aps-environment` entitlement (debug = `sandbox`, TestFlight/App Store = `production`), Android returns `production` |
 | `KeyValueStore` (`pushRegistration.ts`) | `@capacitor/preferences` `get`/`set` | Non-secret only (the "asked once" flag, session→Mac hints) |
 | `HttpRequester` (`http.ts`) | `CapacitorHttp.request({ method, url, headers, data })` | Native HTTP: no CORS, no WebView cookies. Send the headers as given (JSON calls carry `Content-Type: application/json`: Android writes no body without it); omit `data` when `body` is absent (the backend's DELETE refuses a body). The pairing `HttpClient.post` must set the JSON content type itself |
@@ -111,19 +149,23 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 
 ## What's needed from you before the next step
 
-1. Install Xcode (App Store) and Android Studio; `brew install cocoapods` if Capacitor asks for it.
+1. Install Xcode (App Store); `brew install cocoapods` if Capacitor asks for it. (Android Studio is optional: the
+   command-line SDK builds the Android app.)
 2. Join the Apple Developer Program (push, associated domains and TestFlight need it) and note the Team ID.
 3. Create the Android upload keystore (back it up) and note its SHA-256 fingerprint.
 4. A real iPhone and a mid-range Android phone for the one-week trial (checks S1–S9 in plan doc 07 §9).
+
+5. A Firebase project for Android push: its `google-services.json` in `android/app/` (then restore
+   `POST_NOTIFICATIONS` in the manifest and `lint.xml`).
 
 ## Then
 
 ```bash
 cd mobile
-npm install
-npx cap add ios && npx cap add android
+npm ci
+npx cap add ios                 # android/ is already committed
 npm run shell:build && npm run sync
-npm run ios      # or: npm run android
+npm run ios                     # or build Android as above
 ```
 
 Tests for the shell logic run with the main suite (`npx vitest run --project mobile`); the shell's types: `npx tsc --noEmit -p mobile/tsconfig.json` (not part of `typecheck:all`).

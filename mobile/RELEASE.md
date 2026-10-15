@@ -3,9 +3,9 @@
 A personal release: a TestFlight build for the iPhone and a signed APK for Android. A public store
 listing is a separate decision. Plan: `docs/plans/mobile/08-mobile-security.md` (local) and 07 §7.
 
-Status (2026-10-15): the checks that live in code are done and tested; everything that needs the
-native projects, a build or a phone waits for Xcode, Android Studio, the Apple Developer Program
-and two phones (see [README](README.md#whats-needed-from-you-before-the-next-step)).
+Status (2026-10-15): the checks that live in code are done and tested; the Android project is
+generated and hardened and its debug build runs; everything iOS waits for Xcode and the Apple
+Developer Program, and every device check for two phones (see [README](README.md#whats-needed-from-you-before-the-next-step)).
 
 ## 1. Security verification (OWASP MASVS v2)
 
@@ -13,21 +13,21 @@ Every row must pass before a build is shared, or be tracked as its own KRT item.
 
 | # | Check | Enforced by | Verified by | State |
 |---|---|---|---|---|
-| 1 | Credentials only in the Keychain / Keystore, and the loaded Mac UI can't read them | `DeviceVault` plugin refuses every origin but the bundled shell | Debug build: call `DeviceVault.get` from the Mac page → rejected | Needs the native plugin |
+| 1 | Credentials only in the Keychain / Keystore, and the loaded Mac UI can't read them | `DeviceVault` plugin refuses every origin but the bundled shell (`ShellOnly.kt`); the shell puts tokens nowhere else | `ShellRulesTest` (origin rule), `shell/src/screens.secrets.test.ts` (no token in web storage, Preferences, URLs, the page); debug build: call `DeviceVault.get` from the Mac page → `ORIGIN_REFUSED` | Android plugin **done**; device check pending; iOS needs Xcode |
 | 2 | No token in WebView storage | `src/hooks/useAuth.ts` (never writes `auth_token` in the app; the session is the HttpOnly cookie) | `src/hooks/useAuth.test.ts` "the phone app keeps no token in web storage" | **Done** |
 | 3 | No token in the live connection's address | `src/lib/wsClient.ts` | `src/lib/nativeApp.test.ts` "WebSocket URL in the app" | **Done** |
 | 4 | No token in logs; no debug logging in release | `capacitor.config.ts`: `loggingBehavior: 'none'` when `AASC_RELEASE=1`; shell code logs no tokens | `shell/src/releaseConfig.test.ts`; device log capture during pairing | Config **done**; device capture pending |
 | 5 | Web inspector off in release | `capacitor.config.ts`: `webContentsDebuggingEnabled: false` (iOS + Android) when `AASC_RELEASE=1` | `shell/src/releaseConfig.test.ts`; Safari / `chrome://inspect` can't attach to the release build | Config **done**; build check pending |
-| 6 | No credentials in backups | Android `android:allowBackup="false"`; iOS Keychain items `…ThisDeviceOnly` | `adb backup` / encrypted iOS backup inspection | Needs the native projects |
+| 6 | No credentials in backups | Android `android:allowBackup="false"` + `backup_rules.xml` / `data_extraction_rules.xml` excluding everything (the vault's Keystore key isn't backed up either); iOS Keychain items `…ThisDeviceOnly` | Merged manifest; `adb backup` / encrypted iOS backup inspection | Android config **done**; device check pending; iOS needs Xcode |
 | 7 | App switcher shows a blurred screen | Blur on `willResignActive` (iOS) / `onPause` (Android); `FLAG_SECURE` optional | Background the app on a terminal | Needs native code |
-| 8 | External links leave the app | `allowNavigation` (`*.aasc.work` + paired hosts) and `isAllowedNavigation` in `shell/src/connectionPlan.ts` | `shell/src/shell.test.ts` "only lets the WebView navigate to paired addresses or aasc.work over https"; on device: tap a Markdown and a terminal link | Logic **done**; device check pending |
-| 9 | Android ignores user-installed certificates | Default network security config, no `<certificates src="user"/>` | Install a user CA and intercept → refused | Needs the native project |
+| 8 | External links leave the app | `allowNavigation` (`*.aasc.work`), `isAllowedNavigation` in `shell/src/connectionPlan.ts` before every navigation, and Android `ShellBridge.shouldOverrideLoad` keeping only the paired http origins in the WebView | `shell/src/shell.test.ts` "only lets the WebView navigate to paired addresses or aasc.work over https"; on device: tap a Markdown and a terminal link | Logic **done**; device check pending |
+| 9 | Android ignores user-installed certificates | `network_security_config.xml`: system trust anchors only, no `<certificates src="user"/>`, no debug-overrides; `aasc.work` HTTPS only | Install a user CA and intercept → refused | Config **done**; device check pending |
 | 10 | Unencrypted connections only to paired private addresses | `isPrivateLanAddress` / `isTailnetAddress` (`shell/src/pairingLink.ts`) and `isAllowedNavigation` (LAN opt-in); `allowMixedContent: false` | `shell/src/shell.test.ts` "classifies addresses", `releaseConfig.test.ts`; on device: a public IP over http is refused | Logic **done**; device check pending |
-| 11 | No custom URL scheme; only verified links open the app | No `aasc://`; `https://aasc.work/pair` via associated domains / `autoVerify`; the website generates AASA and `assetlinks.json` | `releaseConfig.test.ts`; Apple's AASA validator / `adb shell pm get-app-links` | Website **done** (not deployed); native entitlements pending |
+| 11 | No custom URL scheme; only verified links open the app | No `aasc://` (the template's `custom_url_scheme` removed); Android intent filter `https://aasc.work/pair` with `autoVerify`; the website generates AASA and `assetlinks.json`; the shell never pairs without a tap | `releaseConfig.test.ts`, `screens.pair.test.ts`; Apple's AASA validator / `adb shell pm get-app-links work.aasc.mobile` | Website **done** (not deployed); Android filter **done**; iOS entitlement needs Xcode + Team ID |
 | 12 | Shared items arrive paused | `POST /api/sessions/:id/queue/items` lands disabled; metadata stripped from images | `test/sharedPromptData.test.ts`, `shell/src/shareToQueue.test.ts`, `shell/src/imageMetadata.test.ts` | **Done** |
 | 13 | Pairing and revocation end to end | Desktop approval + 6-digit confirmation; revoke wipes the vault and returns to pairing | Server: pairing tests (AASC-15). On devices: pair, a second phone scans the same QR (refused or mismatched code), revoke a phone | Server **done**; device run pending |
 | 14 | Static scan clean | — | MobSF on the release APK and IPA: no high finding left unexplained | Needs a build |
-| 15 | Dependencies pinned and audited | Exact versions in `package.json` | `npm audit` in `mobile/` before each release | Pending first `npm install` |
+| 15 | Dependencies pinned and audited | Exact versions in `package.json`, `package-lock.json` committed; one native addition, `play-services-code-scanner` 16.1.0 (QR without a camera permission) | `npm audit` in `mobile/` before each release | Installed; `npm audit`: 3 moderate, all `uuid` < 11.1.1 under `@capacitor/cli` → `xcode` (build tool only, not in the app) |
 
 ## 2. Building the release
 

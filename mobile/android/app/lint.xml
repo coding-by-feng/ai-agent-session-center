@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- AASC-17: POST_NOTIFICATIONS is removed from the merged manifest on purpose until push is
+         wired (Firebase google-services.json, AASC-19); the push plugin then posts nothing.
+         Restore the permission and drop this line together. -->
+    <issue id="NotificationPermission" severity="ignore" />
+    <!-- Cleartext is app-wide by design: see res/xml/network_security_config.xml. -->
+    <issue id="InsecureBaseConfiguration" severity="ignore" />
+</lint>

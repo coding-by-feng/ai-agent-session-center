@@ -22,6 +22,8 @@ test-screenshots/
 *.webp
 *.gif
 !static/**
+# The phone app's launcher icons and splash screens ship with the Android project (AASC-17).
+!mobile/android/app/src/main/res/**
 docs/feature/.manifest.json.bak
 docs/feature/.manifest.json.tmp.*
 
