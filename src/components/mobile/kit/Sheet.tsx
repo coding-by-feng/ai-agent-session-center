@@ -102,7 +102,7 @@ export default function Sheet({
       document.removeEventListener('keydown', onKey, true);
       const at = panel ? openSheets.indexOf(panel) : -1;
       if (at !== -1) openSheets.splice(at, 1);
-      opener?.focus?.();
+      opener?.focus?.({ preventScroll: true });
     };
   }, [open, onClose]);
 

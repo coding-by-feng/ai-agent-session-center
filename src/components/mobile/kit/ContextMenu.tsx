@@ -67,9 +67,10 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     setAt(null);
     // The hold's release lands on the menu layer, not the row, so no click may come to swallow.
     swallowClick.current = false;
-    // Back to the row the menu was opened on (its first focusable child).
+    // Back to the row the menu was opened on (its first focusable child), without scrolling:
+    // the row is where the finger was, and a jump would lose the reader's place in a long list.
     const target = triggerRef.current?.querySelector<HTMLElement>('button, [href], [tabindex]') ?? triggerRef.current;
-    target?.focus?.();
+    target?.focus?.({ preventScroll: true });
   }, []);
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
