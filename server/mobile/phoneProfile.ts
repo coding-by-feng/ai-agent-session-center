@@ -141,6 +141,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/files/(list|read|stream|search|grep|resolve)', 'files'),
   // Skill-note favourites for the compose autocomplete (AASC-20, M9): key, fav, tags, abbr only.
   route('GET', '/skill-notes/favorites', 'allow'),
+  // AASC Cloud, read-only, through the Mac's own connection (AASC-51): its state, the resources
+  // and project records, a resource's latest versions. Names, versions, dates and sizes only;
+  // every desktop cloud route stays under /resources (the RESOURCES local gate).
+  route('GET', '/phone-cloud/(status|browse)', 'allow'),
+  route('GET', '/phone-cloud/resources/:id/versions', 'allow'),
 ];
 
 /** The rule for a phone request, or null when phones may not call it at all. */

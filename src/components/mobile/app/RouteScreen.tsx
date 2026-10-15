@@ -23,6 +23,8 @@ const InfoScreen = lazy(() => import('../screens/InfoScreen'));
 const InfoPageScreen = lazy(() => import('../screens/info/InfoPageScreen'));
 const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
 const DiffScreen = lazy(() => import('../screens/DiffScreen'));
+const CloudScreen = lazy(() => import('../screens/CloudScreen'));
+const CloudResourceScreen = lazy(() => import('../screens/CloudResourceScreen'));
 
 function UnknownScreen() {
   return (
@@ -37,6 +39,7 @@ export default function RouteScreen({ path }: { path: string }) {
   if (!route) return <UnknownScreen />;
   if (route.kind === 'session') return <SessionScreen sessionId={route.sessionId} segment={route.segment} />;
   if (route.kind === 'diff') return <DiffScreen sessionId={route.sessionId} fileIndex={route.fileIndex} />;
+  if (route.kind === 'cloud-resource') return <CloudResourceScreen resourceId={route.resourceId} />;
   if (route.kind === 'session-info') {
     return route.page
       ? <InfoPageScreen sessionId={route.sessionId} page={route.page} />
@@ -56,6 +59,7 @@ export default function RouteScreen({ path }: { path: string }) {
     case 'translation':
     case 'advanced':
       return <SettingsScreen page={route.page} />;
+    case 'cloud': return <CloudScreen />;
     case 'phone': return <ThisPhoneScreen />;
     case 'about': return <AboutScreen />;
     case 'gallery': return <GalleryScreen />;

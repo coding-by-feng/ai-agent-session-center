@@ -28,7 +28,11 @@ export interface MobileDeviceRecord {
   tokenHash: string;
   status: DeviceStatus;
   confirmCode: string;
-  /** Non-secret reference to the backend pairing code this phone used, when there was one. */
+  /**
+   * Non-secret reference to the backend pairing code the Mac put in this phone's
+   * QR, when there was one: revoking the phone revokes the backend device that
+   * code created (AASC-51). Recorded by the Mac, never taken from the phone.
+   */
   beCodeRef: string | null;
   /** Fingerprint of the dashboard password when the token was issued (null: none set). */
   credentialEpoch: string | null;
@@ -153,8 +157,11 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const { store } = opts;
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
-  /** Open pairing codes, keyed by their hash. In memory on purpose: they live two minutes. */
-  const codes = new Map<string, { expiresAt: number }>();
+  /**
+   * Open pairing codes, keyed by their hash, with the backend code minted beside
+   * each one for the same QR. In memory on purpose: they live two minutes.
+   */
+  const codes = new Map<string, { expiresAt: number; beCodeRef: string | null }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
 
@@ -200,16 +207,36 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();
       const code = newPairingCode();
       const expiresAt = now() + PAIRING_CODE_TTL_MS;
-      codes.set(hashSecret(code), { expiresAt });
+      codes.set(hashSecret(code), { expiresAt, beCodeRef: null });
       return { code, expiresAt };
     },
 
-    /** Redeem a pairing code. The device comes back pending, with its token shown this once. */
-    redeem(input: { code: string; label: string; platform: DevicePlatform; beCodeRef?: string | null }):
+    /**
+     * Remember the backend code minted for the same QR as `code`, so the phone
+     * that redeems `code` is tied to the backend device that one creates. The
+     * phone never reports it: it redeems the two halves separately.
+     */
+    attachBackendCode(code: string, beCodeRef: string): boolean {
+      pruneCodes();
+      const hash = hashSecret(normalizePairingCode(code));
+      const entry = codes.get(hash);
+      if (!entry) return false;
+      codes.set(hash, { ...entry, beCodeRef });
+      return true;
+    },
+
+    /**
+     * Redeem a pairing code. The device comes back pending, with its token shown
+     * this once. Its backend code is the one the Mac attached to this code; a
+     * value the phone sends is never used, or a phone could point a later revoke
+     * at another phone's backend device.
+     */
+    redeem(input: { code: string; label: string; platform: DevicePlatform }):
       { device: MobileDeviceRecord; deviceToken: string } | null {
       pruneCodes();
       const hash = hashSecret(normalizePairingCode(input.code));
-      if (!codes.has(hash)) return null;
+      const entry = codes.get(hash);
+      if (!entry) return null;
       codes.delete(hash); // single use, even if the rest fails
       const deviceToken = randomBytes(32).toString('base64url');
       const device: MobileDeviceRecord = {
@@ -219,7 +246,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         tokenHash: hashSecret(deviceToken),
         status: 'pending',
         confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
-        beCodeRef: input.beCodeRef ?? null,
+        beCodeRef: entry.beCodeRef,
         credentialEpoch: currentEpoch(),
         createdAt: now(),
         approvedAt: null,

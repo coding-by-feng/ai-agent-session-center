@@ -2,6 +2,7 @@
  * MoreScreen — the More tab's root (AASC-47, design §5.8): a grouped list.
  *
  *   LIBRARY     History · Prompt Trace · Saved prompts · Review · Agenda
+ *   AASC CLOUD  Cloud: resources and projects, read through the Mac (AASC-51)
  *   SETTINGS    Appearance · Notifications · API keys · Translation · Advanced
  *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair
  *   ABOUT
@@ -14,7 +15,7 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneAppearance, PHONE_APPEARANCES } from '@/lib/chat/phoneAppearance';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
-import { LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
+import { CLOUD_PAGE, LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
 import { morePath } from '@/lib/chat/phoneRoutes';
 
 /** The settings rows, shared by More and More → Settings. */
@@ -46,6 +47,9 @@ export default function MoreScreen() {
         {LIBRARY_PAGES.map((item) => (
           <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(morePath(item.page))} />
         ))}
+      </ListSection>
+      <ListSection header="AASC Cloud">
+        <ListRow title={CLOUD_PAGE.title} subtitle={CLOUD_PAGE.subtitle} chevron onClick={() => push(morePath(CLOUD_PAGE.page))} />
       </ListSection>
       <ListSection header="Settings">
         <SettingsRows />

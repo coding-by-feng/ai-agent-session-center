@@ -77,11 +77,23 @@ describe('revokeBackendPhone', () => {
 
   it('says what to do when the backend can’t be reached, and never throws', async () => {
     const warn = vi.fn();
-    await createPhoneCloudBridge({ cloud: fakeCloud('offline', () => ({})).cloud, warn }).revokeBackendPhone(CODE.codeRef);
+    const disconnected = fakeCloud('disconnected', () => ({}));
+    await createPhoneCloudBridge({ cloud: disconnected.cloud, warn }).revokeBackendPhone(CODE.codeRef);
+    expect(disconnected.calls).toEqual([]);
     expect(warn.mock.calls[0][0]).toMatch(/owner revoke/);
     const failing = fakeCloud('connected', () => new CloudError('offline', 'down', 502));
     await expect(createPhoneCloudBridge({ cloud: failing.cloud, warn }).revokeBackendPhone(CODE.codeRef)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenLastCalledWith("Could not revoke the phone's backend device: offline");
+    expect(warn).toHaveBeenLastCalledWith(
+      "Could not revoke the phone's backend device (offline): revoke its backend device there (owner CLI: owner devices / owner revoke).",
+    );
+  });
+
+  it('tries a saved connection nobody has checked yet (offline right after the Mac restarts)', async () => {
+    const { cloud, calls } = fakeCloud('offline', (c) => (c.method === 'DELETE'
+      ? { revoked: true }
+      : { devices: [{ id: 'phone-dev', createdByCode: CODE.codeRef, revokedAt: null }], nextCursor: null }));
+    await createPhoneCloudBridge({ cloud, warn: vi.fn() }).revokeBackendPhone(CODE.codeRef);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /v1/devices', 'DELETE /v1/devices/phone-dev']);
   });
 });
 

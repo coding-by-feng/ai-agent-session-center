@@ -1,6 +1,8 @@
 /**
  * ThisPhoneScreen — More → This phone (AASC-47): the paired Mac and how this
- * phone reaches it, this phone's name on the Mac, and the way to the lock and
+ * phone reaches it, its AASC Cloud connection (AASC-51: connected or not, the
+ * last sync, a problem in plain words; the account has no name the Mac knows,
+ * so none is shown), this phone's name on the Mac, and the way to the lock and
  * unpairing, which live in the AASC app's own settings (lib/chat/thisPhone.ts).
  */
 import { ListRow, ListSection, Screen } from '../kit';
@@ -11,6 +13,25 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { isNativeMobileApp, nativeAppPlatform } from '@/lib/platform';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
+import { CLOUD_FETCH_SHORT, fetchCloudStatus, type CloudStatus } from '@/lib/chat/cloudBrowseApi';
+import { cloudStateWords, firstSentence, syncWords } from '@/lib/chat/cloudBrowseModel';
+import { useClock } from '@/lib/chat/clock';
+import { useCloudRead } from './useCloudRead';
+
+const readStatus = ({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchCloudStatus(signal);
+
+/** The Cloud row: the Mac's connection to AASC Cloud as this phone sees it; opens More → Cloud. */
+function CloudRow() {
+  const push = usePhoneNavStore((s) => s.push);
+  const now = useClock();
+  const status = useCloudRead<CloudStatus>(readStatus);
+  const data = status.data;
+  const value = data ? cloudStateWords(data.state) : status.loaded ? 'Unknown' : 'Checking…';
+  const subtitle = data
+    ? (data.problem ? firstSentence(data.problem) : syncWords(data, now))
+    : status.error ? CLOUD_FETCH_SHORT[status.error.problem] : undefined;
+  return <ListRow title="Cloud" value={value} subtitle={subtitle} tall chevron onClick={() => push('/more/cloud')} testId="this-phone-cloud" />;
+}
 
 export default function ThisPhoneScreen() {
   const pop = usePhoneNavStore((s) => s.pop);
@@ -30,6 +51,9 @@ export default function ThisPhoneScreen() {
         <ListRow title="Status" value={connected ? 'Online' : 'Reconnecting…'} />
         <ListRow title="Connection" value={CONNECTION_WORDS[path]} />
         <ListRow title="Address" value={window.location.host} />
+      </ListSection>
+      <ListSection header="AASC Cloud" footer="Read through your Mac’s own connection. Connecting, uploads and installs stay on your Mac.">
+        <CloudRow />
       </ListSection>
       <ListSection header="On your Mac" footer="This is the name your Mac shows for this phone in its devices list.">
         <ListRow title="This phone’s name" value={myName ?? '—'} />

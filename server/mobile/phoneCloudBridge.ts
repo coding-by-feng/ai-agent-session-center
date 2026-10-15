@@ -22,6 +22,9 @@ export const PHONE_BACKEND_SCOPES = ['push:register'] as const;
 /** Longer than the Mac code's two minutes, so the backend half never expires first. */
 const BACKEND_CODE_TTL_SECONDS = 600;
 
+/** What to do when the Mac couldn't revoke a removed phone's backend device itself. */
+const OWNER_REVOKE = 'revoke its backend device there (owner CLI: owner devices / owner revoke).';
+
 export interface PhoneCloudBridgeDeps {
   cloud: CloudConnector | null;
   warn: (message: string) => void;
@@ -76,15 +79,19 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
 
     async revokeBackendPhone(codeRef) {
       if (!codeRef) return; // paired without a backend code: nothing to revoke there
-      if (!connected() || !cloud) {
-        deps.warn('The phone was removed on this Mac, but the backend is not connected: revoke its backend device there (owner CLI: owner devices / owner revoke).');
+      // A saved connection is tried even before anything has checked it ('offline'
+      // right after a restart): a revoke is the user's own action, and skipping it
+      // would leave the phone's backend device alive.
+      const state = cloud?.status().state;
+      if (!cloud || !cloud.status().connection || state === 'revoked' || state === 'disconnected') {
+        deps.warn(`The phone was removed on this Mac, but the backend is not connected: ${OWNER_REVOKE}`);
         return;
       }
       try {
         const device = await findDeviceByPairingCode(cloud.client, codeRef);
         if (device && !device.revokedAt) await revokeBackendDevice(cloud.client, device.id);
       } catch (err) {
-        deps.warn(`Could not revoke the phone's backend device: ${reason(err)}`);
+        deps.warn(`Could not revoke the phone's backend device (${reason(err)}): ${OWNER_REVOKE}`);
       }
     },
 

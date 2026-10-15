@@ -77,6 +77,9 @@ const PairBody = z.object({
   code: z.string().min(4).max(32),
   label: z.string().min(1).max(200),
   platform: z.enum(['ios', 'android']),
+  // Accepted for older shells and ignored: the Mac records the backend code it
+  // put in this QR itself (deviceAuth.attachBackendCode), so a phone can't name
+  // another phone's backend device for a later revoke.
   beCodeRef: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 }).strict();
 
@@ -187,6 +190,9 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       // Pairing with the Mac still works; push needs the backend and can be added by re-pairing later.
       log.warn('mobile', `Backend phone code unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // The phone that redeems this Mac code is tied to the backend device this
+    // backend code creates, so one revoke on the Mac cuts both (AASC-51).
+    if (backend) deps.deviceAuth.attachBackendCode(pairing.code, backend.codeRef);
     const target = deps.pairingTarget();
     res.json({
       success: true,
@@ -233,7 +239,8 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       res.status(400).json({ error: 'Invalid pairing request' });
       return;
     }
-    const result = deps.deviceAuth.redeem(parsed.data);
+    const { code, label, platform } = parsed.data;
+    const result = deps.deviceAuth.redeem({ code, label, platform });
     if (!result) {
       deps.rateLimit.record(clientIp(req));
       res.status(401).json({ error: 'Pairing code is wrong or expired', code: 'INVALID_PAIRING_CODE' });

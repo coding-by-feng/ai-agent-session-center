@@ -3,6 +3,7 @@
 // `?session=<id>&tab=` links mapped onto the new screens.
 import { describe, it, expect } from 'vitest';
 import {
+  cloudResourcePath,
   INFO_PAGES,
   PHONE_TABS,
   renameSessionInPath,
@@ -204,5 +205,35 @@ describe('defaultSegment', () => {
     expect(defaultSegment('claude')).toBe('chat');
     expect(defaultSegment('codex')).toBe('chat');
     expect(defaultSegment(null)).toBe('terminal');
+  });
+});
+
+describe('AASC Cloud pages (AASC-51)', () => {
+  const ID = '0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c';
+
+  it('round-trips More → Cloud and a resource’s versions under it', () => {
+    expect(parsePhonePath('/more/cloud')).toEqual({ kind: 'more', page: 'cloud' });
+    expect(morePath('cloud')).toBe('/more/cloud');
+    expect(cloudResourcePath(ID)).toBe(`/more/cloud/${ID}`);
+    expect(parsePhonePath(`/more/cloud/${ID}`)).toEqual({ kind: 'cloud-resource', resourceId: ID });
+    expect(phonePath({ kind: 'cloud-resource', resourceId: ID })).toBe(`/more/cloud/${ID}`);
+  });
+
+  it('takes only a canonical resource id', () => {
+    for (const bad of ['/more/cloud/abc', `/more/cloud/${ID.toUpperCase()}`, `/more/cloud/${ID}/x`, '/more/cloud/', '/more/settings/cloud']) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
+  });
+
+  it('lives in the More tab, a resource stacked over the Cloud list', () => {
+    expect(tabOfPath('/more/cloud')).toBe('more');
+    expect(tabOfPath(`/more/cloud/${ID}`)).toBe('more');
+    expect(pathChain('/more/cloud')).toEqual(['/more', '/more/cloud']);
+    expect(pathChain(`/more/cloud/${ID}`)).toEqual(['/more', '/more/cloud', `/more/cloud/${ID}`]);
+  });
+
+  it('survives the address bar', () => {
+    const href = withPhonePath('http://mac.local:3333/?theme=light', `/more/cloud/${ID}`);
+    expect(phonePathFromSearch(href.slice(href.indexOf('?')))).toBe(`/more/cloud/${ID}`);
   });
 });

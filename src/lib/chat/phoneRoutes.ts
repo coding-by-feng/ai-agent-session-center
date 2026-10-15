@@ -8,8 +8,9 @@
  *   /sessions/<id>/info/files|notes|queue|agents|popups
  *   /inbox   /queue   /more        the other tab roots
  *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings,
- *                                 This phone, About, UI kit
+ *                                 Cloud, This phone, About, UI kit
  *   /more/settings/<section>      a Settings page: back returns to the Settings list
+ *   /more/cloud/<resourceId>      one cloud resource's versions (AASC-51): back returns to Cloud
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -28,7 +29,7 @@ export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 export const MORE_PAGES = [
   'history', 'prompts', 'saved-prompts', 'review', 'agenda',
   'settings', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced',
-  'phone', 'about', 'gallery',
+  'cloud', 'phone', 'about', 'gallery',
 ] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
 
@@ -46,13 +47,18 @@ export type PhoneRoute =
   | { kind: 'diff'; sessionId: string; fileIndex: number }
   /** `page` null: Info itself. */
   | { kind: 'session-info'; sessionId: string; page: InfoPage | null }
-  | { kind: 'more'; page: MorePage };
+  | { kind: 'more'; page: MorePage }
+  /** One AASC Cloud resource's versions, under More → Cloud (AASC-51). */
+  | { kind: 'cloud-resource'; resourceId: string };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A file's index in a session's changes list (the server's own bound: 4 digits). */
 const FILE_INDEX = /^\d{1,4}$/;
+
+/** A cloud resource id: a canonical (lower-case) UUID, as the Mac's phone-cloud route takes it. */
+const CLOUD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** A More page reached from another More page, not from the More list itself. */
 const MORE_PARENT: Partial<Record<MorePage, MorePage>> = {
@@ -85,11 +91,17 @@ export function infoPath(sessionId: string, page: InfoPage | null = null): strin
   return page ? `/sessions/${sessionId}/info/${page}` : `/sessions/${sessionId}/info`;
 }
 
+/** One cloud resource's versions (AASC-51). */
+export function cloudResourcePath(resourceId: string): string {
+  return `/more/cloud/${resourceId}`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
   if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
   if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
+  if (route.kind === 'cloud-resource') return cloudResourcePath(route.resourceId);
   return morePath(route.page);
 }
 
@@ -139,6 +151,9 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   if (head === 'more' && parts.length === 3 && parts[1] === 'settings' && isOneOf(SETTINGS_SECTIONS, parts[2])) {
     return { kind: 'more', page: parts[2] };
   }
+  if (head === 'more' && parts.length === 3 && parts[1] === 'cloud' && CLOUD_ID.test(parts[2])) {
+    return { kind: 'cloud-resource', resourceId: parts[2] };
+  }
   return null;
 }
 
@@ -147,7 +162,7 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'more' ? 'more' : 'sessions';
+  return route.kind === 'more' || route.kind === 'cloud-resource' ? 'more' : 'sessions';
 }
 
 /** The stack a link to `path` restores: its tab's root, any parent screens, then the path. */
@@ -163,6 +178,7 @@ export function pathChain(path: string): string[] {
     const base = [tabRootPath('sessions'), sessionPath(route.sessionId), info];
     return route.page ? [...base, path] : base;
   }
+  if (route.kind === 'cloud-resource') return [tabRootPath('more'), morePath('cloud'), path];
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(morePath(page));

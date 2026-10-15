@@ -25,3 +25,6 @@ export const SETTINGS_PAGES: readonly MoreEntry[] = [
   { page: 'translation', title: 'Translation', subtitle: 'Select-to-translate languages' },
   { page: 'advanced', title: 'Advanced', subtitle: 'Reset this phone’s settings' },
 ];
+
+/** AASC Cloud, read through the Mac (AASC-51): its own section, so the Mac's data and the cloud's stay apart. */
+export const CLOUD_PAGE: MoreEntry = { page: 'cloud', title: 'Cloud', subtitle: 'Resources and projects, read-only' };

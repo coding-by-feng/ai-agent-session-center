@@ -1,0 +1,126 @@
+/* AASC Cloud on the phone (AASC-51): More → Cloud and a resource's versions.
+   Phone tokens only (phoneTokens.css), so light and dark follow the frame. */
+
+.navAction {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+
+@media (hover: hover) {
+  .navAction:hover:not([aria-disabled='true']) { background: var(--ph-fill); }
+}
+
+.navAction:active:not([aria-disabled='true']) { background: var(--ph-fill-strong); }
+
+.navAction:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+/* Refreshing: the button waits (it would only repeat the same read) and its arrows turn. */
+.navAction[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.navAction[data-busy] svg { animation: cloud-spin 900ms linear infinite; }
+
+.banner {
+  padding: var(--ph-space-2) var(--ph-gutter) 0;
+}
+
+/* ---- Pull to refresh (usePullToRefresh writes --pull on the screen's scroller) ---- */
+
+.pullHost {
+  padding-bottom: var(--ph-space-6);
+}
+
+.pull {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: var(--pull, 0px);
+  overflow: hidden;
+  transition: height 200ms ease-out;
+}
+
+.pullHost[data-pull='pulling'] .pull,
+.pullHost[data-pull='armed'] .pull { transition: none; }
+
+.pullInner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-height: var(--ph-button);
+  font-size: var(--ph-size-caption);
+  color: var(--ph-text-secondary);
+}
+
+.pullSpinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--ph-fill-strong);
+  border-top-color: var(--ph-accent);
+  border-radius: 50%;
+}
+
+.pullHost[data-pull='armed'] .pullSpinner { border-color: var(--ph-accent); }
+.pullHost[data-pull='refreshing'] .pullSpinner { animation: cloud-spin 800ms linear infinite; }
+
+@keyframes cloud-spin { to { transform: rotate(360deg); } }
+
+/* ---- Lists ---- */
+
+.segments {
+  margin: 0 var(--ph-gutter) var(--ph-space-4);
+}
+
+/* A project row's two subtitle lines: the repository, then its branch and pins. */
+.line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The version a resource is at now: a quiet tag, not a button. */
+.current {
+  display: inline-block;
+  margin-left: var(--ph-space-2);
+  padding: 0 var(--ph-space-2);
+  border: 1px solid var(--ph-accent);
+  border-radius: var(--ph-radius-pill);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ph-accent);
+  vertical-align: 2px;
+}
+
+.note {
+  margin: 0 var(--ph-gutter);
+  padding: 0 var(--ph-space-4);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pull, .navAction { transition: none; }
+  .navAction[data-busy] svg { animation-duration: 2700ms; }
+  .pullHost[data-pull='refreshing'] .pullSpinner { animation-duration: 2400ms; }
+}

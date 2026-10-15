@@ -121,6 +121,8 @@ describe('phoneRuleFor', () => {
     ['GET', '/rooms'], ['POST', '/rooms/ops'],
     // The phone chat (AASC-41) and what a session edited (AASC-44), behind the /sessions/:id gate.
     ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'],
+    // AASC Cloud, read-only, through the Mac's connection (AASC-51).
+    ['GET', '/phone-cloud/status'], ['GET', '/phone-cloud/browse'], ['GET', '/phone-cloud/resources/abc/versions'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -159,6 +161,9 @@ describe('phoneRuleFor', () => {
     ['GET', '/sessions/abc/prompt'], ['PUT', '/sessions/abc/prompt'], ['POST', '/sessions/abc/prompt/now'],
     ['POST', '/sessions/abc/chat'], ['DELETE', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/x'],
     ['GET', '/sessions/abc/changes/3/raw'],
+    ['POST', '/phone-cloud/browse'], ['DELETE', '/phone-cloud/status'], ['PUT', '/phone-cloud/resources/abc/versions'],
+    ['GET', '/phone-cloud'], ['GET', '/phone-cloud/resources'], ['GET', '/phone-cloud/resources/abc'],
+    ['GET', '/phone-cloud/resources/abc/versions/2'], ['GET', '/phone-cloud/projects'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
@@ -788,5 +793,107 @@ describe('what a phone sees of a secret file in the chat and the edits', () => {
     const one = await get('/sessions/chat-shared/changes/0', true);
     expect(one.data).toMatchObject({ hunks: [], redacted: true });
     expect(JSON.stringify(one)).not.toContain('sk-123');
+  });
+});
+
+// ── AASC Cloud (AASC-51) ─────────────────────────────────────────────────────────────────────────────────
+
+/** Every route the desktop's RESOURCES → Cloud screens call (server/cloud/*Router.ts), relative to /api. */
+const DESKTOP_CLOUD_ROUTES: Array<[string, string]> = [
+  ['GET', '/resources/cloud/status'], ['POST', '/resources/cloud/connect'], ['POST', '/resources/cloud/recheck'],
+  ['POST', '/resources/cloud/disconnect'], ['POST', '/resources/cloud/revoke'],
+  ['GET', '/resources/cloud/skill-notes'], ['GET', '/resources/cloud/skill-notes/status'], ['GET', '/resources/cloud/skill-notes/export'],
+  ['POST', '/resources/cloud/skill-notes/batch'], ['DELETE', '/resources/cloud/skill-notes/all'],
+  ['POST', '/resources/cloud/aliases/device'], ['POST', '/resources/cloud/aliases/status'],
+  ['POST', '/resources/cloud/aliases/preview'], ['POST', '/resources/cloud/aliases/reconcile'],
+  ['POST', '/resources/cloud/publish-plans'], ['POST', '/resources/cloud/publish-plans/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/run'],
+  ['POST', '/resources/cloud/install-plans'], ['POST', '/resources/cloud/install-plans/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/run'],
+  ['POST', '/resources/cloud/downloads'], ['GET', '/resources/cloud/downloads/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/file'],
+  ['GET', '/resources/cloud/resources'], ['GET', '/resources/cloud/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c'],
+  ['POST', '/resources/cloud/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/cancel'],
+  ['POST', '/resources/cloud/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/retry'],
+  ['POST', '/resources/cloud/installs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/restore'],
+  ['GET', '/resources/cloud/projects'], ['POST', '/resources/cloud/projects'],
+  ['GET', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c'],
+  ['PUT', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/associate'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/get'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/pull'],
+  ['GET', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/local'],
+  ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/resources-plan'],
+  ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/retry-resources'],
+];
+
+describe('AASC Cloud from a paired phone (AASC-51)', () => {
+  it('the profile opens only the phone’s own read-only cloud routes, never a desktop one, whatever the method', () => {
+    for (const [, path] of DESKTOP_CLOUD_ROUTES) {
+      for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) expect(phoneRuleFor(method, path), `${method} ${path}`).toBeNull();
+    }
+    expect(phoneRuleFor('GET', '/phone-cloud/browse')).toBe('allow');
+  });
+
+  it('a phone gets 404 for every desktop cloud route under /api/resources/cloud/*, and its own browse works', async () => {
+    const auth = await import('../server/authManager.js');
+    const { createResourceRouter, resourceErrorHandler } = await import('../server/resourceRouter.js');
+    const { createPhoneCloud, createPhoneCloudRouter } = await import('../server/mobile/phoneCloud.js');
+    const cloudCalls: string[] = [];
+    const cloud = {
+      client: {
+        async request(method: string, path: string) {
+          cloudCalls.push(`${method} ${path}`);
+          return { items: [], nextCursor: null };
+        },
+      },
+      status: () => ({
+        state: 'connected',
+        lastError: null,
+        connection: { backendOrigin: 'https://be.example', accountId: 'acct', deviceId: 'mac', deviceName: 'Mac', generation: 1 },
+      }),
+      onStop: () => () => {},
+    } as unknown as import('../server/cloud/types.js').CloudConnector;
+    const cloudHome = join(tmp, 'cloud-home');
+    mkdirSync(cloudHome, { recursive: true });
+    const phoneToken = `Bearer ${auth.createToken('dev-phone-cloud')}`;
+    // The production order (server/index.ts): RESOURCES with its local gate first, then /api with the profile.
+    const app = express();
+    app.use(express.json());
+    app.use('/api/resources', createResourceRouter({
+      sessionProjectPaths: () => [],
+      home: cloudHome,
+      cloud,
+      cloudAliasDirectory: join(cloudHome, 'cloud'),
+      // A phone is never this Mac (requestLocality.ts).
+      isLocalRequest: () => false,
+    }));
+    app.use('/api/resources', resourceErrorHandler);
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: () => false,
+      foregroundProcess: () => null,
+    }), createPhoneCloudRouter(createPhoneCloud({ cloud })));
+    app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
+    const cloudServer = createServer(app);
+    await new Promise<void>((r) => cloudServer.listen(0, '127.0.0.1', r));
+    const addr = cloudServer.address();
+    const cloudBase = `http://127.0.0.1:${addr && typeof addr === 'object' ? addr.port : 0}`;
+    try {
+      for (const [method, path] of DESKTOP_CLOUD_ROUTES) {
+        const res = await fetch(`${cloudBase}/api${path}`, {
+          method,
+          headers: { Authorization: phoneToken, 'Content-Type': 'application/json' },
+          body: method === 'GET' ? undefined : '{}',
+        });
+        expect(res.status, `${method} ${path}`).toBe(404);
+      }
+      expect(cloudCalls).toEqual([]);
+      const own = await fetch(`${cloudBase}/api/phone-cloud/browse`, { headers: { Authorization: phoneToken } });
+      expect(own.status).toBe(200);
+      expect(await own.json()).toMatchObject({ connected: true, state: 'connected', resources: [], projects: [] });
+    } finally {
+      await new Promise<void>((r) => cloudServer.close(() => r()));
+      auth.revokeTokensForDevice('dev-phone-cloud');
+    }
   });
 });

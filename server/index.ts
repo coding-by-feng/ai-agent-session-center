@@ -38,7 +38,10 @@ import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
+import { createPhoneRevokedHandler } from './mobile/phoneRevocation.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
+import { createPhoneCloud, createPhoneCloudRouter } from './mobile/phoneCloud.js';
+import { createCloudReadLog } from './mobile/cloudReadLog.js';
 import { createServerPromptRouter } from './promptWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
 import { isLocalRequest } from './requestLocality.js';
@@ -279,14 +282,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     store: sqliteMobileDeviceStore,
     // Changing the dashboard password revokes every paired phone on its next sign-in.
     credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
-    onRevoked: (device) => {
-      // End every session and live socket the phone holds, then revoke the
-      // backend device it created from the QR's backend code (if any).
-      revokeTokensForDevice(device.id);
-      disconnectDevice(device.id);
-      void phoneCloud.revokeBackendPhone(device.beCodeRef);
-      log.info('mobile', `Phone access removed: ${device.label} (${device.platform})`);
-    },
+    // End every session and live socket the phone holds, then revoke the backend
+    // device it created from the QR's backend code (if any): one revoke cuts both.
+    onRevoked: createPhoneRevokedHandler({
+      revokeTokens: revokeTokensForDevice,
+      disconnect: disconnectDevice,
+      revokeBackend: (codeRef) => phoneCloud.revokeBackendPhone(codeRef),
+      info: (message) => log.info('mobile', message),
+    }),
   });
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
@@ -356,8 +359,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     terminalOfSession: (sessionId) => getSession(sessionId)?.terminalId ?? null,
     foregroundProcess: getForegroundProcess,
   });
-  // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
-  const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
+  // What the Mac reads from the cloud for phones, through its own connection: skill-note
+  // favourites for the autocomplete (AASC-20, M9) and the read-only cloud browse (AASC-51).
+  // Both tell one read log, which the phone's Cloud row shows as its last sync.
+  const cloudReads = createCloudReadLog();
+  const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud, reads: cloudReads }));
+  const phoneCloudRouter = createPhoneCloudRouter(createPhoneCloud({ cloud, reads: cloudReads }));
   // A prompt the Mac types and confirms (AASC-42). In front of apiRouter, behind the
   // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
   const promptRouter = createServerPromptRouter();
@@ -384,7 +391,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
   // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
   const chatRouter = createChatRouter({ getSession });
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, chatRouter, requestAnswer, promptRouter, apiRouter);
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

@@ -7,6 +7,11 @@
 // the cloud alias review does (`GET /v1/skill-notes`, paged) and keeps them for
 // a minute. With no connection (or before the first pull succeeds) the answer is
 // an empty list, `source: 'none'`, and the phone ranks commands without notes.
+// A saved connection nothing has checked since the Mac started ('offline' with
+// no request yet) is pulled too (AASC-51): otherwise, without a desktop notes
+// sync, the phone would never get its favourites after a restart. After a failed
+// pull the next one waits FAVORITES_FAILURE_COOLDOWN_MS. Each pull's outcome goes
+// to the shared read log, which the phone's Cloud row shows as its last sync.
 //
 // What leaves the Mac is the narrowest useful shape: `{ key, fav, tags, abbr }`
 // per note, keyed `agent:name`. Never a path, a description, a version, the tag
@@ -15,6 +20,7 @@
 import { Router, type Request, type Response } from 'express';
 import { NotesPullResultSchema, type NoteRecord } from '../../src/types/skillNotesSync.js';
 import type { CloudConnector } from '../cloud/types.js';
+import { cloudIdentity, readFailureCode, type CloudReadLog } from './cloudReadLog.js';
 
 /** One note as a phone sees it. Exactly these four fields. */
 export interface PhoneSkillNote {
@@ -35,6 +41,8 @@ export const FAVORITES_TTL_MS = 60_000;
 /** Bounds on one pull: pages of 100, and the entries one answer carries. */
 export const FAVORITES_MAX_PAGES = 50;
 export const FAVORITES_MAX_ENTRIES = 1000;
+/** After a failed pull, how long the last answer stands before trying again. */
+export const FAVORITES_FAILURE_COOLDOWN_MS = 15_000;
 
 const NONE: PhoneSkillNotes = Object.freeze({ source: 'none', entries: [] }) as PhoneSkillNotes;
 
@@ -56,6 +64,8 @@ export interface SkillNoteFavoritesDeps {
   cloud: CloudConnector | null;
   now?: () => number;
   ttlMs?: number;
+  /** Where each pull's outcome is told (the phone's Cloud row reads it). */
+  reads?: CloudReadLog;
 }
 
 export interface SkillNoteFavorites {
@@ -67,12 +77,10 @@ export function createSkillNoteFavorites(deps: SkillNoteFavoritesDeps): SkillNot
   const ttl = deps.ttlMs ?? FAVORITES_TTL_MS;
   let cached: { identity: string; at: number; value: PhoneSkillNotes } | null = null;
   let inflight: { identity: string; promise: Promise<PhoneSkillNotes> } | null = null;
+  let lastFailure: { identity: string; at: number } | null = null;
 
   /** Which account a pull belongs to: a reconnect to another account never sees the old notes. */
-  function identityOf(cloud: CloudConnector): string | null {
-    const c = cloud.status().connection;
-    return c ? JSON.stringify([c.backendOrigin, c.accountId, c.generation]) : null;
-  }
+  const identityOf = (cloud: CloudConnector): string | null => cloudIdentity(cloud.status().connection);
 
   async function pull(cloud: CloudConnector): Promise<PhoneSkillNotes> {
     const latest = new Map<string, NoteRecord>();
@@ -103,19 +111,28 @@ export function createSkillNoteFavorites(deps: SkillNoteFavoritesDeps): SkillNot
       if (!cloud) return NONE;
       const identity = identityOf(cloud);
       if (!identity) return NONE;
+      const last = cached && cached.identity === identity ? cached.value : NONE;
       const fresh = cached && cached.identity === identity && now() - cached.at < ttl;
       if (fresh && cached) return cached.value;
-      // Offline or revoked: the last pull of this account still answers; a first pull can't happen.
-      if (cloud.status().state !== 'connected') {
-        return cached && cached.identity === identity ? cached.value : NONE;
-      }
+      // Revoked: the last pull of this account still answers; a new one can't happen.
+      if (cloud.status().state === 'revoked') return last;
       if (inflight && inflight.identity === identity) return inflight.promise;
+      if (lastFailure?.identity === identity && now() - lastFailure.at < FAVORITES_FAILURE_COOLDOWN_MS) return last;
       const promise = pull(cloud)
         .then((value) => {
-          if (identityOf(cloud) === identity) cached = { identity, at: now(), value };
-          return identityOf(cloud) === identity ? value : NONE;
+          if (identityOf(cloud) !== identity) return NONE;
+          cached = { identity, at: now(), value };
+          lastFailure = null;
+          deps.reads?.succeeded(identity);
+          return value;
         })
-        .catch(() => (cached && cached.identity === identity ? cached.value : NONE))
+        .catch((err: unknown) => {
+          if (identityOf(cloud) === identity) {
+            lastFailure = { identity, at: now() };
+            deps.reads?.failed(identity, readFailureCode(err));
+          }
+          return cached && cached.identity === identity ? cached.value : NONE;
+        })
         .finally(() => {
           if (inflight?.promise === promise) inflight = null;
         });

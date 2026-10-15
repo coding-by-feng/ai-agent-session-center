@@ -72,6 +72,9 @@
   color: var(--ph-text-secondary);
 }
 
+/* On the selected segment's lighter dark-mode fill the secondary grey measured 4.0:1 (AASC-51 render check). */
+.segment[aria-selected='true'] .badge { color: var(--ph-text); }
+
 @media (prefers-reduced-motion: reduce) {
   .segment { transition: none; }
 }

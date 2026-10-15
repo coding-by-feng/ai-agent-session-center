@@ -3,6 +3,7 @@
 // and the phone ranks commands without notes. A phone gets key, fav, tags and abbr — nothing else — and
 // can reach no other notes or cloud route.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import express from 'express';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -11,7 +12,11 @@ import {
   createSkillNoteFavoritesRouter,
   toPhoneNote,
   FAVORITES_TTL_MS,
+  FAVORITES_FAILURE_COOLDOWN_MS,
 } from '../server/mobile/skillNoteFavorites.js';
+import { createCloudReadLog } from '../server/mobile/cloudReadLog.js';
+import { NotesPullResultSchema } from '../src/types/skillNotesSync.js';
+import { notesFromFavorites } from '../src/lib/phoneSuggestions.js';
 import { createPhoneProfile, phoneRuleFor } from '../server/mobile/phoneProfile.js';
 import type { CloudConnector, CloudStatus } from '../server/cloud/types.js';
 import type { NoteRecord } from '../src/types/skillNotesSync.js';
@@ -126,19 +131,82 @@ describe('createSkillNoteFavorites', () => {
     expect(cloud.calls).toHaveLength(4);
   });
 
-  it('keeps the last pull while offline, and never shows one account\'s notes to another', async () => {
+  it('keeps the last pull when the Mac is revoked or a pull fails, and never shows one account\'s notes to another', async () => {
     let t = 0;
     const cloud = fakeCloud(PAGES());
     const favorites = createSkillNoteFavorites({ cloud, now: () => t });
     expect((await favorites.read()).entries).toHaveLength(3);
     t += FAVORITES_TTL_MS + 1;
-    cloud.state = 'offline';
+    cloud.state = 'revoked';
     expect((await favorites.read()).entries).toHaveLength(3);
+    expect(cloud.calls).toHaveLength(2);
     cloud.state = 'connected';
     cloud.fail = true;
     expect((await favorites.read()).entries).toHaveLength(3);
     cloud.account = 'acct-2';
     expect(await favorites.read()).toEqual({ source: 'none', entries: [] });
+  });
+
+  it('reads a saved connection nothing has checked since the Mac restarted (AASC-51)', async () => {
+    // After a restart the connector reports 'offline' until some request succeeds; without a desktop
+    // notes sync nothing ever would, and the phone's suggestions would stay without favourites.
+    const cloud = fakeCloud(PAGES());
+    cloud.state = 'offline';
+    const value = await createSkillNoteFavorites({ cloud }).read();
+    expect(value.source).toBe('cloud');
+    expect(value.entries.map((e) => e.key)).toContain('claude:retouch');
+  });
+
+  it('waits before pulling again after a failed pull, and tells the read log how each went', async () => {
+    let t = Date.parse('2026-10-16T10:00:00.000Z');
+    const cloud = fakeCloud(PAGES());
+    const reads = createCloudReadLog(() => t);
+    const favorites = createSkillNoteFavorites({ cloud, now: () => t, reads });
+    const identity = JSON.stringify(['https://be.example', 'acct-1', 1]);
+    cloud.fail = true;
+    expect(await favorites.read()).toEqual({ source: 'none', entries: [] });
+    expect(cloud.calls).toHaveLength(1);
+    expect(reads.view(identity).failure?.code).toBe('offline');
+    t += FAVORITES_FAILURE_COOLDOWN_MS - 1;
+    await favorites.read();
+    expect(cloud.calls).toHaveLength(1);
+    t += 2;
+    cloud.fail = false;
+    expect((await favorites.read()).entries).toHaveLength(3);
+    expect(reads.view(identity)).toEqual({ lastSuccessAt: t, failure: null });
+  });
+});
+
+// ── The merged notes contract (AASC-51) ──────────────────────────────────────────────────────────────────
+
+describe('a favourite synced to the cloud reaches the phone', () => {
+  /** The canonical record both sides of the notes sync agree on (test/fixtures/cloud-notes-contracts.json). */
+  const contract = JSON.parse(readFileSync(new URL('./fixtures/cloud-notes-contracts.json', import.meta.url), 'utf8')) as { record: NoteRecord };
+
+  it('the canonical cloud record (a Codex plugin skill, a normalised tag, CLI intent) shows up in GET /api/skill-notes/favorites', async () => {
+    const page = { records: [contract.record], cursor: 'c-contract', hasMore: false };
+    expect(NotesPullResultSchema.safeParse(page).success).toBe(true);
+    const base = await serve(fakeCloud([page]));
+    const res = await fetch(`${base}/api/skill-notes/favorites`, { headers: { 'x-phone': '1' } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      source: 'cloud',
+      entries: [{ key: 'codex:plugin-name:MySkill', fav: true, tags: ['abc-中文'], abbr: 'rr' }],
+    });
+    // …and the phone's suggestion bar reads it as a favourite with its abbreviation.
+    const notes = notesFromFavorites(body);
+    expect(notes['codex:plugin-name:MySkill']).toMatchObject({ fav: true, tags: ['abc-中文'], abbr: 'rr' });
+  });
+
+  it('a newer cloud version that drops the favourite takes it off the phone', async () => {
+    const unfav = { ...contract.record, version: 2, value: { ...contract.record.value, fav: false } };
+    const base = await serve(fakeCloud([
+      { records: [contract.record], cursor: 'c1', hasMore: true },
+      { records: [unfav], cursor: 'c2', hasMore: false },
+    ]));
+    const body = (await (await fetch(`${base}/api/skill-notes/favorites`, { headers: { 'x-phone': '1' } })).json()) as { entries: Array<{ fav: boolean }> };
+    expect(body.entries).toEqual([{ key: 'codex:plugin-name:MySkill', fav: false, tags: ['abc-中文'], abbr: 'rr' }]);
   });
 });
 
