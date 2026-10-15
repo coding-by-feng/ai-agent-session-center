@@ -14,7 +14,7 @@ export default function AboutScreen() {
     <Screen title="About" onBack={pop} backLabel="Back to More" testId="phone-more-about">
       <ListSection header="AI Agent Session Center" footer="This screen is served by your Mac. Nothing here is stored in the cloud.">
         <ListRow title="Running in" value={isNativeMobileApp() ? `The ${platform === 'android' ? 'Android' : 'iPhone'} app` : 'A phone browser'} />
-        <ListRow title="Layout" value="New design (preview)" />
+        <ListRow title="Layout" subtitle="New design (preview). Turn it off on More to go back to the classic layout." />
       </ListSection>
       <ListSection header="For designers">
         <ListRow

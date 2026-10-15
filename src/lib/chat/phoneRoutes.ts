@@ -4,8 +4,11 @@
  *   /sessions                     Sessions tab root
  *   /sessions/<id>/chat|changes|terminal   a session, on one segment
  *   /sessions/<id>/changes/<n>    one file's diff, from the Changes list (AASC-44)
+ *   /sessions/<id>/info           its Info screen (AASC-46), and what Info opens:
+ *   /sessions/<id>/info/files|notes|queue|agents|popups
  *   /inbox   /queue   /more        the other tab roots
- *   /more/<page>                  History, Prompts, Review, Agenda, Settings, About, UI kit
+ *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings
+ *                                 (and its pages), This phone, About, UI kit
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -21,13 +24,23 @@ export type PhoneTab = (typeof PHONE_TABS)[number];
 export const SESSION_SEGMENTS = ['chat', 'changes', 'terminal'] as const;
 export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
-export const MORE_PAGES = ['history', 'prompts', 'review', 'agenda', 'settings', 'about', 'gallery'] as const;
+export const MORE_PAGES = [
+  'history', 'prompts', 'saved-prompts', 'review', 'agenda',
+  'settings', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced',
+  'phone', 'about', 'gallery',
+] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
+
+/** What a session's Info screen opens (AASC-46). */
+export const INFO_PAGES = ['files', 'notes', 'queue', 'agents', 'popups'] as const;
+export type InfoPage = (typeof INFO_PAGES)[number];
 
 export type PhoneRoute =
   | { kind: 'tab-root'; tab: PhoneTab }
   | { kind: 'session'; sessionId: string; segment: SessionSegment }
   | { kind: 'diff'; sessionId: string; fileIndex: number }
+  /** `page` null: Info itself. */
+  | { kind: 'session-info'; sessionId: string; page: InfoPage | null }
   | { kind: 'more'; page: MorePage };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
@@ -37,7 +50,14 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FILE_INDEX = /^\d{1,4}$/;
 
 /** A More page reached from another More page, not from the More list itself. */
-const MORE_PARENT: Partial<Record<MorePage, MorePage>> = { gallery: 'about' };
+const MORE_PARENT: Partial<Record<MorePage, MorePage>> = {
+  gallery: 'about',
+  appearance: 'settings',
+  notifications: 'settings',
+  'api-keys': 'settings',
+  translation: 'settings',
+  advanced: 'settings',
+};
 
 const isOneOf = <T extends string>(list: readonly T[], value: string): value is T =>
   (list as readonly string[]).includes(value);
@@ -55,10 +75,16 @@ export function diffPath(sessionId: string, fileIndex: number): string {
   return `/sessions/${sessionId}/changes/${fileIndex}`;
 }
 
+/** A session's Info screen, or one of the screens it opens. */
+export function infoPath(sessionId: string, page: InfoPage | null = null): string {
+  return page ? `/sessions/${sessionId}/info/${page}` : `/sessions/${sessionId}/info`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
   if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
+  if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
   return `/more/${route.page}`;
 }
 
@@ -70,13 +96,20 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   if (parts.length === 1) return isOneOf(PHONE_TABS, head) ? { kind: 'tab-root', tab: head } : null;
   if (head === 'sessions' && parts.length === 3) {
     const [, sessionId, segment] = parts;
-    if (!SESSION_ID.test(sessionId) || !isOneOf(SESSION_SEGMENTS, segment)) return null;
+    if (!SESSION_ID.test(sessionId)) return null;
+    if (segment === 'info') return { kind: 'session-info', sessionId, page: null };
+    if (!isOneOf(SESSION_SEGMENTS, segment)) return null;
     return { kind: 'session', sessionId, segment };
   }
   if (head === 'sessions' && parts.length === 4 && parts[2] === 'changes') {
     const [, sessionId, , index] = parts;
     if (!SESSION_ID.test(sessionId) || !FILE_INDEX.test(index)) return null;
     return { kind: 'diff', sessionId, fileIndex: Number(index) };
+  }
+  if (head === 'sessions' && parts.length === 4 && parts[2] === 'info') {
+    const [, sessionId, , page] = parts;
+    if (!SESSION_ID.test(sessionId) || !isOneOf(INFO_PAGES, page)) return null;
+    return { kind: 'session-info', sessionId, page };
   }
   if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1])) {
     return { kind: 'more', page: parts[1] };
@@ -89,7 +122,7 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'session' || route.kind === 'diff' ? 'sessions' : 'more';
+  return route.kind === 'more' ? 'more' : 'sessions';
 }
 
 /** The stack a link to `path` restores: its tab's root, any parent screens, then the path. */
@@ -99,6 +132,12 @@ export function pathChain(path: string): string[] {
   if (route.kind === 'tab-root') return [path];
   if (route.kind === 'session') return [tabRootPath('sessions'), path];
   if (route.kind === 'diff') return [tabRootPath('sessions'), sessionPath(route.sessionId, 'changes'), path];
+  if (route.kind === 'session-info') {
+    // Under its session (on Chat: what a reload knows of it), and Info under its screens.
+    const info = infoPath(route.sessionId);
+    const base = [tabRootPath('sessions'), sessionPath(route.sessionId), info];
+    return route.page ? [...base, path] : base;
+  }
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(`/more/${page}`);

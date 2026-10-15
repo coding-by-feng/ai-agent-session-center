@@ -29,10 +29,11 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionSubtitle } from '@/lib/chat/phoneStatus';
 import { nextWaitingSession, waitingSessions } from '@/lib/chat/inboxModel';
-import { sessionPath, type SessionSegment } from '@/lib/chat/phoneRoutes';
+import { infoPath, sessionPath, type SessionSegment } from '@/lib/chat/phoneRoutes';
 import styles from '@/styles/modules/mobile/Screens.module.css';
 
-const SessionActionsSheet = lazy(() => import('../SessionActionsSheet'));
+// The ⋯ menu's four actions (AASC-46); the title opens Info, which has the rest.
+const SessionMenuSheet = lazy(() => import('./info/SessionMenuSheet'));
 
 const SEGMENTS = [
   { value: 'chat', label: 'Chat' },
@@ -73,6 +74,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   const pop = usePhoneNavStore((s) => s.pop);
   const replace = usePhoneNavStore((s) => s.replace);
+  const push = usePhoneNavStore((s) => s.push);
   const [actionsOpen, setActionsOpen] = useState(false);
   const closeActions = useCallback(() => setActionsOpen(false), []);
   useSelectWhileShown(sessionId);
@@ -108,10 +110,11 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
       subtitle={sessionSubtitle(session)}
       onBack={pop}
       backLabel="Back to the list"
+      onTitlePress={() => push(infoPath(sessionId))}
       scroll={false}
       testId="phone-session"
       actions={(
-        <button type="button" className={styles.navAction} onClick={() => setActionsOpen(true)} aria-label="Session actions">
+        <button type="button" className={styles.navAction} onClick={() => setActionsOpen(true)} aria-label="Session actions" aria-haspopup="dialog">
           <EllipsisIcon />
         </button>
       )}
@@ -138,7 +141,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
       {segment === 'chat' && <ChatFooter session={session} onTerminal={showTerminal} />}
       {actionsOpen && (
         <Suspense fallback={null}>
-          <SessionActionsSheet sessionId={sessionId} onClose={closeActions} onOpened={closeActions} />
+          <SessionMenuSheet sessionId={sessionId} onClose={closeActions} />
         </Suspense>
       )}
     </Screen>

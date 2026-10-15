@@ -18,6 +18,9 @@ import { EmptyState, Screen } from '../kit';
 const LibraryScreen = lazy(() => import('../screens/LibraryScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const AboutScreen = lazy(() => import('../screens/AboutScreen'));
+const ThisPhoneScreen = lazy(() => import('../screens/ThisPhoneScreen'));
+const InfoScreen = lazy(() => import('../screens/InfoScreen'));
+const InfoPageScreen = lazy(() => import('../screens/info/InfoPageScreen'));
 const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
 const DiffScreen = lazy(() => import('../screens/DiffScreen'));
 
@@ -34,6 +37,11 @@ export default function RouteScreen({ path }: { path: string }) {
   if (!route) return <UnknownScreen />;
   if (route.kind === 'session') return <SessionScreen sessionId={route.sessionId} segment={route.segment} />;
   if (route.kind === 'diff') return <DiffScreen sessionId={route.sessionId} fileIndex={route.fileIndex} />;
+  if (route.kind === 'session-info') {
+    return route.page
+      ? <InfoPageScreen sessionId={route.sessionId} page={route.page} />
+      : <InfoScreen sessionId={route.sessionId} />;
+  }
   if (route.kind === 'tab-root') {
     if (route.tab === 'sessions') return <SessionsScreen />;
     if (route.tab === 'inbox') return <InboxScreen />;
@@ -41,7 +49,14 @@ export default function RouteScreen({ path }: { path: string }) {
     return <MoreScreen />;
   }
   switch (route.page) {
-    case 'settings': return <SettingsScreen />;
+    case 'settings':
+    case 'appearance':
+    case 'notifications':
+    case 'api-keys':
+    case 'translation':
+    case 'advanced':
+      return <SettingsScreen page={route.page} />;
+    case 'phone': return <ThisPhoneScreen />;
     case 'about': return <AboutScreen />;
     case 'gallery': return <GalleryScreen />;
     default: return <LibraryScreen page={route.page} />;

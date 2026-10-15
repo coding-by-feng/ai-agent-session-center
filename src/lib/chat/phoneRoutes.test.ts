@@ -3,9 +3,11 @@
 // `?session=<id>&tab=` links mapped onto the new screens.
 import { describe, it, expect } from 'vitest';
 import {
+  INFO_PAGES,
   PHONE_TABS,
   defaultSegment,
   diffPath,
+  infoPath,
   legacyDeepLinkToPath,
   parsePhonePath,
   pathChain,
@@ -42,6 +44,33 @@ describe('parsePhonePath / phonePath', () => {
     }
   });
 
+  it('round-trips the More pages AASC-47 adds', () => {
+    for (const page of ['saved-prompts', 'phone', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const) {
+      expect(parsePhonePath(`/more/${page}`)).toEqual({ kind: 'more', page });
+      expect(phonePath({ kind: 'more', page })).toBe(`/more/${page}`);
+    }
+  });
+
+  it('round-trips a session\'s Info and each screen it opens (AASC-46)', () => {
+    expect(infoPath('term-1')).toBe('/sessions/term-1/info');
+    expect(parsePhonePath('/sessions/term-1/info')).toEqual({ kind: 'session-info', sessionId: 'term-1', page: null });
+    expect(phonePath({ kind: 'session-info', sessionId: 'term-1', page: null })).toBe('/sessions/term-1/info');
+    expect([...INFO_PAGES]).toEqual(['files', 'notes', 'queue', 'agents', 'popups']);
+    for (const page of INFO_PAGES) {
+      const path = `/sessions/term-1/info/${page}`;
+      expect(infoPath('term-1', page)).toBe(path);
+      expect(parsePhonePath(path)).toEqual({ kind: 'session-info', sessionId: 'term-1', page });
+      expect(phonePath({ kind: 'session-info', sessionId: 'term-1', page })).toBe(path);
+    }
+  });
+
+  it('refuses a malformed Info path', () => {
+    for (const bad of ['/sessions/term-1/info/nope', '/sessions/term-1/info/files/x', '/sessions/<x>/info',
+      '/sessions/term-1/infos', '/sessions/term-1/info/']) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
+  });
+
   it('refuses anything else', () => {
     for (const bad of ['', '/', 'sessions', '/nope', '/sessions/a/b/c', '/sessions/term-1/files',
       '/sessions/../etc/chat', '/sessions/<x>/chat', '/more/unknown', '/inbox/x', `/sessions/${'a'.repeat(65)}/chat`]) {
@@ -71,6 +100,8 @@ describe('tabOfPath / pathChain', () => {
     expect(tabOfPath('/queue')).toBe('queue');
     expect(tabOfPath('/more/gallery')).toBe('more');
     expect(tabOfPath('/sessions/x/changes/2')).toBe('sessions');
+    expect(tabOfPath('/sessions/x/info/files')).toBe('sessions');
+    expect(tabOfPath('/more/appearance')).toBe('more');
   });
 
   it('lists the screens a deep link stacks, root first', () => {
@@ -79,6 +110,19 @@ describe('tabOfPath / pathChain', () => {
     expect(pathChain('/more/history')).toEqual(['/more', '/more/history']);
     expect(pathChain('/more/gallery')).toEqual(['/more', '/more/about', '/more/gallery']);
     expect(pathChain('/sessions/x/changes/2')).toEqual(['/sessions', '/sessions/x/changes', '/sessions/x/changes/2']);
+  });
+
+  it('stacks Info over its session, and an Info screen over Info', () => {
+    expect(pathChain('/sessions/x/info')).toEqual(['/sessions', '/sessions/x/chat', '/sessions/x/info']);
+    expect(pathChain('/sessions/x/info/notes')).toEqual(['/sessions', '/sessions/x/chat', '/sessions/x/info', '/sessions/x/info/notes']);
+  });
+
+  it('stacks a settings page over Settings', () => {
+    for (const page of ['appearance', 'notifications', 'api-keys', 'translation', 'advanced']) {
+      expect(pathChain(`/more/${page}`)).toEqual(['/more', '/more/settings', `/more/${page}`]);
+    }
+    expect(pathChain('/more/phone')).toEqual(['/more', '/more/phone']);
+    expect(pathChain('/more/saved-prompts')).toEqual(['/more', '/more/saved-prompts']);
   });
 });
 

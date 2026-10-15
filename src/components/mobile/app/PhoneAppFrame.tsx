@@ -44,6 +44,7 @@ import {
   withoutPhonePath,
   type PhoneTab,
 } from '@/lib/chat/phoneRoutes';
+import { usePhoneAppearanceOnBody } from '@/lib/chat/phoneAppearance';
 import '@/styles/modules/mobile/phoneTokens.css';
 import styles from '@/styles/modules/mobile/PhoneAppFrame.module.css';
 
@@ -132,6 +133,8 @@ function useSelectionBridge(): void {
 export default function PhoneAppFrame() {
   const [initialSearch] = useState(() => window.location.search);
   usePhoneBodyClass();
+  // More → Settings → Appearance: System, or Light / Dark kept on this phone (AASC-47).
+  usePhoneAppearanceOnBody();
   usePhoneNavigation();
   useLegacyDeepLink(initialSearch);
   useSelectionBridge();

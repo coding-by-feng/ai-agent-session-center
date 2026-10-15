@@ -1,0 +1,171 @@
+// MoreScreens.test.tsx — the phone's More tab and what it opens (AASC-47): the
+// grouped list, Appearance (system / light / dark, accent), Notifications per
+// session, Advanced → Reset with a confirm, This phone, and Saved prompts.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { Session } from '@/types';
+
+vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
+vi.mock('@/lib/alarmEngine', () => ({ muteSession: vi.fn(), unmuteSession: vi.fn(), alertSession: vi.fn(), unalertSession: vi.fn() }));
+vi.mock('@/lib/deviceIdentity', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/deviceIdentity')>()),
+  getClientId: () => 'phone',
+}));
+
+import MoreScreen from './MoreScreen';
+import SettingsScreen from './SettingsScreen';
+import ThisPhoneScreen from './ThisPhoneScreen';
+import SavedPromptsView from './SavedPromptsView';
+import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { usePresenceStore } from '@/stores/presenceStore';
+import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
+import { useQueueStore } from '@/stores/queueStore';
+import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
+import { readPhoneAppearance, resetPhoneAppearanceForTest } from '@/lib/chat/phoneAppearance';
+
+const sess = (id: string, title: string, over: Partial<Session> = {}) =>
+  ({ sessionId: id, title, projectName: title, status: 'idle', lastActivityAt: 0, ...over }) as unknown as Session;
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
+  localStorage.clear();
+  resetPhoneAppearanceForTest();
+  writePhoneUi('app');
+  usePhoneNavStore.setState({ tab: 'more', stacks: defaultStacks() });
+  useSessionStore.setState({ sessions: new Map([['s1', sess('s1', 'web')], ['s2', sess('s2', 'api', { muted: true })], ['s3', sess('s3', 'old', { status: 'ended' })]]) });
+  usePresenceStore.getState().applyPresence({
+    devices: [
+      { clientId: 'mac', label: 'MacBook', address: '', isLocal: true, connections: 1, connectedAt: 0, lastSeenAt: 0 },
+      { clientId: 'phone', label: 'Kason’s iPhone', address: '', isLocal: false, connections: 1, connectedAt: 0, lastSeenAt: 0 },
+    ],
+    controllers: [],
+    restoreOwner: 'mac',
+    workspaceWriter: 'mac',
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  writePhoneUi('classic');
+});
+
+describe('MoreScreen', () => {
+  it('lists Library, Settings, This phone and About, each a pushed screen', async () => {
+    const user = userEvent.setup();
+    render(<MoreScreen />);
+    expect(within(screen.getByRole('region', { name: 'Library' })).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(expect.arrayContaining([expect.stringContaining('History'), expect.stringContaining('Prompt Trace'), expect.stringContaining('Saved prompts'), expect.stringContaining('Review'), expect.stringContaining('Agenda')]));
+    const settings = within(screen.getByRole('region', { name: 'Settings' })).getAllByRole('button').map((b) => b.textContent ?? '');
+    for (const t of ['Appearance', 'Notifications', 'API keys', 'Translation', 'Advanced']) expect(settings.some((s) => s.startsWith(t))).toBe(true);
+    await user.click(screen.getByRole('button', { name: /Saved prompts/ }));
+    expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/saved-prompts');
+    await user.click(screen.getByRole('button', { name: /Paired with MacBook/ }));
+    expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/phone');
+  });
+
+  it('keeps the switch back to the classic layout', async () => {
+    const user = userEvent.setup();
+    render(<MoreScreen />);
+    await user.click(screen.getByRole('switch', { name: /New design/ }));
+    expect(localStorage.getItem(PHONE_UI_KEY)).toBe('classic');
+  });
+});
+
+describe('Settings pages', () => {
+  it('sets light or dark for this phone, and picks the accent from a theme', async () => {
+    const user = userEvent.setup();
+    const setTheme = vi.spyOn(useSettingsStore.getState(), 'setThemeName');
+    render(<SettingsScreen page="appearance" />);
+    expect(screen.getByRole('button', { name: 'System, selected' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Dark' }));
+    expect(readPhoneAppearance()).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Dark, selected' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /^Nord/ }));
+    expect(setTheme).toHaveBeenCalledWith('nord');
+  });
+
+  it('switches each live session\'s notifications', async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen page="notifications" />);
+    const web = screen.getByRole('switch', { name: 'Notifications from web' });
+    const api = screen.getByRole('switch', { name: 'Notifications from api' });
+    expect(web).toHaveAttribute('aria-checked', 'true');
+    expect(api).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByRole('switch', { name: 'Notifications from old' })).toBeNull();
+    await user.click(web);
+    expect(useSessionStore.getState().sessions.get('s1')?.muted).toBe(true);
+  });
+
+  it('resets this phone\'s settings only after a confirm', async () => {
+    const user = userEvent.setup();
+    const reset = vi.spyOn(useSettingsStore.getState(), 'resetDefaults').mockImplementation(() => {});
+    render(<SettingsScreen page="advanced" />);
+    await user.click(screen.getByRole('button', { name: /Reset to defaults/ }));
+    expect(reset).not.toHaveBeenCalled();
+    await user.click(within(await screen.findByRole('dialog', { name: 'Reset all settings?' })).getByRole('button', { name: 'Reset' }));
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it('lists every settings page on More → Settings', () => {
+    render(<SettingsScreen />);
+    expect(screen.getAllByRole('button').map((b) => b.textContent ?? '').filter((t) => /^(Appearance|Notifications|API keys|Translation|Advanced)/.test(t))).toHaveLength(5);
+  });
+});
+
+describe('ThisPhoneScreen', () => {
+  it('names the paired Mac, the connection and this phone, and says where lock and unpair live', () => {
+    render(<ThisPhoneScreen />);
+    expect(screen.getByText('MacBook')).toBeTruthy();
+    expect(screen.getByText('Kason’s iPhone')).toBeTruthy();
+    expect(screen.getByText('On this Mac')).toBeTruthy();
+    expect(screen.getByText('In the AASC app')).toBeTruthy();
+  });
+});
+
+describe('SavedPromptsView', () => {
+  beforeEach(() => {
+    usePromptSnippetStore.setState({
+      loaded: true,
+      revision: 1,
+      snippets: [
+        { id: 1, text: 'Run the full test suite.', label: 'Fix tests', useCount: 3, lastUsedAt: 10, createdAt: 1 },
+        { id: 2, text: 'Summarise the changes.\nIn five bullets.', label: '', useCount: 0, lastUsedAt: null, createdAt: 2 },
+      ],
+    });
+    useQueueStore.setState({ queues: new Map() });
+  });
+
+  it('lists and searches the saved prompts', async () => {
+    const user = userEvent.setup();
+    render(<SavedPromptsView />);
+    expect(screen.getByRole('button', { name: /Fix tests/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Summarise the changes\./ })).toBeTruthy();
+    await user.type(screen.getByRole('searchbox', { name: 'Search saved prompts' }), 'bullets');
+    expect(screen.queryByRole('button', { name: /Fix tests/ })).toBeNull();
+  });
+
+  it('queues a saved prompt for a session', async () => {
+    const user = userEvent.setup();
+    const touch = vi.spyOn(usePromptSnippetStore.getState(), 'touch').mockResolvedValue();
+    render(<SavedPromptsView />);
+    await user.click(screen.getByRole('button', { name: /Fix tests/ }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Fix tests' })).getByRole('button', { name: /Queue it for a session/ }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Queue it for…' })).getByRole('button', { name: /^web/ }));
+    expect(useQueueStore.getState().queues.get('s1')?.map((i) => i.text)).toEqual(['Run the full test suite.']);
+    expect(touch).toHaveBeenCalledWith(1);
+  });
+
+  it('deletes a saved prompt only after a confirm', async () => {
+    const user = userEvent.setup();
+    const remove = vi.spyOn(usePromptSnippetStore.getState(), 'remove').mockResolvedValue();
+    render(<SavedPromptsView />);
+    await user.click(screen.getByRole('button', { name: /Fix tests/ }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Fix tests' })).getByRole('button', { name: 'Delete' }));
+    expect(remove).not.toHaveBeenCalled();
+    await user.click(within(await screen.findByRole('dialog', { name: 'Delete this saved prompt?' })).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(1));
+  });
+});
