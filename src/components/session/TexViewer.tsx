@@ -7,6 +7,8 @@ interface TexViewerProps {
   /** Stable key (typically file path) so we can recompute when the doc changes. */
   fileKey?: string;
   positionKey?: string;
+  /** A phone (AASC-20): the paper keeps the narrow screen's width for the text. */
+  compact?: boolean;
 }
 
 type LatexParse = (
@@ -90,7 +92,7 @@ function buildFallbackSource(source: string): string {
  * On parse failure we retry with a stripped preamble + minimal article scaffold,
  * which salvages most thesis-style documents at the cost of dropping custom macros.
  */
-export default function TexViewer({ source, fileKey, positionKey }: TexViewerProps) {
+export default function TexViewer({ source, fileKey, positionKey, compact = false }: TexViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,14 +159,14 @@ export default function TexViewer({ source, fileKey, positionKey }: TexViewerPro
   }, [source, fileKey]);
 
   return (
-    <div ref={scrollRef} className={styles.wrapper}>
+    <div ref={scrollRef} className={`${styles.wrapper}${compact ? ` ${styles.compact}` : ''}`}>
       {loading && <div className={styles.status}>Rendering LaTeX…</div>}
       {error && (
         <div className={styles.error}>
           <div className={styles.errorTitle}>LaTeX render error</div>
           <pre className={styles.errorBody}>{error}</pre>
           <div className={styles.errorHint}>
-            Switch to Source view (toolbar TₑX button) to inspect the document.
+            {compact ? 'Switch to Source to read the document.' : 'Switch to Source view (toolbar TₑX button) to inspect the document.'}
           </div>
         </div>
       )}

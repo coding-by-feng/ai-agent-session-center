@@ -7,6 +7,12 @@
  *
  *   <TimePicker12 value="13:45" onChange={setX} />
  *
+ *   ─── On a phone (AASC-20) ───
+ *   Under useIsMobile() it is the platform's own time picker instead
+ *   (`<input type="time">`: a wheel on iOS, a clock on Android), reading and
+ *   writing the same `HH:MM` 24-hour string. An optional field gets a Clear
+ *   button, since not every native picker can clear itself.
+ *
  *   ─── allowEmpty=true ───
  *   When the field is optional (e.g. the "first fire each day" clamp), passing
  *   `allowEmpty` puts a "—" sentinel at the top of each dropdown. Picking "—"
@@ -17,10 +23,13 @@
 import {
   parseHHMM,
   formatHHMM,
+  fromTimeInputValue,
+  toTimeInputValue,
   HOUR_OPTIONS_12,
   MINUTE_OPTIONS,
   type Ampm,
 } from '@/lib/timePicker';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/TimePicker12.module.css';
 
 interface TimePicker12Props {
@@ -47,7 +56,40 @@ export default function TimePicker12({
   disabled = false,
   ariaLabel,
 }: TimePicker12Props) {
+  const isMobile = useIsMobile();
   const parts = parseHHMM(value);
+
+  if (isMobile) {
+    const native = toTimeInputValue(value);
+    return (
+      <span className={styles.nativeGroup} aria-label={ariaLabel}>
+        <input
+          type="time"
+          className={styles.native}
+          value={native}
+          step={60}
+          disabled={disabled}
+          aria-label={ariaLabel ?? 'Time'}
+          onChange={(e) => {
+            const next = fromTimeInputValue(e.target.value);
+            // A required field never clears: an emptied wheel keeps the last time.
+            if (next !== undefined || allowEmpty) onChange(next);
+          }}
+        />
+        {allowEmpty && native && (
+          <button
+            type="button"
+            className={styles.nativeClear}
+            disabled={disabled}
+            onClick={() => onChange(undefined)}
+            aria-label={ariaLabel ? `Clear ${ariaLabel}` : 'Clear time'}
+          >
+            Clear
+          </button>
+        )}
+      </span>
+    );
+  }
 
   // Display values: when parts is null AND allowEmpty, every select shows "—".
   // When parts is null AND !allowEmpty, default to 12:00 AM (00:00) for

@@ -99,6 +99,13 @@ interface AutocompleteTextareaProps {
   onDrop?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
   ariaLabel?: string;
   disabled?: boolean;
+  /**
+   * False hands `/` and `$` to another surface (the phone's suggestion bar,
+   * AASC-20): no command dropdown opens. `@` files still do. Default true.
+   */
+  commandMenu?: boolean;
+  /** Receives the underlying <textarea> (pass a stable callback, e.g. a state setter). */
+  textareaRef?: (el: HTMLTextAreaElement | null) => void;
 }
 
 const DROPDOWN_MIN_DOWN_HEIGHT = 220;
@@ -186,10 +193,19 @@ export default function AutocompleteTextarea({
   onDrop,
   ariaLabel,
   disabled,
+  commandMenu = true,
+  textareaRef,
 }: AutocompleteTextareaProps) {
   // Hold the textarea element as state so dropdown-position math can run in
   // a useMemo without tripping React 19's "no ref reads during render" rule.
   const [textarea, setTextarea] = useState<HTMLTextAreaElement | null>(null);
+  const attachTextarea = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      setTextarea(el);
+      textareaRef?.(el);
+    },
+    [textareaRef],
+  );
   const [acMenu, setAcMenu] = useState<AcMenu | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -214,6 +230,10 @@ export default function AutocompleteTextarea({
       }
 
       if (trigger.type === 'command' || trigger.type === 'skill') {
+        if (!commandMenu) {
+          setAcMenu(null);
+          return;
+        }
         const cli = sessionCli(sessionId);
         // Codex is the only CLI with a `$skill` syntax. Elsewhere a `$` is
         // ordinary prompt text (`$HOME`, `$1`, a price) — leave it alone.
@@ -311,7 +331,7 @@ export default function AutocompleteTextarea({
         debounceRef.current = setTimeout(() => void fetchFiles(0), 150);
       }
     },
-    [onChange, sessionId, projectPath],
+    [onChange, sessionId, projectPath, commandMenu],
   );
 
   // Insert selected item at cursor.
@@ -415,7 +435,7 @@ export default function AutocompleteTextarea({
   return (
     <>
       <textarea
-        ref={setTextarea}
+        ref={attachTextarea}
         className={className}
         value={value}
         placeholder={placeholder}
