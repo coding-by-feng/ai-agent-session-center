@@ -120,8 +120,11 @@
   --ph-focus: var(--ph-accent);
 }
 
+/* Dark: the system's choice, unless this phone keeps Light; or Dark kept on
+   this phone (More → Settings → Appearance, lib/chat/phoneAppearance.ts puts
+   data-ph-appearance on <body>). The two blocks must stay the same. */
 @media (prefers-color-scheme: dark) {
-  .phoneApp {
+  .phoneApp:not([data-ph-appearance='light']) {
     --ph-bg: #0b0b0f;
     --ph-surface: #1c1c1f;
     --ph-surface-raised: #2a2a2e;
@@ -154,6 +157,40 @@
     --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 18%, transparent);
     --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 18%, transparent);
   }
+}
+
+.phoneApp[data-ph-appearance='dark'] {
+  --ph-bg: #0b0b0f;
+  --ph-surface: #1c1c1f;
+  --ph-surface-raised: #2a2a2e;
+  --ph-bar-bg: rgba(22, 22, 25, 0.94);
+  --ph-sheet-bg: #1c1c1f;
+  --ph-sheet-group: #2a2a2e;
+  --ph-segment-selected: #5b5b62;
+  --ph-fill: rgba(118, 118, 128, 0.24);
+  --ph-fill-strong: rgba(118, 118, 128, 0.36);
+  --ph-separator: rgba(235, 235, 245, 0.18);
+  --ph-text: #f2f2f7;
+  --ph-text-secondary: #c7c7cc;
+  --ph-text-tertiary: #a1a1a8;
+  --ph-overlay: rgba(0, 0, 0, 0.56);
+  --ph-neutral-action: #48484d;
+  --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+
+  --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 50%, #fff);
+  --ph-on-accent: #0b0b0f;
+  --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 55%, #fff);
+  --ph-on-danger: #0b0b0f;
+
+  --ph-status-approval: color-mix(in srgb, var(--accent-yellow, #d97706) 65%, #fff);
+  --ph-status-question: color-mix(in srgb, var(--accent-purple, #7c3aed) 55%, #fff);
+  --ph-status-working: color-mix(in srgb, var(--accent-cyan, #0284c7) 60%, #fff);
+  --ph-status-finished: color-mix(in srgb, var(--accent-green, #16a34a) 60%, #fff);
+
+  --ph-accent-tint: color-mix(in srgb, var(--ph-accent) 18%, transparent);
+  --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 18%, transparent);
+  --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 18%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -221,9 +258,13 @@ body.native-app.phoneApp #root {
 }
 
 @media (prefers-color-scheme: dark) {
-  .phoneApp > * {
+  .phoneApp:not([data-ph-appearance='light']) > * {
     color-scheme: dark;
   }
+}
+
+.phoneApp[data-ph-appearance='dark'] > * {
+  color-scheme: dark;
 }
 
 /* Windows XP: route its universal `font-family: var(--font-mono) !important`
