@@ -1,6 +1,6 @@
 // PhoneFloatingSheet.test.tsx — the fork window on a phone (AASC-20): a full-height sheet instead of a
-// floating window. Hiding never ends the session; only End does, after a confirm. The header's ✦ button
-// brings a hidden popup back.
+// floating window. Hiding never ends the session; only End does, after a confirm. Info → AI popups
+// ("Open") brings a hidden popup back, even with its session's screen under Info (AASC-48).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Session } from '@/types';
@@ -85,6 +85,21 @@ describe('the fork sheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'End this AI popup?' })).getByRole('button', { name: 'End popup' }));
     expect(closeSpy).toHaveBeenCalledWith('t-2');
+  });
+
+  it('opens from Info → AI popups, where no session is selected (AASC-48)', async () => {
+    useSessionStore.setState({ selectedSessionId: null });
+    render(<FloatingTerminalRoot />);
+    const dialog = await screen.findByRole('dialog', { name: 'Translate → 中文' });
+    expect(within(dialog).getByTestId('float-terminal').getAttribute('data-terminal')).toBe('t-2');
+  });
+
+  it('shows nothing with no session selected and no popup asked for', async () => {
+    useSessionStore.setState({ selectedSessionId: null });
+    useFloatingSessionsStore.setState({ phoneShown: null });
+    render(<FloatingTerminalRoot />);
+    await settleLazy(() => import('./PhoneFloatingSheet'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('shows nothing for another session’s popups', async () => {
