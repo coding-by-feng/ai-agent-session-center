@@ -14,19 +14,23 @@
 //                                                 each is one exact read, so at most
 //                                                 PHONE_CLOUD_VERSIONS_LIMIT of them
 //
-// What leaves the Mac is the narrowest useful shape: names, kinds, versions,
-// dates, sizes and file counts, and a project's GitHub owner, repository name and
-// default branch. Never a file path, a hash, a description, a project's resource
-// pins, the backend origin, the account or device id, a token, or the connector's
-// own error text (problems are AASC's fixed words). Nothing here writes.
+// What leaves the Mac is the narrowest useful shape: names (a file name, never a
+// path inside a project), kinds, versions, dates, sizes and file counts, and a
+// project's GitHub owner, repository name and default branch. Never a file path,
+// a hash, a description, a project's resource pins, the backend origin, the
+// account or device id, a token, or the connector's own error text (problems are
+// AASC's fixed words). Nothing here writes.
 //
 // Reads are kept a minute per account (backend, account, generation) and shared
 // by every caller; a refresh reads again at most every PHONE_CLOUD_REFRESH_MIN_MS;
-// after a failed read the next waits PHONE_CLOUD_FAILURE_COOLDOWN_MS; and at most
-// PHONE_CLOUD_PULLS_PER_MINUTE reads reach the backend in a minute, after which the
-// last answer comes back (or 429 when there is none). A saved connection nothing
-// has checked since the Mac started ('offline', no error) is read too: opening the
-// phone's Cloud screen is the user asking.
+// after a failed read the next waits PHONE_CLOUD_FAILURE_COOLDOWN_MS. Each backend
+// request is charged before it is sent, so a listing that pages 20 times costs 20:
+// at most PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE listing pages, and on their own
+// budget PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE version reads (one per version),
+// reach the backend in a minute. A read the budget stops, before or part-way, keeps
+// nothing it read and is no failure: the last answer comes back (or 429 when there
+// is none). A saved connection nothing has checked since the Mac started
+// ('offline', no error) is read too: opening the phone's Cloud screen is the user asking.
 
 import { Router, type Response } from 'express';
 import { z } from 'zod';
@@ -99,7 +103,10 @@ export interface PhoneCloudVersions extends PhoneCloudStatus {
 export const PHONE_CLOUD_TTL_MS = 60_000;
 export const PHONE_CLOUD_REFRESH_MIN_MS = 10_000;
 export const PHONE_CLOUD_FAILURE_COOLDOWN_MS = 15_000;
-export const PHONE_CLOUD_PULLS_PER_MINUTE = 12;
+/** Listing pages a minute: a typical listing is 2, the largest (MAX_PAGES of each) 20. */
+export const PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE = 40;
+/** Version reads a minute: a resource's history is up to PHONE_CLOUD_VERSIONS_LIMIT of them. */
+export const PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE = 60;
 export const PHONE_CLOUD_VERSIONS_LIMIT = 10;
 const PAGE_SIZE = 100;
 /** Pages per listing: 1,000 resources or projects at most. */
@@ -107,6 +114,8 @@ const MAX_PAGES = 10;
 const VERSION_READS_AT_ONCE = 5;
 const VERSION_CACHE_MAX = 64;
 const BUDGET_WINDOW_MS = 60_000;
+const BUDGETS = { list: PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE, versions: PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE } as const;
+type BudgetKind = keyof typeof BUDGETS;
 
 /** Every problem a phone can be told. Nothing else crosses. */
 export const PHONE_CLOUD_PROBLEMS = {
@@ -173,11 +182,20 @@ const NOT_CONNECTED: PhoneCloudStatus = Object.freeze({ connected: false, state:
 
 const sizeOf = (files: Manifest['files']) => ({ bytes: files.reduce((n, f) => n + f.bytes, 0), files: files.length });
 
+/**
+ * A name's last path segment. A nested instruction file is named by its path
+ * inside its project (`packages/api/CLAUDE.md`), and no path leaves the Mac:
+ * the phone gets `CLAUDE.md`, and kind and scope say the rest.
+ */
+function phoneName(m: Manifest): string {
+  return m.name.split(/[/\\]/).map((s) => s.trim()).filter(Boolean).at(-1) ?? m.kind;
+}
+
 function toResource(raw: unknown): PhoneCloudResource | null {
   const parsed = ResourceVersionSchema.safeParse(raw);
   if (!parsed.success) return null;
   const { manifest: m, version, createdAt } = parsed.data;
-  return { id: m.resourceId, name: m.name, kind: m.kind, agent: m.agent, scope: m.scope, version, updatedAt: createdAt, ...sizeOf(m.files) };
+  return { id: m.resourceId, name: phoneName(m), kind: m.kind, agent: m.agent, scope: m.scope, version, updatedAt: createdAt, ...sizeOf(m.files) };
 }
 
 function toProject(raw: unknown): PhoneCloudProject | null {
@@ -189,16 +207,19 @@ function toProject(raw: unknown): PhoneCloudProject | null {
 
 const failed = (code: string) => Object.assign(new Error(code), { code });
 
+/** A read the per-minute budget stopped, or null. */
+type Stopped = PhoneCloudBusyError | null;
+
 export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
   const { cloud } = deps;
   const now = deps.now ?? Date.now;
   const ttl = deps.ttlMs ?? PHONE_CLOUD_TTL_MS;
   const reads = deps.reads ?? createCloudReadLog(now);
   let listing: { identity: string; at: number; value: Listing } | null = null;
-  let listingInflight: { identity: string; promise: Promise<void> } | null = null;
+  let listingInflight: { identity: string; promise: Promise<Stopped> } | null = null;
   const versionCache = new Map<string, { at: number; value: VersionList }>();
-  const versionInflight = new Map<string, Promise<void>>();
-  let budget = { start: 0, used: 0 };
+  const versionInflight = new Map<string, Promise<Stopped>>();
+  let budgets: Record<BudgetKind, { start: number; used: number }> = { list: { start: 0, used: 0 }, versions: { start: 0, used: 0 } };
 
   const identityNow = (): string | null => cloudIdentity(cloud?.status().connection);
   /** The account to read, or null when nothing may be read (no connection, or revoked). */
@@ -220,13 +241,21 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
     return { connected: true, state, lastSyncAt, problem };
   }
 
-  /** 0 when a read may start now (and counts it), else seconds until the window restarts. */
-  function takeRead(): number {
+  /** 0 while `kind` has a backend request left this minute, else seconds until its window restarts. */
+  function budgetWait(kind: BudgetKind): number {
     const t = now();
-    if (t - budget.start >= BUDGET_WINDOW_MS) budget = { start: t, used: 0 };
-    if (budget.used >= PHONE_CLOUD_PULLS_PER_MINUTE) return Math.max(1, Math.ceil((budget.start + BUDGET_WINDOW_MS - t) / 1000));
-    budget = { ...budget, used: budget.used + 1 };
-    return 0;
+    if (t - budgets[kind].start >= BUDGET_WINDOW_MS) budgets = { ...budgets, [kind]: { start: t, used: 0 } };
+    const { start, used } = budgets[kind];
+    return used < BUDGETS[kind] ? 0 : Math.max(1, Math.ceil((start + BUDGET_WINDOW_MS - t) / 1000));
+  }
+
+  /** One backend GET, charged to `kind`'s budget before it is sent. */
+  async function request(kind: BudgetKind, path: string): Promise<unknown> {
+    if (!cloud) throw failed('disconnected');
+    const wait = budgetWait(kind);
+    if (wait > 0) throw new PhoneCloudBusyError(wait);
+    budgets = { ...budgets, [kind]: { ...budgets[kind], used: budgets[kind].used + 1 } };
+    return cloud.client.request<unknown>('GET', path);
   }
 
   function coolingDown(identity: string, refresh: boolean): boolean {
@@ -234,23 +263,33 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
     return !!failure && now() - failure.at < (refresh ? PHONE_CLOUD_REFRESH_MIN_MS : PHONE_CLOUD_FAILURE_COOLDOWN_MS);
   }
 
-  /** Run a read; the log learns how it went, for this account only. */
-  async function logged(identity: string, work: () => Promise<void>): Promise<void> {
+  /**
+   * Run a read; the log learns how it went, for this account only. A read the
+   * budget stopped is no failure: it comes back, for callers with no answer.
+   */
+  async function logged(identity: string, work: () => Promise<void>): Promise<Stopped> {
     try {
       await work();
       if (identityNow() === identity) reads.succeeded(identity);
     } catch (err) {
+      if (err instanceof PhoneCloudBusyError) return err;
       if (identityNow() === identity) reads.failed(identity, readFailureCode(err));
     }
+    return null;
+  }
+
+  /** What a read leaves to answer with; nothing at all after a budget stop is a 429. */
+  function settled<T>(value: T | null, stopped: Stopped): T | null {
+    if (value === null && stopped) throw stopped;
+    return value;
   }
 
   async function pullPages<T>(path: string, map: (raw: unknown) => T | null): Promise<{ items: T[]; truncated: boolean }> {
-    if (!cloud) throw failed('disconnected');
     const items: T[] = [];
     const seen = new Set<string>();
     let cursor: string | null = null;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const raw = await cloud.client.request<unknown>('GET', `${path}?limit=${PAGE_SIZE}${cursor ? `&cursor=${cursor}` : ''}`);
+      const raw = await request('list', `${path}?limit=${PAGE_SIZE}${cursor ? `&cursor=${cursor}` : ''}`);
       const parsed = PageSchema.safeParse(raw);
       if (!parsed.success) throw failed('invalid_response');
       for (const item of parsed.data.items) {
@@ -271,11 +310,11 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
     const age = cached ? now() - cached.at : Infinity;
     if (cached && age < ttl && !(refresh && age >= PHONE_CLOUD_REFRESH_MIN_MS)) return cached.value;
     if (listingInflight?.identity === identity) {
-      await listingInflight.promise;
-      return listing?.identity === identity ? listing.value : null;
+      const stopped = await listingInflight.promise;
+      return settled(listing?.identity === identity ? listing.value : null, stopped);
     }
     if (coolingDown(identity, refresh)) return cached?.value ?? null;
-    const wait = takeRead();
+    const wait = budgetWait('list');
     if (wait > 0) {
       if (cached) return cached.value;
       throw new PhoneCloudBusyError(wait);
@@ -299,14 +338,13 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
       if (listingInflight?.promise === promise) listingInflight = null;
     });
     listingInflight = { identity, promise };
-    await promise;
-    return listing?.identity === identity ? listing.value : cached?.value ?? null;
+    const stopped = await promise;
+    return settled(listing?.identity === identity ? listing.value : cached?.value ?? null, stopped);
   }
 
   async function readVersion(id: string, version: number): Promise<PhoneCloudVersion | null> {
-    if (!cloud) throw failed('disconnected');
     try {
-      const parsed = ResourceVersionSchema.safeParse(await cloud.client.request<unknown>('GET', `/v1/resources/${id}/versions/${version}`));
+      const parsed = ResourceVersionSchema.safeParse(await request('versions', `/v1/resources/${id}/versions/${version}`));
       if (!parsed.success || parsed.data.manifest.resourceId !== id || parsed.data.version !== version) return null;
       return { version, createdAt: parsed.data.createdAt, ...sizeOf(parsed.data.manifest.files) };
     } catch (err) {
@@ -332,11 +370,11 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
     if (cached && now() - cached.at < ttl) return cached.value;
     const inflight = versionInflight.get(key);
     if (inflight) {
-      await inflight;
-      return versionCache.get(key)?.value ?? null;
+      const stopped = await inflight;
+      return settled(versionCache.get(key)?.value ?? null, stopped);
     }
     if (coolingDown(identity, false)) return cached?.value ?? null;
-    const wait = takeRead();
+    const wait = budgetWait('versions');
     if (wait > 0) {
       if (cached) return cached.value;
       throw new PhoneCloudBusyError(wait);
@@ -349,8 +387,8 @@ export function createPhoneCloud(deps: PhoneCloudDeps): PhoneCloud {
       versionCache.set(key, { at: now(), value });
     }).finally(() => versionInflight.delete(key));
     versionInflight.set(key, promise);
-    await promise;
-    return versionCache.get(key)?.value ?? cached?.value ?? null;
+    const stopped = await promise;
+    return settled(versionCache.get(key)?.value ?? cached?.value ?? null, stopped);
   }
 
   return {

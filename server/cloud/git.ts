@@ -1,6 +1,9 @@
 /** Native argv-only Git. Local tooling/credential helpers stay on this device. */
 import { spawn } from 'node:child_process';
+import { constants } from 'node:fs';
 import {
+  access,
+  stat,
   lstat,
   realpath,
   mkdir,
@@ -11,7 +14,7 @@ import {
   rmdir,
   open,
 } from 'node:fs/promises';
-import { join, dirname, isAbsolute, relative, sep } from 'node:path';
+import { join, dirname, isAbsolute, relative, sep, posix, win32 } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   ProjectRecordSchema,
@@ -54,10 +57,52 @@ const fail = (code: string) =>
         destination_exists: 'The destination already exists. Choose a new directory.',
         git_failed: 'Git failed. Check local authentication and repository access.',
         checkout_changed: 'The local checkout changed. Review its state again.',
+        git_unavailable:
+          'No usable Git was found. Install Git in an absolute PATH folder outside your projects, then try again.',
       } as Record<string, string>
     )[code] ?? 'Git operation could not complete safely.',
     409,
   );
+const within = (parent: string, child: string) => {
+  const r = relative(parent, child);
+  return r === '' || (!r.startsWith('..' + sep) && r !== '..' && !isAbsolute(r));
+};
+async function isExecutableFile(file: string): Promise<boolean> {
+  try {
+    if (!(await stat(file)).isFile()) return false;
+    if (process.platform !== 'win32') await access(file, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+/**
+ * Git's absolute path, from absolute PATH folders only. An empty, `.` or relative
+ * entry means the working folder, which may be a checkout that planted its own
+ * `git`; so does Windows' own search, which tries the working folder first. On
+ * Windows only `git.exe` counts: a `git.cmd`/`git.bat` runs through cmd.exe, a
+ * shell, which Git here never gets. Not found is `git_unavailable`, never a bare `git`.
+ */
+export async function resolveGitExecutable(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  probe: (file: string) => Promise<boolean> = isExecutableFile,
+): Promise<string> {
+  const windows = platform === 'win32';
+  const key = windows ? Object.keys(env).find((k) => k.toUpperCase() === 'PATH') : 'PATH';
+  const path = windows ? win32 : posix;
+  for (const raw of (key ? (env[key] ?? '') : '').split(path.delimiter)) {
+    const dir = windows ? raw.replace(/^"(.*)"$/, '$1') : raw;
+    // `\dir` and `C:dir` are relative to a drive's current folder on Windows.
+    const absolute = windows
+      ? /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/.test(dir)
+      : path.isAbsolute(dir);
+    if (!absolute) continue;
+    const file = path.join(dir, windows ? 'git.exe' : 'git');
+    if (await probe(file)) return file;
+  }
+  throw fail('git_unavailable');
+}
 async function exists(path: string) {
   try {
     return await lstat(path);
@@ -70,9 +115,14 @@ export async function createGitOperations(options: GitOptions) {
   if (options.testTransport && process.env.VITEST !== 'true') throw fail('invalid_request');
   await privateDirectory(options.directory);
   const hooks = await mkdtemp(join(options.directory, 'empty-hooks-'));
+  // Git's working folder: private and empty, never a checkout (each run names its target with -C).
+  const workdir = await mkdtemp(join(options.directory, 'empty-cwd-'));
   // One per start: drop earlier starts' copies. rmdir refuses a folder that is not empty.
   for (const name of await readdir(options.directory))
-    if (name.startsWith('empty-hooks-') && join(options.directory, name) !== hooks)
+    if (
+      /^empty-(?:hooks|cwd)-/.test(name) &&
+      ![hooks, workdir].includes(join(options.directory, name))
+    )
       await rmdir(join(options.directory, name)).catch(() => {});
   const locks = new Set<string>();
   const fixture = options.testTransport;
@@ -81,8 +131,19 @@ export async function createGitOperations(options: GitOptions) {
     if (!s.isDirectory() || (await realpath(fixture.barePath)) !== fixture.barePath)
       throw fail('invalid_request');
   }
-  async function run(cwd: string, args: string[], signal?: AbortSignal, allowFailure = false) {
+  // Resolved once, from the same environment Git runs with; a failed lookup is tried again next time.
+  let program: Promise<string> | null = null;
+  const gitProgram = () =>
+    (program ??= resolveGitExecutable(fixture?.env ?? process.env).catch((e) => {
+      program = null;
+      throw e;
+    }));
+  async function run(root: string, args: string[], signal?: AbortSignal, allowFailure = false) {
     if (signal) abortCheck(signal);
+    if (!isAbsolute(root)) throw fail('checkout_changed');
+    const git = await gitProgram();
+    // A Git found inside the folder it would work on (a PATH entry naming a checkout) is that checkout's.
+    if (within(root, git)) throw fail('git_unavailable');
     const env = {
       ...(fixture?.env ?? process.env),
       GIT_TERMINAL_PROMPT: '0',
@@ -101,8 +162,10 @@ export async function createGitOperations(options: GitOptions) {
         delete (env as NodeJS.ProcessEnv)[key];
     return await new Promise<{ code: number; text: string }>((resolve, reject) => {
       const child = spawn(
-        'git',
+        git,
         [
+          '-C',
+          root,
           '-c',
           `core.hooksPath=${hooks}`,
           '-c',
@@ -130,7 +193,7 @@ export async function createGitOperations(options: GitOptions) {
           'fetch.recurseSubmodules=false',
           ...args,
         ],
-        { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false },
+        { cwd: workdir, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false },
       );
       let out = '',
         bytes = 0,
@@ -173,15 +236,12 @@ export async function createGitOperations(options: GitOptions) {
       });
     });
   }
-  async function configSafe(cwd: string, signal?: AbortSignal) {
-    const v = await run(cwd, ['config', '--get-regexp', '^url\\..*\\.insteadof$'], signal, true);
+  async function configSafe(root: string, signal?: AbortSignal) {
+    const v = await run(root, ['config', '--get-regexp', '^url\\..*\\.insteadof$'], signal, true);
     if (v.code === 0) throw fail('wrong-remote');
   }
   const active = (root: string) =>
-    (options.activeProjectPaths?.() ?? []).some((p) => {
-      const r = relative(root, p);
-      return r === '' || (!r.startsWith('..' + sep) && r !== '..' && !isAbsolute(r));
-    });
+    (options.activeProjectPaths?.() ?? []).some((p) => within(root, p));
   async function inspectCheckout(
     root: string,
     project: ProjectRecord,

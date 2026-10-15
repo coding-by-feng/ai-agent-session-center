@@ -88,6 +88,7 @@ const warn = vi.fn();
 const revokeTokens = vi.fn();
 const disconnect = vi.fn();
 let pendingRevokes: Promise<void>[];
+let store: MobileDeviceStore;
 
 beforeEach(async () => {
   be = fakeBackend();
@@ -107,7 +108,8 @@ beforeEach(async () => {
     },
     info: vi.fn(),
   });
-  const deviceAuth = createDeviceAuth({ store: memoryStore(), onRevoked });
+  store = memoryStore();
+  const deviceAuth = createDeviceAuth({ store, onRevoked });
   const app = express();
   app.use(express.json());
   app.use('/api/mobile', createMobileRouter({
@@ -229,6 +231,27 @@ describe('one pairing, one revoke (AASC-51)', () => {
     expect(warn.mock.calls.at(-1)?.[0]).toMatch(/owner revoke/);
   });
 
+  it('a phone paired before AASC-51 never revokes the backend device its own /pair named; Mac-bound ones still do', async () => {
+    const first = await scanQr();
+    // A row from before the fix: its codeRef is whatever that phone sent at /pair, here the first phone's.
+    const legacy = '7d0e1f2a-3b4c-4d5e-8f6a-7b8c9d0e1f2a';
+    store.insert({
+      id: legacy, label: 'Old phone', platform: 'android', tokenHash: 'f'.repeat(64), status: 'active', confirmCode: '123456',
+      beCodeRef: '00000000-0000-4000-8000-000000000001', beCodeRefMacBound: false,
+      credentialEpoch: null, createdAt: 1, approvedAt: 2, lastSeenAt: null, revokedAt: null,
+    });
+    expect((await call('DELETE', `/devices/${legacy}`)).status).toBe(200);
+    await settle();
+    expect(revokeTokens).toHaveBeenCalledWith(legacy);
+    expect(disconnect).toHaveBeenCalledWith(legacy);
+    expect(be.calls.filter((c) => c.startsWith('GET') || c.startsWith('DELETE'))).toEqual([]);
+    expect(be.devices.find((d) => d.id === first.backendDevice)?.revokedAt).toBeNull();
+    await call('POST', `/devices/${first.deviceId}/approve`, {});
+    await call('DELETE', `/devices/${first.deviceId}`);
+    await settle();
+    expect(deletes()).toEqual([`DELETE /v1/devices/${first.backendDevice}`]);
+  });
+
   it('a phone paired while the Mac had no cloud connection has nothing to revoke there', async () => {
     be.backend.state = 'disconnected';
     const pairing = await call('POST', '/pairing', {});
@@ -239,5 +262,20 @@ describe('one pairing, one revoke (AASC-51)', () => {
     await settle();
     expect(be.calls.filter((c) => !c.startsWith('POST'))).toEqual([]);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('createPhoneRevokedHandler', () => {
+  const record = (over: Partial<MobileDeviceRecord>): MobileDeviceRecord => ({
+    id: 'p1', label: 'Phone', platform: 'ios', tokenHash: 'a'.repeat(64), status: 'revoked', confirmCode: '000000',
+    beCodeRef: 'ref-1', beCodeRefMacBound: true, credentialEpoch: null, createdAt: 1, approvedAt: null, lastSeenAt: null, revokedAt: 3,
+    ...over,
+  });
+  it('hands the backend revoke a codeRef only when the Mac bound it', () => {
+    const revokeBackend = vi.fn(async () => {});
+    const handler = createPhoneRevokedHandler({ revokeTokens: vi.fn(), disconnect: vi.fn(), revokeBackend, info: vi.fn() });
+    handler(record({}));
+    handler(record({ id: 'p2', beCodeRef: 'phone-chosen', beCodeRefMacBound: false }));
+    expect(revokeBackend.mock.calls).toEqual([['ref-1'], [null]]);
   });
 });

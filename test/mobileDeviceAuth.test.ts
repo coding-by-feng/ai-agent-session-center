@@ -53,6 +53,17 @@ function pairPhone(label = 'Kason iPhone') {
   return result;
 }
 
+describe('backend code (AASC-51)', () => {
+  it('is Mac-bound only when the Mac attached it to the pairing code the phone redeemed', () => {
+    expect(pairPhone().device).toMatchObject({ beCodeRef: null, beCodeRefMacBound: false });
+    const { code } = auth.createPairingCode();
+    expect(auth.attachBackendCode(code, 'ref-1')).toBe(true);
+    const bound = auth.redeem({ code, label: 'Phone', platform: 'ios' })!;
+    expect(bound.device).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
+    expect(store.rows.get(bound.device.id)).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
+  });
+});
+
 describe('pairing codes', () => {
   it('are 10 characters from an unambiguous alphabet and last two minutes', () => {
     const { code, expiresAt } = auth.createPairingCode();

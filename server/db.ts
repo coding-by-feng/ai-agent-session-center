@@ -9,6 +9,7 @@ import { databaseDirectory } from './dbPaths.js';
 import log from './logger.js';
 import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
+import { migrateMobileDeviceCodeRefs } from './mobile/deviceCodeRefMigration.js';
 import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
 import type { Session } from '../src/types/session.js';
 import type {
@@ -909,12 +910,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS mobile_devices (
   status TEXT NOT NULL CHECK (status IN ('pending','active','revoked')),
   confirm_code TEXT NOT NULL,
   be_code_ref TEXT,
+  be_code_ref_mac_bound INTEGER NOT NULL DEFAULT 0,
   credential_epoch TEXT,
   created_at INTEGER NOT NULL,
   approved_at INTEGER,
   last_seen_at INTEGER,
   revoked_at INTEGER
 )`);
+try {
+  migrateMobileDeviceCodeRefs(db, (message) => log.warn('db', message));
+} catch (err: unknown) {
+  log.warn('db', `Mobile device codeRef migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+}
 
 export interface MobileDeviceRow {
   id: string;
@@ -924,6 +931,8 @@ export interface MobileDeviceRow {
   status: 'pending' | 'active' | 'revoked';
   confirm_code: string;
   be_code_ref: string | null;
+  /** 1 when the Mac bound be_code_ref (AASC-51); 0 for every row from before. */
+  be_code_ref_mac_bound: 0 | 1;
   credential_epoch: string | null;
   created_at: number;
   approved_at: number | null;
@@ -933,8 +942,9 @@ export interface MobileDeviceRow {
 
 export function insertMobileDevice(row: MobileDeviceRow): void {
   db.prepare(`INSERT INTO mobile_devices (id, label, platform, token_hash, status, confirm_code, be_code_ref,
-    credential_epoch, created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label, @platform, @token_hash,
-    @status, @confirm_code, @be_code_ref, @credential_epoch, @created_at, @approved_at, @last_seen_at, @revoked_at)`).run(row);
+    be_code_ref_mac_bound, credential_epoch, created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label,
+    @platform, @token_hash, @status, @confirm_code, @be_code_ref, @be_code_ref_mac_bound, @credential_epoch, @created_at,
+    @approved_at, @last_seen_at, @revoked_at)`).run(row);
 }
 export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;

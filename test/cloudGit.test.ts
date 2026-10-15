@@ -1,12 +1,12 @@
 import { expect, it, vi } from 'vitest';
-import { spawn } from 'node:child_process';
+import { spawn, type SpawnOptions } from 'node:child_process';
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 import { mkdir, writeFile, readFile, rm, rename, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { createGitOperations } from '../server/cloud/git.js';
+import { join, dirname, delimiter, isAbsolute, relative } from 'node:path';
+import { createGitOperations, resolveGitExecutable } from '../server/cloud/git.js';
 import { ProjectRecordSchema } from '../src/types/cloudProjects.js';
 import { gitFixture } from './cloudGitFixture.js';
 it('clone_uses_validated_argv and leaves correct canonical remote and branch', async () => {
@@ -306,4 +306,100 @@ it('pull refuses upstream tracking an ignored local file and preserves HEAD and 
   });
   expect(f.git(root, 'rev-parse', 'HEAD')).toBe(head);
   expect(await readFile(join(root, 'ignored.txt'), 'utf8')).toBe('LOCAL USER DATA');
+});
+
+// AASC-51 review: Git never runs from inside an untrusted checkout. On Windows a git.exe at the
+// repository root would run instead of the real Git (the working folder is searched first), and on
+// any OS an empty or relative PATH entry means "the working folder".
+const within = (parent: string, child: string) => {
+  const r = relative(parent, child);
+  return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+};
+it('runs Git by its absolute path from a private empty folder, aimed at the checkout with -C', async () => {
+  const f = await gitFixture();
+  vi.mocked(spawn).mockClear();
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  await writeFile(join(f.source, 'hello'), 'two');
+  f.git(f.source, 'commit', '-am', 'second');
+  f.git(f.source, 'push', f.bare, 'main');
+  await f.ops.pull(dest, f.project, new AbortController().signal);
+  const calls = vi.mocked(spawn).mock.calls.map(([program, args, opts]) => ({
+    program,
+    args: args as string[],
+    cwd: String((opts as SpawnOptions).cwd),
+  }));
+  for (const step of ['clone', 'set-url', 'status', 'merge'])
+    expect(calls.filter((c) => c.args.includes(step)).length, step).toBeGreaterThan(0);
+  expect(new Set(calls.map((c) => c.program)).size).toBe(1);
+  for (const c of calls) {
+    expect(isAbsolute(c.program), c.program).toBe(true);
+    expect(c.args[0]).toBe('-C');
+    const target = c.args[1];
+    expect(isAbsolute(target)).toBe(true);
+    expect(within(target, c.cwd), `${c.args.join(' ')} ran in ${c.cwd}`).toBe(false);
+    expect(within(dest, c.cwd)).toBe(false);
+    expect(await readdir(c.cwd)).toEqual([]);
+  }
+});
+it('resolves Git from absolute PATH folders only: an empty, "." or relative entry is never used', async () => {
+  const f = await gitFixture();
+  const planted = join(f.root, 'planted');
+  await mkdir(planted);
+  await writeFile(join(planted, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const rel = relative(process.cwd(), planted);
+  expect(isAbsolute(rel)).toBe(false);
+  const real = await resolveGitExecutable({ PATH: process.env.PATH });
+  expect(isAbsolute(real)).toBe(true);
+  expect(await resolveGitExecutable({ PATH: ['', '.', rel, dirname(real)].join(delimiter) })).toBe(
+    real,
+  );
+  await expect(
+    resolveGitExecutable({ PATH: ['', '.', rel].join(delimiter) }),
+  ).rejects.toMatchObject({
+    code: 'git_unavailable',
+  });
+  await expect(resolveGitExecutable({})).rejects.toMatchObject({ code: 'git_unavailable' });
+});
+it('on Windows takes only git.exe from a drive or UNC folder, never git.cmd or a relative entry', async () => {
+  const probed: string[] = [];
+  const program = await resolveGitExecutable(
+    {
+      Path: ['', '.', 'tools', '\\rooted', 'C:relative', '"C:\\Program Files\\Git\\cmd"'].join(';'),
+    },
+    'win32',
+    async (file) => {
+      probed.push(file);
+      return true;
+    },
+  );
+  expect(program).toBe('C:\\Program Files\\Git\\cmd\\git.exe');
+  expect(probed).toEqual(['C:\\Program Files\\Git\\cmd\\git.exe']);
+  await expect(
+    resolveGitExecutable({ PATH: 'tools;.;' }, 'win32', async () => true),
+  ).rejects.toMatchObject({ code: 'git_unavailable' });
+});
+it('never runs a git that sits inside the checkout, even when PATH points there', async () => {
+  const f = await gitFixture();
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  const sentinel = join(f.root, 'planted-ran');
+  await mkdir(join(dest, 'bin'));
+  await writeFile(join(dest, 'bin', 'git'), `#!/bin/sh\ntouch '${sentinel}'\n`, { mode: 0o755 });
+  const ops = await createGitOperations({
+    directory: join(f.root, 'private3'),
+    testTransport: {
+      barePath: f.bare,
+      env: {
+        PATH: join(dest, 'bin') + delimiter + process.env.PATH,
+        HOME: f.root,
+        GIT_CONFIG_GLOBAL: join(f.root, 'none'),
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+    },
+  });
+  await expect(ops.inspectCheckout(dest, f.project)).rejects.toMatchObject({
+    code: 'git_unavailable',
+  });
+  expect(await readFile(sentinel).catch(() => null)).toBe(null);
 });

@@ -14,7 +14,8 @@ import {
   PHONE_CLOUD_TTL_MS,
   PHONE_CLOUD_REFRESH_MIN_MS,
   PHONE_CLOUD_FAILURE_COOLDOWN_MS,
-  PHONE_CLOUD_PULLS_PER_MINUTE,
+  PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE,
+  PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE,
   PHONE_CLOUD_VERSIONS_LIMIT,
   PHONE_CLOUD_PROBLEMS,
 } from '../server/mobile/phoneCloud.js';
@@ -28,6 +29,10 @@ const RES_C = '2d8a9c5e-3b4f-4a7c-9dae-9f8a7b6c5d4e';
 const PROJ_1 = '3e9bad6f-4c5a-4b8d-8ebf-a09b8c7d6e5f';
 const PROJ_2 = '4fac0e7a-5d6b-4c9e-9fca-b1ac9d8e7f6a';
 const SHA = (n: number) => String(n).padStart(64, 'a').slice(-64).replace(/[^a-f0-9]/g, 'a');
+const uuid = (n: number) => `6bce2a9c-7f8d-4ebc-9bec-d3cebfa0${String(n).padStart(4, '0')}`;
+/** `count` pages chained by cursor, each holding what `items(i)` returns. */
+const chained = (count: number, items: (i: number) => unknown[]) =>
+  Array.from({ length: count }, (_, i) => ({ items: items(i), nextCursor: i + 1 < count ? uuid(9000 + i) : null }));
 
 function version(resourceId: string, v: number, over: { name?: string; kind?: string; createdAt?: string; files?: number[] } = {}) {
   const files = (over.files ?? [100, 2400]).map((bytes, i) => ({ path: `skills/secret-dir/file-${i}.md`, sha256: SHA(i + v), bytes, mode: 0o644 }));
@@ -89,10 +94,11 @@ function fakeCloud(): FakeCloud {
         if (cloud.fail) throw cloud.fail;
         const url = new URL(path, 'http://x');
         const cursor = url.searchParams.get('cursor');
-        if (url.pathname === '/v1/resources') {
-          return (cursor ? cloud.resourcePages[1] : cloud.resourcePages[0]) as T;
-        }
-        if (url.pathname === '/v1/projects') return cloud.projectPages[0] as T;
+        // The page after the one whose nextCursor this is.
+        const page = (pages: unknown[]) =>
+          (cursor ? pages.find((_, i) => i > 0 && (pages[i - 1] as { nextCursor: string | null }).nextCursor === cursor) : pages[0]) as T;
+        if (url.pathname === '/v1/resources') return page(cloud.resourcePages);
+        if (url.pathname === '/v1/projects') return page(cloud.projectPages);
         const m = /^\/v1\/resources\/([0-9a-f-]+)\/versions\/(\d+)$/.exec(url.pathname);
         if (m) {
           if (cloud.gone.has(`${m[1]}@${m[2]}`)) throw new CloudError('not_found', 'Cloud resource was not found.', 404);
@@ -178,6 +184,25 @@ describe('browse', () => {
     t += 1;
   });
 
+  it('a resource named by a path inside a project reaches the phone as its file name only', async () => {
+    const cloud = fakeCloud();
+    const nested = (n: number, name: string) => {
+      const v = version(uuid(n), 1, { name, kind: 'instruction' });
+      return { ...v, manifest: { ...v.manifest, scope: 'project', projectId: PROJ_1 } };
+    };
+    cloud.resourcePages = [{
+      items: [nested(1, 'packages/api/CLAUDE.md'), nested(2, '.claude/CLAUDE.md'), nested(3, 'services\\billing\\AGENTS.md'), nested(4, 'CLAUDE.md'), version(RES_A, 2)],
+      nextCursor: null,
+    }];
+    const phoneCloud = createPhoneCloud({ cloud });
+    const browse = await phoneCloud.browse();
+    expect(browse.resources.map((r) => r.name).sort()).toEqual(['AGENTS.md', 'CLAUDE.md', 'CLAUDE.md', 'CLAUDE.md', 'retouch']);
+    const versions = await phoneCloud.versions(uuid(1));
+    expect(versions.resource).toMatchObject({ name: 'CLAUDE.md', kind: 'instruction', scope: 'project' });
+    for (const name of [...browse.resources, versions.resource!].map((r) => r.name)) expect(name).not.toMatch(/[/\\]/);
+    for (const leak of ['packages', 'api/', 'services', 'billing', '.claude']) expect(JSON.stringify({ browse, versions }), leak).not.toContain(leak);
+  });
+
   it('answers from one read for a minute; a refresh reads again at most every 10 s; callers share a read', async () => {
     let t = 1_000_000;
     const cloud = fakeCloud();
@@ -257,23 +282,54 @@ describe('browse', () => {
     expect(other.lastSyncAt).toBeNull();
   });
 
-  it(`reads the backend at most ${PHONE_CLOUD_PULLS_PER_MINUTE} times a minute, then answers from the last read or asks to wait`, async () => {
+  it(`a listing costs one backend request per page: at most ${PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE} a minute, then the last answer`, async () => {
     let t = 9_000_000;
     const cloud = fakeCloud();
+    // 8 pages of resources and 7 of projects: every listing is 15 backend requests.
+    cloud.resourcePages = chained(8, (i) => [version(uuid(i), 1)]);
+    cloud.projectPages = chained(7, (i) => [project(uuid(100 + i), `Project ${i}`)]);
     const phoneCloud = createPhoneCloud({ cloud, now: () => t });
-    const ids = Array.from({ length: PHONE_CLOUD_PULLS_PER_MINUTE }, (_, i) => `6bce2a9c-7f8d-4ebc-9bec-d3cebfa0b${String(i).padStart(3, '0')}`);
-    cloud.resourcePages = [{ items: ids.map((id) => version(id, 1)), nextCursor: null }];
-    await phoneCloud.browse(); // read 1
-    for (const id of ids.slice(0, PHONE_CLOUD_PULLS_PER_MINUTE - 1)) await phoneCloud.versions(id); // reads 2…limit
-    const calls = cloud.calls.length;
-    await expect(phoneCloud.versions(ids.at(-1)!)).rejects.toBeInstanceOf(PhoneCloudBusyError);
-    t += PHONE_CLOUD_REFRESH_MIN_MS + 1;
-    // A refresh over the budget still answers, from the last read.
-    expect((await phoneCloud.browse({ refresh: true })).resources).toHaveLength(ids.length);
-    expect(cloud.calls).toHaveLength(calls);
+    expect((await phoneCloud.browse()).resources).toHaveLength(8);
+    expect(cloud.calls).toHaveLength(15);
+    // A refresh every 10 s for the rest of the minute: never more requests than the budget,
+    // and a listing the budget stops part-way changes nothing and is no failure.
+    for (let i = 0; i < 5; i++) {
+      t += PHONE_CLOUD_REFRESH_MIN_MS + 1;
+      const browse = await phoneCloud.browse({ refresh: true });
+      expect(browse.resources).toHaveLength(8);
+      expect(browse.problem).toBeNull();
+    }
+    expect(cloud.calls).toHaveLength(PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE);
+    // Another account, with nothing read before: asked to wait.
+    cloud.account = 'acct-2';
+    await expect(phoneCloud.browse()).rejects.toBeInstanceOf(PhoneCloudBusyError);
+    expect(cloud.calls).toHaveLength(PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE);
+    // The next minute reads at once (no failure cooldown).
     t += 60_000;
-    await phoneCloud.versions(ids.at(-1)!);
-    expect(cloud.calls.length).toBeGreaterThan(calls);
+    expect((await phoneCloud.browse()).resources).toHaveLength(8);
+    expect(cloud.calls).toHaveLength(PHONE_CLOUD_LIST_REQUESTS_PER_MINUTE + 15);
+  });
+
+  it(`version reads have their own budget, one per version read: at most ${PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE} a minute`, async () => {
+    let t = 9_000_000;
+    const cloud = fakeCloud();
+    const histories = PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE / PHONE_CLOUD_VERSIONS_LIMIT;
+    const ids = Array.from({ length: histories + 1 }, (_, i) => uuid(i));
+    cloud.resourcePages = [{ items: ids.map((id) => version(id, 12)), nextCursor: null }];
+    const phoneCloud = createPhoneCloud({ cloud, now: () => t });
+    await phoneCloud.browse();
+    const listing = cloud.calls.length;
+    for (const id of ids.slice(0, histories)) expect((await phoneCloud.versions(id)).versions).toHaveLength(PHONE_CLOUD_VERSIONS_LIMIT);
+    const versionCalls = () => cloud.calls.filter((c) => c.includes('/versions/')).length;
+    expect(versionCalls()).toBe(PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE);
+    await expect(phoneCloud.versions(ids.at(-1)!)).rejects.toBeInstanceOf(PhoneCloudBusyError);
+    expect(versionCalls()).toBe(PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE);
+    // Version reads spent nothing of the listing's budget.
+    t += PHONE_CLOUD_REFRESH_MIN_MS + 1;
+    await phoneCloud.browse({ refresh: true });
+    expect(cloud.calls.length - versionCalls()).toBe(listing * 2);
+    t += 60_000;
+    expect((await phoneCloud.versions(ids.at(-1)!)).versions).toHaveLength(PHONE_CLOUD_VERSIONS_LIMIT);
   });
 });
 
@@ -420,8 +476,8 @@ describe('GET /api/phone-cloud/* from a paired phone', () => {
   it('asks the phone to wait when the backend has been read too often, with a retry time', async () => {
     let t = 0;
     const cloud = fakeCloud();
-    const ids = Array.from({ length: PHONE_CLOUD_PULLS_PER_MINUTE }, (_, i) => `6bce2a9c-7f8d-4ebc-9bec-d3cebfa0b${String(i).padStart(3, '0')}`);
-    cloud.resourcePages = [{ items: ids.map((id) => version(id, 1)), nextCursor: null }];
+    const ids = Array.from({ length: PHONE_CLOUD_VERSION_REQUESTS_PER_MINUTE / PHONE_CLOUD_VERSIONS_LIMIT + 1 }, (_, i) => uuid(i));
+    cloud.resourcePages = [{ items: ids.map((id) => version(id, 12)), nextCursor: null }];
     const app = express();
     app.use('/api', createPhoneCloudRouter(createPhoneCloud({ cloud, now: () => t })));
     server = createServer(app);

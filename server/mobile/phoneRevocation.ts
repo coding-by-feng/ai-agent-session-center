@@ -9,6 +9,8 @@
 //   3. the backend device it created from the pairing QR's backend code is
 //      revoked through the Mac's cloud connection (phoneCloudBridge.ts). That
 //      runs on its own: a slow or unreachable backend never holds up 1 and 2.
+//      Only a code the Mac bound counts: a phone paired before AASC-51 named
+//      its own, which could be another phone's (deviceCodeRefMigration.ts).
 
 import type { MobileDeviceRecord } from './deviceAuth.js';
 
@@ -24,7 +26,7 @@ export function createPhoneRevokedHandler(deps: PhoneRevocationDeps): (device: M
   return (device) => {
     deps.revokeTokens(device.id);
     deps.disconnect(device.id);
-    void deps.revokeBackend(device.beCodeRef);
+    void deps.revokeBackend(device.beCodeRefMacBound ? device.beCodeRef : null);
     deps.info(`Phone access removed: ${device.label} (${device.platform})`);
   };
 }

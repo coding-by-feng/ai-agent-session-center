@@ -34,6 +34,11 @@ export interface MobileDeviceRecord {
    * code created (AASC-51). Recorded by the Mac, never taken from the phone.
    */
   beCodeRef: string | null;
+  /**
+   * True only when the Mac bound `beCodeRef` itself (attachBackendCode). A phone
+   * paired before AASC-51 chose its own at /pair: a revoke never acts on that one.
+   */
+  beCodeRefMacBound: boolean;
   /** Fingerprint of the dashboard password when the token was issued (null: none set). */
   credentialEpoch: string | null;
   createdAt: number;
@@ -247,6 +252,8 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         status: 'pending',
         confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
         beCodeRef: entry.beCodeRef,
+        // Only attachBackendCode puts a codeRef next to a pairing code.
+        beCodeRefMacBound: entry.beCodeRef !== null,
         credentialEpoch: currentEpoch(),
         createdAt: now(),
         approvedAt: null,
