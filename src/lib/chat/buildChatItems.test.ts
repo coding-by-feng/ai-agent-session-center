@@ -216,6 +216,16 @@ describe('buildChatItems — live, partial and redacted', () => {
     expect(buildChatItems(entries, { live: false })[1]).toMatchObject({ kind: 'assistant', isAnswer: true });
   });
 
+  it('shows a command that only names a secret file by the server’s note, its words hidden', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'h', name: 'Bash', input: { redacted: true, note: 'Ran a command that touches a secret file' }, secret: true },
+      { kind: 'tool_result', toolUseId: 'h', isError: false, output: '[Hidden on phones: this touched a secret file]', truncated: false, secret: true },
+    ));
+    expect((items[0] as ToolItem).call).toMatchObject({
+      verb: 'Ran a command that touches a secret file', target: '', command: null, redacted: true, secret: true, category: 'command',
+    });
+  });
+
   it('marks a call that touched a secret file, keeping what the server chose to send', () => {
     const items = buildChatItems(stream(
       { kind: 'tool_use', id: 'm', name: 'Read', input: { file_path: '.env' }, secret: true, secretInput: true },
