@@ -434,3 +434,65 @@ describe('the request goes when the agent does', () => {
     expect(store.getSession(id)?.pendingRequest).toBeNull();
   });
 });
+
+describe('mounted as server/index.ts mounts it: phone profile, answer router, then apiRouter', () => {
+  const foreground = new Map<string, string>();
+  let chain: { url: string; close: () => Promise<void> };
+
+  beforeAll(async () => {
+    const { createPhoneProfile } = await import('../server/mobile/phoneProfile.js');
+    const { canSeeSession } = await import('../server/sessionVisibility.js');
+    const { default: apiRouter } = await import('../server/apiRouter.js');
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: () => false,
+      isSharedSession: (id) => canSeeSession(false, store.getSession(id)),
+      sessionOfTerminal: () => null,
+      terminalOfSession: (id) => store.getSession(id)?.terminalId ?? null,
+      foregroundProcess: (id) => foreground.get(id) ?? null,
+    }), createRequestAnswerRouter(wiring()), apiRouter);
+    chain = await listen(app);
+  });
+
+  afterAll(async () => {
+    await chain.close();
+  });
+
+  async function post(sessionId: string, requestId: string) {
+    const res = await fetch(`${chain.url}/api/sessions/${sessionId}/requests/${requestId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...PHONE },
+      body: JSON.stringify({ choice: 'allow_once' }),
+    });
+    return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+  }
+
+  it('a paired phone answers a shared session whose agent runs: 1 is typed once', async () => {
+    const { id, requestId } = await waitingSession();
+    foreground.set(id, 'claude');
+    expect(await post(id, requestId)).toEqual({ status: 202, json: { success: true, data: { accepted: true } } });
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(pty.write).toHaveBeenCalledWith(id, '1');
+  });
+
+  it('the profile refuses while the agent is not in the foreground, before the route types anything', async () => {
+    const { id, requestId } = await waitingSession();
+    foreground.set(id, 'zsh');
+    const res = await post(id, requestId);
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('AGENT_NOT_RUNNING');
+    expect(pty.write).not.toHaveBeenCalled();
+    expect(store.getSession(id)?.pendingRequest?.id).toBe(requestId);
+  });
+
+  it('a hidden session is a plain 404 for the phone', async () => {
+    const { id, requestId } = await waitingSession({ shared: false });
+    foreground.set(id, 'claude');
+    expect((await post(id, requestId)).status).toBe(404);
+    expect(pty.write).not.toHaveBeenCalled();
+  });
+});
