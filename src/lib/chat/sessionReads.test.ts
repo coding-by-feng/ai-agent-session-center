@@ -1,6 +1,8 @@
 // sessionReads.test.ts — this phone's "read" stamps per session (AASC-40).
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MAX_READS, SESSION_READS_KEY, getSessionReads, markSessionRead, resetSessionReadsForTest } from './sessionReads';
+import type { Session } from '@/types';
+import { MAX_READS, SESSION_READS_KEY, getSessionReads, markSessionRead, readStamp, resetSessionReadsForTest } from './sessionReads';
+import { useSessionStore } from '@/stores/sessionStore';
 
 describe('sessionReads', () => {
   beforeEach(() => {
@@ -27,6 +29,21 @@ describe('sessionReads', () => {
     localStorage.setItem(SESSION_READS_KEY, '{nope');
     resetSessionReadsForTest();
     expect(getSessionReads()).toEqual({});
+  });
+
+  it('stamps on the Mac\'s clock (the session\'s own last activity)', () => {
+    expect(readStamp({ lastActivityAt: 1234 })).toBe(1234);
+  });
+
+  it('reads the session on show as each turn finishes', () => {
+    const s = (status: string, lastActivityAt: number) => ({ sessionId: 's9', status, lastActivityAt }) as unknown as Session;
+    useSessionStore.setState({ sessions: new Map([['s9', s('working', 10)]]), selectedSessionId: 's9' });
+    expect(getSessionReads().s9).toBeUndefined();
+    useSessionStore.setState({ sessions: new Map([['s9', s('waiting', 20)]]) });
+    expect(getSessionReads().s9).toBe(20);
+    useSessionStore.setState({ selectedSessionId: null });
+    useSessionStore.setState({ sessions: new Map([['s9', s('waiting', 30)]]) });
+    expect(getSessionReads().s9).toBe(20);
   });
 
   it(`keeps the newest ${MAX_READS} stamps`, () => {

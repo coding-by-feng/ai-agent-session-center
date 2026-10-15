@@ -109,7 +109,7 @@ function ActionsSheet({
   return (
     <Sheet open={open} onClose={onClose} title={sessionDisplayTitle(session)} detents={FIT_LARGE} testId="session-actions-sheet">
       {onOpenInfo && (
-        <ListSection label="Session">
+        <ListSection label="Open">
           <ListRow title="Info" subtitle="Status, model, notes, queue, agents" chevron onClick={thenClose(onOpenInfo)} />
         </ListSection>
       )}

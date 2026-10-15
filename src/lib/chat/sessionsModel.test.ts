@@ -190,7 +190,7 @@ describe('groupSessions', () => {
 
 describe('host card and connection', () => {
   it('counts live sessions and the ones that need you', () => {
-    expect(hostCounts([mk('a', { status: 'approval' }), mk('b'), mk('c', { status: 'ended' })])).toEqual({ live: 2, needYou: 1 });
+    expect(hostCounts([mk('a', { status: 'approval' }), mk('b'), mk('c', { status: 'ended' }), mk('d', { status: 'input', isFloating: true })])).toEqual({ live: 2, needYou: 1 });
   });
 
   it('names the path to the Mac from the page address', () => {

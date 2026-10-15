@@ -13,7 +13,7 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { copySession, type CopyKind } from '@/lib/sessionCopy';
 import { requestSessionResume } from '@/lib/sessionActions';
 import { alertSession, muteSession, unalertSession, unmuteSession } from '@/lib/alarmEngine';
-import { markSessionRead } from '@/lib/chat/sessionReads';
+import { markSessionRead, readStamp } from '@/lib/chat/sessionReads';
 import { detectCli } from '@/lib/cliDetect';
 
 export type ActionBusy = 'fork' | 'clone' | 'resume' | null;
@@ -72,10 +72,8 @@ export function useSessionActions() {
     showToast(on ? 'Loud alerts on: approvals and finished turns ring out' : 'Loud alerts off', 'info');
   }, []);
 
-  // At least the session's own last activity: the Mac's clock stamped that, and
-  // the phone's may run behind it.
   const markRead = useCallback((session: Session) => {
-    markSessionRead(session.sessionId, Math.max(Date.now(), session.lastActivityAt ?? 0));
+    markSessionRead(session.sessionId, readStamp(session));
   }, []);
 
   return { busy, copy, resume, setNotifications, setLoudAlerts, markRead };

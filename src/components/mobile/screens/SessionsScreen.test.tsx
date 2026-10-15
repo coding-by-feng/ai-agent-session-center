@@ -126,7 +126,7 @@ describe('SessionsScreen', () => {
   it('searches by name, project, label and remark', async () => {
     const user = userEvent.setup();
     render(<SessionsScreen />);
-    await user.click(screen.getByRole('button', { name: 'Search sessions' }));
+    await user.click(screen.getByRole('button', { name: 'Search' }));
     const box = screen.getByRole('searchbox', { name: 'Search sessions' });
     await user.type(box, 'polish');
     expect(screen.getAllByTestId(/^session-row-/).map((r) => r.dataset.testid)).toEqual(['session-row-s1']);
@@ -143,7 +143,8 @@ describe('SessionsScreen', () => {
     render(<SessionsScreen />);
     await user.click(screen.getByTestId('session-row-s3'));
     expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s3/chat']);
-    expect(getSessionReads().s3).toBeGreaterThanOrEqual(NOW);
+    // Stamped on the Mac's clock: the session's own last activity.
+    expect(getSessionReads().s3).toBe(NOW - 60_000);
   });
 
   it('marks a finished turn read from the row menu, which moves it to Idle', async () => {

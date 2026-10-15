@@ -43,7 +43,7 @@ import { defaultSegment, infoPath, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { restartBlocker } from '@/lib/chat/sessionInfoModel';
-import { markSessionRead, useSessionReads } from '@/lib/chat/sessionReads';
+import { markSessionRead, readStamp, useSessionReads } from '@/lib/chat/sessionReads';
 import { useClock } from '@/lib/chat/clock';
 import {
   CONNECTION_WORDS,
@@ -131,6 +131,8 @@ function HostCard({ onNew, blocker }: { onNew: () => void; blocker: string | nul
 
 interface GroupProps {
   group: SessionGroup;
+  /** The Idle section may fold (not while a search lists every match). */
+  foldable: boolean;
   groupBy: SessionsGroupBy;
   now: number;
   folded: boolean;
@@ -140,8 +142,7 @@ interface GroupProps {
   onOpen: (session: Session) => void;
 }
 
-function GroupSection({ group, groupBy, now, folded, onToggleFold, onRoomMenu, rowProps, onOpen }: GroupProps) {
-  const foldable = group.section === 'idle' && group.sessions.length > IDLE_FOLD_AT;
+function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, onRoomMenu, rowProps, onOpen }: GroupProps) {
   const count = group.sessions.length;
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
@@ -218,8 +219,12 @@ export default function SessionsScreen() {
   const [newOpen, setNewOpen] = useState(false);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
-  const [roomMenu, setRoomMenu] = useState<Room | null>(null);
-  const [roomKill, setRoomKill] = useState<Room | null>(null);
+  // Rooms by id, read from the store when used: membership can change (rooms
+  // sync from the Mac) between the menu, the confirm and the kill.
+  const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
+  const [roomKillId, setRoomKillId] = useState<string | null>(null);
+  const roomMenu = rooms.find((r) => r.id === roomMenuId) ?? null;
+  const roomKill = rooms.find((r) => r.id === roomKillId) ?? null;
   const [killing, setKilling] = useState(false);
   const killingRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -243,15 +248,16 @@ export default function SessionsScreen() {
   const closeNew = useCallback(() => setNewOpen(false), []);
   const openNew = useCallback(() => setNewOpen(true), []);
   const closeGroupSheet = useCallback(() => setGroupSheet(false), []);
-  const closeRoomMenu = useCallback(() => setRoomMenu(null), []);
-  const cancelRoomKill = useCallback(() => { if (!killingRef.current) setRoomKill(null); }, []);
+  const closeRoomMenu = useCallback(() => setRoomMenuId(null), []);
+  const openRoomMenu = useCallback((room: Room) => setRoomMenuId(room.id), []);
+  const cancelRoomKill = useCallback(() => { if (!killingRef.current) setRoomKillId(null); }, []);
   const openSheet = useCallback((id: string, kind: SessionSheetKind) => {
     setSheetFor(id);
     setSheet(kind);
   }, []);
 
   const open = useCallback((session: Session) => {
-    markSessionRead(session.sessionId, Math.max(Date.now(), session.lastActivityAt ?? 0));
+    markSessionRead(session.sessionId, readStamp(session));
     push(sessionPath(session.sessionId, defaultSegment(detectCli(session))));
   }, [push]);
 
@@ -291,11 +297,11 @@ export default function SessionsScreen() {
   }, [searching]);
 
   const runRoomKill = useCallback(async () => {
-    const room = roomKill;
-    if (!room || killingRef.current) return;
-    const targets = liveRoomSessions(room, useSessionStore.getState().sessions);
-    if (targets.length === 0) {
-      setRoomKill(null);
+    const room = useRoomStore.getState().rooms.find((r) => r.id === roomKillId);
+    if (killingRef.current) return;
+    const targets = room ? liveRoomSessions(room, useSessionStore.getState().sessions) : [];
+    if (!room || targets.length === 0) {
+      setRoomKillId(null);
       return;
     }
     killingRef.current = true;
@@ -305,9 +311,9 @@ export default function SessionsScreen() {
     } finally {
       killingRef.current = false;
       setKilling(false);
-      setRoomKill(null);
+      setRoomKillId(null);
     }
-  }, [roomKill]);
+  }, [roomKillId]);
 
   const killTargets = roomKill ? liveRoomSessions(roomKill, sessions) : [];
   const killNames = killTargets.slice(0, KILL_NAME_CAP).map(sessionDisplayTitle);
@@ -321,7 +327,7 @@ export default function SessionsScreen() {
           setSearching((on) => !on);
           if (searching) setQuery('');
         }}
-        aria-label={searching ? 'Close search' : 'Search sessions'}
+        aria-label="Search"
         aria-pressed={searching}
       >
         <SearchIcon />
@@ -362,19 +368,23 @@ export default function SessionsScreen() {
       />
     );
   } else {
-    body = groups.map((g) => (
+    body = groups.map((g) => {
+      const foldable = g.section === 'idle' && g.sessions.length > IDLE_FOLD_AT && !query;
+      return (
       <GroupSection
         key={g.key}
         group={g}
+        foldable={foldable}
         groupBy={groupBy}
         now={now}
-        folded={g.section === 'idle' && g.sessions.length > IDLE_FOLD_AT && !idleOpen && !query}
+        folded={foldable && !idleOpen}
         onToggleFold={() => setIdleOpen((v) => !v)}
-        onRoomMenu={setRoomMenu}
+        onRoomMenu={openRoomMenu}
         rowProps={rowProps}
         onOpen={open}
       />
-    ));
+      );
+    });
   }
 
   return (
@@ -456,8 +466,8 @@ export default function SessionsScreen() {
               destructive
               disabledReason={liveRoomSessions(roomMenu, sessions).length === 0 ? 'No live sessions in this room.' : undefined}
               onClick={() => {
-                setRoomKill(roomMenu);
-                setRoomMenu(null);
+                setRoomKillId(roomMenu.id);
+                setRoomMenuId(null);
               }}
             />
           </ListSection>

@@ -201,7 +201,7 @@
   margin-bottom: var(--ph-space-4);
 }
 
-.groupList { margin-bottom: 0; }
+.group > .groupList { margin-bottom: 0; }
 
 /* As the kit's section header, with room for a fold button or a room's ⋯. */
 .groupHeader {

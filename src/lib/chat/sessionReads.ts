@@ -6,8 +6,17 @@
  * keeps a session in the Sessions tab's Finished section (sessionsModel.ts).
  * Kept in localStorage (`aasc.phoneReads`, ids and times only), at most
  * MAX_READS entries, newest kept; one copy shared through useSyncExternalStore.
+ *
+ * A stamp is the session's own `lastActivityAt` (the Mac's clock), never the
+ * phone's: unread compares against that same clock, so a phone running ahead
+ * or behind the Mac can't mark a newer turn read or an old one unread. And a
+ * session on show is being read: the session screen selects the session it
+ * shows (from the list, the Inbox, a notification, "N more need you"), so
+ * while it is selected each turn it finishes is read at once.
  */
 import { useSyncExternalStore } from 'react';
+import type { Session } from '@/types';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { ReadMap } from './sessionsModel';
 
 export const SESSION_READS_KEY = 'aasc.phoneReads';
@@ -39,6 +48,11 @@ function save(next: ReadMap): void {
   }
 }
 
+/** The stamp that reads a session up to now, on the Mac's clock. */
+export function readStamp(session: Pick<Session, 'lastActivityAt'>): number {
+  return session.lastActivityAt || Date.now();
+}
+
 /** Stamp a session read now (or at `at`). */
 export function markSessionRead(sessionId: string, at: number = Date.now()): void {
   if ((reads[sessionId] ?? 0) >= at) return;
@@ -62,6 +76,18 @@ function subscribe(listener: () => void): () => void {
 export function useSessionReads(): ReadMap {
   return useSyncExternalStore(subscribe, getSessionReads, getSessionReads);
 }
+
+/** Read the selected session (the one a session screen shows) up to its latest turn. */
+export function readSelected(state: { selectedSessionId: string | null; sessions: ReadonlyMap<string, Session> }): void {
+  const id = state.selectedSessionId;
+  const session = id ? state.sessions.get(id) : undefined;
+  if (id && session && session.status === 'waiting') markSessionRead(id, readStamp(session));
+}
+
+// Loaded only with the phone frame (lib/chat is phone code), and harmless after it.
+useSessionStore.subscribe((state, prev) => {
+  if (state.selectedSessionId !== prev.selectedSessionId || state.sessions !== prev.sessions) readSelected(state);
+});
 
 /** Tests: forget everything and re-read storage. */
 export function resetSessionReadsForTest(): void {
