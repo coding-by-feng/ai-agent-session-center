@@ -4,7 +4,9 @@
 .track {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  /* Equal widths while every label fits; a longer one ("Changes +27 −5", bold when
+     selected) widens its own column instead of cutting to "Chang…" at 360px. */
+  grid-auto-columns: minmax(max-content, 1fr);
   gap: 2px;
   padding: 2px;
   border-radius: var(--ph-radius);
