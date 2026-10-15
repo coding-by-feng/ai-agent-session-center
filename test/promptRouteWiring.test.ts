@@ -175,7 +175,7 @@ describe('the prompt route on the live server', () => {
     pty.fg.set(T_SHARED, 'zsh');
     const res = await prompt(SHARED);
     expect(res.status).toBe(409);
-    expect(res.json.code).toBe('agent_not_running');
+    expect(res.json.code).toBe('AGENT_NOT_RUNNING');
     expect(writesTo(T_SHARED)).toEqual([]);
   });
 

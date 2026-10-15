@@ -268,11 +268,11 @@ describe('who may send', () => {
     ['the terminal is gone', () => { terminals.delete('term-1'); }],
     ['the shell is in the foreground (the agent exited)', () => { foreground.set('term-1', 'zsh'); }],
     ['the foreground program is unknown', () => { foreground.delete('term-1'); }],
-  ])('answers 409 agent_not_running when %s', async (_name, arrange) => {
+  ])('answers 409 AGENT_NOT_RUNNING when %s', async (_name, arrange) => {
     arrange();
     const res = await send('s1', {}, REMOTE('phone-a'));
     expect(res.status).toBe(409);
-    expect(res.json).toMatchObject({ success: false, code: 'agent_not_running' });
+    expect(res.json).toMatchObject({ success: false, code: 'AGENT_NOT_RUNNING' });
     expect(submit).not.toHaveBeenCalled();
     // A refused request takes no baton.
     expect(baton.has('s1')).toBe(false);
@@ -288,11 +288,11 @@ describe('who may send', () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
-  it('answers 409 agent_not_running for an ended session', async () => {
+  it('answers 409 AGENT_NOT_RUNNING for an ended session', async () => {
     sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'ended' });
     const res = await send('s1', { mode: 'interrupt' });
     expect(res.status).toBe(409);
-    expect(res.json.code).toBe('agent_not_running');
+    expect(res.json.code).toBe('AGENT_NOT_RUNNING');
   });
 
   it('sends to a busy session (the CLI queues it) and interrupts one', async () => {

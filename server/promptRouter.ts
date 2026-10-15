@@ -10,7 +10,7 @@
 //   - the session must be visible to the caller: apiRouter's own /sessions/:id gate,
 //     404 for hidden and unknown alike;
 //   - its agent must be the terminal's foreground program, or the text would run in
-//     the shell underneath: 409 agent_not_running (also for an ended session);
+//     the shell underneath: 409 AGENT_NOT_RUNNING (also for an ended session);
 //   - a session still starting (`connecting`) may be showing a dialog that fires no
 //     hook (trusting the folder): 409 agent_not_ready;
 //   - `now` never types into an open dialog (approval or a question), where the text
@@ -193,7 +193,7 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     const terminalId = session.terminalId ?? null;
     if (!terminalId || session.status === SESSION_STATUS.ENDED || !deps.terminalExists(terminalId)
       || !isAgentProcessName(deps.foregroundProcess(terminalId))) {
-      refuse(res, 409, 'agent_not_running', 'The agent is not running in this session’s terminal');
+      refuse(res, 409, 'AGENT_NOT_RUNNING', 'The agent is not running in this session’s terminal');
       return;
     }
     if (DIALOG_STATUSES.has(session.status)) {
