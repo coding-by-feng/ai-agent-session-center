@@ -30,6 +30,10 @@ interface ContentBlock {
   input?: unknown;
   content?: unknown;
   is_error?: boolean;
+  /** A tool_use block's call id. */
+  id?: string;
+  /** A tool_result block's call id: the tool_use it answers. */
+  tool_use_id?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,8 +45,8 @@ interface ContentBlock {
 export type ConversationEntry =
   | { role: 'user'; text: string; timestamp: number }
   | { role: 'assistant'; text: string; timestamp: number }
-  | { role: 'tool_use'; tool: string; input: string; timestamp: number }
-  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean }
+  | { role: 'tool_use'; tool: string; input: string; timestamp: number; id?: string }
+  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean; toolUseId?: string }
   | { role: 'event'; eventType: string; detail: string; timestamp: number };
 
 /** Per-entry payload caps so a single record can't bloat the response. */
@@ -63,6 +67,23 @@ function stringifyToolPayload(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/**
+ * A tool result's text. MCP tools answer with content blocks: their text (an
+ * image as `[image]`), not the blocks as escaped JSON. Anything with a block
+ * of another kind stays JSON, so nothing is dropped.
+ */
+function toolResultText(content: unknown): string {
+  if (Array.isArray(content) && content.length > 0) {
+    const parts = (content as ContentBlock[]).map((b) => {
+      if (b?.type === 'text' && typeof b.text === 'string') return b.text;
+      if (b?.type === 'image') return '[image]';
+      return null;
+    });
+    if (parts.every((p) => p !== null)) return parts.join('\n');
+  }
+  return stringifyToolPayload(content);
 }
 
 function blocksToText(blocks: ContentBlock[]): string {
@@ -88,8 +109,12 @@ function isAssistant(line: JsonlLine): boolean {
   return false;
 }
 
-function projectDirCandidates(projectPath: string): string[] {
-  const projectsRoot = join(homedir(), '.claude', 'projects');
+/** Where Claude Code keeps its per-project transcript directories. */
+export function claudeProjectsRoot(): string {
+  return join(homedir(), '.claude', 'projects');
+}
+
+export function projectDirCandidates(projectPath: string, projectsRoot = claudeProjectsRoot()): string[] {
   const variants = new Set<string>();
   // Standard: leading dash + slashes-to-dashes
   variants.add('-' + projectPath.replace(/^\//, '').replace(/\//g, '-'));
@@ -218,6 +243,74 @@ export function readClaudeLastAssistant(
   return null;
 }
 
+/** A record's own time in ms, or NaN when it has none. */
+export function transcriptLineTimestamp(line: unknown): number {
+  const stamp = (line as JsonlLine | null)?.timestamp;
+  return stamp ? new Date(stamp).getTime() : NaN;
+}
+
+/**
+ * The conversation entries one parsed JSONL record holds (user text, assistant
+ * text, tool calls, tool results), in block order. Non-conversation records
+ * (system, summary, attachments, progress) hold none. Shared by the session
+ * transcript (CONVERSATION tab) and the subagent transcript (AGENTS tab).
+ */
+export function transcriptLineEntries(line: unknown, timestamp: number): ConversationEntry[] {
+  if (!line || typeof line !== 'object') return [];
+  const obj = line as JsonlLine;
+  if (obj.type === 'system' || obj.type === 'summary') return [];
+  const role = obj.message?.role ?? obj.role ?? obj.type;
+  const content = obj.message?.content ?? obj.content;
+  const out: ConversationEntry[] = [];
+
+  if (role === 'assistant') {
+    if (typeof content === 'string') {
+      if (content.trim()) out.push({ role: 'assistant', text: content, timestamp });
+      return out;
+    }
+    if (!Array.isArray(content)) return out;
+    for (const block of content as ContentBlock[]) {
+      if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+        out.push({ role: 'assistant', text: block.text, timestamp });
+      } else if (block?.type === 'tool_use') {
+        out.push({
+          role: 'tool_use',
+          tool: typeof block.name === 'string' ? block.name : 'tool',
+          input: cap(stringifyToolPayload(block.input), TOOL_INPUT_CAP),
+          timestamp,
+          ...(typeof block.id === 'string' ? { id: block.id } : {}),
+        });
+      }
+    }
+    return out;
+  }
+
+  if (role === 'user') {
+    if (typeof content === 'string') {
+      if (content.trim()) out.push({ role: 'user', text: content, timestamp });
+      return out;
+    }
+    if (!Array.isArray(content)) return out;
+    for (const block of content as ContentBlock[]) {
+      if (block?.type === 'tool_result') {
+        const output = cap(toolResultText(block.content), TOOL_RESULT_CAP);
+        if (output.trim()) {
+          out.push({
+            role: 'tool_result',
+            output,
+            timestamp,
+            isError: block.is_error === true,
+            ...(typeof block.tool_use_id === 'string' ? { toolUseId: block.tool_use_id } : {}),
+          });
+        }
+      } else if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+        out.push({ role: 'user', text: block.text, timestamp });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Parse a whole Claude Code JSONL transcript into an ordered list of interleaved
  * conversation entries (user text, assistant text, tool calls, tool results).
@@ -258,56 +351,12 @@ export function readClaudeTranscript(
       } catch {
         continue;
       }
-      // Skip non-conversation records.
+      // Skip non-conversation records (their times don't carry to the next entry).
       if (obj.type === 'system' || obj.type === 'summary') continue;
-
-      const ts = obj.timestamp ? new Date(obj.timestamp).getTime() : NaN;
-      const timestamp = Number.isFinite(ts) ? ts : lastTs;
+      const own = transcriptLineTimestamp(obj);
+      const timestamp = Number.isFinite(own) ? own : lastTs;
       lastTs = timestamp;
-
-      const role = obj.message?.role ?? obj.role ?? obj.type;
-      const content2 = obj.message?.content ?? obj.content;
-
-      if (role === 'assistant') {
-        if (typeof content2 === 'string') {
-          if (content2.trim()) entries.push({ role: 'assistant', text: content2, timestamp });
-          continue;
-        }
-        if (Array.isArray(content2)) {
-          for (const block of content2 as ContentBlock[]) {
-            if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-              entries.push({ role: 'assistant', text: block.text, timestamp });
-            } else if (block?.type === 'tool_use') {
-              entries.push({
-                role: 'tool_use',
-                tool: typeof block.name === 'string' ? block.name : 'tool',
-                input: cap(stringifyToolPayload(block.input), TOOL_INPUT_CAP),
-                timestamp,
-              });
-            }
-          }
-        }
-        continue;
-      }
-
-      if (role === 'user') {
-        if (typeof content2 === 'string') {
-          if (content2.trim()) entries.push({ role: 'user', text: content2, timestamp });
-          continue;
-        }
-        if (Array.isArray(content2)) {
-          for (const block of content2 as ContentBlock[]) {
-            if (block?.type === 'tool_result') {
-              const output = cap(stringifyToolPayload(block.content), TOOL_RESULT_CAP);
-              if (output.trim()) {
-                entries.push({ role: 'tool_result', output, timestamp, isError: block.is_error === true });
-              }
-            } else if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-              entries.push({ role: 'user', text: block.text, timestamp });
-            }
-          }
-        }
-      }
+      entries.push(...transcriptLineEntries(obj, timestamp));
     }
   } catch (err) {
     log.warn('floating-spawn', `Failed to read transcript ${file}: ${err instanceof Error ? err.message : String(err)}`);

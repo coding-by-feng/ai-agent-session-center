@@ -141,6 +141,12 @@
 .card {
   display: flex;
   flex-direction: column;
+  /* Not the default it looks like: the card is a <button>, and Chromium 132 (the
+     one Electron 34 ships) gives buttons `align-items: flex-start` in its UA sheet.
+     Without this, every line shrink-wraps its text: a long note paints across the
+     next card and the room never reaches the footer's right edge. Newer Chromium
+     (Playwright, Chrome) dropped that rule, so only the desktop app shows it. */
+  align-items: stretch;
   gap: 8px;
   width: 100%;
   min-width: 0;
@@ -235,8 +241,10 @@
   color: var(--text-secondary);
 }
 
+/* The one heavy line on the card: what you scan the board for. */
 .title {
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.35;
   color: var(--text-primary);
   overflow-wrap: anywhere;

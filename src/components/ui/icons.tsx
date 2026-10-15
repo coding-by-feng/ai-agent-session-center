@@ -322,11 +322,12 @@ export function NewSessionIcon(props: IconProps) {
   );
 }
 
-/** A bar at the bottom — minimize the session panel to its chip. Not "remove". */
+/** A centred bar — minimize the session panel to its chip. Not "remove". Centred on
+ *  y=7 like the rest of the rail header's glyphs (+, folder, «), or it sits low. */
 export function MinimizeIcon(props: IconProps) {
   return (
     <svg {...svg(14, '0 0 14 14', props)}>
-      <path d="M3 10.5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M3 7h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

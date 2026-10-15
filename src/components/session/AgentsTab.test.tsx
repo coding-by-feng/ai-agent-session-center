@@ -54,10 +54,10 @@ describe('AgentsTab', () => {
 
     const diagram = screen.getByRole('region', { name: /agent diagram/i });
     expect(within(diagram).getByRole('article', { name: /fix the queue, leader, working/i })).toBeTruthy();
-    const explore = within(diagram).getByRole('article', { name: /Explore, subagent, working/i });
+    const explore = within(diagram).getByRole('button', { name: /Explore, subagent, working/i });
     expect(within(explore).getByText('Grep')).toBeTruthy();
     expect(within(explore).getByText('Find hook files')).toBeTruthy();
-    expect(within(diagram).getByRole('article', { name: /Plan, subagent, done/i })).toBeTruthy();
+    expect(within(diagram).getByRole('button', { name: /Plan, subagent, done/i })).toBeTruthy();
 
     const links = diagram.querySelectorAll('[data-link]');
     const active = [...links].filter((el) => el.getAttribute('data-active') === 'true').map((el) => el.getAttribute('data-link'));
@@ -115,7 +115,7 @@ describe('AgentsTab', () => {
       makeSession('T', { teamId: 'team-L', teamRole: 'member', agentName: 'reviewer', status: 'approval', startedAt: T0 + 1 }),
     );
     render(<AgentsTab sessionId="L" />);
-    expect(screen.getByRole('article', { name: /reviewer, teammate, waiting on you/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /reviewer, teammate, waiting on you/i })).toBeTruthy();
     expect(screen.getByText('0 working · 1 waiting on you · 0 finished')).toBeTruthy();
   });
 

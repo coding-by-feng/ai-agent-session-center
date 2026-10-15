@@ -76,6 +76,7 @@
 .stateDone > span { color: var(--accent-green); }
 
 .cardRole {
+  display: block;
   margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -96,7 +97,34 @@
   font-size: 11px;
   line-height: 1.4;
 }
-.cardMeta { margin-top: 4px; font-size: 11px; color: var(--text-secondary); }
+.cardMeta { display: block; margin-top: 4px; font-size: 11px; color: var(--text-secondary); }
+
+/* An openable card (a subagent: its messages; a teammate: its session). The
+   whole card is the <button>; its content is spans, so the markup stays valid. */
+.cardButton {
+  display: block;
+  width: 100%;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cardButton:hover { border-color: var(--kind); background: var(--bg-subtle); }
+.cardButton:active { background: var(--bg-subtle); transform: translateY(1px); }
+.cardButton:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .cardButton { transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease; }
+}
+/* Says the card opens; sits beside the tool count, which is always short. */
+.cardOpen {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-primary);
+}
 
 .tree { position: relative; margin: var(--link) 0 0 40px; }
 

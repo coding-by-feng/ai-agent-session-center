@@ -26,8 +26,8 @@ export type SystemKind = 'plumbing' | 'skill' | 'reminder' | 'hook' | 'notificat
 export type ConversationEntry =
   | { role: 'user'; text: string; timestamp: number }
   | { role: 'assistant'; text: string; timestamp: number }
-  | { role: 'tool_use'; tool: string; input: string; timestamp: number }
-  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean }
+  | { role: 'tool_use'; tool: string; input: string; timestamp: number; id?: string }
+  | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean; toolUseId?: string }
   | { role: 'event'; eventType: string; detail: string; timestamp: number }
   // Synthesized client-side by transformEntries() from harness plumbing:
   | { role: 'command'; name: string; args?: string; stdout?: string; timestamp: number }

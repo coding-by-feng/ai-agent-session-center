@@ -2,6 +2,8 @@
 // a card per session, in the rail's order, each opening its session panel.
 // Plus the one-time tip above it, which points at how to open one.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import type { Session } from '@/types';
 
@@ -412,5 +414,18 @@ describe('LiveBoard — stays a list of buttons for keyboard users', () => {
     const list = screen.getByRole('list');
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
     for (const card of cards()) expect(card.tagName).toBe('BUTTON');
+  });
+});
+
+// jsdom does no layout, and Playwright's Chromium no longer has the UA rule, so
+// neither can see this: the desktop app's Chromium 132 gives <button> an
+// `align-items: flex-start`, and a card without its own `stretch` lets a long
+// note paint across the next card and leaves the room chip mid-footer.
+describe('LiveBoard — the card lays out the same in the desktop app', () => {
+  it('the card button declares align-items: stretch itself', () => {
+    const css = readFileSync(resolve(__dirname, '../../styles/modules/LiveBoard.module.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const card = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === '.card');
+    expect(card?.[2]).toMatch(/align-items\s*:\s*stretch\s*;/);
   });
 });
