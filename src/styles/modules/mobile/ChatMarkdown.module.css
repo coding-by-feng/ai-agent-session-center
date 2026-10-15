@@ -1,0 +1,182 @@
+/* The agent's text in the phone chat (AASC-41): Markdown, prose wraps, code
+   scrolls sideways inside its own box. Tokens: phoneTokens.css. */
+
+.md {
+  min-width: 0;
+  color: var(--ph-text);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+  overflow-wrap: anywhere;
+}
+
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md p {
+  margin: 0 0 var(--ph-space-3);
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: var(--ph-space-4) 0 var(--ph-space-2);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.md h1 { font-size: calc(22px * var(--ph-text-scale)); }
+.md h2 { font-size: calc(19px * var(--ph-text-scale)); }
+.md h3,
+.md h4,
+.md h5,
+.md h6 { font-size: var(--ph-size-body); }
+
+.md ul,
+.md ol {
+  margin: 0 0 var(--ph-space-3);
+  padding-left: var(--ph-space-6);
+}
+
+.md li + li { margin-top: var(--ph-space-1); }
+.md li > p { margin-bottom: var(--ph-space-1); }
+
+.md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--ph-fill);
+  font-family: var(--ph-font-mono);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.md a {
+  color: var(--ph-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md a:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.md blockquote {
+  margin: 0 0 var(--ph-space-3);
+  padding-left: var(--ph-space-3);
+  border-left: 3px solid var(--ph-separator);
+  color: var(--ph-text-secondary);
+}
+
+.md hr {
+  height: 0.5px;
+  margin: var(--ph-space-4) 0;
+  border: 0;
+  background: var(--ph-separator);
+}
+
+.md strong { font-weight: 650; }
+
+.tableWrap {
+  max-width: 100%;
+  margin: 0 0 var(--ph-space-3);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.md table {
+  border-collapse: collapse;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+.md th,
+.md td {
+  padding: 6px 10px;
+  border: 0.5px solid var(--ph-separator);
+  text-align: left;
+  vertical-align: top;
+}
+
+.md th { font-weight: 600; background: var(--ph-fill); }
+
+/* Code blocks: one dark surface in both modes (the highlight theme is dark). */
+.codeBlock {
+  max-width: 100%;
+  margin: 0 0 var(--ph-space-3);
+  border-radius: var(--ph-radius);
+  overflow: hidden;
+  background: #22272e;
+  color: #adbac7;
+}
+
+.codeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  padding-left: var(--ph-space-3);
+  background: rgba(255, 255, 255, 0.06);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: #c5d1de;
+}
+
+.copyBtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-1);
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  background: transparent;
+  color: #e2e9f0;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .copyBtn:hover { background: rgba(255, 255, 255, 0.08); }
+}
+
+.copyBtn:active { background: rgba(255, 255, 255, 0.14); }
+
+.copyBtn:focus-visible {
+  outline: 2px solid #8ab4f8;
+  outline-offset: -2px;
+}
+
+.codePre {
+  margin: 0;
+  padding: var(--ph-space-3);
+  overflow-x: auto;
+  font-family: var(--ph-font-mono);
+  font-size: calc(13px * var(--ph-text-scale));
+  line-height: calc(20px * var(--ph-text-scale));
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+
+.codePre code {
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  white-space: inherit;
+}
+
+/* highlight.js paints its own background on .hljs; the block already has one. */
+.codePre :global(.hljs) {
+  padding: 0;
+  background: transparent;
+}

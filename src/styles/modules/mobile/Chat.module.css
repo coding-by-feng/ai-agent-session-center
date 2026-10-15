@@ -1,0 +1,423 @@
+/* The phone chat (AASC-41): the scroller, the search field that pulls down over
+   it, the "New activity" pill, the working strip and its terminal peek.
+   Tokens: phoneTokens.css. */
+
+.chat {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ph-bg);
+}
+
+.scrollArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ph-space-1);
+  /* Room for the search field, which floats over the top of the list. */
+  padding: 60px var(--ph-gutter) var(--ph-space-2);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-bottom: var(--ph-space-4);
+}
+
+.list ::highlight(chat-search) {
+  background-color: color-mix(in srgb, var(--ph-status-approval) 35%, transparent);
+  color: inherit;
+}
+
+.list ::highlight(chat-search-current) {
+  background-color: var(--ph-status-approval);
+  color: var(--ph-bg);
+}
+
+.stale {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-2);
+  padding: 0 var(--ph-gutter) var(--ph-space-3);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: var(--ph-space-6);
+}
+
+/* ---- Search: pulls down over the top of the list ---- */
+
+.search {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--ph-z-bar);
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  padding: var(--ph-space-1) var(--ph-space-2) var(--ph-space-1) var(--ph-gutter);
+  background: var(--ph-bar-bg);
+  border-bottom: 0.5px solid var(--ph-separator);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  backdrop-filter: saturate(180%) blur(16px);
+  transform: translateY(-100%);
+  visibility: hidden;
+  transition: transform var(--ph-motion-fast) var(--ph-ease), visibility 0s linear var(--ph-motion-fast);
+}
+
+.searchShown {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--ph-motion-fast) var(--ph-ease), visibility 0s;
+}
+
+.searchField {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  height: 36px;
+  padding: 0 var(--ph-space-2);
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+  color: var(--ph-text-secondary);
+}
+
+.searchField:focus-within {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 1px;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.searchInput::placeholder {
+  color: var(--ph-text-secondary);
+}
+
+.searchInput::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchCount {
+  flex: none;
+  min-width: 52px;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.iconBtn {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .iconBtn:hover:not(:disabled) { background: var(--ph-fill); }
+}
+
+.iconBtn:active:not(:disabled) { background: var(--ph-fill-strong); }
+
+.iconBtn:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.iconBtn:disabled {
+  color: var(--ph-text-tertiary);
+  cursor: not-allowed;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.srOnlyFocusable {
+  position: absolute;
+  top: var(--ph-space-1);
+  left: var(--ph-gutter);
+  z-index: calc(var(--ph-z-bar) + 1);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.srOnlyFocusable:focus {
+  width: auto;
+  height: var(--ph-target);
+  padding: 0 var(--ph-space-3);
+  clip: auto;
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-surface);
+  color: var(--ph-accent);
+  font: inherit;
+  outline: 2px solid var(--ph-focus);
+}
+
+/* ---- Back to the newest ---- */
+
+.newActivity {
+  appearance: none;
+  position: absolute;
+  left: 50%;
+  bottom: var(--pill-bottom, var(--ph-space-3));
+  z-index: var(--ph-z-bar);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-4);
+  border: 0;
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+  box-shadow: var(--ph-shadow);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  transform: translateX(-50%);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.newActivity:active { filter: brightness(0.92); }
+
+.newActivity:focus-visible,
+.toLatest:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.toLatest {
+  appearance: none;
+  position: absolute;
+  right: var(--ph-gutter);
+  bottom: var(--pill-bottom, var(--ph-space-3));
+  z-index: var(--ph-z-bar);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0.5px solid var(--ph-separator);
+  border-radius: 50%;
+  background: var(--ph-surface-raised);
+  color: var(--ph-accent);
+  box-shadow: var(--ph-shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .toLatest:hover { background: var(--ph-surface); }
+}
+
+.toLatest:active { background: var(--ph-fill-strong); }
+
+/* ---- While the agent works ---- */
+
+.strip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  padding: var(--ph-space-2) var(--ph-gutter);
+  border-top: 0.5px solid var(--ph-separator);
+  background: var(--ph-bar-bg);
+}
+
+.stripRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+.stripDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ph-status-working);
+  animation: strip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes strip-pulse { 50% { opacity: 0.35; } }
+
+.stripText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stripTool {
+  font-family: var(--ph-font-mono);
+  font-size: calc(14px * var(--ph-text-scale));
+}
+
+.stripError {
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-status-error);
+}
+
+.peek {
+  appearance: none;
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: var(--ph-space-1) 28px var(--ph-space-1) var(--ph-space-2);
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  color: var(--ph-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .peek:hover { background: var(--ph-fill-strong); }
+}
+
+.peek:active { background: var(--ph-fill-strong); }
+
+.peek:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 1px;
+}
+
+.peekChev {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: inline-flex;
+  transform: rotate(90deg);
+  transition: transform var(--ph-motion-fast) ease;
+}
+
+.peekChevOpen { transform: rotate(-90deg); }
+
+.peekLine {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  font-family: var(--ph-font-mono);
+  font-size: calc(12px * var(--ph-text-scale));
+  line-height: calc(17px * var(--ph-text-scale));
+  color: var(--ph-text);
+}
+
+.peekEmpty {
+  font-family: var(--ph-font);
+  color: var(--ph-text-secondary);
+}
+
+/* ---- Read a selection aloud (beside the Ask AI bar) ---- */
+
+.selectionSpeak {
+  position: fixed;
+  right: 16px;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  z-index: 10010;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-surface-raised);
+  box-shadow: var(--ph-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search, .searchShown, .peekChev { transition: none; }
+  .stripDot { animation: none; }
+}
