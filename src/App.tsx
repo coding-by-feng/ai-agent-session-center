@@ -29,6 +29,7 @@ import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 import RestorePickerModal from '@/components/modals/RestorePickerModal';
 import { useSessionStore } from '@/stores/sessionStore';
 import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import { PROJECT_BROWSER_PATH, showsPhoneApp } from '@/lib/phoneAppGate';
 import DesktopAutomationGate from '@/components/layout/DesktopAutomation';
 import NativeReauth from '@/components/auth/NativeReauth';
 import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
@@ -126,7 +127,7 @@ function Dashboard({ token }: { token: string | null }) {
   // A phone-sized screen gets the phone app instead of the layout below;
   // everything above keeps running when a resize or a turn swaps them (no
   // reconnect, no lost pairing).
-  const phoneApp = useIsMobile();
+  const phoneApp = showsPhoneApp(useIsMobile(), window.location.pathname);
   useSettingsInit();
   useWebSocket(token);
   // The phone app opens a `?session=` link onto its own screens.
@@ -203,7 +204,7 @@ function Dashboard({ token }: { token: string | null }) {
         <BrowserRouter>
           <Routes>
             {/* Standalone route — no AppLayout chrome */}
-            <Route path="/project-browser" element={
+            <Route path={PROJECT_BROWSER_PATH} element={
               <Suspense fallback={<div className={appLayout.bootFallback}>Loading...</div>}>
                 <ProjectBrowserView />
               </Suspense>
