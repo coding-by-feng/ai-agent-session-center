@@ -2,7 +2,9 @@ package work.aasc.mobile;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -18,6 +20,9 @@ public class MainActivity extends BridgeActivity {
         // A cold start from the share sheet: the shell takes the item when it starts (AASC-21).
         ShareInbox.INSTANCE.accept(getIntent(), getPackageName());
         super.onCreate(savedInstanceState);
+        // The app switcher never shows a terminal (AASC-22, RELEASE row 7). Android 13+ has a switch
+        // for exactly that (screenshots still work); older versions are covered in onPause.
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false);
     }
 
     @Override
@@ -31,6 +36,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onPause() {
+        // Before Android 13: secure while in the background, so the switcher's snapshot is blank.
+        if (Build.VERSION.SDK_INT < 33) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         super.onPause();
         pausedAt = System.currentTimeMillis();
     }
@@ -38,6 +45,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        if (Build.VERSION.SDK_INT < 33) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         // With the lock on and a Mac's page showing, the shell decides whether to ask (LockRules).
         if (getBridge() == null || getBridge().getWebView() == null) return;
         String settings = getSharedPreferences(LockRules.PREFS, Context.MODE_PRIVATE).getString(LockRules.SETTINGS_KEY, null);
