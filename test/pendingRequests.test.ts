@@ -140,6 +140,15 @@ describe('nextPendingRequest: raised', () => {
     expect(req?.toolUseId).toBeUndefined();
   });
 
+  it('says it can be always-allowed only when the CLI suggested a rule to save', () => {
+    const saveable = { tool_name: 'Bash', tool_input: { command: 'echo a > a.txt' }, permission_suggestions: [{ type: 'addDirectories', directories: ['/p'], destination: 'session' }] };
+    expect(next(null, 'PermissionRequest', saveable)?.canAlwaysAllow).toBe(true);
+    // No suggestions: Claude's option 2 is "Yes, and switch to auto mode" (probed on 2.1.300).
+    expect(next(null, 'PermissionRequest', { ...saveable, permission_suggestions: [] })?.canAlwaysAllow).toBeUndefined();
+    expect(next(null, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' } })?.canAlwaysAllow).toBeUndefined();
+    expect(next(null, 'PermissionRequest', { ...saveable, permission_suggestions: 'yes' })?.canAlwaysAllow).toBeUndefined();
+  });
+
   it('Codex raises one too, and the request says which CLI asked', () => {
     expect(next(null, 'PermissionRequest', { tool_name: 'shell', tool_input: { command: ['ls'] } }, 'codex')?.cli).toBe('codex');
   });

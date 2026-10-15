@@ -239,6 +239,10 @@ export interface PendingRequest {
   /** AskUserQuestion's choices, present only when the answer route can pick one:
    *  a single, single-select question with at most 9 choices. */
   options?: PendingRequestOption[];
+  /** The dialog has an "always allow" line: its PermissionRequest suggested a rule to save.
+   *  Without one, Claude's option 2 is "Yes, and switch to auto mode", so Always allow is
+   *  neither offered nor answered. */
+  canAlwaysAllow?: true;
   /** The hook's tool_use_id, when it sent one: matches the call's PostToolUse. */
   toolUseId?: string;
   /** Raised while another request was still open (parallel tools or subagents): the CLI

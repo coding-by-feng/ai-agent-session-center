@@ -15,8 +15,16 @@ const question = (over: Partial<PendingRequest> = {}) =>
 describe('Claude Code', () => {
   it('permission: allow once = 1, always allow = 2, deny = Esc', () => {
     expect(answerKeysFor(request(), { choice: 'allow_once' }, {})).toBe('1');
-    expect(answerKeysFor(request(), { choice: 'allow_always' }, {})).toBe('2');
+    expect(answerKeysFor(request({ canAlwaysAllow: true }), { choice: 'allow_always' }, {})).toBe('2');
     expect(answerKeysFor(request(), { choice: 'deny' }, {})).toBe(ESC);
+  });
+
+  it('always allow is unknown when the dialog offers no "always allow" line: 2 would switch to auto mode', () => {
+    // Probed on Claude Code 2.1.300: a call it can't save as a rule lists
+    // 1. Yes  2. Yes, and switch to auto mode  3. No
+    expect(answerKeysFor(request(), { choice: 'allow_always' }, {})).toBeNull();
+    expect(answerKeysFor(request({ canAlwaysAllow: false }), { choice: 'allow_always' }, {})).toBeNull();
+    expect(answerKeysFor(request(), { choice: 'allow_once' }, {})).toBe('1');
   });
 
   it('permission: an option is not a permission answer', () => {

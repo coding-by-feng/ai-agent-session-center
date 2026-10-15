@@ -1,15 +1,17 @@
 // answerKeys/claude.ts — the keys that answer a Claude Code dialog (AASC-43).
 //
-// The permission dialog lists numbered options and a digit picks one:
-//   1. Yes   2. Yes, and don't ask again for …   3. No, and tell Claude what to do differently (esc)
-// When a call can't be saved as a rule there is no "don't ask again" line, and 2 is
-// believed to land on "No": the safe way round. Esc is "No".
-// A single-select AskUserQuestion numbers its choices the same way.
+// Probed in tmux on Claude Code 2.1.300 (Oct 16 2026). The permission dialog numbers its
+// options and a digit picks one at once:
+//   1. Yes   2. Yes, and always allow …   3. Yes, and switch to auto mode   4. No
+// A call it can't save as a rule (its PermissionRequest has no permission_suggestions)
+// drops the "always allow" line, and then 2 is "Yes, and switch to auto mode": so 2 is
+// sent only for a request marked `canAlwaysAllow`. Esc cancels: the call is refused and
+// Claude waits for what to do instead. A single-select AskUserQuestion numbers its
+// choices the same way, and a digit picks and submits.
 //
-// NOT re-probed on the installed CLI yet. The plan (11 §3.3) wants each entry recorded
-// from a tmux probe of the installed version, and test/answerKeys.test.ts pins this table:
-// change a key only after such a probe. Plan approval (ExitPlanMode) changes its options
-// between versions, so it stays unknown and the card sends the user to the terminal.
+// test/answerKeys.test.ts pins this table: change a key only after probing the installed
+// CLI again. Plan approval (ExitPlanMode) changes its options between versions, so it
+// stays unknown and the card sends the user to the terminal.
 
 import type { PendingRequest } from '../../src/types/session.js';
 import type { Answer } from './types.js';
@@ -24,7 +26,10 @@ const PERMISSION_KEYS: Readonly<Record<string, string>> = {
 
 /** The keys for this answer, or null when AASC can't be sure what they would pick. */
 export function claudeAnswerKeys(request: PendingRequest, answer: Answer): string | null {
-  if (request.kind === 'permission') return PERMISSION_KEYS[answer.choice] ?? null;
+  if (request.kind === 'permission') {
+    if (answer.choice === 'allow_always' && request.canAlwaysAllow !== true) return null;
+    return PERMISSION_KEYS[answer.choice] ?? null;
+  }
   if (request.kind === 'question') {
     // `options` is present only for one single-select question of at most 9 choices.
     const { optionIndex } = answer;

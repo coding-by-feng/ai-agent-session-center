@@ -304,15 +304,18 @@ function questionDetail(request: PendingRequest | null, fallback: string | null 
 // The card
 // ---------------------------------------------------------------------------
 
-function permissionChoices(cliName: string, truncated: boolean, inbox: boolean): CardChoice[] {
+function permissionChoices(cliName: string, request: PendingRequest, inbox: boolean): CardChoice[] {
   const codex = cliName === 'Codex';
+  const truncated = !!request.inputTruncated;
+  // Claude's dialog has no "always allow" line for a call it can't save as a rule.
+  const always = codex || request.canAlwaysAllow === true;
   const blocked = truncated ? { disabledReason: TRUNCATED_REASON } : {};
   const choices: CardChoice[] = [
     { answer: { choice: 'deny' }, label: 'Deny', tone: 'destructive' },
     { answer: { choice: 'allow_always' }, label: codex ? 'Always approve' : 'Always allow', tone: 'secondary', confirm: true, ...blocked },
     { answer: { choice: 'allow_once' }, label: codex ? 'Approve' : 'Allow once', tone: 'primary', ...blocked },
   ];
-  return inbox ? choices.filter((c) => c.answer.choice !== 'allow_always') : choices;
+  return inbox || !always ? choices.filter((c) => c.answer.choice !== 'allow_always') : choices;
 }
 
 function terminalOnly(card: Omit<WaitingCard, 'choices' | 'tell' | 'terminalOnly' | 'terminalOnlyReason'>, reason: string): WaitingCard {
@@ -374,7 +377,7 @@ export function waitingCardModel(session: CardSession, opts: CardOptions = {}): 
   if (request.ambiguous) return terminalOnly(card, AMBIGUOUS_REASON);
   return {
     ...card,
-    choices: permissionChoices(cliName, !!request.inputTruncated, !!opts.inbox),
+    choices: permissionChoices(cliName, request, !!opts.inbox),
     tell: { label: cli === 'codex' ? 'Tell Codex what to do…' : 'Tell Claude what to do instead…' },
     terminalOnly: false,
   };

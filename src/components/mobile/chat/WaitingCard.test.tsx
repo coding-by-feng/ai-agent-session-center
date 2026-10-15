@@ -43,7 +43,7 @@ function presence(held = false) {
   });
 }
 
-const bash: PendingRequest = { id: 'toolu_1', kind: 'permission', cli: 'claude', tool: 'Bash', raisedAt: 1, source: 'permission_request', input: { command: 'npm run build' } };
+const bash: PendingRequest = { id: 'toolu_1', kind: 'permission', cli: 'claude', tool: 'Bash', raisedAt: 1, source: 'permission_request', input: { command: 'npm run build' }, canAlwaysAllow: true };
 
 function session(request: PendingRequest | null, status = 'approval'): Session {
   return { sessionId: 's1', status, cliSource: 'claude', projectName: 'agent-manager', projectPath: '/p', terminalId: 'term-1', pendingRequest: request, pendingTool: 'Bash', pendingToolDetail: 'npm run build', waitingDetail: null } as unknown as Session;

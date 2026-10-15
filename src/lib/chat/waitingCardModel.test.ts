@@ -37,7 +37,7 @@ describe('when nothing waits', () => {
 
 describe('a Claude permission', () => {
   it('shows the exact command and Claude’s own choices, Allow once nearest the thumb', () => {
-    const card = waitingCardModel(session({ pendingRequest: request({ input: { command: 'rm -rf dist && npm run build', description: 'Build' } }) }))!;
+    const card = waitingCardModel(session({ pendingRequest: request({ input: { command: 'rm -rf dist && npm run build', description: 'Build' }, canAlwaysAllow: true }) }))!;
     expect(card.title).toBe('Claude wants to run a command');
     expect(card.detail).toEqual({ type: 'command', command: 'rm -rf dist && npm run build', description: 'Build' });
     expect(card.where).toBe('in agent-manager');
@@ -101,6 +101,11 @@ describe('a Claude permission', () => {
     const allow = card.choices.filter((c) => c.answer.choice !== 'deny');
     expect(allow.every((c) => !!c.disabledReason)).toBe(true);
     expect(card.choices.find((c) => c.answer.choice === 'deny')?.disabledReason).toBeUndefined();
+  });
+
+  it('offers no "Always allow" when Claude can’t save the call as a rule (its 2 would switch to auto mode)', () => {
+    const card = waitingCardModel(session({ pendingRequest: request({ input: { command: 'ls "$(pwd)"' } }) }))!;
+    expect(labels(card)).toEqual(['Deny', 'Allow once']);
   });
 
   it('offers no "Always allow" in the Inbox: that one is decided in the session', () => {

@@ -131,6 +131,10 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
   const kind = requestKindOf(tool);
   const { input, truncated } = capRequestInput(tool, hook.tool_input);
   const options = kind === 'question' ? answerableOptions(hook.tool_input) : undefined;
+  // A call the CLI can't save as a rule comes with no suggestions, and then Claude's
+  // option 2 is "switch to auto mode", not "always allow" (probed on 2.1.300).
+  const suggestions = hook.permission_suggestions;
+  const canAlwaysAllow = source === 'permission_request' && Array.isArray(suggestions) && suggestions.length > 0;
   const request: PendingRequest = {
     id: toolUseId ?? randomUUID(),
     ...(toolUseId ? { toolUseId } : {}),
@@ -140,6 +144,7 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
     ...(input !== undefined ? { input } : {}),
     ...(truncated ? { inputTruncated: true } : {}),
     ...(options ? { options } : {}),
+    ...(canAlwaysAllow ? { canAlwaysAllow: true } : {}),
     ...(ambiguous ? { ambiguous: true } : {}),
     raisedAt: now,
     source,
