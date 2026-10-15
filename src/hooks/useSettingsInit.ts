@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { soundEngine } from '@/lib/soundEngine';
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcut';
+import { useIsDesktopApp } from '@/lib/platform';
 
 export function useSettingsInit(): void {
   const loaded = useRef(false);
@@ -78,6 +79,22 @@ export function useSettingsInit(): void {
       // Server unreachable — it keeps its default; will re-push on next change.
     });
   }, [replayBufferBytes]);
+
+  // Keep-awake lives in the desktop app's main process (AASC-16): tell this Mac's
+  // server whenever the setting changes. Only the desktop app sends it; the
+  // route answers this machine only.
+  const keepAwake = useSettingsStore((s) => s.keepAwakeWhileWorking);
+  const isDesktopApp = useIsDesktopApp();
+  useEffect(() => {
+    if (!isDesktopApp) return;
+    fetch('/api/config/keep-awake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: keepAwake === true }),
+    }).catch(() => {
+      // Server unreachable — it stays off; re-pushed on the next change.
+    });
+  }, [keepAwake, isDesktopApp]);
 
   // Unlock Web Audio on first user interaction so alarm sounds can play
   useEffect(() => {

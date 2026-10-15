@@ -10,6 +10,7 @@ import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
+import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
@@ -32,6 +33,7 @@ import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
+import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -69,6 +71,14 @@ function openBrowser(url: string, noOpen: boolean): void {
 let _shutdownFn: (() => Promise<void>) | null = null;
 /** Gracefully shut down the server (save snapshot, close DB, stop timers).
  *  Called by Electron before app.quit() to guarantee state is saved. */
+/**
+ * Electron's main process holds a power blocker while this reports `true`
+ * (keepAwake.ts). Returns an unsubscribe.
+ */
+export function onKeepAwakeChange(listener: (awake: boolean) => void): () => void {
+  return keepAwake.onChange(listener);
+}
+
 export async function shutdownServer(): Promise<void> {
   if (_shutdownFn) await _shutdownFn();
 }
@@ -247,6 +257,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   onBroadcast((data) => pushNotifier.onBroadcast(data));
 
+  // -- Keep-awake (AASC-16, optional): re-check whenever a session changes --
+  onBroadcast((data) => {
+    if (data.type === WS_TYPES.SESSION_UPDATE || data.type === 'session_removed') keepAwake.evaluate();
+  });
+  // Auto-idle decays from working/approval/input are silent (no broadcast), so a
+  // slow re-check releases the blocker when a session quietly stops being busy.
+  setInterval(() => keepAwake.evaluate(), 60_000).unref();
+
   // -- Phone pairing (AASC-15) --
   // Mounted before authMiddleware: /pair, /session and /unpair are the phone's
   // own authentication, and the desktop routes use the RESOURCES local gate.
@@ -322,7 +340,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     sessionOfTerminal: (terminalId) => getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId),
     foregroundProcess: getForegroundProcess,
   });
-  app.use('/api', authMiddleware, phoneProfile, apiRouter);
+  // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
+  const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

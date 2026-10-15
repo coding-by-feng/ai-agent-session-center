@@ -24,6 +24,7 @@ import {
   type PhoneKey,
 } from '@/lib/terminalCompose';
 import PhoneControlBanner from './PhoneControlBanner';
+import PhoneSuggestionBar from './PhoneSuggestionBar';
 import { ArrowDownKey, ArrowUpKey, EnterKey, ToolsIcon } from './phoneIcons';
 import styles from '@/styles/modules/PhoneSession.module.css';
 
@@ -71,6 +72,8 @@ export default function PhoneTerminalInput({
   const disabled = locked || closed;
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // The compose box, for the suggestion bar's caret (AASC-20).
+  const [composeEl, setComposeEl] = useState<HTMLTextAreaElement | null>(null);
   const text = composedText(draft);
   const notice = sendError ?? socketNotice;
   // The draft as it is now, for the moment the text has landed: words typed
@@ -143,6 +146,16 @@ export default function PhoneTerminalInput({
           </button>
         ))}
       </div>
+      {/* Commands and favourite skills above the keyboard (AASC-20); an ops shell has no slash commands. */}
+      {sessionId && (
+        <PhoneSuggestionBar
+          text={draft}
+          onChange={onDraftChange}
+          textarea={composeEl}
+          sessionId={sessionId}
+          disabled={disabled}
+        />
+      )}
       <form className={styles.composeRow} onSubmit={onSubmit}>
         <button
           type="button"
@@ -154,6 +167,7 @@ export default function PhoneTerminalInput({
           <ToolsIcon />
         </button>
         <textarea
+          ref={setComposeEl}
           className={styles.compose}
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}

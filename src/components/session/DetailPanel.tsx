@@ -57,6 +57,8 @@ import styles from '@/styles/modules/DetailPanel.module.css';
  * path, including pop-out windows that never show a project tab.
  */
 const ProjectTabContainer = lazy(() => import('./ProjectTabContainer'));
+/** A phone's PROJECT tab (AASC-20): a read-only drill-down, in its own chunk. */
+const PhoneProjectBrowser = lazy(() => import('@/components/mobile/PhoneProjectBrowser'));
 
 /**
  * How many sessions keep a mounted ProjectTabContainer at once — the active one
@@ -716,6 +718,15 @@ export default function DetailPanel() {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
 
+  // A phone mounts its project browser only once the PROJECT tab has been opened
+  // for the shown session (AASC-20): the tab's host is always mounted, and a
+  // phone that never looks at the project should not list it on every switch.
+  const [phoneProjectFor, setPhoneProjectFor] = useState<string | null>(null);
+  const shownSessionId = displaySession?.sessionId ?? null;
+  if (isMobile && activeTab === 'project' && shownSessionId && phoneProjectFor !== shownSessionId) {
+    setPhoneProjectFor(shownSessionId);
+  }
+
   // Switch to project tab when a file link is clicked in the terminal
   const pendingFileOpen = useUiStore((s) => s.pendingFileOpen);
   const [externalTab, setExternalTab] = useState<string | null>(null);
@@ -909,7 +920,17 @@ export default function DetailPanel() {
             />
           }
           projectContent={
-            displaySession.projectPath
+            displaySession.projectPath && isMobile
+              ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  {phoneProjectFor === displaySession.sessionId && <Suspense fallback={<div className={styles.tabEmpty}>Loading project…</div>}>
+                    <PhoneProjectBrowser
+                      key={`${displaySession.sessionId}:${displaySession.projectPath}`}
+                      projectPath={displaySession.projectPath}
+                      sessionId={displaySession.sessionId}
+                    />
+                  </Suspense>}
+                </div>
+              : displaySession.projectPath
               ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%' }}>
                   {/* One boundary around the whole set: the chunk is shared, so
                       once it resolves every mounted container renders at once. */}

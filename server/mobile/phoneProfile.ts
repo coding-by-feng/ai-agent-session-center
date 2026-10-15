@@ -112,6 +112,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/terminals', 'launch'),
   // The project tab, read-only.
   route('GET', '/files/(list|read|stream|search|grep|resolve)', 'files'),
+  // Skill-note favourites for the compose autocomplete (AASC-20, M9): key, fav, tags, abbr only.
+  route('GET', '/skill-notes/favorites', 'allow'),
 ];
 
 /** The rule for a phone request, or null when phones may not call it at all. */
@@ -224,6 +226,25 @@ function filesTargets(req: Request, home: string): string[] | null {
   const root = one(req.query.root);
   if (!root || !isAbsolute(root)) return null;
   return [root, resolve(root, one(req.query.path).replace(/^\/+/, ''))];
+}
+
+/**
+ * A search answers with paths of its own: a text search returns lines from any
+ * file under the root (ripgrep skips only hidden and ignored files, and the grep
+ * fallback not even those), and a name search lists every name. A phone gets
+ * only the hits it could open (AASC-20): `credentials.json`, `server.pem` or
+ * `.claude/settings.json` never reach it, not even one line.
+ */
+export function filterPhoneSearchAnswer(body: unknown, root: string, shared: readonly string[], home: string): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || !isAbsolute(root)) return body;
+  const answer = body as { matches?: unknown; results?: unknown };
+  const mayOpen = (p: unknown) => typeof p === 'string' && phoneMayRead(resolve(root, p.replace(/^\/+/, '')), shared, home);
+  const field = (item: unknown, key: 'file' | 'path') => (item && typeof item === 'object' ? (item as Record<string, unknown>)[key] : undefined);
+  return {
+    ...answer,
+    ...(Array.isArray(answer.matches) ? { matches: answer.matches.filter((m) => mayOpen(field(m, 'file'))) } : {}),
+    ...(Array.isArray(answer.results) ? { results: answer.results.filter((r) => mayOpen(field(r, 'path'))) } : {}),
+  };
 }
 
 // ── Launch ───────────────────────────────────────────────────────────────────
@@ -356,6 +377,12 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       reason = 'malformed request';
     }
     if (reason === null) {
+      if (rule === 'files' && /^\/files\/(grep|search)\/?$/.test(req.path)) {
+        const root = one(req.query.root);
+        const shared = deps.sharedProjectPaths();
+        const json = res.json.bind(res);
+        res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
+      }
       next();
       return;
     }

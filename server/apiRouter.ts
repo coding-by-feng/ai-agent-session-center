@@ -25,6 +25,7 @@ import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects } from './knownProjects.js';
 import { appendPausedItem } from './sessionQueueCodec.js';
+import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
 import { createRoomsService } from './roomsRouter.js';
@@ -711,6 +712,20 @@ router.post('/hook-stats/reset', (_req: Request, res: Response) => {
 // terminals. Pushed from the browser when the ADVANCED setting loads or changes.
 // The value is clamped on the backend, so a bad value can't allocate gigabytes.
 const terminalBufferSchema = z.object({ bytes: z.number().finite() });
+const keepAwakeSchema = z.object({ enabled: z.boolean() });
+
+/**
+ * The desktop's "keep the Mac awake while an agent works" setting (AASC-16).
+ * The Mac only: it changes how the machine sleeps, which no remote device may
+ * decide (the phone profile refuses it too).
+ */
+router.post('/config/keep-awake', requireLocalOnly, (req: Request, res: Response) => {
+  const body = validateBody(keepAwakeSchema, req.body, res);
+  if (!body) return;
+  keepAwake.setEnabled(body.enabled);
+  res.json({ success: true, data: { enabled: keepAwake.isEnabled(), awake: keepAwake.isAwake() } });
+});
+
 router.post('/config/terminal-buffer', (req: Request, res: Response) => {
   const body = validateBody(terminalBufferSchema, req.body, res);
   if (!body) return;

@@ -105,3 +105,10 @@
   .sheetItem { transition: none; }
   .sheetItem:active { transform: none; }
 }
+
+/* The suggestion bar under the compose box (AASC-20): its own line in the wrapping compose row. */
+.composeSuggestions {
+  flex: 1 1 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}

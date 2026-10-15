@@ -1,0 +1,303 @@
+/**
+ * PhoneFileView — one file, read-only, filling the phone's PROJECT tab (or the
+ * whole screen) (AASC-20, features 47–50).
+ *
+ *   Markdown   rendered, with an OUTLINE sheet; or its source
+ *   TeX        rendered (latex.js); or its source
+ *   PDF        PDF.js with the phone toolbar (page, zoom, find)
+ *   Image      pinch to zoom, drag to pan
+ *   Text/code  numbered lines; a search match opens at its line, marked
+ *
+ * Heavy viewers are lazy: none of them is in this chunk. A path the Mac
+ * refuses to a phone answers 404, which reads as "not available on this phone".
+ */
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import BottomSheet from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
+import EmptyState from '@/components/ui/EmptyState';
+import { useFileReadingPosition } from '@/hooks/useFileReadingPosition';
+import { extractHeadings } from '@/lib/markdownHeadings';
+import { pdfReadingKey, readingKey } from '@/lib/fileReadingPosition';
+import { scrollIntoContainer } from '@/lib/scrollWithinContainer';
+import { normalizeQuery, splitHighlight } from '@/lib/textHighlight';
+import { readFile, streamUrl, type FileData, type FilesResult } from '@/lib/phoneFiles';
+import {
+  fileErrorText,
+  formatSize,
+  hasSourceToggle,
+  lineWindow,
+  viewerKindFor,
+  type PhoneViewerKind,
+} from '@/lib/phoneProject';
+import PhoneImageViewer from './PhoneImageViewer';
+import { CollapseIcon, ExpandIcon, OutlineIcon } from './projectIcons';
+import styles from '@/styles/modules/PhoneProject.module.css';
+
+const PhoneMarkdown = lazy(() => import('./PhoneMarkdown'));
+const TexViewer = lazy(() => import('@/components/session/TexViewer'));
+const PdfViewer = lazy(() => import('@/components/session/PdfViewer'));
+
+export interface PhoneFileViewProps {
+  projectPath: string;
+  path: string;
+  /** 1-based line to open at (a text-search match): opens the source, marked. */
+  line?: number;
+  /** The searched text, marked on the target line. */
+  query?: string;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
+  onOpenFile: (path: string) => void;
+}
+
+const KIND_LABEL: Record<PhoneViewerKind, string> = {
+  markdown: 'Markdown',
+  tex: 'LaTeX',
+  pdf: 'PDF',
+  image: 'Image',
+  media: 'Media',
+  text: 'Text',
+  none: 'File',
+};
+
+const fallback = <EmptyState busy title="Loading viewer…" fill />;
+
+export default function PhoneFileView({
+  projectPath,
+  path,
+  line,
+  query,
+  fullscreen,
+  onToggleFullscreen,
+  onOpenFile,
+}: PhoneFileViewProps) {
+  const [attempt, setAttempt] = useState(0);
+  const key = `${projectPath}\n${path}\n${attempt}`;
+  const [loaded, setLoaded] = useState<{ key: string; result: FilesResult<FileData> } | null>(null);
+  const [source, setSource] = useState(line !== undefined);
+  const [wrap, setWrap] = useState(true);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [streamFailed, setStreamFailed] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    readFile(projectPath, path, ac.signal).then(
+      (result) => setLoaded({ key, result }),
+      () => { /* aborted */ },
+    );
+    return () => ac.abort();
+  }, [projectPath, path, key]);
+
+  const result = loaded?.key === key ? loaded.result : null;
+  const data = result?.ok ? result.data : null;
+  const kind = data ? viewerKindFor(data) : null;
+  const showSource = !!kind && (kind === 'text' || (hasSourceToggle(kind) && source));
+  const headings = useMemo(
+    () => (kind === 'markdown' && data?.content ? extractHeadings(data.content) : []),
+    [kind, data],
+  );
+  // Where this file was left, per face (a rendered page and its source scroll differently).
+  // Opening at a search match goes to the match instead.
+  const positionKey =
+    data && line === undefined && (kind === 'markdown' || kind === 'text')
+      ? readingKey(projectPath, `phone:${showSource ? 'source' : 'rendered'}:${path}`)
+      : undefined;
+  useFileReadingPosition(scrollRef, positionKey, !!data);
+
+  if (!result) return <EmptyState busy title="Opening…" fill />;
+  if (!result.ok || streamFailed) {
+    const text = fileErrorText(result.ok ? 404 : result.status, 'file');
+    return (
+      <EmptyState
+        tone="error"
+        fill
+        title={text.title}
+        hint={text.hint}
+        action={<Button onClick={() => { setStreamFailed(false); setAttempt((n) => n + 1); }}>Try again</Button>}
+      />
+    );
+  }
+
+  const file = result.data;
+  const toolbar = (
+    <div className={styles.fileBar} role="toolbar" aria-label="File view">
+      <span className={styles.fileMeta}>
+        {KIND_LABEL[kind ?? 'none']}
+        {/* Room for the size only where there is no Rendered / Source switch. */}
+        {file.size && !(kind && hasSourceToggle(kind)) ? ` · ${formatSize(file.size)}` : ''}
+      </span>
+      {kind === 'markdown' && !showSource && headings.length > 0 && (
+        <button type="button" className={styles.iconBtn} onClick={() => setOutlineOpen(true)} aria-label="Outline" aria-haspopup="dialog">
+          <OutlineIcon />
+        </button>
+      )}
+      {kind && hasSourceToggle(kind) && (
+        <div className={styles.segment} role="group" aria-label="Show as">
+          <button type="button" className={styles.segmentBtn} aria-pressed={!source} onClick={() => setSource(false)}>
+            Rendered
+          </button>
+          <button type="button" className={styles.segmentBtn} aria-pressed={source} onClick={() => setSource(true)}>
+            Source
+          </button>
+        </div>
+      )}
+      {showSource && (
+        <button type="button" className={styles.textBtn} aria-pressed={wrap} onClick={() => setWrap((w) => !w)}>
+          Wrap
+        </button>
+      )}
+      <button
+        type="button"
+        className={styles.iconBtn}
+        onClick={onToggleFullscreen}
+        aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+        aria-pressed={fullscreen}
+      >
+        {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+      </button>
+    </div>
+  );
+
+  let body: ReactNode;
+  if (showSource) {
+    body = (
+      <SourceLines
+        scrollRef={scrollRef}
+        content={file.content ?? ''}
+        wrap={wrap}
+        line={line ?? null}
+        query={query ?? ''}
+      />
+    );
+  } else if (kind === 'markdown') {
+    body = (
+      <div ref={scrollRef} className={styles.scroll} data-phone-scroll="">
+        <Suspense fallback={fallback}>
+          <PhoneMarkdown content={file.content ?? ''} projectPath={projectPath} filePath={path} onOpenFile={onOpenFile} />
+        </Suspense>
+      </div>
+    );
+  } else if (kind === 'tex') {
+    body = (
+      <Suspense fallback={fallback}>
+        <TexViewer compact source={file.content ?? ''} fileKey={path} positionKey={readingKey(projectPath, `phone:rendered:${path}`)} />
+      </Suspense>
+    );
+  } else if (kind === 'pdf') {
+    body = (
+      <Suspense fallback={fallback}>
+        <PdfViewer compact src={streamUrl(projectPath, path)} name={file.name} positionKey={pdfReadingKey(projectPath, `phone:${path}`)} />
+      </Suspense>
+    );
+  } else if (kind === 'image') {
+    body = <PhoneImageViewer src={streamUrl(projectPath, path)} alt={file.name} onError={() => setStreamFailed(true)} />;
+  } else if (kind === 'media') {
+    const audio = /\.(mp3|wav|flac|aac|m4a)$/i.test(file.name);
+    body = (
+      <div className={styles.media}>
+        {audio
+          ? <audio controls preload="metadata" src={streamUrl(projectPath, path)} onError={() => setStreamFailed(true)} />
+          : <video controls playsInline preload="metadata" src={streamUrl(projectPath, path)} onError={() => setStreamFailed(true)} />}
+      </div>
+    );
+  } else {
+    body = (
+      <EmptyState
+        fill
+        title="No preview on a phone"
+        hint={`${file.name}${file.size ? ` (${formatSize(file.size)})` : ''} can be opened on the Mac.`}
+      />
+    );
+  }
+
+  return (
+    <div className={styles.fileView}>
+      {toolbar}
+      <div className={styles.fileBody}>{body}</div>
+      <BottomSheet open={outlineOpen} onClose={() => setOutlineOpen(false)} title="Outline">
+        <ul className={styles.outline}>
+          {headings.map((h, i) => (
+            <li key={`${i}-${h.slug}`}>
+              <button
+                type="button"
+                className={styles.outlineItem}
+                data-level={Math.min(h.level, 4)}
+                onClick={() => {
+                  setOutlineOpen(false);
+                  const scroller = scrollRef.current;
+                  scrollIntoContainer(scroller, scroller?.querySelector(`[id="${h.slug}"]`), { block: 'start', padding: 8 });
+                }}
+              >
+                {h.text}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </BottomSheet>
+    </div>
+  );
+}
+
+// ── Numbered lines ───────────────────────────────────────────────────────────
+
+/** `text` with every case-insensitive hit of `query` marked — the shared rule (lib/textHighlight). */
+export function Highlighted({ text, query }: { text: string; query: string }) {
+  const segments = splitHighlight(text, normalizeQuery(query));
+  if (segments.length === 1 && !segments[0].match) return <>{text || '\u00A0'}</>;
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.match ? <mark key={i} className={styles.mark}>{seg.text}</mark> : <span key={i}>{seg.text}</span>,
+      )}
+    </>
+  );
+}
+
+function SourceLines({
+  scrollRef,
+  content,
+  wrap,
+  line,
+  query,
+}: {
+  scrollRef: RefObject<HTMLDivElement | null>;
+  content: string;
+  wrap: boolean;
+  line: number | null;
+  query: string;
+}) {
+  const lines = useMemo(() => content.split('\n'), [content]);
+  const [anchor, setAnchor] = useState(line);
+  const { start, end } = lineWindow(lines.length, anchor);
+
+  // Open at the match: centred, once the lines are on screen.
+  useLayoutEffect(() => {
+    if (!line) return;
+    const scroller = scrollRef.current;
+    scrollIntoContainer(scroller, scroller?.querySelector(`[data-line="${line}"]`), { block: 'center', behavior: 'auto' });
+  }, [line, scrollRef]);
+
+  return (
+    <div ref={scrollRef} className={`${styles.scroll} ${styles.code}${wrap ? ` ${styles.codeWrap}` : ''}`}>
+      {start > 0 && (
+        <button type="button" className={styles.moreLines} onClick={() => setAnchor(Math.max(1, start + 1 - Math.floor((end - start) / 2)))}>
+          Show earlier lines (1–{start})
+        </button>
+      )}
+      {lines.slice(start, end).map((text, i) => {
+        const n = start + i + 1;
+        return (
+          <div key={n} className={`${styles.codeLine}${n === line ? ` ${styles.codeLineTarget}` : ''}`} data-line={n}>
+            <span className={styles.lineNum} aria-hidden="true">{n}</span>
+            <span className={styles.lineText}>{n === line ? <Highlighted text={text} query={query} /> : text || '\u00A0'}</span>
+          </div>
+        );
+      })}
+      {end < lines.length && (
+        <button type="button" className={styles.moreLines} onClick={() => setAnchor(end + 1)}>
+          Show later lines ({end + 1}–{lines.length})
+        </button>
+      )}
+    </div>
+  );
+}

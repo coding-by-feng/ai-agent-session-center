@@ -219,3 +219,16 @@
   color: var(--text-secondary, #aaa);
   font-style: italic;
 }
+
+/* A phone (AASC-20, `compact`): a 64px paper margin leaves a 360px screen ~200px
+   of text. The paper keeps its look with phone margins; long math scrolls
+   inside it rather than widening the page. */
+.wrapper.compact {
+  padding: 8px;
+}
+.compact .paper {
+  padding: 24px 16px;
+  font-size: 15px;
+  overflow-x: auto;
+  min-height: calc(100% - 16px);
+}

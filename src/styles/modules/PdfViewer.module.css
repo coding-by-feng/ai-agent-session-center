@@ -41,3 +41,63 @@
 .scroller :global(.textLayer) {
   --font-mono: sans-serif;
 }
+
+/* ---- A phone (AASC-20, `compact`) ----
+   One wrapping row of 44px controls (Button grows to 44px on a coarse
+   pointer); the find field opens on its own row. 16px fields: iOS zooms the
+   page into anything smaller. */
+.compactBar,
+.compactFind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.compactBar > button,
+.compactFind > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.compactPage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.compactPageInput {
+  width: 64px;
+  min-height: 44px;
+  font-size: 16px;
+}
+.compactCount {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.compactSpacer {
+  flex: 1 1 0;
+}
+.compactFindInput {
+  flex: 1 1 160px;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
+}
+.compactMatches {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.compactZoom {
+  display: inline-flex;
+  gap: 4px;
+}
+.compactZoom > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.compactBar > button svg {
+  width: 20px;
+  height: 20px;
+}

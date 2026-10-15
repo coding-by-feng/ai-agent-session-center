@@ -296,6 +296,7 @@ interface SettingsState extends BrowserSettings {
   setGroupBy: (groupBy: BrowserSettings['groupBy']) => void;
   setSortBy: (sortBy: BrowserSettings['sortBy']) => void;
   setTerminalReplayBufferBytes: (bytes: number) => void;
+  setKeepAwakeWhileWorking: (enabled: boolean) => void;
   setTerminalScrollbackLines: (lines: number) => void;
   setScene3dEnabled: (enabled: boolean) => void;
   setSceneStyle: (style: SceneStyle) => void;
@@ -353,6 +354,7 @@ const defaultSettings: SettingsData = {
   groupBy: 'none',
   sortBy: 'activity',
   terminalReplayBufferBytes: DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
+  keepAwakeWhileWorking: false,
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
   themeName: 'windows-xp',
   fontSize: 13,
@@ -577,6 +579,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const clamped = clampReplayBufferBytes(bytes);
     set({ terminalReplayBufferBytes: clamped });
     get().persistSetting('terminalReplayBufferBytes', clamped);
+  },
+
+  setKeepAwakeWhileWorking: (enabled) => {
+    set({ keepAwakeWhileWorking: enabled });
+    get().persistSetting('keepAwakeWhileWorking', enabled);
   },
 
   setTerminalScrollbackLines: (lines) => {
