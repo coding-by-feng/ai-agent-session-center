@@ -2,7 +2,8 @@
 // Plain TS (no vitest import) so it type-checks with the shell; never bundled.
 import { createShellApp, type ShellApp, type ShellTiming } from '../app.js';
 import { createFakeMac, type FakeDeviceStatus, type FakeMacOptions } from '../dev/fakeMac.js';
-import type { ShellDeps, ShellOs } from '../native.js';
+import type { BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
+import type { NotificationLike } from '../pushPayload.js';
 import { loadMacs, saveMacs, withMac, writeMacCredentials, type SavedMac } from '../savedMacs.js';
 
 export const TAILNET = 'http://100.101.102.103:3333';
@@ -22,6 +23,11 @@ export interface HarnessOptions {
   vault?: Record<string, string>;
   vaultFails?: boolean;
   timing?: ShellTiming;
+  /** AASC-19/21 extras; each absent unless given. */
+  push?: { configured: boolean; permission?: 'granted' | 'prompt' | 'denied' };
+  share?: RawShare | null;
+  biometric?: { available: boolean; pass: boolean; bootId?: string | null };
+  widget?: boolean;
 }
 
 export function createHarness(opts: HarnessOptions = {}) {
@@ -33,6 +39,53 @@ export function createHarness(opts: HarnessOptions = {}) {
   const navigations: string[] = [];
   const allowed: string[][] = [];
   let linkListener: ((url: string) => void) | null = null;
+  const extras = {
+    channels: [] as string[],
+    registered: 0,
+    permissionAsked: 0,
+    tap: null as ((n: NotificationLike) => void) | null,
+    share: opts.share ?? null,
+    authAsked: 0,
+    biometricPass: opts.biometric?.pass ?? false,
+    pause: null as (() => void) | null,
+    resume: null as (() => void) | null,
+    widget: [] as string[],
+  };
+  const push: PushHost | undefined = opts.push && {
+    configured: async () => opts.push!.configured,
+    createChannels: async (channels) => {
+      extras.channels.push(...channels.map((c) => c.id));
+    },
+    platform: {
+      os: 'android',
+      checkPermission: async () => opts.push!.permission ?? 'prompt',
+      requestPermission: async () => {
+        extras.permissionAsked += 1;
+        return 'denied';
+      },
+      register: async () => {
+        extras.registered += 1;
+      },
+      unregister: async () => undefined,
+      onToken: () => () => undefined,
+      onRegistrationError: () => () => undefined,
+      environment: () => 'production',
+    },
+    onTap: (cb) => {
+      extras.tap = cb;
+      return () => {
+        extras.tap = null;
+      };
+    },
+  };
+  const biometric: BiometricGate | undefined = opts.biometric && {
+    available: async () => opts.biometric!.available,
+    authenticate: async () => {
+      extras.authAsked += 1;
+      return extras.biometricPass;
+    },
+    bootId: async () => (opts.biometric!.bootId === undefined ? 'boot-1' : opts.biometric!.bootId),
+  };
 
   const deps: ShellDeps = {
     os: opts.os ?? 'android',
@@ -80,13 +133,33 @@ export function createHarness(opts: HarnessOptions = {}) {
       },
     },
     newId: () => crypto.randomUUID(),
+    push,
+    biometric,
+    share: 'share' in opts ? {
+      take: async () => {
+        const taken = extras.share;
+        extras.share = null;
+        return taken;
+      },
+    } : undefined,
+    lifecycle: opts.biometric ? {
+      onPause: (cb) => {
+        extras.pause = cb;
+        return () => undefined;
+      },
+      onResume: (cb) => {
+        extras.resume = cb;
+        return () => undefined;
+      },
+    } : undefined,
+    widget: opts.widget ? { write: async (json) => { extras.widget.push(json); } } : undefined,
   };
 
   const root = document.createElement('div');
   document.body.append(root);
   const app: ShellApp = createShellApp(root, deps, opts.timing ?? { pollMs: 5, pollMaxMs: 60_000 });
 
-  return { app, root, mac, deps, vault, store, cookies, cleared, navigations, allowed, openLink: (url: string) => linkListener?.(url) };
+  return { app, root, mac, deps, vault, store, cookies, cleared, navigations, allowed, extras, openLink: (url: string) => linkListener?.(url) };
 }
 
 export type Harness = ReturnType<typeof createHarness>;

@@ -48,6 +48,10 @@ dependencies {
     // Pairing QR: Google's scanner UI from Play services (no CAMERA permission, the app gets only
     // the decoded text, which the shell parses like any pasted link). AASC-17.
     implementation "com.google.android.gms:play-services-code-scanner:$playServicesCodeScannerVersion"
+    // Biometric lock (AASC-21 M4): BiometricPrompt behind shell/src/biometricLock.ts.
+    implementation "androidx.biometric:biometric:$androidxBiometricVersion"
+    // JVM unit tests read the widget model with org.json (Android's own is a stub there).
+    testImplementation "org.json:json:$orgJsonVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

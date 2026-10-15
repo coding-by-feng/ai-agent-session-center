@@ -10,13 +10,17 @@
 //   ?scenario=wait      the Mac never answers the approval
 //   ?scenario=deny      the Mac denies this phone at the first check
 //   ?seed=1             start with two paired Macs (Studio and Kason-MBP)
+//   ?share=text|image   an item waiting in the share inbox (AASC-21)
+//   ?lock=1             the biometric lock on; the pretend prompt always passes (AASC-21)
 import { createFakeMac } from '../dev/fakeMac.js';
-import type { DeviceVault, ShellDeps } from '../native.js';
+import type { DeviceVault, RawShare, ShellDeps } from '../native.js';
 import type { KeyValueStore } from '../pushRegistration.js';
 import { LAST_MAC_KEY, saveMacs, writeMacCredentials, type SavedMac } from '../savedMacs.js';
 
 const TAILNET = 'http://100.101.102.103:3333';
 const LAN = 'http://192.168.1.20:3333';
+/** A 1×1 PNG. */
+const DOT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const STUDIO_TAILNET = 'http://100.88.1.7:3333';
 
 function memoryMap(): { get(k: string): Promise<string | null>; set(k: string, v: string): Promise<void>; delete(k: string): Promise<void> } {
@@ -41,6 +45,11 @@ export async function devDeps(search: string): Promise<ShellDeps> {
     approveAfter: scenario === 'wait' || scenario === 'deny' ? null : 2,
     denyAfter: scenario === 'deny' ? 0 : null,
     confirmCode: '482913',
+    sessions: [
+      { sessionId: 'dev-a', status: 'approval', title: 'Fix the failing build', lastActivityAt: Date.now() - 60_000 },
+      { sessionId: 'dev-b', status: 'working', title: 'Write the release notes', lastActivityAt: Date.now() },
+      { sessionId: 'dev-c', status: 'idle', title: 'Refactor the queue', lastActivityAt: Date.now() - 3_600_000 },
+    ],
   });
   const vault: DeviceVault = memoryMap();
   const store: KeyValueStore = memoryMap();
@@ -54,6 +63,12 @@ export async function devDeps(search: string): Promise<ShellDeps> {
     await saveMacs(store, seeded);
     await store.set(LAST_MAC_KEY, 'dev-kason-mbp-01');
   }
+
+  if (q.get('lock') === '1') await store.set('aasc.lock.settings', JSON.stringify({ enabled: true, relockAfterMinutes: 5 }));
+  const shareKind = q.get('share');
+  let pendingShare: RawShare | null = shareKind === 'image'
+    ? { images: [{ name: 'screenshot.png', mimeType: 'image/png', base64: DOT_PNG }], text: 'What is wrong here?' }
+    : shareKind ? { text: 'TypeError: Cannot read properties of undefined (reading \'map\')\n    at QueueTab (QueueTab.tsx:212:18)' } : null;
 
   return {
     os: 'web',
@@ -71,5 +86,15 @@ export async function devDeps(search: string): Promise<ShellDeps> {
       onLinkOpened: () => () => undefined,
     },
     newId: () => crypto.randomUUID(),
+    share: {
+      take: async () => {
+        const taken = pendingShare;
+        pendingShare = null;
+        return taken;
+      },
+    },
+    biometric: q.get('lock') === '1'
+      ? { available: async () => true, authenticate: async () => true, bootId: async () => 'dev-boot' }
+      : undefined,
   };
 }

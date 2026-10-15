@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- = the shell's dark tokens: text 15.1:1, muted 8.1:1 on the surface. -->
+    <color name="widget_background">#FF141A2B</color>
+    <color name="widget_text">#FFE8ECF6</color>
+    <color name="widget_muted">#FFA9B2C6</color>
+</resources>

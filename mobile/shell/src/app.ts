@@ -8,6 +8,8 @@
 // Never acts on a link without a tap: a scanned, pasted, typed or opened link
 // only ever leads to "Pair with <Mac>?".
 import type { Candidate } from './connectionPlan.js';
+import { createExtras } from './extras.js';
+import { resumeAway } from './lockGate.js';
 import { manualLink } from './manualEntry.js';
 import type { ShellDeps } from './native.js';
 import { parsePairingLink, type PairingLink } from './pairingLink.js';
@@ -16,6 +18,7 @@ import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMa
 import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
 import { cleanLabel } from './text.js';
 import { renderMacs, renderSettings } from './ui/macScreens.js';
+import { renderLocked, renderPhone, renderShare } from './ui/extraScreens.js';
 import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
 import { PATH_LABEL } from './ui/parts.js';
 import type { Actions, Screen, ScreenContext } from './ui/screen.js';
@@ -50,6 +53,16 @@ export interface ShellApp {
   current(): Screen;
 }
 
+/**
+ * The native resume path (AASC-21 lock): `?resume=1&away=…&back=/path` from a Mac's page. Its `back`
+ * goes through the same rule as a re-auth's (a path on the paired Mac, nothing else).
+ */
+function resumeBack(search: string): { back: string } | null {
+  const p = new URLSearchParams(search);
+  if (p.get('resume') !== '1') return null;
+  return parseReauthRequest(`?reauth=1&back=${encodeURIComponent(p.get('back') ?? '/')}`);
+}
+
 function pairScreen(notice: string | null = null, error: string | null = null): Screen {
   return { name: 'pair', notice, error, linkText: '', address: '', port: DEFAULT_PORT, code: '', manualOpen: false, manualError: null };
 }
@@ -78,6 +91,29 @@ export function createShellApp(
   const homeScreen = (notice: string | null = null): Screen => (macs.length ? { name: 'macs', notice } : pairScreen(notice));
   const defaultPhoneName = () => (deps?.os === 'ios' ? 'iPhone' : deps?.os === 'android' ? 'Android phone' : 'Phone');
 
+  // AASC-19 / AASC-21: share, lock, push, this phone's settings.
+  const extras = deps
+    ? createExtras({
+        deps,
+        macs: () => macs,
+        setMacs: (next) => {
+          macs = next;
+        },
+        screen: () => screen,
+        show,
+        update,
+        gen: () => gen,
+        home: homeScreen,
+        pair: (notice) => pairScreen(notice),
+        serial,
+        guard,
+      })
+    : null;
+  const noop = () => undefined;
+  const extrasActions = () => extras?.actions ?? {
+    shareTo: noop, shareSession: noop, finishShare: noop, unlock: noop, showPhone: noop, setLockEnabled: noop, setRelockMinutes: noop,
+  };
+
   function stopPoll(): void {
     if (pollTimer !== null) clearTimeout(pollTimer);
     pollTimer = null;
@@ -104,10 +140,19 @@ export function createShellApp(
   }
 
   function draw(): HTMLElement {
-    const ctx: ScreenContext = { macs, scannerAvailable: deps?.scanner.available ?? false, actions };
+    const ctx: ScreenContext = {
+      macs,
+      scannerAvailable: deps?.scanner.available ?? false,
+      actions,
+      lock: extras?.lockView() ?? null,
+      pushNote: extras?.pushNote() ?? '',
+    };
     const s = screen;
     switch (s.name) {
       case 'needs-app': return renderNeedsApp();
+      case 'share': return renderShare(s, ctx);
+      case 'locked': return renderLocked(s, ctx);
+      case 'phone': return renderPhone(s, ctx);
       case 'pair': return renderPair(s, ctx);
       case 'confirm': return renderConfirm(s, ctx);
       case 'macs': return renderMacs(s, ctx);
@@ -155,7 +200,8 @@ export function createShellApp(
         return;
       }
       if (out.kind === 'navigate') {
-        leaveFor(out);
+        await extras?.approved(); // the one-time notification question, before the Mac's page loads
+        if (my === gen) leaveFor(out);
         return;
       }
       if (Date.now() - started >= timing.pollMaxMs) {
@@ -328,12 +374,42 @@ export function createShellApp(
         ? `Unpaired from ${mac.name}.`
         : `Removed ${mac.name} from this phone. Revoke it in the Mac’s devices panel too.`));
     })(),
+    ...extrasActions(),
   };
 
   function openLink(url: string): void {
     const link = parsePairingLink(url);
     if (link) showConfirm(link);
     else show(pairScreen(null, BAD_LINK_MESSAGE));
+  }
+
+  /** The rest of the start once the lock (if any) let it through. */
+  async function boot(d: ShellDeps, search: string): Promise<void> {
+    if (await extras?.takeShare()) return;
+    const reauth = resumeBack(search) ?? parseReauthRequest(search);
+    if (reauth) {
+      // The Mac UI sent the WebView back: sign in again on the Mac it showed.
+      const lastId = await d.store.get(LAST_MAC_KEY);
+      const mac = find(lastId ?? '') ?? (macs.length === 1 ? macs[0] : undefined);
+      if (mac) await connect(mac, reauth.back, true);
+      else show(homeScreen(null));
+      return;
+    }
+    const launch = await d.navigator.launchUrl().catch(() => null);
+    if (launch) {
+      const seen = await sha256(launch);
+      if (seen !== (await d.store.get(HANDLED_LAUNCH_KEY))) {
+        await d.store.set(HANDLED_LAUNCH_KEY, seen);
+        openLink(launch);
+        return;
+      }
+    }
+    // One paired Mac: open it straight away. Several: the list, so the user picks.
+    if (macs.length === 1 && macs[0].status === 'active') {
+      await connect(macs[0], '/', false);
+      return;
+    }
+    show(homeScreen(null));
   }
 
   return {
@@ -344,32 +420,14 @@ export function createShellApp(
       }
       macs = await loadMacs(deps.store);
       offLink = deps.navigator.onLinkOpened(openLink);
-      const reauth = parseReauthRequest(deps.navigator.search());
-      if (reauth) {
-        // The Mac UI sent the WebView back: sign in again on the Mac it showed.
-        const lastId = await deps.store.get(LAST_MAC_KEY);
-        const mac = find(lastId ?? '') ?? (macs.length === 1 ? macs[0] : undefined);
-        if (mac) await connect(mac, reauth.back, true);
-        else show(homeScreen(null));
-        return;
-      }
-      const launch = await deps.navigator.launchUrl().catch(() => null);
-      if (launch) {
-        const seen = await sha256(launch);
-        if (seen !== (await deps.store.get(HANDLED_LAUNCH_KEY))) {
-          await deps.store.set(HANDLED_LAUNCH_KEY, seen);
-          openLink(launch);
-          return;
-        }
-      }
-      // One paired Mac: open it straight away. Several: the list, so the user picks.
-      if (macs.length === 1 && macs[0].status === 'active') {
-        await connect(macs[0], '/', false);
-        return;
-      }
-      show(homeScreen(null));
+      const search = deps.navigator.search();
+      const away = resumeAway(search, Date.now());
+      const startRest = () => boot(deps, search);
+      if (extras) await extras.start(away !== null ? 'resume' : 'launch', away, startRest);
+      else await startRest();
     },
     dispose() {
+      extras?.dispose();
       offLink?.();
       stopPoll();
       gen += 1;

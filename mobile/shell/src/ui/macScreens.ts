@@ -33,7 +33,9 @@ export function renderMacs(s: Extract<Screen, { name: 'macs' }>, ctx: ScreenCont
   return screen('Your Macs', null,
     notice(s.notice),
     h('ul', { class: 'macs', attrs: { 'aria-label': 'Paired Macs' } }, ...ctx.macs.map((m) => macRow(m, ctx))),
-    actions(button('Pair another Mac', ctx.actions.showPair, 'secondary')));
+    actions(
+      button('Pair another Mac', ctx.actions.showPair, 'secondary'),
+      button('This phone', ctx.actions.showPhone, 'quiet')));
 }
 
 export function renderSettings(s: SettingsScreen, mac: SavedMac, ctx: ScreenContext): HTMLElement {

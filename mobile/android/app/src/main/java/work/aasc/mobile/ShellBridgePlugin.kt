@@ -1,13 +1,29 @@
-// ShellBridgePlugin.kt — the shell's other native needs (AASC-17):
-//   setSessionCookie / clearSessionCookie  the Mac's session cookie, HttpOnly, so the page can't read it
-//   allowOrigins                           which paired-Mac http origins the WebView may load
+// ShellBridgePlugin.kt — the shell's other native needs:
+//   setSessionCookie / clearSessionCookie  the Mac's session cookie, HttpOnly, so the page can't read it (AASC-17)
+//   allowOrigins                           which paired-Mac http origins the WebView may load (AASC-17)
 //   scanQr                                 Google's code scanner (Play services): no camera
-//                                          permission, the app only receives the decoded text
+//                                          permission, the app only receives the decoded text (AASC-17)
+//   pushConfigured                         is the Firebase config built in? Push stays off until it is (AASC-19)
+//   takeShare                              the item shared from another app, once (AASC-21, ShareInbox.kt)
+//   biometricStatus / authenticate / bootId  the biometric lock's native half (AASC-21, biometricLock.ts decides)
+//   writeWidget                            the home-screen widget's model (AASC-21, AascWidgetProvider.kt)
 // Serves the bundled shell page only (ShellOnly.kt).
 package work.aasc.mobile
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.webkit.CookieManager
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -73,6 +89,78 @@ class ShellBridgePlugin : Plugin() {
             .addOnSuccessListener { code -> call.resolve(JSObject().put("value", code.rawValue)) }
             .addOnCanceledListener { call.resolve(JSObject()) }
             .addOnFailureListener { call.reject("The scanner isn't available on this phone.", "SCANNER_UNAVAILABLE") }
+    }
+
+    /**
+     * The google-services Gradle plugin turns google-services.json into a `google_app_id`
+     * string; without it Firebase can't start and the push plugin's register() would throw.
+     */
+    @PluginMethod
+    fun pushConfigured(call: PluginCall) = fromShellOnly(call) {
+        @Suppress("DiscouragedApi")
+        val id = context.resources.getIdentifier("google_app_id", "string", context.packageName)
+        call.resolve(JSObject().put("configured", id != 0))
+    }
+
+    @PluginMethod
+    fun takeShare(call: PluginCall) = fromShellOnlyInBackground(call) {
+        call.resolve(JSObject().put("share", ShareInbox.take(context.contentResolver)))
+    }
+
+    /** API 30+: a strong biometric or the screen lock; older: any enrolled biometric. */
+    private fun authenticators(): Int =
+        if (Build.VERSION.SDK_INT >= 30) BIOMETRIC_STRONG or DEVICE_CREDENTIAL else BIOMETRIC_WEAK
+
+    @PluginMethod
+    fun biometricStatus(call: PluginCall) = fromShellOnly(call) {
+        val result = BiometricManager.from(context).canAuthenticate(authenticators())
+        call.resolve(JSObject().put("available", result == BiometricManager.BIOMETRIC_SUCCESS))
+    }
+
+    @PluginMethod
+    fun authenticate(call: PluginCall) = fromShellOnly(call) {
+        val host = activity as? FragmentActivity
+        if (host == null) {
+            call.reject("No screen to ask on", "FAILED")
+            return@fromShellOnly
+        }
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(PromptRules.title(call.getString("reason")))
+            .setAllowedAuthenticators(authenticators())
+            .apply { if (Build.VERSION.SDK_INT < 30) setNegativeButtonText("Cancel") }
+            .build()
+        val prompt = BiometricPrompt(host, ContextCompat.getMainExecutor(context), object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                call.resolve(JSObject().put("ok", true))
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                // Cancelled, locked out or no hardware: the app stays locked. The reason is a code, never user data.
+                call.resolve(JSObject().put("ok", false).put("code", errorCode))
+            }
+        })
+        prompt.authenticate(info)
+    }
+
+    /** Changes on every reboot (biometricLock.ts locks after one). */
+    @PluginMethod
+    fun bootId(call: PluginCall) = fromShellOnly(call) {
+        val count = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        call.resolve(JSObject().put("bootId", if (count >= 0) count.toString() else null))
+    }
+
+    @PluginMethod
+    fun writeWidget(call: PluginCall) = fromShellOnly(call) {
+        val json = call.getString("json")
+        if (WidgetRules.parse(json) == null) {
+            call.reject("Bad widget model", "BAD_WIDGET")
+            return@fromShellOnly
+        }
+        context.getSharedPreferences(WidgetRules.PREFS, Context.MODE_PRIVATE).edit().putString(WidgetRules.KEY, json).apply()
+        val manager = AppWidgetManager.getInstance(context)
+        val ids = manager.getAppWidgetIds(ComponentName(context, AascWidgetProvider::class.java))
+        if (ids.isNotEmpty()) AascWidgetProvider.render(context, manager, ids)
+        call.resolve()
     }
 
     /**

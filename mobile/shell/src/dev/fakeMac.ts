@@ -20,6 +20,8 @@ export interface FakeMacOptions {
   denyAfter?: number | null;
   confirmCode?: string;
   backendHost?: string;
+  /** What GET /api/sessions lists to a signed-in phone (the sessions shared with it). */
+  sessions?: ReadonlyArray<{ sessionId: string; status: string; title: string; lastActivityAt?: number }>;
 }
 
 export interface FakeCall {
@@ -55,6 +57,9 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   let codeUsed = false;
   const backendHost = opts.backendHost ?? 'api.aasc.work';
   let backendTargets = 0;
+  const sessionTokens = new Set<string>();
+  /** Items the phone appended to a queue: [sessionId, body]. */
+  const queued: Array<[string, unknown]> = [];
 
   const ok = (status: number, data: unknown): HttpResponse => ({ status, data });
   const issue = (value: string) => {
@@ -62,8 +67,24 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     return value;
   };
 
-  async function macRoute(path: string, method: HttpMethod, body: Record<string, unknown>): Promise<HttpResponse> {
+  /** The routes a signed-in phone uses (Bearer session token, as the shell sends it). */
+  function sessionRoute(path: string, method: HttpMethod, headers: Record<string, string>, body: unknown): HttpResponse | null {
+    const queue = /^\/api\/sessions\/([^/]+)\/queue\/items$/.exec(path);
+    if (!(method === 'GET' && path === '/api/sessions') && !(method === 'POST' && queue)) return null;
+    const token = (headers.Authorization ?? '').replace(/^Bearer /, '');
+    if (!sessionTokens.has(token)) return ok(401, { error: 'Unauthorized' });
+    const listed = opts.sessions ?? [];
+    if (!queue) return ok(200, Object.fromEntries(listed.map((x) => [x.sessionId, x])));
+    const id = decodeURIComponent(queue[1]);
+    if (!listed.some((x) => x.sessionId === id && x.status !== 'ended')) return ok(404, { error: 'Not found' });
+    queued.push([id, body]);
+    return ok(200, { success: true, data: { paused: true } });
+  }
+
+  async function macRoute(path: string, method: HttpMethod, body: Record<string, unknown>, headers: Record<string, string> = {}): Promise<HttpResponse> {
     if (method === 'GET' && path === '/api/auth/status') return ok(200, { passwordRequired: true, authenticated: false });
+    const signedIn = sessionRoute(path, method, headers, body);
+    if (signedIn) return signedIn;
     if (method !== 'POST') return ok(404, { error: 'Not found' });
     if (path === '/api/mobile/pair') {
       if (codeUsed || body.code !== code) return ok(401, { error: 'Pairing code is wrong or expired', code: 'INVALID_PAIRING_CODE' });
@@ -93,7 +114,9 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
       }
       if (device.status === 'pending' && opts.approveAfter != null && device.attempts > opts.approveAfter) device.status = 'active';
       if (device.status === 'pending') return ok(403, { error: 'Approve this phone on your Mac first', code: 'DEVICE_PENDING' });
-      return ok(200, { success: true, data: { token: issue(`sess-${randomHex(16)}`), expiresIn: 3600 } });
+      const token = issue(`sess-${randomHex(16)}`);
+      sessionTokens.add(token);
+      return ok(200, { success: true, data: { token, expiresIn: 3600 } });
     }
     if (path === '/api/mobile/unpair') {
       if (!device || !proven) return ok(401, { error: 'This phone is not paired', code: 'DEVICE_UNKNOWN' });
@@ -119,7 +142,7 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     const url = new URL(req.url);
     if (url.protocol === 'https:' && url.host === backendHost) return backendRoute(url.pathname, req.method);
     if (!reachable.has(url.origin)) throw new Error('network unreachable');
-    return macRoute(url.pathname, req.method, (req.body ?? {}) as Record<string, unknown>);
+    return macRoute(url.pathname, req.method, (req.body ?? {}) as Record<string, unknown>, req.headers ?? {});
   }
 
   const http: HttpClient = {
@@ -144,6 +167,7 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     /** Every secret this fake handed out (device, backend and session tokens). */
     issued,
     devices,
+    queued,
     seedDevice,
     setReachable(origins: readonly string[]) {
       reachable.clear();

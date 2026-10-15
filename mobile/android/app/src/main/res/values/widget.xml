@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- = the shell's light tokens (shell/src/styles.css): text 16.7:1, muted 7.7:1 on the surface. -->
+    <color name="widget_background">#FFFFFFFF</color>
+    <color name="widget_text">#FF0F1626</color>
+    <color name="widget_muted">#FF48536A</color>
+    <string name="widget_empty">Open AASC to see your sessions</string>
+    <string name="widget_updated">Updated %1$s</string>
+    <string name="widget_description">How many sessions need you, and the most urgent one</string>
+</resources>

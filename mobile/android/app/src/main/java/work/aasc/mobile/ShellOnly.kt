@@ -25,3 +25,16 @@ internal fun Plugin.fromShellOnly(call: PluginCall, work: () -> Unit) {
         }
     }
 }
+
+/** As [fromShellOnly], but the work (file reads) runs off the main thread once the origin passed. */
+internal fun Plugin.fromShellOnlyInBackground(call: PluginCall, work: () -> Unit) {
+    fromShellOnly(call) {
+        Thread {
+            try {
+                work()
+            } catch (e: Exception) {
+                call.reject("The phone couldn't do that.", "FAILED")
+            }
+        }.start()
+    }
+}

@@ -360,3 +360,13 @@ details.manual > form { padding: 4px 16px 16px; }
   .btn, .switch, .switch::after, details.manual > summary::after { transition: none; }
   .btn:active:not(:disabled) { transform: none; }
 }
+
+/* ── Share to AASC (AASC-21) ───────────────────────────────────────── */
+.share-preview {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+select.input { appearance: auto; }

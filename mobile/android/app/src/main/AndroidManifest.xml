@@ -35,7 +35,33 @@
                 <data android:scheme="https" android:host="aasc.work" android:path="/pair" />
             </intent-filter>
 
+            <!-- Share to a session's queue (AASC-21 M5): text, or images (HEIC becomes JPEG).
+                 The item waits in memory for the shell; it is added paused, never run unseen. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
         </activity>
+
+        <!-- Home-screen widget (AASC-21 M6): draws the shell's widget model, nothing else. -->
+        <receiver
+            android:name=".AascWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/aasc_widget_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -51,7 +77,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- The push plugin asks for this; push isn't wired yet (no Firebase config), so the
-         app doesn't request it. Drop this line when google-services.json is added (AASC-19). -->
+    <!-- The push plugin asks for this. Push stays off until the Firebase config exists: to turn
+         it on, put google-services.json in android/app/, delete this line and the
+         NotificationPermission line in app/lint.xml, then rebuild (mobile/README.md, AASC-19). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:node="remove" />
 </manifest>
