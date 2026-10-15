@@ -7,8 +7,9 @@
  *   /sessions/<id>/info           its Info screen (AASC-46), and what Info opens:
  *   /sessions/<id>/info/files|notes|queue|agents|popups
  *   /inbox   /queue   /more        the other tab roots
- *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings
- *                                 (and its pages), This phone, About, UI kit
+ *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings,
+ *                                 This phone, About, UI kit
+ *   /more/settings/<section>      a Settings page: back returns to the Settings list
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -30,6 +31,10 @@ export const MORE_PAGES = [
   'phone', 'about', 'gallery',
 ] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
+
+/** The Settings pages: pushed over the Settings list, at /more/settings/<section>. */
+export const SETTINGS_SECTIONS = ['appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** What a session's Info screen opens (AASC-46). */
 export const INFO_PAGES = ['files', 'notes', 'queue', 'agents', 'popups'] as const;
@@ -85,7 +90,24 @@ export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
   if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
   if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
-  return `/more/${route.page}`;
+  return morePath(route.page);
+}
+
+/** A More page's path: a Settings page sits under /more/settings. */
+export function morePath(page: MorePage): string {
+  return isOneOf(SETTINGS_SECTIONS, page) ? `/more/settings/${page}` : `/more/${page}`;
+}
+
+/**
+ * `path` with a re-keyed session's old id swapped for its new one (a /clear or a
+ * resume gives the session a new id): the same screen, segment and page.
+ * Anything else, or a new id this frame couldn't draw, comes back unchanged.
+ */
+export function renameSessionInPath(path: string, oldId: string, newId: string): string {
+  const parts = path.split('/');
+  if (parts[1] !== 'sessions' || parts[2] !== oldId || parts.length < 4) return path;
+  const renamed = [...parts.slice(0, 2), newId, ...parts.slice(3)].join('/');
+  return parsePhonePath(renamed) ? renamed : path;
 }
 
 /** The route a path names, or null for anything this frame doesn't draw. */
@@ -111,8 +133,11 @@ export function parsePhonePath(path: string): PhoneRoute | null {
     if (!SESSION_ID.test(sessionId) || !isOneOf(INFO_PAGES, page)) return null;
     return { kind: 'session-info', sessionId, page };
   }
-  if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1])) {
+  if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1]) && !isOneOf(SETTINGS_SECTIONS, parts[1])) {
     return { kind: 'more', page: parts[1] };
+  }
+  if (head === 'more' && parts.length === 3 && parts[1] === 'settings' && isOneOf(SETTINGS_SECTIONS, parts[2])) {
+    return { kind: 'more', page: parts[2] };
   }
   return null;
 }
@@ -140,7 +165,7 @@ export function pathChain(path: string): string[] {
   }
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
-    chain.unshift(`/more/${page}`);
+    chain.unshift(morePath(page));
   }
   return [tabRootPath('more'), ...chain];
 }

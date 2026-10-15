@@ -118,6 +118,12 @@ export function describeTool(name: string, input: unknown, output?: string): Too
   const rec = isRec(input) ? input : {};
   const path = str(rec.file_path) || str(rec.notebook_path) || str(rec.path);
 
+  // A call that only names a secret file reaches a phone with its words hidden and the
+  // server's own description instead (`{ redacted: true, note }`).
+  if (rec.redacted === true && !path && !Array.isArray(rec.paths)) {
+    return describe(str(rec.note) || 'Used a tool on a secret file');
+  }
+
   if (isEditTool(name)) {
     const files = editFiles(name, input);
     const counts = formatCounts(editTotals(files));

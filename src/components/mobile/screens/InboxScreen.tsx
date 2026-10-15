@@ -84,7 +84,7 @@ function useContinue(sessions: ReadonlyMap<string, Session>) {
       const { key } = r.result;
       void waitForPrompt(r.sessionId, key).then((final) => {
         const outcome = promptOutcome(final);
-        if (!outcome.ok) showToast(`${name(r.sessionId)}: ${outcome.message}`, 'error', 6000);
+        if (!outcome.ok) showToast(`${name(r.sessionId)}: ${outcome.message}`, outcome.unsure ? 'info' : 'error', 6000);
       });
     }
   }, [sessions]);

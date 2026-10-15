@@ -28,7 +28,7 @@ import { plural } from '@/lib/chat/chatFormat';
 import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
 import { matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { showToast } from '@/components/ui/ToastContainer';
-import { Button, EmptyState } from '../kit';
+import { Button, EmptyState, useScreenSlot } from '../kit';
 import ChatItemView from './items/ChatItemView';
 import ChatSearchBar from './ChatSearchBar';
 import StatusStrip from './StatusStrip';
@@ -150,7 +150,6 @@ export default function ChatView({ session, onTerminal, onPullBack }: ChatViewPr
       loadOlder={loadOlderAction}
       rememberView={rememberView}
       working={working}
-      live={working || awaiting}
       onPullBack={onPullBack}
     />
   );
@@ -168,8 +167,6 @@ interface ChatBodyProps {
   loadOlder: (sessionId: string) => Promise<void>;
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
   working: boolean;
-  /** Working or waiting on you: the terminal peek stays subscribed. */
-  live: boolean;
   onPullBack?: (item: QueuedItem) => void;
 }
 
@@ -185,7 +182,6 @@ function ChatBody({
   loadOlder,
   rememberView,
   working,
-  live,
   onPullBack,
 }: ChatBodyProps) {
   const { sessionId } = session;
@@ -197,9 +193,11 @@ function ChatBody({
   const [matchIndex, setMatchIndex] = useState(-1);
   const [focusToken, setFocusToken] = useState(0);
   const [searchDismissed, setSearchDismissed] = useState(false);
-  // Held here, not in the strip: the strip comes and goes as the session flips between
-  // working and waiting, and each new subscription would replay the whole scrollback.
-  const peek = useTerminalPeek(session.terminalId, live);
+  // Subscribed for as long as this chat is the screen on show, whatever the session's
+  // status: the strip comes and goes every turn, and each new subscription would make
+  // the server resend its whole scrollback. Only the strip's display follows `working`.
+  const { isTop } = useScreenSlot();
+  const peek = useTerminalPeek(session.terminalId, isTop, working);
 
   const loadOlderHere = useCallback(() => loadOlder(sessionId), [loadOlder, sessionId]);
   const remember = useCallback((view: ChatViewMemory) => rememberView(sessionId, view), [rememberView, sessionId]);

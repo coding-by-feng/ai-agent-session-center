@@ -77,6 +77,13 @@ export function useSessionReads(): ReadMap {
   return useSyncExternalStore(subscribe, getSessionReads, getSessionReads);
 }
 
+/** A session re-keyed: its read stamp follows the new id. */
+export function moveSessionRead(oldId: string, newId: string): void {
+  const at = reads[oldId];
+  if (at === undefined) return;
+  markSessionRead(newId, at);
+}
+
 /** Read the selected session (the one a session screen shows) up to its latest turn. */
 export function readSelected(state: { selectedSessionId: string | null; sessions: ReadonlyMap<string, Session> }): void {
   const id = state.selectedSessionId;

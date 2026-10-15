@@ -145,11 +145,17 @@
 .context[data-level='high'] { color: var(--ph-danger); }
 
 @media (hover: hover) {
-  .chip:hover { background: var(--ph-fill); }
+  .chip:hover:not([aria-disabled='true']) { background: var(--ph-fill); }
 }
 
-.chip:active { background: var(--ph-fill-strong); }
+.chip:active:not([aria-disabled='true']) { background: var(--ph-fill-strong); }
 .chip:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+/* Off (another device drives, the session ended or is starting): the reason is spoken with it. */
+.chip[aria-disabled='true'] {
+  color: var(--ph-text-tertiary);
+  cursor: not-allowed;
+}
 
 /* ---- Photos to send ---- */
 

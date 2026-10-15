@@ -20,7 +20,7 @@ export interface ConfirmSheetProps {
   /** The action is running: it shows a spinner and ignores taps. */
   busy?: boolean;
   onConfirm: () => void;
-  /** Keep it stable (useCallback): the sheet's focus handling re-runs when it changes. */
+  /** Escape, the close button, the backdrop and Cancel all call it. */
   onCancel: () => void;
 }
 

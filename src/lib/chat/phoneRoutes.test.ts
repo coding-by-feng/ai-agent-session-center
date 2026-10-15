@@ -5,6 +5,9 @@ import { describe, it, expect } from 'vitest';
 import {
   INFO_PAGES,
   PHONE_TABS,
+  renameSessionInPath,
+  SETTINGS_SECTIONS,
+  morePath,
   defaultSegment,
   diffPath,
   infoPath,
@@ -45,10 +48,23 @@ describe('parsePhonePath / phonePath', () => {
   });
 
   it('round-trips the More pages AASC-47 adds', () => {
-    for (const page of ['saved-prompts', 'phone', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const) {
+    for (const page of ['saved-prompts', 'phone'] as const) {
       expect(parsePhonePath(`/more/${page}`)).toEqual({ kind: 'more', page });
       expect(phonePath({ kind: 'more', page })).toBe(`/more/${page}`);
     }
+  });
+
+  it('puts each Settings page under /more/settings, and only there', () => {
+    for (const page of SETTINGS_SECTIONS) {
+      const path = `/more/settings/${page}`;
+      expect(parsePhonePath(path)).toEqual({ kind: 'more', page });
+      expect(phonePath({ kind: 'more', page })).toBe(path);
+      expect(morePath(page)).toBe(path);
+      expect(parsePhonePath(`/more/${page}`), page).toBeNull();
+    }
+    expect(parsePhonePath('/more/settings/history')).toBeNull();
+    expect(parsePhonePath('/more/settings/appearance/x')).toBeNull();
+    expect(morePath('history')).toBe('/more/history');
   });
 
   it('round-trips a session\'s Info and each screen it opens (AASC-46)', () => {
@@ -93,6 +109,23 @@ describe('parsePhonePath / phonePath', () => {
   });
 });
 
+describe('renameSessionInPath', () => {
+  it('moves every screen of a re-keyed session to its new id, keeping the screen', () => {
+    expect(renameSessionInPath('/sessions/term-1/terminal', 'term-1', 'abc')).toBe('/sessions/abc/terminal');
+    expect(renameSessionInPath('/sessions/term-1/info', 'term-1', 'abc')).toBe('/sessions/abc/info');
+    expect(renameSessionInPath('/sessions/term-1/info/notes', 'term-1', 'abc')).toBe('/sessions/abc/info/notes');
+    expect(renameSessionInPath('/sessions/term-1/changes/2', 'term-1', 'abc')).toBe('/sessions/abc/changes/2');
+  });
+
+  it('leaves other paths alone', () => {
+    expect(renameSessionInPath('/sessions', 'term-1', 'abc')).toBe('/sessions');
+    expect(renameSessionInPath('/sessions/term-10/chat', 'term-1', 'abc')).toBe('/sessions/term-10/chat');
+    expect(renameSessionInPath('/more/history', 'term-1', 'abc')).toBe('/more/history');
+    // A new id this frame couldn't draw is not written.
+    expect(renameSessionInPath('/sessions/term-1/chat', 'term-1', 'a b')).toBe('/sessions/term-1/chat');
+  });
+});
+
 describe('tabOfPath / pathChain', () => {
   it('puts a path in its tab', () => {
     expect(tabOfPath('/sessions/x/chat')).toBe('sessions');
@@ -101,7 +134,7 @@ describe('tabOfPath / pathChain', () => {
     expect(tabOfPath('/more/gallery')).toBe('more');
     expect(tabOfPath('/sessions/x/changes/2')).toBe('sessions');
     expect(tabOfPath('/sessions/x/info/files')).toBe('sessions');
-    expect(tabOfPath('/more/appearance')).toBe('more');
+    expect(tabOfPath('/more/settings/appearance')).toBe('more');
   });
 
   it('lists the screens a deep link stacks, root first', () => {
@@ -118,8 +151,8 @@ describe('tabOfPath / pathChain', () => {
   });
 
   it('stacks a settings page over Settings', () => {
-    for (const page of ['appearance', 'notifications', 'api-keys', 'translation', 'advanced']) {
-      expect(pathChain(`/more/${page}`)).toEqual(['/more', '/more/settings', `/more/${page}`]);
+    for (const page of SETTINGS_SECTIONS) {
+      expect(pathChain(`/more/settings/${page}`)).toEqual(['/more', '/more/settings', `/more/settings/${page}`]);
     }
     expect(pathChain('/more/phone')).toEqual(['/more', '/more/phone']);
     expect(pathChain('/more/saved-prompts')).toEqual(['/more', '/more/saved-prompts']);

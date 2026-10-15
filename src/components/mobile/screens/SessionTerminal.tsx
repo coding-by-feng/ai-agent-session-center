@@ -106,6 +106,7 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
   const [ctrl, setCtrl] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [moreOpen, setMoreOpen] = useState(false);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
   const [line, setLine] = useState('');
   const [sending, setSending] = useState(false);
   const fsRef = useRef<HTMLDivElement>(null);
@@ -300,7 +301,7 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
 
       <TerminalMoreSheet
         open={moreOpen}
-        onClose={() => setMoreOpen(false)}
+        onClose={closeMore}
         wrap={prefs.mode === 'wrap'}
         onToggleWrap={() => choose({ mode: prefs.mode === 'wrap' ? lastNonWrap.current : 'wrap' })}
         follow={term.autoScrollEnabled}
