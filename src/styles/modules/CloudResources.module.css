@@ -1,0 +1,169 @@
+.panel {
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tabs,
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  padding: 14px;
+  margin: 10px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--text-primary);
+  border-left: 3px solid var(--danger-color, #c04444);
+  padding: 8px;
+  background: var(--bg-subtle);
+  overflow-wrap: anywhere;
+}
+.banner {
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.files {
+  max-height: 220px;
+  overflow: auto;
+  padding-left: 22px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.title h3 {
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .panel {
+    padding: 10px;
+  }
+  .card {
+    padding: 10px;
+  }
+  .toolbar > * {
+    max-width: 100%;
+  }
+  .dialog {
+    padding: 12px;
+  }
+  .tabs > * {
+    flex: 1;
+  }
+}
+
+.panel label:has(> select) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.panel label > select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.panel h3 {
+  font-size: 16px;
+}
+.panel h4 {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+
+.panel .selectField {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.panel .selectField select {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+  margin: 12px 0;
+}
+.comparison dt {
+  font-weight: 600;
+  margin-top: 10px;
+}
+.comparison dd {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.comparison ul {
+  padding-left: 16px;
+}

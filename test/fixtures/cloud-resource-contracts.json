@@ -1,0 +1,129 @@
+{
+  "beginUpload": {
+    "manifest": {
+      "resourceId": "11111111-1111-4111-8111-111111111111",
+      "agent": "claude",
+      "kind": "skill",
+      "name": "Example skill",
+      "scope": "global",
+      "projectId": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+          "bytes": 5,
+          "mode": 420
+        }
+      ],
+      "dependencies": []
+    },
+    "baseVersion": null,
+    "mutationId": "22222222-2222-4222-8222-222222222222"
+  },
+  "beginUploadResponse": {
+    "success": true,
+    "data": {
+      "uploadId": "33333333-3333-4333-8333-333333333333",
+      "missingHashes": [
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+      ],
+      "expiresAt": "2026-10-11T00:00:00.000Z"
+    }
+  },
+  "fileBytesUtf8": "hello",
+  "fileUploadResponse": {
+    "success": true,
+    "data": {
+      "bytes": 5
+    }
+  },
+  "commitResponse": {
+    "success": true,
+    "data": {
+      "manifest": {
+        "resourceId": "11111111-1111-4111-8111-111111111111",
+        "agent": "claude",
+        "kind": "skill",
+        "name": "Example skill",
+        "scope": "global",
+        "projectId": null,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            "bytes": 5,
+            "mode": 420
+          }
+        ],
+        "dependencies": []
+      },
+      "version": 1,
+      "digest": "d292226dbac90010cb2105ed9a21950937e260c9a3ebc752fb2d67180b33d464",
+      "createdAt": "2026-10-10T00:00:00.000Z"
+    }
+  },
+  "headResponse": {
+    "success": true,
+    "data": {
+      "resourceId": "11111111-1111-4111-8111-111111111111",
+      "headVersion": 2,
+      "deleted": false
+    }
+  },
+  "listResponse": {
+    "success": true,
+    "data": {
+      "items": [
+        {
+          "manifest": {
+            "resourceId": "11111111-1111-4111-8111-111111111111",
+            "agent": "claude",
+            "kind": "skill",
+            "name": "Example skill",
+            "scope": "global",
+            "projectId": null,
+            "files": [
+              {
+                "path": "SKILL.md",
+                "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                "bytes": 5,
+                "mode": 420
+              }
+            ],
+            "dependencies": []
+          },
+          "version": 1,
+          "digest": "d292226dbac90010cb2105ed9a21950937e260c9a3ebc752fb2d67180b33d464",
+          "createdAt": "2026-10-10T00:00:00.000Z"
+        }
+      ],
+      "nextCursor": null
+    }
+  },
+  "versionConflict": {
+    "success": false,
+    "error": {
+      "code": "version_conflict",
+      "message": "Resource head changed",
+      "details": {
+        "headVersion": 2
+      }
+    }
+  },
+  "versionInUse": {
+    "success": false,
+    "error": {
+      "code": "version_in_use",
+      "message": "Version is referenced",
+      "details": {
+        "references": [
+          {
+            "kind": "resource",
+            "id": "44444444-4444-4444-8444-444444444444",
+            "version": 1
+          }
+        ]
+      }
+    }
+  }
+}

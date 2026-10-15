@@ -18,6 +18,7 @@ import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAuth } from '@/hooks/useAuth';
+import { startNotesSync } from '@/stores/skillNotesStore';
 import LoginScreen from '@/components/auth/LoginScreen';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
@@ -112,6 +113,7 @@ function AppLayout() {
 }
 
 function Dashboard({ token }: { token: string | null }) {
+  useEffect(() => startNotesSync(), []);
   useSettingsInit();
   useWebSocket(token);
   useWorkspaceAutoSave();

@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { databaseDirectory } from '../server/dbPaths.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -19,7 +20,9 @@ describe('setup gate once the preload loads', () => {
 
   it('recognises a used install by files the embedded server actually writes', () => {
     const db = read('server/db.ts');
-    expect(db).toMatch(/join\(process\.env\.APP_USER_DATA, 'data'\)/);
+    vi.stubEnv('APP_USER_DATA', '/fixture/owner-profile');
+    try { expect(databaseDirectory()).toBe('/fixture/owner-profile/data'); }
+    finally { vi.unstubAllEnvs(); }
     expect(db).toMatch(/join\(DB_DIR, 'sessions\.db'\)/);
     expect(read('server/serverConfig.ts')).toMatch(/join\(process\.env\.APP_USER_DATA, 'server-config\.json'\)/);
     expect(main).toMatch(/path\.join\(userData, 'data', 'sessions\.db'\)/);

@@ -107,6 +107,8 @@ export interface ResourceSummary {
   variantIds: string[];
   /** Memory filed under a project folder that no longer exists on disk. */
   orphaned?: boolean;
+  /** Generated AASC alias materialization, not an independent portable resource. */
+  managedAlias?: boolean;
   findingCodes: FindingCode[];
 }
 

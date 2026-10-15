@@ -4,7 +4,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
@@ -13,6 +13,7 @@ import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
+import type { ResourceJobs } from './cloud/resourceJobs.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -29,6 +30,12 @@ import {
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS,
 } from './authManager.js';
+import { mkdir, realpath } from 'node:fs/promises';
+import { cloudJsonParser } from './cloud/router.js';
+import { createNotesRouter, notesJsonParser, notesErrorHandler } from './cloud/notesRouter.js';
+import { createCloudConnection } from './cloud/connection.js';
+import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
+import type { SecretEncryption } from './cloud/types.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +62,17 @@ export async function shutdownServer(): Promise<void> {
   if (_shutdownFn) await _shutdownFn();
 }
 
-export function startServer(port?: number): Promise<number> {
+export interface ServerOptions { cloudEncryption?: SecretEncryption }
+
+export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
+  const base = resolve(process.env.APP_USER_DATA || join(__dirname, '../data'));
+  await mkdir(base, { recursive: true, mode: 0o700 });
+  const cloudDir = join(await realpath(base), 'cloud');
+  const secretsDir = join(cloudDir, 'secrets');
+  const cloud = await createCloudConnection({
+    directory: cloudDir,
+    secrets: options.cloudEncryption ? createEncryptedSecretStore(secretsDir, options.cloudEncryption) : createFileSecretStore(secretsDir),
+  });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
 
@@ -63,6 +80,10 @@ export function startServer(port?: number): Promise<number> {
   const server = createServer(app);
   const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
 
+  // Cloud's raw/decompressed cap must precede the global parser: re-stringifying
+  // parsed data loses whitespace, duplicate keys and encoded wire bytes.
+  app.use('/api/resources/cloud', cloudJsonParser());
+  app.use('/api/cloud/skill-notes', notesJsonParser());
   app.use(express.json({ limit: '50mb' }));
 
   // -- Security headers --
@@ -181,10 +202,21 @@ export function startServer(port?: number): Promise<number> {
   // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
   // Mounted before the generic /api router so it owns its prefix; the router
   // itself answers loopback requests only (404 for every other device).
+  app.use('/api/cloud/skill-notes', authMiddleware, createNotesRouter(cloud));
+  app.use('/api/cloud/skill-notes', notesErrorHandler);
+  let cloudJobs: Promise<ResourceJobs> | undefined;
   app.use('/api/resources', authMiddleware, createResourceRouter({
+    cloud,
+    cloudJobDirectory: join(cloudDir, 'resources'),
+    onCloudJobsReady: getJobs => { cloudJobs = getJobs(); },
+    cloudAliasDirectory: cloudDir,
+    cloudActiveProjectPaths: () => Object.values(getAllSessions()).filter(s => s.status !== 'ended').map(s => s.projectPath).filter(Boolean),
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
+
   }));
+  // Open durable job metadata before listening; interrupted jobs remain inactive.
+  await cloudJobs?.catch(() => log.warn('cloud', 'Private resource job storage is unavailable.'));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it
   // falls through to Express's default page, stack trace included.
@@ -451,24 +483,38 @@ export function startServer(port?: number): Promise<number> {
 
   // Graceful shutdown — save state, close resources, then exit.
   // Returns a promise so Electron can await full cleanup before quitting.
-  let shutdownComplete = false;
+  let shutdownPromise: Promise<void> | null = null;
   function gracefulShutdown(signal: string): Promise<void> {
-    if (shutdownComplete) return Promise.resolve();
-    shutdownComplete = true;
-    log.info('server', `Received ${signal}, shutting down...`);
-    stopPeriodicSave();
-    stopPlanUsage();
-    stopHeartbeat();
-    stopMqReader();
-    stopTokenCleanup();
-    // Save final snapshot before exiting
-    try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
-    try { closeDb(); } catch { /* best effort */ }
-    return new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      // Force resolve after 2s if server.close() hangs (open connections)
-      setTimeout(() => resolve(), 2000);
+    if (shutdownPromise) return shutdownPromise;
+    // Publish the shared promise before cleanup begins, including reentrant callers.
+    shutdownPromise = Promise.resolve().then(async () => {
+      log.info('server', `Received ${signal}, shutting down...`);
+      const cloudStopped = cloud.stop();
+      const jobsClosed = cloudJobs?.then(jobs => jobs.close());
+      stopPeriodicSave();
+      stopPlanUsage();
+      stopHeartbeat();
+      stopMqReader();
+      stopTokenCleanup();
+      try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
+      const httpClosed = new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          log.warn('server', 'HTTP shutdown exceeded 2s; closing HTTP connections while cloud cleanup continues.');
+          server.closeAllConnections();
+          resolve();
+        }, 2000);
+        server.close(() => { clearTimeout(timer); resolve(); });
+      });
+      // HTTP's deadline never bypasses filesystem/Git drain. Wait for every cleanup even on failure.
+      const results = await Promise.allSettled([cloudStopped, jobsClosed, httpClosed]);
+      try { closeDb(); } catch { /* best effort */ }
+      const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failures.length) {
+        log.error('server', 'Cloud shutdown cleanup failed; refusing a successful shutdown.');
+        throw failures[0].reason;
+      }
     });
+    return shutdownPromise;
   }
 
   // Expose shutdown for Electron to call directly (avoids SIGTERM race)

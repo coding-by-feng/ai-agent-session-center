@@ -49,16 +49,33 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ResourcesView — shell', () => {
-  it('renders the title and the Library / Sources / Checks / Transfers / Devices sub-tabs', async () => {
+  it('renders the title and the Library / Sources / Checks / Cloud sub-tabs', async () => {
     renderView();
     await ready();
     expect(screen.getByRole('heading', { name: /agent resources/i, level: 1 })).toBeInTheDocument();
     const tabs = within(screen.getByRole('tablist', { name: 'Resource sections' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Transfers', 'Devices']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Cloud']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-    // Sync is Phase C and Data is Phase D — not even as disabled tabs.
+    // Project sync lives under Projects; Data is Phase D — not even as a disabled tab.
     expect(screen.queryByRole('tab', { name: /sync/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /data/i })).not.toBeInTheDocument();
+  });
+
+  it.each(['transfers', 'projects', 'devices'])('old_section_urls_fall_back_to_library: %s', async section => {
+    const mock = stubApi(); renderView(`/resources?section=${section}`); await ready();
+    expect(screen.getByRole('tab', {name:'Library'})).toHaveAttribute('aria-selected','true');
+    expect(listRows()).toHaveLength(7);
+    expect(urlsCalled(mock).some(url => /\/(transfers|sync)(?:[/?]|$)/.test(url))).toBe(false);
+  });
+
+  it('bulk selection uses the cloud action and preserves selection on a preview click', async () => {
+    renderView(); await ready(); fireEvent.click(screen.getByRole('button',{name:'Select resources'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Select tdd (codex)'}));
+    expect(screen.getByRole('button',{name:'Save selected to cloud (1)'})).toBeInTheDocument();
+    fireEvent.click(row(/^tdd Codex/));
+    await within(detail()).findByRole('heading', { name: 'TDD', level: 1 }, LAZY);
+    expect(screen.getByRole('checkbox',{name:'Select tdd (codex)'})).toBeChecked();
+    expect(screen.queryByRole('button',{name:/Create transfer/})).not.toBeInTheDocument();
   });
 
   it('shows per-agent totals, the project count and the scan age', async () => {
@@ -578,4 +595,22 @@ describe('ResourcesView — shortcut commands', () => {
     fireEvent.click(within(detail()).getByRole('button', { name: 'tdd' }));
     await waitFor(() => expect(urlParams().get('id')).toBe('sk-claude-tdd'));
   });
+});
+
+it('Cloud navigation preserves Library filters and explicit selected leaves', async () => {
+  const {cloudApi}=await import('@/lib/cloudApi');
+  const status=vi.spyOn(cloudApi,'status').mockResolvedValue({connection:null,state:'disconnected',lastError:null});
+  renderView('/resources?scope=global&agent=claude&type=skill&q=tdd');
+  await ready();
+  fireEvent.click(screen.getByRole('button',{name:'Select resources'}));
+  fireEvent.click(screen.getByRole('button',{name:'Select visible (1)'}));
+  fireEvent.click(screen.getByRole('button',{name:'Save selected to cloud (1)'}));
+  await screen.findByRole('heading',{name:'Save from this device'});
+  expect(urlParams().get('scope')).toBe('global');
+  expect(urlParams().get('q')).toBe('tdd');
+  expect(urlParams().get('cloudTab')).toBe('resources');
+  fireEvent.click(screen.getByRole('tab',{name:'Library'}));
+  await screen.findByRole('button',{name:'Save selected to cloud (1)'});
+  expect(screen.getByLabelText('Search resources')).toHaveValue('tdd');
+  status.mockRestore();
 });

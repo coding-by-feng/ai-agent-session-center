@@ -1,0 +1,79 @@
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.selection {
+  font-size: 13px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.check input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-color);
+}
+.branch {
+  margin: 8px 0 8px 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-subtle);
+}
+.branch summary {
+  padding: 8px 0;
+  cursor: pointer;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.leaves {
+  padding-left: 12px;
+}
+@media (max-width: 480px) {
+  .branch {
+    margin-left: 4px;
+    padding-left: 6px;
+  }
+  .leaves {
+    padding-left: 6px;
+  }
+}
+.bulkRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.bulkRow > button {
+  flex: 1;
+  min-width: 0;
+}
+.bulkCheck {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  accent-color: var(--res-accent);
+}
+.bulkBar {
+  padding: 10px 0 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (pointer: coarse) {
+  .check { min-height: 44px; }
+  .bulkCheck { width: 24px; height: 24px; flex-basis: 24px; }
+}

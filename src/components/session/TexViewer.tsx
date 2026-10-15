@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useFileReadingPosition } from '@/hooks/useFileReadingPosition';
 import styles from '@/styles/modules/TexViewer.module.css';
 
 interface TexViewerProps {
   source: string;
   /** Stable key (typically file path) so we can recompute when the doc changes. */
   fileKey?: string;
+  positionKey?: string;
 }
 
 type LatexParse = (
@@ -88,11 +90,13 @@ function buildFallbackSource(source: string): string {
  * On parse failure we retry with a stripped preamble + minimal article scaffold,
  * which salvages most thesis-style documents at the cost of dropping custom macros.
  */
-export default function TexViewer({ source, fileKey }: TexViewerProps) {
+export default function TexViewer({ source, fileKey, positionKey }: TexViewerProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  useFileReadingPosition(scrollRef, positionKey, !loading);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -153,7 +157,7 @@ export default function TexViewer({ source, fileKey }: TexViewerProps) {
   }, [source, fileKey]);
 
   return (
-    <div className={styles.wrapper}>
+    <div ref={scrollRef} className={styles.wrapper}>
       {loading && <div className={styles.status}>Rendering LaTeX…</div>}
       {error && (
         <div className={styles.error}>

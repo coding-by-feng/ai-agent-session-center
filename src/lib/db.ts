@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { Session } from '@/types';
+import type { StoredNoteRecord, StoredNoteOperation, StoredNoteMeta } from '@/types/skillNotesSync';
 
 // ---------------------------------------------------------------------------
 // Record types (stored in IndexedDB)
@@ -296,7 +297,10 @@ export interface DbTranslationLog {
 // Database class
 // ---------------------------------------------------------------------------
 
-class DashboardDb extends Dexie {
+export class DashboardDb extends Dexie {
+  skillNoteRecords!: EntityTable<StoredNoteRecord, 'id'>;
+  skillNoteOutbox!: EntityTable<StoredNoteOperation, 'id'>;
+  skillNoteSyncMeta!: EntityTable<StoredNoteMeta, 'partition'>;
   sessions!: EntityTable<DbSession, 'id'>;
   prompts!: EntityTable<DbPrompt, 'id'>;
   responses!: EntityTable<DbResponse, 'id'>;
@@ -314,8 +318,8 @@ class DashboardDb extends Dexie {
   promptSnippets!: EntityTable<DbPromptSnippet, 'id'>;
   translationLogs!: EntityTable<DbTranslationLog, 'id'>;
 
-  constructor() {
-    super('claude-dashboard');
+  constructor(name = 'claude-dashboard') {
+    super(name);
 
     this.version(2).stores({
       sessions:
@@ -493,6 +497,45 @@ class DashboardDb extends Dexie {
     // Indexed on useCount + lastUsedAt + createdAt to serve the picker's
     // most-used / recent orderings without a full-table sort.
     this.version(7).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      queueAutomation:
+        'sessionId',
+      queueHistory:
+        '++id, createdAt, lastUsedAt',
+      promptSnippets:
+        '++id, createdAt, lastUsedAt, useCount',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, favorite, sourceFilePath, floatTerminalId',
+    });
+
+    // v8: durable notes, atomic snapshot/outbox and per-account cursors.
+    this.version(8).stores({
+      skillNoteRecords: 'id, partition, [partition+key]',
+      skillNoteOutbox: 'id, partition, [partition+sequence]',
+      skillNoteSyncMeta: 'partition',
       sessions:
         'id, status, projectPath, startedAt, lastActivityAt, archived',
       prompts:

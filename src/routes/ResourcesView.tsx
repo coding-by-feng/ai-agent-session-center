@@ -1,12 +1,12 @@
 /**
- * ResourcesView — local resource catalog, restorable Uninstall and SSH copy tasks.
+ * ResourcesView — local resource catalog, restorable Uninstall and portable Cloud resources.
  *
  * One catalog of every Claude Code and Codex resource on this machine —
  * skills, commands, rules, CLAUDE.md/AGENTS.md, memory, agents, hooks, MCP
  * servers, plugins, settings — global and per project, compared with the
  * agent-skills repo copy. Everything arrives through `/api/resources`
  * (src/lib/resourcesApi.ts). Uninstall moves resources into the local trash.
- * The separate TransferPanel and transfer API copy reviewed packages over SSH;
+ * Cloud provides explicitly reviewed portable publication and installation;
  * neither path uses ProjectTab or `/api/files/*`.
  *
  * Catalog view state lives in the URL (`section`, `type`, `agent`, `scope`,
@@ -14,7 +14,7 @@
  * `/resources?project=<id>` opens a project's resources, and a Checks finding
  * opens the resource it is about.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigationType, useSearchParams } from 'react-router';
 import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType, UninstallResult } from '@/types/resources';
 import {
@@ -61,15 +61,15 @@ import ChecksPanel from '@/components/resources/ChecksPanel';
 import { RESTORE_WINDOW_MS, UNINSTALL_MODAL_ID, UninstallDialog } from '@/components/resources/UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
 import noteStyles from '@/styles/modules/SkillNotes.module.css';
-import transferStyles from '@/styles/modules/ResourceTransfers.module.css';
-import TransferPanel from '@/components/resources/TransferPanel';
-import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceTransfers';
+import selectionStyles from '@/styles/modules/ResourceSelection.module.css';
+import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceSelection';
 
+const CloudPanel = lazy(() => import('@/components/resources/cloud/CloudPanel'));
 const POLL_MS = 750;
 /** How often "scanned 2m ago" is re-derived; it has minute resolution. */
 const AGE_TICK_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'Resources are available only on this machine — open AASC on the Mac that runs it.';
-const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', transfers: 'Transfers', devices: 'Devices' };
+const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', cloud: 'Cloud' };
 const NO_RESOURCES: ResourceSummary[] = [];
 const NO_PROJECTS: ResourceProject[] = [];
 /** Most tag chips the filter bar shows; the rest stay reachable by search. */
@@ -184,8 +184,14 @@ function SectionTabs({ baseId, section, onSelect }: {
   section: ResourceSection;
   onSelect: (section: ResourceSection) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  // The row scrolls sideways at narrow widths (scrollbar hidden): keep the open tab in view.
+  useEffect(() => {
+    const tab = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [section]);
   return (
-    <div className={styles.sectionTabs} role="tablist" aria-label="Resource sections">
+    <div ref={listRef} className={styles.sectionTabs} role="tablist" aria-label="Resource sections">
       {RESOURCE_SECTIONS.map((s) => (
         <button
           key={s}
@@ -278,8 +284,10 @@ export default function ResourcesView() {
   const params = useMemo(() => readResourceParams(searchParams), [searchParams]);
   const [extraRoots, setExtraRoots] = useState<string[]>(() => readExtraRoots());
   const [storageOk, setStorageOk] = useState(true);
-  const [transferSelection, setTransferSelection] = useState<ResourceSelection>([]);
-  const [selectingTransfer, setSelectingTransfer] = useState(false);
+  const [resourceSelection, setResourceSelection] = useState<ResourceSelection>([]);
+  const [selectingResources, setSelectingResources] = useState(false);
+  const [cloudVisited, setCloudVisited] = useState(false);
+  if (params.section === 'cloud' && !cloudVisited) setCloudVisited(true);
   const { catalog, error, unavailable, now, reload, rescan, rescanPending } = useResourceCatalog(extraRoots);
 
   // The search box keeps its own draft. Navigations run inside startTransition,
@@ -325,7 +333,7 @@ export default function ResourcesView() {
 
   const resources = catalog?.resources ?? NO_RESOURCES;
   const projects = catalog?.projects ?? NO_PROJECTS;
-  const transferIds = useMemo(() => new Set(resources.filter(r => resourceIsSelected(r, transferSelection)).map(r => r.id)), [resources, transferSelection]);
+  const selectionIds = useMemo(() => new Set(resources.filter(r => resourceIsSelected(r, resourceSelection)).map(r => r.id)), [resources, resourceSelection]);
   const byId = useMemo(() => new Map(resources.map((r) => [r.id, r] as const)), [resources]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
   // Shortcut commands ("Shortcut for /x") ↔ their targets, once per catalog.
@@ -466,14 +474,14 @@ export default function ResourcesView() {
             onTag={toggleTag}
           />
         )}
-        {inLibrary && resources.length > 0 && <div className={transferStyles.bulkBar}>
-          <Button pressed={selectingTransfer} onClick={() => setSelectingTransfer(v => !v)}>Select for transfer</Button>
-          {selectingTransfer && <>
-            <Button onClick={() => setTransferSelection(s => withResourceSelection(s, list.map(r => ({ resourceId: r.id, include: true }))))}>Select visible ({list.length})</Button>
-            <Button onClick={() => setTransferSelection([])}>Clear selection</Button>
+        {inLibrary && resources.length > 0 && <div className={selectionStyles.bulkBar}>
+          <Button pressed={selectingResources} onClick={() => setSelectingResources(v => !v)}>Select resources</Button>
+          {selectingResources && <>
+            <Button onClick={() => setResourceSelection(s => withResourceSelection(s, list.map(r => ({ resourceId: r.id, include: true }))))}>Select visible ({list.length})</Button>
+            <Button onClick={() => setResourceSelection([])}>Clear selection</Button>
           </>}
-          {(selectingTransfer || transferIds.size > 0) && <Button variant="primary" onClick={() => updateParams({ section: 'transfers' })}>Create transfer ({transferIds.size})</Button>}
-          {selectingTransfer && <span className={transferStyles.hint}>Checkboxes select for transfer; resource names open previews. Use Transfers for whole scopes and projects.</span>}
+          {(selectingResources || selectionIds.size > 0) && <><Button variant="primary" onClick={() => updateParams({ section: 'cloud', cloudTab: 'resources' })}>Save selected to cloud ({selectionIds.size})</Button></>}
+          {selectingResources && <span className={selectionStyles.hint}>Checkboxes select resources; resource names open previews. Cloud supports whole scopes, projects and exclusions.</span>}
         </div>}
         {catalog && <p className={styles.countsLine}>{catalogSummaryLine(catalog, showPluginSystem, now)}</p>}
       </header>
@@ -501,7 +509,7 @@ export default function ResourcesView() {
         {!catalog && error && (
           <EmptyState fill tone="error" title={error} action={<Button onClick={reload}>Retry</Button>} />
         )}
-        {catalog && (params.section === 'transfers' || params.section === 'devices') && <TransferPanel section={params.section} catalog={catalog} selection={transferSelection} onSelection={setTransferSelection} onDevices={() => updateParams({ section: 'devices' })} />}
+        {catalog && cloudVisited && <div hidden={params.section !== 'cloud'} style={{ width: '100%', minWidth: 0, overflow: 'auto' }}><Suspense fallback={<EmptyState busy title="Loading Cloud…" />}><CloudPanel catalog={catalog} selection={resourceSelection} onSelection={setResourceSelection}/></Suspense></div>}
         {catalog && params.section === 'sources' && (
           <SourcesPanel
             catalog={catalog}
@@ -540,8 +548,8 @@ export default function ResourcesView() {
               scrollResetKey={`${type}|${agent}|${scope}|${projectId ?? ''}|${query}|${showPluginSystem}|${favOnly}|${tagKey}`}
               shortcuts={shortcuts}
               onSelect={selectResource}
-              transferIds={selectingTransfer ? transferIds : undefined}
-              onTransferSelect={(id, include) => setTransferSelection(s => withResourceSelection(s, [{ resourceId: id, include }]))}
+              selectionIds={selectingResources ? selectionIds : undefined}
+              onResourceSelect={(id, include) => setResourceSelection(s => withResourceSelection(s, [{ resourceId: id, include }]))}
             />
             {params.id ? (
               <ResourceDetail

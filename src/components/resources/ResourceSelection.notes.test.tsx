@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ResourceSummary } from '@/types/resources';
-import { resourceIsSelected, type ResourceSelection as Selection } from '@/types/resourceTransfers';
+import { resourceIsSelected, type ResourceSelection as Selection } from '@/types/resourceSelection';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import ResourceSelection from './ResourceSelection';
 

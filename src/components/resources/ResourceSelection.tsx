@@ -5,17 +5,17 @@ import {
   matchesResourceSelector,
   resourceIsSelected,
   withResourceSelection,
-  transferBlocker,
   type ResourceSelection as Selection,
   type ResourceSelector,
-} from '@/types/resourceTransfers';
+} from '@/types/resourceSelection';
+
 import { AGENT_LABELS, RESOURCE_TYPE_LABELS } from '@/lib/resourceFilters';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import { isNotable, noteForResource, passesNoteFilter, tagsInUse, type NoteFilter } from '@/lib/skillNotes';
 import Button from '@/components/ui/Button';
 import Field from '@/components/ui/Field';
 import NativeSelect from '@/components/ui/NativeSelect';
-import styles from '@/styles/modules/ResourceTransfers.module.css';
+import styles from '@/styles/modules/ResourceSelection.module.css';
 
 export function SelectionCheck({
   label,
@@ -54,11 +54,13 @@ export default function ResourceSelection({
   projects,
   selection,
   onChange,
+  blocker = () => null,
 }: {
   resources: ResourceSummary[];
   projects: ResourceProject[];
   selection: Selection;
   onChange: (selection: Selection) => void;
+  blocker?: (resource: ResourceSummary) => string | null;
 }) {
   const [agent, setAgent] = useState<'all' | 'claude' | 'codex' | 'shared'>('all');
   const selected = new Set(
@@ -129,8 +131,8 @@ export default function ResourceSelection({
                     onChange(withResourceSelection(selection, [{ resourceId: r.id, include }]))
                   }
                 />
-                {transferBlocker(r) && (
-                  <small className={styles.hint}>Review required: {transferBlocker(r)}</small>
+                {blocker(r) && (
+                  <small className={styles.hint}>Review required: {blocker(r)}</small>
                 )}
               </div>
             ))}
@@ -199,7 +201,7 @@ export default function ResourceSelection({
       ))}
       <p role="status">
         {selected.size} selected ·{' '}
-        {resources.filter((r) => selected.has(r.id) && transferBlocker(r)).length} require review
+        {resources.filter((r) => selected.has(r.id) && blocker(r)).length} require review
       </p>
     </div>
   );

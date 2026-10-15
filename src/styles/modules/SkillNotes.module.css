@@ -55,7 +55,7 @@
 .favToggle { flex: 0 0 auto; }
 
 /* A list item holding a heart and the row button. It also keeps working when
-   the transfer checkbox joins it (ResourceTransfers' .bulkRow sets every direct
+   the resource-selection checkbox joins it (ResourceSelection's .bulkRow sets every direct
    button to flex: 1, which would stretch the heart; the higher-specificity
    rule below wins). */
 .rowWrap { display: flex; align-items: center; gap: 8px; }

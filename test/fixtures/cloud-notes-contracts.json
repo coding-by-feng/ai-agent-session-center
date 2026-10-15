@@ -1,0 +1,80 @@
+{
+  "normalization": [
+    {
+      "raw": "  Foo / BAR  ",
+      "tag": "foo-bar"
+    },
+    {
+      "raw": "ＡＢＣ 中文",
+      "tag": "abc-中文"
+    },
+    {
+      "raw": "É___--2",
+      "tag": "é___-2"
+    },
+    {
+      "raw": "abcdefghijklmnopqrstuvw-XYZ",
+      "tag": "abcdefghijklmnopqrstuvw"
+    },
+    {
+      "raw": "!!!",
+      "tag": null
+    }
+  ],
+  "keys": ["claude:retouch", "codex:plugin-name:MySkill", "shared:中文技能"],
+  "mutation": {
+    "mutationId": "00000000-0000-4000-8000-000000000001",
+    "key": "codex:plugin-name:MySkill",
+    "baseVersion": null,
+    "set": {
+      "fav": true,
+      "abbr": "rr",
+      "cli": true
+    },
+    "addTags": [
+      {
+        "tag": "ＡＢＣ 中文",
+        "dot": "00000000-0000-4000-8000-000000000002"
+      }
+    ]
+  },
+  "record": {
+    "key": "codex:plugin-name:MySkill",
+    "value": {
+      "fav": true,
+      "tags": ["abc-中文"],
+      "abbr": "rr",
+      "cli": true
+    },
+    "version": 1,
+    "deleted": false,
+    "tagDots": [
+      {
+        "tag": "abc-中文",
+        "dots": ["00000000-0000-4000-8000-000000000002"]
+      }
+    ]
+  },
+  "tagLimitConflict": {
+    "mutationId": "00000000-0000-4000-8000-000000000003",
+    "error": {
+      "code": "tag_limit_conflict",
+      "message": "Merged tags exceed 12; resolve the proposed tags"
+    },
+    "proposedTags": [
+      "extra",
+      "tag-0",
+      "tag-1",
+      "tag-10",
+      "tag-11",
+      "tag-2",
+      "tag-3",
+      "tag-4",
+      "tag-5",
+      "tag-6",
+      "tag-7",
+      "tag-8",
+      "tag-9"
+    ]
+  }
+}

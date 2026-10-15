@@ -25,11 +25,11 @@ import { isNotable, noteForResource, type SkillNote } from '@/lib/skillNotes';
 import { FavToggle } from './SkillNotes';
 import noteStyles from '@/styles/modules/SkillNotes.module.css';
 import styles from '@/styles/modules/Resources.module.css';
-import transferStyles from '@/styles/modules/ResourceTransfers.module.css';
+import selectionStyles from '@/styles/modules/ResourceSelection.module.css';
 
 interface ResourceListProps {
-  transferIds?: ReadonlySet<string>;
-  onTransferSelect?: (id: string, include: boolean) => void;
+  selectionIds?: ReadonlySet<string>;
+  onResourceSelect?: (id: string, include: boolean) => void;
   type: ResourceType;
   resources: ResourceSummary[];
   selectedId: string | null;
@@ -106,8 +106,8 @@ function ResourceRow({
 }
 
 export default function ResourceList({
-  transferIds,
-  onTransferSelect,
+  selectionIds,
+  onResourceSelect,
   type,
   resources,
   selectedId,
@@ -152,9 +152,9 @@ export default function ResourceList({
           {resources.map((r) => (
             <li
               key={r.id}
-              className={[transferIds ? transferStyles.bulkRow : '', isNotable(r) ? noteStyles.rowWrap : ''].filter(Boolean).join(' ') || undefined}
+              className={[selectionIds ? selectionStyles.bulkRow : '', isNotable(r) ? noteStyles.rowWrap : ''].filter(Boolean).join(' ') || undefined}
             >
-              {transferIds && <input className={transferStyles.bulkCheck} type="checkbox" aria-label={`Transfer ${r.name} (${r.agent})`} checked={transferIds.has(r.id)} onChange={e => onTransferSelect?.(r.id, e.target.checked)} />}
+              {selectionIds && <input className={selectionStyles.bulkCheck} type="checkbox" aria-label={`Select ${r.name} (${r.agent})`} checked={selectionIds.has(r.id)} onChange={e => onResourceSelect?.(r.id, e.target.checked)} />}
               <FavToggle resource={r} />
               <ResourceRow
                 resource={r}

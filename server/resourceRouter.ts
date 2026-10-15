@@ -1,5 +1,5 @@
 /**
- * resourceRouter — `/api/resources`, the local RESOURCES catalog and transfer API.
+ * resourceRouter — `/api/resources`, the local RESOURCES catalog and cloud API.
  *
  * Mounted by the integrator as
  *   app.use('/api/resources', authMiddleware, createResourceRouter({...}))
@@ -20,20 +20,37 @@
 import { Router, json } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { homedir } from 'os';
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, resolve, join } from 'path';
 import { z } from 'zod';
 import { isLoopbackAddress } from './presenceManager.js';
 import { PathSafetyError } from './fsSafe.js';
 import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
-import { ABBR_RE, TARGET_RE, AliasError, aliasFilesFor, createAlias, removeAlias } from './resourceAliases.js';
+import { ABBR_RE, TARGET_RE, AliasError, aliasCatalogRealNames, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
-import { createTransferRouter } from './resourceTransfers/router.js';
-import type { TransferServiceDeps } from './resourceTransfers/service.js';
+import { createResourceJobs, type ResourceJobs } from './cloud/resourceJobs.js';
+import { createProjectJobs, type ProjectJobs } from './cloud/projectJobs.js';
+import { createProjectRouter } from './cloud/projectRouter.js';
+import { createResourceJobsRouter } from './cloud/resourceRouter.js';
+import { globalRootPaths } from './resourceRoots.js';
+import { createCloudRouter } from './cloud/router.js';
+import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
+import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
+import type { CloudConnector } from './cloud/types.js';
 
 export interface ResourceRouterDeps {
+  /** Optional server-owned cloud connector, never a renderer token. */
+  cloud?: CloudConnector;
+  /** Trusted private storage override; tests use a disposable canonical directory. */
+  cloudAliasDirectory?: string;
+  cloudJobDirectory?: string;
+  onCloudProjectsReady?: (getCloudProjects: () => Promise<ProjectJobs>) => void;
+  onCloudJobsReady?: (getCloudJobs: () => Promise<ResourceJobs>) => void;
+  /** Task10 installer receives the same lazy instance after verified installation. */
+  onCloudAliasesReady?: (getCloudAliases: () => Promise<CloudAliasesService>) => void;
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
   sessionProjectPaths: () => string[];
+  cloudActiveProjectPaths?: () => string[];
   /** Tests override; default `isLocalResourceRequest`. */
   isLocalRequest?: (req: Request) => boolean;
   /** Tests override the environment and home dir (fixtures). Default process.env / os.homedir(). */
@@ -41,8 +58,7 @@ export interface ResourceRouterDeps {
   home?: string;
   /** Where uninstalled resources go. Default `DEFAULT_TRASH_DIR` (resourceUninstall.ts). */
   trashDir?: string;
-  /** Isolated persistence/transport in tests. */
-  transfers?: Omit<TransferServiceDeps, 'catalog'>;
+
 }
 
 /** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
@@ -79,7 +95,7 @@ export function isLocalResourceRequest(req: Request): boolean {
 }
 
 /**
- * The extra bar for resource WRITE routes (uninstall, restore and transfers): the request must
+ * The extra bar for resource WRITE routes (uninstall, restore, aliases and cloud): the request must
  * come from the AASC page itself, not merely from this machine. The local gate
  * above accepts any loopback Origin — a page on another localhost port is local
  * too — and for reads that is fine. For a write, a browser marks a different
@@ -209,8 +225,31 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     }
     fail(res, 404, 'Not found');
   });
+  if (deps.cloud) {
+    const cloud = deps.cloud;
+    let cloudAliases: Promise<CloudAliasesService> | undefined;
+    const getCloudAliases = () => cloudAliases ??= createCloudAliases({
+      cloud, home,
+      directory: deps.cloudAliasDirectory ?? join(deps.home ?? process.env.APP_USER_DATA ?? resolve('.'), 'data', 'cloud'),
+      catalog: () => catalog.getOrStartCatalog(),
+    });
+    deps.onCloudAliasesReady?.(getCloudAliases);
+    router.use('/cloud/aliases', createCloudAliasesRouter(getCloudAliases, isSameOriginWrite));
+    let jobs: Promise<ResourceJobs> | undefined;
+    const getJobs = () => jobs ??= createResourceJobs({ cloud, catalog, roots: globalRootPaths(deps.env ?? process.env, home), directory: deps.cloudJobDirectory ?? join(deps.home ?? process.env.APP_USER_DATA ?? resolve('.'), 'data', 'cloud', 'resources'), getCloudAliases });
+    let projects: Promise<ProjectJobs> | undefined;
+    const getProjects = () => projects ??= getJobs().then(resources => createProjectJobs({cloud,resources,activeProjectPaths:deps.cloudActiveProjectPaths ?? deps.sessionProjectPaths}));
+    deps.onCloudProjectsReady?.(getProjects);
+    // Attach owner before handling shared project job history/cancel/retry, including after restart.
+    const getOwnedJobs = async () => { await getProjects(); return getJobs(); };
+    deps.onCloudJobsReady?.(getOwnedJobs);
+    router.use('/cloud', createProjectRouter(getProjects, isSameOriginWrite));
+    router.use('/cloud', createResourceJobsRouter(getOwnedJobs, isSameOriginWrite));
+    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite));
+  }
   router.use(json({ limit: '64kb' }));
-  router.use('/transfers', createTransferRouter({ ...deps.transfers, catalog }, isSameOriginWrite));
+  // Retired tools are explicitly unavailable; never construct a legacy service.
+  router.use(['/transfers', '/sync'], (_req, res) => fail(res, 404, 'Not found'));
 
   const idOf = (req: Request): string | null => {
     const parsed = resourceIdSchema.safeParse(str(req.params.id));
@@ -319,19 +358,11 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
       if (current.resources.length === 0) {
         return fail(res, 409, current.state === 'ready' ? 'The catalog is empty.' : 'The first scan is still running; try again in a moment.');
       }
-      const own = new Set(
-        (['claude', 'codex', 'shared'] as const)
-          .flatMap((agent) => aliasFilesFor(agent, body.kind, body.abbr, home))
-          .map((f) => f.display),
+      const realNames = aliasCatalogRealNames(current.resources, [body], home);
+      const targetFound = current.resources.some(r =>
+        (r.type === 'skill' || r.type === 'command') && r.agent === body.agent &&
+        r.type === body.kind && (r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name) === body.target,
       );
-      const realNames = new Set<string>();
-      let targetFound = false;
-      for (const r of current.resources) {
-        if ((r.type !== 'skill' && r.type !== 'command') || own.has(r.path)) continue;
-        const name = r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name;
-        realNames.add(`${r.agent}:${name}`);
-        if (r.agent === body.agent && r.type === body.kind && name === body.target) targetFound = true;
-      }
       // 409, not 404: the client reads a 404 on /api/resources as "not available on this machine".
       if (!targetFound) return fail(res, 409, 'That skill or command is not in the catalog. Rescan and try again.');
       res.json({ success: true, data: await createAlias(body, { home, realNames }) });
