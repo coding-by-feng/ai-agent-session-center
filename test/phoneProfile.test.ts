@@ -105,6 +105,8 @@ describe('phoneRuleFor', () => {
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
     ['GET', '/rooms'], ['POST', '/rooms/ops'],
+    // The phone chat (AASC-41) and what a session edited (AASC-44), behind the /sessions/:id gate.
+    ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -137,6 +139,8 @@ describe('phoneRuleFor', () => {
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
     ['POST', '/snippets/import'],
     ['PUT', '/rooms'], ['GET', '/rooms/ops'], ['DELETE', '/rooms'],
+    ['POST', '/sessions/abc/chat'], ['DELETE', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/x'],
+    ['GET', '/sessions/abc/changes/3/raw'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();

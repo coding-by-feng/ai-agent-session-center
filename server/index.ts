@@ -35,6 +35,7 @@ import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
+import { createChatRouter } from './chat/chatRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -345,7 +346,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
+  // The phone chat's paged transcript (AASC-41). Ahead of apiRouter, with its own per-route
+  // visibility gate, so it never depends on apiRouter's /sessions/:id gate.
+  const chatRouter = createChatRouter({ getSession });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, chatRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

@@ -81,6 +81,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/tts/(synthesize|status)', 'allow'),
   // A shared session: the /sessions/:id gate answers 404 for every other one.
   route('GET', '/sessions/:id/(source|transcript|queue)', 'allow'),
+  // The phone chat (AASC-41) and what a session edited (AASC-44): the chat router's own
+  // /sessions/:id gate answers 404 for a session that isn't shared.
+  route('GET', '/sessions/:id/(chat|changes)', 'allow'),
+  route('GET', '/sessions/:id/changes/\\d+', 'allow'),
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
