@@ -229,6 +229,12 @@
   font-size: calc(14px * var(--ph-text-scale));
 }
 
+.secret {
+  flex: none;
+  display: inline-flex;
+  color: var(--ph-text-secondary);
+}
+
 .meta {
   flex: none;
   font-size: var(--ph-size-caption);

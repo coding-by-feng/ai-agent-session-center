@@ -47,7 +47,17 @@ export interface ToolResult {
   output: string;
   truncated: boolean;
   at: number;
+  /** The server marked it: its call touched a secret file. */
+  secret?: boolean;
 }
+
+/**
+ * The server's marks on a call or result that touched a secret file (src/types/chat.ts,
+ * `secret`): only marks, for the Mac and the phone alike. Read loosely so an entry
+ * from a server without them simply has none.
+ */
+type SecretMark = { secret?: unknown };
+const markedSecret = (entry: object): boolean => (entry as SecretMark).secret === true;
 
 export interface ToolCall {
   id: string;
@@ -68,6 +78,8 @@ export interface ToolCall {
   durationMs?: number;
   /** A phone sees a secret file's call without its content. */
   redacted: boolean;
+  /** It touched a secret file (marked by the server, or redacted for this phone): drawn with a lock. */
+  secret: boolean;
 }
 
 interface ItemBase {
@@ -140,7 +152,8 @@ export interface BuildOptions {
 // ── Pairing ──────────────────────────────────────────────────────────────────
 
 function resultOf(entry: ChatToolResultEntry | undefined): ToolResult | null {
-  return entry ? { isError: entry.isError, output: entry.output, truncated: entry.truncated, at: entry.timestamp } : null;
+  if (!entry) return null;
+  return { isError: entry.isError, output: entry.output, truncated: entry.truncated, at: entry.timestamp, ...(markedSecret(entry) ? { secret: true } : {}) };
 }
 
 function isRedacted(input: unknown): boolean {
@@ -149,8 +162,10 @@ function isRedacted(input: unknown): boolean {
 
 function toolItem(entry: ChatToolUseEntry, raw: ToolResult | null, open: ToolStatus | null): ToolItem {
   const redacted = isRedacted(entry.input);
-  // A backstop for the server's filter: a secret file's call never shows its output here,
-  // even when its result arrived on another page than the call.
+  const secret = redacted || markedSecret(entry) || !!raw?.secret;
+  // A backstop for the server's filter: a call redacted for this phone never shows its
+  // output here, even when its result arrived on another page than the call. Keyed on
+  // the redacted input, not the `secret` mark: the Mac gets the mark with the content.
   const result = raw && redacted ? { ...raw, output: HIDDEN_ON_PHONES, truncated: false } : raw;
   const described = describeTool(entry.name, entry.input, result?.output);
   const status: ToolStatus = result ? (result.isError ? 'failed' : 'done') : open ?? 'no-result';
@@ -167,6 +182,7 @@ function toolItem(entry: ChatToolUseEntry, raw: ToolResult | null, open: ToolSta
     ...described,
     ...(durationMs !== undefined ? { durationMs } : {}),
     redacted,
+    secret,
   };
   return {
     kind: 'tool',
