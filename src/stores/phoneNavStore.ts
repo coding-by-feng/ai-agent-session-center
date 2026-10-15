@@ -25,8 +25,8 @@
  * a tab root": the frame warns ("Press back again to leave") and a second back
  * within LEAVE_WINDOW_MS leaves the Mac page; after the window the root entry is
  * pushed again so the next back warns again. Entries that aren't the frame's (the
- * classic layout's router, when "New design" was turned on mid-session) are
- * walked straight through on the way out.
+ * desktop layout's router, when a window was narrowed to a phone's size
+ * mid-session) are walked straight through on the way out.
  *
  * The tab and stacks persist in localStorage (`aasc.phoneNav`, paths only) and
  * the address bar carries the shown screen as `?m=<path>`; a reload or a link
@@ -321,8 +321,8 @@ function landOnSentinel(): void {
 }
 
 /**
- * An entry that isn't the frame's: the classic layout's router entries sit under
- * the sentinel when "New design" was turned on mid-session. Reached with leave
+ * An entry that isn't the frame's: the desktop layout's router entries sit under
+ * the sentinel when a window was narrowed to a phone's size. Reached with leave
  * armed, the user is on the way out: keep going. Reached without (a jump past the
  * sentinel), this entry becomes the sentinel.
  */

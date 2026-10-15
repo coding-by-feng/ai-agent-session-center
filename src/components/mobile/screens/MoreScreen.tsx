@@ -14,7 +14,6 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneAppearance, PHONE_APPEARANCES } from '@/lib/chat/phoneAppearance';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
-import { usePhoneUi } from '@/hooks/usePhoneUi';
 
 /** The settings rows, shared by More and More → Settings. */
 export function SettingsRows() {
@@ -39,7 +38,6 @@ export function SettingsRows() {
 export default function MoreScreen() {
   const push = usePhoneNavStore((s) => s.push);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
-  const [phoneUi, setPhoneUi] = usePhoneUi();
   return (
     <Screen title="More" large testId="phone-more">
       <ListSection header="Library">
@@ -49,11 +47,6 @@ export default function MoreScreen() {
       </ListSection>
       <ListSection header="Settings">
         <SettingsRows />
-        <ListRow
-          title="New design"
-          subtitle="Turn off to go back to the classic phone layout."
-          toggle={{ checked: phoneUi === 'app', onChange: (on) => setPhoneUi(on ? 'app' : 'classic') }}
-        />
       </ListSection>
       <ListSection header="This phone">
         <ListRow

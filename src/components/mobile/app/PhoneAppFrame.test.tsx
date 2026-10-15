@@ -1,8 +1,8 @@
-// PhoneAppFrame.test.tsx — the new phone app's frame (AASC-38/39), on the real
+// PhoneAppFrame.test.tsx — the phone app's frame (AASC-38/39), on the real
 // browser history (jsdom): tabs and their stacks, the Inbox badge, back through
 // history, the tab bar hiding on a session, old ?session= links, the selection
 // bridge for today's views, "N more need you ›", and the body-scoped tokens.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
@@ -21,7 +21,6 @@ import PhoneAppFrame from './PhoneAppFrame';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { PHONE_NAV_KEY, usePhoneNavStore } from '@/stores/phoneNavStore';
-import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
   return {
@@ -44,14 +43,9 @@ function goTo(url: string) {
 
 beforeEach(() => {
   goTo('/');
-  writePhoneUi('app');
   localStorage.removeItem(PHONE_NAV_KEY);
   useSessionStore.setState({ sessions: fixtures(), selectedSessionId: null });
   useWsStore.setState({ snapshotReceived: true, connected: true, hiddenCount: 0 });
-});
-
-afterEach(() => {
-  writePhoneUi('classic');
 });
 
 const tabButton = (name: RegExp | string) => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name });
@@ -214,17 +208,6 @@ describe('PhoneAppFrame', () => {
     expect(usePhoneNavStore.getState().stacks.inbox).toEqual(['/inbox', '/sessions/s3/chat']);
   });
 
-  it('turns the new design off from More', async () => {
-    const user = userEvent.setup();
-    render(<PhoneAppFrame />);
-    await screen.findByTestId('phone-sessions');
-    await user.click(tabButton('More'));
-    const sw = await screen.findByRole('switch', { name: /New design/ });
-    expect(sw).toHaveAttribute('aria-checked', 'true');
-    await user.click(sw);
-    expect(localStorage.getItem(PHONE_UI_KEY)).toBe('classic');
-  });
-
   it('scopes the phone tokens to <body> while mounted and drops ?m= when it goes', async () => {
     const { unmount } = render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
@@ -234,7 +217,7 @@ describe('PhoneAppFrame', () => {
     expect(window.location.search).toBe('');
   });
 
-  it('drops a selection left from the classic layout, so opening that session still works', async () => {
+  it('drops a selection left from the desktop layout (a window narrowed to a phone), so opening that session still works', async () => {
     useSessionStore.setState({ selectedSessionId: 's4' });
     render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');

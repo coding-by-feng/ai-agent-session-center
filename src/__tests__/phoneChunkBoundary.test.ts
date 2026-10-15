@@ -104,10 +104,12 @@ describe('the desktop entry chunk', () => {
     expect(leaked).toEqual([]);
   });
 
-  it('carries only the "New design" switch of the new phone app, never the app itself', () => {
-    // App.tsx reads the switch (a few lines) and lazy-loads the frame behind it.
-    expect(graph.has('hooks/usePhoneUi.ts')).toBe(true);
+  it('lazy-loads the phone app: App.tsx picks it by screen size alone (AASC-48)', () => {
+    const app = readFileSync(resolve(SRC, 'App.tsx'), 'utf8');
+    expect(app).toMatch(/lazy\(\(\) => import\('@\/components\/mobile\/app\/PhoneAppFrame'\)\)/);
     expect([...graph].filter((f) => f.startsWith('components/mobile/app/'))).toEqual([]);
+    // The "New design" switch it read until every phone had the app.
+    expect([...graph].some((f) => f.includes('usePhoneUi'))).toBe(false);
   });
 
   it('keeps the phone-only stylesheets out of it too', () => {

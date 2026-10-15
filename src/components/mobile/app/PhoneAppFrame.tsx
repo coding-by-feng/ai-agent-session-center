@@ -1,12 +1,12 @@
 /**
- * PhoneAppFrame — the redesigned phone app (AASC-38/39): a stack of screens per
+ * PhoneAppFrame — the phone app (AASC-38/39): a stack of screens per
  * tab over a bottom tab bar (Sessions · Inbox · Queue · More).
  *
- * App.tsx renders it instead of the classic layout when the viewport is a
- * phone's AND the "New design" setting is on (hooks/usePhoneUi.ts), lazily, so
- * the desktop never downloads it. Everything App mounts above the layout keeps
- * running (WebSocket, auth, settings, room sync): flipping the setting swaps
- * only this, never the connection or the pairing.
+ * App.tsx renders it instead of the desktop layout on every phone-sized screen
+ * (`useIsMobile()`, AASC-48), lazily, so the desktop never downloads it.
+ * Everything App mounts above the layout keeps running (WebSocket, auth,
+ * settings, room sync): a resize or a turn that swaps the two swaps only this,
+ * never the connection or the pairing.
  *
  * While mounted it:
  *  - puts `phoneApp` on <body>, which scopes the phone tokens (phoneTokens.css)
@@ -15,8 +15,8 @@
  *    "Press back again to leave" on Android);
  *  - maps an old `?session=<id>&tab=…` link onto the new screens once the first
  *    snapshot says the session is visible (hidden or unknown: nothing happens);
- *  - turns any `selectSession(id)` from today's views (History "Open", global
- *    search, fork / clone) into "open that session on the Sessions tab".
+ *  - turns any `selectSession(id)` from the views it reuses (History "Open",
+ *    global search, fork / clone) into "open that session on the Sessions tab".
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MemoryRouter } from 'react-router';
@@ -108,7 +108,7 @@ function useLegacyDeepLink(search: string): void {
 /** Today's views select a session to open it; here that means pushing its screen. */
 function useSelectionBridge(): void {
   useEffect(() => {
-    // A selection left from the classic layout (its panel minimised) would make
+    // A selection left from the desktop layout (a window narrowed to a phone) would make
     // "Open" on that same session look like no change, and do nothing. The
     // session screen on top, if any, selected its session already (child
     // effects run first): keep that one.
