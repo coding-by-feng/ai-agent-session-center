@@ -19,7 +19,12 @@ const PHONE_ONLY = [
   'lib/phoneSuggestions.ts',
   'lib/queueImageAttach.ts',
   'lib/terminalCompose.ts',
+  // The new phone app's navigation (AASC-39).
+  'stores/phoneNavStore.ts',
 ];
+
+/** Phone-only folders outside components/mobile/ (the new phone app, AASC-38/39). */
+const PHONE_ONLY_DIRS = ['lib/chat/', 'styles/modules/mobile/'];
 
 function resolveImport(from: string, request: string): string | null {
   const specifier = request.replace(/\?.*$/, ''); // `?url`, `?raw`
@@ -89,8 +94,16 @@ describe('the desktop entry chunk', () => {
   });
 
   it('statically imports no phone-only module', () => {
-    const leaked = [...graph].filter((f) => f.startsWith('components/mobile/') || PHONE_ONLY.includes(f));
+    const leaked = [...graph].filter((f) => f.startsWith('components/mobile/')
+      || PHONE_ONLY.includes(f)
+      || PHONE_ONLY_DIRS.some((dir) => f.startsWith(dir)));
     expect(leaked).toEqual([]);
+  });
+
+  it('carries only the "New design" switch of the new phone app, never the app itself', () => {
+    // App.tsx reads the switch (a few lines) and lazy-loads the frame behind it.
+    expect(graph.has('hooks/usePhoneUi.ts')).toBe(true);
+    expect([...graph].filter((f) => f.startsWith('components/mobile/app/'))).toEqual([]);
   });
 
   it('keeps the phone-only stylesheets out of it too', () => {

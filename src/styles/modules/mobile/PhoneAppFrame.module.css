@@ -1,0 +1,44 @@
+/* PhoneAppFrame — the new phone app's frame (AASC-38/39). Tokens: phoneTokens.css. */
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ph-bg);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Toasts (the shared ToastContainer) sit above the tab bar, full width. */
+.frame .toasts {
+  top: auto;
+  right: var(--ph-gutter);
+  bottom: calc(var(--ph-tabbar) + var(--ph-safe-bottom) + var(--ph-space-3));
+  left: var(--ph-gutter);
+  align-items: stretch;
+}
+
+/* No tab bar (a session's screen, its composer at the bottom): under the nav bar instead. */
+.frame[data-tabbar-hidden] .toasts {
+  top: calc(var(--ph-safe-top) + var(--ph-navbar) + var(--ph-space-3));
+  bottom: auto;
+}
+
+.frame .toasts > * {
+  min-width: 0;
+  max-width: none;
+  padding: var(--ph-space-3) var(--ph-space-4);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.frame .toasts > * > span {
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+}
