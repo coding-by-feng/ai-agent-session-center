@@ -6,7 +6,8 @@
  *   /sessions/<id>/info           its Info screen (AASC-46), and what Info opens:
  *   /sessions/<id>/info/files|notes|queue|agents|popups
  *   /inbox   /queue   /more        the other tab roots
- *   /more/<page>                  History, Prompts, Review, Agenda, Settings, About, UI kit
+ *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings
+ *                                 (and its pages), This phone, About, UI kit
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -22,7 +23,11 @@ export type PhoneTab = (typeof PHONE_TABS)[number];
 export const SESSION_SEGMENTS = ['chat', 'changes', 'terminal'] as const;
 export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
-export const MORE_PAGES = ['history', 'prompts', 'review', 'agenda', 'settings', 'about', 'gallery'] as const;
+export const MORE_PAGES = [
+  'history', 'prompts', 'saved-prompts', 'review', 'agenda',
+  'settings', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced',
+  'phone', 'about', 'gallery',
+] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
 
 /** What a session's Info screen opens (AASC-46). */
@@ -40,7 +45,14 @@ export type PhoneRoute =
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A More page reached from another More page, not from the More list itself. */
-const MORE_PARENT: Partial<Record<MorePage, MorePage>> = { gallery: 'about' };
+const MORE_PARENT: Partial<Record<MorePage, MorePage>> = {
+  gallery: 'about',
+  appearance: 'settings',
+  notifications: 'settings',
+  'api-keys': 'settings',
+  translation: 'settings',
+  advanced: 'settings',
+};
 
 const isOneOf = <T extends string>(list: readonly T[], value: string): value is T =>
   (list as readonly string[]).includes(value);

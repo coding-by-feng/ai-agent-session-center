@@ -1,15 +1,16 @@
 /**
- * LibraryScreen — More → History / Prompt Trace / Review / Agenda (AASC-39
- * placeholder; AASC-47 rebuilds them with the kit). Today's phone views, inside
- * the new screen chrome; they scroll themselves.
+ * LibraryScreen — More → History / Prompt Trace / Saved prompts / Review /
+ * Agenda (AASC-47). Each is a pushed screen with today's phone view inside
+ * (AASC-20: one column, search on top, filters in a sheet, a row opens full
+ * screen); they scroll themselves. Saved prompts is new on the phone.
  *
- * They were written for the classic layout's router: "Open" in History or
+ * The views were written for the classic layout's router: "Open" in History or
  * Prompts selects a session and navigates to `/`. Here a MemoryRouter (in the
  * frame) swallows the navigation, and the frame's selection bridge turns the
  * selection into "open this session on the Sessions tab".
  */
-import { lazy, type ReactNode } from 'react';
-import { Screen } from '../kit';
+import { lazy, Suspense, type ReactNode } from 'react';
+import { EmptyState, Screen } from '../kit';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import styles from '@/styles/modules/mobile/Screens.module.css';
 
@@ -17,22 +18,25 @@ const PhoneHistory = lazy(() => import('../views/PhoneHistory'));
 const PhonePrompts = lazy(() => import('../views/PhonePrompts'));
 const PhoneReview = lazy(() => import('../views/PhoneReview'));
 const PhoneAgenda = lazy(() => import('../views/PhoneAgenda'));
+const SavedPromptsView = lazy(() => import('./SavedPromptsView'));
 
-export type LibraryPage = 'history' | 'prompts' | 'review' | 'agenda';
+export type LibraryPage = 'history' | 'prompts' | 'saved-prompts' | 'review' | 'agenda';
 
-const PAGES: Record<LibraryPage, { title: string; view: ReactNode }> = {
-  history: { title: 'History', view: <PhoneHistory /> },
-  prompts: { title: 'Prompt Trace', view: <PhonePrompts /> },
-  review: { title: 'Review', view: <PhoneReview /> },
-  agenda: { title: 'Agenda', view: <PhoneAgenda /> },
+const PAGES: Record<LibraryPage, { title: string; view: ReactNode; embedded: boolean }> = {
+  history: { title: 'History', view: <PhoneHistory />, embedded: true },
+  prompts: { title: 'Prompt Trace', view: <PhonePrompts />, embedded: true },
+  'saved-prompts': { title: 'Saved prompts', view: <SavedPromptsView />, embedded: false },
+  review: { title: 'Review', view: <PhoneReview />, embedded: true },
+  agenda: { title: 'Agenda', view: <PhoneAgenda />, embedded: true },
 };
 
 export default function LibraryScreen({ page }: { page: LibraryPage }) {
   const pop = usePhoneNavStore((s) => s.pop);
-  const { title, view } = PAGES[page];
+  const { title, view, embedded } = PAGES[page];
+  const body = <Suspense fallback={<EmptyState live title="Loading…" />}>{view}</Suspense>;
   return (
-    <Screen title={title} onBack={pop} backLabel="Back to More" scroll={false} testId={`phone-more-${page}`}>
-      <div className={styles.embedded}>{view}</div>
+    <Screen title={title} onBack={pop} backLabel="Back to More" scroll={!embedded} testId={`phone-more-${page}`}>
+      {embedded ? <div className={styles.embedded}>{body}</div> : body}
     </Screen>
   );
 }

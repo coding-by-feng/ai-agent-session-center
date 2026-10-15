@@ -18,6 +18,7 @@ import { EmptyState, Screen } from '../kit';
 const LibraryScreen = lazy(() => import('../screens/LibraryScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const AboutScreen = lazy(() => import('../screens/AboutScreen'));
+const ThisPhoneScreen = lazy(() => import('../screens/ThisPhoneScreen'));
 const InfoScreen = lazy(() => import('../screens/InfoScreen'));
 const InfoPageScreen = lazy(() => import('../screens/info/InfoPageScreen'));
 const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
@@ -46,7 +47,14 @@ export default function RouteScreen({ path }: { path: string }) {
     return <MoreScreen />;
   }
   switch (route.page) {
-    case 'settings': return <SettingsScreen />;
+    case 'settings':
+    case 'appearance':
+    case 'notifications':
+    case 'api-keys':
+    case 'translation':
+    case 'advanced':
+      return <SettingsScreen page={route.page} />;
+    case 'phone': return <ThisPhoneScreen />;
     case 'about': return <AboutScreen />;
     case 'gallery': return <GalleryScreen />;
     default: return <LibraryScreen page={route.page} />;

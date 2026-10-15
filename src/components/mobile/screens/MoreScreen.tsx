@@ -1,46 +1,70 @@
 /**
- * MoreScreen — the More tab's root (AASC-39 placeholder; AASC-47 restyles what
- * it opens). Library, Settings, the "New design" switch, About.
+ * MoreScreen — the More tab's root (AASC-47, design §5.8): a grouped list.
+ *
+ *   LIBRARY     History · Prompt Trace · Saved prompts · Review · Agenda
+ *   SETTINGS    Appearance · Notifications · API keys · Translation · Advanced
+ *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair
+ *   ABOUT
+ *
+ * Each row pushes a screen of its own (lib/chat/phoneRoutes.ts `/more/<page>`).
  */
 import { ListRow, ListSection, Screen } from '../kit';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { usePresenceStore } from '@/stores/presenceStore';
+import { usePhoneAppearance, PHONE_APPEARANCES } from '@/lib/chat/phoneAppearance';
+import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
+import { LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
 import { usePhoneUi } from '@/hooks/usePhoneUi';
-import type { MorePage } from '@/lib/chat/phoneRoutes';
 
-const LIBRARY: ReadonlyArray<{ page: MorePage; title: string; subtitle: string }> = [
-  { page: 'history', title: 'History', subtitle: 'Past sessions, resume one' },
-  { page: 'prompts', title: 'Prompt Trace', subtitle: 'Every prompt you sent' },
-  { page: 'review', title: 'Review', subtitle: 'Saved AI popups' },
-  { page: 'agenda', title: 'Agenda', subtitle: 'Tasks' },
-];
+/** The settings rows, shared by More and More → Settings. */
+export function SettingsRows() {
+  const push = usePhoneNavStore((s) => s.push);
+  const [appearance] = usePhoneAppearance();
+  return (
+    <>
+      {SETTINGS_PAGES.map((item) => (
+        <ListRow
+          key={item.page}
+          title={item.title}
+          subtitle={item.subtitle}
+          value={item.page === 'appearance' ? PHONE_APPEARANCES.find((a) => a.value === appearance)?.label : undefined}
+          chevron
+          onClick={() => push(`/more/${item.page}`)}
+        />
+      ))}
+    </>
+  );
+}
 
 export default function MoreScreen() {
   const push = usePhoneNavStore((s) => s.push);
+  const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const [phoneUi, setPhoneUi] = usePhoneUi();
-
   return (
     <Screen title="More" large testId="phone-more">
       <ListSection header="Library">
-        {LIBRARY.map((item) => (
-          <ListRow
-            key={item.page}
-            title={item.title}
-            subtitle={item.subtitle}
-            chevron
-            onClick={() => push(`/more/${item.page}`)}
-          />
+        {LIBRARY_PAGES.map((item) => (
+          <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(`/more/${item.page}`)} />
         ))}
       </ListSection>
       <ListSection header="Settings">
-        <ListRow title="Settings" subtitle="Appearance, API keys, translation" chevron onClick={() => push('/more/settings')} />
+        <SettingsRows />
         <ListRow
           title="New design"
           subtitle="Turn off to go back to the classic phone layout."
           toggle={{ checked: phoneUi === 'app', onChange: (on) => setPhoneUi(on ? 'app' : 'classic') }}
         />
       </ListSection>
+      <ListSection header="This phone">
+        <ListRow
+          title={macName ? `Paired with ${macName}` : 'Paired Mac'}
+          subtitle={`${CONNECTION_WORDS[connectionPath(window.location.hostname)]} · lock, unpair`}
+          chevron
+          onClick={() => push('/more/phone')}
+        />
+      </ListSection>
       <ListSection header="About">
-        <ListRow title="About" chevron onClick={() => push('/more/about')} />
+        <ListRow title="About" subtitle="What this is, and the UI kit" chevron onClick={() => push('/more/about')} />
       </ListSection>
     </Screen>
   );
