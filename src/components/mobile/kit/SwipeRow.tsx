@@ -79,7 +79,7 @@ export default function SwipeRow({ actions, children }: SwipeRowProps) {
     if (!d || d.pointer !== e.pointerId) return;
     drag.current = null;
     writeOffset(null);
-    if (d.axis !== 'x') return;
+    if (d.axis !== 'x' || e.type === 'pointercancel') return;
     swallowClick.current = true;
     setOpen(d.offset < -width / 2);
   };

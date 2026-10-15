@@ -111,6 +111,7 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
   }
 
   const panelId = `session-panel-${sessionId}`;
+  const segmentIds = `session-segment-${sessionId}`;
   return (
     <Screen
       title={sessionDisplayTitle(session)}
@@ -134,12 +135,12 @@ export default function SessionScreen({ sessionId, segment }: { sessionId: strin
             </button>
           )}
           <div className={styles.segments}>
-            <SegmentedControl segments={SEGMENTS} value={segment} onChange={show} label="Session view" panelId={panelId} />
+            <SegmentedControl segments={SEGMENTS} value={segment} onChange={show} label="Session view" panelId={panelId} idPrefix={segmentIds} />
           </div>
         </>
       )}
     >
-      <div id={panelId} role="tabpanel" className={styles.panel}>
+      <div id={panelId} role="tabpanel" aria-labelledby={`${segmentIds}-${segment}`} className={styles.panel}>
         {segment === 'terminal' && <SessionTerminal session={session} />}
         {segment === 'chat' && <ChatPlaceholder session={session} onTerminal={showTerminal} />}
         {segment === 'changes' && <ChangesPlaceholder onTerminal={showTerminal} />}

@@ -269,7 +269,23 @@ describe('ContextMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('stays inside the viewport (pure)', () => {
+  it('ignores the click a hold’s release lands on an item, until a fresh press in the menu', () => {
+    vi.useFakeTimers();
+    const onRename = vi.fn();
+    render(<ContextMenu items={items(onRename)} label="Actions"><button type="button">Row</button></ContextMenu>);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Row' }), { pointerType: 'touch', clientX: 20, clientY: 20 });
+    act(() => { vi.advanceTimersByTime(LONG_PRESS_MS + 10); });
+    const rename = screen.getByRole('menuitem', { name: 'Rename' });
+    fireEvent.click(rename, { detail: 1 }); // the release, hit-tested on the item (iOS)
+    expect(onRename).not.toHaveBeenCalled();
+    fireEvent.pointerDown(rename, { pointerType: 'touch' });
+    fireEvent.click(rename, { detail: 1 });
+    expect(onRename).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays inside the viewport, clear of the finger that opened it (pure)', () => {
+    expect(clampMenuPosition(10, 10, 200, 100, 390, 844, 8, 24)).toEqual({ left: 10, top: 34 });
+    expect(clampMenuPosition(10, 800, 200, 100, 390, 844, 8, 24).top).toBe(800 - 24 - 100);
     expect(clampMenuPosition(10, 10, 200, 100, 390, 844)).toEqual({ left: 10, top: 10 });
     expect(clampMenuPosition(380, 10, 200, 100, 390, 844).left).toBe(390 - 200 - 8);
     expect(clampMenuPosition(10, 800, 200, 100, 390, 844).top).toBe(700); // flipped above the point

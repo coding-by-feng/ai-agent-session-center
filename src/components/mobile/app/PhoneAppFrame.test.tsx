@@ -94,8 +94,13 @@ describe('PhoneAppFrame', () => {
     const user = userEvent.setup();
     render(<PhoneAppFrame />);
     await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const before = await screen.findByTestId('phone-session');
     await user.click(await screen.findByRole('tab', { name: 'Terminal' }));
     expect(await screen.findByTestId('terminal-container')).toHaveTextContent('term-s2');
+    // The same screen, not a new one: focus stays on the segment that was chosen.
+    expect(screen.getByTestId('phone-session')).toBe(before);
+    expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveFocus();
+    expect(screen.getByRole('tabpanel', { name: 'Terminal' })).toBeTruthy();
     expect(window.location.search).toBe('?m=/sessions/s2/terminal');
     expect(usePhoneNavStore.getState().stacks.sessions).toHaveLength(2);
   });
@@ -203,5 +208,14 @@ describe('PhoneAppFrame', () => {
     unmount();
     expect(document.body.classList.contains('phoneApp')).toBe(false);
     expect(window.location.search).toBe('');
+  });
+
+  it('drops a selection left from the classic layout, so opening that session still works', async () => {
+    useSessionStore.setState({ selectedSessionId: 's4' });
+    render(<PhoneAppFrame />);
+    await screen.findByTestId('phone-sessions');
+    await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
+    act(() => useSessionStore.getState().selectSession('s4'));
+    expect(await screen.findByTestId('phone-session')).toBeTruthy();
   });
 });

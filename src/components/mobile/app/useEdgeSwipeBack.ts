@@ -84,12 +84,13 @@ export function useEdgeSwipeBack(
       write(Math.max(0, dx), track.width);
     };
 
-    const onEnd = () => {
+    const finish = (cancelled: boolean) => {
       const t = track;
       track = null;
       if (!t || t.axis !== 'x') return;
       const dx = Math.max(0, t.lastX - t.x);
-      const outcome = edgeSwipeOutcome(dx, t.width, t.v);
+      // A cancelled touch (a system gesture took it) never completes a pop.
+      const outcome = cancelled ? 'cancel' : edgeSwipeOutcome(dx, t.width, t.v);
       if (prefersReducedMotion()) {
         reset();
         if (outcome === 'complete') onBack();
@@ -118,13 +119,15 @@ export function useEdgeSwipeBack(
 
     el.addEventListener('touchstart', onStart, { passive: true, capture: true });
     el.addEventListener('touchmove', onMove, { passive: false, capture: true });
+    const onEnd = () => finish(false);
+    const onCancel = () => finish(true);
     el.addEventListener('touchend', onEnd, { capture: true });
-    el.addEventListener('touchcancel', onEnd, { capture: true });
+    el.addEventListener('touchcancel', onCancel, { capture: true });
     return () => {
       el.removeEventListener('touchstart', onStart, { capture: true });
       el.removeEventListener('touchmove', onMove, { capture: true });
       el.removeEventListener('touchend', onEnd, { capture: true });
-      el.removeEventListener('touchcancel', onEnd, { capture: true });
+      el.removeEventListener('touchcancel', onCancel, { capture: true });
       if (settle) clearTimeout(settle);
       reset();
     };

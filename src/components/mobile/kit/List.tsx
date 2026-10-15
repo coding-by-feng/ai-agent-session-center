@@ -65,7 +65,7 @@ export interface ListRowProps {
   disabledReason?: string;
   /** Two-line rows: 72px. */
   tall?: boolean;
-  /** Spoken instead of the visible text, when that needs context. */
+  /** Spoken instead of the visible text, when that needs context (button and switch rows). */
   ariaLabel?: string;
   testId?: string;
 }
@@ -136,7 +136,7 @@ export function ListRow({
       </button>
     );
   } else {
-    control = <div className={rowClass} aria-label={ariaLabel}>{body}</div>;
+    control = <div className={rowClass}>{body}</div>;
   }
 
   return (

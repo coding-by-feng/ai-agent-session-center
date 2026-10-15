@@ -22,7 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { LONG_PRESS_MS, VIEWPORT_PAD, clampMenuPosition } from './menuPosition';
+import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD, clampMenuPosition } from './menuPosition';
 import styles from '@/styles/modules/mobile/ContextMenu.module.css';
 
 export interface ContextMenuItem {
@@ -47,7 +47,12 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
   const menuId = useId();
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  /** Where it opened, and whether a finger hold opened it (the finger is still down there). */
+  const [at, setAt] = useState<{ x: number; y: number; byHold?: boolean } | null>(null);
+  // A hold-opened menu ignores item clicks until a fresh press inside it: on iOS
+  // the click that follows the hold's release is hit-tested where the finger
+  // lifts, which could be an item.
+  const armed = useRef(true);
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const swallowClick = useRef(false);
 
@@ -78,7 +83,8 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
       timer: setTimeout(() => {
         press.current = null;
         swallowClick.current = true;
-        setAt({ x, y });
+        armed.current = false;
+        setAt({ x, y, byHold: true });
       }, LONG_PRESS_MS),
     };
   };
@@ -91,6 +97,8 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
   const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     cancelPress();
+    if (at) return; // the hold already opened it (Android fires contextmenu on a hold too)
+    armed.current = true;
     setAt({ x: e.clientX, y: e.clientY });
   };
 
@@ -98,6 +106,7 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
       e.preventDefault();
       const r = (e.target as HTMLElement).getBoundingClientRect();
+      armed.current = true;
       setAt({ x: r.left + VIEWPORT_PAD, y: r.bottom });
     }
   };
@@ -114,7 +123,8 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     const menu = menuRef.current;
     if (!at || !menu) return;
     const { width, height } = menu.getBoundingClientRect();
-    const { left, top } = clampMenuPosition(at.x, at.y, width, height, window.innerWidth, window.innerHeight);
+    const gap = at.byHold ? FINGER_GAP : 0;
+    const { left, top } = clampMenuPosition(at.x, at.y, width, height, window.innerWidth, window.innerHeight, VIEWPORT_PAD, gap);
     menu.style.setProperty('--menu-left', `${Math.round(left)}px`);
     menu.style.setProperty('--menu-top', `${Math.round(top)}px`);
     menu.dataset.placed = '';
@@ -174,9 +184,6 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         onClickCapture={onClickCapture}
-        aria-haspopup="menu"
-        aria-expanded={at ? true : undefined}
-        aria-controls={at ? menuId : undefined}
       >
         {children}
       </div>
@@ -189,6 +196,7 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
             aria-label={label}
             className={styles.menu}
             onKeyDown={onMenuKey}
+            onPointerDown={() => { armed.current = true; }}
           >
             {items.map((item) => (
               <button
@@ -197,8 +205,9 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
                 role="menuitem"
                 className={`${styles.item}${item.destructive ? ` ${styles.destructive}` : ''}`}
                 aria-disabled={item.disabledReason ? true : undefined}
-                onClick={() => {
-                  if (item.disabledReason) return;
+                onClick={(e) => {
+                  // e.detail 0: a keyboard activation, never the hold's release.
+                  if (item.disabledReason || (!armed.current && e.detail !== 0)) return;
                   close();
                   item.onSelect();
                 }}

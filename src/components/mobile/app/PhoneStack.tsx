@@ -14,6 +14,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { ScreenSlotContext } from '../kit/screenSlot';
 import RouteScreen from './RouteScreen';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { parsePhonePath } from '@/lib/chat/phoneRoutes';
 import { useEdgeSwipeBack } from './useEdgeSwipeBack';
 import styles from '@/styles/modules/mobile/PhoneStack.module.css';
 
@@ -50,7 +51,7 @@ function Slot({ path, index, isTop, isUnder, exiting, entering, registerScroller
       data-path={path}
       inert={!isTop}
       aria-hidden={isTop ? undefined : true}
-      onAnimationEnd={exiting ? onExited : undefined}
+      onAnimationEnd={exiting ? (e) => { if (e.target === e.currentTarget) onExited(); } : undefined}
     >
       <ScreenSlotContext.Provider value={slot}>
         <Suspense fallback={<div className={styles.loading} role="status">Loading…</div>}>
@@ -59,6 +60,16 @@ function Slot({ path, index, isTop, isUnder, exiting, entering, registerScroller
       </ScreenSlotContext.Provider>
     </div>
   );
+}
+
+/**
+ * A screen's identity in the stack. A session keeps one instance across its
+ * segments (a segment switch is a replace of the path, not a new screen: focus,
+ * scroll and the selection survive it).
+ */
+function slotKey(index: number, path: string): string {
+  const route = parsePhonePath(path);
+  return route?.kind === 'session' ? `${index}:session:${route.sessionId}` : `${index}:${path}`;
 }
 
 /** How long an exit animation may take before the old screen is dropped anyway. */
@@ -103,12 +114,14 @@ export default function PhoneStack({ stack, registerScroller, onBack }: PhoneSta
   // so a popped screen slides out as it was instead of mounting again.
   const slots = stack.map((path, index) => ({ path, index, leaving: false }));
   // (Unless the same screen was pushed straight back: then the new one is it.)
-  if (exiting && stack[exiting.index] !== exiting.path) slots.push({ ...exiting, leaving: true });
+  if (exiting && (stack[exiting.index] === undefined || slotKey(exiting.index, stack[exiting.index]) !== slotKey(exiting.index, exiting.path))) {
+    slots.push({ ...exiting, leaving: true });
+  }
   return (
     <div ref={containerRef} className={styles.stack}>
       {slots.map(({ path, index, leaving }) => (
         <Slot
-          key={`${index}:${path}`}
+          key={slotKey(index, path)}
           path={path}
           index={index}
           isTop={!leaving && index === topIndex}

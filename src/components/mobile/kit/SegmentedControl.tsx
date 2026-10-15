@@ -25,10 +25,13 @@ export interface SegmentedControlProps<T extends string> {
   label: string;
   /** The id of the panel the selected segment shows (aria-controls). */
   panelId?: string;
+  /** Segment ids are `${idPrefix}-${value}`, so the panel can point back (aria-labelledby). */
+  idPrefix?: string;
 }
 
-export default function SegmentedControl<T extends string>({ segments, value, onChange, label, panelId }: SegmentedControlProps<T>) {
-  const groupId = useId();
+export default function SegmentedControl<T extends string>({ segments, value, onChange, label, panelId, idPrefix }: SegmentedControlProps<T>) {
+  const autoId = useId();
+  const groupId = idPrefix ?? autoId;
   const refs = useRef(new Map<T, HTMLButtonElement>());
   const enabled = segments.filter((s) => !s.disabledReason);
 

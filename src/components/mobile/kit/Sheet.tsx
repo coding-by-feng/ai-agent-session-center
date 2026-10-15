@@ -138,6 +138,8 @@ export default function Sheet({
       delete panel.dataset.dragging;
       panel.style.removeProperty('--sheet-drag');
     }
+    // A cancelled pointer (the system took the gesture) springs back; it never closes.
+    if (e.type === 'pointercancel') return;
     const next = nextDetent(detents, detent, e.clientY - d.startY, d.velocity);
     if (next === 'close') onClose();
     else if (next !== detent) setDetent(next);

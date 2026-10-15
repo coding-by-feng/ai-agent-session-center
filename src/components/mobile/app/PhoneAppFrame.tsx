@@ -106,6 +106,18 @@ function useLegacyDeepLink(search: string): void {
 
 /** Today's views select a session to open it; here that means pushing its screen. */
 function useSelectionBridge(): void {
+  useEffect(() => {
+    // A selection left from the classic layout (its panel minimised) would make
+    // "Open" on that same session look like no change, and do nothing. The
+    // session screen on top, if any, selected its session already (child
+    // effects run first): keep that one.
+    const selected = useSessionStore.getState().selectedSessionId;
+    const nav = usePhoneNavStore.getState();
+    const top = parsePhonePath(nav.stacks[nav.tab][nav.stacks[nav.tab].length - 1]);
+    if (selected && !(top?.kind === 'session' && top.sessionId === selected)) {
+      useSessionStore.getState().deselectSession();
+    }
+  }, []);
   useEffect(() => useSessionStore.subscribe((state, prev) => {
     const id = state.selectedSessionId;
     if (!id || id === prev.selectedSessionId) return;
