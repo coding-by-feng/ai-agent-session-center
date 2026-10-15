@@ -109,7 +109,6 @@ function InfoBody({ session }: { session: Session }) {
           leading={<StatusRing status={session.status} interrupted={!!session.interruption} />}
           title={phoneStatus(session.status, !!session.interruption).label}
           value={formatRunTime(session, now)}
-          ariaLabel={`Status: ${phoneStatus(session.status, !!session.interruption).label}, running ${formatRunTime(session, now)}`}
         />
         <ListRow
           title="Model"
