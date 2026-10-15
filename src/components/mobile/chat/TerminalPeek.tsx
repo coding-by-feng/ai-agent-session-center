@@ -3,8 +3,8 @@
  * (AASC-41): three lines, twelve once tapped. It covers what the CLI prints before
  * it reaches the transcript (a reply is written there only once it is complete).
  * Plain text, colours dropped, no xterm: the chat holds the subscription
- * (useTerminalPeek) for as long as the session is live, so the strip coming and
- * going between working and waiting doesn't replay the scrollback each time.
+ * (useTerminalPeek) for as long as it is the screen on show, so the strip coming
+ * and going every turn never makes the server replay the scrollback.
  */
 import { memo, useState } from 'react';
 import { ChevronIcon } from './chatViewIcons';
