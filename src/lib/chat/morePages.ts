@@ -1,6 +1,6 @@
 /**
  * morePages.ts — what the phone's More tab lists (AASC-47): the Library and
- * Settings pages, each a pushed screen at `/more/<page>` (phoneRoutes.ts).
+ * Settings pages, each a pushed screen (phoneRoutes.ts `morePath`).
  */
 import type { MorePage } from './phoneRoutes';
 

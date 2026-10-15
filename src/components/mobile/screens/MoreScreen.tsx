@@ -6,7 +6,8 @@
  *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair
  *   ABOUT
  *
- * Each row pushes a screen of its own (lib/chat/phoneRoutes.ts `/more/<page>`).
+ * Each row pushes a screen of its own (lib/chat/phoneRoutes.ts: `/more/<page>`, a
+ * Settings page at `/more/settings/<section>`, so back from it returns to Settings).
  */
 import { ListRow, ListSection, Screen } from '../kit';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
@@ -14,6 +15,7 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneAppearance, PHONE_APPEARANCES } from '@/lib/chat/phoneAppearance';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
+import { morePath } from '@/lib/chat/phoneRoutes';
 import { usePhoneUi } from '@/hooks/usePhoneUi';
 
 /** The settings rows, shared by More and More → Settings. */
@@ -29,7 +31,7 @@ export function SettingsRows() {
           subtitle={item.subtitle}
           value={item.page === 'appearance' ? PHONE_APPEARANCES.find((a) => a.value === appearance)?.label : undefined}
           chevron
-          onClick={() => push(`/more/${item.page}`)}
+          onClick={() => push(morePath(item.page))}
         />
       ))}
     </>
@@ -44,7 +46,7 @@ export default function MoreScreen() {
     <Screen title="More" large testId="phone-more">
       <ListSection header="Library">
         {LIBRARY_PAGES.map((item) => (
-          <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(`/more/${item.page}`)} />
+          <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(morePath(item.page))} />
         ))}
       </ListSection>
       <ListSection header="Settings">
