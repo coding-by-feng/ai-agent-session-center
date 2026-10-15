@@ -3,8 +3,14 @@
 .card {
   --card-tone: var(--ph-status-approval);
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
   gap: var(--ph-space-2);
+  min-height: 0;
+  /* Normally only what is asked scrolls (.scroll); if even the answers can't fit
+     (landscape, keyboard up), the whole card scrolls rather than clip one. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0;
   padding: var(--ph-space-3) var(--ph-space-3) var(--ph-space-1);
   border: 1px solid color-mix(in srgb, var(--card-tone) 45%, transparent);
@@ -19,6 +25,7 @@
 
 .header {
   display: flex;
+  flex: none;
   align-items: flex-start;
   gap: var(--ph-space-2);
 }
@@ -36,6 +43,41 @@
   font-weight: 600;
   line-height: var(--ph-line-body);
   overflow-wrap: anywhere;
+}
+
+/* What is asked: scrolls when the card is capped, between a header and answers that stay. */
+.scroll {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  /* Enough to read a command at a glance; below it the whole card scrolls instead. */
+  min-height: 64px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Scroll shadows: a soft edge only where there is more to scroll, so a line cut
+     at the edge reads as "more below", never as broken. The covers are the card's
+     own colour and scroll with the content (local); the 12px shadows stay at the
+     edges (scroll). Each cover is opaque over its last 12px, so at an end it hides
+     its shadow completely, and when the body fits nothing shows; it is only 16px
+     tall, so a few px of overflow already show a clear band. Painting only: no layout. */
+  --scroll-shadow: color-mix(in srgb, var(--ph-text) 30%, transparent);
+  background:
+    linear-gradient(var(--ph-surface) 75%, transparent) center top,
+    linear-gradient(transparent, var(--ph-surface) 25%) center bottom,
+    linear-gradient(var(--scroll-shadow), transparent) center top,
+    linear-gradient(transparent, var(--scroll-shadow)) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 16px, 100% 16px, 100% 12px, 100% 12px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.fixed {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--ph-space-2);
 }
 
 .body {
@@ -64,7 +106,6 @@
 .code {
   box-sizing: border-box;
   min-height: var(--ph-target);
-  max-height: min(30vh, 200px);
   margin: 0;
   padding: 13px var(--ph-space-3);
   overflow: auto;
@@ -140,8 +181,7 @@
 
 .diff {
   min-height: var(--ph-target);
-  max-height: min(32vh, 220px);
-  overflow: auto;
+  overflow-x: auto;
   border-radius: var(--ph-radius-sm);
   background: var(--ph-fill);
   font-family: var(--ph-font-mono);
@@ -195,6 +235,13 @@
 }
 
 .state { color: var(--ph-text); font-weight: 600; }
+
+.note {
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
 .reason { color: var(--ph-text-secondary); }
 .error { color: var(--ph-danger); }
 

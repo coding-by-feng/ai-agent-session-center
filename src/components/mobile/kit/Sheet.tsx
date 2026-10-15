@@ -65,13 +65,13 @@ export default function Sheet({
     if (open) setDetent(initialDetent ?? detents[0]);
   }
   const drag = useRef<{ startY: number; lastY: number; lastT: number; velocity: number; pointer: number } | null>(null);
-  // Android's back closes the sheet, not the screen under it (AASC-48).
-  useBackLayer(open, onClose);
   // The newest onClose, for Escape: the effect below runs per opening, not per render.
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  // Android's back closes the sheet, not the screen under it (AASC-48).
+  useBackLayer(open, onClose);
 
   useEffect(() => {
     if (!open) return;

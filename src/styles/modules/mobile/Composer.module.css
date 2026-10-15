@@ -5,7 +5,7 @@
   flex: none;
   flex-direction: column;
   gap: var(--ph-space-2);
-  max-height: 75%;
+  max-height: 100%;
   padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
   overflow: hidden;
   border-top: 0.5px solid var(--ph-separator);
@@ -13,16 +13,15 @@
   font-family: var(--ph-font);
 }
 
-/* A tall card scrolls in its own space; the box under it always shows whole. */
+/* The waiting card: at most 55% of what the screen shows (less the keyboard), and
+   never more than the room the box leaves. It shrinks into that space and scrolls
+   what it asks inside, so its answers and the box under it always show whole. */
 .cardSlot {
+  display: flex;
   flex: 0 1 auto;
+  flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  /* Room for the card's shadow and focus rings inside the scroller. */
-  margin: calc(-1 * var(--ph-space-1));
-  padding: var(--ph-space-1);
+  max-height: calc(var(--visible-h, 100dvh) * 0.55);
 }
 
 .footer > .composer {

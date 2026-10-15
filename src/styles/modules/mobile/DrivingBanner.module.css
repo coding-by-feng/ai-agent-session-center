@@ -17,16 +17,6 @@
   background: var(--ph-accent-tint);
 }
 
-.compact {
-  flex-wrap: nowrap;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.compact .text {
-  flex: 1 1 auto;
-}
-
 .text {
   display: flex;
   flex: 1 1 160px;

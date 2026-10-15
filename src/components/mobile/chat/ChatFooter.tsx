@@ -8,10 +8,11 @@
  * The card is server state (`session.pendingRequest`), so after a reconnect it
  * comes back by itself.
  */
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, type CSSProperties } from 'react';
 import type { Session } from '@/types';
 import { useSoftKeyboardOpen } from '../app/useSoftKeyboardOpen';
 import { waitingCardModel } from '@/lib/chat/waitingCardModel';
+import { useVisibleHeight } from './useVisibleHeight';
 import WaitingCard from './WaitingCard';
 import Composer from './Composer';
 import styles from '@/styles/modules/mobile/Composer.module.css';
@@ -27,9 +28,12 @@ export default function ChatFooter({ session, onTerminal }: ChatFooterProps) {
   const keyboardOpen = useSoftKeyboardOpen();
   const card = useMemo(() => waitingCardModel(session), [session]);
   const focusComposer = useCallback(() => inputRef.current?.focus(), []);
+  // The card's cap (55% of it) follows the screen and the keyboard.
+  const visibleHeight = useVisibleHeight();
+  const vars = visibleHeight > 0 ? ({ '--visible-h': `${visibleHeight}px` } as CSSProperties) : undefined;
 
   return (
-    <div className={styles.footer} data-keyboard={keyboardOpen ? '' : undefined} data-testid="chat-footer">
+    <div className={styles.footer} data-keyboard={keyboardOpen ? '' : undefined} style={vars} data-testid="chat-footer">
       {card && (
         <div className={styles.cardSlot}>
           <WaitingCard

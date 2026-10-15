@@ -184,6 +184,16 @@ describe('Composer', () => {
     expect(useComposerDraftStore.getState().drafts.s1).toBe('no, do this');
   });
 
+  it('leaves the driving banner out while a card waits: the card says it and takes control', () => {
+    stubMac();
+    presence({ held: true });
+    renderComposer(session({ status: 'approval', pendingRequest: bash }));
+    expect(screen.queryByTestId('driving-banner')).not.toBeInTheDocument();
+    // The box still says why it is off.
+    expect(screen.getByTestId('composer-input')).toBeDisabled();
+    expect(screen.getByPlaceholderText('Your Mac is driving')).toBeInTheDocument();
+  });
+
   it('turns off while another device drives, saying who', () => {
     stubMac();
     presence({ held: true });

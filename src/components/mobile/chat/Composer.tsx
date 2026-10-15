@@ -307,7 +307,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
 
   return (
     <div className={styles.composer} data-testid="composer">
-      {(baton.mode === 'spectator' || baton.mode === 'asked') && <DrivingBanner sessionId={sessionId} compact={!!card} />}
+      {/* While a card waits it says who drives, and its answer takes control: no second banner. */}
+      {!card && (baton.mode === 'spectator' || baton.mode === 'asked') && <DrivingBanner sessionId={sessionId} />}
       {line && (
         <p className={styles.status} data-tone={failed ? 'error' : undefined} role={failed ? 'alert' : 'status'}>
           <span>{line}</span>
