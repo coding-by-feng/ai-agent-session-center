@@ -89,30 +89,39 @@ curl -s -X DELETE "${H[@]}" http://127.0.0.1:3439/api/mobile/devices/<id>       
 
 Use an emulator port other than 5554 (another project's emulator uses it), and a Play Store image for release checks.
 
-### The iOS project (generated without Xcode; not built yet)
+### The iOS project (builds and runs in the iPhone simulator)
 
-`ios/` was generated with `npx cap add ios --packagemanager SPM` on a Mac without Xcode, so **nothing in it has been
-compiled for iOS**. What is in place and checked here:
+`ios/` is the Capacitor iOS project (SPM). Checked on 2026-10-15 with Xcode 27.0 and the iOS 27 simulator
+(iPhone 17): it builds, launches, and pairs end to end with `scripts/mobile-test-mac.ts` (below).
 
 - `Info.plist` (`plutil -lint` OK): the local-network, Face ID and camera (QR) prompts iOS requires,
-  `NSAllowsLocalNetworking` for paired Macs (ATS stays on for everything else; plain-IP Macs are outside ATS),
-  `ITSAppUsesNonExemptEncryption` false (standard HTTPS only), `arm64`, and no `CFBundleURLTypes` (no custom scheme).
-- `App/App/ShellRules.swift`: the Swift twin of `ShellRules.kt` (origins, paired-Mac addresses, token and vault-key
-  shapes). Foundation only; `RulesTests/main.swift` mirrors `ShellRulesTest.kt` case for case:
-  `swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules` → 32/32.
-- `CapApp-SPM/Package.swift` points at `mobile/node_modules`; `npx cap sync ios` rewrites it.
+  `NSAllowsLocalNetworking` for paired Macs, `ITSAppUsesNonExemptEncryption` false, `arm64`, no `CFBundleURLTypes`.
+- `DeviceVaultPlugin.swift`: Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, one item per entry name.
+- `ShellBridgePlugin.swift`: the HttpOnly `auth_token` in the WebView's cookie store; paired-Mac http origins kept
+  in the WebView through `shouldOverrideLoad`; everything else opens in Safari.
+- `ShellOnly.swift`: both plugins answer the bundled shell (`capacitor://localhost`) only.
+- `AppViewController.swift` registers them; **`SceneDelegate` creates the root view controller in code**, so it
+  must be `AppViewController()` (the storyboard's class alone is not used).
+- `ShellRules.swift` + `RulesTests/main.swift`: the Swift twin of `ShellRules.kt` (37/37 with `swiftc`).
 
-To finish in Xcode (open `ios/App/App.xcodeproj`, set your team):
+Build and run in the simulator (no Apple account needed; the Keychain needs at least ad-hoc signing):
 
-1. Add `ShellRules.swift` to the App target (it isn't in the project file yet).
-2. Write the two plugins the shell calls, mirroring the Android ones and answering only the bundled shell page
-   (`capacitor://localhost`): `DeviceVault` (Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, entry name as
-   the account) and `ShellBridge` (HttpOnly `auth_token` through `WKHTTPCookieStore`, paired-Mac origins allowed by the
-   navigation policy, QR through VisionKit's `DataScannerViewController`, `takeShare` / biometric / `bootId` /
-   `writeWidget` as on Android). Register both in `capacitor.config` / a `CAPBridgeViewController` subclass.
-3. Capabilities: Associated Domains `applinks:aasc.work` (with the website's AASA built from `APPLE_TEAM_ID`), Push
-   Notifications, and an App Group `group.work.aasc.mobile` for the share extension and the widget.
-4. App-switcher blur on `sceneWillResignActive` (RELEASE 7), then the RELEASE checks on a device and TestFlight.
+```bash
+cd mobile && npm run shell:build && npx cap sync ios
+xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug \
+  -derivedDataPath /tmp/aasc-ios CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
+xcrun simctl boot "iPhone 17"; xcrun simctl install booted /tmp/aasc-ios/Build/Products/Debug-iphonesimulator/App.app
+xcrun simctl launch booted work.aasc.mobile
+```
+
+Pairing in the simulator: it shares the Mac's network, so run the test Mac on the Mac's LAN address
+(`MAC_LISTEN_HOST=<LAN IP> MAC_PAIRING_LAN=<LAN IP>`; the desktop routes stay on 127.0.0.1). Checked: pair with matching
+codes, approve, signed-in Mac page and WebSocket, restart, revoke ("removed this phone", back to pairing). A signing
+failure (unsigned build) is handled safely: "This phone couldn't store the pairing key securely, so nothing was paired."
+
+Still to do on iOS: your Apple ID / team in Xcode to run on a real iPhone; the iOS halves of the QR scanner (VisionKit),
+share extension, Face ID lock, widget (App Group) and push (APNs, needs the Developer Program); the app-switcher blur;
+associated domains for the pairing link.
 
 ### Turning push on (AASC-19)
 

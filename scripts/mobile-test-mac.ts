@@ -4,7 +4,7 @@
 // It mounts the REAL phone pairing routes (server/mobile/mobileRouter.ts + deviceAuth.ts)
 // on an in-memory device store, plus a stand-in Mac page, API and WebSocket that need the
 // session cookie. Desktop actions (make a pairing code, Allow, revoke) are harness calls
-// from this Mac only, with a secret header. Listens on 127.0.0.1 only.
+// from this Mac only, with a secret header. Listens on 127.0.0.1 unless MAC_LISTEN_HOST says otherwise.
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import express from 'express';
@@ -13,6 +13,11 @@ import { createDeviceAuth, type MobileDeviceRecord, type MobileDeviceStore } fro
 import { createMobileRouter } from '../server/mobile/mobileRouter.js';
 
 const PORT = 3439;
+// The emulator reaches 127.0.0.1 as 10.0.2.2. The iPhone simulator shares the Mac's network, so it needs
+// the Mac's LAN address: MAC_LISTEN_HOST=<that address> MAC_PAIRING_LAN=<that address> (reachable on the
+// LAN while it runs; pairing still needs a code from the secret-guarded desktop route).
+const LISTEN_HOST = process.env.MAC_LISTEN_HOST ?? '127.0.0.1';
+const PAIRING_LAN = process.env.MAC_PAIRING_LAN ?? '10.0.2.2';
 const SECRET = process.env.HARNESS_SECRET ?? '';
 if (SECRET.length < 16) throw new Error('HARNESS_SECRET missing');
 
@@ -64,7 +69,7 @@ app.use('/api/mobile', createMobileRouter({
     return tok;
   },
   sessionTtlSeconds: 3600,
-  pairingTarget: () => ({ name: 'Emu-Mac', port: PORT, lan: '10.0.2.2', tailnet: null }),
+  pairingTarget: () => ({ name: 'Emu-Mac', port: PORT, lan: PAIRING_LAN, tailnet: null }),
   rateLimit: { check: () => 0, record: () => undefined, clear: () => undefined },
 }));
 
@@ -90,4 +95,7 @@ wss.on('connection', (sock, req) => {
   sock.send(ok ? 'authenticated' : 'refused');
   if (!ok) sock.close();
 });
-server.listen(PORT, '127.0.0.1', () => log({ listening: PORT }));
+server.listen(PORT, LISTEN_HOST, () => log({ listening: `${LISTEN_HOST}:${PORT}` }));
+// The desktop routes answer this Mac over loopback only (mobileRouter's local gate), so harness calls
+// keep a 127.0.0.1 listener when the phone side listens elsewhere.
+if (LISTEN_HOST !== '127.0.0.1') http.createServer(app).listen(PORT, '127.0.0.1', () => log({ listening: `127.0.0.1:${PORT}` }));
