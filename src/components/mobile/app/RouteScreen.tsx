@@ -19,6 +19,7 @@ const LibraryScreen = lazy(() => import('../screens/LibraryScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const AboutScreen = lazy(() => import('../screens/AboutScreen'));
 const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
+const DiffScreen = lazy(() => import('../screens/DiffScreen'));
 
 function UnknownScreen() {
   return (
@@ -32,6 +33,7 @@ export default function RouteScreen({ path }: { path: string }) {
   const route = parsePhonePath(path);
   if (!route) return <UnknownScreen />;
   if (route.kind === 'session') return <SessionScreen sessionId={route.sessionId} segment={route.segment} />;
+  if (route.kind === 'diff') return <DiffScreen sessionId={route.sessionId} fileIndex={route.fileIndex} />;
   if (route.kind === 'tab-root') {
     if (route.tab === 'sessions') return <SessionsScreen />;
     if (route.tab === 'inbox') return <InboxScreen />;

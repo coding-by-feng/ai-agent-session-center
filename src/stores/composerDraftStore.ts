@@ -1,6 +1,14 @@
 /**
- * composerDraftStore — the phone composer's unsent text, per session (AASC-41/42).
- * Kept in localStorage on this phone (not credentials), so a draft survives a reload.
+ * composerDraftStore — what the phone's composer holds for each session before
+ * it is sent (AASC-41 / AASC-42 / AASC-44).
+ *
+ * Others put text into a draft: the chat's "Pull back" on a queued prompt, a
+ * diff line's "Comment" ("src/ui/icons.tsx:41 — "). The composer reads and edits
+ * the same draft, so the text is waiting there when you get back to the chat.
+ * Kept in localStorage on this phone (never credentials), so a draft survives a
+ * reload or the app being closed; storage failures leave it in memory only.
+ *
+ * Phone-only (src/__tests__/phoneChunkBoundary.test.ts).
  */
 import { create } from 'zustand';
 
@@ -28,8 +36,14 @@ function save(drafts: Record<string, string>): void {
 interface ComposerDraftState {
   drafts: Record<string, string>;
   setDraft: (sessionId: string, text: string) => void;
-  /** Add to the end of the draft on its own line (a quoted reference, a snippet). */
+  /** Add `text` on a line of its own after what is there. */
   appendToDraft: (sessionId: string, text: string) => void;
+}
+
+/** `text` after `draft`, on a new line unless the draft is empty or already ends one. */
+export function appendedDraft(draft: string, text: string): string {
+  if (!draft) return text;
+  return draft.endsWith('\n') ? `${draft}${text}` : `${draft}\n${text}`;
 }
 
 function withDraft(drafts: Record<string, string>, sessionId: string, text: string): Record<string, string> {
@@ -39,17 +53,18 @@ function withDraft(drafts: Record<string, string>, sessionId: string, text: stri
 
 export const useComposerDraftStore = create<ComposerDraftState>((set) => ({
   drafts: load(),
-  setDraft: (sessionId, text) => set((s) => {
-    const drafts = withDraft(s.drafts, sessionId, text);
-    save(drafts);
-    return { drafts };
-  }),
-  appendToDraft: (sessionId, text) => set((s) => {
-    const addition = text.trim();
-    if (!addition) return s;
-    const base = (s.drafts[sessionId] ?? '').trimEnd();
-    const drafts = withDraft(s.drafts, sessionId, base ? `${base}\n${addition}` : addition);
-    save(drafts);
-    return { drafts };
-  }),
+  setDraft: (sessionId, text) =>
+    set((s) => {
+      if ((s.drafts[sessionId] ?? '') === text) return s;
+      const drafts = withDraft(s.drafts, sessionId, text);
+      save(drafts);
+      return { drafts };
+    }),
+  appendToDraft: (sessionId, text) =>
+    set((s) => {
+      if (!text) return s;
+      const drafts = withDraft(s.drafts, sessionId, appendedDraft(s.drafts[sessionId] ?? '', text));
+      save(drafts);
+      return { drafts };
+    }),
 }));

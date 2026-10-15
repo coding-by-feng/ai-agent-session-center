@@ -3,6 +3,7 @@
  *
  *   /sessions                     Sessions tab root
  *   /sessions/<id>/chat|changes|terminal   a session, on one segment
+ *   /sessions/<id>/changes/<n>    one file's diff, from the Changes list (AASC-44)
  *   /inbox   /queue   /more        the other tab roots
  *   /more/<page>                  History, Prompts, Review, Agenda, Settings, About, UI kit
  *
@@ -26,10 +27,14 @@ export type MorePage = (typeof MORE_PAGES)[number];
 export type PhoneRoute =
   | { kind: 'tab-root'; tab: PhoneTab }
   | { kind: 'session'; sessionId: string; segment: SessionSegment }
+  | { kind: 'diff'; sessionId: string; fileIndex: number }
   | { kind: 'more'; page: MorePage };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A file's index in a session's changes list (the server's own bound: 4 digits). */
+const FILE_INDEX = /^\d{1,4}$/;
 
 /** A More page reached from another More page, not from the More list itself. */
 const MORE_PARENT: Partial<Record<MorePage, MorePage>> = { gallery: 'about' };
@@ -45,9 +50,15 @@ export function sessionPath(sessionId: string, segment: SessionSegment = 'chat')
   return `/sessions/${sessionId}/${segment}`;
 }
 
+/** One file's diff in a session's Changes (`fileIndex`: its index in the list, newest edit first). */
+export function diffPath(sessionId: string, fileIndex: number): string {
+  return `/sessions/${sessionId}/changes/${fileIndex}`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
+  if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
   return `/more/${route.page}`;
 }
 
@@ -62,6 +73,11 @@ export function parsePhonePath(path: string): PhoneRoute | null {
     if (!SESSION_ID.test(sessionId) || !isOneOf(SESSION_SEGMENTS, segment)) return null;
     return { kind: 'session', sessionId, segment };
   }
+  if (head === 'sessions' && parts.length === 4 && parts[2] === 'changes') {
+    const [, sessionId, , index] = parts;
+    if (!SESSION_ID.test(sessionId) || !FILE_INDEX.test(index)) return null;
+    return { kind: 'diff', sessionId, fileIndex: Number(index) };
+  }
   if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1])) {
     return { kind: 'more', page: parts[1] };
   }
@@ -73,7 +89,7 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'session' ? 'sessions' : 'more';
+  return route.kind === 'session' || route.kind === 'diff' ? 'sessions' : 'more';
 }
 
 /** The stack a link to `path` restores: its tab's root, any parent screens, then the path. */
@@ -82,6 +98,7 @@ export function pathChain(path: string): string[] {
   if (!route) return [tabRootPath('sessions')];
   if (route.kind === 'tab-root') return [path];
   if (route.kind === 'session') return [tabRootPath('sessions'), path];
+  if (route.kind === 'diff') return [tabRootPath('sessions'), sessionPath(route.sessionId, 'changes'), path];
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(`/more/${page}`);

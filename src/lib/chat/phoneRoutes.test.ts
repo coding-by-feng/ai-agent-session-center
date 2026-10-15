@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PHONE_TABS,
   defaultSegment,
+  diffPath,
   legacyDeepLinkToPath,
   parsePhonePath,
   pathChain,
@@ -48,6 +49,15 @@ describe('parsePhonePath / phonePath', () => {
     }
   });
 
+  it('round-trips one file’s diff from Changes (AASC-44)', () => {
+    expect(parsePhonePath('/sessions/term-1/changes/12')).toEqual({ kind: 'diff', sessionId: 'term-1', fileIndex: 12 });
+    expect(diffPath('term-1', 0)).toBe('/sessions/term-1/changes/0');
+    expect(phonePath({ kind: 'diff', sessionId: 'term-1', fileIndex: 3 })).toBe('/sessions/term-1/changes/3');
+    for (const bad of ['/sessions/x/changes/-1', '/sessions/x/changes/a', '/sessions/x/changes/12345', '/sessions/x/chat/1', '/sessions/x/changes/1/2']) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
+  });
+
   it('builds session paths, chat by default', () => {
     expect(sessionPath('abc')).toBe('/sessions/abc/chat');
     expect(sessionPath('abc', 'terminal')).toBe('/sessions/abc/terminal');
@@ -60,6 +70,7 @@ describe('tabOfPath / pathChain', () => {
     expect(tabOfPath('/inbox')).toBe('inbox');
     expect(tabOfPath('/queue')).toBe('queue');
     expect(tabOfPath('/more/gallery')).toBe('more');
+    expect(tabOfPath('/sessions/x/changes/2')).toBe('sessions');
   });
 
   it('lists the screens a deep link stacks, root first', () => {
@@ -67,6 +78,7 @@ describe('tabOfPath / pathChain', () => {
     expect(pathChain('/sessions/x/terminal')).toEqual(['/sessions', '/sessions/x/terminal']);
     expect(pathChain('/more/history')).toEqual(['/more', '/more/history']);
     expect(pathChain('/more/gallery')).toEqual(['/more', '/more/about', '/more/gallery']);
+    expect(pathChain('/sessions/x/changes/2')).toEqual(['/sessions', '/sessions/x/changes', '/sessions/x/changes/2']);
   });
 });
 
