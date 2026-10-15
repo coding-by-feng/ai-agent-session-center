@@ -33,6 +33,9 @@ enum ShellRules {
             port = 443
         } else if scheme == "http" {
             port = 80
+        } else if scheme == "capacitor" {
+            // The iOS shell's own scheme (capacitor://localhost) has no port at all.
+            return "\(scheme)://\(host)"
         } else {
             return nil
         }

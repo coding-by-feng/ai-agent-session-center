@@ -23,6 +23,14 @@ expect(!ShellRules.isShellPage("https://mac-kason.aasc.work/", shell), "aasc.wor
 expect(!ShellRules.isShellPage(nil, shell), "nil")
 expect(!ShellRules.isShellPage("about:blank", shell), "about:blank")
 
+// iOS: the bundled shell is capacitor://localhost (no port)
+let iosShell = "capacitor://localhost"
+expect(ShellRules.isShellPage("capacitor://localhost/", iosShell), "ios shell root")
+expect(ShellRules.isShellPage("capacitor://localhost/?reauth=1", iosShell), "ios shell with query")
+expect(!ShellRules.isShellPage("capacitor://evil.example/", iosShell), "other capacitor host")
+expect(!ShellRules.isShellPage("http://localhost/", iosShell), "http localhost is not the ios shell")
+expect(!ShellRules.isShellPage("http://100.101.102.103:3333/", iosShell), "a Mac page is not the ios shell")
+
 // acceptsOnlyPairedStyleMacOrigins
 expect(ShellRules.macOrigin("http://100.101.102.103:3333") == "http://100.101.102.103:3333", "tailnet")
 expect(ShellRules.macOrigin("http://192.168.1.20:3333/") == "http://192.168.1.20:3333", "lan with slash")
