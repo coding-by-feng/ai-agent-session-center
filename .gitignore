@@ -22,8 +22,9 @@ test-screenshots/
 *.webp
 *.gif
 !static/**
-# The phone app's launcher icons and splash screens ship with the Android project (AASC-17).
+# The phone app's launcher icons and splash screens ship with the Android and iOS projects (AASC-17).
 !mobile/android/app/src/main/res/**
+!mobile/ios/App/App/Assets.xcassets/**
 docs/feature/.manifest.json.bak
 docs/feature/.manifest.json.tmp.*
 

@@ -89,6 +89,31 @@ curl -s -X DELETE "${H[@]}" http://127.0.0.1:3439/api/mobile/devices/<id>       
 
 Use an emulator port other than 5554 (another project's emulator uses it), and a Play Store image for release checks.
 
+### The iOS project (generated without Xcode; not built yet)
+
+`ios/` was generated with `npx cap add ios --packagemanager SPM` on a Mac without Xcode, so **nothing in it has been
+compiled for iOS**. What is in place and checked here:
+
+- `Info.plist` (`plutil -lint` OK): the local-network, Face ID and camera (QR) prompts iOS requires,
+  `NSAllowsLocalNetworking` for paired Macs (ATS stays on for everything else; plain-IP Macs are outside ATS),
+  `ITSAppUsesNonExemptEncryption` false (standard HTTPS only), `arm64`, and no `CFBundleURLTypes` (no custom scheme).
+- `App/App/ShellRules.swift`: the Swift twin of `ShellRules.kt` (origins, paired-Mac addresses, token and vault-key
+  shapes). Foundation only; `RulesTests/main.swift` mirrors `ShellRulesTest.kt` case for case:
+  `swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules` → 32/32.
+- `CapApp-SPM/Package.swift` points at `mobile/node_modules`; `npx cap sync ios` rewrites it.
+
+To finish in Xcode (open `ios/App/App.xcodeproj`, set your team):
+
+1. Add `ShellRules.swift` to the App target (it isn't in the project file yet).
+2. Write the two plugins the shell calls, mirroring the Android ones and answering only the bundled shell page
+   (`capacitor://localhost`): `DeviceVault` (Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, entry name as
+   the account) and `ShellBridge` (HttpOnly `auth_token` through `WKHTTPCookieStore`, paired-Mac origins allowed by the
+   navigation policy, QR through VisionKit's `DataScannerViewController`, `takeShare` / biometric / `bootId` /
+   `writeWidget` as on Android). Register both in `capacitor.config` / a `CAPBridgeViewController` subclass.
+3. Capabilities: Associated Domains `applinks:aasc.work` (with the website's AASA built from `APPLE_TEAM_ID`), Push
+   Notifications, and an App Group `group.work.aasc.mobile` for the share extension and the widget.
+4. App-switcher blur on `sceneWillResignActive` (RELEASE 7), then the RELEASE checks on a device and TestFlight.
+
 ### Turning push on (AASC-19)
 
 1. Create the Firebase project's Android app for `work.aasc.mobile` and download `google-services.json`; restrict
