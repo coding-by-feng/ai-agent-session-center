@@ -1,0 +1,75 @@
+/* SegmentedControl — phone kit (AASC-38). Segments are 44px tall (the touch
+   target), inside a 2px-padded track. */
+
+.track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+  font-family: var(--ph-font);
+}
+
+.segment {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-1);
+  min-width: 0;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-2);
+  border: 0;
+  border-radius: calc(var(--ph-radius) - 2px);
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-size: var(--ph-size-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease, box-shadow var(--ph-motion-fast) ease;
+}
+
+.segment[aria-selected='true'] {
+  background: var(--ph-segment-selected);
+  box-shadow: var(--ph-shadow);
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .segment:not([aria-selected='true']):not([aria-disabled='true']):hover { background: var(--ph-fill); }
+}
+
+.segment:active:not([aria-disabled='true']) { background: var(--ph-fill-strong); }
+
+.segment:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.segment[aria-disabled='true'] {
+  color: var(--ph-text-secondary);
+  cursor: not-allowed;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
+  font-size: var(--ph-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment { transition: none; }
+}

@@ -1,0 +1,79 @@
+/* StatusRing — phone kit (AASC-38). */
+
+.ring {
+  --ring: var(--ph-status-idle);
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--ring);
+  background: color-mix(in srgb, var(--ring) 14%, transparent);
+  color: var(--ring);
+}
+
+.small {
+  width: 24px;
+  height: 24px;
+  border-width: 1.5px;
+}
+
+.ring[data-tone='approval'] { --ring: var(--ph-status-approval); }
+.ring[data-tone='question'] { --ring: var(--ph-status-question); }
+.ring[data-tone='working'] { --ring: var(--ph-status-working); }
+.ring[data-tone='finished'] { --ring: var(--ph-status-finished); }
+.ring[data-tone='error'] { --ring: var(--ph-status-error); }
+
+/* Working: a gap in the ring travels round it. */
+.ring[data-spin] {
+  border-color: color-mix(in srgb, var(--ring) 35%, transparent);
+}
+
+.ring[data-spin]::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--ring);
+  animation: ring-spin 1.1s linear infinite;
+}
+
+.small[data-spin]::after { inset: -1.5px; border-width: 1.5px; }
+
+.glyph {
+  display: inline-flex;
+}
+
+.glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.small .glyph svg {
+  width: 12px;
+  height: 12px;
+}
+
+.labelled {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+.label {
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+}
+
+@keyframes ring-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ring[data-spin]::after { animation: none; }
+}

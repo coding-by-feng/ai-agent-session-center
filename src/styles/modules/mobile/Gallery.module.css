@@ -1,0 +1,82 @@
+/* GalleryScreen — the phone kit, on show (AASC-38). */
+
+.intro {
+  margin: var(--ph-space-2) var(--ph-gutter) var(--ph-space-4);
+  font-size: var(--ph-size-secondary);
+  color: var(--ph-text-secondary);
+}
+
+.intro strong { color: var(--ph-text); }
+
+.group {
+  margin: 0 0 var(--ph-space-6);
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0 calc(var(--ph-gutter) + var(--ph-space-4)) var(--ph-space-2);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ph-text-secondary);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ph-space-3);
+  margin: 0 var(--ph-gutter);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ph-space-2);
+}
+
+.chips {
+  display: flex;
+  gap: var(--ph-space-2);
+  padding: 0 var(--ph-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar { display: none; }
+
+.rings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--ph-space-3);
+  margin: 0 var(--ph-gutter);
+  padding: var(--ph-space-4);
+  list-style: none;
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+}
+
+.hint {
+  margin: 0 var(--ph-gutter) var(--ph-space-3);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+}
+
+.swipeList {
+  margin: 0 var(--ph-gutter);
+  overflow: hidden;
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+}
+
+/* A lone row outside a ListSection: its own list, no bullets or indent. */
+.bare { margin: 0; padding: 0; list-style: none; }
+
+.card {
+  margin: 0 var(--ph-gutter);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+}

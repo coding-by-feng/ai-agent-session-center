@@ -1,0 +1,51 @@
+/* Screen — phone kit (AASC-38). */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--ph-bg);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--ph-safe-right) var(--ph-space-6) var(--ph-safe-left);
+}
+
+.fixed {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 var(--ph-safe-right) 0 var(--ph-safe-left);
+}
+
+.largeTitle {
+  margin: 0;
+  padding: var(--ph-space-1) var(--ph-gutter) var(--ph-space-2);
+  font-size: var(--ph-size-large-title);
+  font-weight: 700;
+  line-height: var(--ph-line-large-title);
+  letter-spacing: -0.01em;
+  color: var(--ph-text);
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  flex: none;
+  padding: 0 var(--ph-safe-right) 0 var(--ph-safe-left);
+  background: var(--ph-bar-bg);
+  border-top: 0.5px solid var(--ph-separator);
+}

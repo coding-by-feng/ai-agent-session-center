@@ -46,7 +46,7 @@ const typeMap: Record<Toast['type'], string> = {
   warning: 'var(--accent-orange, #ff9100)',
 };
 
-export default function ToastContainer() {
+export default function ToastContainer({ className }: { className?: string } = {}) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback((toast: Toast) => {
@@ -81,7 +81,8 @@ export default function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className={styles.toastContainer}>
+    // `className` places the stack elsewhere (the phone app: above its tab bar, AASC-38).
+    <div className={className ? `${styles.toastContainer} ${className}` : styles.toastContainer}>
       {toasts.map((toast) => (
         <div
           key={toast.id}

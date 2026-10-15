@@ -53,6 +53,19 @@
 }
 
 .menuLabel { font-size: 14px; font-weight: 600; }
+
+/* "New design" (AASC-38): a switch row, set apart from the sections above it. */
+.menuSeparated { margin-top: 8px; }
+.switchWord {
+  flex: none;
+  min-width: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--text-primary);
+}
+.menuItem[aria-checked='true'] { border-color: var(--border-accent-strong); }
+.menuItem[aria-checked='true'] .switchWord { color: var(--accent-text); }
 .menuHint { font-size: 12px; line-height: 1.4; color: var(--text-primary); }
 
 .back { align-self: flex-start; }

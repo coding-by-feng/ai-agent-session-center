@@ -28,7 +28,8 @@ import SavingOverlay from '@/components/ui/SavingOverlay';
 import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 import RestorePickerModal from '@/components/modals/RestorePickerModal';
 import { useSessionStore } from '@/stores/sessionStore';
-import { isNativeMobileApp } from '@/lib/platform';
+import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import { usePhoneUi } from '@/hooks/usePhoneUi';
 import DesktopAutomationGate from '@/components/layout/DesktopAutomation';
 import NativeReauth from '@/components/auth/NativeReauth';
 import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
@@ -47,6 +48,9 @@ const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 const ResourcesView = lazy(() => import('@/routes/ResourcesView'));
 // Only after a restore that cut sessions off mid-turn (lib/interruptedRestore.ts).
 const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
+// The redesigned phone app (AASC-38): a phone with "New design" on. Its own chunk,
+// never part of the desktop's first download (phoneChunkBoundary.test.ts).
+const PhoneAppFrame = lazy(() => import('@/components/mobile/app/PhoneAppFrame'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,10 +96,10 @@ function AppLayout() {
       {hideTopBars ? (
         <div className={appLayout.titleBarSpacer} />
       ) : (
-        <>
-          <Header />
-          <NavBar />
-        </>
+          <>
+            <Header />
+            <NavBar />
+          </>
       )}
       <main style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', textAlign: 'center' }}>Loading...</div>}>
@@ -120,9 +124,15 @@ function AppLayout() {
 function Dashboard({ token }: { token: string | null }) {
   // Skill-notes sync follows the Mac's cloud connection; the phone app can't reach it.
   useEffect(() => (isNativeMobileApp() ? undefined : startNotesSync()), []);
+  // The new phone app replaces only the layout below; everything above keeps
+  // running when it is switched on or off (no reconnect, no lost pairing).
+  const isMobile = useIsMobile();
+  const [phoneUi] = usePhoneUi();
+  const phoneApp = isMobile && phoneUi === 'app';
   useSettingsInit();
   useWebSocket(token);
-  useSessionDeepLink();
+  // The new phone app opens a `?session=` link onto its own screens.
+  useSessionDeepLink(!phoneApp);
   useRoomSync();
 
   const [saving, setSaving] = useState(false);
@@ -187,26 +197,32 @@ function Dashboard({ token }: { token: string | null }) {
         </Suspense>
       )}
       <WorkspaceLoadingOverlay />
-      <BrowserRouter>
-        <Routes>
-          {/* Standalone route — no AppLayout chrome */}
-          <Route path="/project-browser" element={
-            <Suspense fallback={<div className={appLayout.bootFallback}>Loading...</div>}>
-              <ProjectBrowserView />
-            </Suspense>
-          } />
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<LiveView />} />
-            <Route path="/agenda" element={<AgendaView />} />
-            <Route path="/history" element={<HistoryView />} />
-            <Route path="/prompts" element={<PromptsView />} />
-            <Route path="/queue" element={<QueueView />} />
-            <Route path="/review" element={<ReviewView />} />
-            <Route path="/resources" element={<ResourcesView />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      {phoneApp ? (
+        <Suspense fallback={<div className={appLayout.bootScreen}>Loading…</div>}>
+          <PhoneAppFrame />
+        </Suspense>
+      ) : (
+        <BrowserRouter>
+          <Routes>
+            {/* Standalone route — no AppLayout chrome */}
+            <Route path="/project-browser" element={
+              <Suspense fallback={<div className={appLayout.bootFallback}>Loading...</div>}>
+                <ProjectBrowserView />
+              </Suspense>
+            } />
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<LiveView />} />
+              <Route path="/agenda" element={<AgendaView />} />
+              <Route path="/history" element={<HistoryView />} />
+              <Route path="/prompts" element={<PromptsView />} />
+              <Route path="/queue" element={<QueueView />} />
+              <Route path="/review" element={<ReviewView />} />
+              <Route path="/resources" element={<ResourcesView />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      )}
     </>
   );
 }

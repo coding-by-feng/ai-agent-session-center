@@ -1,0 +1,118 @@
+/* The new phone frame's placeholder screens (AASC-39). */
+
+.note {
+  flex: none;
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+}
+
+/* Today's phone views embedded as they are: they scroll themselves. */
+.embedded {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.embedded > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.padded {
+  padding: var(--ph-space-2) var(--ph-gutter) 0;
+}
+
+/* ---- Session screen ---- */
+
+.navAction {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .navAction:hover { background: var(--ph-fill); }
+}
+
+.navAction:active { background: var(--ph-fill-strong); }
+
+.navAction:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.nextWaiting {
+  appearance: none;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ph-space-1);
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3) 0 var(--ph-gutter);
+  border: 0;
+  border-bottom: 0.5px solid var(--ph-separator);
+  background: var(--ph-warning-tint);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nextWaiting svg { color: var(--ph-status-approval); }
+
+.nextWaiting:active { background: var(--ph-fill-strong); }
+
+.nextWaiting:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.segments {
+  flex: none;
+  padding: var(--ph-space-2) var(--ph-gutter);
+  background: var(--ph-bg);
+}
+
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.placeholder {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: var(--ph-space-6);
+}

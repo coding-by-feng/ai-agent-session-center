@@ -64,4 +64,17 @@ describe('useSessionDeepLink', () => {
     expect(select).not.toHaveBeenCalled();
     expect(window.location.search).toBe('');
   });
+
+  it('leaves the link alone in the new phone app, which opens it itself (AASC-39)', () => {
+    setLocation('?session=s-visible&tab=terminal');
+    const select = vi.fn();
+    useSessionStore.setState({ sessions: new Map([['s-visible', { sessionId: 's-visible' } as Session]]), selectSession: select });
+    useWsStore.setState({ snapshotReceived: true });
+    const { rerender } = renderHook(({ enabled }) => useSessionDeepLink(enabled), { initialProps: { enabled: false } });
+    expect(select).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?session=s-visible&tab=terminal');
+    // Switching back to the classic layout later doesn't replay it.
+    rerender({ enabled: true });
+    expect(select).not.toHaveBeenCalled();
+  });
 });

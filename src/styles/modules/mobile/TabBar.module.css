@@ -1,0 +1,90 @@
+/* TabBar — phone kit (AASC-38). */
+
+.bar {
+  position: relative;
+  z-index: var(--ph-z-bar);
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  min-height: calc(var(--ph-tabbar) + var(--ph-safe-bottom));
+  padding: 0 var(--ph-safe-right) var(--ph-safe-bottom) var(--ph-safe-left);
+  background: var(--ph-bar-bg);
+  border-top: 0.5px solid var(--ph-separator);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  font-family: var(--ph-font);
+}
+
+.tab {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: var(--ph-target);
+  min-height: var(--ph-tabbar);
+  margin: 0;
+  padding: var(--ph-space-1) 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: color var(--ph-motion-fast) ease, transform var(--ph-motion-fast) ease;
+}
+
+.tab[aria-current='page'] {
+  color: var(--ph-accent);
+}
+
+@media (hover: hover) {
+  .tab:hover { color: var(--ph-text); }
+  .tab[aria-current='page']:hover { color: var(--ph-accent); }
+}
+
+.tab:active { transform: scale(0.94); }
+
+.tab:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -4px;
+}
+
+.iconWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.label {
+  font-size: var(--ph-size-tab);
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.badge {
+  position: absolute;
+  top: -4px;
+  left: calc(100% - 8px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-badge);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--ph-bar-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab { transition: none; }
+  .tab:active { transform: none; }
+}
