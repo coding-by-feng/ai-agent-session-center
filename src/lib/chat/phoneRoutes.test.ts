@@ -1,0 +1,119 @@
+// phoneRoutes.test.ts — the new phone frame's screen paths (AASC-39): parse and build,
+// the parent chain a deep link restores, the `?m=` URL form, and old
+// `?session=<id>&tab=` links mapped onto the new screens.
+import { describe, it, expect } from 'vitest';
+import {
+  PHONE_TABS,
+  defaultSegment,
+  legacyDeepLinkToPath,
+  parsePhonePath,
+  pathChain,
+  phonePath,
+  phonePathFromSearch,
+  sessionPath,
+  tabOfPath,
+  tabRootPath,
+  withPhonePath,
+  withoutPhonePath,
+} from './phoneRoutes';
+
+describe('parsePhonePath / phonePath', () => {
+  it('round-trips every tab root', () => {
+    for (const tab of PHONE_TABS) {
+      const path = tabRootPath(tab);
+      expect(path).toBe(`/${tab}`);
+      expect(parsePhonePath(path)).toEqual({ kind: 'tab-root', tab });
+      expect(phonePath({ kind: 'tab-root', tab })).toBe(path);
+    }
+  });
+
+  it('round-trips a session on each segment', () => {
+    for (const segment of ['chat', 'changes', 'terminal'] as const) {
+      const path = `/sessions/term-1/${segment}`;
+      expect(parsePhonePath(path)).toEqual({ kind: 'session', sessionId: 'term-1', segment });
+      expect(phonePath({ kind: 'session', sessionId: 'term-1', segment })).toBe(path);
+    }
+  });
+
+  it('round-trips the More pages', () => {
+    for (const page of ['history', 'prompts', 'review', 'agenda', 'settings', 'about', 'gallery'] as const) {
+      expect(parsePhonePath(`/more/${page}`)).toEqual({ kind: 'more', page });
+    }
+  });
+
+  it('refuses anything else', () => {
+    for (const bad of ['', '/', 'sessions', '/nope', '/sessions/a/b/c', '/sessions/term-1/files',
+      '/sessions/../etc/chat', '/sessions/<x>/chat', '/more/unknown', '/inbox/x', `/sessions/${'a'.repeat(65)}/chat`]) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
+  });
+
+  it('builds session paths, chat by default', () => {
+    expect(sessionPath('abc')).toBe('/sessions/abc/chat');
+    expect(sessionPath('abc', 'terminal')).toBe('/sessions/abc/terminal');
+  });
+});
+
+describe('tabOfPath / pathChain', () => {
+  it('puts a path in its tab', () => {
+    expect(tabOfPath('/sessions/x/chat')).toBe('sessions');
+    expect(tabOfPath('/inbox')).toBe('inbox');
+    expect(tabOfPath('/queue')).toBe('queue');
+    expect(tabOfPath('/more/gallery')).toBe('more');
+  });
+
+  it('lists the screens a deep link stacks, root first', () => {
+    expect(pathChain('/sessions')).toEqual(['/sessions']);
+    expect(pathChain('/sessions/x/terminal')).toEqual(['/sessions', '/sessions/x/terminal']);
+    expect(pathChain('/more/history')).toEqual(['/more', '/more/history']);
+    expect(pathChain('/more/gallery')).toEqual(['/more', '/more/about', '/more/gallery']);
+  });
+});
+
+describe('the ?m= URL form', () => {
+  it('reads the path back, ignoring an invalid one', () => {
+    expect(phonePathFromSearch('?m=/sessions/s1/chat')).toBe('/sessions/s1/chat');
+    expect(phonePathFromSearch('?theme=light&m=%2Fmore%2Fgallery')).toBe('/more/gallery');
+    expect(phonePathFromSearch('?m=/nope')).toBeNull();
+    expect(phonePathFromSearch('')).toBeNull();
+  });
+
+  it('writes it readably and keeps the other parameters', () => {
+    expect(withPhonePath('http://mac:3333/?theme=light', '/sessions/s1/chat')).toBe('/?theme=light&m=/sessions/s1/chat');
+    expect(withPhonePath('http://mac:3333/?m=/inbox#x', '/queue')).toBe('/?m=/queue#x');
+    expect(withoutPhonePath('http://mac:3333/?theme=light&m=/queue')).toBe('/?theme=light');
+    expect(withoutPhonePath('http://mac:3333/?m=/queue')).toBe('/');
+  });
+});
+
+describe('old ?session=<id>&tab= links', () => {
+  const idle = () => false;
+  const waiting = () => true;
+
+  it('open the chat, or the terminal when it was asked for', () => {
+    expect(legacyDeepLinkToPath('?session=s1&tab=conversation', idle)).toBe('/sessions/s1/chat');
+    expect(legacyDeepLinkToPath('?session=s1', idle)).toBe('/sessions/s1/chat');
+    expect(legacyDeepLinkToPath('?session=s1&tab=terminal', idle)).toBe('/sessions/s1/terminal');
+  });
+
+  it('send an approval or a question to the chat, where the waiting card is', () => {
+    // Today's shell maps approval / input taps to tab=terminal; the session still waiting says why.
+    expect(legacyDeepLinkToPath('?session=s1&tab=terminal', waiting)).toBe('/sessions/s1/chat');
+    expect(legacyDeepLinkToPath('?session=s1&tab=terminal&kind=approval', idle)).toBe('/sessions/s1/chat');
+    expect(legacyDeepLinkToPath('?session=s1&tab=terminal&kind=input', idle)).toBe('/sessions/s1/chat');
+  });
+
+  it('ignore a missing or malformed id', () => {
+    expect(legacyDeepLinkToPath('', idle)).toBeNull();
+    expect(legacyDeepLinkToPath('?tab=terminal', idle)).toBeNull();
+    expect(legacyDeepLinkToPath('?session=a%20b', idle)).toBeNull();
+  });
+});
+
+describe('defaultSegment', () => {
+  it('opens Claude Code and Codex on the chat, anything else on the terminal', () => {
+    expect(defaultSegment('claude')).toBe('chat');
+    expect(defaultSegment('codex')).toBe('chat');
+    expect(defaultSegment(null)).toBe('terminal');
+  });
+});
