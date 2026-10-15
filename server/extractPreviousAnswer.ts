@@ -111,7 +111,7 @@ const RESUMABLE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
  * session (no transcriptPath, an id that never names a Claude file) or a Claude
  * session whose transcript is missing showed somebody else's conversation.
  */
-function findTranscriptFile(sessionId: string | null, projectPath: string): string | null {
+export function findTranscriptFile(sessionId: string | null, projectPath: string): string | null {
   if (!sessionId || !projectPath || !RESUMABLE_SESSION_ID_RE.test(sessionId)) return null;
   for (const dir of projectDirCandidates(projectPath)) {
     const direct = join(dir, `${sessionId}.jsonl`);
