@@ -10,6 +10,7 @@ import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel } fr
 import { SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import { stripAnsi } from '../src/lib/ansi.js';
 import log from './logger.js';
+import { guessPendingRequest, requestCliOf } from './pendingRequests.js';
 import type { Session } from '../src/types/session.js';
 
 /**
@@ -175,6 +176,10 @@ export function startApprovalTimer(
         target.status = waitingStatus as Session['status'];
         // The least reliable signal: push waits it out before notifying (pushRules).
         target.approvalSource = 'timer';
+        // A guess carries no input: a phone card can only send the user to the terminal (AASC-43).
+        target.pendingRequest = guessPendingRequest(
+          target.pendingRequest ?? null, target.pendingTool, 'timer', requestCliOf(target.cliSource), Date.now(),
+        );
         target.animationState = ANIMATION_STATE.WAITING;
         target.waitingDetail = getWaitingLabel(target.pendingTool, target.pendingToolDetail || '');
         try {

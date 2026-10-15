@@ -37,6 +37,7 @@ beforeEach(async () => {
     isOpsTerminal: () => false,
     isSharedSession: (id) => id === 's1',
     sessionOfTerminal: () => 's1',
+    terminalOfSession: () => null,
     foregroundProcess: () => 'claude',
     home,
     now: () => clock,

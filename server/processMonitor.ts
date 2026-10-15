@@ -62,8 +62,9 @@ export function startMonitoring(
         session.animationState = ANIMATION_STATE.DEATH;
         session.lastActivityAt = Date.now();
         session.endedAt = Date.now();
-        // The process is gone, so no hook will close its subagents.
+        // The process is gone, so no hook will close its subagents, or its open dialog.
         session.subagents = endAllRuns(session.subagents ?? [], Date.now());
+        session.pendingRequest = null;
 
         session.events.push({
           type: 'SessionEnd',

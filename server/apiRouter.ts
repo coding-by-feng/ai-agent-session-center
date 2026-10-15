@@ -155,7 +155,8 @@ function fixedSessionRoute(req: Request): ((req: Request, res: Response, next: N
   return req.path === '/' || req.path === '' ? fixed.gate : null;
 }
 
-// Also run by the prompt route (promptRouter.ts, AASC-42), which is mounted in front of this router.
+// Also run by the prompt route (promptRouter.ts, AASC-42) and the answer route
+// (requestAnswer.ts, AASC-43), which are mounted in front of this router.
 export function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
   const fixedGate = fixedSessionRoute(req);

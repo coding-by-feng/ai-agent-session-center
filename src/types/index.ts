@@ -22,6 +22,8 @@ export type {
   PlanCli,
   PlanUsage,
   PlanUsageWindow,
+  PendingRequest,
+  PendingRequestOption,
   Session,
   BufferedEvent,
   HandleEventResult,

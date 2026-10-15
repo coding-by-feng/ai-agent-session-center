@@ -176,6 +176,90 @@ describe('phoneFloatingRefusal', () => {
   });
 });
 
+// ── Answering a waiting request (AASC-43) ────────────────────────────────────────────────────────────────
+
+describe('answering a waiting request from a phone (AASC-43)', () => {
+  it('is open on the answer route, under the answer rule', () => {
+    expect(phoneRuleFor('POST', '/sessions/abc/requests/toolu_01/answer')).toBe('answer');
+    expect(phoneRuleFor('POST', '/sessions/abc/requests/0b9c6a3e-1f2d-4c5b-9a8e-7d6c5b4a3f21/answer/')).toBe('answer');
+  });
+
+  it.each([
+    ['GET', '/sessions/abc/requests/r1/answer'],
+    ['PUT', '/sessions/abc/requests/r1/answer'],
+    ['POST', '/sessions/abc/requests/answer'],
+    ['POST', '/sessions/abc/requests/r1/answer/again'],
+    ['POST', '/sessions/abc/requests/r1/r2/answer'],
+    ['GET', '/sessions/abc/requests'],
+  ])('stays closed for %s %s', (method, path) => {
+    expect(phoneRuleFor(method, path)).toBeNull();
+  });
+
+  // The rule alone, in front of a stand-in route: the route's own checks are in requestAnswerRoute.test.ts.
+  const fg = new Map<string, string>();
+  const terminalOf: Record<string, string> = { shared: 't-shared', hidden: 't-hidden' };
+  let tiny: Server;
+  let tinyBase = '';
+
+  beforeAll(async () => {
+    const auth = await import('../server/authManager.js');
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: (id) => id.startsWith('ops-'),
+      isSharedSession: (id) => id === 'shared' || id === 'shared-no-terminal',
+      sessionOfTerminal: () => null,
+      terminalOfSession: (id) => terminalOf[id] ?? null,
+      foregroundProcess: (id) => fg.get(id) ?? null,
+      home,
+    }), (_req, res) => { res.status(202).json({ reached: true }); });
+    tiny = createServer(app);
+    await new Promise<void>((r) => tiny.listen(0, '127.0.0.1', r));
+    const addr = tiny.address();
+    if (addr && typeof addr === 'object') tinyBase = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => tiny.close(() => r()));
+  });
+
+  async function post(sessionId: string) {
+    const auth = await import('../server/authManager.js');
+    const res = await fetch(`${tinyBase}/api/sessions/${sessionId}/requests/toolu_1/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '192.168.1.80', Authorization: `Bearer ${auth.createToken('dev-phone-answer')}` },
+      body: JSON.stringify({ choice: 'allow_once' }),
+    });
+    return { status: res.status, json: await res.json().catch(() => ({})) as Record<string, unknown> };
+  }
+
+  it('lets the answer through while the agent is the session terminal’s foreground program', async () => {
+    fg.set('t-shared', 'claude');
+    expect(await post('shared')).toEqual({ status: 202, json: { reached: true } });
+  });
+
+  it('refuses while the agent is not running there, and says why', async () => {
+    fg.set('t-shared', 'zsh');
+    const shell = await post('shared');
+    expect(shell.status).toBe(409);
+    expect(shell.json.code).toBe('AGENT_NOT_RUNNING');
+    fg.delete('t-shared'); // unknown counts as not running
+    expect((await post('shared')).status).toBe(409);
+    expect((await post('shared-no-terminal')).json.code).toBe('AGENT_NOT_RUNNING');
+  });
+
+  it('answers a hidden or unknown session like a missing route, whatever runs in it', async () => {
+    fg.set('t-hidden', 'zsh');
+    const hidden = await post('hidden');
+    const unknown = await post('nope');
+    expect(hidden.status).toBe(404);
+    expect(unknown).toEqual(hidden);
+  });
+});
+
 // ── Launch and file rules ────────────────────────────────────────────────────────────────────────────────
 
 describe('phoneLaunchRefusal', () => {
@@ -286,6 +370,7 @@ beforeAll(async () => {
     isOpsTerminal: (id) => id.startsWith('ops-'),
     isSharedSession: (id) => store.getSession(id)?.remoteVisible === true,
     sessionOfTerminal: (id) => pty.owner.get(id) ?? null,
+    terminalOfSession: (id) => store.getSession(id)?.terminalId ?? null,
     foregroundProcess: (id) => pty.fg.get(id) ?? null,
     home,
   }));
