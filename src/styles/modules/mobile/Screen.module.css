@@ -13,6 +13,11 @@
   line-height: var(--ph-line-body);
 }
 
+/* Focused only to be announced when it is pushed (PhoneStack): not a control, no ring. */
+.screen:focus {
+  outline: none;
+}
+
 .scroller {
   flex: 1;
   min-height: 0;

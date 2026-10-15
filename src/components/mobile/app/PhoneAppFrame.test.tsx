@@ -91,6 +91,19 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
   });
 
+  it('moves focus into a pushed screen, and back to the row that opened it on back (AASC-48)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    const row = await screen.findByRole('button', { name: /Working one/ });
+    await user.click(row);
+    const screenEl = await screen.findByTestId('phone-session');
+    await waitFor(() => expect(document.activeElement).toBe(screenEl));
+
+    await user.click(within(screenEl).getByRole('button', { name: 'Back to the list' }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /Working one/ })));
+  });
+
   it('keeps the tab bar hidden on the screens pushed from a session: Info and a diff', async () => {
     render(<PhoneAppFrame />);
     await screen.findByRole('navigation', { name: 'Main' });
