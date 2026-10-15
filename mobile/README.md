@@ -47,6 +47,24 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk     # JDK 21+ (Capacitor 8 compiles J
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
+### Emulator checks (2026-10-15, Android 15 / API 35, debug build)
+
+Run on a Pixel 7 emulator; no real Mac was paired (a local stand-in page played the Mac).
+
+| Check | Result |
+|---|---|
+| Launch | The shell's Pair screen renders in the system WebView; no errors in logcat |
+| `DeviceVault` | Set / get / remove round-trip; a bad key is refused `BAD_KEY`; `aasc_vault.xml` holds only AES-GCM ciphertext |
+| Backups (RELEASE 6) | `bmgr backupnow work.aasc.mobile`: "Backup is not allowed"; no `ALLOW_BACKUP` flag |
+| App switcher (RELEASE 7) | From Home, the recents card is blank. Opening recents straight from the app shows the live window during the transition (launcher behaviour) |
+| Share sheet | A text share opens "Share to AASC" (no Mac paired → "Pair a Mac first… Nothing was added"); a link into the app's own FileProvider is ignored, an ordinary content link is taken |
+| Biometric lock | Lock on → "AASC is locked" at start; Unlock opens the system prompt; the device PIN unlocks and the state records the unlock and boot |
+| Notification tap on a Mac page | With a Mac-origin page showing, a tap intent (`google.message_id`) sends the WebView to `https://localhost/?tap=1` |
+| Bridge on a Mac page (RELEASE 1, plan 07 S2) | A page from a paired Mac origin gets **no** `window.Capacitor` and no `androidBridge`: the Mac UI can't reach any plugin. (So haptics / step-up from the Mac UI need a deliberate bridge, plan 07 S3) |
+| Session cookie (plan 07 S2) | Set natively (HttpOnly): `document.cookie` is empty on the Mac page; the WebSocket upgrade, same-origin `/api` calls and reloads carry `auth_token`. **The first navigation from the shell to the Mac carries no cookie** (`SameSite=Strict` across sites). Fine for AASC, whose static files are served before auth; never put the page HTML behind the cookie for phones |
+
+Not checked here: pairing with a real Mac, push (no Firebase), the widget on a launcher, user-CA interception, a release build.
+
 ### Turning push on (AASC-19)
 
 1. Create the Firebase project's Android app for `work.aasc.mobile` and download `google-services.json`; restrict
