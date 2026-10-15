@@ -17,7 +17,7 @@
  * - Sending is the Mac's confirmed send, polled until it lands (usePromptSender).
  * - While another device drives, the box is off and says who, with Take control.
  */
-import { useCallback, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import type { Session } from '@/types';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { ChevronRightIcon, CloseIcon, InfoIcon } from '../kit/kitIcons';
@@ -193,10 +193,15 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     void deliver(message, how);
   }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, sessionId, setDraft, deliver]);
 
+  // While another device drives, or the session has ended or is still starting,
+  // the Mac would refuse a /model too: the chip is off and says why.
+  const blocked = decision.fieldDisabledReason ?? decision.blockedReason;
+  const chipReasonId = useId();
   const chooseCommand = useCallback((command: string) => {
+    if (blocked) return;
     // A dialog or a turn in progress would take the keys: queue it after them.
     void deliver({ text: command }, decision.action === 'send' ? 'send' : 'queue');
-  }, [deliver, decision.action]);
+  }, [blocked, deliver, decision.action]);
 
   // ---- The box ----
 
@@ -327,8 +332,10 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             <button
               type="button"
               className={`${styles.chip} ${styles.modelChip}`}
-              onClick={() => setSheet({ type: 'model', focus: 'model' })}
+              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
               aria-label={`Model ${modelLabel}${context ? `, context ${context.pct}% used` : ''}: change`}
+              aria-disabled={blocked ? true : undefined}
+              aria-describedby={blocked ? chipReasonId : undefined}
             >
               <span className={styles.modelText}>{modelLabel}</span>
               {context && (
@@ -336,6 +343,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
                   <ContextRing pct={context.pct} /> {Math.round(context.pct)}%
                 </span>
               )}
+              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
             </button>
           )}
         </div>
