@@ -193,6 +193,31 @@ describe('sessionStore', () => {
     });
   });
 
+  describe('togglePin', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('flips pinned at once and keeps it when the Mac accepts', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchSpy);
+      useSessionStore.getState().addSession(makeSession('s1', { pinned: false } as Partial<Session>));
+      useSessionStore.getState().togglePin('s1');
+      expect(useSessionStore.getState().sessions.get('s1')?.pinned).toBe(true);
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      await Promise.resolve();
+      expect(useSessionStore.getState().sessions.get('s1')?.pinned).toBe(true);
+    });
+
+    it('puts it back when the Mac refuses, e.g. a paired phone (AASC-50)', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+      useSessionStore.getState().addSession(makeSession('s1', { pinned: false } as Partial<Session>));
+      useSessionStore.getState().togglePin('s1');
+      expect(useSessionStore.getState().sessions.get('s1')?.pinned).toBe(true);
+      await vi.waitFor(() => expect(useSessionStore.getState().sessions.get('s1')?.pinned).toBe(false));
+    });
+  });
+
   describe('toggleAiPopup', () => {
     let fetchSpy: ReturnType<typeof vi.fn>;
 

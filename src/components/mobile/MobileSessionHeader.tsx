@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useIsNativeMobileApp } from '@/lib/platform';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { requestSessionRestart, restartNeedsConfirm } from '@/lib/restartSession';
@@ -70,6 +71,7 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
   const isEnded = session.status === 'ended';
   const canRestart = canRestartSession(session);
   const baton = useControlBaton(sessionId);
+  const inApp = useIsNativeMobileApp();
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>(null);
@@ -278,12 +280,15 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
           {canRestart && (
             <SheetAction icon={<RestartIcon />} label="Restart session…" onClick={fromSheet(() => setConfirming('restart'))} />
           )}
-          <SheetAction
-            icon={<PinIcon />}
-            label="Pin session"
-            pressed={!!session.pinned}
-            onClick={fromSheet(() => useSessionStore.getState().togglePin(sessionId))}
-          />
+          {/* A paired phone may not pin (AASC-18): the Mac refuses it, so the app doesn't offer it. */}
+          {!inApp && (
+            <SheetAction
+              icon={<PinIcon />}
+              label="Pin session"
+              pressed={!!session.pinned}
+              onClick={fromSheet(() => useSessionStore.getState().togglePin(sessionId))}
+            />
+          )}
           <SheetAction icon={<SpeakerIcon />} label="Mute sounds" pressed={!!session.muted} onClick={fromSheet(toggleMute)} />
           <SheetAction icon={<BellIcon />} label="Alert" pressed={!!session.alerted} onClick={fromSheet(toggleAlert)} />
           <SheetAction icon={<RoomIcon />} label="Move to room…" onClick={fromSheet(() => setRoomSheet('move'))} />

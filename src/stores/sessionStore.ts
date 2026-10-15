@@ -95,11 +95,21 @@ export const useSessionStore = create<SessionState>((set) => ({
       const pinned = !session.pinned;
       const next = new Map(state.sessions);
       next.set(sessionId, { ...session, pinned });
-      // Persist to server
+      // Persist to server. A refusal (a paired phone may not pin, AASC-50) puts
+      // the old value back instead of showing a pin the Mac never made.
       fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pinned`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned }),
+      }).then((res) => {
+        if (res.ok) return;
+        set((later) => {
+          const current = later.sessions.get(sessionId);
+          if (!current || current.pinned !== pinned) return later;
+          const reverted = new Map(later.sessions);
+          reverted.set(sessionId, { ...current, pinned: !pinned });
+          return { sessions: reverted };
+        });
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),
