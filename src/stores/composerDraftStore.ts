@@ -38,6 +38,8 @@ interface ComposerDraftState {
   setDraft: (sessionId: string, text: string) => void;
   /** Add `text` on a line of its own after what is there. */
   appendToDraft: (sessionId: string, text: string) => void;
+  /** A session re-keyed (/clear, a resume): its draft follows the new id (after any draft already there). */
+  moveDraft: (oldId: string, newId: string) => void;
 }
 
 /** `text` after `draft`, on a new line unless the draft is empty or already ends one. */
@@ -64,6 +66,14 @@ export const useComposerDraftStore = create<ComposerDraftState>((set) => ({
     set((s) => {
       if (!text.trim()) return s;
       const drafts = withDraft(s.drafts, sessionId, appendedDraft(s.drafts[sessionId] ?? '', text));
+      save(drafts);
+      return { drafts };
+    }),
+  moveDraft: (oldId, newId) =>
+    set((s) => {
+      const moving = s.drafts[oldId];
+      if (!moving || oldId === newId) return s;
+      const drafts = withDraft(withDraft(s.drafts, oldId, ''), newId, appendedDraft(s.drafts[newId] ?? '', moving));
       save(drafts);
       return { drafts };
     }),

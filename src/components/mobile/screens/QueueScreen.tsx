@@ -32,7 +32,7 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { infoPath } from '@/lib/chat/phoneRoutes';
-import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, senderLine, type QueueGroup } from '@/lib/chat/queueTabModel';
+import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, senderLine, waitingBlocker, type QueueGroup } from '@/lib/chat/queueTabModel';
 import { sendQueueItemNow } from '@/lib/chat/queueSendNow';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/mobile/PhoneQueue.module.css';
@@ -113,6 +113,10 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
     if (drag.from < drag.target && index > drag.from && index <= drag.target) offset = -drag.rowH;
     if (drag.from > drag.target && index < drag.from && index >= drag.target) offset = drag.rowH;
   }
+
+  // While the session waits on an answer nothing may be sent: ⚡ says why (and refuses).
+  const waiting = waitingBlocker(session);
+  const sendBlocker = waiting ?? (item.disabled ? 'This prompt is paused.' : null);
 
   const sendNow = async () => {
     if (sendingNow) return;
@@ -210,7 +214,7 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
   ];
   const menuItems: ContextMenuItem[] = [
     { id: 'edit', label: 'Edit', onSelect: () => onEdit(item) },
-    { id: 'now', label: 'Send now', disabledReason: item.disabled ? 'This prompt is paused.' : undefined, onSelect: () => void sendNow() },
+    { id: 'now', label: 'Send now', disabledReason: sendBlocker ?? undefined, onSelect: () => void sendNow() },
     { id: 'top', label: 'Move to top', disabledReason: index === 0 ? 'It is first already.' : undefined, onSelect: () => onReorder(sid, index, 0) },
     { id: 'up', label: 'Move up', disabledReason: index === 0 ? 'It is first already.' : undefined, onSelect: () => onReorder(sid, index, index - 1) },
     { id: 'down', label: 'Move down', disabledReason: index === count - 1 ? 'It is last already.' : undefined, onSelect: () => onReorder(sid, index, index + 1) },
@@ -259,8 +263,8 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
               type="button"
               className={styles.now}
               onClick={() => void sendNow()}
-              aria-label={`Send ${whose} now`}
-              aria-disabled={item.disabled || sendingNow ? true : undefined}
+              aria-label={sendBlocker ? `Send ${whose} now: ${sendBlocker}` : `Send ${whose} now`}
+              aria-disabled={sendBlocker || sendingNow ? true : undefined}
               aria-busy={sendingNow || undefined}
             >
               <BoltIcon />
@@ -275,11 +279,15 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
 function GroupHeader({ group, onOpen }: { group: QueueGroup; onOpen: () => void }) {
   const automation = useQueueStore((s) => s.automation.get(group.session.sessionId) ?? DEFAULT_AUTOMATION);
   const title = sessionDisplayTitle(group.session);
+  const waiting = waitingBlocker(group.session);
+  const state = waiting
+    ? `Waiting for you: ${waiting.charAt(0).toLowerCase()}${waiting.slice(1).replace(/\.$/, '')}`
+    : automationWords(automation);
   return (
-    <button type="button" className={styles.groupHeader} onClick={onOpen} aria-label={`${title}, ${group.items.length} queued, ${automationWords(automation)}. Open its queue`}>
+    <button type="button" className={styles.groupHeader} onClick={onOpen} aria-label={`${title}, ${group.items.length} queued, ${state}. Open its queue`}>
       <span className={styles.groupText}>
         <span className={styles.groupTitle}>{title} · {group.items.length}</span>
-        <span className={styles.groupState} data-paused={automation.paused ? '' : undefined}>{automationWords(automation)}</span>
+        <span className={styles.groupState} data-paused={automation.paused || waiting ? '' : undefined}>{state}</span>
       </span>
       <ChevronRightIcon />
     </button>

@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import type { DevicePresence, Session } from '@/types';
 import type { QueueItem } from '@/stores/queueStore';
 import { DEFAULT_AUTOMATION } from '@/stores/queueStore';
-import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, sendNowPlan, senderLine } from './queueTabModel';
+import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, sendNowPlan, senderLine, waitingBlocker } from './queueTabModel';
 
 const sess = (id: string, over: Partial<Session> = {}) =>
   ({ sessionId: id, status: 'idle', title: id, projectName: id, lastActivityAt: 0, ...over }) as unknown as Session;
@@ -82,8 +82,28 @@ describe('item words', () => {
   });
 });
 
+describe('waitingBlocker', () => {
+  it('blocks a send while the session waits on an approval or a question', () => {
+    expect(waitingBlocker({ status: 'approval' })).toBe('Answer the waiting approval first.');
+    expect(waitingBlocker({ status: 'input' })).toBe('Answer the waiting question first.');
+    // A structured request outranks a status that hasn't caught up yet.
+    expect(waitingBlocker({ status: 'working', pendingRequest: { kind: 'permission' } as never })).toBe('Answer the waiting approval first.');
+    expect(waitingBlocker({ status: 'working', pendingRequest: { kind: 'question' } as never })).toBe('Answer the waiting question first.');
+    expect(waitingBlocker({ status: 'working', pendingRequest: { kind: 'plan' } as never })).toBe('Answer the waiting plan first.');
+    expect(waitingBlocker({ status: 'waiting' })).toBeNull();
+    expect(waitingBlocker({ status: 'working', pendingRequest: null })).toBeNull();
+  });
+});
+
 describe('sendNowPlan', () => {
   const run = { paused: false };
+
+  it('refuses every kind while the session waits on an approval or a question', () => {
+    for (const it of [item(1), item(2, { type: 'loop', intervalMs: 60_000 }), item(3, { beforeChain: [{ id: 1, text: '/clear' }] })]) {
+      expect(sendNowPlan(it, run, { status: 'approval' })).toEqual({ kind: 'refuse', reason: 'Answer the waiting approval first.' });
+      expect(sendNowPlan(it, run, { status: 'input' })).toEqual({ kind: 'refuse', reason: 'Answer the waiting question first.' });
+    }
+  });
 
   it('types a plain prompt straight away, even with the queue paused', () => {
     expect(sendNowPlan(item(1), run)).toEqual({ kind: 'send' });

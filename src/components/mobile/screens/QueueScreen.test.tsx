@@ -73,7 +73,7 @@ describe('QueueScreen', () => {
     render(<QueueScreen />);
     const headers = screen.getAllByRole('button', { name: /Open its queue/ }).map((b) => b.getAttribute('aria-label'));
     expect(headers).toEqual([
-      'api, 1 queued, Paused. Open its queue',
+      'api, 1 queued, Waiting for you: answer the waiting approval first. Open its queue',
       'web, 3 queued, Auto-send on · Auto-Enter on. Open its queue',
     ]);
     expect(screen.getByTestId('queue-row-3').textContent).toContain('Every 1 h');
@@ -100,6 +100,18 @@ describe('QueueScreen', () => {
     render(<QueueScreen />);
     await user.click(screen.getByRole('button', { name: 'Send prompt 1 for web now' }));
     expect(sendQueueItemNow).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }), expect.objectContaining({ id: 1 }));
+  });
+
+  it('blocks ⚡ while the session waits on an approval, and says why', async () => {
+    render(<QueueScreen />);
+    const bolt = screen.getByRole('button', { name: /^Send prompt 1 for api now/ });
+    expect(bolt).toHaveAttribute('aria-disabled', 'true');
+    expect(bolt.getAttribute('aria-label')).toContain('Answer the waiting approval first.');
+    expect(screen.getByRole('button', { name: 'Send prompt 1 for web now' })).not.toHaveAttribute('aria-disabled');
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Prompt 1 for api:/ }));
+    const item = await screen.findByRole('menuitem', { name: /Send now/ });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item.textContent).toContain('Answer the waiting approval first.');
   });
 
   it('reorders with the arrow keys on the handle', async () => {

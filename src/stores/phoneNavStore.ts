@@ -39,6 +39,7 @@ import {
   parsePhonePath,
   pathChain,
   phonePathFromSearch,
+  renameSessionInPath,
   sessionPath,
   tabOfPath,
   tabRootPath,
@@ -73,6 +74,13 @@ interface PhoneNavState extends PhoneNav {
   switchTab: (tab: PhoneTab) => void;
   /** Open a session from anywhere: the given tab (Sessions by default) shows [root, session]. */
   openSession: (sessionId: string, segment?: SessionSegment, tab?: PhoneTab) => void;
+  /**
+   * A session re-keyed (/clear, a resume: `replacesId`): every screen of it, on
+   * every tab, follows the new id in place: same screens, same segment, no
+   * history traversal. Only the shown entry is rewritten now; the others are
+   * rewritten as they are reached (each landing writes its entry).
+   */
+  renameSession: (oldId: string, newId: string) => void;
 }
 
 export const PHONE_NAV_KEY = 'aasc.phoneNav';
@@ -114,6 +122,26 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
     if (deferred(() => get().switchTab(tab))) return;
     if (tab === get().tab) return;
     showStack(tab, get().stacks, 'switch');
+  },
+
+  renameSession: (oldId, newId) => {
+    if (oldId === newId || deferred(() => get().renameSession(oldId, newId))) return;
+    const { tab, stacks } = get();
+    const next = { ...stacks };
+    let changed = false;
+    for (const t of PHONE_TABS) {
+      const renamed = stacks[t].map((p) => renameSessionInPath(p, oldId, newId));
+      if (renamed.some((p, i) => p !== stacks[t][i])) {
+        next[t] = renamed;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    usePhoneNavStore.setState({ stacks: next, lastAction: 'replace' });
+    const shown = next[tab];
+    if (binding && shown !== stacks[tab] && binding.idx >= 1 && binding.idx <= shown.length) {
+      writeEntry('replace', binding.idx, tab, shown[binding.idx - 1]);
+    }
   },
 
   openSession: (sessionId, segment = 'chat', tab = 'sessions') => {

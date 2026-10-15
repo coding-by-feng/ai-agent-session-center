@@ -44,4 +44,22 @@ describe('composerDraftStore', () => {
     expect(appendedDraft('first\n', 'second')).toBe('first\nsecond');
     expect(appendedDraft('', 'x')).toBe('x');
   });
+
+  it('moves a draft to a session\'s new id when it re-keys, never over one already there', () => {
+    const { setDraft, moveDraft } = useComposerDraftStore.getState();
+    setDraft('old', 'half a thought');
+    moveDraft('old', 'new');
+    expect(useComposerDraftStore.getState().drafts).toEqual({ new: 'half a thought' });
+    expect(JSON.parse(localStorage.getItem('aasc.composerDrafts') ?? '{}')).toEqual({ new: 'half a thought' });
+
+    setDraft('a', 'from a');
+    setDraft('b', 'already in b');
+    moveDraft('a', 'b');
+    expect(useComposerDraftStore.getState().drafts.b).toBe('already in b\nfrom a');
+    expect(useComposerDraftStore.getState().drafts.a).toBeUndefined();
+
+    const before = useComposerDraftStore.getState().drafts;
+    moveDraft('nothing-here', 'c');
+    expect(useComposerDraftStore.getState().drafts).toBe(before);
+  });
 });

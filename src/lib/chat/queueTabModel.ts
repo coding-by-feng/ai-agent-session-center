@@ -101,12 +101,13 @@ export function automationWords(a: QueueAutomationConfig): string {
 }
 
 /**
- * What ⚡ "Send now" does with an item (the same rules as the session queue's
- * ⚡ NOW, QueueTab's handleTriggerNow):
- *   send     a plain once item: type it now, then take it off the queue
+ * What ⚡ "Send now" does with an item (the session queue's ⚡ NOW rules,
+ * QueueTab's handleTriggerNow, plus never while the session waits on an answer):
+ *   send     a plain once item: the Mac types and confirms it, then it leaves the queue
  *   start    a chain, loop or schedule: the Mac's scheduler starts it at once
  *   resume   a chain parked mid-way: send the step it waits on
- *   refuse   paused (the item, or the session's automation), with why
+ *   refuse   an approval or a question is open; paused (the item, or the
+ *            session's automation); with why
  */
 export type SendNowPlan =
   | { kind: 'send' }
@@ -114,7 +115,23 @@ export type SendNowPlan =
   | { kind: 'resume' }
   | { kind: 'refuse'; reason: string };
 
-export function sendNowPlan(item: QueueItem, automation: Pick<QueueAutomationConfig, 'paused'>): SendNowPlan {
+type WaitingFields = Pick<Session, 'status'> & { pendingRequest?: Pick<NonNullable<Session['pendingRequest']>, 'kind'> | null };
+
+/**
+ * Why nothing may be sent to a session now, or null: it waits on an approval, a
+ * question or a plan. Text typed then lands in the dialog, and its Enter answers it.
+ */
+export function waitingBlocker(session: WaitingFields): string | null {
+  const kind = session.pendingRequest?.kind;
+  if (kind === 'permission' || (!kind && session.status === 'approval')) return 'Answer the waiting approval first.';
+  if (kind === 'question' || (!kind && session.status === 'input')) return 'Answer the waiting question first.';
+  if (kind === 'plan') return 'Answer the waiting plan first.';
+  return null;
+}
+
+export function sendNowPlan(item: QueueItem, automation: Pick<QueueAutomationConfig, 'paused'>, session: WaitingFields = { status: 'idle' }): SendNowPlan {
+  const waiting = waitingBlocker(session);
+  if (waiting) return { kind: 'refuse', reason: waiting };
   if (item.disabled) return { kind: 'refuse', reason: 'This prompt is paused. Turn it back on first.' };
   // A plain prompt is typed straight away, as the session queue's SEND does, paused session or not.
   if (itemType(item) === 'once' && !hasChain(item)) return { kind: 'send' };
