@@ -114,6 +114,7 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor('GET', '/terminals/t1/output')).toBe('terminal');
     expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
     expect(phoneRuleFor('POST', '/sessions/abc/prompt')).toBe('prompt');
+    expect(phoneRuleFor('GET', '/sessions/abc/prompt/key-00000001')).toBe('allow');
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
     expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');

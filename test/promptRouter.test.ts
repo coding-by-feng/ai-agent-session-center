@@ -171,7 +171,7 @@ describe('accepting a prompt', () => {
     expect(res.status).toBe(202);
   });
 
-  it('owns only POST /sessions/:id/prompt', async () => {
+  it('owns only POST /sessions/:id/prompt and GET /sessions/:id/prompt/:key', async () => {
     expect((await call('/sessions/s1/prompt', undefined, {}, 'GET')).status).toBe(418);
     expect((await call('/sessions/s1/queue', { items: [] }, {}, 'PUT')).status).toBe(418);
   });
@@ -309,5 +309,50 @@ describe('who may send', () => {
     expect((await send('s1', { key: 'key-00000003' })).status).toBe(409);
     expect((await send('s1', { key: 'key-00000004', mode: 'interrupt' })).status).toBe(202);
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('what became of a prompt (GET /sessions/:id/prompt/:key)', () => {
+  const status = (session: string, key: string, headers: Record<string, string> = {}) =>
+    call(`/sessions/${session}/prompt/${key}`, undefined, headers, 'GET');
+
+  it('says pending while the Mac is still typing and confirming, then the outcome', async () => {
+    let finish: (o: PromptOutcome) => void = () => {};
+    submit.mockImplementationOnce(() => new Promise<PromptOutcome>((r) => { finish = r; }));
+    expect((await send('s1', {})).status).toBe(202);
+    const pending = await status('s1', 'key-00000001');
+    expect(pending.status).toBe(200);
+    expect(pending.json).toEqual({ success: true, data: { key: 'key-00000001', state: 'pending' } });
+    finish('submitted');
+    await vi.waitFor(async () => {
+      expect((await status('s1', 'key-00000001')).json).toEqual({ success: true, data: { key: 'key-00000001', state: 'submitted' } });
+    });
+  });
+
+  it('reports a send that gave up or failed', async () => {
+    submit.mockResolvedValueOnce('gave-up');
+    await send('s1', { key: 'key-gaveup01' });
+    await vi.waitFor(async () => expect((await status('s1', 'key-gaveup01')).json.data).toMatchObject({ state: 'gave-up' }));
+    submit.mockRejectedValueOnce(new Error('pty exploded'));
+    await send('s1', { key: 'key-failed01', text: 'other' });
+    await vi.waitFor(async () => expect((await status('s1', 'key-failed01')).json.data).toMatchObject({ state: 'failed' }));
+  });
+
+  it('answers 404 for a key it never accepted, a key of another session, and a session the caller may not see', async () => {
+    expect((await status('s1', 'key-unknown1')).status).toBe(404);
+    await send('s1', { key: 'key-s1-only1' });
+    expect((await status('s2', 'key-s1-only1')).status).toBe(404);
+    expect((await status('s-hidden', 'key-s1-only1')).status).toBe(404);
+  });
+
+  it('still answers after the session was re-keyed to the CLI\'s id', async () => {
+    sessions.set('term-x', { sessionId: 'term-x', terminalId: 'term-1', status: 'waiting' });
+    terminals.add('term-1');
+    await send('term-x', { key: 'key-rekeyed1' });
+    // The CLI's SessionStart re-keys the card: the old id now resolves to the new session.
+    const moved = { sessionId: 'cli-123', terminalId: 'term-1', status: 'working' };
+    sessions.set('cli-123', moved);
+    sessions.set('term-x', moved);
+    expect((await status('cli-123', 'key-rekeyed1')).status).toBe(200);
   });
 });

@@ -113,6 +113,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/terminals/:id/write', 'type'),
   // A prompt for a shared session's agent, typed and confirmed by the Mac (AASC-42).
   route('POST', '/sessions/:id/prompt', 'prompt'),
+  // What became of that prompt: typed and confirmed, or why not.
+  route('GET', '/sessions/:id/prompt/[A-Za-z0-9._:-]+', 'allow'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session.
   route('POST', '/terminals', 'launch'),

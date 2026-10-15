@@ -88,11 +88,14 @@ export function cleanPromptText(text: string): string {
     .replace(/\s+$/, '');
 }
 
+/** A request key: what the phone names a prompt by, to retry it and to ask what became of it. */
+const PROMPT_KEY_RE = /^[A-Za-z0-9._:-]+$/;
+
 const promptBodySchema = z.object({
   text: z.string().min(1).max(MAX_PROMPT_TEXT).transform(cleanPromptText).refine((t) => t.trim() !== '', 'Type a prompt'),
   images: z.array(z.string().max(80)).max(MAX_PROMPT_IMAGES).default([]),
   mode: z.enum(['now', 'interrupt']).default('now'),
-  key: z.string().min(8).max(64).regex(/^[A-Za-z0-9._:-]+$/, 'Letters, digits and . _ : - only'),
+  key: z.string().min(8).max(64).regex(PROMPT_KEY_RE, 'Letters, digits and . _ : - only'),
 });
 
 const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typeof v === 'string' ? v : '');
@@ -100,6 +103,19 @@ const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typ
 interface Accepted {
   success: true;
   data: { accepted: true; key: string };
+}
+
+/** Where a prompt is: still being typed and confirmed, or how it ended. */
+export type PromptState = 'pending' | PromptOutcome;
+
+/** A request key's first use: what was answered, for which session, and how the send went. */
+interface KeyRecord {
+  body: Accepted;
+  digest: string;
+  /** The id the phone used, and the session's own id at that moment (it re-keys later). */
+  sessionParam: string;
+  sessionId: string;
+  state: PromptState;
 }
 
 /** What a key was first used for: a repeat must be the same request. */
@@ -114,7 +130,32 @@ function refuse(res: Response, status: number, code: string, error: string): voi
 export function createPromptRouter(deps: PromptRouterDeps): Router {
   const router = Router();
   // Keyed by the request key alone: it survives the session's re-key (term-* → the CLI's id).
-  const answered = createPromptKeyCache<{ body: Accepted; digest: string }>();
+  const answered = createPromptKeyCache<KeyRecord>();
+  // The outcome lands seconds later; keep it on the key's record (a new object: the
+  // cache holds immutable values) so the phone can ask what became of its prompt.
+  const settle = (key: string, state: PromptOutcome): void => {
+    const record = answered.get(key);
+    if (record) answered.set(key, { ...record, state });
+  };
+  // Does this key belong to the session the caller named? Either the id it was sent
+  // with, or the same session after a re-key (term-* → the CLI's id).
+  const belongsTo = (record: KeyRecord, sessionParam: string): boolean => {
+    if (record.sessionParam === sessionParam || record.sessionId === sessionParam) return true;
+    const now = deps.getSession(sessionParam);
+    const then = deps.getSession(record.sessionParam);
+    return !!now && !!then && now.sessionId === then.sessionId;
+  };
+
+  router.get('/sessions/:id/prompt/:key', deps.requireVisibleSession, (req: Request, res: Response) => {
+    const sessionParam = str(req.params.id);
+    const key = str(req.params.key);
+    const record = PROMPT_KEY_RE.test(key) ? answered.get(key) : undefined;
+    if (!record || !belongsTo(record, sessionParam)) {
+      res.status(404).json({ success: false, error: 'No prompt with that key for this session' });
+      return;
+    }
+    res.json({ success: true, data: { key, state: record.state } });
+  });
 
   router.post('/sessions/:id/prompt', deps.requireVisibleSession, (req: Request, res: Response) => {
     const sessionParam = str(req.params.id);
@@ -180,7 +221,7 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     }
 
     const accepted: Accepted = { success: true, data: { accepted: true, key } };
-    answered.set(key, { body: accepted, digest });
+    answered.set(key, { body: accepted, digest, sessionParam, sessionId: session.sessionId, state: 'pending' });
     res.status(202).json(accepted);
 
     log.info('prompt', `Prompt for ${session.sessionId.slice(0, 8)} accepted (${mode}, ${imagePaths.length} image(s)) from ${remote ? `device ${clientId.slice(0, 8)}` : 'this Mac'}`);
@@ -191,7 +232,8 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       imagePaths: imagePaths as string[],
       mode,
       ...(remote ? { mayDrive: (sessionId: string) => deps.canControl(sessionId, clientId) } : {}),
-    }).catch((err: unknown) => {
+    }).then((outcome) => settle(key, outcome)).catch((err: unknown) => {
+      settle(key, 'failed');
       log.error('prompt', `Prompt for ${session.sessionId.slice(0, 8)} failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   });
