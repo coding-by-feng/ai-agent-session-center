@@ -154,7 +154,11 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     // drives only with a device id and the baton (or a free one); an unidentified
     // caller on the Mac itself is not arbitrated.
     if ((!local && !clientId) || (clientId && !deps.canControl(sessionId, clientId))) {
-      refuse(res, 423, 'control_held', 'Another device is driving this session', { driver: deps.getController(sessionId) });
+      // The card names the driver; another device's client id stays on the Mac.
+      const holder = deps.getController(sessionId);
+      refuse(res, 423, 'control_held', 'Another device is driving this session', {
+        driver: holder ? { label: holder.label, online: holder.online } : null,
+      });
       return;
     }
 
