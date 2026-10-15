@@ -1,0 +1,38 @@
+/* InterruptedSessionsPrompt — the list of sessions a quit cut off (inside the shared Modal panel). */
+.list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  opacity: 0.75;
+}

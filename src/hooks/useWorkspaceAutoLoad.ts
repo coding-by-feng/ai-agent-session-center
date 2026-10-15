@@ -22,7 +22,8 @@ import { useEffect, useRef } from 'react';
 import { useWsStore } from '@/stores/wsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { loadFromConfig, importSnapshot, setRestorePending } from '@/lib/workspaceSnapshot';
+import { loadFromConfig, importSnapshot, setRestorePending, type SessionSnapshot } from '@/lib/workspaceSnapshot';
+import { offerInterrupted, pickInterrupted } from '@/lib/interruptedRestore';
 import { reportWorkspaceLoadErrors } from '@/components/ui/WorkspaceLoadingOverlay';
 import { claimWorkspaceRestore, releaseWorkspaceRestore } from '@/lib/presenceClient';
 import { hasServerRooms } from '@/lib/roomSync';
@@ -140,6 +141,10 @@ export function useWorkspaceAutoLoad(): void {
         if (willLaunch === 0) { void releaseWorkspaceRestore(); return; }
 
         const { startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad } = useUiStore.getState();
+        // For the "continue interrupted sessions" reminder: which saved session became
+        // which terminal, and when the restore began (lib/interruptedRestore.ts).
+        const restoreStartedAt = Date.now();
+        const restored: Array<{ terminalId: string; snap: SessionSnapshot }> = [];
         // Clear any stale failed-titles from a previous load before we start.
         reportWorkspaceLoadErrors([]);
         startWorkspaceLoad(willLaunch);
@@ -154,8 +159,9 @@ export function useWorkspaceAutoLoad(): void {
             onProgress: (done, _total, currentTitle) => {
               advanceWorkspaceLoad(done, currentTitle);
             },
-            onSessionCreated: () => {
-              // Sessions will appear via WebSocket broadcast — no manual select needed
+            onSessionCreated: (terminalId, snap) => {
+              // Sessions will appear via WebSocket broadcast — no manual select needed.
+              restored.push({ terminalId, snap });
             },
             onComplete: () => {
               // Aggregate counts and titles come from the resolved promise; nothing
@@ -170,6 +176,10 @@ export function useWorkspaceAutoLoad(): void {
           // eslint-disable-next-line no-console
           console.info(`[workspace] Auto-loaded ${created} session(s)${failed > 0 ? `, ${failed} failed` : ''}`);
         }
+
+        // Sessions the quit cut off mid-turn: offer to continue them (nothing is sent
+        // until the user says so).
+        offerInterrupted({ items: pickInterrupted(restored), restoreStartedAt });
 
         // Room loading + reconciliation is handled inside importSnapshot.
         // If any sessions failed, surface the titles in the overlay so the user

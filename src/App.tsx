@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -34,6 +34,7 @@ import NativeReauth from '@/components/auth/NativeReauth';
 import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
 import { useRoomSync } from '@/hooks/useRoomSync';
 import { useUiStore } from '@/stores/uiStore';
+import { getInterruptedOffer, subscribeInterrupted } from '@/lib/interruptedRestore';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 
 // Lazy-load non-default routes for code splitting
@@ -44,6 +45,8 @@ const AgendaView = lazy(() => import('@/routes/AgendaView'));
 const ReviewView = lazy(() => import('@/routes/ReviewView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 const ResourcesView = lazy(() => import('@/routes/ResourcesView'));
+// Only after a restore that cut sessions off mid-turn (lib/interruptedRestore.ts).
+const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -124,6 +127,7 @@ function Dashboard({ token }: { token: string | null }) {
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
+  const interruptedOffer = useSyncExternalStore(subscribeInterrupted, getInterruptedOffer);
   const creepRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Listen for Electron's before-close signal to flush workspace save
@@ -177,6 +181,11 @@ function Dashboard({ token }: { token: string | null }) {
         />
       )}
       <RestorePickerModal />
+      {interruptedOffer && (
+        <Suspense fallback={null}>
+          <InterruptedSessionsPrompt />
+        </Suspense>
+      )}
       <WorkspaceLoadingOverlay />
       <BrowserRouter>
         <Routes>
