@@ -14,7 +14,7 @@ import { editFiles } from '@/lib/chat/editDiff';
 import { formatDuration } from '@/lib/chat/chatFormat';
 import OutputBlock from './OutputBlock';
 import InlineDiff from './InlineDiff';
-import { CheckIcon, ChevronIcon, CrossIcon, FileIcon, GlobeIcon, PencilIcon, SearchIcon, TerminalIcon, ToolIcon } from '../chatViewIcons';
+import { CheckIcon, ChevronIcon, CrossIcon, FileIcon, GlobeIcon, LockIcon, PencilIcon, SearchIcon, TerminalIcon, ToolIcon } from '../chatViewIcons';
 import styles from '@/styles/modules/mobile/ChatItems.module.css';
 
 const ChatMarkdown = lazy(() => import('./ChatMarkdown'));
@@ -130,10 +130,12 @@ function ToolDetail({ call }: { call: ToolCall }) {
       </>
     );
   }
-  const showInput = !edit && !call.command && (call.category === 'search' || call.category === 'fetch' || call.category === 'other');
+  const showInput = !edit && !call.command && !call.redacted
+    && (call.category === 'search' || call.category === 'fetch' || call.category === 'other');
   const output = call.result?.output ?? '';
   return (
     <>
+      {call.redacted && <p className={styles.note}>Hidden on phones: this touched a secret file.</p>}
       {call.path && <div className={styles.detailLabel}>{call.path}</div>}
       {edit && <InlineDiff files={editFiles(call.name, call.input)} />}
       {call.command && <OutputBlock text={`$ ${call.command}`} wrap label="Command" />}
@@ -177,6 +179,12 @@ function ToolRow({ item, expanded: controlled, onToggle }: ToolRowProps) {
           <span className={styles.verb}>{call.verb}</span>
           {call.target && <> <span className={`${styles.target}${call.mono ? ` ${styles.mono}` : ''}`}>{call.target}</span></>}
         </span>
+        {call.secret && (
+          <span className={styles.secret}>
+            <LockIcon size={14} />
+            <span className={styles.srOnly}>a secret file</span>
+          </span>
+        )}
         {call.meta && <span className={styles.meta}>{call.meta}</span>}
         <ToolStatus call={call} />
         <span className={`${styles.chev}${expanded ? ` ${styles.chevOpen}` : ''}`}><ChevronIcon size={16} /></span>

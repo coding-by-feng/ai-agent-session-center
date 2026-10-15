@@ -216,6 +216,29 @@ describe('buildChatItems — live, partial and redacted', () => {
     expect(buildChatItems(entries, { live: false })[1]).toMatchObject({ kind: 'assistant', isAnswer: true });
   });
 
+  it('shows a command that only names a secret file by the server’s note, its words hidden', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'h', name: 'Bash', input: { redacted: true, note: 'Ran a command that touches a secret file' }, secret: true },
+      { kind: 'tool_result', toolUseId: 'h', isError: false, output: '[Hidden on phones: this touched a secret file]', truncated: false, secret: true },
+    ));
+    expect((items[0] as ToolItem).call).toMatchObject({
+      verb: 'Ran a command that touches a secret file', target: '', command: null, redacted: true, secret: true, category: 'command',
+    });
+  });
+
+  it('marks a call that touched a secret file, keeping what the server chose to send', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'm', name: 'Read', input: { file_path: '.env' }, secret: true, secretInput: true },
+      { kind: 'tool_result', toolUseId: 'm', isError: false, output: 'KEY=shown on the Mac', truncated: false, secret: true },
+      { kind: 'assistant', text: 'read it' },
+      { kind: 'tool_use', id: 'n', name: 'Read', input: { file_path: 'a.ts' } },
+      { kind: 'tool_result', toolUseId: 'n', isError: false, output: 'x', truncated: false },
+    ));
+    expect((items[0] as ToolItem).call).toMatchObject({ secret: true, redacted: false });
+    expect((items[0] as ToolItem).call.result?.output).toBe('KEY=shown on the Mac');
+    expect((items[2] as ToolItem).call.secret).toBe(false);
+  });
+
   it('changes the signature of only the item whose result arrived', () => {
     const base = stream(
       { kind: 'assistant', text: 'one' },
@@ -240,7 +263,7 @@ describe('buildChatItems — live, partial and redacted', () => {
       { kind: 'tool_use', id: 'r', name: 'Read', input: { file_path: '.env', redacted: true } },
       { kind: 'tool_result', toolUseId: 'r', isError: false, output: '[Hidden on phones: this touched a secret file]', truncated: false },
     ));
-    expect((items[0] as ToolItem).call).toMatchObject({ verb: 'Read', target: '.env', redacted: true });
+    expect((items[0] as ToolItem).call).toMatchObject({ verb: 'Read', target: '.env', redacted: true, secret: true });
     expect((items[0] as ToolItem).call.result?.output).toMatch(/Hidden on phones/);
   });
 

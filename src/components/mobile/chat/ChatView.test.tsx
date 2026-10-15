@@ -159,6 +159,20 @@ describe('ChatView', () => {
     expect(screen.queryByTestId('chat-status-strip')).toBeNull();
   });
 
+  it('draws a command that only names a secret file by its note, with a lock and no input', async () => {
+    fetchChatPage.mockResolvedValue({ ok: true, data: { entries: [
+      entry({ kind: 'assistant', text: 'Checking.' }),
+      entry({ kind: 'tool_use', id: 'h', name: 'Bash', input: { redacted: true, note: 'Ran a command that touches a secret file' }, secret: true }),
+      entry({ kind: 'tool_result', toolUseId: 'h', isError: false, output: '[Hidden on phones: this touched a secret file]', truncated: false, secret: true }),
+    ], before: 'b', after: 'a', cli: 'claude', hasMore: false } });
+    render(<ChatView session={session()} onTerminal={() => {}} />);
+    const row = await screen.findByRole('button', { name: /Ran a command that touches a secret file.*a secret file/ });
+    await userEvent.click(row);
+    expect(screen.getByText('Hidden on phones: this touched a secret file.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Input')).toBeNull();
+    expect(screen.queryByText(/"note"/)).toBeNull();
+  });
+
   it('reads what was written since when the session moves', async () => {
     fetchChatPage.mockResolvedValue(claudePage());
     const { rerender } = render(<ChatView session={session()} onTerminal={() => {}} />);
