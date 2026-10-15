@@ -206,6 +206,47 @@ export interface SessionInterruption {
 }
 
 // ---------------------------------------------------------------------------
+// Waiting requests (AASC-43): what a waiting session is asking, structured
+// ---------------------------------------------------------------------------
+
+/** One choice of an AskUserQuestion, as the agent offered it. */
+export interface PendingRequestOption {
+  label: string;
+  description?: string;
+}
+
+/**
+ * What the CLI is waiting on, structured (`server/pendingRequests.ts`): set by the
+ * PermissionRequest hook and by PreToolUse of AskUserQuestion / ExitPlanMode, cleared by
+ * the call's PostToolUse(Failure), UserPromptSubmit, Stop, SessionStart/End, a newer
+ * request, or an answer the server wrote. Answered by
+ * `POST /api/sessions/:id/requests/:requestId/answer`. Live-only: never archived or
+ * written to the restart snapshot.
+ */
+export interface PendingRequest {
+  /** The hook's tool_use_id when it sent one, else a server uuid. An answer names it. */
+  id: string;
+  kind: 'permission' | 'question' | 'plan';
+  cli: 'claude' | 'codex';
+  /** For the answer key map, once the CLI reports one. */
+  cliVersion?: string;
+  /** Bash, Edit, WebFetch, AskUserQuestion, ExitPlanMode, an MCP tool, Codex's shell… */
+  tool: string;
+  /** The tool's input as the CLI sent it: capped at 8 KB, edits whole up to 64 KB. Absent on a guess. */
+  input?: unknown;
+  /** The input was cut to fit its cap (long strings end in a marker). */
+  inputTruncated?: boolean;
+  /** AskUserQuestion's choices, present only when the answer route can pick one:
+   *  a single, single-select question with at most 9 choices. */
+  options?: PendingRequestOption[];
+  /** The hook's tool_use_id, when it sent one: matches the call's PostToolUse. */
+  toolUseId?: string;
+  raisedAt: number;
+  /** `timer` and `notification` are guesses (no input): only "Open terminal" can answer them. */
+  source: 'permission_request' | 'notification' | 'pre_tool_use' | 'timer';
+}
+
+// ---------------------------------------------------------------------------
 // Plan usage (the CLI's subscription limits — what `/usage` and `/status` show)
 // ---------------------------------------------------------------------------
 
@@ -351,6 +392,8 @@ export interface Session {
    * never archived.
    */
   approvalSource?: 'permission_request' | 'notification' | 'timer' | null;
+  /** What the session waits on, structured (AASC-43); null once answered or gone. Live-only. */
+  pendingRequest?: PendingRequest | null;
 
   /**
    * The CLI's plan limits (5-hour / weekly usage and when they reset), as last
