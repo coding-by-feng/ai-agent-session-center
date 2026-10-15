@@ -72,23 +72,37 @@ describe('Claude Code', () => {
   });
 });
 
-describe('Codex (unverified: off unless AASC_CODEX_ANSWER_KEYS=1)', () => {
-  const codex = (over: Partial<PendingRequest> = {}) => request({ cli: 'codex', tool: 'shell', ...over });
+describe('Codex (probed on codex-cli 0.162.1; AASC_CODEX_ANSWER_KEYS=0 turns it off)', () => {
+  // 1. Yes, proceed (y)  2. Yes, and don't ask again … (p for a command, a for file edits)
+  // 3. No, and tell Codex what to do differently (esc)
+  const codex = (over: Partial<PendingRequest> = {}) => request({ cli: 'codex', tool: 'Bash', ...over });
 
-  it('is unknown for every choice by default', () => {
+  it('a command: allow once = y, always = p (a saved prefix rule), deny = Esc', () => {
+    expect(answerKeysFor(codex(), { choice: 'allow_once' }, {})).toBe('y');
+    expect(answerKeysFor(codex(), { choice: 'allow_always' }, {})).toBe('p');
+    expect(answerKeysFor(codex(), { choice: 'deny' }, {})).toBe(ESC);
+  });
+
+  it('a file edit: always = a (these files, this session)', () => {
+    expect(answerKeysFor(codex({ tool: 'apply_patch' }), { choice: 'allow_once' }, {})).toBe('y');
+    expect(answerKeysFor(codex({ tool: 'apply_patch' }), { choice: 'allow_always' }, {})).toBe('a');
+    expect(answerKeysFor(codex({ tool: 'apply_patch' }), { choice: 'deny' }, {})).toBe(ESC);
+  });
+
+  it('always is unknown for any other tool: its dialog was never probed', () => {
+    expect(answerKeysFor(codex({ tool: 'mcp__github__create_issue' }), { choice: 'allow_always' }, {})).toBeNull();
+    expect(answerKeysFor(codex({ tool: 'mcp__github__create_issue' }), { choice: 'allow_once' }, {})).toBe('y');
+  });
+
+  it('AASC_CODEX_ANSWER_KEYS=0 makes every Codex answer unknown', () => {
     for (const choice of ['allow_once', 'allow_always', 'deny'] as const) {
-      expect(answerKeysFor(codex(), { choice }, {})).toBeNull();
-      expect(answerKeysFor(codex(), { choice }, { AASC_CODEX_ANSWER_KEYS: 'true' })).toBeNull();
+      expect(answerKeysFor(codex(), { choice }, { AASC_CODEX_ANSWER_KEYS: '0' })).toBeNull();
     }
   });
 
-  it('with the switch on: allow once = y, always = a, deny = Esc', () => {
-    const env = { AASC_CODEX_ANSWER_KEYS: '1' };
-    expect(answerKeysFor(codex(), { choice: 'allow_once' }, env)).toBe('y');
-    expect(answerKeysFor(codex(), { choice: 'allow_always' }, env)).toBe('a');
-    expect(answerKeysFor(codex(), { choice: 'deny' }, env)).toBe(ESC);
-    expect(answerKeysFor(codex(), { choice: 'option', optionIndex: 0 }, env)).toBeNull();
-    expect(answerKeysFor(codex({ kind: 'plan' }), { choice: 'allow_once' }, env)).toBeNull();
-    expect(answerKeysFor(codex({ source: 'timer' }), { choice: 'allow_once' }, env)).toBeNull();
+  it('never an option, a plan or a guess', () => {
+    expect(answerKeysFor(codex(), { choice: 'option', optionIndex: 0 }, {})).toBeNull();
+    expect(answerKeysFor(codex({ kind: 'plan' }), { choice: 'allow_once' }, {})).toBeNull();
+    expect(answerKeysFor(codex({ source: 'timer' }), { choice: 'allow_once' }, {})).toBeNull();
   });
 });

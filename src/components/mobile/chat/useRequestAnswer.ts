@@ -109,7 +109,7 @@ export function useRequestAnswer(sessionId: string, requestId: string | null, cl
       return;
     }
     const takeLine = spectator ? `${driver} is driving this session. Answering takes control: it stops typing here until it takes control back.` : '';
-    const alwaysLine = always ? `${cliName} won’t ask again for calls like this one in this project.` : '';
+    const alwaysLine = always ? choice.confirmNote ?? `${cliName} won’t ask again for calls like this one.` : '';
     setConfirm({
       title: spectator ? `Take control and ${lower(choice.label)}?` : `${choice.label}?`,
       message: [takeLine, alwaysLine].filter(Boolean).join(' '),

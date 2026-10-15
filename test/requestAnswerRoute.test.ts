@@ -289,15 +289,33 @@ describe('refusals (nothing is typed)', () => {
     expect(res.json.code).toBe('control_held');
   });
 
-  it('422 unknown_prompt for a plan approval, a guessed wait, Codex and an option a permission lacks', async () => {
+  it('Codex: approve types y, and AASC_CODEX_ANSWER_KEYS=0 turns Codex answers off', async () => {
+    const codex = await waitingSession({ command: 'codex', events: [['PermissionRequest', { cli_source: 'codex', tool_name: 'Bash', tool_input: { command: 'echo hi > a.txt' } }]] });
+    expect(store.getSession(codex.id)?.pendingRequest?.cli).toBe('codex');
+    expect((await answer(codex.id, codex.requestId, { choice: 'allow_once' })).status).toBe(202);
+    expect(pty.write).toHaveBeenLastCalledWith(codex.id, 'y');
+  });
+
+  it('422 unknown_prompt for a plan approval, a guessed wait, Codex switched off and an option a permission lacks', async () => {
     const plan = await waitingSession({ events: [['PreToolUse', { tool_name: 'ExitPlanMode', tool_input: { plan: 'x' }, tool_use_id: 'toolu_plan' }]] });
     const planRes = await answer(plan.id, plan.requestId, { choice: 'allow_once' });
     expect(planRes.status).toBe(422);
     expect(planRes.json).toMatchObject({ success: false, code: 'unknown_prompt' });
 
-    const codex = await waitingSession({ command: 'codex', events: [['PermissionRequest', { cli_source: 'codex', tool_name: 'shell', tool_input: { command: ['ls'] } }]] });
-    expect(store.getSession(codex.id)?.pendingRequest?.cli).toBe('codex');
-    expect((await answer(codex.id, codex.requestId, { choice: 'allow_once' })).json.code).toBe('unknown_prompt');
+    const codex = await waitingSession({ command: 'codex', events: [['PermissionRequest', { cli_source: 'codex', tool_name: 'Bash', tool_input: { command: 'ls' } }]] });
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createRequestAnswerRouter({ ...wiring(), env: { AASC_CODEX_ANSWER_KEYS: '0' } }));
+    const off = await listen(app);
+    try {
+      const res = await fetch(`${off.url}/api/sessions/${codex.id}/requests/${encodeURIComponent(codex.requestId)}/answer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choice: 'allow_once' }),
+      });
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { code: string }).code).toBe('unknown_prompt');
+    } finally {
+      await off.close();
+    }
 
     const bash = await waitingSession();
     expect((await answer(bash.id, bash.requestId, { choice: 'option', optionIndex: 0 })).json.code).toBe('unknown_prompt');

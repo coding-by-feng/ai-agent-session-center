@@ -122,8 +122,28 @@ describe('a Codex permission', () => {
     }))!;
     expect(card.title).toBe('Codex wants to run a command');
     expect(card.detail).toEqual({ type: 'command', command: 'npm test' });
-    expect(labels(card)).toEqual(['Deny', 'Always approve', 'Approve']);
+    // `shell` is an older Codex's name: its "don't ask again" key was never probed.
+    expect(labels(card)).toEqual(['Deny', 'Approve']);
     expect(card.tell?.label).toBe('Tell Codex what to do…');
+  });
+
+  it('codex-cli 0.162 names a command Bash: Always approve saves a rule for every project, and says so', () => {
+    const card = waitingCardModel(session({ cliSource: 'codex', pendingRequest: request({ cli: 'codex', tool: 'Bash', input: { command: 'npm test' } }) }))!;
+    expect(card.detail).toEqual({ type: 'command', command: 'npm test' });
+    expect(labels(card)).toEqual(['Deny', 'Always approve', 'Approve']);
+    expect(card.choices.find((c) => c.answer.choice === 'allow_always')?.confirmNote).toMatch(/any project/);
+  });
+
+  it('an apply_patch sent as { command: patch } still reads as a diff, and its Always approve lasts this session', () => {
+    const patch = '*** Begin Patch\n*** Add File: codex2.txt\n+hello\n*** End Patch';
+    const card = waitingCardModel(session({ cliSource: 'codex', pendingRequest: request({ cli: 'codex', tool: 'apply_patch', input: { command: patch } }) }))!;
+    expect(card.detail).toMatchObject({ type: 'diff', file: 'codex2.txt', added: 1 });
+    expect(card.choices.find((c) => c.answer.choice === 'allow_always')?.confirmNote).toMatch(/this session/);
+  });
+
+  it('offers no Always approve for a Codex tool whose dialog was never probed', () => {
+    const card = waitingCardModel(session({ cliSource: 'codex', pendingRequest: request({ cli: 'codex', tool: 'mcp__github__create_issue', input: { title: 'x' } }) }))!;
+    expect(labels(card)).toEqual(['Deny', 'Approve']);
   });
 
   it('joins a plain argument list', () => {

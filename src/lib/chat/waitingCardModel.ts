@@ -38,6 +38,8 @@ export interface CardChoice {
   tone: 'primary' | 'secondary' | 'destructive';
   /** Asks before answering (Always allow: Face ID / a confirm sheet). */
   confirm?: boolean;
+  /** What answering it leaves behind, for the confirm sheet (how long "always" lasts). */
+  confirmNote?: string;
   /** Offered but not possible, and why. */
   disabledReason?: string;
 }
@@ -281,7 +283,8 @@ function detailOf(request: PendingRequest, projectPath: string | undefined): Car
     return diffDetail(relativeTo(projectPath, asString(input.notebook_path)), [lineDiff('', asString(input.new_source))]);
   }
   if (tool === 'apply_patch') {
-    const patch = typeof request.input === 'string' ? request.input : asString(input.input ?? input.patch);
+    // codex-cli 0.162 sends the patch as `command`; older builds as `input` or `patch`.
+    const patch = typeof request.input === 'string' ? request.input : asString(input.input ?? input.patch ?? input.command);
     if (patch) return patchDetail(patch, projectPath);
   }
   if (tool === 'WebFetch' && asString(input.url)) {
@@ -304,18 +307,29 @@ function questionDetail(request: PendingRequest | null, fallback: string | null 
 // The card
 // ---------------------------------------------------------------------------
 
+/**
+ * What "always" leaves behind, or null when the CLI's dialog has no such line. Claude
+ * drops it for a call it can't save as a rule; Codex has it for a command (a prefix rule
+ * in its global rules file) and a file edit (this session), and was never probed for more.
+ */
+function alwaysNote(cliName: string, request: PendingRequest): string | null {
+  if (cliName !== 'Codex') return request.canAlwaysAllow === true ? 'Claude won’t ask again for calls like this one.' : null;
+  if (request.tool === 'Bash') return 'Codex saves a rule and won’t ask again for commands that start like this one, in any project.';
+  if (request.tool === 'apply_patch') return 'Codex won’t ask again for these files for the rest of this session.';
+  return null;
+}
+
 function permissionChoices(cliName: string, request: PendingRequest, inbox: boolean): CardChoice[] {
   const codex = cliName === 'Codex';
   const truncated = !!request.inputTruncated;
-  // Claude's dialog has no "always allow" line for a call it can't save as a rule.
-  const always = codex || request.canAlwaysAllow === true;
+  const note = alwaysNote(cliName, request);
   const blocked = truncated ? { disabledReason: TRUNCATED_REASON } : {};
   const choices: CardChoice[] = [
     { answer: { choice: 'deny' }, label: 'Deny', tone: 'destructive' },
-    { answer: { choice: 'allow_always' }, label: codex ? 'Always approve' : 'Always allow', tone: 'secondary', confirm: true, ...blocked },
+    { answer: { choice: 'allow_always' }, label: codex ? 'Always approve' : 'Always allow', tone: 'secondary', confirm: true, ...(note ? { confirmNote: note } : {}), ...blocked },
     { answer: { choice: 'allow_once' }, label: codex ? 'Approve' : 'Allow once', tone: 'primary', ...blocked },
   ];
-  return inbox || !always ? choices.filter((c) => c.answer.choice !== 'allow_always') : choices;
+  return inbox || !note ? choices.filter((c) => c.answer.choice !== 'allow_always') : choices;
 }
 
 function terminalOnly(card: Omit<WaitingCard, 'choices' | 'tell' | 'terminalOnly' | 'terminalOnlyReason'>, reason: string): WaitingCard {
