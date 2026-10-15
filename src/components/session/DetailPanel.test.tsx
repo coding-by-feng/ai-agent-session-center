@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import DetailPanel from './DetailPanel';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
-import { settleLazy } from '@/__tests__/settleLazy';
 import type { Session } from '@/types';
 
 // Mock sub-components to isolate DetailPanel tests
@@ -262,15 +261,9 @@ describe('DetailPanel', () => {
   });
 });
 
-// AASC-18: on a phone the session strip gives way to the Sessions drawer and the
-// swipe between sessions; the desktop panel is unchanged.
-describe('DetailPanel on a phone', () => {
-  const phone = (isPhone: boolean) => vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-    matches: isPhone && query.includes('max-width: 480px'),
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  })));
-
+// A phone never shows this panel (it has the phone app, AASC-48): the session
+// strip is always there, and there is no Sessions drawer.
+describe('DetailPanel session strip', () => {
   beforeEach(() => {
     useSessionStore.setState({
       sessions: new Map([
@@ -281,21 +274,9 @@ describe('DetailPanel on a phone', () => {
     });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('desktop: the strip, and no Sessions drawer button', async () => {
-    phone(false);
+  it('shows the strip, and no Sessions drawer button', () => {
     const { container } = render(<DetailPanel />);
-    await settleLazy(() => import('@/components/mobile/PhoneSessionHeader'));
     expect(container.querySelector('[class*="sessionTabStrip"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: /^Sessions/ })).toBeNull();
-  });
-
-  it('phone: a Sessions drawer button and previous / next instead of the strip', async () => {
-    phone(true);
-    const { container } = render(<DetailPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Sessions/ }));
-    expect(container.querySelector('[class*="sessionTabStrip"]')).toBeNull();
-    expect(screen.getByTestId('session-drawer')).toBeInTheDocument();
   });
 });

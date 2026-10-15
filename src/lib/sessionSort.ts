@@ -1,15 +1,11 @@
 /**
  * Session list orderings, tested in isolation.
  *
- *  - `sortSessions`           — pinned, then live status, then title. Used by
- *                               RobotListSidebar. (SessionSwitcher's room mode
- *                               keeps its own near-identical local sort, which
- *                               doubles as the basis for its badge numbering.)
  *  - `sortSessionsByActivity` — pinned, then most-recently-active first. Used by
  *                               SessionSwitcher when uiStore's `sessionSortMode`
  *                               is 'activity'.
  *
- * Both keep pinned sessions on top: pinning is an explicit user intent that
+ * Each keeps pinned sessions on top: pinning is an explicit user intent that
  * outranks whatever the list is ordered by.
  */
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
@@ -36,17 +32,6 @@ export function isListedSession(s: Session): boolean {
  */
 export function isSceneRobotSession(s: Session): boolean {
   return isListedSession(s) && s.source === 'ssh';
-}
-
-export function sortSessions(sessions: Session[]): Session[] {
-  return [...sessions].sort((a, b) => {
-    // Pinned sessions float to the top of their group.
-    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-    const oa = STATUS_ORDER[a.status] ?? 5;
-    const ob = STATUS_ORDER[b.status] ?? 5;
-    if (oa !== ob) return oa - ob;
-    return sessionDisplayTitle(a).localeCompare(sessionDisplayTitle(b));
-  });
 }
 
 /**

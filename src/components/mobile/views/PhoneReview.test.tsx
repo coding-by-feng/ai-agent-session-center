@@ -42,6 +42,14 @@ beforeEach(() => {
 const renderView = () => render(<MemoryRouter initialEntries={['/review']}><PhoneReview /></MemoryRouter>);
 
 describe('PhoneReview', () => {
+  it('with nothing saved, says how a phone saves one: Ask AI in a chat (AASC-48)', async () => {
+    vi.mocked(listLogs).mockResolvedValue([]);
+    renderView();
+    expect(await screen.findByText('No saved entries yet')).toBeTruthy();
+    expect(screen.getByText(/Select text in a session’s Chat and tap Ask AI/)).toBeTruthy();
+    expect(screen.queryByText(/click/)).toBeNull();
+  });
+
   it('lists the entries saved on this device, with a 44px star toggle per row', async () => {
     renderView();
     expect(await screen.findByText('pullback')).toBeTruthy();

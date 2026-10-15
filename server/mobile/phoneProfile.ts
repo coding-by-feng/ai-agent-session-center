@@ -84,7 +84,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('PUT|DELETE', '/agenda/:id', 'allow'),
   route('PATCH', '/agenda/:id/toggle', 'allow'),
   route('POST', '/tts/(synthesize|status)', 'allow'),
-  // A shared session: the /sessions/:id gate answers 404 for every other one.
+  // A shared session: the /sessions/:id gate answers 404 for every other one. The phone's
+  // transcript reader is an AI popup's sheet ("Read last answer"); the chat has its own route.
   route('GET', '/sessions/:id/(source|transcript|queue)', 'allow'),
   // The phone chat (AASC-41) and what a session edited (AASC-44): the chat router's own
   // /sessions/:id gate answers 404 for a session that isn't shared.
@@ -450,7 +451,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const json = res.json.bind(res);
         res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
       }
-      // The chat, its edits and the classic transcript show what the agent read and wrote: never a
+      // The chat, its edits and the transcript show what the agent read and wrote: never a
       // secret file's content. The readers mark what touched one (server/chat/secretMarks.ts,
       // transcriptMarks.ts); this hides by the marks.
       const chatRoute = /^\/sessions\/[^/]+\/(chat|changes|transcript)(?:\/[^/]+)?\/?$/.exec(req.path);

@@ -28,6 +28,7 @@ export default function FloatingTerminalRoot() {
   const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
   const captureNow = useFloatingSessionsStore((s) => s.captureNow);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
+  const phoneShown = useFloatingSessionsStore((s) => s.phoneShown);
   const isPhone = useIsMobile();
 
   // Re-dock a float (show its in-app panel again) when its popped-out native
@@ -57,10 +58,14 @@ export default function FloatingTerminalRoot() {
   }, [floatKey, captureNow]);
 
   // Popups belong to the session that spawned them. With nothing selected, none
-  // are shown. A popped-out float lives in its own native window, so it's hidden
-  // here (its store entry + PTY stay alive for re-dock).
-  const visible = selectedSessionId
-    ? floats.filter((f) => f.originSessionId === selectedSessionId && !poppedOut.includes(f.terminalId))
+  // are shown, except on a phone the one it asked for: Info → AI popups opens a
+  // popup while Info, not the session's screen, is on top (AASC-48). A popped-out
+  // float lives in its own native window, so it's hidden here (its store entry +
+  // PTY stay alive for re-dock).
+  const origin = selectedSessionId
+    ?? (isPhone ? floats.find((f) => f.terminalId === phoneShown)?.originSessionId ?? null : null);
+  const visible = origin
+    ? floats.filter((f) => f.originSessionId === origin && !poppedOut.includes(f.terminalId))
     : [];
 
   if (isPhone) return <Suspense fallback={null}><PhoneFloatingSheet floats={visible} /></Suspense>;

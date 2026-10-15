@@ -1,5 +1,5 @@
 /* ============================================================
-   PhoneSession — a session on a phone (AASC-18): the header, the
+   PhoneSession — a session's terminal on a phone (AASC-18): the
    actions sheets, the terminal's control banner, key bar and
    compose box.
    Only ever mounted under useIsMobile(), so nothing here needs a
@@ -14,8 +14,7 @@
 .sendBtn,
 .toolsBtn,
 .bannerBtn,
-.sheetItem,
-.titleBtn {
+.sheetItem {
   font-family: inherit;
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
@@ -47,8 +46,7 @@
 .key:focus-visible,
 .sendBtn:focus-visible,
 .bannerBtn:focus-visible,
-.sheetItem:focus-visible,
-.titleBtn:focus-visible {
+.sheetItem:focus-visible {
   outline: 2px solid var(--accent-cyan);
   outline-offset: -2px;
 }
@@ -61,120 +59,6 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-
-/* ---------- header ---------- */
-
-.header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  min-width: 0;
-  padding: 4px 8px 8px;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-header, var(--bg-panel));
-}
-
-.headerRow {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.titleBtn {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 0;
-  min-height: 48px;
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: none;
-  text-align: left;
-  cursor: text;
-}
-.titleBtn:hover { background: var(--bg-subtle); }
-.titleBtn:active { background: var(--bg-subtle-strong); }
-
-.title,
-.subtitle {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.title {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 22px;
-}
-
-.subtitle {
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.titleInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 44px;
-  padding: 0 8px;
-  box-sizing: border-box;
-  border: 1px solid var(--accent-cyan);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-family: inherit;
-  /* 16px keeps iOS from zooming the page when the field takes focus. */
-  font-size: 16px;
-}
-.titleInput:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
-
-.primaryAction { flex: none; }
-.primaryAction > button { min-height: 44px; }
-
-/* Status, baton, interruption, plan and model: one swipeable line, never a page overflow. */
-.chipRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
-}
-.chipRow::-webkit-scrollbar { display: none; }
-.chipRow > * { flex: 0 0 auto; }
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 24px;
-  padding: 0 8px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  color: var(--text-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.chipLock { border-color: color-mix(in srgb, var(--accent-orange) 60%, transparent); }
-.chipDrive { border-color: color-mix(in srgb, var(--accent-green) 60%, transparent); }
-.chipWarn { border-color: color-mix(in srgb, var(--accent-yellow) 70%, transparent); }
-
-/* The plan-usage chip is a button (a tap syncs): its painted chip stays small,
-   its hit area grows to the row's 44px. */
-.planSlot { display: inline-flex; }
-.planSlot > button { position: relative; }
-.planSlot > button::after { content: ''; position: absolute; inset: -10px -4px; }
 
 /* ---------- actions sheets ---------- */
 
@@ -431,7 +315,6 @@
   font-weight: 600;
   color: var(--text-primary);
 }
-.fsActions { display: flex; gap: 4px; }
 
 /* COMMANDS in the phone app: a paired phone never opens a plain shell. */
 .unavailable {
@@ -451,15 +334,6 @@
 
 /* ---------- landscape: one row each, the terminal keeps the height ---------- */
 @media (max-height: 480px) {
-  /* Header: back · title · chips · actions in a single 48px row. */
-  .header { flex-direction: row; align-items: center; gap: 4px; padding: 0 8px; }
-  .headerRow { display: contents; }
-  .titleBtn { flex: 0 0 auto; max-width: 40%; min-height: 44px; padding: 0 8px; }
-  .subtitle { display: none; }
-  .chipRow { order: 1; flex: 1 1 auto; padding: 0 4px; }
-  .headerRow > .iconBtn:not(:first-child),
-  .headerRow > .primaryAction { order: 2; }
-
   /* Keys and compose side by side; the banner a single row above them. */
   .phoneInput { flex-flow: row wrap; align-items: center; gap: 8px; padding: 4px 0; }
   .banner,
@@ -475,6 +349,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .iconBtn, .key, .sendBtn, .toolsBtn, .bannerBtn, .sheetItem, .titleBtn { transition: none; }
+  .iconBtn, .key, .sendBtn, .toolsBtn, .bannerBtn, .sheetItem { transition: none; }
   .iconBtn:active, .key:active, .sendBtn:active, .toolsBtn:active, .bannerBtn:active, .sheetItem:active { transform: none; }
 }

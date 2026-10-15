@@ -199,37 +199,3 @@
   .paletteSwatch:active { transform: none; }
 }
 
-/* ---- The room section of a session's actions sheet ------------------------ */
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sectionHeading {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--text-primary);
-}
-
-.current {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.sectionButtons {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-}
-.sectionButtons > button { min-height: 44px; }

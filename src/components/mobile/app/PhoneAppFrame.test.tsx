@@ -1,8 +1,8 @@
-// PhoneAppFrame.test.tsx — the new phone app's frame (AASC-38/39), on the real
+// PhoneAppFrame.test.tsx — the phone app's frame (AASC-38/39), on the real
 // browser history (jsdom): tabs and their stacks, the Inbox badge, back through
 // history, the tab bar hiding on a session, old ?session= links, the selection
 // bridge for today's views, "N more need you ›", and the body-scoped tokens.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
@@ -21,7 +21,6 @@ import PhoneAppFrame from './PhoneAppFrame';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { PHONE_NAV_KEY, usePhoneNavStore } from '@/stores/phoneNavStore';
-import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
 import { PHONE_APPEARANCE_ATTR, resetPhoneAppearanceForTest, setPhoneAppearance } from '@/lib/chat/phoneAppearance';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 
@@ -46,14 +45,9 @@ function goTo(url: string) {
 
 beforeEach(() => {
   goTo('/');
-  writePhoneUi('app');
   localStorage.removeItem(PHONE_NAV_KEY);
   useSessionStore.setState({ sessions: fixtures(), selectedSessionId: null });
   useWsStore.setState({ snapshotReceived: true, connected: true, hiddenCount: 0 });
-});
-
-afterEach(() => {
-  writePhoneUi('classic');
 });
 
 const tabButton = (name: RegExp | string) => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name });
@@ -91,6 +85,58 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
     expect(await screen.findByRole('navigation', { name: 'Main' })).toBeTruthy();
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
+  });
+
+  it('moves focus into a pushed screen, and back to the row that opened it on back (AASC-48)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    const row = await screen.findByRole('button', { name: /Working one/ });
+    await user.click(row);
+    const screenEl = await screen.findByTestId('phone-session');
+    await waitFor(() => expect(document.activeElement).toBe(screenEl));
+
+    await user.click(within(screenEl).getByRole('button', { name: 'Back to the list' }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /Working one/ })));
+  });
+
+  it('Android’s back with the ⋯ sheet open closes the sheet, not the session (AASC-48)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const screenEl = await screen.findByTestId('phone-session');
+    await user.click(within(screenEl).getByRole('button', { name: 'Session actions' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2/chat']);
+    expect(screen.getByTestId('phone-session')).toBeTruthy();
+
+    // The next back pops the session as usual.
+    act(() => window.history.back());
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+  });
+
+  it('answers the app’s back button: pops, then at the root warns and says leave (AASC-48)', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    await screen.findByTestId('phone-session');
+    expect(typeof window.__aascNativeBack).toBe('function');
+
+    let answer: string | undefined;
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('handled');
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions']));
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('handled');
+    expect(await screen.findByText('Press back again to leave')).toBeTruthy();
+    act(() => { answer = window.__aascNativeBack?.(); });
+    expect(answer).toBe('leave');
+
+    unmount();
+    expect(window.__aascNativeBack).toBeUndefined();
   });
 
   it('keeps the tab bar hidden on the screens pushed from a session: Info and a diff', async () => {
@@ -203,17 +249,6 @@ describe('PhoneAppFrame', () => {
     expect(usePhoneNavStore.getState().stacks.inbox).toEqual(['/inbox', '/sessions/s3/chat']);
   });
 
-  it('turns the new design off from More', async () => {
-    const user = userEvent.setup();
-    render(<PhoneAppFrame />);
-    await screen.findByTestId('phone-sessions');
-    await user.click(tabButton('More'));
-    const sw = await screen.findByRole('switch', { name: /New design/ });
-    expect(sw).toHaveAttribute('aria-checked', 'true');
-    await user.click(sw);
-    expect(localStorage.getItem(PHONE_UI_KEY)).toBe('classic');
-  });
-
   it('scopes the phone tokens to <body> while mounted and drops ?m= when it goes', async () => {
     const { unmount } = render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
@@ -297,7 +332,7 @@ describe('PhoneAppFrame', () => {
     expect(window.location.search).toBe('?m=/sessions/s2b/terminal');
   });
 
-  it('drops a selection left from the classic layout, so opening that session still works', async () => {
+  it('drops a selection left from the desktop layout (a window narrowed to a phone), so opening that session still works', async () => {
     useSessionStore.setState({ selectedSessionId: 's4' });
     render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');

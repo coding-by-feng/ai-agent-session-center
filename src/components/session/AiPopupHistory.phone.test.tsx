@@ -43,6 +43,12 @@ async function open(name: RegExp) {
 }
 
 describe('AI POPUPS on a phone', () => {
+  it('with none yet, points at the chat, where a phone asks the AI (AASC-48)', async () => {
+    log.rows = [];
+    render(<AiPopupHistory sessionId="s1" />);
+    expect(await screen.findByText('Select text in Chat and tap Ask AI.')).toBeTruthy();
+  });
+
   it('a running popup says so and opens again in its sheet', async () => {
     await open(/about live/);
     expect(screen.getByText('● running')).toBeTruthy();

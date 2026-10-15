@@ -3,7 +3,6 @@ import { useAgendaStore } from '@/stores/agendaStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import { getClientId } from '@/lib/deviceIdentity';
-import { useIsMobile } from '@/lib/platform';
 import { openLiveSession } from '@/lib/liveSession';
 import { useLiveHint } from '@/hooks/useLiveBoard';
 import CountBadge from '@/components/ui/CountBadge';
@@ -12,18 +11,6 @@ import styles from '@/styles/modules/NavBar.module.css';
 interface NavItem {
   to: string;
   label: string;
-  /**
-   * Hidden on phone-sized viewports. A DATA flag rather than an inline
-   * `{!isMobile && …}` around one link, so "what is desktop-only" is one
-   * readable list instead of conditionals scattered through the JSX — and so
-   * adding the next one is an edit to this table, not new branching.
-   *
-   * Note this hides the TAB, not the ROUTE: `/agenda` still resolves if it is
-   * deep-linked or restored from a workspace snapshot. That is deliberate —
-   * silently redirecting a URL the user typed is worse than rendering a page
-   * that merely isn't optimised for the width.
-   */
-  desktopOnly?: boolean;
   /**
    * Shown only on a device the SERVER has confirmed is on this machine
    * (presence `isLocal`). For tabs whose routes answer loopback only — a phone
@@ -35,8 +22,6 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'LIVE' },
-  // On a phone AGENDA is its own one-column view (PhoneAgenda, AASC-20); it was
-  // desktop-only until then. The phone's nav row scrolls sideways.
   { to: '/agenda', label: 'AGENDA' },
   { to: '/history', label: 'HISTORY' },
   { to: '/prompts', label: 'PROMPTS' },
@@ -57,15 +42,11 @@ export default function NavBar() {
 
   const incompleteCount = Array.from(tasks.values()).filter((t) => !t.completed).length;
 
-  // Drop desktop-only tabs on a phone. `useIsMobile` (not an electronAPI
-  // check) because this is a SIZE decision — a desktop browser must keep the
-  // full nav. See src/lib/platform.ts for the rule.
-  const isMobile = useIsMobile();
   // Unknown (presence not loaded yet) reads as not-local: the absent state is
   // the safe state, so a local-only tab appears once the server confirms it.
   const isLocal = usePresenceStore((s) => isLocalDevice(s.devices, getClientId()));
   const navItems = NAV_ITEMS.filter(
-    (i) => !(isMobile && i.desktopOnly) && !(i.localOnly && !isLocal),
+    (i) => !(i.localOnly && !isLocal),
   );
   // The LIVE board's one-time tip ("…or press LIVE") marks this tab with a dot
   // while it is up. A LIVE click that opens a session is one of the things it

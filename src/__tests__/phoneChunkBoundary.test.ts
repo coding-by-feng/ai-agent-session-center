@@ -84,11 +84,12 @@ describe('the desktop entry chunk', () => {
   const graph = entryGraph();
 
   it('reaches the components that host the phone screens (the walk itself works)', () => {
+    // Each lazy-loads a phone piece: the phone app, the app's COMMANDS notice, the
+    // queue's suggestion bar and photo buttons, the AI popup sheet, the terminal's
+    // compose box and actions sheet.
     for (const host of [
       'App.tsx',
-      'routes/LiveView.tsx',
       'components/session/DetailPanel.tsx',
-      'components/session/ConversationView.tsx',
       'components/session/QueueTab.tsx',
       'components/session/FloatingTerminalRoot.tsx',
       'components/terminal/TerminalContainer.tsx',
@@ -104,15 +105,17 @@ describe('the desktop entry chunk', () => {
     expect(leaked).toEqual([]);
   });
 
-  it('carries only the "New design" switch of the new phone app, never the app itself', () => {
-    // App.tsx reads the switch (a few lines) and lazy-loads the frame behind it.
-    expect(graph.has('hooks/usePhoneUi.ts')).toBe(true);
+  it('lazy-loads the phone app: App.tsx picks it by screen size alone (AASC-48)', () => {
+    const app = readFileSync(resolve(SRC, 'App.tsx'), 'utf8');
+    expect(app).toMatch(/lazy\(\(\) => import\('@\/components\/mobile\/app\/PhoneAppFrame'\)\)/);
     expect([...graph].filter((f) => f.startsWith('components/mobile/app/'))).toEqual([]);
+    // The "New design" switch it read until every phone had the app.
+    expect([...graph].some((f) => f.includes('usePhoneUi'))).toBe(false);
   });
 
   it('keeps the phone-only stylesheets out of it too', () => {
     const phoneSheets = [...graph].filter((f) =>
-      /styles\/modules\/(PhoneSession|PhoneExtras|PhoneLive|PhoneSuggestionBar|SessionDrawer|PhoneRooms)\.module\.css$/.test(f));
+      /styles\/modules\/(PhoneSession|PhoneExtras|PhoneSuggestionBar|PhoneRooms|PhoneProject|PhoneViews)\.module\.css$/.test(f));
     expect(phoneSheets).toEqual([]);
   });
 });

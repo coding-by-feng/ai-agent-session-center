@@ -7,11 +7,13 @@ import {
   LEAVE_WINDOW_MS,
   PENDING_TIMEOUT_MS,
   PHONE_NAV_KEY,
+  handleSystemBack,
   initialPhoneNav,
   installPhoneNav,
   usePhoneNavStore,
   type NavHistory,
 } from './phoneNavStore';
+import { openBackLayer } from '@/lib/backLayers';
 
 /** A browser history: entries, an index, popstate delivered on flush() (browsers deliver it later). */
 class FakeHistory implements NavHistory {
@@ -238,6 +240,100 @@ describe('the root sentinel (Android back at a tab root)', () => {
     history.back();
     expect(stack()).toEqual(['/sessions']);
     history.back();
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a sheet or menu open on top (AASC-48)', () => {
+  const releases: Array<() => void> = [];
+  const layer = (close: () => void) => { releases.push(openBackLayer(close)); };
+  afterEach(() => { while (releases.length) releases.pop()!(); });
+
+  it('the system back closes it, and the screen under it stays', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    layer(close);
+    history.back();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    // The entry the back used is back: the next back pops the screen.
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('at a tab root it closes the sheet instead of warning', () => {
+    install('/');
+    const close = vi.fn();
+    layer(close);
+    history.back();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(onLeaveAttempt).not.toHaveBeenCalled();
+    expect(nav().leaveArmed).toBe(false);
+  });
+
+  it('closes only the top one of two', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const under = vi.fn();
+    const top = vi.fn();
+    layer(under);
+    layer(top);
+    history.back();
+    expect(top).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
+  });
+
+  it('never swallows the app’s own back (a sheet action that pops the screen)', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    layer(close);
+    nav().pop();
+    history.flush();
+    expect(close).not.toHaveBeenCalled();
+    expect(stack()).toEqual(['/sessions']);
+  });
+});
+
+describe('the app’s back button, asked by the native shell (AASC-48)', () => {
+  // Android's WebView skips history entries a page added without a tap, so the
+  // button can't be left to walk the history: MainActivity asks the page instead.
+  it('pops a pushed screen', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    expect(handleSystemBack()).toBe('handled');
+    history.flush();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('closes an open sheet first', () => {
+    install('/');
+    nav().push('/sessions/s1/chat');
+    const close = vi.fn();
+    const release = openBackLayer(close);
+    expect(handleSystemBack()).toBe('handled');
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    release();
+  });
+
+  it('at a tab root warns once, then says leave within the window', () => {
+    install('/');
+    expect(handleSystemBack()).toBe('handled');
+    expect(onLeaveAttempt).toHaveBeenCalledTimes(1);
+    expect(nav().leaveArmed).toBe(true);
+    expect(handleSystemBack()).toBe('leave');
+    expect(nav().leaveArmed).toBe(false);
+  });
+
+  it('warns again once the window has passed', () => {
+    vi.useFakeTimers();
+    install('/');
+    handleSystemBack();
+    vi.advanceTimersByTime(LEAVE_WINDOW_MS + 10);
+    expect(nav().leaveArmed).toBe(false);
+    expect(handleSystemBack()).toBe('handled');
     expect(onLeaveAttempt).toHaveBeenCalledTimes(2);
   });
 });

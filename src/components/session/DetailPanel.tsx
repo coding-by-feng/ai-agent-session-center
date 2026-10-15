@@ -43,14 +43,11 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
-import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import { isNativeMobileApp } from '@/lib/platform';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
-// A phone's session header and COMMANDS notice (AASC-18) load on a phone only
-// (AASC-31): imported statically, the session drawer, room sheets and the rest
-// behind them sat in every desktop window's entry chunk.
-const PhoneSessionHeader = lazy(() => import('@/components/mobile/PhoneSessionHeader'));
-const MobileSessionHeader = lazy(() => import('@/components/mobile/MobileSessionHeader'));
+// The phone app's COMMANDS notice (AASC-18), when the app gets this layout on a
+// screen bigger than a phone's: its own chunk (AASC-31).
 const CommandsUnavailable = lazy(() => import('@/components/mobile/CommandsUnavailable'));
 
 /**
@@ -61,8 +58,6 @@ const CommandsUnavailable = lazy(() => import('@/components/mobile/CommandsUnava
  * path, including pop-out windows that never show a project tab.
  */
 const ProjectTabContainer = lazy(() => import('./ProjectTabContainer'));
-/** A phone's PROJECT tab (AASC-20): a read-only drill-down, in its own chunk. */
-const PhoneProjectBrowser = lazy(() => import('@/components/mobile/PhoneProjectBrowser'));
 
 /**
  * How many sessions keep a mounted ProjectTabContainer at once — the active one
@@ -146,9 +141,6 @@ const TerminalContent = memo(function TerminalContent({
   // goes, since there is nothing to resize. Without this the row kept its height
   // and the header sat over ~220px of nothing.
   const queueCollapsed = useUiStore((s) => s.queuePanelCollapsed);
-  // A phone shows one tab at a time: the queue lives in its QUEUE tab, and the
-  // terminal keeps the whole height (AASC-18).
-  const isMobile = useIsMobile();
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -295,7 +287,7 @@ const TerminalContent = memo(function TerminalContent({
       {/* Draggable divider between the terminal and the always-on queue
           strip. Pointer events (not mouse) so it is grabbable on a phone,
           same reason as the queue's drag-reorder. */}
-      {!queueCollapsed && !isMobile && (
+      {!queueCollapsed && (
         <div
           className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
           onPointerDown={handleResizeStart}
@@ -306,7 +298,7 @@ const TerminalContent = memo(function TerminalContent({
           title="Drag to resize the queue — double-click to reset"
         />
       )}
-      {!isMobile && <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
+      <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
         {/* `fullHeight` makes the panel fill the height the divider produced
             rather than the old hard-coded 250px cap. It is the same mechanism
             the QUEUE tab uses — the class is defined in Terminal.module.css,
@@ -317,7 +309,7 @@ const TerminalContent = memo(function TerminalContent({
           terminalId={terminalId}
           fullHeight
         />
-      </div>}
+      </div>
     </div>
   );
 });
@@ -532,9 +524,6 @@ export default function DetailPanel() {
   const navPosition = useUiStore((s) => s.navPosition);
   const maximized = useUiStore((s) => s.maximized);
   const setMaximized = useUiStore((s) => s.setMaximized);
-  const isMobile = useIsMobile();
-  // A phone gets its own session header (AASC-18) in place of the switcher's top row.
-  const isPhone = isMobile;
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -722,15 +711,6 @@ export default function DetailPanel() {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
 
-  // A phone mounts its project browser only once the PROJECT tab has been opened
-  // for the shown session (AASC-20): the tab's host is always mounted, and a
-  // phone that never looks at the project should not list it on every switch.
-  const [phoneProjectFor, setPhoneProjectFor] = useState<string | null>(null);
-  const shownSessionId = displaySession?.sessionId ?? null;
-  if (isMobile && activeTab === 'project' && shownSessionId && phoneProjectFor !== shownSessionId) {
-    setPhoneProjectFor(shownSessionId);
-  }
-
   // Switch to project tab when a file link is clicked in the terminal
   const pendingFileOpen = useUiStore((s) => s.pendingFileOpen);
   const [externalTab, setExternalTab] = useState<string | null>(null);
@@ -846,16 +826,6 @@ export default function DetailPanel() {
       isDisconnected={isDisconnected}
       onClose={minimizeDetailPanel}
       model={displaySession.model}
-      header={isPhone ? (
-        <Suspense fallback={null}>
-          <MobileSessionHeader
-            key={displaySession.sessionId}
-            session={displaySession}
-            duration={durText}
-            onBack={minimizeDetailPanel}
-          />
-        </Suspense>
-      ) : undefined}
       controls={
         <SessionControlBar
           session={displaySession}
@@ -868,16 +838,7 @@ export default function DetailPanel() {
     <div className={styles.detailOverlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
         <div className={`${styles.panelInner}${navLeft ? ` ${styles.panelInnerLeft}` : ''}`}>
-        {/* On a phone, wrapped with the session drawer button and the swipe
-            between sessions (components/mobile, AASC-18); the bare header shows
-            while that chunk loads. */}
-        {isMobile ? (
-          <Suspense fallback={sessionHeader}>
-            <PhoneSessionHeader enabled currentSession={displaySession} sessions={sessions} onSwitch={selectSession}>
-              {sessionHeader}
-            </PhoneSessionHeader>
-          </Suspense>
-        ) : sessionHeader}
+        {sessionHeader}
 
         {/* Tabs and content */}
         <div className={styles.mainCol}>
@@ -903,8 +864,6 @@ export default function DetailPanel() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onMatchCountChange={setConvMatchCount}
-              searchMatchIndex={searchMatchIndex}
-              onSearchStep={navigateMatch}
               projectPath={displaySession.projectPath}
             />
           }
@@ -935,17 +894,7 @@ export default function DetailPanel() {
             />
           }
           projectContent={
-            displaySession.projectPath && isMobile
-              ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  {phoneProjectFor === displaySession.sessionId && <Suspense fallback={<div className={styles.tabEmpty}>Loading project…</div>}>
-                    <PhoneProjectBrowser
-                      key={`${displaySession.sessionId}:${displaySession.projectPath}`}
-                      projectPath={displaySession.projectPath}
-                      sessionId={displaySession.sessionId}
-                    />
-                  </Suspense>}
-                </div>
-              : displaySession.projectPath
+            displaySession.projectPath
               ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%' }}>
                   {/* One boundary around the whole set: the chunk is shared, so
                       once it resolves every mounted container renders at once. */}

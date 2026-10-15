@@ -219,6 +219,18 @@ body.native-app.phoneApp #root {
   padding: 0;
 }
 
+/* Nor base.css's #70 rules (the classic layout's safe areas, up to 768px), which
+   inset it twice in the app: <body> took the home indicator (the page then
+   scrolled by it) and the side insets, and the frame's first <nav>, the tab bar,
+   took the notch's height above its tabs. */
+body.phoneApp {
+  padding: 0;
+}
+
+body.phoneApp #root > div > nav:first-of-type {
+  padding-top: 0;
+}
+
 /* ---- Today's components, embedded or portaled, on the phone palette ---- */
 
 .phoneApp > * {

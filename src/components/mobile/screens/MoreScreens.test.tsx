@@ -23,7 +23,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { useQueueStore } from '@/stores/queueStore';
-import { PHONE_UI_KEY, writePhoneUi } from '@/hooks/usePhoneUi';
 import { readPhoneAppearance, resetPhoneAppearanceForTest } from '@/lib/chat/phoneAppearance';
 
 const sess = (id: string, title: string, over: Partial<Session> = {}) =>
@@ -33,7 +32,6 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
   localStorage.clear();
   resetPhoneAppearanceForTest();
-  writePhoneUi('app');
   usePhoneNavStore.setState({ tab: 'more', stacks: defaultStacks() });
   useSessionStore.setState({ sessions: new Map([['s1', sess('s1', 'web')], ['s2', sess('s2', 'api', { muted: true })], ['s3', sess('s3', 'old', { status: 'ended' })]]) });
   usePresenceStore.getState().applyPresence({
@@ -49,7 +47,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  writePhoneUi('classic');
 });
 
 describe('MoreScreen', () => {
@@ -66,11 +63,10 @@ describe('MoreScreen', () => {
     expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/phone');
   });
 
-  it('keeps the switch back to the classic layout', async () => {
-    const user = userEvent.setup();
+  it('has no layout switch: every phone has this design (AASC-48)', () => {
     render(<MoreScreen />);
-    await user.click(screen.getByRole('switch', { name: /New design/ }));
-    expect(localStorage.getItem(PHONE_UI_KEY)).toBe('classic');
+    expect(screen.queryByRole('switch', { name: /New design/ })).toBeNull();
+    expect(screen.queryByText(/classic/i)).toBeNull();
   });
 });
 

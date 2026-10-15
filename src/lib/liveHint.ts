@@ -20,8 +20,6 @@ export interface LiveHintInputs {
   onLiveRoute: boolean;
   /** The board exists only with the 3D scene off. */
   scene3dEnabled: boolean;
-  /** On a phone the agent list is the page; there is no board. */
-  isMobile: boolean;
   /** The board is on screen: loaded, and at least one session listed. */
   boardShown: boolean;
   /** A session panel covers the page (selected and not minimized). */
@@ -29,7 +27,7 @@ export interface LiveHintInputs {
 }
 
 export function shouldShowLiveHint(i: LiveHintInputs): boolean {
-  return !i.dismissed && i.onLiveRoute && !i.scene3dEnabled && !i.isMobile && i.boardShown && !i.panelOpen;
+  return !i.dismissed && i.onLiveRoute && !i.scene3dEnabled && i.boardShown && !i.panelOpen;
 }
 
 /** How far into the bubble the caret sits when nothing pushes it. */

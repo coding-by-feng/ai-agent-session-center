@@ -20,13 +20,18 @@
  * waits for it to land and then runs in order: a double tap on back pops once,
  * and a push right after a pop lands after it instead of being cut off.
  *
- * Android has no bridge on Mac-served pages (AASC-17): its back button is the
- * WebView's own, which walks this history. Landing on the sentinel means "back at
- * a tab root": the frame warns ("Press back again to leave") and a second back
+ * A browser's back walks this history. Landing on the sentinel means "back at a
+ * tab root": the frame warns ("Press back again to leave") and a second back
  * within LEAVE_WINDOW_MS leaves the Mac page; after the window the root entry is
- * pushed again so the next back warns again. Entries that aren't the frame's (the
- * classic layout's router, when "New design" was turned on mid-session) are
- * walked straight through on the way out.
+ * pushed again so the next back warns again. The Android app's back button
+ * doesn't walk it: the WebView skips entries a page added without a tap, so
+ * MainActivity asks `handleSystemBack()` instead (same outcomes, 'leave' sends
+ * the app to the background). Entries that aren't the frame's (the
+ * desktop layout's router, when a window was narrowed to a phone's size
+ * mid-session) are walked straight through on the way out.
+ *
+ * A back the frame didn't start, with a sheet or menu open (lib/backLayers.ts),
+ * closes that layer instead and pushes its entry back.
  *
  * The tab and stacks persist in localStorage (`aasc.phoneNav`, paths only) and
  * the address bar carries the shown screen as `?m=<path>`; a reload or a link
@@ -47,6 +52,7 @@ import {
   type PhoneTab,
   type SessionSegment,
 } from '@/lib/chat/phoneRoutes';
+import { closeTopBackLayer } from '@/lib/backLayers';
 
 export type PhoneStacks = Record<PhoneTab, string[]>;
 
@@ -348,9 +354,45 @@ function landOnSentinel(): void {
   }, LEAVE_WINDOW_MS);
 }
 
+/** At a tab root without the sentinel (the app's own back button): warn, and give the next back a window to leave. */
+function armLeave(): void {
+  usePhoneNavStore.setState({ leaveArmed: true });
+  if (!binding) return;
+  binding.onLeaveAttempt();
+  if (binding.rearm) clearTimeout(binding.rearm);
+  binding.rearm = setTimeout(() => {
+    if (binding) binding.rearm = null;
+    usePhoneNavStore.setState({ leaveArmed: false });
+  }, LEAVE_WINDOW_MS);
+}
+
 /**
- * An entry that isn't the frame's: the classic layout's router entries sit under
- * the sentinel when "New design" was turned on mid-session. Reached with leave
+ * The phone app's back button (AASC-48). Android's WebView skips history entries
+ * a page added without a tap (Chromium's history-manipulation intervention), so
+ * after a launch with no touch the button walked straight past the sentinel and
+ * the stack, or did nothing. MainActivity asks the page instead (window
+ * `__aascNativeBack`, installed by the frame): close the top sheet, else pop a
+ * screen (a script's history.go(-1) is never skipped), else at a tab root warn
+ * once and say 'leave' to a second back within the window.
+ */
+export function handleSystemBack(): 'handled' | 'leave' {
+  if (closeTopBackLayer()) return 'handled';
+  const { tab, stacks, leaveArmed, pop } = usePhoneNavStore.getState();
+  if (stacks[tab].length > 1) {
+    pop();
+    return 'handled';
+  }
+  if (leaveArmed) {
+    clearLeave();
+    return 'leave';
+  }
+  armLeave();
+  return 'handled';
+}
+
+/**
+ * An entry that isn't the frame's: the desktop layout's router entries sit under
+ * the sentinel when a window was narrowed to a phone's size. Reached with leave
  * armed, the user is on the way out: keep going. Reached without (a jump past the
  * sentinel), this entry becomes the sentinel.
  */
@@ -368,6 +410,14 @@ function onForeignEntry(): void {
 
 function onPopState(state: unknown): void {
   if (!binding) return;
+  // A back the frame didn't start (Android's button, a browser's) with a sheet or
+  // menu open closes that instead: the entry it used goes back, the screen stays.
+  if (!inFlight && isEntry(state) && state.idx === binding.idx - 1 && closeTopBackLayer()) {
+    const { tab, stacks } = usePhoneNavStore.getState();
+    const stack = stacks[tab];
+    writeEntry('push', binding.idx, tab, stack[binding.idx - 1] ?? stack[stack.length - 1]);
+    return;
+  }
   if (!isEntry(state)) {
     onForeignEntry();
     if (inFlight) settle(0);

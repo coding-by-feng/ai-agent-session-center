@@ -15,8 +15,6 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import EmptyState from '@/components/ui/EmptyState';
 import Button from '@/components/ui/Button';
 import { groupAgendaTasks } from '@/lib/agendaTasks';
-import { useIsMobile } from '@/lib/platform';
-import PhoneAgenda from '@/components/mobile/views/PhoneAgenda';
 import type { AgendaTask } from '@/types';
 import styles from '@/styles/modules/Agenda.module.css';
 
@@ -73,15 +71,8 @@ function TaskGroup({
 // Component
 // ---------------------------------------------------------------------------
 
-/**
- * The AGENDA tab. A phone gets its own one-column view (PhoneAgenda, AASC-20):
- * a task opens full screen to edit, and a new one is added from a sheet.
- */
+/** The AGENDA tab. A phone has its own, in the phone app (More → Agenda). */
 export default function AgendaView() {
-  return useIsMobile() ? <PhoneAgenda /> : <DesktopAgenda />;
-}
-
-function DesktopAgenda() {
   const tasks = useAgendaStore((s) => s.tasks);
   const loading = useAgendaStore((s) => s.loading);
   const filter = useAgendaStore((s) => s.filter);

@@ -187,6 +187,18 @@ function getResponsiveFontSize(): number {
   return 14;
 }
 
+/**
+ * Dispose an xterm after the timers it queued while opening. xterm 5.5's Viewport
+ * schedules `setTimeout(syncScrollArea)` inside `open()` and reads the renderer
+ * when it fires, without checking for a disposal: a terminal disposed in the same
+ * task threw "Cannot read properties of undefined (reading 'dimensions')". React's
+ * StrictMode mounts, unmounts and mounts again in development, which did exactly
+ * that on every Terminal (AASC-48). The caller drops its references at once.
+ */
+function disposeAfterOpenTimers(term: Terminal): void {
+  setTimeout(() => term.dispose(), 0);
+}
+
 /** Returns true if this terminal is managed by Electron's ptyHost (IPC transport). */
 function isPtyHostTerminal(terminalId: string): boolean {
   return terminalId.startsWith('pty-') && !!window.electronAPI?.writePty;
@@ -747,7 +759,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       }
       activeRef.current.resizeObserver.disconnect();
       activeRef.current.visibilityObserver?.disconnect();
-      activeRef.current.term.dispose();
+      disposeAfterOpenTimers(activeRef.current.term);
       activeRef.current = null;
     }
     if (containerRef.current) {
@@ -1834,7 +1846,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       }
       if (activeRef.current) {
         activeRef.current.resizeObserver.disconnect();
-        activeRef.current.term.dispose();
+        disposeAfterOpenTimers(activeRef.current.term);
         activeRef.current = null;
       }
     };

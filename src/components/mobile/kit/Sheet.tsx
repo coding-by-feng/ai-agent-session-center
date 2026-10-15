@@ -18,6 +18,7 @@ import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, typ
 import { createPortal } from 'react-dom';
 import { CloseIcon } from './kitIcons';
 import { nextDetent, type SheetDetent } from './sheetDetents';
+import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/mobile/Sheet.module.css';
 
 export type { SheetDetent } from './sheetDetents';
@@ -69,6 +70,8 @@ export default function Sheet({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  // Android's back closes the sheet, not the screen under it (AASC-48).
+  useBackLayer(open, onClose);
 
   useEffect(() => {
     if (!open) return;

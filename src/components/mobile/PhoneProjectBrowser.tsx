@@ -1,5 +1,5 @@
 /**
- * PhoneProjectBrowser — the PROJECT tab on a phone (AASC-20, feature 46):
+ * PhoneProjectBrowser — a session's files on a phone (AASC-20, feature 46):
  * a read-only drill-down, folder → folder → file, one screen at a time, with a
  * breadcrumb and Back, instead of the desktop's split tree and editor.
  *
@@ -13,8 +13,8 @@
  * - A file can go full screen (portaled over the app, Escape or the button to
  *   leave). Viewers are lazy, in PhoneFileView's own chunks.
  *
- * Mounted by DetailPanel under useIsMobile() in place of ProjectTabContainer,
- * and itself lazy: none of this is in the entry chunk.
+ * Mounted by the phone app's Info → Files (InfoPageScreen), lazily: none of
+ * this is in the entry chunk.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';

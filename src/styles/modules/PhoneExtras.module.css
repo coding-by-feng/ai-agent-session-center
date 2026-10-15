@@ -15,9 +15,7 @@
 .askBtn,
 .modeBtn,
 .floatChip,
-.floatsBtn,
-.cameraBtn,
-.openFloatBtn {
+.cameraBtn {
   font-family: inherit;
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
@@ -31,9 +29,7 @@
 .askBtn:focus-visible,
 .modeBtn:focus-visible,
 .floatChip:focus-visible,
-.floatsBtn:focus-visible,
-.cameraBtn:focus-visible,
-.openFloatBtn:focus-visible {
+.cameraBtn:focus-visible {
   outline: 2px solid var(--accent-cyan);
   outline-offset: 2px;
 }
@@ -41,14 +37,13 @@
 .speakBtn:disabled,
 .askBtn:disabled,
 .modeBtn:disabled,
-.cameraBtn:disabled,
-.openFloatBtn:disabled {
+.cameraBtn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .speakBtn, .bookmarkRemove, .askBtn, .modeBtn, .floatChip, .floatsBtn, .cameraBtn, .openFloatBtn { transition: none; }
+  .speakBtn, .bookmarkRemove, .askBtn, .modeBtn, .floatChip, .cameraBtn { transition: none; }
 }
 
 /* ---------- terminal: a long-press bookmarks a line ---------- */
@@ -197,27 +192,6 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-}
-
-/* ---------- the header's ✦ button: popups running ---------- */
-
-.floatsBtn { position: relative; color: var(--accent-text, var(--accent-cyan)); }
-.floatsCount {
-  position: absolute;
-  top: 4px;
-  right: 2px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border-radius: 8px;
-  /* The tab strip's count badge, solid enough to read over the glyph. */
-  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 28%, var(--bg-panel));
-  color: var(--accent-text, var(--accent-cyan));
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
 }
 
 /* ---------- AI popup from the Conversation text ---------- */
