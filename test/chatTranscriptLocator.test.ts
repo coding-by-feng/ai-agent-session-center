@@ -1,7 +1,7 @@
 // test/chatTranscriptLocator.test.ts — AASC-41 / AASC-49: which file holds a session's conversation. Its own
 // or none: never a neighbour's newest .jsonl, never the other CLI's folder. HOME and CODEX_HOME point at temp
 // dirs, so nothing real is read.
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { locateTranscript, resetTranscriptLocatorCache } from '../server/chat/transcriptLocator.js';
@@ -34,6 +34,8 @@ function rollout(id: string, day = '2026/10/15'): string {
 beforeEach(() => {
   saved.HOME = process.env.HOME;
   saved.CODEX_HOME = process.env.CODEX_HOME;
+  saved.CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
   tmp = realpathSync(tempDir('aasc41-locate-'));
   const home = join(tmp, 'home');
   project = join(home, 'proj');
@@ -73,6 +75,30 @@ describe('a Claude session', () => {
     writeFileSync(notes, 'x');
     expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: notes })).toBeNull();
     expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: claudeDir })).toBeNull();
+  });
+
+  it('reads a reported path only inside the Claude projects folder, links followed', async () => {
+    const outside = join(tmp, 'queue.jsonl');
+    writeFileSync(outside, '{}\n');
+    expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: outside })).toBeNull();
+    const link = join(claudeDir, `${OTHER_ID}.jsonl`);
+    symlinkSync(outside, link);
+    expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: link })).toBeNull();
+  });
+
+  it('accepts the projects folder of CLAUDE_CONFIG_DIR too', async () => {
+    const configDir = join(tmp, 'alt-config');
+    const altDir = join(configDir, 'projects', 'p');
+    mkdirSync(altDir, { recursive: true });
+    const file = join(altDir, `${CLAUDE_ID}.jsonl`);
+    writeFileSync(file, '{}\n');
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: file }))
+        .toEqual({ cli: 'claude', path: file });
+    } finally {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    }
   });
 
   it('has none when only other conversations are in its project folder', async () => {

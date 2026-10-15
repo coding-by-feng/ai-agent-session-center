@@ -17,7 +17,7 @@
  * those become `system` context entries.
  */
 import type { ChatSystemKind } from '../../src/types/chat.js';
-import { cappedText, todoItems, toolResultDraft, toolUseDraft, type ChatEntryDraft } from './chatEntries.js';
+import { capName, cappedText, todoItems, toolResultDraft, toolUseDraft, type ChatEntryDraft } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
 
 type Rec = Record<string, unknown>;
@@ -34,7 +34,7 @@ const RE_IMAGE_WRAPPER = /^\s*<\/?image\b[^>]*>\s*$/;
 const RE_SCRIPT_FAILED = /^\s*Script failed\b/;
 
 function system(kind: ChatSystemKind, label?: string, text?: string): ChatEntryDraft {
-  return { kind: 'system', system: kind, ...(label ? { label } : {}), ...(text !== undefined ? cappedText(text) : {}) };
+  return { kind: 'system', system: kind, ...(label ? { label: capName(label) } : {}), ...(text !== undefined ? cappedText(text) : {}) };
 }
 
 function contextLabel(text: string): string | null {
@@ -92,13 +92,13 @@ function functionCall(p: Rec): ChatEntryDraft {
   const id = str(p.call_id);
   const name = str(p.name) || 'tool';
   const args = parseArgs(p.arguments);
-  if (name === 'update_plan' && isRec(args)) return { kind: 'todo', id, items: todoItems(args.plan, 'step') };
+  if (name === 'update_plan' && isRec(args)) return { kind: 'todo', id: capName(id), items: todoItems(args.plan, 'step') };
   if (name === 'spawn_agent' && isRec(args)) {
     const prompt = cappedText(str(args.message));
     return {
       kind: 'subagent',
-      id,
-      description: cappedText(str(args.task_name), 256).text,
+      id: capName(id),
+      description: capName(str(args.task_name)),
       prompt: prompt.text,
       ...(prompt.truncated ? { truncated: true } : {}),
     };

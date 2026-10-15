@@ -19,6 +19,10 @@ export const TOOL_INPUT_CAP = 2 * 1024;
 export const EDIT_INPUT_CAP = 64 * 1024;
 /** Characters of a tool's output. */
 export const TOOL_OUTPUT_CAP = 4 * 1024;
+/** Characters of a name or label (a tool, a command, an agent type, a model). */
+export const NAME_CAP = 256;
+/** Items of one to-do list. */
+export const TODO_ITEMS_CAP = 100;
 
 /** Tools whose input is an edit (Claude's, and Codex's patch tool). */
 export const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch']);
@@ -78,15 +82,24 @@ export function capInput(value: unknown, max: number): { input: unknown; truncat
 }
 
 /** A tool_use draft with its input capped for its tool. */
+/** A name or label cut to NAME_CAP. */
+export const capName = (text: string): string => cut(text, NAME_CAP).text;
+
 export function toolUseDraft(id: string, name: string, input: unknown): ChatEntryDraft {
   const capped = capInput(input, toolInputCap(name));
-  return { kind: 'tool_use', id, name, input: capped.input, ...(capped.truncated ? { inputTruncated: true } : {}) };
+  return {
+    kind: 'tool_use',
+    id: capName(id),
+    name: capName(name),
+    input: capped.input,
+    ...(capped.truncated ? { inputTruncated: true } : {}),
+  };
 }
 
 /** A tool_result draft with its output capped. */
 export function toolResultDraft(toolUseId: string, output: string, isError: boolean): ChatEntryDraft {
   const c = cut(output, TOOL_OUTPUT_CAP);
-  return { kind: 'tool_result', toolUseId, isError, output: c.text, truncated: c.truncated };
+  return { kind: 'tool_result', toolUseId: capName(toolUseId), isError, output: c.text, truncated: c.truncated };
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -96,7 +109,8 @@ export function todoItems(list: unknown, textKey: string): ChatTodoItem[] {
   if (!Array.isArray(list)) return [];
   return list
     .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
-    .map((t) => ({ text: cut(str(t[textKey]), TEXT_CAP).text, status: str(t.status) || 'pending' }));
+    .slice(0, TODO_ITEMS_CAP)
+    .map((t) => ({ text: cut(str(t[textKey]), TEXT_CAP).text, status: capName(str(t.status)) || 'pending' }));
 }
 
 /**

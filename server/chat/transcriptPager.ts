@@ -11,9 +11,11 @@
  * Only whole lines are read. A last line still being written (no newline yet, and not a complete JSON
  * record) is left for the next call, so `after` never skips past half a record.
  *
- * Cursors are opaque `<file tag>:<offset>` strings. The tag (inode + birth time) ties a cursor to one
- * file: a cursor from another file (a `/clear` began a new transcript) or past the end of this one
- * gives the newest page with `reset: true` rather than entries read from the middle of a line.
+ * Cursors are opaque `<file tag>:<offset>` strings. The tag (inode + a hash of the path) ties a
+ * cursor to one file: a cursor from another file (a `/clear` began a new transcript) or past the end
+ * of this one gives the newest page with `reset: true` rather than entries read from the middle of a
+ * line. (Not the birth time: where a filesystem has none, Node reports the change time, which moves
+ * on every append.)
  */
 import { open, type FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
@@ -56,8 +58,18 @@ export class CursorError extends Error {}
 
 const CURSOR_RE = /^([0-9a-z]{1,16}-[0-9a-z]{1,16}):(\d{1,15})$/;
 
-function fileTag(st: Stats): string {
-  return `${st.ino.toString(36)}-${Math.max(0, Math.trunc(st.birthtimeMs)).toString(36)}`;
+/** FNV-1a of a string: a short, stable hash for the cursor's file tag. */
+function fnv1a(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+function fileTag(file: string, st: Stats): string {
+  return `${st.ino.toString(36)}-${fnv1a(file).toString(36)}`;
 }
 
 function parseCursor(raw: string): { tag: string; offset: number } {
@@ -114,8 +126,11 @@ async function nextNewlineFrom(fh: FileHandle, from: number, size: number): Prom
 async function readableEnd(fh: FileHandle, size: number, scanBytes: number): Promise<number> {
   if (size === 0) return 0;
   if ((await readRange(fh, size - 1, size))[0] === NEWLINE) return size;
-  const tailStart = (await lastNewlineBefore(fh, size)) + 1;
-  if (size - tailStart > scanBytes) return tailStart;
+  // A last line longer than the budget is skipped like any other (its start isn't even looked for).
+  const floor = Math.max(0, size - scanBytes - 1);
+  const nl = await lastNewlineBefore(fh, size, floor);
+  if (nl < 0 && floor > 0) return floor;
+  const tailStart = nl + 1;
   const record = parseRecord((await readRange(fh, tailStart, size)).toString('utf8'));
   return record !== null && typeof record === 'object' ? size : tailStart;
 }
@@ -229,7 +244,7 @@ export async function readChatPage(file: string, reader: LineReader, opts: PageO
   const fh = await open(file, 'r');
   try {
     const st = await fh.stat();
-    const tag = fileTag(st);
+    const tag = fileTag(file, st);
     const end = await readableEnd(fh, st.size, scanBytes);
     const at = (offset: number) => `${tag}:${offset}`;
 

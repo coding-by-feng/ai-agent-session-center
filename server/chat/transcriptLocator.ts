@@ -7,7 +7,9 @@
  * finds. A session reads its OWN file or nothing: never a neighbour's "newest .jsonl" in the same
  * project, and never the other CLI's folder. Callers already fall back to the in-memory logs.
  */
-import { lstat, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, sep } from 'node:path';
 import { findCodexRollout, codexHome } from '../codexRollout.js';
 import { findTranscriptFile } from '../extractPreviousAnswer.js';
 import { planCliOf, type CliHints } from '../planUsageCodec.js';
@@ -67,10 +69,42 @@ async function isFile(path: string, follow: boolean): Promise<boolean> {
   }
 }
 
+/** Where Claude Code keeps transcripts: ~/.claude/projects, and $CLAUDE_CONFIG_DIR/projects when set. */
+function claudeProjectRoots(): string[] {
+  const home = homedir();
+  const roots = [join(home, '.claude', 'projects')];
+  const configDir = (process.env.CLAUDE_CONFIG_DIR ?? '').trim();
+  if (configDir) roots.push(join(configDir === '~' || configDir.startsWith('~/') ? join(home, configDir.slice(1)) : configDir, 'projects'));
+  return roots;
+}
+
+async function realOrNull(path: string): Promise<string | null> {
+  try {
+    return await realpath(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The hook-reported transcript, when it is a .jsonl file inside a Claude projects folder once links
+ * are followed. A path anywhere else (the hook queue, another tool's log) is never a conversation a
+ * phone may read, whatever a hook payload said.
+ */
+async function reportedTranscript(recorded: string | null | undefined): Promise<string | null> {
+  if (!recorded || !recorded.endsWith('.jsonl')) return null;
+  const real = await realOrNull(recorded);
+  if (!real || !(await isFile(real, false))) return null;
+  for (const root of claudeProjectRoots()) {
+    const realRoot = await realOrNull(root);
+    if (realRoot && real.startsWith(realRoot + sep)) return recorded;
+  }
+  return null;
+}
+
 async function locateClaude(s: LocatorSession): Promise<string | null> {
-  // The hook-reported path comes from a local hook (hooks are loopback-only); still, only a .jsonl file.
-  const recorded = s.transcriptPath;
-  if (recorded && recorded.endsWith('.jsonl') && (await isFile(recorded, true))) return recorded;
+  const reported = await reportedTranscript(s.transcriptPath);
+  if (reported) return reported;
   return s.projectPath ? findTranscriptFile(s.sessionId, s.projectPath) : null;
 }
 

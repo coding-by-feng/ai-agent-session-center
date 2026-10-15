@@ -181,6 +181,18 @@ describe('caps', () => {
     expect(entries[2]).toMatchObject({ kind: 'tool_use', name: 'MultiEdit', input: { edits: [{ old_string: 'a', new_string: 'b' }] } });
   });
 
+  it('never sends the data of a result block it can’t show, and caps names', async () => {
+    const entries = await entriesOf([
+      claude.result('r', [{ type: 'text', text: 'see file' }, { type: 'document', source: { type: 'base64', data: 'SECRETPDF' } }]),
+      claude.call('a', 'Agent', { description: 'd', prompt: 'p', subagent_type: 'x'.repeat(1000) }),
+      claude.user(`<command-name>/${'n'.repeat(1000)}</command-name>`),
+    ]);
+    expect(entries[0]).toMatchObject({ kind: 'tool_result', output: 'see file\n[document]' });
+    expect(JSON.stringify(entries)).not.toContain('SECRETPDF');
+    expect((entries[1] as { agentType: string }).agentType.length).toBeLessThanOrEqual(256);
+    expect((entries[2] as { name: string }).name.length).toBeLessThanOrEqual(256);
+  });
+
   it('cuts a tool result at 4 KB and flags it', async () => {
     const [entry] = await entriesOf([claude.result('r', 'y'.repeat(5000))]);
     expect(entry).toMatchObject({ kind: 'tool_result', truncated: true });

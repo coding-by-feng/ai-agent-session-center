@@ -31,13 +31,16 @@ beforeAll(async () => {
   process.env.CODEX_HOME = join(tmp, 'codex');
   resetTranscriptLocatorCache();
 
-  transcript = writeJsonl(join(tmp, 'claude.jsonl'), Array.from({ length: 250 }, (_, i) => claude.user(`p${i}`)));
+  // Transcripts live where Claude keeps them: the locator reads nothing outside ~/.claude/projects.
+  const claudeDir = join(tmp, 'home', '.claude', 'projects', '-proj');
+  mkdirSync(claudeDir, { recursive: true });
+  transcript = writeJsonl(join(claudeDir, 'claude.jsonl'), Array.from({ length: 250 }, (_, i) => claude.user(`p${i}`)));
   const day = join(tmp, 'codex', 'sessions', '2026', '10', '15');
   mkdirSync(day, { recursive: true });
   writeJsonl(join(day, `rollout-2026-10-15T10-00-00-${CODEX_ID}.jsonl`), [codex.meta(CODEX_ID), codex.user('hi codex'), codex.assistant('hello')]);
 
   const project = join(tmp, 'home', 'proj');
-  const edits = writeJsonl(join(tmp, 'edits.jsonl'), [
+  const edits = writeJsonl(join(claudeDir, 'edits.jsonl'), [
     claude.call('w1', 'Write', { file_path: join(project, 'src/a.ts'), content: 'one\ntwo\n' }),
     claude.result('w1', 'File created'),
     claude.call('e1', 'Edit', { file_path: join(project, 'README.md'), old_string: 'old line', new_string: 'new line\nmore' }),

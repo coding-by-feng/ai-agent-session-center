@@ -15,6 +15,7 @@
  */
 import type { ChatSystemKind } from '../../src/types/chat.js';
 import {
+  capName,
   cappedText,
   todoItems,
   toolResultDraft,
@@ -44,7 +45,7 @@ function system(kind: ChatSystemKind, label?: string, text?: string): ChatEntryD
   return {
     kind: 'system',
     system: kind,
-    ...(label ? { label } : {}),
+    ...(label ? { label: capName(label) } : {}),
     ...(text !== undefined ? cappedText(text) : {}),
   };
 }
@@ -68,7 +69,7 @@ function userText(text: string, isMeta: boolean): ChatEntryDraft | null {
     const output = commandOutput(text);
     return {
       kind: 'command',
-      name,
+      name: capName(name),
       ...(args ? { args: cappedText(args).text } : {}),
       ...(output !== null ? { output } : {}),
     };
@@ -88,16 +89,19 @@ function userText(text: string, isMeta: boolean): ChatEntryDraft | null {
   return { kind: 'user', ...cappedText(text) };
 }
 
-/** A tool result's text. Text blocks are joined, an image is `[image]`; anything else stays JSON. */
+/**
+ * A tool result's text. Text blocks are joined; any other block (an image, a document) shows as
+ * `[<type>]`, so its data (base64) is never sent.
+ */
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    const parts = content.map((b) => {
-      if (isRec(b) && b.type === 'text' && typeof b.text === 'string') return b.text;
-      if (isRec(b) && b.type === 'image') return '[image]';
-      return null;
-    });
-    if (parts.every((p) => p !== null)) return parts.join('\n');
+    return content
+      .map((b) => {
+        if (isRec(b) && b.type === 'text' && typeof b.text === 'string') return b.text;
+        return `[${capName(isRec(b) ? str(b.type) : '') || 'block'}]`;
+      })
+      .join('\n');
   }
   if (content == null) return '';
   try {
@@ -111,14 +115,14 @@ function toolUse(block: Rec): ChatEntryDraft {
   const id = str(block.id);
   const name = str(block.name) || 'tool';
   const input = block.input;
-  if (name === 'TodoWrite' && isRec(input)) return { kind: 'todo', id, items: todoItems(input.todos, 'content') };
+  if (name === 'TodoWrite' && isRec(input)) return { kind: 'todo', id: capName(id), items: todoItems(input.todos, 'content') };
   if ((name === 'Agent' || name === 'Task') && isRec(input)) {
     const prompt = cappedText(str(input.prompt), TEXT_CAP);
     return {
       kind: 'subagent',
-      id,
-      description: cappedText(str(input.description), 256).text,
-      ...(str(input.subagent_type) ? { agentType: str(input.subagent_type) } : {}),
+      id: capName(id),
+      description: capName(str(input.description)),
+      ...(str(input.subagent_type) ? { agentType: capName(str(input.subagent_type)) } : {}),
       prompt: prompt.text,
       ...(input.run_in_background === true ? { background: true } : {}),
       ...(prompt.truncated ? { truncated: true } : {}),
