@@ -38,6 +38,7 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - allow     the route's own visibility and baton checks are enough
  * - terminal  never an ops shell (a plain command prompt)
  * - type      a terminal write: not an ops shell, and the agent must be in the foreground
+ * - answer    a waiting request's answer: a shared session whose agent is in the foreground
  * - files     read-only, inside a shared session's project
  * - commands  the autocomplete catalog, for a shared project or none
  * - upload    an image upload, within the phone's per-minute budget
@@ -46,7 +47,7 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
-export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
+export type PhoneRule = 'allow' | 'terminal' | 'type' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
 
 interface PhoneRoute {
   method: RegExp;
@@ -109,6 +110,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // Terminals of shared sessions, never an ops shell.
   route('GET', '/terminals/:id/output', 'terminal'),
   route('POST', '/terminals/:id/write', 'type'),
+  // Answering a waiting request from its card (AASC-43): the Mac picks the keys and types
+  // them into the session's own agent terminal. The route checks visibility, the baton
+  // and a per-device limit itself.
+  route('POST', '/sessions/:id/requests/[^/]+/answer', 'answer'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session.
   route('POST', '/terminals', 'launch'),
@@ -333,6 +338,8 @@ export interface PhoneProfileDeps {
   isSharedSession(sessionId: string): boolean;
   /** The session a terminal belongs to, or null when it can't be told. */
   sessionOfTerminal(terminalId: string): string | null;
+  /** The agent terminal a session runs in, or null when it has none. */
+  terminalOfSession(sessionId: string): string | null;
   /** The terminal's foreground program (node-pty's process name), or null when unknown. */
   foregroundProcess(terminalId: string): string | null;
   home?: string;
@@ -379,6 +386,14 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         if (deps.isOpsTerminal(id)) return 'an ops shell';
         if (rule === 'type' && !isAgentProcessName(deps.foregroundProcess(id))) return 'the agent is not running';
         return null;
+      }
+      case 'answer': {
+        // The keys go to the session's own agent terminal. A hidden session is refused
+        // like a missing route before anything about its terminal can show.
+        const sessionId = decodeURIComponent(req.path.split('/')[2] ?? '');
+        if (!deps.isSharedSession(sessionId)) return 'not shared';
+        const terminalId = deps.terminalOfSession(sessionId);
+        return terminalId && isAgentProcessName(deps.foregroundProcess(terminalId)) ? null : 'the agent is not running';
       }
       case 'commands': {
         const projectPath = one(req.query.projectPath);
@@ -439,8 +454,8 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       res.status(403).json({ ok: false, error: reason, code: 'PHONE_NOT_ALLOWED' });
       return;
     }
-    if (rule === 'type' && reason === 'the agent is not running') {
-      res.status(409).json({ error: 'A phone can type only while the agent is running', code: 'AGENT_NOT_RUNNING' });
+    if ((rule === 'type' || rule === 'answer') && reason === 'the agent is not running') {
+      res.status(409).json({ error: `A phone can ${rule} only while the agent is running`, code: 'AGENT_NOT_RUNNING' });
       return;
     }
     if (rule === 'upload') {

@@ -344,6 +344,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     isOpsTerminal,
     isSharedSession: (sessionId) => canSeeSession(false, getSession(sessionId)),
     sessionOfTerminal: (terminalId) => getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId),
+    terminalOfSession: (sessionId) => getSession(sessionId)?.terminalId ?? null,
     foregroundProcess: getForegroundProcess,
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
