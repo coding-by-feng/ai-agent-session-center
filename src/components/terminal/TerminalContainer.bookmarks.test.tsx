@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 describe('terminal bookmarks on a phone', () => {
-  it('a long-press on a line bookmarks it; the sheet lists it and jumps back to it', () => {
+  it('a long-press on a line bookmarks it; the sheet lists it and jumps back to it', async () => {
     vi.useFakeTimers();
     const terminalId = `term-bm-${++terminalN}`;
     term.lineAtClientY.mockReturnValue({ line: 42, text: '● Bash(npm test)' });
@@ -70,38 +70,38 @@ describe('terminal bookmarks on a phone', () => {
     expect(showToast).toHaveBeenCalledWith('Bookmarked: ● Bash(npm test)', 'success', 2500);
     expect(localStorage.getItem(`aasc:term-bookmarks:${terminalId}`)).toContain('npm test');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Go to bookmark: ● Bash(npm test)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to bookmark: ● Bash(npm test)' }));
     expect(term.revealLine).toHaveBeenCalledWith(expect.objectContaining({ line: 42, text: '● Bash(npm test)' }));
   });
 
-  it('a blank line keeps nothing and says what a long-press does', () => {
+  it('a blank line keeps nothing and says what a long-press does', async () => {
     vi.useFakeTimers();
     term.lineAtClientY.mockReturnValue(null);
     render(<TerminalContainer terminalId={`term-bm-${++terminalN}`} ws={null} controlSessionId="s1" />);
     longPress(300);
     vi.useRealTimers();
     expect(showToast).toHaveBeenCalledWith('Long-press a line with text on it to bookmark it', 'info', 2500);
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
-    expect(screen.getByText('Long-press a line in the terminal to bookmark it.')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    expect(await screen.findByText('Long-press a line in the terminal to bookmark it.')).toBeTruthy();
   });
 
-  it('says so when a bookmarked line has left the scrollback', () => {
+  it('says so when a bookmarked line has left the scrollback', async () => {
     vi.useFakeTimers();
     term.lineAtClientY.mockReturnValue({ line: 3, text: 'old line' });
     term.revealLine.mockReturnValue(false);
     render(<TerminalContainer terminalId={`term-bm-${++terminalN}`} ws={null} controlSessionId="s1" />);
     longPress(50);
     vi.useRealTimers();
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Go to bookmark: old line' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to bookmark: old line' }));
     expect(showToast).toHaveBeenCalledWith('That line is no longer in the terminal’s scrollback', 'info', 3000);
   });
 
-  it('offers read-aloud for the terminal’s own session, and no full screen inside a sheet', () => {
+  it('offers read-aloud for the terminal’s own session, and no full screen inside a sheet', async () => {
     render(<TerminalContainer terminalId={`term-bm-${++terminalN}`} ws={null} controlSessionId="s1" inSheet />);
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
-    expect(screen.getByRole('button', { name: 'Read the last answer aloud' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    expect(await screen.findByRole('button', { name: 'Read the last answer aloud' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull();
   });
 });

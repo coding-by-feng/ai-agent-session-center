@@ -57,6 +57,7 @@ vi.mock('@/hooks/useTerminal', () => ({
 vi.mock('./TerminalToolbar', () => ({ default: () => <div data-testid="terminal-toolbar" /> }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
+import { settleLazy } from '@/__tests__/settleLazy';
 import TerminalContainer from './TerminalContainer';
 
 function fakeSocket() {
@@ -75,41 +76,43 @@ beforeEach(() => {
 });
 
 describe('TerminalContainer on a phone', () => {
-  it('draws no toolbar: keys and a compose box instead', () => {
+  it('draws no toolbar: keys and a compose box instead', async () => {
     render(<TerminalContainer terminalId="term-1" ws={null} originSessionId="s1" controlSessionId="s1" />);
+    expect(await screen.findByRole('group', { name: 'Terminal keys' })).toBeInTheDocument();
     expect(screen.queryByTestId('terminal-toolbar')).toBeNull();
-    expect(screen.getByRole('group', { name: 'Terminal keys' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Message to send to the terminal' })).toBeInTheDocument();
   });
 
-  it('a key goes straight to the terminal', () => {
+  it('a key goes straight to the terminal', async () => {
     render(<TerminalContainer terminalId="term-1" ws={null} originSessionId="s1" controlSessionId="s1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Choose 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose 1' }));
     expect(mockSendKeys).toHaveBeenCalledWith('1');
   });
 
-  it('shows the server\'s terminal_error for this terminal by the compose box', () => {
+  it('shows the server\'s terminal_error for this terminal by the compose box', async () => {
     const { ws, push } = fakeSocket();
     render(<TerminalContainer terminalId="term-1" ws={ws} originSessionId="s1" controlSessionId="s1" />);
+    await screen.findByRole('textbox', { name: 'Message to send to the terminal' });
     push({ type: 'terminal_error', terminalId: 'term-other', error: 'not mine' });
     expect(screen.queryByRole('alert')).toBeNull();
     push({ type: 'terminal_error', terminalId: 'term-1', error: 'A phone can type only while the agent is running' });
     expect(screen.getByRole('alert')).toHaveTextContent('A phone can type only while the agent is running');
   });
 
-  it('the terminal actions sheet clears output only after its confirm', () => {
+  it('the terminal actions sheet clears output only after its confirm', async () => {
     render(<TerminalContainer terminalId="term-1" ws={null} originSessionId="s1" controlSessionId="s1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Clear output…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear output…' }));
     expect(mockClearOutput).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Clear output' }));
     expect(mockClearOutput).toHaveBeenCalledTimes(1);
   });
 
-  it('offers Reconnect only for a closed terminal: on a live one it would start a second agent', () => {
+  it('offers Reconnect only for a closed terminal: on a live one it would start a second agent', async () => {
     const { ws, push } = fakeSocket();
     render(<TerminalContainer terminalId="term-1" ws={ws} originSessionId="s1" controlSessionId="s1" onReconnect={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+    await screen.findByRole('button', { name: 'Clear output…' }); // the sheet is open
     expect(screen.queryByRole('button', { name: 'Reconnect terminal' })).toBeNull();
     push({ type: 'terminal_closed', terminalId: 'term-1', reason: 'exited' });
     expect(screen.getByRole('button', { name: 'Reconnect terminal' })).toBeInTheDocument();
@@ -117,9 +120,10 @@ describe('TerminalContainer on a phone', () => {
 });
 
 describe('TerminalContainer on a desktop', () => {
-  it('keeps its toolbar and gets no phone input', () => {
+  it('keeps its toolbar and gets no phone input', async () => {
     platform.isMobile = false;
     render(<TerminalContainer terminalId="term-1" ws={null} originSessionId="s1" controlSessionId="s1" />);
+    await settleLazy(() => import('@/components/mobile/PhoneTerminalInput'));
     expect(screen.getAllByTestId('terminal-toolbar').length).toBeGreaterThan(0);
     expect(screen.queryByRole('group', { name: 'Terminal keys' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Message to send to the terminal' })).toBeNull();

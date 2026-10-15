@@ -17,7 +17,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import SceneOverlay from '@/components/3d/SceneOverlay';
 import LiveBoard from '@/components/live/LiveBoard';
 import LiveEmptyState from '@/components/live/LiveEmptyState';
-import PhoneLive from '@/components/mobile/PhoneLive';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useLiveFlatState, useSceneEmptyState } from '@/hooks/useLiveBoard';
@@ -26,6 +25,8 @@ import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/LiveView.module.css';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
+/** A phone's LIVE page, loaded on a phone only (AASC-31). */
+const PhoneLive = lazy(() => import('@/components/mobile/PhoneLive'));
 
 // #57: Error boundary to catch 3D scene crashes gracefully
 class SceneErrorBoundary extends Component<
@@ -158,7 +159,7 @@ export default function LiveView() {
   const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp() && !isMobile;
 
   if (isMobile) {
-    return <PhoneLive />;
+    return <Suspense fallback={null}><PhoneLive /></Suspense>;
   }
 
   if (!scene3dEnabled) {

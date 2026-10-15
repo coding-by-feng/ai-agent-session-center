@@ -18,6 +18,7 @@ const tts = vi.hoisted(() => ({ speak: vi.fn(async () => {}), stop: vi.fn() }));
 vi.mock('@/lib/ttsEngine', () => ({ ttsEngine: tts }));
 
 import { useSettingsStore } from '@/stores/settingsStore';
+import { settleLazy } from '@/__tests__/settleLazy';
 import ConversationView from './ConversationView';
 
 const T = 1_700_000_000_000;
@@ -41,7 +42,8 @@ describe('Conversation on a phone', () => {
   it('reads the last assistant answer aloud', async () => {
     renderView();
     await screen.findByText('what changed?');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Read last answer' })); });
+    const readAloud = await screen.findByRole('button', { name: 'Read last answer' });
+    await act(async () => { fireEvent.click(readAloud); });
     await waitFor(() => expect(tts.speak).toHaveBeenCalledWith('The last answer.', expect.anything()));
   });
 
@@ -58,6 +60,7 @@ describe('Conversation on a desktop', () => {
     platform.isMobile = false;
     const { container } = renderView();
     await screen.findByText('what changed?');
+    await settleLazy(() => import('@/components/mobile/ReadAloudButton'));
     expect(screen.queryByRole('button', { name: 'Read last answer' })).toBeNull();
     expect(container.querySelector('[data-ai-selectable]')).toBeNull();
   });

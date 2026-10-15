@@ -21,6 +21,7 @@ vi.mock('@/components/session/FloatingTerminalPanel', () => ({ default: () => <d
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
+import { settleLazy } from '@/__tests__/settleLazy';
 import PhoneFloatsButton from './PhoneFloatsButton';
 
 const float = (terminalId: string, label: string) => ({ terminalId, label, originSessionId: 'root', createdAt: 1 });
@@ -42,10 +43,10 @@ beforeEach(() => {
 });
 
 describe('the fork sheet', () => {
-  it('replaces the floating windows on a phone, full height, with the popup’s own session at the keys', () => {
+  it('replaces the floating windows on a phone, full height, with the popup’s own session at the keys', async () => {
     render(<FloatingTerminalRoot />);
+    const dialog = await screen.findByRole('dialog', { name: 'Translate → 中文' });
     expect(screen.queryByTestId('float-panel')).toBeNull();
-    const dialog = screen.getByRole('dialog', { name: 'Translate → 中文' });
     const terminal = within(dialog).getByTestId('float-terminal');
     expect(terminal.dataset.terminal).toBe('t-2');
     expect(terminal.dataset.origin).toBe('root');
@@ -60,24 +61,24 @@ describe('the fork sheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('switches between popups with the chips', () => {
+  it('switches between popups with the chips', async () => {
     render(<FloatingTerminalRoot />);
-    fireEvent.click(screen.getByRole('button', { name: '1. Explain (English)' }));
+    fireEvent.click(await screen.findByRole('button', { name: '1. Explain (English)' }));
     expect(screen.getByTestId('float-terminal').dataset.terminal).toBe('t-1');
     expect(screen.getByRole('button', { name: '1. Explain (English)' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('closing the sheet hides the popup and leaves it running', () => {
+  it('closing the sheet hides the popup and leaves it running', async () => {
     render(<FloatingTerminalRoot />);
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(closeSpy).not.toHaveBeenCalled();
     expect(useFloatingSessionsStore.getState().floats).toHaveLength(2);
   });
 
-  it('End asks first, then closes that popup (saving its answer, killing its terminal)', () => {
+  it('End asks first, then closes that popup (saving its answer, killing its terminal)', async () => {
     render(<FloatingTerminalRoot />);
-    fireEvent.click(screen.getByRole('button', { name: 'End' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'End' }));
     expect(closeSpy).not.toHaveBeenCalled();
     const confirm = screen.getByRole('dialog', { name: 'End this AI popup?' });
     fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
@@ -87,9 +88,10 @@ describe('the fork sheet', () => {
     expect(closeSpy).toHaveBeenCalledWith('t-2');
   });
 
-  it('shows nothing for another session’s popups', () => {
+  it('shows nothing for another session’s popups', async () => {
     useSessionStore.setState({ selectedSessionId: 'other' });
     render(<FloatingTerminalRoot />);
+    await settleLazy(() => import('./PhoneFloatingSheet'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { resetPhoneSkillNotesCache } from '@/lib/phoneSuggestions';
+import { settleLazy } from '@/__tests__/settleLazy';
 import type { Session } from '@/types';
 
 vi.mock('@/lib/terminalSend', async (importOriginal) => ({
@@ -60,9 +61,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('photos and the camera on a phone', () => {
-  it('offers the photo library and the camera, images only, the camera facing out', () => {
+  it('offers the photo library and the camera, images only, the camera facing out', async () => {
     renderTab();
-    expect(screen.getByRole('button', { name: 'Attach photos (0 of 5)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Attach photos (0 of 5)' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Take a photo' })).toBeEnabled();
     const library = screen.getByTestId('queue-photo-input');
     const camera = screen.getByTestId('queue-camera-input');
@@ -75,7 +76,7 @@ describe('photos and the camera on a phone', () => {
 
   it('adds picked photos as thumbnails with their own remove control', async () => {
     renderTab();
-    fireEvent.change(screen.getByTestId('queue-photo-input'), { target: { files: [png('a.png'), png('b.png')] } });
+    fireEvent.change(await screen.findByTestId('queue-photo-input'), { target: { files: [png('a.png'), png('b.png')] } });
     await waitFor(() => expect(draftImages().map((i) => i.name)).toEqual(['a.png', 'b.png']));
     expect(screen.getAllByRole('img').map((i) => i.getAttribute('alt'))).toEqual(['a.png', 'b.png']);
     fireEvent.click(screen.getByRole('button', { name: 'Remove image 1 (a.png)' }));
@@ -85,7 +86,7 @@ describe('photos and the camera on a phone', () => {
   it('stops at five images a prompt, says how many were left out, and then disables both buttons', async () => {
     renderTab();
     const shots = Array.from({ length: 7 }, (_, i) => png(`p${i}.png`));
-    fireEvent.change(screen.getByTestId('queue-camera-input'), { target: { files: shots } });
+    fireEvent.change(await screen.findByTestId('queue-camera-input'), { target: { files: shots } });
     await waitFor(() => expect(draftImages()).toHaveLength(5));
     expect(toast).toHaveBeenCalledWith('A prompt holds at most 5 images: 2 not added.', 'warning');
     expect(screen.getByRole('button', { name: 'Attach photos (5 of 5)' })).toBeDisabled();
@@ -108,9 +109,13 @@ describe('the suggestion bar under the compose box', () => {
     expect(useQueueStore.getState().composeDrafts.get('s1')?.text).toBe('/review ');
   });
 
-  it('is not on the desktop, which keeps its paperclip and its dropdown', () => {
+  it('is not on the desktop, which keeps its paperclip and its dropdown', async () => {
     platform.isMobile = false;
     renderTab();
+    await settleLazy(
+      () => import('@/components/mobile/QueuePhotoButtons'),
+      () => import('@/components/mobile/PhoneSuggestionBar'),
+    );
     expect(screen.getByTitle('Attach images')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Attach photos/ })).toBeNull();
     expect(screen.queryByTestId('queue-camera-input')).toBeNull();

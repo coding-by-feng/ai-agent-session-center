@@ -2523,6 +2523,29 @@
   min-height: 0;
 }
 
+/* ---- On a phone ---- */
+
+/* No callout or text selection under a held finger: a long-press bookmarks a
+   line (AASC-20), so the hold is ours. */
+.touchSurface {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Holds the phone input's height (key bar + compose box) while its chunk loads
+   (AASC-31), so the viewer doesn't fill the panel and then shrink. */
+.phoneInputPending {
+  flex: none;
+  min-height: 110px;
+  background: var(--bg-panel);
+}
+
+@media (max-height: 480px) {
+  /* Landscape: the keys and the compose box share one row. */
+  .phoneInputPending { min-height: 54px; }
+}
+
 /* ---- Mobile Scroll Overlay ---- */
 
 .mobileScrollOverlay {

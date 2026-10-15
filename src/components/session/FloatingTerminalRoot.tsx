@@ -12,12 +12,14 @@
  * On a phone (AASC-20) there are no windows to float: the same floats show one
  * at a time in a full-height sheet (PhoneFloatingSheet) instead of panels.
  */
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useIsMobile } from '@/lib/platform';
-import PhoneFloatingSheet from '@/components/mobile/PhoneFloatingSheet';
 import FloatingTerminalPanel from './FloatingTerminalPanel';
+
+/** Loaded on a phone only (AASC-31): this root is mounted in every window. */
+const PhoneFloatingSheet = lazy(() => import('@/components/mobile/PhoneFloatingSheet'));
 
 export default function FloatingTerminalRoot() {
   const floats = useFloatingSessionsStore((s) => s.floats);
@@ -61,7 +63,7 @@ export default function FloatingTerminalRoot() {
     ? floats.filter((f) => f.originSessionId === selectedSessionId && !poppedOut.includes(f.terminalId))
     : [];
 
-  if (isPhone) return <PhoneFloatingSheet floats={visible} />;
+  if (isPhone) return <Suspense fallback={null}><PhoneFloatingSheet floats={visible} /></Suspense>;
 
   return (
     <>

@@ -49,11 +49,12 @@ function useCaret(textarea: HTMLTextAreaElement | null): {
   /** Where a programmatic edit left the caret (setting `value` fires no event of its own). */
   moveCaret: (at: number) => void;
 } {
-  const [state, setState] = useState<{ el: HTMLTextAreaElement | null; focused: boolean; caret: number | null }>({
-    el: null,
-    focused: false,
-    caret: null,
-  });
+  // The box may already have focus when the bar mounts: the bar loads lazily
+  // (AASC-31), and a quick tap can land before it does.
+  const [state, setState] = useState<{ el: HTMLTextAreaElement | null; focused: boolean; caret: number | null }>(() =>
+    textarea && document.activeElement === textarea
+      ? { el: textarea, focused: true, caret: textarea.selectionStart }
+      : { el: null, focused: false, caret: null });
   useEffect(() => {
     if (!textarea) return;
     const sync = () =>

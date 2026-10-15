@@ -10,7 +10,7 @@
  * group it rendered as a sliver, and its autocomplete dropdown was clipped by
  * `.queueBody`'s 250px scroll box. One editor, one behaviour, everywhere.
  */
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import {
   useQueueStore,
   DEFAULT_AUTOMATION,
@@ -47,9 +47,6 @@ import { tooltips } from '@/lib/tooltips';
 import { openQueuePopout, queuePopoutTitle } from '@/lib/queuePopout';
 import { useIsMobile } from '@/lib/platform';
 import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
-import PhoneSuggestionBar from '@/components/mobile/PhoneSuggestionBar';
-import { CameraIcon, PhotoIcon } from '@/components/mobile/projectIcons';
-import { MAX_QUEUE_IMAGES, readQueueImages } from '@/lib/queueImageAttach';
 import PromptSnippetPicker, {
   BookmarkIcon,
   BookmarkStackIcon,
@@ -63,11 +60,16 @@ import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './Queu
 import QueueItemText from './QueueItemText';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
-import QueueMoveSheet from './QueueMoveSheet';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import styles from '@/styles/modules/Terminal.module.css';
 import phoneStyles from '@/styles/modules/QueuePhone.module.css';
+
+// A phone's suggestion bar, photo buttons and move sheet (AASC-18/20) load on a
+// phone only (AASC-31).
+const PhoneSuggestionBar = lazy(() => import('@/components/mobile/PhoneSuggestionBar'));
+const QueuePhotoButtons = lazy(() => import('@/components/mobile/QueuePhotoButtons'));
+const QueueMoveSheet = lazy(() => import('./QueueMoveSheet'));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -286,9 +288,7 @@ export default function QueueTab({
     [sessionId, setComposeDraftPatch],
   );
   const imageInputRef = useRef<HTMLInputElement>(null);
-  // A phone's photo library and camera (AASC-20), and its compose box for the suggestion bar.
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  // A phone's compose box, for the suggestion bar (AASC-20).
   const [composeTextarea, setComposeTextarea] = useState<HTMLTextAreaElement | null>(null);
   /** Item id open in the edit modal. EDIT on any row (once / loop / schedule)
    *  sets this — there is no separate inline-edit mode. */
@@ -481,22 +481,6 @@ export default function QueueTab({
     // Reset input so same file can be re-selected
     e.target.value = '';
   }, [setComposeImages]);
-
-  // ---- A phone's photos and camera: shrunk to the queue's limits (AASC-20) ----
-  const handlePhoneImages = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    // Reset so the same photo can be picked again.
-    e.target.value = '';
-    if (files.length === 0) return;
-    const draftImages = () => useQueueStore.getState().composeDrafts.get(sessionId)?.images ?? [];
-    void readQueueImages(files, draftImages().length).then(({ images, message }) => {
-      // Read the draft again: an image removed while these were being read stays removed.
-      if (images.length > 0) {
-        setComposeDraftPatch(sessionId, { images: [...draftImages(), ...images].slice(0, MAX_QUEUE_IMAGES) });
-      }
-      if (message) showToast(message, 'warning');
-    });
-  }, [sessionId, setComposeDraftPatch]);
 
   const handleRemoveComposeImage = useCallback((idx: number) => {
     setComposeImages((prev) => prev.filter((_, i) => i !== idx));
@@ -1390,36 +1374,16 @@ export default function QueueTab({
             textareaRef={setComposeTextarea}
           />
           {isMobile && (
-            <PhoneSuggestionBar
-              className={phoneStyles.composeSuggestions}
-              text={composeText}
-              onChange={setComposeText}
-              textarea={composeTextarea}
-              sessionId={sessionId}
-              projectPath={currentProjectPath}
-            />
-          )}
-          {isMobile && (
-            <>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                hidden
-                onChange={handlePhoneImages}
-                data-testid="queue-photo-input"
+            <Suspense fallback={null}>
+              <PhoneSuggestionBar
+                className={phoneStyles.composeSuggestions}
+                text={composeText}
+                onChange={setComposeText}
+                textarea={composeTextarea}
+                sessionId={sessionId}
+                projectPath={currentProjectPath}
               />
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                hidden
-                onChange={handlePhoneImages}
-                data-testid="queue-camera-input"
-              />
-            </>
+            </Suspense>
           )}
           <input
             ref={imageInputRef}
@@ -1463,24 +1427,13 @@ export default function QueueTab({
               <BookmarkStackIcon />
             </button>
             {isMobile ? (
-              <>
-                <button
-                  className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={composeImages.length >= MAX_QUEUE_IMAGES}
-                  aria-label={`Attach photos (${composeImages.length} of ${MAX_QUEUE_IMAGES})`}
-                >
-                  <PhotoIcon />
-                </button>
-                <button
-                  className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
-                  onClick={() => cameraInputRef.current?.click()}
-                  disabled={composeImages.length >= MAX_QUEUE_IMAGES}
-                  aria-label="Take a photo"
-                >
-                  <CameraIcon />
-                </button>
-              </>
+              <Suspense fallback={null}>
+                <QueuePhotoButtons
+                  sessionId={sessionId}
+                  count={composeImages.length}
+                  buttonClassName={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+                />
+              </Suspense>
             ) : (
             <button
               className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
@@ -1921,12 +1874,14 @@ export default function QueueTab({
       />
       {isMobile && (
         <>
-          <QueueMoveSheet
-            open={movingItemId !== null}
-            targets={moveTargets}
-            onSelect={handleMoveConfirm}
-            onClose={closeMovePicker}
-          />
+          <Suspense fallback={null}>
+            <QueueMoveSheet
+              open={movingItemId !== null}
+              targets={moveTargets}
+              onSelect={handleMoveConfirm}
+              onClose={closeMovePicker}
+            />
+          </Suspense>
           <BottomSheet open={moreItem !== null} onClose={closeMore} title={`Prompt ${moreIdx + 1}`}>
             {moreItem && (
               <>

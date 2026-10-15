@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import DetailPanel from './DetailPanel';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { settleLazy } from '@/__tests__/settleLazy';
 import type { Session } from '@/types';
 
 // Mock sub-components to isolate DetailPanel tests
@@ -282,18 +283,19 @@ describe('DetailPanel on a phone', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it('desktop: the strip, and no Sessions drawer button', () => {
+  it('desktop: the strip, and no Sessions drawer button', async () => {
     phone(false);
     const { container } = render(<DetailPanel />);
+    await settleLazy(() => import('@/components/mobile/PhoneSessionHeader'));
     expect(container.querySelector('[class*="sessionTabStrip"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: /^Sessions/ })).toBeNull();
   });
 
-  it('phone: a Sessions drawer button and previous / next instead of the strip', () => {
+  it('phone: a Sessions drawer button and previous / next instead of the strip', async () => {
     phone(true);
     const { container } = render(<DetailPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Sessions/ }));
     expect(container.querySelector('[class*="sessionTabStrip"]')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^Sessions/ }));
     expect(screen.getByTestId('session-drawer')).toBeInTheDocument();
   });
 });

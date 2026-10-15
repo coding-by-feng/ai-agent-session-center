@@ -3,7 +3,7 @@
  * Uses the useTerminal hook for lifecycle management.
  * Ported from public/js/terminalManager.js.
  */
-import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
@@ -15,9 +15,6 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
 import { useIsMobile } from '@/lib/platform';
-import PhoneTerminalInput from '@/components/mobile/PhoneTerminalInput';
-import TerminalActionsSheet from '@/components/mobile/TerminalActionsSheet';
-import { ExitFullscreenIcon } from '@/components/mobile/phoneIcons';
 import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
 import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
 import { useReadAloud } from '@/hooks/useReadAloud';
@@ -25,9 +22,14 @@ import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
 import { fetchLatestAnswer } from '@/lib/latestAnswer';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
-import phoneStyles from '@/styles/modules/PhoneSession.module.css';
-import phoneExtras from '@/styles/modules/PhoneExtras.module.css';
 import '@xterm/xterm/css/xterm.css';
+
+// A phone's input, actions sheet and full-screen bar (AASC-18/20) load on a phone
+// only (AASC-31): imported statically, they and everything they draw with sat in
+// every desktop window's entry chunk.
+const PhoneTerminalInput = lazy(() => import('@/components/mobile/PhoneTerminalInput'));
+const TerminalActionsSheet = lazy(() => import('@/components/mobile/TerminalActionsSheet'));
+const PhoneFullscreenBar = lazy(() => import('@/components/mobile/PhoneFullscreenBar'));
 
 interface TerminalContainerProps {
   terminalId: string | null;
@@ -447,21 +449,25 @@ export default memo(function TerminalContainer({
   }
 
   // One compose draft, shown inline or in the full-screen overlay (never both).
+  // While its chunk loads, a placeholder holds the input's height so the viewer
+  // doesn't fill the panel and then shrink.
   const phoneInput = isPhone ? (
-    <PhoneTerminalInput
-      // Its send state (an error, a send in flight) belongs to this terminal:
-      // the container is reused when the panel switches session.
-      key={terminalId}
-      terminalId={terminalId}
-      sessionId={controlSessionId ?? null}
-      draft={phoneDraft}
-      onDraftChange={setPhoneDraft}
-      onKey={sendKeys}
-      socketNotice={phoneNotice}
-      onDismissSocketNotice={dismissPhoneNotice}
-      onOpenActions={openPhoneActions}
-      closed={terminalIsClosed}
-    />
+    <Suspense fallback={<div className={styles.phoneInputPending} aria-hidden="true" />}>
+      <PhoneTerminalInput
+        // Its send state (an error, a send in flight) belongs to this terminal:
+        // the container is reused when the panel switches session.
+        key={terminalId}
+        terminalId={terminalId}
+        sessionId={controlSessionId ?? null}
+        draft={phoneDraft}
+        onDraftChange={setPhoneDraft}
+        onKey={sendKeys}
+        socketNotice={phoneNotice}
+        onDismissSocketNotice={dismissPhoneNotice}
+        onOpenActions={openPhoneActions}
+        closed={terminalIsClosed}
+      />
+    </Suspense>
   ) : null;
 
   return (
@@ -525,7 +531,7 @@ export default memo(function TerminalContainer({
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}
-            className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}${isPhone ? ` ${phoneExtras.touchSurface}` : ''}`}
+            className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}${isPhone ? ` ${styles.touchSurface}` : ''}`}
             style={{ minHeight: isPhone ? PHONE_MIN_HEIGHT : DEFAULT_MIN_HEIGHT }}
           />
         </div>
@@ -556,27 +562,29 @@ export default memo(function TerminalContainer({
       </div>
       {isPhone && !isFullscreen && phoneInput}
       {isPhone && (
-        <TerminalActionsSheet
-          open={phoneActionsOpen}
-          onClose={closePhoneActions}
-          onPaste={pasteToTerminal}
-          onScrollToBottom={scrollToBottom}
-          autoScrollEnabled={autoScrollEnabled}
-          onToggleAutoScroll={toggleAutoScroll}
-          widthMode={widthMode}
-          onToggleWidthMode={toggleWrapMode}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={inSheet ? undefined : toggleFullscreen}
-          onRefresh={refreshOutput}
-          onClear={clearOutput}
-          // Only as the toolbar offers it: reconnecting starts the agent again in
-          // a NEW terminal, so on a live one it would run a second agent.
-          onReconnect={showReconnect || terminalIsClosed ? onReconnect : undefined}
-          onFork={onFork}
-          onClone={onClone}
-          bookmarks={phoneBookmarks}
-          readAloud={readAloud}
-        />
+        <Suspense fallback={null}>
+          <TerminalActionsSheet
+            open={phoneActionsOpen}
+            onClose={closePhoneActions}
+            onPaste={pasteToTerminal}
+            onScrollToBottom={scrollToBottom}
+            autoScrollEnabled={autoScrollEnabled}
+            onToggleAutoScroll={toggleAutoScroll}
+            widthMode={widthMode}
+            onToggleWidthMode={toggleWrapMode}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={inSheet ? undefined : toggleFullscreen}
+            onRefresh={refreshOutput}
+            onClear={clearOutput}
+            // Only as the toolbar offers it: reconnecting starts the agent again in
+            // a NEW terminal, so on a live one it would run a second agent.
+            onReconnect={showReconnect || terminalIsClosed ? onReconnect : undefined}
+            onFork={onFork}
+            onClone={onClone}
+            bookmarks={phoneBookmarks}
+            readAloud={readAloud}
+          />
+        </Suspense>
       )}
       {/* Fullscreen overlay — always mounted, toggled via display.
           This avoids unmounting the portal while the xterm element is still inside it. */}
@@ -587,17 +595,9 @@ export default memo(function TerminalContainer({
         >
           <div className={styles.fullscreenTopbar}>
             {isPhone ? (
-              <div className={phoneStyles.fsBar}>
-                <span className={phoneStyles.fsTitle}>Terminal</span>
-                <button
-                  type="button"
-                  className={phoneStyles.iconBtn}
-                  onClick={toggleFullscreen}
-                  aria-label="Leave full screen"
-                >
-                  <ExitFullscreenIcon />
-                </button>
-              </div>
+              <Suspense fallback={null}>
+                <PhoneFullscreenBar onExit={toggleFullscreen} />
+              </Suspense>
             ) : <TerminalToolbar
               themeName={themeName}
               onThemeChange={handleThemeChange}
@@ -625,7 +625,7 @@ export default memo(function TerminalContainer({
                                     />}
           </div>
           <div className={styles.fullscreenArea}>
-            <div ref={fsContainerRef} className={`${styles.fullscreenContainer}${isPhone ? ` ${phoneExtras.touchSurface}` : ''}`} />
+            <div ref={fsContainerRef} className={`${styles.fullscreenContainer}${isPhone ? ` ${styles.touchSurface}` : ''}`} />
             <div className={styles.mobileScrollOverlay}>
               <button
                 className={styles.mobileScrollBtn}

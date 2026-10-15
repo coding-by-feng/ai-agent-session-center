@@ -73,10 +73,10 @@ describe('the AGENTS list on the LIVE page', () => {
 
   // AASC-18: a phone's LIVE page is one column of the board's cards (PhoneLive),
   // without the desktop HUD or the old AGENTS list.
-  it('phone LIVE page: the card list, no AGENTS list, no HUD, no desktop "no sessions" card', () => {
+  it('phone LIVE page: the card list, no AGENTS list, no HUD, no desktop "no sessions" card', async () => {
     phoneWidth(true);
     render(<LiveView />);
-    expect(screen.getByTestId('phone-live')).toBeInTheDocument();
+    expect(await screen.findByTestId('phone-live')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Sessions \(2\)/i })).toBeInTheDocument();
     expect(screen.queryByText(/Agents \(/i)).toBeNull();
     expect(screen.queryByText(/Units Online/i)).toBeNull();
@@ -85,12 +85,12 @@ describe('the AGENTS list on the LIVE page', () => {
     expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
   });
 
-  it('phone LIVE page: never the 3D scene, even with 3D switched on', () => {
+  it('phone LIVE page: never the 3D scene, even with 3D switched on', async () => {
     phoneWidth(true);
     useSettingsStore.setState({ scene3dEnabled: true } as never);
     render(<LiveView />);
+    expect(await screen.findByTestId('phone-live')).toBeInTheDocument();
     expect(screen.queryByTestId('scene')).toBeNull();
-    expect(screen.getByTestId('phone-live')).toBeInTheDocument();
   });
 });
 

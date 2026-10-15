@@ -53,12 +53,9 @@
 
 /* ---------- terminal: a long-press bookmarks a line ---------- */
 
-/* No callout or text selection under a held finger: the hold is ours. */
-.touchSurface {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
+/* The terminal's own surface (no callout under a held finger) is
+   Terminal.module.css `.touchSurface`: TerminalContainer is in the entry chunk,
+   and importing this file there would put it in the entry too (AASC-31). */
 
 .sheetHint {
   padding: 8px;

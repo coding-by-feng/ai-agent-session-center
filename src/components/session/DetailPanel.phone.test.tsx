@@ -2,7 +2,7 @@
 // the switcher's top row, and the phone app's COMMANDS tab explains why there is
 // no shell (AASC-18). Desktop keeps the switcher's row.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type { Session } from '@/types';
 
 const platform = vi.hoisted(() => ({ isMobile: true, nativeApp: false }));
@@ -26,6 +26,7 @@ vi.mock('@/components/mobile/MobileSessionHeader', () => ({
 
 import DetailPanel from './DetailPanel';
 import { useSessionStore } from '@/stores/sessionStore';
+import { settleLazy } from '@/__tests__/settleLazy';
 
 function select(over: Partial<Session> = {}) {
   const session = {
@@ -43,27 +44,31 @@ beforeEach(() => {
 });
 
 describe('DetailPanel header', () => {
-  it('a phone shows its own header instead of the switcher row', () => {
+  it('a phone shows its own header instead of the switcher row', async () => {
     select();
     render(<DetailPanel />);
-    expect(screen.getByTestId('mobile-header')).toHaveTextContent('Phone Task');
+    expect(await screen.findByTestId('mobile-header')).toHaveTextContent('Phone Task');
     expect(screen.queryByRole('button', { name: 'Minimize session panel' })).toBeNull();
   });
 
-  it('a desktop keeps the switcher row and no phone header', () => {
+  it('a desktop keeps the switcher row and no phone header', async () => {
     platform.isMobile = false;
     select();
     render(<DetailPanel />);
+    await settleLazy(
+      () => import('@/components/mobile/MobileSessionHeader'),
+      () => import('@/components/mobile/PhoneSessionHeader'),
+    );
     expect(screen.queryByTestId('mobile-header')).toBeNull();
     expect(screen.getByRole('button', { name: 'Minimize session panel' })).toBeInTheDocument();
   });
 });
 
 describe('DetailPanel COMMANDS in the phone app', () => {
-  it('says a paired phone has no shell instead of mounting one', () => {
+  it('says a paired phone has no shell instead of mounting one', async () => {
     platform.nativeApp = true;
     select({ opsTerminalId: 'ops-1' } as Partial<Session>);
     render(<DetailPanel />);
-    expect(screen.getByTestId('commands-tab')).toHaveTextContent('Commands stay on the Mac');
+    await waitFor(() => expect(screen.getByTestId('commands-tab')).toHaveTextContent('Commands stay on the Mac'));
   });
 });

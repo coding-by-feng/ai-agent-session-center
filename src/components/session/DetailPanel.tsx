@@ -44,10 +44,14 @@ import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
 import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
-import PhoneSessionHeader from '@/components/mobile/PhoneSessionHeader';
-import MobileSessionHeader from '@/components/mobile/MobileSessionHeader';
-import CommandsUnavailable from '@/components/mobile/CommandsUnavailable';
 import styles from '@/styles/modules/DetailPanel.module.css';
+
+// A phone's session header and COMMANDS notice (AASC-18) load on a phone only
+// (AASC-31): imported statically, the session drawer, room sheets and the rest
+// behind them sat in every desktop window's entry chunk.
+const PhoneSessionHeader = lazy(() => import('@/components/mobile/PhoneSessionHeader'));
+const MobileSessionHeader = lazy(() => import('@/components/mobile/MobileSessionHeader'));
+const CommandsUnavailable = lazy(() => import('@/components/mobile/CommandsUnavailable'));
 
 /**
  * The PROJECT subtree is the heaviest import in the app — ProjectTab alone pulls
@@ -831,38 +835,49 @@ export default function DetailPanel() {
   // (rail | content). Maximized mode always collapses back to the slim top bar.
   const navLeft = navPosition === 'left' && !maximized;
 
+  // Compact top bar — title, status, model, controls all in one row.
+  const sessionHeader = (
+    <SessionSwitcher
+      currentSession={displaySession}
+      sessions={sessions}
+      onSwitch={selectSession}
+      statusLabel={statusLabel}
+      duration={durText}
+      isDisconnected={isDisconnected}
+      onClose={minimizeDetailPanel}
+      model={displaySession.model}
+      header={isPhone ? (
+        <Suspense fallback={null}>
+          <MobileSessionHeader
+            key={displaySession.sessionId}
+            session={displaySession}
+            duration={durText}
+            onBack={minimizeDetailPanel}
+          />
+        </Suspense>
+      ) : undefined}
+      controls={
+        <SessionControlBar
+          session={displaySession}
+        />
+      }
+    />
+  );
+
   return (
     <div className={styles.detailOverlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
         <div className={`${styles.panelInner}${navLeft ? ` ${styles.panelInnerLeft}` : ''}`}>
-        {/* Compact top bar — title, status, model, controls all in one row.
-            On a phone, wrapped with the session drawer button and the swipe
-            between sessions (components/mobile, AASC-18). */}
-        <PhoneSessionHeader enabled={isMobile} currentSession={displaySession} sessions={sessions} onSwitch={selectSession}>
-        <SessionSwitcher
-          currentSession={displaySession}
-          sessions={sessions}
-          onSwitch={selectSession}
-          statusLabel={statusLabel}
-          duration={durText}
-          isDisconnected={isDisconnected}
-          onClose={minimizeDetailPanel}
-          model={displaySession.model}
-          header={isPhone ? (
-            <MobileSessionHeader
-              key={displaySession.sessionId}
-              session={displaySession}
-              duration={durText}
-              onBack={minimizeDetailPanel}
-            />
-          ) : undefined}
-          controls={
-            <SessionControlBar
-              session={displaySession}
-            />
-          }
-        />
-        </PhoneSessionHeader>
+        {/* On a phone, wrapped with the session drawer button and the swipe
+            between sessions (components/mobile, AASC-18); the bare header shows
+            while that chunk loads. */}
+        {isMobile ? (
+          <Suspense fallback={sessionHeader}>
+            <PhoneSessionHeader enabled currentSession={displaySession} sessions={sessions} onSwitch={selectSession}>
+              {sessionHeader}
+            </PhoneSessionHeader>
+          </Suspense>
+        ) : sessionHeader}
 
         {/* Tabs and content */}
         <div className={styles.mainCol}>
@@ -956,7 +971,7 @@ export default function DetailPanel() {
           commandsContent={
             // A paired phone never opens a plain shell on the Mac (AASC-28): say so
             // instead of a terminal that can never connect.
-            isNativeMobileApp() ? <CommandsUnavailable /> :
+            isNativeMobileApp() ? <Suspense fallback={null}><CommandsUnavailable /></Suspense> :
             (displaySession.opsTerminalId || displaySession.hadOpsTerminal) ? (
               <OpsTerminalContent
                 sessionId={displaySession.sessionId}

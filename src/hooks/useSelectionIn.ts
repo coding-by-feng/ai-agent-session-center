@@ -13,8 +13,9 @@
  * this surface's.
  */
 import { useCallback, useSyncExternalStore } from 'react';
+import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
 
-export const SELECTABLE_ATTR = 'data-ai-selectable';
+export { SELECTABLE_ATTR };
 
 /** How much of the surrounding passage goes with a selection as context (the server caps it at 2 KB). */
 const CONTEXT_CHARS = 1500;

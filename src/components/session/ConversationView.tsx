@@ -7,7 +7,7 @@
  * Claude Code JSONL transcript for untruncated fidelity, falling back to the
  * in-memory session logs when no transcript is available.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PromptEntry,
   ResponseEntry,
@@ -22,11 +22,13 @@ import { useQueueSentStore } from '@/stores/queueSentStore';
 import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { useIsMobile } from '@/lib/platform';
 import { lastAssistantText, lastResponseText } from '@/lib/latestAnswer';
-import { SELECTABLE_ATTR } from '@/hooks/useSelectionIn';
-import ReadAloudButton from '@/components/mobile/ReadAloudButton';
-import PhoneConversationAi from '@/components/mobile/PhoneConversationAi';
+import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
 import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
+
+// Read aloud and Ask AI (AASC-20) are a phone's, and load on a phone only (AASC-31).
+const ReadAloudButton = lazy(() => import('@/components/mobile/ReadAloudButton'));
+const PhoneConversationAi = lazy(() => import('@/components/mobile/PhoneConversationAi'));
 
 function formatTime(ts: number): string {
   if (!ts || ts <= 0) return '';
@@ -657,15 +659,17 @@ export default function ConversationView({
         </button>
 
         {isMobile && (
-          <ReadAloudButton
-            speakKey={`conversation:${sessionId}`}
-            source={() => lastAssistantText(entries) || lastResponseText(responses)}
-            label="Read last answer"
-          />
+          <Suspense fallback={null}>
+            <ReadAloudButton
+              speakKey={`conversation:${sessionId}`}
+              source={() => lastAssistantText(entries) || lastResponseText(responses)}
+              label="Read last answer"
+            />
+          </Suspense>
         )}
       </div>
 
-      {isMobile && <PhoneConversationAi sessionId={sessionId} />}
+      {isMobile && <Suspense fallback={null}><PhoneConversationAi sessionId={sessionId} /></Suspense>}
 
       {/* Previous sessions (only in the All view) */}
       {showPrev &&
