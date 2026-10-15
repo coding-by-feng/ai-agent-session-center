@@ -6,7 +6,7 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, it, beforeAll, afterAll, beforeEach, expect, vi } from 'vitest';
 
 vi.mock('../server/db.js', () => ({
@@ -49,6 +49,7 @@ import {
   phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile, isAgentProcessName,
   phoneFloatingRefusal, PHONE_UPLOADS_PER_MINUTE,
 } from '../server/mobile/phoneProfile.js';
+import { isQueueImageId } from '../server/queueImages.js';
 
 // ── A home folder with a project, an unknown folder and secrets ─────────────────────────────────────────
 
@@ -502,6 +503,18 @@ describe('a password sign-in keeps the dashboard’s full power', () => {
     expect(res.status).toBe(200);
     expect(pty.created).toEqual([{ command: 'bash', workingDir: other }]);
     expect((await call('GET', `/files/read?${q({ root: project, path: 'keys/id_ed25519' })}`, IPAD)).status).toBe(200);
+  });
+
+  it('gets an id for each uploaded image, which a prompt sent through the Mac names it by (AASC-42)', async () => {
+    const res = await call('POST', '/queue-images', IPAD, { images: [{ name: 'a.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }] });
+    const paths = res.json.paths as string[];
+    try {
+      expect(paths).toHaveLength(1);
+      expect(res.json.ids).toEqual(paths.map((p) => basename(p)));
+      expect((res.json.ids as string[]).every(isQueueImageId)).toBe(true);
+    } finally {
+      for (const p of paths) rmSync(p, { force: true });
+    }
   });
 });
 

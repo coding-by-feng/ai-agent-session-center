@@ -28,6 +28,7 @@ import { appendPausedItem } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
+import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
 import { createRoomsService } from './roomsRouter.js';
 import { parseRoomList } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -2186,7 +2187,6 @@ router.get('/terminals/:id/output', requireVisibleTerminal, async (req: Request,
 });
 
 // Write data to a terminal's PTY (used by queue prompt send)
-const QUEUE_IMAGES_DIR = '/tmp/claude-queue-images';
 const QUEUE_IMAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Delete queue-image files older than QUEUE_IMAGE_TTL_MS. Best-effort; never throws. */
@@ -2212,7 +2212,7 @@ function cleanupQueueImages(): void {
 cleanupQueueImages();
 setInterval(cleanupQueueImages, 60 * 60 * 1000).unref();
 
-/** POST /api/queue-images — save base64 images to temp files, return file paths */
+/** POST /api/queue-images — save base64 images to temp files, return their paths and ids (file names) */
 router.post('/queue-images', (req: Request, res: Response) => {
   const schema = z.object({
     images: z.array(z.object({
@@ -2241,7 +2241,7 @@ router.post('/queue-images', (req: Request, res: Response) => {
       paths.push(filepath);
     } catch { /* skip invalid */ }
   }
-  res.json({ ok: true, paths });
+  res.json({ ok: true, paths, ids: paths.map(queueImageId) });
 });
 
 // Prefill a terminal's output ring buffer with saved data (base64).
