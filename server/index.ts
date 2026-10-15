@@ -13,11 +13,14 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId } from './sshManager.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, writeToTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
-import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
+import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest } from './apiRouter.js';
+import { createRequestAnswerRouter } from './requestAnswer.js';
+import { refreshPendingSessionUpdate } from './hookProcessor.js';
+import * as presence from './presenceManager.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -345,7 +348,26 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // Skill-note favourites for a phone's autocomplete, read through the cloud connection (AASC-20, M9).
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud }));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, apiRouter);
+  // Answering a waiting request from a card (AASC-43). Mounted before apiRouter with
+  // apiRouter's own visibility gate, so it is gated whatever the mount order.
+  const requestAnswer = createRequestAnswerRouter({
+    requireVisibleSession,
+    getSession,
+    clientIdOf: clientIdFromRequest,
+    isLocal: isLocalRequest,
+    canControl: presence.canControl,
+    noteControlActivity: presence.noteControlActivity,
+    getController: presence.getController,
+    terminalExists: (terminalId) => getTerminals().some((t) => t.terminalId === terminalId),
+    writeToTerminal,
+    clearPendingRequest,
+    broadcastSession: (session) => {
+      // A hook update still waiting out its throttle must not put the answered request back.
+      refreshPendingSessionUpdate(session.sessionId, session);
+      broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+    },
+  });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, requestAnswer, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

@@ -154,7 +154,7 @@ function fixedSessionRoute(req: Request): ((req: Request, res: Response, next: N
   return req.path === '/' || req.path === '' ? fixed.gate : null;
 }
 
-function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
+export function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
   const fixedGate = fixedSessionRoute(req);
   if (fixedGate) { fixedGate(req, res, next); return; }
@@ -186,7 +186,7 @@ function refuseWhileRestarting(sessionId: string, res: Response): boolean {
  * sessions but can never take one from a named device, and can never claim the
  * workspace restore.
  */
-function clientIdFromRequest(req: Request): string {
+export function clientIdFromRequest(req: Request): string {
   const clientId = str(req.headers['x-aasc-client-id']).slice(0, 128);
   if (!clientId || requestIsLocal(req)) return clientId;
   // A remote device can't borrow a local device's id (the desktop's), nor
