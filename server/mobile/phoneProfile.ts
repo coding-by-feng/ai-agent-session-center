@@ -28,6 +28,8 @@ import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
+import { HOME_SECRET_SEGMENTS, segmentLooksSecret } from './secretPaths.js';
+import { filterPhoneChangesAnswer, filterPhoneChatAnswer } from './phoneChatFilter.js';
 
 /** The one permission set a paired phone has. The desktop shows it next to each phone. */
 export const PHONE_ACCESS = 'sessions-only' as const;
@@ -141,21 +143,6 @@ export function phoneRuleFor(method: string, path: string): PhoneRule | null {
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
-/**
- * Never read by a phone, wherever they sit. Compared lower-cased: on a
- * case-insensitive disk `.AWS` is `.aws`. Agent and tool config folders are on
- * the list too: `~/.codex/auth.json` and `~/.config/gh/hosts.yml` hold tokens.
- */
-const SECRET_SEGMENTS = new Set([
-  '.ssh', '.gnupg', '.aws', '.azure', '.gcloud', '.kube', '.docker', '.netrc', '.git-credentials', '.npmrc', '.pypirc',
-  '.password-store', 'keychains', '.claude', '.codex', '.config', '.git',
-]);
-
-/** Secret-looking file names: env files, keys and certificates, credential files. */
-const SECRET_FILE_RE = /^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials(?:\.json)?|.*\.(?:pem|key|p12|pfx|jks|keystore|ppk))$/;
-
-/** Folders that are secret only directly under the home folder (a project may well be called "library"). */
-const HOME_SECRET_SEGMENTS = new Set(['library']);
 
 function realOrNull(p: string): string | null {
   try {
@@ -173,7 +160,7 @@ function inside(child: string, root: string): boolean {
 function touchesSecret(pathInHome: string): boolean {
   const segments = pathInHome.split(sep).filter(Boolean).map((s) => s.toLowerCase());
   if (segments.length > 0 && HOME_SECRET_SEGMENTS.has(segments[0])) return true;
-  return segments.some((s) => SECRET_SEGMENTS.has(s) || SECRET_FILE_RE.test(s));
+  return segments.some(segmentLooksSecret);
 }
 
 /**
@@ -462,6 +449,13 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const shared = deps.sharedProjectPaths();
         const json = res.json.bind(res);
         res.json = (body: unknown) => json(filterPhoneSearchAnswer(body, root, shared, home));
+      }
+      // The chat and its edits show what the agent read and wrote: never a secret file's content.
+      const chatRoute = /^\/sessions\/[^/]+\/(chat|changes)(?:\/[^/]+)?\/?$/.exec(req.path);
+      if (rule === 'allow' && req.method === 'GET' && chatRoute) {
+        const json = res.json.bind(res);
+        const filter = chatRoute[1] === 'chat' ? filterPhoneChatAnswer : filterPhoneChangesAnswer;
+        res.json = (body: unknown) => json(filter(body));
       }
       next();
       return;

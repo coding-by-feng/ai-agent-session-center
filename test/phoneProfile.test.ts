@@ -668,3 +668,66 @@ describe('ops shells on the live connection', () => {
     phone.emit('close');
   });
 });
+
+// ── The chat and its edits on a phone (AASC-41 / AASC-44) ────────────────────────────────────────────
+describe('what a phone sees of a secret file in the chat and the edits', () => {
+  let chatServer: Server;
+  let chatBase = '';
+  const answer = {
+    entries: [
+      { kind: 'tool_use', key: '1:0', timestamp: 1, id: 't1', name: 'Read', input: { file_path: '/Users/me/app/.env' } },
+      { kind: 'tool_result', key: '2:0', timestamp: 2, toolUseId: 't1', isError: false, output: 'API_KEY=sk-123', truncated: false },
+    ],
+    before: null, after: null, cli: 'claude', hasMore: false,
+  };
+
+  beforeAll(async () => {
+    const auth = await import('../server/authManager.js');
+    const app = express();
+    app.use('/api', createPhoneProfile({
+      phoneOf: (req) => auth.getTokenDeviceId(auth.extractToken(req)),
+      sharedProjectPaths: () => [],
+      knownProjectPaths: () => [],
+      isOpsTerminal: () => false,
+      isSharedSession: () => true,
+      sessionOfTerminal: () => null,
+      terminalOfSession: () => null,
+      foregroundProcess: () => null,
+      home: home || tmpdir(),
+    }), (req, res) => {
+      if (req.path.endsWith('/chat')) { res.json({ success: true, data: answer }); return; }
+      res.json({ success: true, data: { files: [{ path: '.env', added: 1, removed: 0, lastAt: 1 }], total: { added: 1, removed: 0 }, cli: 'claude' } });
+    });
+    chatServer = createServer(app);
+    await new Promise<void>((r) => chatServer.listen(0, '127.0.0.1', r));
+    const addr = chatServer.address();
+    if (addr && typeof addr === 'object') chatBase = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => chatServer.close(() => r()));
+  });
+
+  async function get(path: string, phone: boolean) {
+    const auth = await import('../server/authManager.js');
+    const headers: Record<string, string> = phone
+      ? { 'X-Forwarded-For': '192.168.1.80', Authorization: `Bearer ${auth.createToken('dev-phone-chat')}` }
+      : {};
+    const res = await fetch(`${chatBase}/api${path}`, { headers });
+    return await res.json() as { data: Record<string, unknown> };
+  }
+
+  it('hides the content a Read of .env returned from a paired phone, not from the Mac', async () => {
+    const phone = await get('/sessions/shared/chat', true);
+    const entries = phone.data.entries as Array<Record<string, unknown>>;
+    expect(entries[1].output).toBe('[Hidden on phones: this touched a secret file]');
+    expect(JSON.stringify(phone)).not.toContain('sk-123');
+    const mac = await get('/sessions/shared/chat', false);
+    expect(JSON.stringify(mac)).toContain('sk-123');
+  });
+
+  it('marks a secret file in the edits list for a phone', async () => {
+    const phone = await get('/sessions/shared/changes', true);
+    expect((phone.data.files as Array<Record<string, unknown>>)[0]).toMatchObject({ path: '.env', redacted: true });
+  });
+});
