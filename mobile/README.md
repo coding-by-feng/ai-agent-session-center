@@ -63,7 +63,9 @@ Run on a Pixel 7 emulator; no real Mac was paired (a local stand-in page played 
 | Bridge on a Mac page (RELEASE 1, plan 07 S2) | A page from a paired Mac origin gets **no** `window.Capacitor` and no `androidBridge`: the Mac UI can't reach any plugin. (So haptics / step-up from the Mac UI need a deliberate bridge, plan 07 S3) |
 | Session cookie (plan 07 S2) | Set natively (HttpOnly): `document.cookie` is empty on the Mac page; the WebSocket upgrade, same-origin `/api` calls and reloads carry `auth_token`. **The first navigation from the shell to the Mac carries no cookie** (`SameSite=Strict` across sites). Fine for AASC, whose static files are served before auth; never put the page HTML behind the cookie for phones |
 
-Not checked here: pairing with a real Mac, push (no Firebase), the widget on a launcher, user-CA interception, a release build.
+| Release build (RELEASE 4, 5) | `AASC_RELEASE=1 npx cap sync android` + `assembleRelease`, signed with the local debug key only to install it. On a **user** image (`google_apis_playstore`, `ro.debuggable=0`): no WebView DevTools socket (the debug build on the same image has one); Capacitor logs only "Starting BridgeActivity". Trap: on a `google_apis` (userdebug) image WebView exposes DevTools for every app, so check release builds on a Play Store image or a real phone |
+
+Not checked here: pairing with a real Mac (and the logs during it), push (no Firebase), the widget on a launcher, user-CA interception.
 
 ### Turning push on (AASC-19)
 
