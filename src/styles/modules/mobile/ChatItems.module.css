@@ -1,6 +1,11 @@
 /* The phone chat's rows (AASC-41). Tokens: phoneTokens.css. */
 
 .item {
+  /* Status hues as small text: pulled toward the text colour so every theme keeps
+     4.5 : 1 (the raw hues are tuned for icons and rings, 3 : 1). */
+  --chat-ok-text: color-mix(in srgb, var(--ph-status-finished) 62%, var(--ph-text));
+  --chat-run-text: color-mix(in srgb, var(--ph-status-working) 62%, var(--ph-text));
+  --chat-wait-text: color-mix(in srgb, var(--ph-status-approval) 55%, var(--ph-text));
   padding: var(--ph-space-1) var(--ph-gutter);
   min-width: 0;
 }
@@ -250,12 +255,12 @@
   font-size: var(--ph-size-caption);
   line-height: var(--ph-line-caption);
   font-weight: 600;
-  color: var(--ph-status-approval);
+  color: var(--chat-wait-text);
 }
 
-.statusOk { color: var(--ph-status-finished); }
+.statusOk { color: var(--chat-ok-text); }
 .statusFail { color: var(--ph-status-error); font-weight: 600; }
-.statusRun { color: var(--ph-status-working); }
+.statusRun { color: var(--chat-run-text); }
 .statusNone { color: var(--ph-text-secondary); }
 
 .duration {
@@ -397,7 +402,7 @@
   background: color-mix(in srgb, var(--ph-status-finished) 16%, transparent);
 }
 
-.diffAdd .diffSign { color: var(--ph-status-finished); font-weight: 700; }
+.diffAdd .diffSign { color: var(--chat-ok-text); font-weight: 700; }
 
 .diffDel {
   background: color-mix(in srgb, var(--ph-status-error) 14%, transparent);
@@ -539,8 +544,8 @@
   font-weight: 600;
 }
 
-.badgeWorking { color: var(--ph-status-working); }
-.badgeDone { color: var(--ph-status-finished); }
+.badgeWorking { color: var(--chat-run-text); }
+.badgeDone { color: var(--chat-ok-text); }
 .badgeFailed { color: var(--ph-status-error); }
 
 /* ---- Session events ---- */

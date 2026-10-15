@@ -52,7 +52,7 @@
   font-weight: 600;
 }
 
-.added { color: var(--ph-status-finished); }
+.added { color: color-mix(in srgb, var(--ph-status-finished) 62%, var(--ph-text)); }
 .removed { color: var(--ph-status-error); }
 
 .hidden {
@@ -263,7 +263,7 @@
 }
 
 .add .sign,
-.add .num { color: var(--ph-status-finished); font-weight: 700; }
+.add .num { color: color-mix(in srgb, var(--ph-status-finished) 62%, var(--ph-text)); font-weight: 700; }
 
 .del {
   background: color-mix(in srgb, var(--ph-status-error) 14%, transparent);
