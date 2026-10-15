@@ -110,9 +110,10 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
 
-  it('checks terminals, typing, files, commands, uploads and launches before letting them through', () => {
+  it('checks terminals, typing, prompts, files, commands, uploads and launches before letting them through', () => {
     expect(phoneRuleFor('GET', '/terminals/t1/output')).toBe('terminal');
     expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
+    expect(phoneRuleFor('POST', '/sessions/abc/prompt')).toBe('prompt');
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
     expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');
@@ -138,6 +139,7 @@ describe('phoneRuleFor', () => {
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
     ['POST', '/snippets/import'],
     ['PUT', '/rooms'], ['GET', '/rooms/ops'], ['DELETE', '/rooms'],
+    ['GET', '/sessions/abc/prompt'], ['PUT', '/sessions/abc/prompt'], ['POST', '/sessions/abc/prompt/now'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();

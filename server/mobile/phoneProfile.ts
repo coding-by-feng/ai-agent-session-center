@@ -38,6 +38,8 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - allow     the route's own visibility and baton checks are enough
  * - terminal  never an ops shell (a plain command prompt)
  * - type      a terminal write: not an ops shell, and the agent must be in the foreground
+ * - prompt    a prompt the Mac types and confirms (AASC-42), within the phone's per-minute
+ *             prompt budget; the route itself checks the baton and that the agent is running
  * - files     read-only, inside a shared session's project
  * - commands  the autocomplete catalog, for a shared project or none
  * - upload    an image upload, within the phone's per-minute budget
@@ -46,7 +48,7 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
-export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
+export type PhoneRule = 'allow' | 'terminal' | 'type' | 'prompt' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
 
 interface PhoneRoute {
   method: RegExp;
@@ -109,6 +111,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // Terminals of shared sessions, never an ops shell.
   route('GET', '/terminals/:id/output', 'terminal'),
   route('POST', '/terminals/:id/write', 'type'),
+  // A prompt for a shared session's agent, typed and confirmed by the Mac (AASC-42).
+  route('POST', '/sessions/:id/prompt', 'prompt'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session.
   route('POST', '/terminals', 'launch'),
@@ -216,6 +220,13 @@ export const PHONE_UPLOADS_PER_MINUTE = 20;
  * retry or a misbehaving app must not fill it. A person tapping makes a few.
  */
 export const PHONE_TERMINALS_PER_MINUTE = 10;
+
+/**
+ * Prompts one phone may send through the Mac per minute (AASC-42). Each one types
+ * into an agent's input box and presses Enter until the CLI takes it; a person sends
+ * a few, a stuck retry loop sends many.
+ */
+export const PHONE_PROMPTS_PER_MINUTE = 20;
 
 const BUDGET_WINDOW_MS = 60_000;
 
@@ -347,6 +358,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   type Bucket = { windowStart: number; count: number };
   const uploads = new Map<string, Bucket>();
   const terminalsOpened = new Map<string, Bucket>();
+  const prompts = new Map<string, Bucket>();
 
   /** Count one more in this phone's current minute; true when it goes over `limit`. */
   function overBudget(buckets: Map<string, Bucket>, phone: string, limit: number): boolean {
@@ -362,9 +374,9 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
 
   const overUploadBudget = (phone: string): boolean => overBudget(uploads, phone, PHONE_UPLOADS_PER_MINUTE);
 
-  /** Whole seconds until this phone's terminal budget starts over. */
-  function terminalRetryAfter(phone: string): number {
-    const bucket = terminalsOpened.get(phone);
+  /** Whole seconds until this phone's budget in `buckets` starts over. */
+  function retryAfter(buckets: Map<string, Bucket>, phone: string): number {
+    const bucket = buckets.get(phone);
     if (!bucket) return 0;
     return Math.max(1, Math.ceil((bucket.windowStart + BUDGET_WINDOW_MS - now()) / 1000));
   }
@@ -386,6 +398,8 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       }
       case 'upload':
         return overUploadBudget(phone) ? 'too many uploads' : null;
+      case 'prompt':
+        return overBudget(prompts, phone, PHONE_PROMPTS_PER_MINUTE) ? 'too many prompts' : null;
       case 'files': {
         const targets = filesTargets(req, home);
         const shared = deps.sharedProjectPaths();
@@ -418,7 +432,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         res.status(429).json({
           error: 'This phone opened a lot of terminals in the last minute. Wait a moment and try again.',
           code: 'PHONE_TERMINAL_LIMIT',
-          retryAfter: terminalRetryAfter(phone),
+          retryAfter: retryAfter(terminalsOpened, phone),
         });
         return;
       }
@@ -433,7 +447,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     }
     log.warn('mobile', `Paired phone ${phone.slice(0, 8)} refused: ${req.method} ${req.path} (${rule === 'launch' ? 'launch' : reason})`);
     // A launch says why, so the phone can show it; so does typing while the agent
-    // isn't running, and an upload over budget. Everything else answers like a
+    // isn't running, and an upload or a prompt over budget. Everything else answers like a
     // missing route, so a refused path can't be told from one that isn't there.
     if (rule === 'launch') {
       res.status(403).json({ ok: false, error: reason, code: 'PHONE_NOT_ALLOWED' });
@@ -445,6 +459,14 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     }
     if (rule === 'upload') {
       res.status(429).json({ error: 'Too many uploads from this phone; try again in a minute', code: 'PHONE_RATE_LIMITED' });
+      return;
+    }
+    if (rule === 'prompt') {
+      res.status(429).json({
+        error: 'This phone sent a lot of prompts in the last minute. Wait a moment and try again.',
+        code: 'PHONE_PROMPT_LIMIT',
+        retryAfter: retryAfter(prompts, phone),
+      });
       return;
     }
     res.status(404).json(NOT_FOUND);
