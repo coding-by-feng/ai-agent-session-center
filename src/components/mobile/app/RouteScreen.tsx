@@ -18,6 +18,7 @@ import { EmptyState, Screen } from '../kit';
 const LibraryScreen = lazy(() => import('../screens/LibraryScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const AboutScreen = lazy(() => import('../screens/AboutScreen'));
+const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
 
 function UnknownScreen() {
   return (
@@ -40,7 +41,7 @@ export default function RouteScreen({ path }: { path: string }) {
   switch (route.page) {
     case 'settings': return <SettingsScreen />;
     case 'about': return <AboutScreen />;
-    case 'gallery': return <UnknownScreen />;
+    case 'gallery': return <GalleryScreen />;
     default: return <LibraryScreen page={route.page} />;
   }
 }
