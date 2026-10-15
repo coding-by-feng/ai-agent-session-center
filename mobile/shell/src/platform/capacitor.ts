@@ -136,10 +136,11 @@ export function capacitorDeps(): ShellDeps {
     },
     newId: () => crypto.randomUUID(),
     // Android only so far: the native halves for iOS need Xcode.
-    ...(os === 'android'
+    // Push (inert until configured), the biometric lock, lifecycle and haptics have both native halves;
+    // the share target and the widget are Android-only until the iOS extensions exist (AASC-21).
+    ...(os === 'android' || os === 'ios'
       ? {
           push: pushHost(os),
-          share: { take: async () => (await ShellBridge.takeShare()).share ?? null },
           biometric: {
             available: async () => (await ShellBridge.biometricStatus()).available,
             authenticate: async (reason: string) => (await ShellBridge.authenticate({ reason })).ok,
@@ -149,8 +150,13 @@ export function capacitorDeps(): ShellDeps {
             onPause: (cb: () => void) => remover(App.addListener('pause', cb)),
             onResume: (cb: () => void) => remover(App.addListener('resume', cb)),
           },
-          widget: { write: (json: string) => ShellBridge.writeWidget({ json }) },
           haptics: { notify: (h: Haptic) => Haptics.notification({ type: HAPTIC[h] }) },
+        }
+      : {}),
+    ...(os === 'android'
+      ? {
+          share: { take: async () => (await ShellBridge.takeShare()).share ?? null },
+          widget: { write: (json: string) => ShellBridge.writeWidget({ json }) },
         }
       : {}),
   };

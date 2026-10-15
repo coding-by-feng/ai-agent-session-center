@@ -78,3 +78,15 @@ enum ShellRules {
         return "http://\(host):\(port)"
     }
 }
+
+/// The biometric prompt's title: one line from the shell, at most 60 characters (= PromptRules in ExtrasRules.kt).
+enum PromptRules {
+    static let defaultTitle = "Unlock AASC"
+
+    static func title(_ raw: String?) -> String {
+        let clean = String((raw ?? "").unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }.map(Character.init))
+            .trimmingCharacters(in: .whitespaces)
+        let short = String(clean.prefix(60))
+        return short.isEmpty ? defaultTitle : short
+    }
+}

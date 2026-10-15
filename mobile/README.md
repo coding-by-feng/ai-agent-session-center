@@ -102,7 +102,15 @@ Use an emulator port other than 5554 (another project's emulator uses it), and a
 - `ShellOnly.swift`: both plugins answer the bundled shell (`capacitor://localhost`) only.
 - `AppViewController.swift` registers them; **`SceneDelegate` creates the root view controller in code**, so it
   must be `AppViewController()` (the storyboard's class alone is not used).
-- `ShellRules.swift` + `RulesTests/main.swift`: the Swift twin of `ShellRules.kt` (37/37 with `swiftc`).
+- `ShellBridgePlugin.swift` also has the biometric lock's native half (`biometricStatus` / `authenticate` through
+  LocalAuthentication, Face ID or passcode; `bootId` from the kernel boot time) and `pushConfigured` (false until the
+  app is built with APNs: set `AASCPushConfigured` in Info.plist with the entitlement).
+- `SceneDelegate.swift`: a blur over the window while in the app switcher (RELEASE 7), and the lock's resume path:
+  coming back to a Mac page sends the WebView to the shell when `LockRules` says the policy may lock.
+- `ShellRules.swift` + `LockRules.swift` + `RulesTests/main.swift`: the Swift twins of `ShellRules.kt`, `LockRules` and
+  `PromptRules` (55/55 with `swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/RulesTests/main.swift`).
+- The shell turns on push (inert until configured), the lock, lifecycle and haptics on iOS too; share and widget stay
+  Android-only until the iOS extensions exist.
 
 Build and run in the simulator (no Apple account needed; the Keychain needs at least ad-hoc signing):
 
@@ -119,9 +127,12 @@ Pairing in the simulator: it shares the Mac's network, so run the test Mac on th
 codes, approve, signed-in Mac page and WebSocket, restart, revoke ("removed this phone", back to pairing). A signing
 failure (unsigned build) is handled safely: "This phone couldn't store the pairing key securely, so nothing was paired."
 
+Also checked in the simulator: the lock (lock on → "AASC is locked" at start → Unlock → the system prompt "Unlock AASC"
+→ passcode → `ok: true`, state saved) and the app-switcher card (blurred). Not yet run end to end: the resume path from a
+Mac page (its decision is unit-tested).
+
 Still to do on iOS: your Apple ID / team in Xcode to run on a real iPhone; the iOS halves of the QR scanner (VisionKit),
-share extension, Face ID lock, widget (App Group) and push (APNs, needs the Developer Program); the app-switcher blur;
-associated domains for the pairing link.
+share extension and widget (App Group), and push (APNs, needs the Developer Program); associated domains for the pairing link.
 
 ### Turning push on (AASC-19)
 

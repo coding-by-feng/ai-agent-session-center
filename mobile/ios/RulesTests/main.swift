@@ -62,5 +62,30 @@ expect(!ShellRules.isVaultKey("../x"), "path")
 expect(!ShellRules.isVaultKey(""), "empty")
 expect(!ShellRules.isVaultKey(String(repeating: "a", count: 129)), "too long")
 
+// LockRules (mirrors LockRulesTest in ExtrasRulesTest.kt, with the iOS shell origin)
+let on5 = #"{"enabled":true,"relockAfterMinutes":5}"#
+let mac = "http://100.101.102.103:3333/queue?session=abc"
+expect(LockRules.settings(on5) == LockSettings(enabled: true, minutes: 5), "settings on/5")
+expect(LockRules.settings(#"{"enabled":true,"relockAfterMinutes":7}"#) == LockSettings(enabled: true, minutes: 5), "odd minutes -> 5")
+expect(LockRules.settings(#"{"enabled":"yes"}"#) == LockSettings(enabled: false, minutes: 5), "non-bool enabled -> off")
+expect(LockRules.settings("garbage") == LockSettings(enabled: false, minutes: 5), "garbage -> off")
+expect(LockRules.settings(nil) == LockSettings(enabled: false, minutes: 5), "nil -> off")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: mac, pausedAt: 1_000, now: 1_000 + 6 * 60_000)
+       == "capacitor://localhost/?resume=1&away=1000&back=%2Fqueue%3Fsession%3Dabc", "after grace -> shell with path")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: mac, pausedAt: 1_000, now: 1_000 + 60_000) == nil, "within grace")
+expect(LockRules.resumeUrl(#"{"enabled":false}"#, shell: iosShell, current: mac, pausedAt: 1_000, now: 10_000_000) == nil, "lock off")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: "capacitor://localhost/?x=1", pausedAt: 1_000, now: 10_000_000) == nil, "shell decides itself")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: "https://evil.example/", pausedAt: 1_000, now: 10_000_000) == nil, "not a Mac page")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: mac, pausedAt: 0, now: 10_000_000) == nil, "never paused")
+expect(LockRules.resumeUrl(on5, shell: iosShell, current: mac, pausedAt: 10_000, now: 5_000) != nil, "clock moved back")
+expect(LockRules.resumeUrl(#"{"enabled":true,"relockAfterMinutes":0}"#, shell: iosShell, current: mac, pausedAt: 1_000, now: 1_001) != nil, "every time")
+
+// PromptRules
+expect(PromptRules.title("Unlock to open Fix the build") == "Unlock to open Fix the build", "plain title kept")
+expect(PromptRules.title("  ") == "Unlock AASC", "blank -> default")
+expect(PromptRules.title(nil) == "Unlock AASC", "nil -> default")
+expect(PromptRules.title("a\u{0007}b\nc") == "abc", "control characters dropped")
+expect(PromptRules.title(String(repeating: "x", count: 80)).count == 60, "at most 60")
+
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

@@ -1,10 +1,13 @@
 // ShellBridgePlugin.swift — the shell's other native needs on iOS (AASC-17):
 //   setSessionCookie / clearSessionCookie  the Mac's session cookie, HttpOnly, in the WebView's store
 //   allowOrigins                           which paired-Mac http origins the WebView may load
-// The Android-only parts (QR scanner, share, biometric lock, widget, push) come with their iOS
-// halves later. Serves the bundled shell page only (ShellOnly.swift).
+//   pushConfigured                         false until APNs is set up (Apple Developer Program, AASC-19)
+//   biometricStatus / authenticate / bootId  the biometric lock's native half (AASC-21, biometricLock.ts decides)
+// The QR scanner, share extension and widget come with their iOS halves later. Serves the bundled
+// shell page only (ShellOnly.swift).
 import Capacitor
 import Foundation
+import LocalAuthentication
 import WebKit
 
 @objc(ShellBridgePlugin)
@@ -15,6 +18,10 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setSessionCookie", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearSessionCookie", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "allowOrigins", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pushConfigured", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "biometricStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "bootId", returnType: CAPPluginReturnPromise),
     ]
 
     /// The http origins of the paired Macs, as the shell last listed them. Main thread only.
@@ -84,6 +91,43 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.allowed = Set(origins.compactMap { $0 })
             call.resolve()
+        }
+    }
+
+    /// Push stays off until the app is built with the APNs entitlement (Apple Developer Program).
+    /// Then this returns true and the shell registers as on Android (README "Turning push on").
+    @objc func pushConfigured(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            call.resolve(["configured": Bundle.main.object(forInfoDictionaryKey: "AASCPushConfigured") as? Bool == true])
+        }
+    }
+
+    /// Face ID / Touch ID, or the passcode: what the lock may ask for.
+    @objc func biometricStatus(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            var error: NSError?
+            call.resolve(["available": LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)])
+        }
+    }
+
+    @objc func authenticate(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            let reason = PromptRules.title(call.getString("reason"))
+            LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, error in
+                // Cancelled, locked out or no biometrics: the app stays locked. The reason is a code, never user data.
+                call.resolve(ok ? ["ok": true] : ["ok": false, "code": (error as NSError?)?.code ?? -1])
+            }
+        }
+    }
+
+    /// Changes on every restart (biometricLock.ts locks after one): the kernel's boot time.
+    @objc func bootId(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            var boot = timeval()
+            var size = MemoryLayout<timeval>.stride
+            var mib: [Int32] = [CTL_KERN, KERN_BOOTTIME]
+            let ok = sysctl(&mib, 2, &boot, &size, nil, 0) == 0 && boot.tv_sec > 0
+            call.resolve(ok ? ["bootId": String(boot.tv_sec)] : ["bootId": NSNull()])
         }
     }
 
