@@ -2,8 +2,13 @@
  * usePromptSender — how the phone composer delivers a message (AASC-42).
  *
  * - send: the Mac's confirmed send (promptApi), then polling what became of it.
- *   A quiet inline state while it goes ("Sending…", "Sent"); a toast when it
- *   fails, with the text put back in the box so nothing typed is lost.
+ *   A quiet inline state while it goes ("Sending…", "Still waiting for Claude to
+ *   take it…", "Sent"); a toast when it surely went nowhere, with the text put
+ *   back in the box so nothing typed is lost. While the Mac may still type it
+ *   (it holds prompts for minutes behind a busy agent), the phone keeps asking
+ *   and never puts the text back; past the Mac's memory of the key it just says
+ *   "Check the chat". Only the newest send speaks on the status line, and
+ *   leaving the chat stops the polling.
  * - queue: an ACTIVE item on the session's queue, the same store write the phone
  *   queue makes (PUT /sessions/:id/queue with its echo guard). The Mac's window
  *   sends it when the turn ends.
@@ -27,9 +32,11 @@ import { promptOutcome, sendPrompt, waitForPrompt, type PromptError, type Prompt
 export type SendPhase =
   | { phase: 'idle' }
   | { phase: 'sending' }
-  | { phase: 'pending' }
+  | { phase: 'pending'; slow?: boolean }
   | { phase: 'sent'; queued: boolean }
-  | { phase: 'failed'; message: string; error?: PromptError };
+  | { phase: 'failed'; message: string; error?: PromptError }
+  /** No word from the Mac, which may still send it: nothing to retry. */
+  | { phase: 'unsure'; message: string };
 
 export interface OutgoingMessage {
   text: string;
@@ -68,10 +75,17 @@ export function usePromptSender(sessionId: string) {
   const [state, setState] = useState<SendPhase>({ phase: 'idle' });
   const mounted = useRef(true);
   const lingerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Aborted when the composer goes away: its polls stop with it.
+  const polls = useRef<AbortController | null>(null);
+  // The newest send (or queue): only it may change the status line.
+  const latest = useRef(0);
   useEffect(() => {
     mounted.current = true;
+    const controller = new AbortController();
+    polls.current = controller;
     return () => {
       mounted.current = false;
+      controller.abort();
       if (lingerTimer.current) clearTimeout(lingerTimer.current);
     };
   }, []);
@@ -92,27 +106,42 @@ export function usePromptSender(sessionId: string) {
     useComposerDraftStore.getState().appendToDraft(sessionId, message.text);
   }, [sessionId]);
 
+  /** A status-line writer for one send: silent once a newer one has started. */
+  const claimLine = useCallback(() => {
+    const mine = ++latest.current;
+    return (next: SendPhase) => { if (mine === latest.current) update(next); };
+  }, [update]);
+
   const send = useCallback(async (message: OutgoingMessage, mode: PromptMode = 'now'): Promise<{ ok: boolean; error?: PromptError }> => {
-    update({ phase: 'sending' });
+    const line = claimLine();
+    line({ phase: 'sending' });
     const result = await sendPrompt(sessionId, { text: message.text, images: message.images, mode });
     if (!result.ok) {
-      update({ phase: 'failed', message: result.error.message, error: result.error });
+      line({ phase: 'failed', message: result.error.message, error: result.error });
       return { ok: false, error: result.error };
     }
-    update({ phase: 'pending' });
-    void waitForPrompt(sessionId, result.key).then((final) => {
+    line({ phase: 'pending' });
+    void waitForPrompt(sessionId, result.key, {
+      signal: polls.current?.signal,
+      onSlow: () => line({ phase: 'pending', slow: true }),
+    }).then((final) => {
+      if (final === 'aborted') return;
       const outcome = promptOutcome(final);
       if (outcome.ok) {
         navigator.vibrate?.(10);
-        update({ phase: 'sent', queued: false });
+        line({ phase: 'sent', queued: false });
+        return;
+      }
+      if (outcome.unsure) {
+        line({ phase: 'unsure', message: outcome.message });
         return;
       }
       putBack(message);
       showToast(`${outcome.message} Your message is back in the box.`, 'error', 6000);
-      update({ phase: 'failed', message: outcome.message });
+      line({ phase: 'failed', message: outcome.message });
     });
     return { ok: true };
-  }, [sessionId, update, putBack]);
+  }, [sessionId, claimLine, putBack]);
 
   const queue = useCallback((message: OutgoingMessage) => {
     const store = useQueueStore.getState();
@@ -128,24 +157,25 @@ export function usePromptSender(sessionId: string) {
       nextFireAt: 0,
     };
     store.add(sessionId, item);
-    update({ phase: 'sent', queued: true });
-  }, [sessionId, update]);
+    claimLine()({ phase: 'sent', queued: true });
+  }, [sessionId, claimLine]);
 
   const denyAndTell = useCallback(async (message: OutgoingMessage, request: PendingRequest | null | undefined) => {
-    update({ phase: 'sending' });
+    const line = claimLine();
+    line({ phase: 'sending' });
     const answerable = !!request && request.source !== 'timer' && request.source !== 'notification' && !request.ambiguous;
     if (request && answerable) {
       const denied = await answerRequest(sessionId, request.id, { choice: 'deny' });
       // Stale (answered meanwhile) or not answerable here (the interrupt's Esc is the
       // "No" then): go on. Anything else stops here, with the text still in the box.
       if (!denied.ok && denied.code !== 'stale' && !denied.terminalOnly) {
-        update({ phase: 'failed', message: denied.message });
+        line({ phase: 'failed', message: denied.message });
         return { ok: false };
       }
     }
     const closed = await whenSession(sessionId, (status) => !DIALOG_STATUSES.has(status), answerable ? DIALOG_CLOSE_WAIT_MS : 0);
     return send(message, closed ? 'now' : 'interrupt');
-  }, [sessionId, send, update]);
+  }, [sessionId, send, claimLine]);
 
   const stop = useCallback(async (terminalId: string | null) => {
     if (!terminalId) {

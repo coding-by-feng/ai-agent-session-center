@@ -71,9 +71,10 @@ const PLUS_DETENTS = ['fit'] as const;
 function statusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
   switch (state.phase) {
     case 'sending': return 'Sending…';
-    case 'pending': return `Sent to your Mac · waiting for ${cliName} to take it…`;
+    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
     case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
     case 'failed': return state.message;
+    case 'unsure': return state.message;
     default: return null;
   }
 }
@@ -296,6 +297,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
 
   const line = statusLine(sender.state, cliName, windowOpen);
   const failed = sender.state.phase === 'failed';
+  const dismissable = failed || sender.state.phase === 'unsure';
   const longLabel = decision.label.length > 8;
 
   return (
@@ -304,7 +306,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {line && (
         <p className={styles.status} data-tone={failed ? 'error' : undefined} role={failed ? 'alert' : 'status'}>
           <span>{line}</span>
-          {failed && (
+          {dismissable && (
             <button type="button" className={styles.dismiss} onClick={sender.dismiss} aria-label="Dismiss">
               <CloseIcon />
             </button>
