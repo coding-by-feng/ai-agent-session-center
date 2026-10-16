@@ -481,7 +481,7 @@ export function stripStatusLineTap(command: string): string {
   return command.replace(STATUS_LINE_TAP_FLAG_RE, '');
 }
 
-interface ShellWord {
+export interface ShellWord {
   start: number;
   end: number;
 }
@@ -492,7 +492,7 @@ interface ShellWord {
  * separators `; & | ( )` and newline. A quoted `claude` (a session title is untrusted
  * text) is part of a word, never a command.
  */
-function simpleCommands(line: string): ShellWord[][] {
+export function simpleCommands(line: string): ShellWord[][] {
   const commands: ShellWord[][] = [[]];
   let wordStart = -1;
   let quote: '"' | "'" | null = null;

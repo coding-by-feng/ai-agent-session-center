@@ -64,6 +64,31 @@ describe('buildResumeCommand — resume fallback', () => {
     expect(fallback.startsWith('codex')).toBe(true);
     expect(fallback).not.toContain('resume');
   });
+
+  // AASC-59: a Codex launched by the dashboard runs with `--no-daemon`, and the hook stores the
+  // live CLI's `ps` args. The resume builder must drop that flag with the old subcommand: it is
+  // re-applied (or not, for an older Codex) when the line is typed. Left in after `resume`, the
+  // subcommand strip ate `resume --no-daemon` and left the OLD id behind as a stray prompt.
+  it('codex: drops a stored --no-daemon wherever it sits (it is re-applied at launch)', () => {
+    const fresh = buildResumeCommand(
+      { startupCommand: '/opt/homebrew/lib/node_modules/@openai/codex/vendor/bin/codex --no-daemon --dangerously-bypass-approvals-and-sandbox', title: 't' },
+      VALID_UUID,
+    );
+    expect(fresh).toBe(
+      `codex --dangerously-bypass-approvals-and-sandbox resume '${VALID_UUID}' || codex --dangerously-bypass-approvals-and-sandbox`,
+    );
+    const resumed = buildResumeCommand(
+      { startupCommand: 'codex --dangerously-bypass-approvals-and-sandbox resume --no-daemon 01a1431a-6dbc-7fd2-9f87-00175b7a838a', title: 't' },
+      VALID_UUID,
+    );
+    expect(resumed).toBe(
+      `codex --dangerously-bypass-approvals-and-sandbox resume '${VALID_UUID}' || codex --dangerously-bypass-approvals-and-sandbox`,
+    );
+    expect(resumed).not.toContain('01a1431a');
+    // Quote-aware: the words inside a stored prompt are text, not the flag.
+    expect(buildResumeCommand({ startupCommand: `codex --no-daemon 'explain --no-daemon here'`, title: 't' }, VALID_UUID))
+      .toBe(`codex 'explain --no-daemon here' resume '${VALID_UUID}' || codex 'explain --no-daemon here'`);
+  });
 });
 
 describe('buildResumeCommand — effort/model re-application on resume', () => {

@@ -11,6 +11,7 @@ import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
 import { reapPtyChildren, listChildPids, terminateProcessTree } from './processMonitor.js';
 import { appendSessionName, applyClaudeLaunchFlags, applyStatusLineTap, isStatusLineTapEnabled, isStatusLineTapInstalled, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
+import { applyCodexNoDaemon, codexNoDaemonSupport, hasCodexLaunch, isCodexNoDaemonEnabled, stripCodexNoDaemon } from './codexNoDaemon.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
 import {
@@ -332,6 +333,24 @@ function withStatusLineTap(local: boolean, line: string): string {
   return local && isStatusLineTapEnabled() && isStatusLineTapInstalled() ? applyStatusLineTap(line) : line;
 }
 
+/**
+ * AASC-59: start a LOCAL interactive Codex with `--no-daemon`, so its lifecycle hooks are run
+ * by the TUI in this PTY (this terminal's tty and AGENT_MANAGER_TERMINAL_ID) instead of by
+ * Codex's shared app-server daemon, whose hooks carry no tty, the daemon's pid and a terminal
+ * id from whichever terminal started the daemon — nothing the matcher can bind to this card.
+ * Only once the installed Codex advertises the flag (an older one would refuse to start); a
+ * Codex that no longer takes it gets a stored flag removed; "unknown" changes nothing. A
+ * remote host's Codex is never probed, so remote lines are left alone, as are Claude lines
+ * (no probe at all). Like withStatusLineTap, applied to the typed string only.
+ */
+async function withCodexNoDaemon(local: boolean, line: string): Promise<string> {
+  if (!local || process.platform === 'win32' || !isCodexNoDaemonEnabled() || !hasCodexLaunch(line)) return line;
+  const support = await codexNoDaemonSupport();
+  if (support === 'supported') return applyCodexNoDaemon(line);
+  if (support === 'unsupported') return stripCodexNoDaemon(line);
+  return line;
+}
+
 function getDefaultShell(): string {
   return process.env.SHELL || '/bin/bash';
 }
@@ -619,58 +638,67 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       }
 
       if (!skipAutoLaunch) {
-        // Build the launch command eagerly — only the write is deferred
-        let launchCmd: string;
+        // Build the launch command around the agent command — only the write is deferred.
+        // `cmd` is `command`, plus `--no-daemon` for a local Codex (AASC-59), which needs an
+        // async probe — applied to the bare command so a local tmux wrapper carries it too.
+        const buildLaunchCmd = (cmd: string): string => {
+          let launchCmd: string;
 
-        if (config.tmuxSession) {
-          // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
-          launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
-        } else if (config.useTmux) {
-          // Wrap command in a new tmux session
-          const tmuxName = `claude-${Date.now().toString(36)}`;
-          let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
-          if (!local) {
-            // Export terminal ID for hook matching over SSH
-            innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
-            // Classic Claude renderer on the remote side too (env doesn't cross
-            // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
-            innerCmd += `export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" && `;
-            if (config.apiKey) {
-              const envVar = apiKeyEnvForCommand(command);
-              innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
+          if (config.tmuxSession) {
+            // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
+            launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
+          } else if (config.useTmux) {
+            // Wrap command in a new tmux session
+            const tmuxName = `claude-${Date.now().toString(36)}`;
+            let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
+            if (!local) {
+              // Export terminal ID for hook matching over SSH
+              innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
+              // Classic Claude renderer on the remote side too (env doesn't cross
+              // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
+              innerCmd += `export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" && `;
+              if (config.apiKey) {
+                const envVar = apiKeyEnvForCommand(command);
+                innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
+              }
             }
-          }
-          innerCmd += command;
-          launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
-        } else {
-          // Direct launch
-          launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
-          if (!local) {
-            // Export AGENT_MANAGER_TERMINAL_ID on the remote side so hooks
-            // can include it for Priority 0/1 session matching (SSH doesn't
-            // forward env vars from the local PTY).
+            innerCmd += cmd;
+            launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
+          } else {
+            // Direct launch
+            launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
+            if (!local) {
+              // Export AGENT_MANAGER_TERMINAL_ID on the remote side so hooks
+              // can include it for Priority 0/1 session matching (SSH doesn't
+              // forward env vars from the local PTY).
+              if (launchCmd) launchCmd += ' && ';
+              launchCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}'`;
+              // Classic Claude renderer on the remote side too (env doesn't cross
+              // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
+              launchCmd += ` && export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"`;
+              if (config.apiKey) {
+                const envVar = apiKeyEnvForCommand(command);
+                launchCmd += ` && export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
+              }
+            }
             if (launchCmd) launchCmd += ' && ';
-            launchCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}'`;
-            // Classic Claude renderer on the remote side too (env doesn't cross
-            // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
-            launchCmd += ` && export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"`;
-            if (config.apiKey) {
-              const envVar = apiKeyEnvForCommand(command);
-              launchCmd += ` && export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
-            }
+            launchCmd += cmd;
           }
-          if (launchCmd) launchCmd += ' && ';
-          launchCmd += command;
-        }
+          return launchCmd;
+        };
+
+        // The Codex capability probe (if this is a Codex launch) runs while the shell starts.
+        const typedLaunch = withCodexNoDaemon(local, command).then(buildLaunchCmd);
 
         // Wait for shell prompt before writing — replaces the old blind setTimeout
-        shellReady.then((detected) => {
+        shellReady.then(async (detected) => {
+          const line = await typedLaunch;
           const term = terminals.get(terminalId);
           if (!term || !term.pty) return;
           if (!detected) {
             log.warn('pty', `Sending launch command to ${terminalId} despite no prompt detected`);
           }
-          term.pty.write(launchCmd + '\r');
+          term.pty.write(line + '\r');
 
           // model + standard effort are applied via --model/--effort launch flags
           // (applyClaudeLaunchFlags above). Only ultracode effort (which the flag
@@ -852,11 +880,14 @@ export function writeToTerminal(terminalId: string, data: string): void {
 export async function writeWhenReady(terminalId: string, data: string): Promise<boolean> {
   const term = terminals.get(terminalId);
   if (!term) return false;
+  const local = isLocal(term.config?.host);
+  const line = withCodexNoDaemon(local, data); // probes (if Codex) while the shell starts
   if (term.shellReady) await term.shellReady;
+  const typed = withStatusLineTap(local, await line);
   // Terminal might have been cleaned up while waiting
   const termNow = terminals.get(terminalId);
   if (!termNow || !termNow.pty) return false;
-  termNow.pty.write(withStatusLineTap(isLocal(termNow.config?.host), data));
+  termNow.pty.write(typed);
   return true;
 }
 

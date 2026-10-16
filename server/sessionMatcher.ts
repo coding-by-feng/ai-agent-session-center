@@ -270,6 +270,15 @@ export function matchSession(
     return null;
   }
 
+  // AASC-59: the same reasoning for the directory-based priorities (0's path fallback, 0.5,
+  // 2, 3). A process with no controlling tty is not the agent in a dashboard PTY, so it
+  // binds no terminal by folder either. Codex 0.162 runs hooks from a shared app-server
+  // daemon (no tty, the daemon's pid, often no terminal id), and so does the ChatGPT desktop
+  // app's Codex: without this, any Codex thread started in a folder took the card of a
+  // dashboard terminal still connecting there. Only an explicit `null` counts; a payload that
+  // omits the key (Windows hook, older installs) keeps binding by path as before.
+  const mayBindByPath = hookData.tty_path !== null;
+
   // Fork routing: `claude --resume '<originId>' --fork-session` causes the fork to
   // fire ALL hooks (including SessionEnd and PID updates) with session_id == originId.
   // Detect the fork BEFORE PID caching so the fork's PID doesn't get mapped to the
@@ -329,7 +338,7 @@ export function matchSession(
     // Fallback: match by projectPath — only if exactly one pendingResume matches.
     // When multiple pending resumes share the same projectPath, path alone is
     // ambiguous and we'd link the wrong session.
-    if (!session) {
+    if (!session && mayBindByPath) {
       const pathMatches: Array<{ pTermId: string; pending: PendingResume; oldSession: Session }> = [];
       const normalizedCwd = (cwd || '').replace(/\/$/, '');
       for (const [pTermId, pending] of pendingResume) {
@@ -366,7 +375,7 @@ export function matchSession(
   // multiple sessions share the same projectPath, path alone is ambiguous
   // and we'd link the wrong card.  In that case, skip and let a new card
   // be created — the user can manually resume/reconnect.
-  if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd) {
+  if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd && mayBindByPath) {
     const normalizedCwd = cwd.replace(/\/$/, '');
     const candidates: Array<{ oldId: string; s: Session; endedAt: number }> = [];
     for (const [oldId, s] of sessions) {
@@ -498,9 +507,10 @@ export function matchSession(
   // workDir link (Priority 2) or grab the CONNECTING placeholder by path
   // (Priority 3) and hijack the terminal, producing a duplicate/mislabeled card.
   const isSessionStart = hook_event_name === EVENT_TYPES.SESSION_START;
+  const isPathStartup = isSessionStart && mayBindByPath;
   // Priority 2: Match via pending workDir link
   if (!session) {
-    const linkedTerminalId = isSessionStart ? tryLinkByWorkDir(cwd || '', session_id) : null;
+    const linkedTerminalId = isPathStartup ? tryLinkByWorkDir(cwd || '', session_id) : null;
     if (linkedTerminalId) {
       // Check if there's a pre-created terminal session with this terminalId as its key
       let preSession = sessions.get(linkedTerminalId);
@@ -541,8 +551,9 @@ export function matchSession(
       const normalizedCwd = (cwd || '').replace(/\/$/, '');
       const connectingMatches: Array<{ key: string; s: Session }> = [];
       // Gate on SESSION_START — a non-SessionStart event (e.g. PreToolUse from a
-      // pre-existing Claude in the same dir) must not adopt a CONNECTING placeholder.
-      if (isSessionStart) {
+      // pre-existing Claude in the same dir) must not adopt a CONNECTING placeholder —
+      // and on a tty (mayBindByPath, AASC-59).
+      if (isPathStartup) {
         for (const [key, s] of sessions) {
           if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath) {
             const normalizedSessionPath = s.projectPath.replace(/\/$/, '');

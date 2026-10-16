@@ -44,6 +44,7 @@ import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags, sanitizeModelInCommand } from './config.js';
+import { stripCodexNoDaemon } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
@@ -292,8 +293,11 @@ function stripClaudeSessionFlags(command: string): string {
 }
 
 function stripCodexSessionSubcommand(command: string): string {
-  return command
-    .replace(/^(\S*\/)codex/, 'codex')
+  // AASC-59: the stored command is the live CLI's `ps` args, so a dashboard-launched Codex
+  // brings back its `--no-daemon`. Drop it here (sshManager re-applies it when the line is
+  // typed, if the installed Codex takes it): left after `resume`, the strip below would eat
+  // `resume --no-daemon` and leave the old thread id behind as a stray prompt.
+  return stripCodexNoDaemon(command.replace(/^(\S*\/)codex/, 'codex'))
     .replace(/\s+(?:resume|fork)(?:\s+--last)?(?:\s+'[^']*'|\s+"[^"]*"|\s+[a-zA-Z0-9_-]+)?/g, '')
     .trim();
 }
