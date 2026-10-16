@@ -988,8 +988,9 @@ try {
   db.prepare(`INSERT INTO mobile_backend_codes (code_ref, device_id, minted_at, expires_at)
     SELECT be_code_ref, id, COALESCE(approved_at, created_at), created_at + @life FROM mobile_devices
     WHERE be_code_ref IS NOT NULL AND be_code_ref_mac_bound = 1
-    ON CONFLICT(code_ref) DO UPDATE SET expires_at = excluded.expires_at WHERE mobile_backend_codes.expires_at IS NULL`)
-    .run({ life: LEGACY_QR_CODE_LIFE_MS });
+    ON CONFLICT(code_ref) DO UPDATE SET expires_at = MAX(excluded.expires_at, mobile_backend_codes.minted_at + @session)
+      WHERE mobile_backend_codes.expires_at IS NULL`)
+    .run({ life: LEGACY_QR_CODE_LIFE_MS, session: SESSION_CODE_LIFE_MS });
   db.prepare('UPDATE mobile_backend_codes SET expires_at = minted_at + @life WHERE expires_at IS NULL')
     .run({ life: SESSION_CODE_LIFE_MS });
 } catch (err: unknown) {

@@ -85,6 +85,22 @@ describe('the backend code store (AASC-52)', () => {
     }
   });
 
+  sqliteIt('never shortens a code minted over a session that a phone still holds (a ledger from before the expiry column)', async () => {
+    const dir = join(root, 'session-held');
+    mkdirSync(join(dir, 'data'), { recursive: true });
+    await aasc51Db(join(dir, 'data', 'sessions.db'), (raw) => {
+      raw.exec('CREATE TABLE mobile_backend_codes (code_ref TEXT PRIMARY KEY, device_id TEXT NOT NULL, minted_at INTEGER NOT NULL)');
+      // The phone 'bound' (paired at 10) later got mac-ref-1 over its session, minted at 9 000 000.
+      raw.prepare('INSERT INTO mobile_backend_codes (code_ref, device_id, minted_at) VALUES (?, ?, ?)').run('mac-ref-1', 'bound', 9_000_000);
+    });
+    const { db, ledger } = await openAt(dir);
+    try {
+      expect(ledger.expiresAt('mac-ref-1')).toBe(9_000_000 + 60_000);
+    } finally {
+      db.closeDb();
+    }
+  });
+
   sqliteIt('gives a ledger from before codes had an expiry one: 600 s for a QR code, 60 s for an AASC-52 one', async () => {
     const dir = join(root, 'pre-expiry');
     mkdirSync(join(dir, 'data'), { recursive: true });

@@ -2,8 +2,7 @@
 // connected, and nothing breaks when it isn't.
 import { describe, it, expect, vi } from 'vitest';
 import {
-  BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, createPhoneCloudBridge, PHONE_BACKEND_SCOPES,
-} from '../server/mobile/phoneCloudBridge.js';
+  BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, createPhoneCloudBridge, PHONE_BACKEND_SCOPES, MAX_BACKEND_CODE_LIFE_MS } from '../server/mobile/phoneCloudBridge.js';
 import { CloudError, type CloudConnector } from '../server/cloud/types.js';
 
 type Call = { method: string; path: string; body?: unknown };
@@ -61,6 +60,13 @@ describe('mintBackendCode', () => {
     const ahead = fakeCloud('connected', () => CODE);
     const backendAhead = await createPhoneCloudBridge({ cloud: ahead.cloud, warn: vi.fn(), now: () => backendExpiry - 120_000 }).mintBackendCode();
     expect(backendAhead?.expiresAt).toBe(backendExpiry);
+  });
+
+  it('never trusts an expiry past the backend’s own 600 s maximum (a clock running ahead cannot block a phone for hours)', async () => {
+    const answered = Date.parse(CODE.expiresAt) - 60_000;
+    const farAhead = fakeCloud('connected', () => ({ ...CODE, expiresAt: new Date(answered + 30 * 24 * 3600_000).toISOString() }));
+    const code = await createPhoneCloudBridge({ cloud: farAhead.cloud, warn: vi.fn(), now: () => answered }).mintBackendCode();
+    expect(code?.expiresAt).toBe(answered + MAX_BACKEND_CODE_LIFE_MS);
   });
 
   it('reads the clock after the backend answered, not before it was asked', async () => {
@@ -237,6 +243,21 @@ describe('revokeBackendPhone', () => {
       await vi.advanceTimersByTimeAsync(500_000 + BACKEND_CODE_EXPIRY_MARGIN_MS - 1);
       expect(calls).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never waits longer than the backend’s maximum life, whatever the ledger says (no timer overflow)', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const { cloud, calls } = fakeCloud('connected', () => ({ devices: [], nextCursor: null }));
+      const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn(), expiresAt: () => 1_000_000 + 40 * 24 * 3600_000 });
+      await bridge.revokeBackendPhone(CODE.codeRef);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(MAX_BACKEND_CODE_LIFE_MS + BACKEND_CODE_EXPIRY_MARGIN_MS);
       expect(calls).toHaveLength(2);
     } finally {
       vi.useRealTimers();

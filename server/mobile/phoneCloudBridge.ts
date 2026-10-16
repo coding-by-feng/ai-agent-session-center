@@ -39,6 +39,9 @@ export const BACKEND_CODE_TTL_SECONDS = 60;
 /** How much later than its life a code is surely gone at the backend (the two clocks may differ). */
 export const BACKEND_CODE_EXPIRY_MARGIN_MS = 15_000;
 
+/** The longest life the backend gives a phone code (600 s): an expiry past it is not believed. */
+export const MAX_BACKEND_CODE_LIFE_MS = 600_000;
+
 /** Pages of `GET /v1/devices` read at most (the owner has few devices). */
 const MAX_DEVICE_PAGES = 50;
 
@@ -141,8 +144,9 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
     // revoke (AASC-52), so look once more when the backend has surely let it go.
     const expires = recheck ? deps.expiresAt?.(codeRef) ?? null : null;
     if (expires === null) return;
-    const wait = expires + BACKEND_CODE_EXPIRY_MARGIN_MS - now();
-    if (wait > 0) setTimeout(() => void revokeBackendPhone(codeRef, false), wait).unref?.();
+    // Capped at the backend's maximum life, which also keeps setTimeout clear of its 24.8-day overflow.
+    const wait = Math.min(expires - now(), MAX_BACKEND_CODE_LIFE_MS) + BACKEND_CODE_EXPIRY_MARGIN_MS;
+    if (expires + BACKEND_CODE_EXPIRY_MARGIN_MS > now()) setTimeout(() => void revokeBackendPhone(codeRef, false), wait).unref?.();
   }
 
   const sink: PushSink = {
@@ -165,7 +169,13 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
         });
         const mac = macDeviceId();
         const backendExpiry = Date.parse(code.expiresAt);
-        const expiresAt = Math.max(Number.isFinite(backendExpiry) ? backendExpiry : 0, now() + BACKEND_CODE_TTL_SECONDS * 1000);
+        const answeredAt = now();
+        // The later of the backend's expiry and a full life from its answer, but never past the
+        // backend's own maximum: a clock running ahead must not block this phone for hours.
+        const expiresAt = Math.min(
+          Math.max(Number.isFinite(backendExpiry) ? backendExpiry : 0, answeredAt + BACKEND_CODE_TTL_SECONDS * 1000),
+          answeredAt + MAX_BACKEND_CODE_LIFE_MS,
+        );
         return { host, code: code.code, codeRef: code.codeRef, ...(mac ? { macDeviceId: mac } : {}), expiresAt };
       } catch (err) {
         deps.warn(`No backend code for the phone: ${reason(err)}`);
