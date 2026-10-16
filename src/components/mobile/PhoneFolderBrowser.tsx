@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, ListRow, ListSection, Sheet } from './kit';
 import { FolderIcon } from './projectIcons';
+import { useKeepEndInView } from '@/hooks/useKeepEndInView';
 import { fetchFolders, folderCrumbs, isKnownFolder, type FolderListing, type FolderResult } from '@/lib/folderBrowser';
 import styles from '@/styles/modules/mobile/FolderBrowser.module.css';
 
@@ -80,10 +81,7 @@ function FolderBrowserSheet({ onClose, onPick, startPath, known = NO_KNOWN }: Om
   const { listing, loading, error } = state;
   // A deep folder's crumbs overflow: keep the current folder (the last crumb) in view.
   const crumbsRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const el = crumbsRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, [listing]);
+  useKeepEndInView(crumbsRef, listing);
   const atHome = !!listing && listing.path === listing.home;
   const useReason = !listing ? 'Loading folders…'
     : loading ? 'Loading folders…'

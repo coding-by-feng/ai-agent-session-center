@@ -3,7 +3,8 @@
  * each folder a 44px button that jumps up, the deepest crumb kept in view. On a
  * search it is the screen's title instead.
  */
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useKeepEndInView } from '@/hooks/useKeepEndInView';
 import { baseName, breadcrumbs, parentRel } from '@/lib/phoneProject';
 import type { ProjectScreen } from './projectScreens';
 import styles from '@/styles/modules/PhoneProject.module.css';
@@ -12,10 +13,7 @@ export default function ProjectCrumbs({ top, projectName, onGo }: { top: Project
   const navRef = useRef<HTMLElement>(null);
   const last = top.kind === 'search' ? 'search' : top.path;
   // Keep the deepest crumb in view: a long path scrolls, its tail stays visible.
-  useEffect(() => {
-    const nav = navRef.current;
-    if (nav) nav.scrollLeft = nav.scrollWidth;
-  }, [last]);
+  useKeepEndInView(navRef, last);
 
   if (top.kind === 'search') {
     return (
