@@ -615,3 +615,200 @@
   background: #ffcc00;
   color: #0a0a1a;
 }
+
+/* ============================================================
+   AASC-56: the session's Project tab — open / recent files, find in
+   the file, coloured code.
+   ============================================================ */
+
+/* The current find hit: dark on orange, the others stay yellow. */
+.markCurrent {
+  background: #ff9500;
+  color: #0a0a1a;
+  outline: 2px solid #0a0a1a;
+  outline-offset: 0;
+}
+
+/* Rendered Markdown: hits lit by the CSS Highlight API (useDomFind). */
+.scroll ::highlight(project-find) {
+  background-color: #ffcc00;
+  color: #0a0a1a;
+}
+.scroll ::highlight(project-find-current) {
+  background-color: #ff9500;
+  color: #0a0a1a;
+}
+
+/* ---------- header: the open-files button and its count ---------- */
+
+.badgeHost { position: relative; }
+.countBadge {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--ph-accent, var(--accent-cyan));
+  color: var(--ph-on-accent, #ffffff);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* ---------- find bar ---------- */
+
+.findBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.findInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px: iOS zooms the page into any smaller field on focus. */
+  font-size: 16px;
+  transition: border-color 150ms ease;
+}
+.findInput:hover { border-color: var(--border-accent-strong); }
+.findInput:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+.findCount {
+  flex: none;
+  min-width: 0;
+  max-width: 88px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.findCount:empty { display: none; }
+
+/* ---------- open / recent files sheet ---------- */
+
+.sheetNote {
+  margin: 0;
+  padding: 8px 16px 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.sheetSection + .sheetSection { margin-top: 16px; }
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 4px 16px;
+}
+.sheetHeading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.sheetList {
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+}
+.sheetList > li + li { margin-top: 4px; }
+.openRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.openRow > .row { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- coloured code (highlight.js classes, our own palette) ----------
+   The desktop's highlight theme is dark-only; the phone follows the system's
+   light / dark, so the tokens get a light and a dark value, each at least 4.5:1
+   on the page (light #ffffff / #f2f2f7, dark #0b0b0f / #1c1c1f). */
+
+.code {
+  --syn-keyword: #b3093a;
+  --syn-string: #0a3d7a;
+  --syn-comment: #57575e;
+  --syn-number: #0550ae;
+  --syn-title: #6033b5;
+  --syn-type: #8a3600;
+  --syn-attr: #0b5c3b;
+  --syn-meta: #57575e;
+}
+@media (prefers-color-scheme: dark) {
+  :global(.phoneApp:not([data-ph-appearance='light'])) .code {
+    --syn-keyword: #ff7b72;
+    --syn-string: #a5d6ff;
+    --syn-comment: #a1a1a8;
+    --syn-number: #79c0ff;
+    --syn-title: #d2a8ff;
+    --syn-type: #ffa657;
+    --syn-attr: #7ee2b8;
+    --syn-meta: #a1a1a8;
+  }
+}
+:global(.phoneApp[data-ph-appearance='dark']) .code {
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-comment: #a1a1a8;
+  --syn-number: #79c0ff;
+  --syn-title: #d2a8ff;
+  --syn-type: #ffa657;
+  --syn-attr: #7ee2b8;
+  --syn-meta: #a1a1a8;
+}
+
+.code :global(.hljs-keyword),
+.code :global(.hljs-selector-tag),
+.code :global(.hljs-literal),
+.code :global(.hljs-doctag),
+.code :global(.hljs-template-tag) { color: var(--syn-keyword); }
+.code :global(.hljs-string),
+.code :global(.hljs-regexp),
+.code :global(.hljs-template-variable),
+.code :global(.hljs-addition) { color: var(--syn-string); }
+.code :global(.hljs-comment),
+.code :global(.hljs-quote) { color: var(--syn-comment); font-style: italic; }
+.code :global(.hljs-number),
+.code :global(.hljs-symbol),
+.code :global(.hljs-bullet),
+.code :global(.hljs-variable),
+.code :global(.hljs-link) { color: var(--syn-number); }
+.code :global(.hljs-title),
+.code :global(.hljs-section),
+.code :global(.hljs-selector-id) { color: var(--syn-title); }
+.code :global(.hljs-type),
+.code :global(.hljs-built_in),
+.code :global(.hljs-class) { color: var(--syn-type); }
+.code :global(.hljs-attr),
+.code :global(.hljs-attribute),
+.code :global(.hljs-name),
+.code :global(.hljs-selector-class),
+.code :global(.hljs-property) { color: var(--syn-attr); }
+.code :global(.hljs-meta),
+.code :global(.hljs-deletion) { color: var(--syn-meta); }
+.code :global(.hljs-emphasis) { font-style: italic; }
+.code :global(.hljs-strong) { font-weight: 700; }
+/* A find hit keeps its own dark-on-yellow text over any token colour. */
+.code .mark { color: #0a0a1a; }
+
+@media (prefers-reduced-motion: reduce) {
+  .findInput { transition: none; }
+}

@@ -111,7 +111,7 @@ describe('PhoneProjectBrowser — the drill-down', () => {
     }
   });
 
-  it('remembers the folder per session', async () => {
+  it('remembers the folder, per project (AASC-56: a /clear keeps it)', async () => {
     const { unmount } = renderBrowser();
     await openRow('Folder src');
     await within(root()).findByRole('button', { name: 'Folder lib' });
@@ -269,5 +269,110 @@ describe('PhoneProjectBrowser — a file link from the terminal', () => {
     expect(useUiStore.getState().pendingFileOpen).toBeNull();
     act(() => useUiStore.getState().openFileInProject('/etc/hosts', ROOT));
     expect(await screen.findByText('/etc/hosts is outside this project.')).toBeInTheDocument();
+  });
+});
+
+describe('PhoneProjectBrowser — open and recent files (AASC-56)', () => {
+  it('keeps every opened file one tap away; Close takes it off, and it stays under Recent', async () => {
+    renderBrowser();
+    await openRow('README.md');
+    await screen.findByRole('heading', { name: 'Title' });
+    fireEvent.click(button('Back'));
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    await screen.findByText('const target = sendPrompt();');
+
+    fireEvent.click(button('Open and recent files, 2 open'));
+    const sheet = await screen.findByTestId('project-files-sheet');
+    const open = within(sheet).getByRole('region', { name: /Open/ });
+    expect(within(open).getAllByRole('button', { name: /^Open / }).map((b) => b.getAttribute('aria-label'))).toEqual(['Open src/lib/a.ts', 'Open README.md']);
+    expect(within(open).getByText(/Reading/)).toBeInTheDocument();
+
+    fireEvent.click(within(open).getByRole('button', { name: 'Close README.md' }));
+    const recent = within(sheet).getByRole('region', { name: 'Recent' });
+    fireEvent.click(within(recent).getByRole('button', { name: 'Open README.md' }));
+    expect(await screen.findByRole('heading', { name: 'Title' })).toBeInTheDocument();
+    // Opened from the list, it sits over its own folder: Back goes there.
+    fireEvent.click(button('Back'));
+    expect(await within(root()).findByRole('button', { name: 'Folder docs' })).toBeInTheDocument();
+  });
+
+  it('closing the file on screen goes back to its folder', async () => {
+    renderBrowser();
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    await screen.findByText('const target = sendPrompt();');
+    fireEvent.click(button('Open and recent files, 1 open'));
+    fireEvent.click(within(await screen.findByTestId('project-files-sheet')).getByRole('button', { name: 'Close all' }));
+    expect(await within(root()).findByRole('button', { name: 'a.ts' })).toBeInTheDocument();
+    expect(button('Open and recent files')).toBeInTheDocument();
+  });
+
+  it('comes back to the file you were reading when the tab is shown again', async () => {
+    const { unmount } = renderBrowser();
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    await screen.findByText('const target = sendPrompt();');
+    unmount();
+    renderBrowser();
+    expect(await screen.findByText('const target = sendPrompt();')).toBeInTheDocument();
+    fireEvent.click(button('Back'));
+    expect(await within(root()).findByRole('button', { name: 'a.ts' })).toBeInTheDocument();
+  });
+});
+
+describe('PhoneProjectBrowser — find in the file and coloured code (AASC-56)', () => {
+  it('finds in a code file: counts, steps, marks the current hit', async () => {
+    renderBrowser();
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    await screen.findByText('const target = sendPrompt();');
+    fireEvent.click(button('Find in file'));
+    const field = within(root()).getByRole('searchbox', { name: 'Find in this file' });
+    fireEvent.change(field, { target: { value: 'line 5' } });
+    // line 5, line 50 … line 59 (line 42 is the code line)
+    expect(within(root()).getByRole('status').textContent).toBe('1 of 11');
+    // The hit may cross coloured pieces ("line " and the number): all of it is marked current.
+    const current = [...document.querySelectorAll('[data-line="5"] [data-find-current]')].map((el) => el.textContent).join('');
+    expect(current).toBe('line 5');
+    fireEvent.click(button('Next match'));
+    expect(within(root()).getByRole('status').textContent).toBe('2 of 11');
+    expect(document.querySelector('[data-line="50"] [data-find-current]')).not.toBeNull();
+    fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+    expect(within(root()).getByRole('status').textContent).toBe('1 of 11');
+    fireEvent.click(button('Previous match'));
+    expect(within(root()).getByRole('status').textContent).toBe('11 of 11');
+    fireEvent.change(field, { target: { value: 'zzz' } });
+    expect(within(root()).getByRole('status').textContent).toBe('No matches');
+    expect(button('Next match')).toBeDisabled();
+    fireEvent.click(button('Close find'));
+    expect(within(root()).queryByRole('searchbox', { name: 'Find in this file' })).toBeNull();
+  });
+
+  it('finds in a rendered Markdown page', async () => {
+    renderBrowser();
+    await openRow('README.md');
+    await screen.findByRole('heading', { name: 'Usage' });
+    fireEvent.click(button('Find in file'));
+    fireEvent.change(within(root()).getByRole('searchbox', { name: 'Find in this file' }), { target: { value: 'steps' } });
+    await waitFor(() => expect(within(root()).getByRole('status').textContent).toBe('1 of 1'));
+  });
+
+  it('colours code where highlight.js knows the language', async () => {
+    renderBrowser();
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    const line = await waitFor(() => {
+      const el = document.querySelector('[data-line="42"] .hljs-keyword');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    }, { timeout: 4000 });
+    expect(line.textContent).toBe('const');
+    expect(document.querySelector('[data-line="42"]')?.textContent).toContain('const target = sendPrompt();');
   });
 });

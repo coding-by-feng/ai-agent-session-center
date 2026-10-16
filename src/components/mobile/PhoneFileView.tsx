@@ -6,12 +6,16 @@
  *   TeX        rendered (latex.js); or its source
  *   PDF        PDF.js with the phone toolbar (page, zoom, find)
  *   Image      pinch to zoom, drag to pan
- *   Text/code  numbered lines; a search match opens at its line, marked
+ *   Text/code  numbered lines, coloured where highlight.js knows the language
+ *              (AASC-56); a search match opens at its line, marked
+ *
+ * Find in the file (AASC-56) works on the source lines and on a rendered
+ * Markdown page (the page's own text, lit with the CSS Highlight API).
  *
  * Heavy viewers are lazy: none of them is in this chunk. A path the Mac
  * refuses to a phone answers 404, which reads as "not available on this phone".
  */
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
@@ -19,18 +23,20 @@ import { useFileReadingPosition } from '@/hooks/useFileReadingPosition';
 import { extractHeadings } from '@/lib/markdownHeadings';
 import { pdfReadingKey, readingKey } from '@/lib/fileReadingPosition';
 import { scrollIntoContainer } from '@/lib/scrollWithinContainer';
-import { normalizeQuery, splitHighlight } from '@/lib/textHighlight';
+import { findLineMatches } from '@/lib/codeLines';
 import { readFile, streamUrl, type FileData, type FilesResult } from '@/lib/phoneFiles';
 import {
   fileErrorText,
   formatSize,
   hasSourceToggle,
-  lineWindow,
   viewerKindFor,
   type PhoneViewerKind,
 } from '@/lib/phoneProject';
 import PhoneImageViewer from './PhoneImageViewer';
-import { CollapseIcon, ExpandIcon, OutlineIcon } from './projectIcons';
+import SourceLines from './project/SourceLines';
+import FindBar from './project/FindBar';
+import { useDomFind } from './project/useDomFind';
+import { CollapseIcon, ExpandIcon, FindInFileIcon, OutlineIcon } from './projectIcons';
 import styles from '@/styles/modules/PhoneProject.module.css';
 
 const PhoneMarkdown = lazy(() => import('./PhoneMarkdown'));
@@ -77,6 +83,10 @@ export default function PhoneFileView({
   const [wrap, setWrap] = useState(true);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findIndex, setFindIndex] = useState(0);
+  const [domCount, setDomCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,6 +114,27 @@ export default function PhoneFileView({
       : undefined;
   useFileReadingPosition(scrollRef, positionKey, !!data);
 
+  // Find: over the lines in the source view, over the page's text on a rendered Markdown page.
+  const findable = showSource || kind === 'markdown';
+  const findActive = findOpen && findable;
+  const lineMatches = useMemo(
+    () => (findActive && showSource ? findLineMatches((data?.content ?? '').split('\n'), findQuery) : []),
+    [findActive, showSource, data, findQuery],
+  );
+  useDomFind(scrollRef, findQuery, findIndex, findActive && !showSource, setDomCount);
+  const findCount = showSource ? lineMatches.length : domCount;
+  const findAt = findCount > 0 ? ((findIndex % findCount) + findCount) % findCount : 0;
+  const onFindQuery = useCallback((q: string) => {
+    setFindQuery(q);
+    setFindIndex(0);
+  }, []);
+  const stepFind = useCallback((direction: 1 | -1) => setFindIndex((i) => i + direction), []);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery('');
+    setFindIndex(0);
+  }, []);
+
   if (!result) return <EmptyState busy title="Opening…" fill />;
   if (!result.ok || streamFailed) {
     const text = fileErrorText(result.ok ? 404 : result.status, 'file');
@@ -126,6 +157,17 @@ export default function PhoneFileView({
         {/* Room for the size only where there is no Rendered / Source switch. */}
         {file.size && !(kind && hasSourceToggle(kind)) ? ` · ${formatSize(file.size)}` : ''}
       </span>
+      {findable && (
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={() => (findOpen ? closeFind() : setFindOpen(true))}
+          aria-label="Find in file"
+          aria-pressed={findOpen}
+        >
+          <FindInFileIcon />
+        </button>
+      )}
       {kind === 'markdown' && !showSource && headings.length > 0 && (
         <button type="button" className={styles.iconBtn} onClick={() => setOutlineOpen(true)} aria-label="Outline" aria-haspopup="dialog">
           <OutlineIcon />
@@ -164,9 +206,11 @@ export default function PhoneFileView({
       <SourceLines
         scrollRef={scrollRef}
         content={file.content ?? ''}
+        fileName={file.name || path}
         wrap={wrap}
         line={line ?? null}
         query={query ?? ''}
+        find={findActive ? { matches: lineMatches, index: lineMatches.length > 0 ? findAt : -1 } : null}
       />
     );
   } else if (kind === 'markdown') {
@@ -213,6 +257,9 @@ export default function PhoneFileView({
   return (
     <div className={styles.fileView}>
       {toolbar}
+      {findActive && (
+        <FindBar query={findQuery} onQuery={onFindQuery} count={findCount} index={findAt} onStep={stepFind} onClose={closeFind} />
+      )}
       <div className={styles.fileBody}>{body}</div>
       <BottomSheet open={outlineOpen} onClose={() => setOutlineOpen(false)} title="Outline">
         <ul className={styles.outline}>
@@ -234,70 +281,6 @@ export default function PhoneFileView({
           ))}
         </ul>
       </BottomSheet>
-    </div>
-  );
-}
-
-// ── Numbered lines ───────────────────────────────────────────────────────────
-
-/** `text` with every case-insensitive hit of `query` marked — the shared rule (lib/textHighlight). */
-export function Highlighted({ text, query }: { text: string; query: string }) {
-  const segments = splitHighlight(text, normalizeQuery(query));
-  if (segments.length === 1 && !segments[0].match) return <>{text || '\u00A0'}</>;
-  return (
-    <>
-      {segments.map((seg, i) =>
-        seg.match ? <mark key={i} className={styles.mark}>{seg.text}</mark> : <span key={i}>{seg.text}</span>,
-      )}
-    </>
-  );
-}
-
-function SourceLines({
-  scrollRef,
-  content,
-  wrap,
-  line,
-  query,
-}: {
-  scrollRef: RefObject<HTMLDivElement | null>;
-  content: string;
-  wrap: boolean;
-  line: number | null;
-  query: string;
-}) {
-  const lines = useMemo(() => content.split('\n'), [content]);
-  const [anchor, setAnchor] = useState(line);
-  const { start, end } = lineWindow(lines.length, anchor);
-
-  // Open at the match: centred, once the lines are on screen.
-  useLayoutEffect(() => {
-    if (!line) return;
-    const scroller = scrollRef.current;
-    scrollIntoContainer(scroller, scroller?.querySelector(`[data-line="${line}"]`), { block: 'center', behavior: 'auto' });
-  }, [line, scrollRef]);
-
-  return (
-    <div ref={scrollRef} className={`${styles.scroll} ${styles.code}${wrap ? ` ${styles.codeWrap}` : ''}`}>
-      {start > 0 && (
-        <button type="button" className={styles.moreLines} onClick={() => setAnchor(Math.max(1, start + 1 - Math.floor((end - start) / 2)))}>
-          Show earlier lines (1–{start})
-        </button>
-      )}
-      {lines.slice(start, end).map((text, i) => {
-        const n = start + i + 1;
-        return (
-          <div key={n} className={`${styles.codeLine}${n === line ? ` ${styles.codeLineTarget}` : ''}`} data-line={n}>
-            <span className={styles.lineNum} aria-hidden="true">{n}</span>
-            <span className={styles.lineText}>{n === line ? <Highlighted text={text} query={query} /> : text || '\u00A0'}</span>
-          </div>
-        );
-      })}
-      {end < lines.length && (
-        <button type="button" className={styles.moreLines} onClick={() => setAnchor(end + 1)}>
-          Show later lines ({end + 1}–{lines.length})
-        </button>
-      )}
     </div>
   );
 }
