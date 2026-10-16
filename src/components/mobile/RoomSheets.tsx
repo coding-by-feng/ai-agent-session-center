@@ -26,6 +26,7 @@ import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
 import { moveSessionToRoom, sendRoomOp } from '@/lib/roomOps';
+import { deleteRoomMessage } from '@/lib/roomDeleteMessage';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { useIsRoomWriter } from '@/lib/roomSync';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
@@ -273,9 +274,7 @@ export function DeleteRoomConfirm({ room, onDone }: { room: Room | null; onDone:
     <ConfirmSheet
       open={room !== null}
       title={room ? `Delete room "${room.name}"?` : 'Delete room?'}
-      message={room && room.sessionIds.length > 0
-        ? `Its ${sessionCount(room.sessionIds.length)} stay open; they just leave the room.`
-        : 'The room is empty.'}
+      message={deleteRoomMessage(room?.sessionIds.length ?? 0)}
       confirmLabel="Delete room"
       danger
       onConfirm={() => void confirm()}

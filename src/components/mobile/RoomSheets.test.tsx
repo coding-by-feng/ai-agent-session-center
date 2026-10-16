@@ -134,7 +134,7 @@ describe('ManageRoomsSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Delete First' }));
     expect(useRoomStore.getState().rooms).toHaveLength(2);
     const confirm = await screen.findByRole('dialog', { name: 'Delete room "First"?' });
-    expect(confirm.textContent).toMatch(/1 session stay open/);
+    expect(confirm.textContent).toMatch(/1 session stays open/);
     await user.click(within(confirm).getByRole('button', { name: 'Delete room' }));
     expect(useRoomStore.getState().rooms.map((r) => r.name)).toEqual(['Second']);
     expect(useSessionStore.getState().sessions.has('a')).toBe(true);
@@ -246,5 +246,15 @@ describe('on a remote phone, the sheets ask the Mac', () => {
   it('says the rooms come from the Mac and changes are saved there', () => {
     render(<ManageRoomsSheet open onClose={vi.fn()} />);
     expect(screen.getByText(/Rooms come from your Mac/).textContent).toMatch(/saved there/);
+  });
+});
+
+// Found on a real iPhone (Oct 2026): one session read "Its 1 session stay open; they just leave the room."
+describe('deleteRoomMessage', () => {
+  it('agrees with one session and with several', async () => {
+    const { deleteRoomMessage } = await import('@/lib/roomDeleteMessage');
+    expect(deleteRoomMessage(1)).toBe('Its 1 session stays open; it just leaves the room.');
+    expect(deleteRoomMessage(3)).toBe('Its 3 sessions stay open; they just leave the room.');
+    expect(deleteRoomMessage(0)).toBe('The room is empty.');
   });
 });
