@@ -76,12 +76,16 @@ export default function SourceLines({ scrollRef, content, fileName, wrap, line, 
     return map;
   }, [find?.matches]);
 
-  const currentLine = find && find.index >= 0 ? find.matches[find.index]?.line ?? null : null;
+  const currentHit = find && find.index >= 0 ? find.matches[find.index] ?? null : null;
+  const currentLine = currentHit?.line ?? null;
   const [anchor, setAnchor] = useState(line);
-  // A find hit outside the window brings the window to it (state adjusted while rendering).
-  const shown = lineWindow(texts.length, anchor);
-  if (currentLine && (currentLine <= shown.start || currentLine > shown.end) && anchor !== currentLine) {
-    setAnchor(currentLine);
+  // Stepping to a hit outside the window brings the window to it, once per hit
+  // (state adjusted while rendering): paging away from it afterwards still works.
+  const [seenHit, setSeenHit] = useState<typeof currentHit>(null);
+  if (currentHit !== seenHit) {
+    setSeenHit(currentHit);
+    const shown = lineWindow(texts.length, anchor);
+    if (currentLine && (currentLine <= shown.start || currentLine > shown.end)) setAnchor(currentLine);
   }
   const { start, end } = lineWindow(texts.length, anchor);
 

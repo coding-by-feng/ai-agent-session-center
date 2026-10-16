@@ -16,8 +16,9 @@
  * card), full screen without the tabs, and Back returns to Chat. A shell has no
  * Chat, so its Terminal is a tab, and a path to its Chat or Changes shows it.
  *
- * "N more need you ›" swaps in the next waiting session (replace too): triage
- * without walking back through each one. While shown, the session is the
+ * "N more need you ›" swaps in the next waiting session (in place of this one's
+ * screens, its terminal and Chat included): triage without walking back through
+ * each one. A file path tapped in the terminal opens in the Project tab. While shown, the session is the
  * selected one, as the classic panel makes it.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -33,6 +34,7 @@ import ChangesView, { ChangesBadge } from '../chat/ChangesView';
 import { useSessionChangesTotal } from '@/stores/changesStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
+import { useUiStore } from '@/stores/uiStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionSubtitle } from '@/lib/chat/phoneStatus';
@@ -86,6 +88,41 @@ function useSelectWhileShown(sessionId: string): void {
   }, [sessionId, isTop]);
 }
 
+/**
+ * A Claude / Codex terminal stands over its Chat. One left without it (a stack
+ * saved before AASC-56, a CLI detected after the screen opened as a shell's
+ * Terminal) gets its Chat put back under it, so Back returns to Chat.
+ */
+function useChatUnderTerminal(sessionId: string, terminalScreen: boolean): void {
+  const { isTop } = useScreenSlot();
+  useEffect(() => {
+    if (!isTop || !terminalScreen) return;
+    const { tab, stacks, openTerminal } = usePhoneNavStore.getState();
+    const stack = stacks[tab];
+    // Only from the screen really on top of the stack (not one sliding out after a Back).
+    if (stack[stack.length - 1] !== sessionPath(sessionId, 'terminal')) return;
+    if (stack[stack.length - 2] !== sessionPath(sessionId, 'chat')) openTerminal(sessionId, true);
+  }, [isTop, terminalScreen, sessionId]);
+}
+
+/** A file path tapped in the terminal opens in the Project tab, whose browser takes the request. */
+function useFileLinksToProject(session: Session, hasChat: boolean, onTerminal: boolean): void {
+  const { isTop } = useScreenSlot();
+  const { sessionId, projectPath } = session;
+  useEffect(() => {
+    if (!isTop || !onTerminal || !projectPath) return;
+    return useUiStore.subscribe((state, prev) => {
+      const request = state.pendingFileOpen;
+      if (!request || request === prev.pendingFileOpen) return;
+      if (request.projectPath && request.projectPath !== projectPath) return;
+      const nav = usePhoneNavStore.getState();
+      const top = nav.stacks[nav.tab][nav.stacks[nav.tab].length - 1];
+      if (top !== sessionPath(sessionId, 'terminal')) return; // not this screen any more
+      nav.showSegment(sessionId, 'project', hasChat);
+    });
+  }, [isTop, onTerminal, projectPath, sessionId, hasChat]);
+}
+
 function MissingSession({ onBack }: { onBack: () => void }) {
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   return (
@@ -114,6 +151,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
   const pop = usePhoneNavStore((s) => s.pop);
   const popScreens = usePhoneNavStore((s) => s.popScreens);
   const replace = usePhoneNavStore((s) => s.replace);
+  const replaceSession = usePhoneNavStore((s) => s.replaceSession);
   const push = usePhoneNavStore((s) => s.push);
   const openTerminalIn = usePhoneNavStore((s) => s.openTerminal);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -122,6 +160,8 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
   const shown = shownSegment(segment, hasChat);
   const terminalScreen = hasChat && shown === 'terminal';
   const segments = useSegments(sessionId, hasChat);
+  useChatUnderTerminal(sessionId, terminalScreen);
+  useFileLinksToProject(session, hasChat, shown === 'terminal');
 
   const others = useMemo(
     () => waitingSessions(sessions).filter((s) => s.sessionId !== sessionId).length,
@@ -158,7 +198,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
         <>
           <ConnectionBanner />
           {next && (
-            <button type="button" className={styles.nextWaiting} onClick={() => replace(sessionPath(next, 'chat'))}>
+            <button type="button" className={styles.nextWaiting} onClick={() => replaceSession(sessionId, sessionPath(next, 'chat'))}>
               <span>{others} more {others === 1 ? 'needs' : 'need'} you</span>
               <ChevronRightIcon />
             </button>

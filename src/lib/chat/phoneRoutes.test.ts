@@ -10,6 +10,7 @@ import {
   sessionScreens,
   shownSegment,
   withSegmentShown,
+  withSessionReplaced,
   withTerminalOnTop,
   INFO_PAGES,
   PHONE_TABS,
@@ -298,6 +299,13 @@ describe('withTerminalOnTop — "Open terminal" and ⋯ → Terminal (AASC-56)',
     expect(withTerminalOnTop(['/inbox'], 's1', true)).toEqual(['/inbox', '/sessions/s1/chat', '/sessions/s1/terminal']);
   });
 
+  it('puts Chat back under a terminal left without it', () => {
+    expect(withTerminalOnTop(['/sessions', '/sessions/s1/terminal'], 's1', true))
+      .toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+    expect(withTerminalOnTop(['/sessions', '/sessions/s1/project', '/sessions/s1/terminal'], 's1', true))
+      .toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+  });
+
   it('changes nothing when the terminal is already on top', () => {
     const stack = ['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal'];
     expect(withTerminalOnTop(stack, 's1', true)).toBe(stack);
@@ -327,6 +335,14 @@ describe('withSegmentShown — Info → Files opens the Project tab (AASC-56)', 
 
   it('pushes the segment when no screen of the session is under it', () => {
     expect(withSegmentShown(['/inbox'], 's1', 'project', true)).toEqual(['/inbox', '/sessions/s1/project']);
+  });
+});
+
+describe('withSessionReplaced — "N more need you" (AASC-56)', () => {
+  it('swaps the session’s terminal and the Chat under it for the next session', () => {
+    expect(withSessionReplaced(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal'], 's1', '/sessions/w1/chat'))
+      .toEqual(['/sessions', '/sessions/w1/chat']);
+    expect(withSessionReplaced(['/inbox', '/sessions/s1/project'], 's1', '/sessions/w1/chat')).toEqual(['/inbox', '/sessions/w1/chat']);
   });
 });
 

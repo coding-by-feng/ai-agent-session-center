@@ -153,9 +153,8 @@ export default function PhoneFileView({
   const toolbar = (
     <div className={styles.fileBar} role="toolbar" aria-label="File view">
       <span className={styles.fileMeta}>
-        {KIND_LABEL[kind ?? 'none']}
-        {/* Room for the size only where there is no Rendered / Source switch. */}
-        {file.size && !(kind && hasSourceToggle(kind)) ? ` · ${formatSize(file.size)}` : ''}
+        {/* Where there is a Rendered / Source switch the bar is full: the switch says enough. */}
+        {kind && hasSourceToggle(kind) ? '' : `${KIND_LABEL[kind ?? 'none']}${file.size ? ` · ${formatSize(file.size)}` : ''}`}
       </span>
       {findable && (
         <button

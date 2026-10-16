@@ -51,6 +51,7 @@ import {
   tabRootPath,
   withPhonePath,
   withSegmentShown,
+  withSessionReplaced,
   withTerminalOnTop,
   type PhoneTab,
   type SessionSegment,
@@ -93,6 +94,8 @@ interface PhoneNavState extends PhoneNav {
   openTerminal: (sessionId: string, hasChat?: boolean) => void;
   /** Back to the session's own screen on `segment`, closing what is over it (Info → Files → Project). */
   showSegment: (sessionId: string, segment: SessionSegment, hasChat?: boolean) => void;
+  /** The session's own screens on top (segment, terminal, its Chat) swapped for `path` ("N more need you"). */
+  replaceSession: (sessionId: string, path: string) => void;
   /**
    * A session re-keyed (/clear, a resume: `replacesId`): every screen of it, on
    * every tab, follows the new id in place: same screens, same segment, no
@@ -186,6 +189,13 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
     const next = withTerminalOnTop(stacks[tab], sessionId, hasChat);
     if (next === stacks[tab]) return;
     showStack(tab, { ...stacks, [tab]: [...next] }, stackChange(stacks[tab].length, next.length));
+  },
+
+  replaceSession: (sessionId, path) => {
+    if (!parsePhonePath(path) || deferred(() => get().replaceSession(sessionId, path))) return;
+    const { tab, stacks } = get();
+    const next = withSessionReplaced(stacks[tab], sessionId, path);
+    showStack(tab, { ...stacks, [tab]: next }, stackChange(stacks[tab].length, next.length));
   },
 
   showSegment: (sessionId, segment, hasChat = true) => {

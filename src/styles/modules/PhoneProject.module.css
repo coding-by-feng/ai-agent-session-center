@@ -724,10 +724,13 @@
   text-transform: uppercase;
   color: var(--text-primary);
 }
-.sheetList {
+/* Two classes: the kit lifts a sheet's `section > ul` onto a group colour, but these
+   rows are cards of their own. */
+.sheetSection > .sheetList {
   margin: 0;
   padding: 0 8px;
   list-style: none;
+  background: none;
 }
 .sheetList > li + li { margin-top: 4px; }
 .openRow {
@@ -742,7 +745,8 @@
    light / dark, so the tokens get a light and a dark value, each at least 4.5:1
    on the page (light #ffffff / #f2f2f7, dark #0b0b0f / #1c1c1f). */
 
-.code {
+.code,
+.scroll .markdown {
   --syn-keyword: #b3093a;
   --syn-string: #0a3d7a;
   --syn-comment: #57575e;
@@ -753,7 +757,8 @@
   --syn-meta: #57575e;
 }
 @media (prefers-color-scheme: dark) {
-  :global(.phoneApp:not([data-ph-appearance='light'])) .code {
+  :global(.phoneApp:not([data-ph-appearance='light'])) .code,
+  :global(.phoneApp:not([data-ph-appearance='light'])) .scroll .markdown {
     --syn-keyword: #ff7b72;
     --syn-string: #a5d6ff;
     --syn-comment: #a1a1a8;
@@ -764,7 +769,8 @@
     --syn-meta: #a1a1a8;
   }
 }
-:global(.phoneApp[data-ph-appearance='dark']) .code {
+:global(.phoneApp[data-ph-appearance='dark']) .code,
+:global(.phoneApp[data-ph-appearance='dark']) .scroll .markdown {
   --syn-keyword: #ff7b72;
   --syn-string: #a5d6ff;
   --syn-comment: #a1a1a8;
@@ -775,37 +781,47 @@
   --syn-meta: #a1a1a8;
 }
 
-.code :global(.hljs-keyword),
-.code :global(.hljs-selector-tag),
-.code :global(.hljs-literal),
-.code :global(.hljs-doctag),
-.code :global(.hljs-template-tag) { color: var(--syn-keyword); }
-.code :global(.hljs-string),
-.code :global(.hljs-regexp),
-.code :global(.hljs-template-variable),
-.code :global(.hljs-addition) { color: var(--syn-string); }
-.code :global(.hljs-comment),
-.code :global(.hljs-quote) { color: var(--syn-comment); font-style: italic; }
-.code :global(.hljs-number),
-.code :global(.hljs-symbol),
-.code :global(.hljs-bullet),
-.code :global(.hljs-variable),
-.code :global(.hljs-link) { color: var(--syn-number); }
-.code :global(.hljs-title),
-.code :global(.hljs-section),
-.code :global(.hljs-selector-id) { color: var(--syn-title); }
-.code :global(.hljs-type),
-.code :global(.hljs-built_in),
-.code :global(.hljs-class) { color: var(--syn-type); }
-.code :global(.hljs-attr),
-.code :global(.hljs-attribute),
-.code :global(.hljs-name),
-.code :global(.hljs-selector-class),
-.code :global(.hljs-property) { color: var(--syn-attr); }
-.code :global(.hljs-meta),
-.code :global(.hljs-deletion) { color: var(--syn-meta); }
-.code :global(.hljs-emphasis) { font-style: italic; }
-.code :global(.hljs-strong) { font-weight: 700; }
+.code :global(.hljs-keyword), .scroll .markdown :global(.hljs-keyword),
+.code :global(.hljs-selector-tag), .scroll .markdown :global(.hljs-selector-tag),
+.code :global(.hljs-literal), .scroll .markdown :global(.hljs-literal),
+.code :global(.hljs-doctag), .scroll .markdown :global(.hljs-doctag),
+.code :global(.hljs-template-tag), .scroll .markdown :global(.hljs-template-tag) { color: var(--syn-keyword); }
+.code :global(.hljs-string), .scroll .markdown :global(.hljs-string),
+.code :global(.hljs-regexp), .scroll .markdown :global(.hljs-regexp),
+.code :global(.hljs-template-variable), .scroll .markdown :global(.hljs-template-variable),
+.code :global(.hljs-addition), .scroll .markdown :global(.hljs-addition) { color: var(--syn-string); }
+.code :global(.hljs-comment), .scroll .markdown :global(.hljs-comment),
+.code :global(.hljs-quote), .scroll .markdown :global(.hljs-quote) { color: var(--syn-comment); font-style: italic; }
+.code :global(.hljs-number), .scroll .markdown :global(.hljs-number),
+.code :global(.hljs-symbol), .scroll .markdown :global(.hljs-symbol),
+.code :global(.hljs-bullet), .scroll .markdown :global(.hljs-bullet),
+.code :global(.hljs-variable), .scroll .markdown :global(.hljs-variable),
+.code :global(.hljs-link), .scroll .markdown :global(.hljs-link) { color: var(--syn-number); }
+.code :global(.hljs-title), .scroll .markdown :global(.hljs-title),
+.code :global(.hljs-section), .scroll .markdown :global(.hljs-section),
+.code :global(.hljs-selector-id), .scroll .markdown :global(.hljs-selector-id) { color: var(--syn-title); }
+.code :global(.hljs-type), .scroll .markdown :global(.hljs-type),
+.code :global(.hljs-built_in), .scroll .markdown :global(.hljs-built_in),
+.code :global(.hljs-class), .scroll .markdown :global(.hljs-class) { color: var(--syn-type); }
+.code :global(.hljs-attr), .scroll .markdown :global(.hljs-attr),
+.code :global(.hljs-attribute), .scroll .markdown :global(.hljs-attribute),
+.code :global(.hljs-name), .scroll .markdown :global(.hljs-name),
+.code :global(.hljs-selector-class), .scroll .markdown :global(.hljs-selector-class),
+.code :global(.hljs-property), .scroll .markdown :global(.hljs-property) { color: var(--syn-attr); }
+.code :global(.hljs-meta), .scroll .markdown :global(.hljs-meta),
+.code :global(.hljs-deletion), .scroll .markdown :global(.hljs-deletion) { color: var(--syn-meta); }
+.code :global(.hljs-emphasis), .scroll .markdown :global(.hljs-emphasis) { font-style: italic; }
+.code :global(.hljs-strong), .scroll .markdown :global(.hljs-strong) { font-weight: 700; }
+/* A Markdown code block: the desktop theme paints a dark box (.hljs); on the phone
+   it takes the page's surface and text, so the tokens above keep their contrast. */
+.scroll .markdown :global(.hljs) {
+  background: transparent;
+  color: var(--text-primary);
+}
+.scroll .markdown pre {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
 /* A find hit keeps its own dark-on-yellow text over any token colour. */
 .code .mark { color: #0a0a1a; }
 

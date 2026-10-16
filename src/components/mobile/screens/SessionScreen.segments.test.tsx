@@ -4,7 +4,7 @@
 // Terminal · Project. The segments' own content has its own tests: here they are
 // stand-ins that say what they were given and offer their "Open terminal".
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
 
@@ -26,6 +26,7 @@ import SessionScreen from './SessionScreen';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
+import { useUiStore } from '@/stores/uiStore';
 import type { SessionSegment } from '@/lib/chat/phoneRoutes';
 
 const base = {
@@ -117,6 +118,38 @@ describe('its terminal screen', () => {
     await user.click(screen.getByRole('button', { name: 'Session actions' }));
     await screen.findByTestId('session-menu-sheet');
     expect(screen.queryByRole('button', { name: /^Terminal/ })).toBeNull();
+  });
+});
+
+describe('its terminal screen, kept honest (AASC-56 review)', () => {
+  it('puts Chat back under a terminal left without it (a stack saved before AASC-56, a late CLI)', async () => {
+    show(claude, 'terminal');
+    await waitFor(() => expect(stack()).toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']));
+  });
+
+  it('"N more need you" swaps the whole session out, terminal and chat under it', async () => {
+    const user = userEvent.setup();
+    const waiting = { ...claude, sessionId: 'w1', title: 'waits', status: 'approval' } as unknown as Session;
+    useSessionStore.setState({ sessions: new Map([['s1', claude], ['w1', waiting]]) });
+    show(claude, 'terminal', ['/sessions/s1/chat']);
+    await user.click(screen.getByRole('button', { name: /1 more needs you/ }));
+    expect(stack()).toEqual(['/sessions', '/sessions/w1/chat']);
+  });
+
+  it('opens a file path tapped in the terminal in the Project tab', async () => {
+    useUiStore.setState({ pendingFileOpen: null });
+    show(claude, 'terminal', ['/sessions/s1/chat']);
+    act(() => useUiStore.getState().openFileInProject('src/a.ts', '/w/web'));
+    await waitFor(() => expect(stack()).toEqual(['/sessions', '/sessions/s1/project']));
+    // Left for the Project tab's browser to open.
+    expect(useUiStore.getState().pendingFileOpen).toEqual({ filePath: 'src/a.ts', projectPath: '/w/web' });
+  });
+
+  it('leaves a path from another project alone', () => {
+    useUiStore.setState({ pendingFileOpen: null });
+    show(claude, 'terminal', ['/sessions/s1/chat']);
+    act(() => useUiStore.getState().openFileInProject('a.ts', '/elsewhere'));
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
   });
 });
 

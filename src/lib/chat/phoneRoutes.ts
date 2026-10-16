@@ -299,10 +299,22 @@ function isSessionScreen(path: string | undefined, sessionId: string): boolean {
  * same array) when the terminal is already on top.
  */
 export function withTerminalOnTop(stack: readonly string[], sessionId: string, hasChat: boolean): readonly string[] {
-  const terminal = sessionPath(sessionId, 'terminal');
-  if (stack[stack.length - 1] === terminal) return stack;
-  const base = isSessionScreen(stack[stack.length - 1], sessionId) ? stack.slice(0, -1) : [...stack];
-  return [...base, ...sessionScreens(sessionId, 'terminal', hasChat)];
+  const wanted = sessionScreens(sessionId, 'terminal', hasChat);
+  const run = sessionRunOnTop(stack, sessionId);
+  const top = stack.slice(stack.length - run);
+  if (top.length === wanted.length && top.every((p, i) => p === wanted[i])) return stack;
+  // The session's own screens on top give way (a segment, a terminal left without Chat under it).
+  return [...stack.slice(0, stack.length - run), ...wanted];
+}
+
+/**
+ * `stack` with the session's own screens on top (its segment, its terminal and
+ * the Chat under it) swapped for `path`: "N more need you" moves to the next
+ * session without leaving this one's Chat behind.
+ */
+export function withSessionReplaced(stack: readonly string[], sessionId: string, path: string): string[] {
+  const run = Math.max(1, sessionRunOnTop(stack, sessionId));
+  return [...stack.slice(0, stack.length - run), path];
 }
 
 /**
