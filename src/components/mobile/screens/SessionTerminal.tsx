@@ -15,8 +15,14 @@
  * set the reading size. None of them changes a column. It's built on
  * `useTerminal` directly (TerminalContainer draws the classic phone input), so
  * the replay ring, `verifySettled` and the resize guard all apply as they do there.
+ *
+ * Ask AI (⋯ → Ask AI about the terminal, AASC-57): with text selected in xterm (a hardware pointer) it asks about
+ * that; otherwise it shows the terminal's recent text in a sheet the system's handles
+ * can select (a touch can't drag-select in xterm, and holding a line bookmarks it).
+ * The popup forks the session of THIS terminal (`spawnTerminalId`), as the desktop's
+ * terminal popup does. Agent terminals only, never the plain shell.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '@/types';
 import { Button, EmptyState } from '../kit';
@@ -32,6 +38,9 @@ import { useTerminal } from '@/hooks/useTerminal';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
 import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
+import { usePhoneAiScopeOn, usePhoneAiStore } from '@/stores/phoneAiStore';
+import type { AiSource } from '@/lib/floatingSpawn';
+import { phoneTerminalAiScope } from '@/lib/phoneAiScopes';
 import { useWsStore } from '@/stores/wsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { isNativeMobileApp } from '@/lib/platform';
@@ -45,6 +54,12 @@ import { phoneTerminalTheme } from '@/lib/chat/phoneThemes';
 import { showToast } from '@/components/ui/ToastContainer';
 import '@xterm/xterm/css/xterm.css';
 import styles from '@/styles/modules/mobile/PhoneTerminal.module.css';
+
+const PhoneSelectionAi = lazy(() => import('../ai/PhoneSelectionAi'));
+const TerminalTextSheet = lazy(() => import('../ai/TerminalTextSheet'));
+
+/** How much of the terminal "Ask AI" shows as selectable text. */
+const AI_TEXT_LINES = 400;
 
 /** The reading size a phone starts at (the classic phone terminal's). */
 const DEFAULT_TEXT_SIZE = 11;
@@ -200,6 +215,25 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
     setSending(false);
     if (!result.ok) setNotice(result.message);
   };
+  // ---- Ask AI (agent terminals only) ----
+  const aiScope = phoneTerminalAiScope(terminalId);
+  // On once the terminal's AI host (PhoneSelectionAi, lazy) has registered: it holds the
+  // sheet ✦ opens, and it registers only while AI popups are on for the session.
+  const aiOn = usePhoneAiScopeOn(aiScope) && !!controlSessionId;
+  // The choices (a BottomSheet) sit under the text sheet (a kit Sheet): step the text aside while they're up.
+  const aiAsking = usePhoneAiStore((s) => s.pending?.scopeId === aiScope);
+  const aiSource = useMemo<AiSource>(() => ({ kind: 'terminal', spawnTerminalId: terminalId }), [terminalId]);
+  const [aiText, setAiText] = useState<string | null>(null);
+  const closeAiText = useCallback(() => setAiText(null), []);
+  const askAi = () => {
+    const picked = term.getXtermSelection()?.trim();
+    if (picked) {
+      usePhoneAiStore.getState().ask(aiScope, { text: picked });
+      return;
+    }
+    setAiText(term.readRecentText({ lines: AI_TEXT_LINES }).text.replace(/\s+$/, ''));
+  };
+
   const copyScreen = async () => {
     const { text } = term.readRecentText({ lines: geometry?.rows || 40 });
     if (!text) {
@@ -313,7 +347,21 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
         onReconnect={closed ? onReconnect : undefined}
         bookmarks={{ list: bookmarks, onJump: jumpTo, onRemove: removeBookmark }}
         commands={commands}
+        onAskAi={aiOn ? askAi : undefined}
       />
+
+      {controlSessionId && (
+        <Suspense fallback={null}>
+          <PhoneSelectionAi
+            scopeId={aiScope}
+            originSessionId={controlSessionId}
+            source={aiSource}
+            overSheet
+            onSpawned={closeAiText}
+          />
+          {aiText !== null && <TerminalTextSheet open={!aiAsking} onClose={closeAiText} text={aiText} scopeId={aiScope} />}
+        </Suspense>
+      )}
 
       {createPortal(
         <div className={styles.fullscreen} data-open={isFullscreen ? '' : undefined} aria-hidden={isFullscreen ? undefined : true}>

@@ -416,6 +416,8 @@
   background: var(--ph-surface-raised);
   box-shadow: var(--ph-shadow);
 }
+/* In an AI popup's sheet (AASC-57): over the sheets (10020), like that chat's Ask AI bar. */
+.selectionSpeak[data-over-sheet] { z-index: calc(var(--ph-z-sheet, 10030) + 10); }
 
 @media (prefers-reduced-motion: reduce) {
   .search, .searchShown, .peekChev { transition: none; }

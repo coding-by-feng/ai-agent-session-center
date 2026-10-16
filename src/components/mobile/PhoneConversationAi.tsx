@@ -1,74 +1,36 @@
 /**
- * PhoneConversationAi — the AI popup from the Conversation tab on a phone
- * (AASC-20). Select text (a long-press, then the handles) and an "Ask AI" bar
- * rises at the bottom of the screen, clear of the system's own Copy / Look Up
- * menu at the selection; it opens the actions sheet (PhoneAiPopupSheet).
+ * PhoneConversationAi — the AI popup from a session's Chat on a phone (AASC-20),
+ * and from an AI popup's own answer (AASC-57). Select text and an "Ask AI" bar
+ * rises; it opens the actions sheet. See PhoneSelectionAi.
  *
- * Off where the desktop popup is off: translation disabled, its trigger set to
- * off, or the session's own ✨ toggle (read through isAiPopupEnabled, so a
- * session that never set it is on).
- *
- * The selection is captured when a finger lands on the button, not when the tap
- * ends: on some phones the tap itself collapses the selection first, and the
- * bar (and the tap) would vanish with it.
+ * In a popup's answer the popup is the fork's parent (its terminal is sent as
+ * `spawnTerminalId`, as the desktop's floating terminal does), while the ROOT
+ * session stays the origin, so the new popup shows under the session on screen
+ * instead of under a popup that is never selected.
  */
-import { useCallback, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useSettingsStore } from '@/stores/settingsStore';
-import { useSessionStore } from '@/stores/sessionStore';
-import { isAiPopupEnabled } from '@/lib/aiPopup';
-import { captureSelectionIn, useSelectionIn } from '@/hooks/useSelectionIn';
-import PhoneAiPopupSheet, { type PhoneSelection } from './PhoneAiPopupSheet';
-import { SparkIcon } from './phoneIcons';
-import styles from '@/styles/modules/PhoneExtras.module.css';
+import { useMemo } from 'react';
+import type { AiSource } from '@/lib/floatingSpawn';
+import PhoneSelectionAi from './ai/PhoneSelectionAi';
 
 export interface PhoneConversationAiProps {
-  /** The session whose Conversation this is: the popup forks it. */
+  /** The session whose chat this is (its `data-ai-selectable` scope). */
   sessionId: string;
+  /** This chat is an AI popup's answer: the session it shows under, and the popup's terminal. */
+  popup?: { rootSessionId: string; terminalId: string };
 }
 
-export default function PhoneConversationAi({ sessionId }: PhoneConversationAiProps) {
-  const translationEnabled = useSettingsStore((s) => s.translationEnabled);
-  const trigger = useSettingsStore((s) => s.translationTrigger);
-  const sessionOn = useSessionStore((s) => isAiPopupEnabled(s.sessions.get(sessionId)));
-  const enabled = translationEnabled && trigger !== 'off' && sessionOn;
-
-  const live = useSelectionIn(sessionId, enabled);
-  const [held, setHeld] = useState<PhoneSelection | null>(null);
-  const [asking, setAsking] = useState<PhoneSelection | null>(null);
-
-  const closeSheet = useCallback(() => setAsking(null), []);
-  const ask = () => {
-    const sel = held ?? captureSelectionIn(sessionId);
-    setHeld(null);
-    if (!sel) return;
-    // The sheet has the text now; drop the page selection so the bar goes too.
-    window.getSelection()?.removeAllRanges();
-    setAsking(sel);
-  };
-
-  const preview = (held?.text ?? live).replace(/\s+/g, ' ');
-  const showBar = enabled && !asking && preview !== '';
-
+export default function PhoneConversationAi({ sessionId, popup }: PhoneConversationAiProps) {
+  const popupTerminal = popup?.terminalId;
+  const source = useMemo<AiSource>(
+    () => (popupTerminal ? { kind: 'popup', spawnTerminalId: popupTerminal } : { kind: 'chat' }),
+    [popupTerminal],
+  );
   return (
-    <>
-      {showBar && createPortal(
-        <div className={styles.askBar} role="region" aria-label="Selected text">
-          <span className={styles.askPreview}>“{preview}”</span>
-          <button
-            type="button"
-            className={styles.askBtn}
-            onPointerDown={() => setHeld(captureSelectionIn(sessionId))}
-            onPointerCancel={() => setHeld(null)}
-            onClick={ask}
-          >
-            <SparkIcon />
-            Ask AI
-          </button>
-        </div>,
-        document.body,
-      )}
-      <PhoneAiPopupSheet selection={asking} originSessionId={sessionId} onClose={closeSheet} />
-    </>
+    <PhoneSelectionAi
+      scopeId={sessionId}
+      originSessionId={popup?.rootSessionId ?? sessionId}
+      source={source}
+      overSheet={!!popup}
+    />
   );
 }

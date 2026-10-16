@@ -3,13 +3,13 @@
  * toolbar does, as rows. Wrap, follow output, full screen, copy the screen, the
  * terminal's bookmarks (hold a line to make one), Commands (the session's plain
  * shell), refresh, and clear, which asks first: it empties the screen and the
- * replay on every device.
+ * replay on every device. With AI popups on, "Ask AI about the terminal" (AASC-57).
  */
 import { useCallback, useState } from 'react';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { CloseIcon } from '../kit/kitIcons';
 import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
-import { BookmarkIcon, EraseIcon, FollowIcon, ReconnectIcon, RefreshIcon, ToBottomIcon, WrapIcon } from '../phoneIcons';
+import { BookmarkIcon, EraseIcon, FollowIcon, ReconnectIcon, RefreshIcon, SparkIcon, ToBottomIcon, WrapIcon } from '../phoneIcons';
 import { CommandsIcon, CopyIcon, FullscreenIcon } from '../chat/chatIcons';
 import styles from '@/styles/modules/mobile/PhoneTerminal.module.css';
 
@@ -33,6 +33,8 @@ export interface TerminalMoreSheetProps {
   onReconnect?: () => void;
   bookmarks: { list: readonly TerminalBookmark[]; onJump: (b: TerminalBookmark) => void; onRemove: (id: string) => void };
   commands: CommandsRow | null;
+  /** Ask AI about the terminal's text (AASC-57); absent while AI popups are off for the session. */
+  onAskAi?: () => void;
 }
 
 const DETENTS = ['medium', 'large'] as const;
@@ -52,6 +54,16 @@ export default function TerminalMoreSheet(props: TerminalMoreSheetProps) {
   return (
     <>
       <Sheet open={open} onClose={onClose} title="Terminal" detents={DETENTS} testId="terminal-more-sheet">
+        {props.onAskAi && (
+          <ListSection header="AI">
+            <ListRow
+              leading={<SparkIcon />}
+              title="Ask AI about the terminal"
+              subtitle="Explain or translate its text, or the last answer"
+              onClick={run(props.onAskAi)}
+            />
+          </ListSection>
+        )}
         <ListSection header="View">
           <ListRow leading={<WrapIcon />} title="Wrap long lines" toggle={{ checked: props.wrap, onChange: run(props.onToggleWrap) }} />
           <ListRow leading={<FollowIcon />} title="Follow new output" toggle={{ checked: props.follow, onChange: run(props.onToggleFollow) }} />

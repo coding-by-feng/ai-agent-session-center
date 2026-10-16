@@ -20,7 +20,7 @@ describe('TranslationSettings on a phone', () => {
 
   it('says where a phone selects text: a session’s Chat, then Ask AI', () => {
     render(<TranslationSettings phone />);
-    expect(screen.getByText(/Select text in a session’s Chat and tap Ask AI/)).toBeTruthy();
+    expect(screen.getByText(/Select text in a session’s Chat, Terminal or a project file and tap Ask AI/)).toBeTruthy();
     expect(screen.queryByText(/in the terminal or in a markdown file/)).toBeNull();
   });
 

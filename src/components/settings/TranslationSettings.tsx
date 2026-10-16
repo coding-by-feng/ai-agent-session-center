@@ -100,7 +100,7 @@ export default function TranslationSettings({ phone = false }: TranslationSettin
         <h4>Select-to-Translate</h4>
         <p className={styles.settingsHint}>
           {phone
-            ? <>Select text in a session&rsquo;s Chat and tap Ask AI to open a small popup that forks a new</>
+            ? <>Select text in a session&rsquo;s Chat, Terminal or a project file and tap Ask AI to open a small popup that forks a new</>
             : <>Select text in the terminal or in a markdown file to open a small popup that forks a new</>}
           {' '}AI session pre-loaded with an &ldquo;explain in&rdquo; prompt. No extra API key is required —
           translation reuses your existing CLI authentication.

@@ -12,7 +12,8 @@ import { useReadAloud } from '@/hooks/useReadAloud';
 import ReadAloudButton from '../ReadAloudButton';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
-export default function SelectionReadAloud({ sessionId }: { sessionId: string }) {
+/** `overSheet`: the chat sits in a sheet (an AI popup's answer, AASC-57), so the button rises over the sheets. */
+export default function SelectionReadAloud({ sessionId, overSheet }: { sessionId: string; overSheet?: boolean }) {
   const speakKey = `chat-selection:${sessionId}`;
   const selected = useSelectionIn(sessionId, true);
   const { speaking } = useReadAloud(speakKey);
@@ -21,6 +22,7 @@ export default function SelectionReadAloud({ sessionId }: { sessionId: string })
   return createPortal(
     <div
       className={styles.selectionSpeak}
+      data-over-sheet={overSheet ? '' : undefined}
       onPointerDownCapture={() => {
         held.current = selectedTextIn(sessionId) || held.current;
       }}

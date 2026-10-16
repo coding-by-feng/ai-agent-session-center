@@ -46,7 +46,7 @@ describe('PhoneReview', () => {
     vi.mocked(listLogs).mockResolvedValue([]);
     renderView();
     expect(await screen.findByText('No saved entries yet')).toBeTruthy();
-    expect(screen.getByText(/Select text in a session’s Chat and tap Ask AI/)).toBeTruthy();
+    expect(screen.getByText(/Select text in a session’s Chat, Terminal or a project file and tap Ask AI/)).toBeTruthy();
     expect(screen.queryByText(/click/)).toBeNull();
   });
 

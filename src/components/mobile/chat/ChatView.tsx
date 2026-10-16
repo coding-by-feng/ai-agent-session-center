@@ -48,6 +48,11 @@ export interface ChatViewProps {
   onTerminal: () => void;
   /** Take a queued prompt back (default: out of the queue, into the composer's draft). */
   onPullBack?: (item: QueuedItem) => void;
+  /**
+   * This chat is an AI popup's answer (AASC-57): Ask AI forks the popup (its terminal)
+   * but shows the new popup under the root session, and the empty state speaks of the answer.
+   */
+  popup?: { rootSessionId: string; terminalId: string };
 }
 
 const EMPTY_QUEUE: never[] = [];
@@ -82,7 +87,7 @@ function openMembersOf(item: ChatItem, opened: Record<string, boolean>): string 
   return item.members.filter((m) => opened[m.key]).map((m) => m.key).join(',');
 }
 
-export default function ChatView({ session, onTerminal, onPullBack }: ChatViewProps) {
+export default function ChatView({ session, onTerminal, onPullBack, popup }: ChatViewProps) {
   const { sessionId } = session;
   useChatLive(session);
   const data = useChatStore((s) => s.sessions[sessionId]);
@@ -127,10 +132,13 @@ export default function ChatView({ session, onTerminal, onPullBack }: ChatViewPr
     return (
       <div className={styles.loading} data-testid="chat-no-transcript">
         <EmptyState
-          title={fresh ? 'No messages yet' : 'This session has no transcript'}
-          message={fresh
-            ? 'Send a prompt and the conversation shows up here.'
-            : 'It’s a shell or another tool. Use Terminal.'}
+          live={!!popup && fresh}
+          title={popup ? 'Writing the answer…' : fresh ? 'No messages yet' : 'This session has no transcript'}
+          message={popup
+            ? 'It shows up here as the agent writes it. The terminal shows it already.'
+            : fresh
+              ? 'Send a prompt and the conversation shows up here.'
+              : 'It’s a shell or another tool. Use Terminal.'}
           action={<Button variant="primary" onClick={onTerminal}>Open Terminal</Button>}
         />
       </div>
@@ -152,6 +160,7 @@ export default function ChatView({ session, onTerminal, onPullBack }: ChatViewPr
       working={working}
       onPullBack={onPullBack}
       onTerminal={onTerminal}
+      popup={popup}
     />
   );
 }
@@ -170,6 +179,7 @@ interface ChatBodyProps {
   working: boolean;
   onPullBack?: (item: QueuedItem) => void;
   onTerminal: () => void;
+  popup?: { rootSessionId: string; terminalId: string };
 }
 
 function ChatBody({
@@ -186,6 +196,7 @@ function ChatBody({
   working,
   onPullBack,
   onTerminal,
+  popup,
 }: ChatBodyProps) {
   const { sessionId } = session;
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -329,9 +340,9 @@ function ChatBody({
         )}
       </div>
       {working && <StatusStrip session={session} peek={peek} onOpenTerminal={onTerminal} />}
-      <SelectionReadAloud sessionId={sessionId} />
+      <SelectionReadAloud sessionId={sessionId} overSheet={!!popup} />
       <Suspense fallback={null}>
-        <PhoneConversationAi sessionId={sessionId} />
+        <PhoneConversationAi sessionId={sessionId} popup={popup} />
       </Suspense>
     </div>
   );

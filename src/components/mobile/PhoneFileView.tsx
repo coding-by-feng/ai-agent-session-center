@@ -12,10 +12,20 @@
  * Find in the file (AASC-56) works on the source lines and on a rendered
  * Markdown page (the page's own text, lit with the CSS Highlight API).
  *
+ * Ask AI (AASC-57): select text in the file and an Ask AI bar rises; the
+ * project header's ✦ (PhoneProjectBrowser, the bar here is full) opens the same
+ * choices for the selection, or for the whole file ("Translate the file", a text
+ * file only). This view hosts the sheet (PhoneSelectionAi) and marks the file's
+ * body as its scope. The popup forks the session whose Project tab this is; the
+ * file's text was read through the same read-only route.
+ *
  * Heavy viewers are lazy: none of them is in this chunk. A path the Mac
  * refuses to a phone answers 404, which reads as "not available on this phone".
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
+import { phoneFileAiScope } from '@/lib/phoneAiScopes';
+import type { AiSource } from '@/lib/floatingSpawn';
 import BottomSheet from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
@@ -42,6 +52,12 @@ import styles from '@/styles/modules/PhoneProject.module.css';
 const PhoneMarkdown = lazy(() => import('./PhoneMarkdown'));
 const TexViewer = lazy(() => import('@/components/session/TexViewer'));
 const PdfViewer = lazy(() => import('@/components/session/PdfViewer'));
+const PhoneSelectionAi = lazy(() => import('./ai/PhoneSelectionAi'));
+
+/** The file's absolute path: the project root joined with the tab's project-relative path. */
+function absolutePath(projectPath: string, path: string): string {
+  return `${projectPath.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
 
 export interface PhoneFileViewProps {
   projectPath: string;
@@ -53,6 +69,8 @@ export interface PhoneFileViewProps {
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   onOpenFile: (path: string) => void;
+  /** The session whose Project tab this is: its AI popups (AASC-57). None, no Ask AI. */
+  aiSessionId?: string;
 }
 
 const KIND_LABEL: Record<PhoneViewerKind, string> = {
@@ -75,6 +93,7 @@ export default function PhoneFileView({
   fullscreen,
   onToggleFullscreen,
   onOpenFile,
+  aiSessionId,
 }: PhoneFileViewProps) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectPath}\n${path}\n${attempt}`;
@@ -88,6 +107,7 @@ export default function PhoneFileView({
   const [findIndex, setFindIndex] = useState(0);
   const [domCount, setDomCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const aiScope = phoneFileAiScope(aiSessionId ?? '');
 
   useEffect(() => {
     const ac = new AbortController();
@@ -116,6 +136,13 @@ export default function PhoneFileView({
 
   // Find: over the lines in the source view, over the page's text on a rendered Markdown page.
   const findable = showSource || kind === 'markdown';
+  // Ask AI about the file: its text goes with it only for a file shown as text.
+  const textual = kind === 'markdown' || kind === 'text' || kind === 'tex';
+  const fileContent = textual ? data?.content : undefined;
+  const aiSource = useMemo<AiSource>(
+    () => ({ kind: 'file', filePath: absolutePath(projectPath, path), ...(fileContent ? { fileContent } : {}) }),
+    [projectPath, path, fileContent],
+  );
   const findActive = findOpen && findable;
   const lineMatches = useMemo(
     () => (findActive && showSource ? findLineMatches((data?.content ?? '').split('\n'), findQuery) : []),
@@ -259,7 +286,12 @@ export default function PhoneFileView({
       {findActive && (
         <FindBar query={findQuery} onQuery={onFindQuery} count={findCount} index={findAt} onStep={stepFind} onClose={closeFind} />
       )}
-      <div className={styles.fileBody}>{body}</div>
+      <div className={styles.fileBody} {...(aiSessionId ? { [SELECTABLE_ATTR]: aiScope } : {})}>{body}</div>
+      {aiSessionId && (
+        <Suspense fallback={null}>
+          <PhoneSelectionAi scopeId={aiScope} originSessionId={aiSessionId} source={aiSource} />
+        </Suspense>
+      )}
       <BottomSheet open={outlineOpen} onClose={() => setOutlineOpen(false)} title="Outline">
         <ul className={styles.outline}>
           {headings.map((h, i) => (

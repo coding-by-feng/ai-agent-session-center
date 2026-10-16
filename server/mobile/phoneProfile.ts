@@ -56,7 +56,8 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - launch    a CLI AASC launches, in a known project folder or a folder under home that
  *             isn't hidden or private (AASC-54), nothing else
  * - folders   the folder browser: a folder under home that isn't hidden or private (AASC-54)
- * - origin    an AI popup: from a shared session, asked from a shared session's terminal
+ * - origin    an AI popup: from a shared session, asked from a shared session's terminal, and a
+ *             file it names (a file popup, AASC-57) one the phone may read
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
@@ -370,14 +371,24 @@ export function phoneLaunchRefusal(body: unknown, allowedDirs: readonly string[]
  * Is this AI popup refused? It forks a session's conversation, so the session it
  * comes from must be shared, and so must the session of the terminal it was asked
  * from (`spawnTerminalId`), which the spawner forks instead when it is set.
+ *
+ * A popup from a project file (AASC-57) names the file (`filePath`: Translate the
+ * file, or an explanation that names its file). The phone read that file's text
+ * through the `files` rule; the name must pass the same rule (`mayReadFile`:
+ * inside a shared project, never a secret), so a phone can't point the agent at a
+ * file it could never open. Without `mayReadFile` a named file is refused.
  */
 export function phoneFloatingRefusal(
   body: unknown,
   deps: Pick<PhoneProfileDeps, 'isSharedSession' | 'sessionOfTerminal'>,
+  mayReadFile?: (path: string) => boolean,
 ): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return true;
-  const { originSessionId, spawnTerminalId } = body as Record<string, unknown>;
+  const { originSessionId, spawnTerminalId, filePath } = body as Record<string, unknown>;
   if (typeof originSessionId !== 'string' || !originSessionId || !deps.isSharedSession(originSessionId)) return true;
+  if (filePath !== undefined && filePath !== '') {
+    if (typeof filePath !== 'string' || !mayReadFile || !mayReadFile(filePath)) return true;
+  }
   if (spawnTerminalId === undefined) return false;
   if (typeof spawnTerminalId !== 'string') return true;
   const host = deps.sessionOfTerminal(spawnTerminalId);
@@ -487,7 +498,9 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         if (!writtenFolder(one(req.query.path), home)) return 'outside the home folder or private';
         return overBudget(folderLists, phone, PHONE_FOLDER_LISTS_PER_MINUTE) ? 'too many folder lists' : null;
       case 'origin':
-        return phoneFloatingRefusal(req.body, deps) ? 'not from a shared session' : null;
+        return phoneFloatingRefusal(req.body, deps, (p) => phoneMayRead(p, deps.sharedProjectPaths(), home))
+          ? 'not from a shared session, or a file outside shared projects'
+          : null;
     }
   }
 

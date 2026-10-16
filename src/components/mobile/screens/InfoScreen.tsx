@@ -4,7 +4,7 @@
  *   ‹      agent-manager-2
  *       Claude Code · Working · 1h 12m
  *   SESSION   status · model/effort › · context · plan usage · project › · room ›
- *             label › · remark › · notifications (●) · loud alerts (●) · driving
+ *             label › · remark › · notifications (●) · loud alerts (●) · AI popups (●) · driving
  *   OPEN      Files › (the session's Project tab, AASC-56) Notes › Queue › Agents › AI popups ›
  *   ACTIONS   Rename · Restart | Resume · Fork · Clone · Move to room · Manage rooms
  *             Kill session (red, confirms)
@@ -34,6 +34,7 @@ import { phoneStatus } from '@/lib/chat/phoneStatus';
 import { infoPath, sessionHasChat, type InfoPage } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { faultLabel } from '@/lib/resumeWatchdog';
+import { isAiPopupEnabled } from '@/lib/aiPopup';
 import {
   contextWords,
   drivingWords,
@@ -81,7 +82,7 @@ function InfoBody({ session }: { session: Session }) {
   const queued = useQueueStore((s) => s.queues.get(sessionId)?.length ?? 0);
   const notes = useNotesStore((s) => s.notes.get(sessionId) ?? EMPTY).length;
   const popups = useFloatingSessionsStore((s) => s.floats.filter((f) => f.originSessionId === sessionId).length);
-  const { busy, copy, resume, setNotifications, setLoudAlerts } = useSessionActions();
+  const { busy, copy, resume, setNotifications, setLoudAlerts, setAiPopups } = useSessionActions();
   const now = useClock();
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
   const to = useCallback((kind: SessionSheetKind) => () => setSheet(kind), []);
@@ -136,6 +137,11 @@ function InfoBody({ session }: { session: Session }) {
           title="Loud alerts"
           subtitle="Ring out for approvals and finished turns"
           toggle={{ checked: !!session.alerted, onChange: (on) => setLoudAlerts(session, on) }}
+        />
+        <ListRow
+          title="AI popups"
+          subtitle="Select text to explain, translate or ask about it"
+          toggle={{ checked: isAiPopupEnabled(session), onChange: (on) => void setAiPopups(session, on) }}
         />
         <ControlRows sessionId={sessionId} />
       </ListSection>

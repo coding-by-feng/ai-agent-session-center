@@ -42,6 +42,7 @@ import { requestSessionRestart } from '@/lib/restartSession';
 import { copySession } from '@/lib/sessionCopy';
 import { muteSession } from '@/lib/alarmEngine';
 import { requestControl } from '@/lib/presenceClient';
+import { showToast } from '@/components/ui/ToastContainer';
 
 const NOW = Date.now();
 
@@ -113,6 +114,35 @@ describe('InfoScreen', () => {
     expect(useSessionStore.getState().sessions.get('s1')?.muted).toBe(true);
     expect(muteSession).toHaveBeenCalledWith('s1');
     expect(screen.getByRole('switch', { name: /Notifications/ })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  // AASC-57: the session's own AI-popup switch (the desktop's ✨), saved on the Mac.
+  it('turns the session’s AI popups off and on, saved on the Mac; unset reads as on', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    setup({ aiPopupEnabled: undefined });
+    const sw = screen.getByRole('switch', { name: /AI popups/ });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    await user.click(sw);
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s1/ai-popup', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ aiPopupEnabled: false }),
+    }));
+    expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(false);
+    expect(screen.getByRole('switch', { name: /AI popups/ })).toHaveAttribute('aria-checked', 'false');
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('AI popups off for this session', 'info'));
+    await user.click(screen.getByRole('switch', { name: /AI popups/ }));
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/sessions/s1/ai-popup', expect.objectContaining({ body: JSON.stringify({ aiPopupEnabled: true }) }));
+    expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(true);
+  });
+
+  it('puts the AI-popup switch back and says so when the Mac refuses', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 }));
+    setup({ aiPopupEnabled: true });
+    await user.click(screen.getByRole('switch', { name: /AI popups/ }));
+    await waitFor(() => expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(true));
+    expect(screen.getByRole('switch', { name: /AI popups/ })).toHaveAttribute('aria-checked', 'true');
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('AI popups weren’t changed'), 'error');
   });
 
   it('says who drives when another device does, and asks for control', async () => {

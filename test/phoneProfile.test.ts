@@ -42,6 +42,8 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
     getTerminalSessionId: (id: string) => pty.owner.get(id) ?? null,
     isOpsTerminal: (id: string) => id.startsWith('ops-'),
     getForegroundProcess: (id: string) => pty.fg.get(id) ?? null,
+    // No PTY exists here (createTerminal is mocked); a DELETE must never reach a real one.
+    closeTerminal: vi.fn(),
   };
 });
 
@@ -201,6 +203,18 @@ describe('phoneFloatingRefusal', () => {
     ]) {
       expect(phoneFloatingRefusal(body, deps), JSON.stringify(body)).toBe(true);
     }
+  });
+
+  // AASC-57: a popup from a project file names the file; the phone may name only one it could read.
+  it('lets a popup name a file the phone may read, and refuses any other (or one it can’t check)', () => {
+    const mayRead = (p: string) => p.startsWith('/w/shared/') && !p.includes('.env');
+    expect(phoneFloatingRefusal({ originSessionId: 'shared', mode: 'translate-file', filePath: '/w/shared/a.md' }, deps, mayRead)).toBe(false);
+    expect(phoneFloatingRefusal({ originSessionId: 'shared', mode: 'explain-native', filePath: '' }, deps, mayRead)).toBe(false);
+    for (const filePath of ['/w/hidden/a.md', '/w/shared/.env', 42]) {
+      expect(phoneFloatingRefusal({ originSessionId: 'shared', mode: 'translate-file', filePath }, deps, mayRead), String(filePath)).toBe(true);
+    }
+    expect(phoneFloatingRefusal({ originSessionId: 'shared', filePath: '/w/shared/a.md' }, deps)).toBe(true);
+    expect(phoneFloatingRefusal({ originSessionId: 'hidden', mode: 'translate-file', filePath: '/w/shared/a.md' }, deps, mayRead)).toBe(true);
   });
 });
 
@@ -376,11 +390,14 @@ let base = '';
 let store: typeof import('../server/sessionStore.js');
 const PHONE: Record<string, string> = { 'X-Forwarded-For': '192.168.1.60', 'X-AASC-Client-Id': 'phone-a' };
 const IPAD: Record<string, string> = { 'X-Forwarded-For': '192.168.1.61', 'X-AASC-Client-Id': 'ipad-a' };
+// A second paired phone, with its own per-minute terminal budget (the AASC-57 popup tests open several).
+const PHONE_B: Record<string, string> = { 'X-Forwarded-For': '192.168.1.62', 'X-AASC-Client-Id': 'phone-b' };
 
 beforeAll(async () => {
   store = await import('../server/sessionStore.js');
   const auth = await import('../server/authManager.js');
   PHONE.Authorization = `Bearer ${auth.createToken('dev-phone-a')}`;
+  PHONE_B.Authorization = `Bearer ${auth.createToken('dev-phone-b')}`;
   IPAD.Authorization = `Bearer ${auth.createToken()}`;
   const { filterVisibleSessions } = await import('../server/sessionVisibility.js');
   await store.createTerminalSession('ph-shared', { host: 'localhost', workingDir: project, command: 'claude' });
@@ -598,6 +615,58 @@ describe('a paired phone through the API', () => {
       expect(res.status, JSON.stringify(body)).toBe(404);
     }
     expect(pty.created).toEqual([]);
+  });
+
+  // AASC-57: every mode, from a shared session only; a file popup names only a file the phone may read.
+  it('starts every AI popup mode from a shared session (AASC-57)', async () => {
+    const lang = { nativeLanguage: 'English', learningLanguage: 'English' };
+    for (const body of [
+      { mode: 'vocab-native', selection: 'baton' },
+      { mode: 'translate-selection-learning', selection: 'baton' },
+      { mode: 'custom', selection: 'baton', customPrompt: 'Is this safe?' },
+      { mode: 'translate-file', fileContent: '# proj', filePath: join(project, 'README.md') },
+      { mode: 'explain-native', selection: 'proj', filePath: join(project, 'README.md') },
+    ]) {
+      pty.created.length = 0;
+      const res = await call('POST', '/sessions/spawn-floating', PHONE_B, { originSessionId: 'ph-shared', ...body, ...lang });
+      expect(res.status, body.mode).toBe(200);
+      expect(pty.created, body.mode).toHaveLength(1);
+      expect(store.getSession(String(res.json.terminalId))?.remoteVisible, body.mode).toBe(true);
+    }
+  });
+
+  it('never starts any AI popup mode from a hidden session, nor one naming a file the phone can’t read', async () => {
+    const lang = { nativeLanguage: 'English', learningLanguage: 'English' };
+    for (const body of [
+      { originSessionId: 'ph-hidden', mode: 'translate-file', fileContent: 'x', filePath: join(other, 'x.md') },
+      { originSessionId: 'ph-hidden', mode: 'translate-answer' },
+      { originSessionId: 'ph-hidden', mode: 'custom', selection: 'x', customPrompt: 'y' },
+      { originSessionId: 'ph-shared', spawnTerminalId: 't-hidden', mode: 'translate-answer' },
+      { originSessionId: 'ph-shared', mode: 'translate-file', fileContent: 'KEY', filePath: join(home, '.ssh', 'id_ed25519') },
+      { originSessionId: 'ph-shared', mode: 'translate-file', fileContent: 'KEY', filePath: join(project, '.env') },
+      { originSessionId: 'ph-shared', mode: 'explain-native', selection: 'x', filePath: join(outside, 'x.md') },
+      { originSessionId: 'ph-shared', mode: 'translate-file', fileContent: 'x', filePath: join(home, '.codex', 'auth.json') },
+    ]) {
+      const res = await call('POST', '/sessions/spawn-floating', PHONE_B, { ...body, ...lang });
+      expect(res.status, JSON.stringify(body)).toBe(404);
+    }
+    expect(pty.created).toEqual([]);
+  });
+
+  it('reaches and closes the popups it may see, never a popup made on the Mac and not shared (AASC-57)', async () => {
+    const lang = { nativeLanguage: 'English', learningLanguage: 'English' };
+    const mine = await call('POST', '/sessions/spawn-floating', PHONE_B, { originSessionId: 'ph-shared', mode: 'explain-native', selection: 'x', ...lang });
+    const macs = await call('POST', '/sessions/spawn-floating', {}, { originSessionId: 'ph-shared', mode: 'explain-native', selection: 'x', ...lang });
+    const mineId = String(mine.json.terminalId);
+    const macsId = String(macs.json.terminalId);
+    expect(store.getSession(macsId)?.remoteVisible).not.toBe(true);
+    // Its answer (the 6 s capture), the transcript read aloud, and End.
+    expect((await call('GET', `/terminals/${macsId}/output`, PHONE)).status).toBe(404);
+    expect((await call('GET', `/sessions/${macsId}/transcript`, PHONE)).status).toBe(404);
+    expect((await call('DELETE', `/terminals/${macsId}`, PHONE)).status).toBe(404);
+    expect((await call('DELETE', `/terminals/${mineId}`, PHONE)).status).toBe(200);
+    // Asking from the Mac's hidden popup's terminal is refused like a hidden session.
+    expect((await call('POST', '/sessions/spawn-floating', PHONE_B, { originSessionId: 'ph-shared', spawnTerminalId: macsId, mode: 'explain-native', selection: 'x', ...lang })).status).toBe(404);
   });
 
   it('still can’t reach the other fixed /sessions routes', async () => {

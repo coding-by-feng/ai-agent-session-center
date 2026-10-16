@@ -146,7 +146,7 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
     return (
       <div className={styles.empty}>
         No AI popups from this session yet
-        {isPhone && <span className={styles.emptyHint}>Select text in Chat and tap Ask AI.</span>}
+        {isPhone && <span className={styles.emptyHint}>Select text in Chat, the Terminal or a project file and tap Ask AI.</span>}
       </div>
     );
   }

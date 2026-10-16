@@ -194,6 +194,15 @@
   min-height: 0;
 }
 
+/* The popup's own conversation (AASC-57): the chat scrolls, the reply box sits under it. */
+.floatAnswer {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* ---------- AI popup from the Conversation text ---------- */
 
 /* Rises while text is selected: at the bottom, clear of the system's menu at the
@@ -254,8 +263,12 @@
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   margin: 0;
-  padding: 8px 12px;
+  /* The block padding is a border in the quote's own colour: overflow clips at the
+     padding box, so a padding there would show the top of a clamped fifth line. */
+  padding: 0 12px;
   overflow: hidden;
+  border-top: 8px solid var(--bg-card);
+  border-bottom: 8px solid var(--bg-card);
   border-left: 3px solid var(--accent-cyan);
   border-radius: 4px;
   background: var(--bg-card);
@@ -329,6 +342,32 @@
   line-height: 20px;
   overflow-wrap: anywhere;
 }
+
+/* AASC-57: what to do without a selection, why a choice is off, and "name the file?". */
+.aiHint,
+.aiNote,
+.aiConfirmText {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.aiNote { font-size: 13px; opacity: 0.85; }
+
+.aiConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-cyan) 8%, var(--bg-card));
+}
+
+/* Over a sheet (a popup's answer: a BottomSheet at 10020; the terminal's text: a kit
+   Sheet at --ph-z-sheet): above both. The actions sheet it opens replaces it. */
+.askBar[data-over-sheet] { z-index: calc(var(--ph-z-sheet, 10030) + 10); }
 
 /* ---------- notes: 44px controls, a camera button ---------- */
 

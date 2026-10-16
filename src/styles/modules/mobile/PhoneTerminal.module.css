@@ -548,3 +548,34 @@
 @media (prefers-reduced-motion: reduce) {
   .key:active:not(:disabled) { transform: none; }
 }
+
+/* ---- Ask AI about the terminal (AASC-57): its text, selectable with the system's handles ---- */
+
+.textSheetHint {
+  margin: 0 0 var(--ph-space-2);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text);
+}
+
+.textSheetBody {
+  padding: var(--ph-space-2);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-surface);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: 13px;
+  line-height: 18px;
+  /* Room above the Ask AI bar, which rises over the sheet's bottom. */
+  margin-bottom: 72px;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.textSheetLine {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 18px;
+}

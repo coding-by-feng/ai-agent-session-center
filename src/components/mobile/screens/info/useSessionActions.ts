@@ -1,7 +1,8 @@
 /**
  * useSessionActions — one session's actions that run without a confirm, shared by
  * the Sessions list (swipe, long press), Info and the session's ⋯ sheet (AASC-40 /
- * AASC-46): fork, clone, resume, notifications (mute) and loud alerts, mark read.
+ * AASC-46): fork, clone, resume, notifications (mute) and loud alerts, AI popups
+ * (AASC-57), mark read.
  *
  * Kill and restart confirm first: they live in SessionSheets. Every action says
  * what happened in a toast, including the Mac's refusal (never a silent no-op).
@@ -15,6 +16,7 @@ import { requestSessionResume } from '@/lib/sessionActions';
 import { alertSession, muteSession, unalertSession, unmuteSession } from '@/lib/alarmEngine';
 import { markSessionRead, readStamp } from '@/lib/chat/sessionReads';
 import { detectCli } from '@/lib/cliDetect';
+import { isAiPopupEnabled } from '@/lib/aiPopup';
 
 export type ActionBusy = 'fork' | 'clone' | 'resume' | null;
 
@@ -72,9 +74,37 @@ export function useSessionActions() {
     showToast(on ? 'Loud alerts on: approvals and finished turns ring out' : 'Loud alerts off', 'info');
   }, []);
 
+  /**
+   * The session's own AI-popup switch (the desktop's ✨ on its terminal), saved on the Mac
+   * (PUT /sessions/:id/ai-popup, open to a phone for a shared session). Shown at once; put
+   * back if the Mac refuses. Read through isAiPopupEnabled: unset means on.
+   */
+  const setAiPopups = useCallback(async (session: Session, on: boolean) => {
+    if (on === isAiPopupEnabled(session)) return;
+    const store = useSessionStore.getState();
+    const apply = (enabled: boolean) => {
+      const current = useSessionStore.getState().sessions.get(session.sessionId);
+      if (current) store.updateSession({ ...current, aiPopupEnabled: enabled });
+    };
+    apply(on);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/ai-popup`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aiPopupEnabled: on }),
+      });
+      if (!res.ok) throw new Error(res.status === 404 ? 'This session isn’t shared with this phone.' : `Your Mac said no (HTTP ${res.status}).`);
+      showToast(on ? 'AI popups on: select text to explain or translate it' : 'AI popups off for this session', 'info');
+    } catch (err) {
+      apply(!on);
+      const why = err instanceof TypeError ? 'Couldn’t reach your Mac.' : err instanceof Error ? err.message : String(err);
+      showToast(`AI popups weren’t changed. ${why}`, 'error');
+    }
+  }, []);
+
   const markRead = useCallback((session: Session) => {
     markSessionRead(session.sessionId, readStamp(session));
   }, []);
 
-  return { busy, copy, resume, setNotifications, setLoudAlerts, markRead };
+  return { busy, copy, resume, setNotifications, setLoudAlerts, setAiPopups, markRead };
 }

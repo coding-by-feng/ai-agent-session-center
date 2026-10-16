@@ -42,6 +42,10 @@ import { EMPTY_SEARCH, type SearchState } from './project/searchState';
 import OpenFilesSheet from './project/OpenFilesSheet';
 import { dirStack, fileStack, folderOf, type ProjectScreen } from './project/projectScreens';
 import { BackIcon, FilesIcon, SearchIcon } from './projectIcons';
+import { SparkIcon } from './phoneIcons';
+import { captureSelectionIn } from '@/hooks/useSelectionIn';
+import { usePhoneAiScopeOn, usePhoneAiStore } from '@/stores/phoneAiStore';
+import { phoneFileAiScope } from '@/lib/phoneAiScopes';
 import styles from '@/styles/modules/PhoneProject.module.css';
 
 /** Dress the portal host for where it goes, and move it there (a DOM node React doesn't own). */
@@ -59,7 +63,7 @@ export interface PhoneProjectBrowserProps {
   sessionId: string;
 }
 
-export default function PhoneProjectBrowser({ projectPath }: PhoneProjectBrowserProps) {
+export default function PhoneProjectBrowser({ projectPath, sessionId }: PhoneProjectBrowserProps) {
   const projectName = baseName(projectPath) || 'project';
   const [files, setFiles] = useState<ProjectFilesState>(() => loadProjectFiles(projectPath));
   const [stack, setStack] = useState<ProjectScreen[]>(() => initialStack(files));
@@ -70,6 +74,9 @@ export default function PhoneProjectBrowser({ projectPath }: PhoneProjectBrowser
   const top = stack[stack.length - 1];
   const folder = folderOf(stack);
   const reading = top.kind === 'file' ? top.path : null;
+  // Ask AI about the open file (AASC-57): its view hosts the sheet and registers the scope.
+  const aiScope = phoneFileAiScope(sessionId);
+  const aiOn = usePhoneAiScopeOn(aiScope) && reading !== null;
 
   // The folder and the file on screen are where the tab comes back to.
   useEffect(() => {
@@ -171,6 +178,17 @@ export default function PhoneProjectBrowser({ projectPath }: PhoneProjectBrowser
         <span className={styles.headerPad} aria-hidden="true" />
       )}
       <ProjectCrumbs top={top} projectName={projectName} onGo={goToDir} />
+      {aiOn && (
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={() => usePhoneAiStore.getState().ask(aiScope, captureSelectionIn(aiScope))}
+          aria-label="Ask AI about this file"
+          aria-haspopup="dialog"
+        >
+          <SparkIcon />
+        </button>
+      )}
       <button
         type="button"
         className={`${styles.iconBtn} ${styles.badgeHost}`}
@@ -222,6 +240,7 @@ export default function PhoneProjectBrowser({ projectPath }: PhoneProjectBrowser
         fullscreen={fullscreen}
         onToggleFullscreen={() => setFullscreen((f) => !f)}
         onOpenFile={(path) => openFile(path)}
+        aiSessionId={sessionId}
       />
     );
   }
