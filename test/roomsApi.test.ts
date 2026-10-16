@@ -156,6 +156,24 @@ describe('a room change from the phone', () => {
     expect(phone.received('room_op')).toEqual([]);
   });
 
+  // Found on a real iPhone (Oct 2026): after the app was reinstalled it signed in again, kept its
+  // client id, and every room change answered missing-client-id for up to an hour — the id stayed
+  // bound to the phone's previous sign-in while that token lived.
+  it('still reaches the Mac after the same phone signs in again', async () => {
+    const auth = await import('../server/authManager.js');
+    const secondSignIn = auth.createToken('dev-rooms-phone');
+    const res = await call('POST', '/rooms/ops', { ...phoneHeaders(), Authorization: `Bearer ${secondSignIn}` }, { type: 'move', sessionId: 'ra-shared', roomId: 'empty' });
+    expect(res.status).toBe(202);
+  });
+
+  it('a different phone can not borrow this phone\'s client id', async () => {
+    const auth = await import('../server/authManager.js');
+    const otherPhone = auth.createToken('dev-other-phone');
+    const res = await call('POST', '/rooms/ops', { ...phoneHeaders(), Authorization: `Bearer ${otherPhone}` }, { type: 'move', sessionId: 'ra-shared', roomId: 'empty' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('missing-client-id');
+  });
+
   it('can not move a hidden session, nor delete a room that holds one', async () => {
     const move = await call('POST', '/rooms/ops', phoneHeaders(), { type: 'move', sessionId: 'ra-hidden', roomId: 'empty' });
     expect(move.status).toBe(404);

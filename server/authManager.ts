@@ -125,7 +125,11 @@ export function verifyPassword(password: string, stored: string): boolean {
 const MAX_SESSIONS_PER_DEVICE = 4;
 
 export function createToken(deviceId?: string): string {
-  return issueToken(randomBytes(16).toString('hex'), deviceId);
+  // A paired phone's sign-ins share one lineage: it signs in again after an app reinstall or a
+  // lapsed session and keeps its client id, which stays bound to the lineage that first used it
+  // (clientBinding.ts). A fresh lineage per sign-in locked the phone out of its own id for up to
+  // an hour. Another phone still can't borrow it: its lineage names a different device.
+  return issueToken(deviceId ? `device:${deviceId}` : randomBytes(16).toString('hex'), deviceId);
 }
 
 function issueToken(lineage: string, deviceId?: string): string {

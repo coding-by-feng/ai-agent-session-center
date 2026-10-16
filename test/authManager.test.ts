@@ -12,6 +12,7 @@ import {
   authMiddleware,
   startTokenCleanup,
   stopTokenCleanup,
+  getTokenLineage,
 } from '../server/authManager.js';
 
 describe('authManager', () => {
@@ -228,5 +229,20 @@ describe('authManager', () => {
       // Should not throw when called after already stopped
       stopTokenCleanup();
     });
+  });
+});
+
+// Found on a real iPhone (Oct 2026): a phone that signed in again kept its client id but got a new
+// lineage, so the id stayed bound to the old sign-in and the phone's own writes were refused.
+describe('token lineage', () => {
+  it('is one per paired phone, whatever how often it signs in', () => {
+    const a = getTokenLineage(createToken('dev-lineage-a'));
+    expect(a).not.toBeNull();
+    expect(getTokenLineage(createToken('dev-lineage-a'))).toBe(a);
+    expect(getTokenLineage(createToken('dev-lineage-b'))).not.toBe(a);
+  });
+
+  it('is new for every password sign-in', () => {
+    expect(getTokenLineage(createToken())).not.toBe(getTokenLineage(createToken()));
   });
 });
