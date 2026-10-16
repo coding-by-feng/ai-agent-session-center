@@ -456,6 +456,9 @@ const terminalCreateSchema = z.object({
    * card; a caller that means "a new session in THIS project" (the session strip's project frames) must not get that.
    */
   requireExistingDir: z.boolean().optional(),
+  // AASC-54: a session that answers Claude's folder-trust prompt itself (a workspace restore of a phone's
+  // new-folder launch). Only `false`: a caller may make a launch stricter, never turn auto-confirm back on.
+  autoConfirmTrust: z.literal(false).optional(),
   startupCommand: z.string().max(1024).optional(),
   /** Permission mode from snapshot — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode: z.string().max(100).optional(),
@@ -1984,7 +1987,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.originSessionId) config.originSessionId = body.originSessionId;
     // A paired phone's launch in a folder no agent has used (the phone profile says so):
     // the person on the phone answers Claude's folder-trust prompt, not the dashboard.
-    if (res.locals.phoneUntrustedFolder === true) config.autoConfirmTrust = false;
+    if (res.locals.phoneUntrustedFolder === true || body.autoConfirmTrust === false) config.autoConfirmTrust = false;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {

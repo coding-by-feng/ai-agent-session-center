@@ -915,6 +915,16 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(snap.sessions[0].model).toBe('opus');
   });
 
+  // AASC-54: a phone's session in a folder no agent had used answers Claude's trust prompt itself;
+  // the flag must survive the workspace restore, or the restore would answer it.
+  it('keeps autoConfirmTrust: false, and only that value', () => {
+    const base = loopSession('sess-trust') as unknown as { sshConfig?: Record<string, unknown> };
+    const own = { ...base, sshConfig: { ...(base.sshConfig ?? {}), autoConfirmTrust: false } } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-trust', own]]), []).sessions[0].autoConfirmTrust).toBe(false);
+    const plain = loopSession('sess-plain') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-plain', plain]]), []).sessions[0]).not.toHaveProperty('autoConfirmTrust');
+  });
+
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
     // Non-Claude session: session.model is the raw launch command (has spaces).
     const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
@@ -978,6 +988,23 @@ describe('importSnapshot — loop round-trip', () => {
     expect(itemType(restored![0])).toBe('loop');
     expect(restored![0].intervalMs).toBe(300_000);
     expect(restored![0].nextFireAt ?? 0).toBeGreaterThan(Date.now());
+  });
+
+  it('sends autoConfirmTrust: false in the restore POST so a restore never answers the trust prompt', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-trust-1' }),
+    });
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-ffffffffffff', autoConfirmTrust: false })],
+      rooms: [],
+    };
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+    const create = calls.find((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST');
+    expect(create).toBeDefined();
+    expect(JSON.parse(String(create!.init!.body)).autoConfirmTrust).toBe(false);
   });
 
   it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {

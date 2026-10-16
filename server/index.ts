@@ -25,6 +25,7 @@ import type { ResourceJobs } from './cloud/resourceJobs.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
+import { respawnTerminalConfig } from './respawnConfig.js';
 import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
@@ -549,16 +550,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
           const cfg = session.sshConfig!;
           const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
 
-          // command='' skips auto-launch; we write the resume command ourselves
-          const newConfig = {
-            host: cfg.host || 'localhost',
-            port: cfg.port,
-            username: cfg.username,
-            authMethod: cfg.authMethod,
-            privateKeyPath: cfg.privateKeyPath,
-            workingDir: cfg.workingDir || session.projectPath || '~',
-            command: '',
-          };
+          // command='' skips auto-launch; we write the resume command ourselves. The
+          // helper also carries a session's autoConfirmTrust: false (AASC-54).
+          const newConfig = respawnTerminalConfig(session);
           const newTerminalId = await createTerminal(newConfig, null);
           consumePendingLink(newConfig.workingDir);
 

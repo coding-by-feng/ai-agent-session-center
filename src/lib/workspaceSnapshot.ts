@@ -58,6 +58,9 @@ export interface SessionSnapshot {
    *  command typed into the terminal. */
   effortLevel?: string;
   model?: string;
+  /** AASC-54: the session answers Claude's folder-trust prompt itself (a phone's launch in a new
+   *  folder). Kept so a restore never answers it; only ever `false`. */
+  autoConfirmTrust?: false;
   /** User's progress remark. Without this the note is lost on every workspace
    *  export/import — which is the app's canonical restart path. */
   remark?: string | null;
@@ -227,6 +230,7 @@ export function buildSnapshot(
       startupCommand: session.startupCommand,
       permissionMode: session.permissionMode,
       effortLevel: session.effortLevel,
+      ...(session.sshConfig?.autoConfirmTrust === false ? { autoConfirmTrust: false as const } : {}),
       // Only persist a clean model id. For non-Claude sessions `session.model`
       // is the raw launch command (contains spaces/flags) and for contaminated
       // Claude ids it may carry brackets — either would fail the server's `model`
@@ -842,6 +846,7 @@ export async function importSnapshot(
           // restored session comes back at the SAME effort it was using (not the
           // default). The server rebuilds the resume launch command with these.
           effortLevel: sessionSnap.effortLevel || undefined,
+          autoConfirmTrust: sessionSnap.autoConfirmTrust === false || sessionSnap.sshConfig?.autoConfirmTrust === false ? false : undefined,
           model: sessionSnap.model || undefined,
           remark: sessionSnap.remark || undefined,
           originalSessionId: originalId || undefined,
