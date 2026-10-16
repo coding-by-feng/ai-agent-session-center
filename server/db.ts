@@ -964,19 +964,34 @@ export function deleteMobileDevice(id: string): void {
   db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(id);
 }
 
-// Every backend phone code this Mac minted (AASC-52): which phone it went to and
-// when. Never the code itself, only its non-secret ref. Seeded once from the
-// refs phones already hold (revoked rows too), so a backend device made from an
-// earlier code still counts as this Mac's.
+// Every backend phone code this Mac minted (AASC-52): which phone it went to,
+// when, and when it stops being redeemable (expires_at, before the margin the
+// reader adds). Never the code itself, only its non-secret ref. Seeded at every
+// start from the refs phones already hold (revoked rows too), so a backend device
+// made from an earlier code still counts as this Mac's. The seed is idempotent:
+// it only adds refs it lacks and fills an expiry still unset.
+/** An AASC-51 QR backend code lived 600 s; the QR was made before the phone paired (created_at). */
+const LEGACY_QR_CODE_LIFE_MS = 600_000;
+/** A code minted over a phone's session before the ledger kept expiries lived 60 s. */
+const SESSION_CODE_LIFE_MS = 60_000;
 db.exec(`CREATE TABLE IF NOT EXISTS mobile_backend_codes (
   code_ref TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
-  minted_at INTEGER NOT NULL
+  minted_at INTEGER NOT NULL,
+  expires_at INTEGER
 )`);
 try {
-  db.exec(`INSERT OR IGNORE INTO mobile_backend_codes (code_ref, device_id, minted_at)
-    SELECT be_code_ref, id, COALESCE(approved_at, created_at) FROM mobile_devices
-    WHERE be_code_ref IS NOT NULL AND be_code_ref_mac_bound = 1`);
+  const columns = new Set(
+    (db.prepare('PRAGMA table_info(mobile_backend_codes)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!columns.has('expires_at')) db.exec('ALTER TABLE mobile_backend_codes ADD COLUMN expires_at INTEGER');
+  db.prepare(`INSERT INTO mobile_backend_codes (code_ref, device_id, minted_at, expires_at)
+    SELECT be_code_ref, id, COALESCE(approved_at, created_at), created_at + @life FROM mobile_devices
+    WHERE be_code_ref IS NOT NULL AND be_code_ref_mac_bound = 1
+    ON CONFLICT(code_ref) DO UPDATE SET expires_at = excluded.expires_at WHERE mobile_backend_codes.expires_at IS NULL`)
+    .run({ life: LEGACY_QR_CODE_LIFE_MS });
+  db.prepare('UPDATE mobile_backend_codes SET expires_at = minted_at + @life WHERE expires_at IS NULL')
+    .run({ life: SESSION_CODE_LIFE_MS });
 } catch (err: unknown) {
   log.warn('db', `Backend code ledger not seeded: ${err instanceof Error ? err.message : String(err)}`);
 }
@@ -985,10 +1000,12 @@ export interface MobileBackendCodeRow {
   code_ref: string;
   device_id: string;
   minted_at: number;
+  expires_at: number | null;
 }
 
 export function insertMobileBackendCode(row: MobileBackendCodeRow): void {
-  db.prepare('INSERT OR IGNORE INTO mobile_backend_codes (code_ref, device_id, minted_at) VALUES (@code_ref, @device_id, @minted_at)').run(row);
+  db.prepare(`INSERT OR IGNORE INTO mobile_backend_codes (code_ref, device_id, minted_at, expires_at)
+    VALUES (@code_ref, @device_id, @minted_at, @expires_at)`).run(row);
 }
 export function getMobileBackendCode(codeRef: string): MobileBackendCodeRow | null {
   return (db.prepare('SELECT * FROM mobile_backend_codes WHERE code_ref = ?').get(codeRef) as MobileBackendCodeRow | undefined) ?? null;

@@ -39,12 +39,38 @@ describe('mintBackendCode', () => {
   it('asks the backend for a phone code with push only, and says which host and Mac it is for', async () => {
     const { cloud, calls } = fakeCloud('connected', () => CODE);
     const warn = vi.fn();
-    const code = await createPhoneCloudBridge({ cloud, warn }).mintBackendCode();
-    expect(code).toEqual({ host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac' });
+    const minted = Date.parse(CODE.expiresAt) - BACKEND_CODE_TTL_SECONDS * 1000;
+    const code = await createPhoneCloudBridge({ cloud, warn, now: () => minted }).mintBackendCode();
+    expect(code).toEqual({
+      host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac', expiresAt: Date.parse(CODE.expiresAt),
+    });
     expect(calls).toEqual([{ method: 'POST', path: '/v1/devices/pairing-codes', body: { kind: 'phone', scopes: [...PHONE_BACKEND_SCOPES], ttlSeconds: BACKEND_CODE_TTL_SECONDS } }]);
     expect(PHONE_BACKEND_SCOPES).toEqual(['push:register']);
     // Issued just in time to a signed-in phone that redeems it at once (AASC-52): the backend's shortest life.
     expect(BACKEND_CODE_TTL_SECONDS).toBe(60);
+  });
+
+  // AASC-52 review: a code's expiry is never earlier than a full life after the backend's answer reached the Mac,
+  // so neither a slow round trip nor a backend clock running behind makes a live code look gone.
+  it('says when the code expires: the backend’s expiry, or a full life after its answer if that is later', async () => {
+    const backendExpiry = Date.parse(CODE.expiresAt);
+    const late = fakeCloud('connected', () => CODE);
+    const answeredLate = backendExpiry - 30_000; // the answer took 30 s to arrive, or the clocks differ
+    const slow = await createPhoneCloudBridge({ cloud: late.cloud, warn: vi.fn(), now: () => answeredLate }).mintBackendCode();
+    expect(slow?.expiresAt).toBe(answeredLate + BACKEND_CODE_TTL_SECONDS * 1000);
+    const ahead = fakeCloud('connected', () => CODE);
+    const backendAhead = await createPhoneCloudBridge({ cloud: ahead.cloud, warn: vi.fn(), now: () => backendExpiry - 120_000 }).mintBackendCode();
+    expect(backendAhead?.expiresAt).toBe(backendExpiry);
+  });
+
+  it('reads the clock after the backend answered, not before it was asked', async () => {
+    let clock = 1_000_000;
+    const { cloud } = fakeCloud('connected', () => {
+      clock += 45_000; // the mint round trip
+      return { ...CODE, expiresAt: new Date(0).toISOString() };
+    });
+    const code = await createPhoneCloudBridge({ cloud, warn: vi.fn(), now: () => clock }).mintBackendCode();
+    expect(code?.expiresAt).toBe(1_045_000 + BACKEND_CODE_TTL_SECONDS * 1000);
   });
 
   it('gives nothing without a cloud connection, and when the backend refuses (said once, without codes)', async () => {
@@ -182,8 +208,9 @@ describe('revokeBackendPhone', () => {
     try {
       const devices: Array<{ id: string; kind: string; createdByCode: string; revokedAt: string | null }> = [];
       const { cloud, calls } = fakeCloud('connected', (c) => (c.method === 'DELETE' ? { revoked: true } : { devices, nextCursor: null }));
-      const issuedAt = vi.fn(() => 1_000_000 - 10_000); // issued 10 s before the revoke
-      const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt });
+      // Expires 50 s after the revoke (the ledger's expiry, not a life counted from when the phone asked).
+      const expiresAt = vi.fn(() => 1_000_000 + BACKEND_CODE_TTL_SECONDS * 1000 - 10_000);
+      const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn(), expiresAt });
       await bridge.revokeBackendPhone(CODE.codeRef);
       expect(calls.map((c) => c.method)).toEqual(['GET']);
       // The revoked phone redeems its code anyway, before the backend lets it expire.
@@ -195,7 +222,22 @@ describe('revokeBackendPhone', () => {
       // Once: nothing else is scheduled.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(calls).toHaveLength(3);
-      expect(issuedAt).toHaveBeenCalledWith(CODE.codeRef);
+      expect(expiresAt).toHaveBeenCalledWith(CODE.codeRef);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the ledger’s expiry, however long the code lives (a 600 s code from before AASC-52)', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const { cloud, calls } = fakeCloud('connected', () => ({ devices: [], nextCursor: null }));
+      const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn(), expiresAt: () => 1_000_000 + 500_000 });
+      await bridge.revokeBackendPhone(CODE.codeRef);
+      await vi.advanceTimersByTimeAsync(500_000 + BACKEND_CODE_EXPIRY_MARGIN_MS - 1);
+      expect(calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
@@ -205,8 +247,8 @@ describe('revokeBackendPhone', () => {
     vi.useFakeTimers({ now: 1_000_000 });
     try {
       const { cloud, calls } = fakeCloud('connected', () => ({ devices: [], nextCursor: null }));
-      await createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt: () => 0 }).revokeBackendPhone(CODE.codeRef);
-      await createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt: () => null }).revokeBackendPhone(CODE.codeRef);
+      await createPhoneCloudBridge({ cloud, warn: vi.fn(), expiresAt: () => 0 }).revokeBackendPhone(CODE.codeRef);
+      await createPhoneCloudBridge({ cloud, warn: vi.fn(), expiresAt: () => null }).revokeBackendPhone(CODE.codeRef);
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(calls).toHaveLength(2);
     } finally {

@@ -57,6 +57,12 @@ export interface BackendPhoneCode {
    * which one a tap belongs to.
    */
   macDeviceId?: string;
+  /**
+   * When the code stops being redeemable, in ms: the later of the backend's own
+   * expiry and a full life counted from when its answer reached this Mac. A slow
+   * round trip or a backend clock running behind never makes a live code look gone.
+   */
+  expiresAt: number;
 }
 
 /** What became of a phone's last backend code when it asks for a new one. */
@@ -65,8 +71,8 @@ export type RetiredBackendCode = 'revoked' | 'unredeemed' | 'already-revoked';
 export interface PhoneCloudBridgeDeps {
   cloud: CloudConnector | null;
   warn: (message: string) => void;
-  /** When this Mac issued a backend code (BackendCodeLedger.mintedAt), or null when it has no record. */
-  issuedAt?: (codeRef: string) => number | null;
+  /** When a backend code this Mac issued expires (BackendCodeLedger.expiresAt), or null when it has no record. */
+  expiresAt?: (codeRef: string) => number | null;
   now?: () => number;
 }
 
@@ -133,9 +139,9 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
     }
     // Not redeemed yet. A code still in its life could be redeemed after this
     // revoke (AASC-52), so look once more when the backend has surely let it go.
-    const issued = recheck ? deps.issuedAt?.(codeRef) ?? null : null;
-    if (issued === null) return;
-    const wait = issued + BACKEND_CODE_TTL_SECONDS * 1000 + BACKEND_CODE_EXPIRY_MARGIN_MS - now();
+    const expires = recheck ? deps.expiresAt?.(codeRef) ?? null : null;
+    if (expires === null) return;
+    const wait = expires + BACKEND_CODE_EXPIRY_MARGIN_MS - now();
     if (wait > 0) setTimeout(() => void revokeBackendPhone(codeRef, false), wait).unref?.();
   }
 
@@ -158,7 +164,9 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
           ttlSeconds: BACKEND_CODE_TTL_SECONDS,
         });
         const mac = macDeviceId();
-        return { host, code: code.code, codeRef: code.codeRef, ...(mac ? { macDeviceId: mac } : {}) };
+        const backendExpiry = Date.parse(code.expiresAt);
+        const expiresAt = Math.max(Number.isFinite(backendExpiry) ? backendExpiry : 0, now() + BACKEND_CODE_TTL_SECONDS * 1000);
+        return { host, code: code.code, codeRef: code.codeRef, ...(mac ? { macDeviceId: mac } : {}), expiresAt };
       } catch (err) {
         deps.warn(`No backend code for the phone: ${reason(err)}`);
         return null;

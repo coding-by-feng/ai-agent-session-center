@@ -66,6 +66,10 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   let cloud = opts.cloud ?? true;
   let backendDown = false;
   let backendHang = false;
+  /** Holds the next backend request until released (tests: a redemption that outlives its sign-in). */
+  let nextBackendHold: Promise<void> | null = null;
+  /** The next backend code is redeemed by someone else before the phone (a sniffer on the LAN's plain HTTP). */
+  let stealNextCode = false;
   /** Backend codes the Mac issued, and whether the backend has redeemed each. */
   const backendCodes = new Map<string, boolean>();
   /** Backend device tokens by device id, and the ids revoked. */
@@ -91,7 +95,8 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     if (backendCode) {
       if (!cloud) return ok(409, { error: 'This Mac isn’t connected to the AASC cloud', code: 'NO_CLOUD' });
       const code = issue(randomHex(16)); // 32 characters, inside the backend code's alphabet
-      backendCodes.set(code, false);
+      backendCodes.set(code, stealNextCode);
+      stealNextCode = false;
       return ok(200, { success: true, data: { host: backendHost, code, macDeviceId: opts.macDeviceId === undefined ? 'mac-dev-1' : opts.macDeviceId } });
     }
     const listed = opts.sessions ?? [];
@@ -176,6 +181,9 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     const url = new URL(req.url);
     if (url.protocol === 'https:' && url.host === backendHost) {
       if (backendHang) return new Promise<HttpResponse>(() => undefined); // a cloud that never answers
+      const hold = nextBackendHold;
+      nextBackendHold = null;
+      if (hold) await hold;
       return backendRoute(url.pathname, req.method, req.headers ?? {}, (req.body ?? {}) as Record<string, unknown>);
     }
     if (!reachable.has(url.origin)) throw new Error('network unreachable');
@@ -240,6 +248,18 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     /** The backend hangs: requests never come back. */
     setBackendHang(hang: boolean) {
       backendHang = hang;
+    },
+    /** The next backend request waits until the returned function is called; later ones don't. */
+    holdNextBackendRequest(): () => void {
+      let release!: () => void;
+      nextBackendHold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
+    /** Someone else redeems the next backend code the Mac issues before the phone can. */
+    stealNextBackendCode() {
+      stealNextCode = true;
     },
     /** Every backend code the Mac issued, oldest first. */
     backendCodes: () => [...backendCodes.keys()],

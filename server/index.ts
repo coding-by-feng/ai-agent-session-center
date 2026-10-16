@@ -54,7 +54,7 @@ import {
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
-  requestSession,
+  bearerSession,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
@@ -136,7 +136,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     cloud,
     warn: (message) => log.warn('mobile', message),
     // A revoked phone's code that wasn't redeemed yet is checked once more after it expires (AASC-52).
-    issuedAt: (codeRef) => sqliteBackendCodeLedger.mintedAt(codeRef),
+    expiresAt: (codeRef) => sqliteBackendCodeLedger.expiresAt(codeRef),
   });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
@@ -318,7 +318,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       tailnet: getTailnetIP(),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
-    sessionOf: requestSession,
+    sessionOf: bearerSession,
     // AASC-52: an approved, signed-in phone asks for its backend code; never in the QR.
     backendCodes: createPhoneBackendCodes({
       deviceAuth,

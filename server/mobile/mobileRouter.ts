@@ -18,8 +18,9 @@
 //     refused when no dashboard password is set (remote access needs one).
 //
 //   Signed-in phone (backend-code, AASC-52) — the same gates, plus the phone's
-//     own session token from /session (Bearer): its backend code for push goes
-//     to an approved phone over that session, never into the QR.
+//     own session token from /session as a Bearer header (never the cookie, which
+//     the dashboard page in the shell's WebView can send too): its backend code
+//     for push goes to an approved phone over that session, never into the QR.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { z } from 'zod';
@@ -61,9 +62,11 @@ export interface MobileRouterDeps {
     clear(ip: string): void;
   };
   /**
-   * Who signed this request in (authMiddleware's token check): null for no
-   * valid session, `deviceId: null` for a password sign-in, else the phone.
-   * Omitted: nobody is signed in here.
+   * Who signed this request in, by its Bearer header only (authManager
+   * bearerSession): null for no valid session, `deviceId: null` for a password
+   * sign-in, else the phone. Never the cookie or `?token=`: a script in the
+   * dashboard page inside the shell's WebView holds the phone's cookie, and a
+   * backend code must not reach it. Omitted: nobody is signed in here.
    */
   sessionOf?: (req: Request) => { deviceId: string | null } | null;
   /** Backend codes for signed-in phones (AASC-52). Omitted: no cloud on this Mac. */
@@ -124,7 +127,7 @@ function backendCodeRefusal(out: Exclude<BackendCodeOutcome, { ok: true }>): [nu
     case 'no-cloud': return [409, NO_CLOUD];
     case 'busy': return [409, { error: 'A backend code for this phone is already being made', code: 'BACKEND_CODE_BUSY' }];
     case 'outstanding': return [409, { error: 'This phone’s last backend code is still unused', code: 'BACKEND_CODE_OUTSTANDING', retryAfter: out.retryAfter }];
-    case 'rate-limited': return [429, { error: 'Too many backend codes for this phone. Try again later.', code: 'RATE_LIMITED', retryAfter: out.retryAfter }];
+    case 'rate-limited': return [429, { error: 'Too many backend code requests from this phone. Try again later.', code: 'RATE_LIMITED', retryAfter: out.retryAfter }];
     case 'cloud-failed': return [502, CLOUD_UNAVAILABLE];
   }
 }

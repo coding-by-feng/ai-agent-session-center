@@ -12,28 +12,39 @@ vi.mock('../server/db.js', () => ({
 }));
 
 import {
-  createToken, validateToken, getTokenDeviceId, revokeTokensForDevice, refreshToken, requestSession,
+  createToken, validateToken, getTokenDeviceId, revokeTokensForDevice, refreshToken, bearerSession,
 } from '../server/authManager.js';
 import type { IncomingMessage } from 'node:http';
 
-const req = (headers: Record<string, string>) => ({ headers, url: '/api/mobile/backend-code' }) as unknown as IncomingMessage;
+const req = (headers: Record<string, string>, url = '/api/mobile/backend-code') => ({ headers, url }) as unknown as IncomingMessage;
 
-describe('requestSession (AASC-52: who asks for a backend code)', () => {
+describe('bearerSession (AASC-52: who asks for a backend code)', () => {
   it('names the paired phone behind a Bearer session, nobody for a password sign-in, null without a valid one', () => {
     const phone = createToken('phone-rs');
     const desktop = createToken();
-    expect(requestSession(req({ authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-rs' });
-    expect(requestSession(req({ authorization: `Bearer ${desktop}` }))).toEqual({ deviceId: null });
-    expect(requestSession(req({ authorization: 'Bearer not-a-token' }))).toBeNull();
-    expect(requestSession(req({}))).toBeNull();
+    expect(bearerSession(req({ authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-rs' });
+    expect(bearerSession(req({ authorization: `Bearer ${desktop}` }))).toEqual({ deviceId: null });
+    expect(bearerSession(req({ authorization: 'Bearer not-a-token' }))).toBeNull();
+    expect(bearerSession(req({ authorization: phone }))).toBeNull();
+    expect(bearerSession(req({}))).toBeNull();
     revokeTokensForDevice('phone-rs');
-    expect(requestSession(req({ authorization: `Bearer ${phone}` }))).toBeNull();
+    expect(bearerSession(req({ authorization: `Bearer ${phone}` }))).toBeNull();
   });
 
-  it('reads the cookie before the Bearer header, like every other route', () => {
+  // The phone's HttpOnly cookie sits in the shell's WebView with the dashboard page: any script in that
+  // page could send it. Only the shell's own native request carries the session as a Bearer header.
+  it('ignores the session cookie and ?token=, whoever they belong to', () => {
     const phone = createToken('phone-cookie');
+    expect(bearerSession(req({ cookie: `auth_token=${phone}` }))).toBeNull();
+    expect(bearerSession(req({}, `/api/mobile/backend-code?token=${phone}`))).toBeNull();
+    expect(bearerSession(req({ cookie: `auth_token=${phone}` }, `/api/mobile/backend-code?token=${phone}`))).toBeNull();
+  });
+
+  it('goes by the Bearer header when a stale or other cookie rides along', () => {
+    const phone = createToken('phone-bearer');
     const desktop = createToken();
-    expect(requestSession(req({ cookie: `auth_token=${desktop}`, authorization: `Bearer ${phone}` }))).toEqual({ deviceId: null });
+    expect(bearerSession(req({ cookie: 'auth_token=stale-token', authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer' });
+    expect(bearerSession(req({ cookie: `auth_token=${desktop}`, authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer' });
   });
 });
 

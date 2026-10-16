@@ -63,11 +63,11 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
 };
 
 export const sqliteBackendCodeLedger: BackendCodeLedger = {
-  record({ codeRef, deviceId, mintedAt }) {
-    db.insertMobileBackendCode({ code_ref: codeRef, device_id: deviceId, minted_at: mintedAt });
+  record({ codeRef, deviceId, mintedAt, expiresAt }) {
+    db.insertMobileBackendCode({ code_ref: codeRef, device_id: deviceId, minted_at: mintedAt, expires_at: expiresAt });
   },
-  mintedAt(codeRef) {
-    return db.getMobileBackendCode(codeRef)?.minted_at ?? null;
+  expiresAt(codeRef) {
+    return db.getMobileBackendCode(codeRef)?.expires_at ?? null;
   },
   has(codeRef) {
     return db.getMobileBackendCode(codeRef) !== null;

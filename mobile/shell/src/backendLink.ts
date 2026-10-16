@@ -10,9 +10,20 @@
 // that won't store just mean no notifications from that Mac yet. Nothing is
 // stored then, so the next sign-in asks again. A phone that already holds its
 // backend token for this Mac doesn't ask. The code itself is never stored.
+//
+// A redemption that fails asks the Mac once more at once: on the LAN's plain
+// HTTP someone may have redeemed the code first, and the Mac revokes the device
+// that made before it issues the next one. Once only: the Mac caps the asks.
+//
+// Opening a Mac waits for the link only so long (shellFlows LINK_BUDGET_MS), then
+// aborts `signal`. Whatever comes back after that is dropped, and the token is
+// only written while the Mac is still saved here with its key and no newer
+// backend token was written for it: a later sign-in or an unpair may have run.
 import type { ShellDeps } from './native.js';
 import { pairWithBackend, requestBackendCode } from './pairingClient.js';
-import { readBackendCredential, writeBackendCredential, type SavedMac } from './savedMacs.js';
+import {
+  loadMacs, readBackendCredential, readMacCredentials, writeBackendCredential, type SavedMac,
+} from './savedMacs.js';
 
 export type BackendLinkOutcome =
   /** A new backend device for this Mac, its token in the vault. */
@@ -24,19 +35,48 @@ export type BackendLinkOutcome =
   /** Anything else; asked again at the next sign-in. */
   | { kind: 'failed' };
 
-export async function linkBackend(
-  deps: Pick<ShellDeps, 'vault' | 'http' | 'requester'>, mac: SavedMac, origin: string, sessionToken: string,
-): Promise<BackendLinkOutcome> {
-  if (await readBackendCredential(deps.vault, mac.id).catch(() => null)) return { kind: 'already' };
+type LinkDeps = Pick<ShellDeps, 'vault' | 'store' | 'http' | 'requester'>;
+
+/** Still worth writing: not cut off, the Mac still saved here with its key, and no newer token for it. */
+async function stillWanted(deps: LinkDeps, macId: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
+  const [macs, key, held] = await Promise.all([
+    loadMacs(deps.store).catch(() => []),
+    readMacCredentials(deps.vault, macId).catch(() => null),
+    readBackendCredential(deps.vault, macId).catch(() => null),
+  ]);
+  return !signal?.aborted && macs.some((m) => m.id === macId) && key !== null && held === null;
+}
+
+/** One code from the Mac, redeemed and stored; `redeem-failed` when the backend wouldn't take it. */
+async function linkOnce(
+  deps: LinkDeps, mac: SavedMac, origin: string, sessionToken: string, signal?: AbortSignal,
+): Promise<BackendLinkOutcome | { kind: 'redeem-failed' }> {
   const issued = await requestBackendCode(deps.requester, origin, sessionToken);
   if (issued.status === 'no-cloud') return { kind: 'no-cloud' };
-  if (issued.status !== 'ok') return { kind: 'failed' };
+  if (issued.status !== 'ok' || signal?.aborted) return { kind: 'failed' };
+  let device;
   try {
-    const device = await pairWithBackend(deps.http, issued.host, issued.code, mac.phoneName || 'Phone');
-    await writeBackendCredential(deps.vault, mac.id, { host: issued.host, deviceId: device.deviceId, token: device.token });
+    device = await pairWithBackend(deps.http, issued.host, issued.code, mac.phoneName || 'Phone');
   } catch {
     // The Mac bound the code to this phone: asking again revokes whatever it made, so nothing is left behind.
+    return { kind: 'redeem-failed' };
+  }
+  if (!(await stillWanted(deps, mac.id, signal))) return { kind: 'failed' };
+  try {
+    await writeBackendCredential(deps.vault, mac.id, { host: issued.host, deviceId: device.deviceId, token: device.token });
+  } catch {
     return { kind: 'failed' };
   }
   return { kind: 'linked', macDeviceId: issued.macDeviceId };
+}
+
+export async function linkBackend(
+  deps: LinkDeps, mac: SavedMac, origin: string, sessionToken: string, signal?: AbortSignal,
+): Promise<BackendLinkOutcome> {
+  if (await readBackendCredential(deps.vault, mac.id).catch(() => null)) return { kind: 'already' };
+  const first = await linkOnce(deps, mac, origin, sessionToken, signal);
+  if (first.kind !== 'redeem-failed') return first;
+  const again = signal?.aborted ? first : await linkOnce(deps, mac, origin, sessionToken, signal);
+  return again.kind === 'redeem-failed' ? { kind: 'failed' } : again;
 }

@@ -255,12 +255,16 @@ export function extractToken(req: IncomingMessage): string | null {
 }
 
 /**
- * Who signed this request in (AASC-52): null without a valid session, `deviceId:
- * null` for a password sign-in, else the paired phone the session belongs to.
- * The same token lookup as authMiddleware (cookie, then Bearer, then query).
+ * Who signed this request in, by its `Authorization: Bearer` header ONLY
+ * (AASC-52): null without a valid one, `deviceId: null` for a password sign-in,
+ * else the paired phone the session belongs to. Unlike authMiddleware it never
+ * reads the cookie or `?token=`: a phone's HttpOnly session cookie sits in the
+ * shell's WebView next to the dashboard page, so any script there could send it,
+ * while only the shell's own native request carries the Bearer header.
  */
-export function requestSession(req: IncomingMessage): { deviceId: string | null } | null {
-  const token = extractToken(req);
+export function bearerSession(req: IncomingMessage): { deviceId: string | null } | null {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
   return validateToken(token) ? { deviceId: getTokenDeviceId(token) } : null;
 }
 

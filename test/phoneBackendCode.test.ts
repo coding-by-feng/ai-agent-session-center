@@ -14,13 +14,14 @@ vi.mock('../server/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), debugJson: vi.fn(), isDebug: false },
 }));
 
+import { bearerSession, createToken } from '../server/authManager.js';
 import { createDeviceAuth, proofForToken, type MobileDeviceRecord, type MobileDeviceStore } from '../server/mobile/deviceAuth.js';
 import { createMobileRouter } from '../server/mobile/mobileRouter.js';
 import {
   BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, type PhoneCloudBridge, type RetiredBackendCode,
 } from '../server/mobile/phoneCloudBridge.js';
 import {
-  createPhoneBackendCodes, MAX_BACKEND_CODES_PER_HOUR, type BackendCodeLedger,
+  createPhoneBackendCodes, MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR, MAX_BACKEND_CODES_PER_HOUR, type BackendCodeLedger,
 } from '../server/mobile/phoneBackendCode.js';
 
 function memoryStore(): MobileDeviceStore & { rows: Map<string, MobileDeviceRecord> } {
@@ -35,19 +36,25 @@ function memoryStore(): MobileDeviceStore & { rows: Map<string, MobileDeviceReco
   };
 }
 
-function memoryLedger(): BackendCodeLedger & { rows: Map<string, { deviceId: string; mintedAt: number }> } {
-  const rows = new Map<string, { deviceId: string; mintedAt: number }>();
+function memoryLedger(): BackendCodeLedger & { rows: Map<string, { deviceId: string; mintedAt: number; expiresAt: number }> } {
+  const rows = new Map<string, { deviceId: string; mintedAt: number; expiresAt: number }>();
   return {
     rows,
-    record: ({ codeRef, deviceId, mintedAt }) => { rows.set(codeRef, { deviceId, mintedAt }); },
-    mintedAt: (codeRef) => rows.get(codeRef)?.mintedAt ?? null,
+    record: ({ codeRef, deviceId, mintedAt, expiresAt }) => { rows.set(codeRef, { deviceId, mintedAt, expiresAt }); },
+    expiresAt: (codeRef) => rows.get(codeRef)?.expiresAt ?? null,
     has: (codeRef) => rows.has(codeRef),
   };
 }
 
-/** The cloud half: mints numbered codes; a code is 'unredeemed' until the test redeems it. */
+/**
+ * The cloud half: mints numbered codes; a code is 'unredeemed' until the test redeems it. Like the real
+ * bridge, a minted code expires a full life after the backend's answer came back; `retireTakesMs` and
+ * `mintTakesMs` move the clock on while the backend thinks.
+ */
 function fakeCloud() {
-  const state = { available: true, failMint: false, failRetire: false, slow: null as Promise<void> | null };
+  const state = {
+    available: true, failMint: false, failRetire: false, slow: null as Promise<void> | null, retireTakesMs: 0, mintTakesMs: 0,
+  };
   const minted: Array<{ code: string; codeRef: string }> = [];
   const redeemed = new Set<string>();
   const revoked = new Set<string>();
@@ -57,14 +64,16 @@ function fakeCloud() {
     async mintBackendCode() {
       calls.push('mint');
       if (state.slow) await state.slow;
+      clock += state.mintTakesMs;
       if (state.failMint) return null;
       const n = minted.length + 1;
       const code = { code: `${'C'.repeat(21)}${n}`, codeRef: `ref-${n}` };
       minted.push(code);
-      return { host: 'api.aasc.work', ...code, macDeviceId: 'mac-device-1' };
+      return { host: 'api.aasc.work', ...code, macDeviceId: 'mac-device-1', expiresAt: clock + BACKEND_CODE_TTL_SECONDS * 1000 };
     },
     async retireBackendCode(codeRef): Promise<RetiredBackendCode> {
       calls.push(`retire ${codeRef}`);
+      clock += state.retireTakesMs;
       if (state.failRetire) throw Object.assign(new Error('down'), { code: 'offline' });
       if (!redeemed.has(codeRef)) return 'unredeemed';
       if (revoked.has(codeRef)) return 'already-revoked';
@@ -171,7 +180,7 @@ describe('POST /api/mobile/backend-code', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: { host: 'api.aasc.work', code: fake.minted[0].code, macDeviceId: 'mac-device-1' } });
     expect(store.rows.get(p.deviceId)).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
-    expect(ledger.rows.get('ref-1')).toEqual({ deviceId: p.deviceId, mintedAt: clock });
+    expect(ledger.rows.get('ref-1')).toEqual({ deviceId: p.deviceId, mintedAt: clock, expiresAt: clock + BACKEND_CODE_TTL_SECONDS * 1000 });
     // Logged without the code or its ref.
     const logged = [...info.mock.calls, ...warn.mock.calls].flat().join('\n');
     expect(logged).not.toContain(fake.minted[0].code);
@@ -240,6 +249,88 @@ describe('POST /api/mobile/backend-code', () => {
     const later = await ask(p.deviceId);
     expect(later.status).toBe(200);
     expect(store.rows.get(p.deviceId)?.beCodeRef).toBe('ref-2');
+  });
+
+  // AASC-52 review: a phone looping on its answer must not turn into backend round trips.
+  it('answers "outstanding" from the ledger while the last code lives: the backend is looked at once per code', async () => {
+    const p = phone();
+    await ask(p.deviceId);
+    clock += 5_000;
+    const first = await ask(p.deviceId);
+    expect([first.status, first.body.code]).toEqual([409, 'BACKEND_CODE_OUTSTANDING']);
+    expect(fake.calls).toEqual(['mint', 'retire ref-1']);
+    clock += 5_000;
+    const again = await ask(p.deviceId);
+    expect([again.status, again.body.code]).toEqual([409, 'BACKEND_CODE_OUTSTANDING']);
+    expect(again.body.retryAfter).toBe((BACKEND_CODE_TTL_SECONDS * 1000 + BACKEND_CODE_EXPIRY_MARGIN_MS - 10_000) / 1000);
+    expect(fake.calls).toEqual(['mint', 'retire ref-1']);
+  });
+
+  // The plain-HTTP LAN path: a sniffer may redeem the code before the phone does. The phone then asks again at
+  // once, and that one look at the backend revokes the device the sniffer made before a new code is minted.
+  it('a phone asking again right after its redemption failed gets the device someone else made revoked', async () => {
+    const p = phone();
+    fake.redeem((await ask(p.deviceId)).body.data.code); // the sniffer was first
+    const again = await ask(p.deviceId);
+    expect(again.status).toBe(200);
+    expect(fake.calls).toEqual(['mint', 'retire ref-1', 'mint']);
+    expect(fake.revoked).toEqual(new Set(['ref-1']));
+    expect(store.rows.get(p.deviceId)?.beCodeRef).toBe('ref-2');
+  });
+
+  it(`caps requests, not just codes: a looping phone causes at most ${MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR} backend calls an hour`, async () => {
+    const p = phone();
+    fake.state.failMint = true; // every try fails at the backend: each one would otherwise be a round trip
+    const statuses: number[] = [];
+    for (let i = 0; i < 50; i++) {
+      statuses.push((await ask(p.deviceId)).status);
+      clock += 1_000;
+    }
+    expect(fake.calls).toHaveLength(MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR);
+    expect(statuses.slice(0, MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR).every((s) => s === 502)).toBe(true);
+    const blocked = await ask(p.deviceId);
+    expect([blocked.status, blocked.body.code]).toEqual([429, 'RATE_LIMITED']);
+    expect(blocked.body.error).toMatch(/Too many/);
+    expect(blocked.body.retryAfter).toBe(3600 - 50);
+    expect(fake.calls).toHaveLength(MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR);
+    // Once the window has passed, the phone may try again.
+    clock += blocked.body.retryAfter * 1000;
+    fake.state.failMint = false;
+    expect((await ask(p.deviceId)).status).toBe(200);
+  });
+
+  it('a phone that never redeems and keeps asking costs two backend calls, then waits out the hour', async () => {
+    const p = phone();
+    const answers: string[] = [];
+    for (let i = 0; i < 200; i++) {
+      const res = await ask(p.deviceId);
+      answers.push(res.status === 200 ? 'ok' : String(res.body.code));
+      clock += 1_000;
+    }
+    expect(fake.calls).toEqual(['mint', 'retire ref-1']);
+    expect(answers.slice(0, MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR)).toEqual(
+      ['ok', ...Array(MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR - 1).fill('BACKEND_CODE_OUTSTANDING')]);
+    expect(answers.slice(MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR).every((a) => a === 'RATE_LIMITED')).toBe(true);
+  });
+
+  // AASC-52 review: the expiry comes from when the mint answered, not from when the phone asked.
+  it('slow backend round trips before the mint never make a live code look expired', async () => {
+    const p = phone();
+    fake.redeem((await ask(p.deviceId)).body.data.code);
+    fake.state.retireTakesMs = 30_000;
+    fake.state.mintTakesMs = 10_000;
+    const asked = clock;
+    expect((await ask(p.deviceId)).status).toBe(200); // ref-2, answered 40 s after the phone asked
+    const answered = asked + 40_000;
+    expect(ledger.rows.get('ref-2')?.expiresAt).toBe(answered + BACKEND_CODE_TTL_SECONDS * 1000);
+    fake.state.retireTakesMs = 0;
+    fake.state.mintTakesMs = 0;
+    // Past "asked + life + margin", still inside "answered + life + margin": ref-2 may still be redeemed.
+    clock = asked + BACKEND_CODE_TTL_SECONDS * 1000 + BACKEND_CODE_EXPIRY_MARGIN_MS + 1_000;
+    const again = await ask(p.deviceId);
+    expect([again.status, again.body.code]).toEqual([409, 'BACKEND_CODE_OUTSTANDING']);
+    expect(again.body.retryAfter).toBe((answered + BACKEND_CODE_TTL_SECONDS * 1000 + BACKEND_CODE_EXPIRY_MARGIN_MS - clock) / 1000);
+    expect(fake.minted).toHaveLength(2);
   });
 
   it('asking again after redeeming revokes the backend device the last code made first: one phone, one device', async () => {
@@ -332,6 +423,57 @@ describe('POST /api/mobile/backend-code', () => {
     });
     expect(textPlain).toBe(415);
     expect(fake.calls).toEqual([]);
+  });
+
+  // AASC-52 review: the phone's HttpOnly cookie lives in the shell's WebView next to the dashboard page, so a
+  // script in that page could send it. The route reads the shell's own Bearer header only (the real lookup here).
+  it('takes the session from the Bearer header only: never the cookie or ?token=', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/mobile', createMobileRouter({
+      deviceAuth,
+      isPasswordEnabled: () => true,
+      requireSession: (_req, _res, next) => next(),
+      createSessionToken: (deviceId) => createToken(deviceId),
+      sessionTtlSeconds: 3600,
+      pairingTarget: () => ({ name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: null }),
+      rateLimit: { check: () => 0, record: () => {}, clear: () => {} },
+      sessionOf: bearerSession,
+      backendCodes: createPhoneBackendCodes({ deviceAuth, cloud: fake.cloud, ledger, now: () => clock, info, warn }),
+    }));
+    const real = http.createServer(app);
+    await new Promise<void>((r) => real.listen(0, '127.0.0.1', r));
+    const realPort = (real.address() as AddressInfo).port;
+    const post = (path: string, headers: Record<string, string>) => new Promise<Res>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: realPort, method: 'POST', path: `/api/mobile${path}`,
+        headers: { 'content-type': 'application/json', host: `localhost:${realPort}`, ...headers } }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: raw ? JSON.parse(raw) : {} }));
+      });
+      req.on('error', reject);
+      req.end('{}');
+    });
+    try {
+      const a = phone();
+      const b = phone();
+      const tokenA = createToken(a.deviceId);
+      const tokenB = createToken(b.deviceId);
+      const cookieOnly = await post('/backend-code', { cookie: `auth_token=${tokenA}` });
+      expect([cookieOnly.status, cookieOnly.body.code]).toEqual([401, 'NOT_SIGNED_IN']);
+      const queryOnly = await post(`/backend-code?token=${tokenA}`, {});
+      expect([queryOnly.status, queryOnly.body.code]).toEqual([401, 'NOT_SIGNED_IN']);
+      expect(fake.calls).toEqual([]);
+      // A stale cookie, or another phone's, next to a valid Bearer: the Bearer's phone gets the code.
+      const stale = await post('/backend-code', { cookie: 'auth_token=stale', authorization: `Bearer ${tokenA}` });
+      expect(stale.status).toBe(200);
+      expect(store.rows.get(a.deviceId)?.beCodeRef).toBe('ref-1');
+      const mixed = await post('/backend-code', { cookie: `auth_token=${tokenA}`, authorization: `Bearer ${tokenB}` });
+      expect(mixed.status).toBe(200);
+      expect(store.rows.get(b.deviceId)?.beCodeRef).toBe('ref-2');
+    } finally {
+      await new Promise<void>((r) => real.close(() => r()));
+    }
   });
 
   it('answers NO_CLOUD when the Mac was started without the cloud half at all', async () => {

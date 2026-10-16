@@ -35,10 +35,10 @@ function memoryStore(): MobileDeviceStore {
 }
 
 function memoryLedger(): BackendCodeLedger {
-  const rows = new Map<string, { deviceId: string; mintedAt: number }>();
+  const rows = new Map<string, { deviceId: string; expiresAt: number }>();
   return {
-    record: ({ codeRef, deviceId, mintedAt }) => { rows.set(codeRef, { deviceId, mintedAt }); },
-    mintedAt: (codeRef) => rows.get(codeRef)?.mintedAt ?? null,
+    record: ({ codeRef, deviceId, expiresAt }) => { rows.set(codeRef, { deviceId, expiresAt }); },
+    expiresAt: (codeRef) => rows.get(codeRef)?.expiresAt ?? null,
     has: (codeRef) => rows.has(codeRef),
   };
 }

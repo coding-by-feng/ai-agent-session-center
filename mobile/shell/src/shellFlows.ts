@@ -39,16 +39,22 @@ export function probeWith(deps: Pick<ShellDeps, 'requester'>): (origin: string) 
   };
 }
 
-/** `work`'s answer, or `fallback` once `ms` have passed (the work itself is not cancelled). */
-async function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+/**
+ * `work`'s answer, or `fallback` once `ms` have passed. Either way its signal is
+ * aborted on return, so work still running then (outside the caller's serialized
+ * turn) drops its result instead of writing it.
+ */
+async function within<T>(work: (signal: AbortSignal) => Promise<T>, ms: number, fallback: T): Promise<T> {
+  const cut = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<T>((resolve) => {
     timer = setTimeout(() => resolve(fallback), ms);
   });
   try {
-    return await Promise.race([work, late]);
+    return await Promise.race([work(cut.signal), late]);
   } finally {
     clearTimeout(timer);
+    cut.abort();
   }
 }
 
@@ -123,7 +129,8 @@ export type OpenOutcome =
  * cookie and say where to go: `back` on that Mac (a path, from reauth), only
  * if the navigation guard allows it. A phone without its backend device for
  * this Mac asks for one first (backendLink.ts): quietly, within `linkMs`, and
- * again next time if it didn't work.
+ * again next time if it didn't work. A link still running after `linkMs` is cut
+ * off and its late answer dropped, so it never writes outside this serialized turn.
  */
 export async function signInAndOpen(
   deps: ShellDeps, macs: readonly SavedMac[], mac: SavedMac, back: string, onTry?: (c: Candidate) => void,
@@ -153,7 +160,7 @@ export async function signInAndOpen(
   if (!isAllowedNavigation(url, withMac(macs, { ...mac, status: 'active', lastPath: reached.kind }))) {
     return { kind: 'error', mac, message: 'This address isn’t one this phone paired with, so it wasn’t opened.' };
   }
-  const backend = await within(linkBackend(deps, mac, reached.origin, session.token), linkMs, { kind: 'failed' } as const);
+  const backend = await within((signal) => linkBackend(deps, mac, reached.origin, session.token, signal), linkMs, { kind: 'failed' } as const);
   const opened: SavedMac = {
     ...mac, status: 'active', confirmCode: null, lastPath: reached.kind,
     backendDeviceId: (backend.kind === 'linked' ? backend.macDeviceId : null) ?? mac.backendDeviceId ?? null,
