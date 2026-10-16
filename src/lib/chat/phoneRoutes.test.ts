@@ -4,6 +4,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   cloudResourcePath,
+  segmentsFor,
+  sessionHasChat,
+  sessionRunOnTop,
+  sessionScreens,
+  shownSegment,
+  withSegmentShown,
+  withTerminalOnTop,
   INFO_PAGES,
   PHONE_TABS,
   renameSessionInPath,
@@ -35,7 +42,7 @@ describe('parsePhonePath / phonePath', () => {
   });
 
   it('round-trips a session on each segment', () => {
-    for (const segment of ['chat', 'changes', 'terminal'] as const) {
+    for (const segment of ['chat', 'changes', 'project', 'terminal'] as const) {
       const path = `/sessions/term-1/${segment}`;
       expect(parsePhonePath(path)).toEqual({ kind: 'session', sessionId: 'term-1', segment });
       expect(phonePath({ kind: 'session', sessionId: 'term-1', segment })).toBe(path);
@@ -72,7 +79,7 @@ describe('parsePhonePath / phonePath', () => {
     expect(infoPath('term-1')).toBe('/sessions/term-1/info');
     expect(parsePhonePath('/sessions/term-1/info')).toEqual({ kind: 'session-info', sessionId: 'term-1', page: null });
     expect(phonePath({ kind: 'session-info', sessionId: 'term-1', page: null })).toBe('/sessions/term-1/info');
-    expect([...INFO_PAGES]).toEqual(['files', 'notes', 'queue', 'agents', 'popups']);
+    expect([...INFO_PAGES]).toEqual(['notes', 'queue', 'agents', 'popups']);
     for (const page of INFO_PAGES) {
       const path = `/sessions/term-1/info/${page}`;
       expect(infoPath('term-1', page)).toBe(path);
@@ -82,7 +89,7 @@ describe('parsePhonePath / phonePath', () => {
   });
 
   it('refuses a malformed Info path', () => {
-    for (const bad of ['/sessions/term-1/info/nope', '/sessions/term-1/info/files/x', '/sessions/<x>/info',
+    for (const bad of ['/sessions/term-1/info/nope', '/sessions/term-1/info/files/x', '/sessions/<x>/info', '/sessions/<x>/info/files',
       '/sessions/term-1/infos', '/sessions/term-1/info/']) {
       expect(parsePhonePath(bad), bad).toBeNull();
     }
@@ -134,13 +141,15 @@ describe('tabOfPath / pathChain', () => {
     expect(tabOfPath('/queue')).toBe('queue');
     expect(tabOfPath('/more/gallery')).toBe('more');
     expect(tabOfPath('/sessions/x/changes/2')).toBe('sessions');
-    expect(tabOfPath('/sessions/x/info/files')).toBe('sessions');
+    expect(tabOfPath('/sessions/x/info/notes')).toBe('sessions');
     expect(tabOfPath('/more/settings/appearance')).toBe('more');
   });
 
   it('lists the screens a deep link stacks, root first', () => {
     expect(pathChain('/sessions')).toEqual(['/sessions']);
-    expect(pathChain('/sessions/x/terminal')).toEqual(['/sessions', '/sessions/x/terminal']);
+    // The terminal is a screen pushed over Chat (AASC-56): Back from it returns to Chat.
+    expect(pathChain('/sessions/x/terminal')).toEqual(['/sessions', '/sessions/x/chat', '/sessions/x/terminal']);
+    expect(pathChain('/sessions/x/project')).toEqual(['/sessions', '/sessions/x/project']);
     expect(pathChain('/more/history')).toEqual(['/more', '/more/history']);
     expect(pathChain('/more/gallery')).toEqual(['/more', '/more/about', '/more/gallery']);
     expect(pathChain('/sessions/x/changes/2')).toEqual(['/sessions', '/sessions/x/changes', '/sessions/x/changes/2']);
@@ -235,5 +244,98 @@ describe('AASC Cloud pages (AASC-51)', () => {
   it('survives the address bar', () => {
     const href = withPhonePath('http://mac.local:3333/?theme=light', `/more/cloud/${ID}`);
     expect(phonePathFromSearch(href.slice(href.indexOf('?')))).toBe(`/more/cloud/${ID}`);
+  });
+});
+
+describe('the session segments (AASC-56): Chat · Changes · Project, a shell Terminal · Project', () => {
+  it('gives Claude Code and Codex the chat, anything else none', () => {
+    expect(sessionHasChat('claude')).toBe(true);
+    expect(sessionHasChat('codex')).toBe(true);
+    expect(sessionHasChat(null)).toBe(false);
+    expect(sessionHasChat('bash')).toBe(false);
+  });
+
+  it('lists the segments a session shows', () => {
+    expect(segmentsFor(true)).toEqual(['chat', 'changes', 'project']);
+    expect(segmentsFor(false)).toEqual(['terminal', 'project']);
+  });
+
+  it('shows a shell’s chat or changes path as its Terminal; a chat session keeps its path', () => {
+    expect(shownSegment('chat', false)).toBe('terminal');
+    expect(shownSegment('changes', false)).toBe('terminal');
+    expect(shownSegment('project', false)).toBe('project');
+    expect(shownSegment('terminal', false)).toBe('terminal');
+    for (const seg of ['chat', 'changes', 'project', 'terminal'] as const) expect(shownSegment(seg, true)).toBe(seg);
+  });
+
+  it('keeps an old Info → Files link working: it opens the Project segment', () => {
+    expect(parsePhonePath('/sessions/term-1/info/files')).toEqual({ kind: 'session', sessionId: 'term-1', segment: 'project' });
+    expect(renameSessionInPath('/sessions/term-1/info/files', 'term-1', 'abc')).toBe('/sessions/abc/info/files');
+  });
+
+  it('puts Chat under a chat session’s terminal, nothing under a shell’s', () => {
+    expect(sessionScreens('s1', 'terminal')).toEqual(['/sessions/s1/chat', '/sessions/s1/terminal']);
+    expect(sessionScreens('s1', 'terminal', false)).toEqual(['/sessions/s1/terminal']);
+    expect(sessionScreens('s1', 'project')).toEqual(['/sessions/s1/project']);
+    expect(sessionScreens('s1', 'chat')).toEqual(['/sessions/s1/chat']);
+  });
+});
+
+describe('withTerminalOnTop — "Open terminal" and ⋯ → Terminal (AASC-56)', () => {
+  it('pushes the terminal over the chat', () => {
+    expect(withTerminalOnTop(['/sessions', '/sessions/s1/chat'], 's1', true))
+      .toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+  });
+
+  it('swaps Changes or Project for Chat under it, so Back returns to Chat', () => {
+    expect(withTerminalOnTop(['/sessions', '/sessions/s1/project'], 's1', true))
+      .toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+    expect(withTerminalOnTop(['/inbox', '/sessions/s1/changes'], 's1', true))
+      .toEqual(['/inbox', '/sessions/s1/chat', '/sessions/s1/terminal']);
+  });
+
+  it('opens over a list with the chat under it', () => {
+    expect(withTerminalOnTop(['/inbox'], 's1', true)).toEqual(['/inbox', '/sessions/s1/chat', '/sessions/s1/terminal']);
+  });
+
+  it('changes nothing when the terminal is already on top', () => {
+    const stack = ['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal'];
+    expect(withTerminalOnTop(stack, 's1', true)).toBe(stack);
+  });
+
+  it('switches a shell to its Terminal segment in place', () => {
+    expect(withTerminalOnTop(['/sessions', '/sessions/s1/project'], 's1', false)).toEqual(['/sessions', '/sessions/s1/terminal']);
+    expect(withTerminalOnTop(['/sessions'], 's1', false)).toEqual(['/sessions', '/sessions/s1/terminal']);
+  });
+});
+
+describe('withSegmentShown — Info → Files opens the Project tab (AASC-56)', () => {
+  it('goes back to the session screen under Info, on Project', () => {
+    expect(withSegmentShown(['/sessions', '/sessions/s1/chat', '/sessions/s1/info'], 's1', 'project', true))
+      .toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('skips a chat session’s pushed terminal: the segment screen under it takes the segment', () => {
+    expect(withSegmentShown(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal', '/sessions/s1/info'], 's1', 'project', true))
+      .toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('uses a shell’s Terminal segment screen', () => {
+    expect(withSegmentShown(['/sessions', '/sessions/s1/terminal', '/sessions/s1/info'], 's1', 'project', false))
+      .toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('pushes the segment when no screen of the session is under it', () => {
+    expect(withSegmentShown(['/inbox'], 's1', 'project', true)).toEqual(['/inbox', '/sessions/s1/project']);
+  });
+});
+
+describe('sessionRunOnTop', () => {
+  it('counts the screens of one session at the top of a stack', () => {
+    expect(sessionRunOnTop(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal'], 's1')).toBe(2);
+    expect(sessionRunOnTop(['/sessions', '/sessions/s1/terminal'], 's1')).toBe(1);
+    expect(sessionRunOnTop(['/sessions', '/sessions/s2/chat', '/sessions/s1/terminal'], 's1')).toBe(1);
+    expect(sessionRunOnTop(['/sessions', '/sessions/s1/chat', '/sessions/s1/info'], 's1')).toBe(0);
+    expect(sessionRunOnTop(['/sessions'], 's1')).toBe(0);
   });
 });

@@ -46,9 +46,12 @@ import {
   phonePathFromSearch,
   renameSessionInPath,
   sessionPath,
+  sessionScreens,
   tabOfPath,
   tabRootPath,
   withPhonePath,
+  withSegmentShown,
+  withTerminalOnTop,
   type PhoneTab,
   type SessionSegment,
 } from '@/lib/chat/phoneRoutes';
@@ -76,10 +79,20 @@ interface PhoneNavState extends PhoneNav {
   replace: (path: string) => void;
   /** Back to the shown tab's root in one history traversal. */
   popToRoot: () => void;
+  /** Back `n` screens in one history traversal (at most to the root). */
+  popScreens: (n: number) => void;
   /** Show another tab; each tab keeps its stack. */
   switchTab: (tab: PhoneTab) => void;
-  /** Open a session from anywhere: the given tab (Sessions by default) shows [root, session]. */
-  openSession: (sessionId: string, segment?: SessionSegment, tab?: PhoneTab) => void;
+  /**
+   * Open a session from anywhere: the given tab (Sessions by default) shows
+   * [root, session]. A Claude / Codex session's terminal opens over its Chat
+   * (`hasChat`, the default), a shell's as its own segment (AASC-56).
+   */
+  openSession: (sessionId: string, segment?: SessionSegment, tab?: PhoneTab, hasChat?: boolean) => void;
+  /** The session's terminal on the shown tab: pushed over its Chat, or a shell's Terminal segment (AASC-56). */
+  openTerminal: (sessionId: string, hasChat?: boolean) => void;
+  /** Back to the session's own screen on `segment`, closing what is over it (Info → Files → Project). */
+  showSegment: (sessionId: string, segment: SessionSegment, hasChat?: boolean) => void;
   /**
    * A session re-keyed (/clear, a resume: `replacesId`): every screen of it, on
    * every tab, follows the new id in place: same screens, same segment, no
@@ -91,6 +104,12 @@ interface PhoneNavState extends PhoneNav {
 
 export const PHONE_NAV_KEY = 'aasc.phoneNav';
 export const LEAVE_WINDOW_MS = 2500;
+
+/** What a stack going from `from` to `to` screens looks like: the frame animates push and pop only. */
+function stackChange(from: number, to: number): NavAction {
+  if (to > from) return 'push';
+  return to < from ? 'pop' : 'replace';
+}
 
 export function defaultStacks(): PhoneStacks {
   return { sessions: ['/sessions'], inbox: ['/inbox'], queue: ['/queue'], more: ['/more'] };
@@ -116,6 +135,11 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
   popToRoot: () => {
     if (deferred(() => get().popToRoot())) return;
     traverseBack(Infinity);
+  },
+
+  popScreens: (n) => {
+    if (deferred(() => get().popScreens(n))) return;
+    traverseBack(n);
   },
 
   replace: (path) => {
@@ -150,10 +174,25 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
     }
   },
 
-  openSession: (sessionId, segment = 'chat', tab = 'sessions') => {
+  openSession: (sessionId, segment = 'chat', tab = 'sessions', hasChat = true) => {
     const path = sessionPath(sessionId, segment);
-    if (!parsePhonePath(path) || deferred(() => get().openSession(sessionId, segment, tab))) return;
-    showStack(tab, { ...get().stacks, [tab]: [tabRootPath(tab), path] }, 'switch');
+    if (!parsePhonePath(path) || deferred(() => get().openSession(sessionId, segment, tab, hasChat))) return;
+    showStack(tab, { ...get().stacks, [tab]: [tabRootPath(tab), ...sessionScreens(sessionId, segment, hasChat)] }, 'switch');
+  },
+
+  openTerminal: (sessionId, hasChat = true) => {
+    if (!parsePhonePath(sessionPath(sessionId, 'terminal')) || deferred(() => get().openTerminal(sessionId, hasChat))) return;
+    const { tab, stacks } = get();
+    const next = withTerminalOnTop(stacks[tab], sessionId, hasChat);
+    if (next === stacks[tab]) return;
+    showStack(tab, { ...stacks, [tab]: [...next] }, stackChange(stacks[tab].length, next.length));
+  },
+
+  showSegment: (sessionId, segment, hasChat = true) => {
+    if (!parsePhonePath(sessionPath(sessionId, segment)) || deferred(() => get().showSegment(sessionId, segment, hasChat))) return;
+    const { tab, stacks } = get();
+    const next = withSegmentShown(stacks[tab], sessionId, segment, hasChat);
+    showStack(tab, { ...stacks, [tab]: next }, stackChange(stacks[tab].length, next.length));
   },
 }));
 

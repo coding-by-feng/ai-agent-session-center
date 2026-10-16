@@ -49,7 +49,7 @@ import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
 import { reorderOpFor, sessionDropOp, type RoomGroupRect } from '@/lib/chat/roomsListModel';
-import { defaultSegment, infoPath, sessionPath } from '@/lib/chat/phoneRoutes';
+import { defaultSegment, infoPath, sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { restartBlocker } from '@/lib/chat/sessionInfoModel';
 import { markSessionRead, readStamp, useSessionReads } from '@/lib/chat/sessionReads';
@@ -303,6 +303,11 @@ export default function SessionsScreen() {
     markSessionRead(session.sessionId, readStamp(session));
     push(sessionPath(session.sessionId, defaultSegment(detectCli(session))));
   }, [push]);
+  // The actions sheet's "Terminal" (AASC-56): over the session's Chat, or a shell's Terminal tab.
+  const openSessionTerminal = useCallback((id: string) => {
+    const target = useSessionStore.getState().sessions.get(id);
+    usePhoneNavStore.getState().openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
+  }, []);
 
   const rowProps = useCallback((s: Session) => {
     const id = s.sessionId;
@@ -531,6 +536,7 @@ export default function SessionsScreen() {
         sheet={sheet}
         onSheet={setSheet}
         onOpenInfo={sheetFor ? () => push(infoPath(sheetFor)) : undefined}
+        onOpenTerminal={sheetFor ? () => openSessionTerminal(sheetFor) : undefined}
       />
       <Sheet open={groupSheet} onClose={closeGroupSheet} title="Group sessions by" detents={FIT} testId="group-by-sheet">
         <ListSection label="Group by" footer="Rooms and projects are listed in your Mac’s order.">

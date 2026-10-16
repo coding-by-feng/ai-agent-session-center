@@ -133,14 +133,36 @@ describe('InfoScreen', () => {
     expect(requestControl).toHaveBeenCalledWith('s1');
   });
 
-  it('opens Files, Notes, Queue, Agents and AI popups as screens', async () => {
+  it('opens Notes, Queue, Agents and AI popups as screens', async () => {
     const user = userEvent.setup();
     setup();
-    for (const [name, page] of [['Files', 'files'], ['Notes', 'notes'], ['Queue', 'queue'], ['Agents', 'agents'], ['AI popups', 'popups']] as const) {
+    for (const [name, page] of [['Notes', 'notes'], ['Queue', 'queue'], ['Agents', 'agents'], ['AI popups', 'popups']] as const) {
       await user.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
       const stack = usePhoneNavStore.getState().stacks.sessions;
       expect(stack[stack.length - 1]).toBe(`/sessions/s1/info/${page}`);
     }
+  });
+
+  it('opens Files as the session’s Project tab, closing Info (AASC-56)', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('button', { name: /^Files/ }));
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('opens the Project tab from the Project row too', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('button', { name: /^Project agent-manager/ }));
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('opens a shell’s Project tab over its Terminal tab', async () => {
+    const user = userEvent.setup();
+    usePhoneNavStore.setState({ tab: 'sessions', stacks: { ...defaultStacks(), sessions: ['/sessions', '/sessions/s1/terminal', '/sessions/s1/info'] } });
+    setup({ cliSource: undefined, model: undefined, runtime: undefined, planUsage: undefined } as Partial<Session>);
+    await user.click(screen.getByRole('button', { name: /^Files/ }));
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/project']);
   });
 
   it('switches the model by typing /model through the Mac', async () => {

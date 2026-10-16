@@ -55,9 +55,11 @@ export interface SessionSheetsProps {
   onSheet: (next: SessionSheetKind | null) => void;
   /** The actions sheet offers "Info" when given. */
   onOpenInfo?: () => void;
+  /** The actions sheet offers "Terminal" when given (AASC-56: the terminal left the tabs). */
+  onOpenTerminal?: () => void;
 }
 
-export default function SessionSheets({ sessionId, sheet, onSheet, onOpenInfo }: SessionSheetsProps) {
+export default function SessionSheets({ sessionId, sheet, onSheet, onOpenInfo, onOpenTerminal }: SessionSheetsProps) {
   const session = useSessionStore((s) => (sessionId ? s.sessions.get(sessionId) : undefined));
   const close = useCallback(() => onSheet(null), [onSheet]);
   const manageRooms = useCallback(() => onSheet('manage-rooms'), [onSheet]);
@@ -66,7 +68,15 @@ export default function SessionSheets({ sessionId, sheet, onSheet, onOpenInfo }:
   const key = session.sessionId;
   return (
     <>
-      <ActionsSheet key={`actions-${key}`} session={session} open={sheet === 'actions'} onSheet={onSheet} onClose={close} onOpenInfo={onOpenInfo} />
+      <ActionsSheet
+        key={`actions-${key}`}
+        session={session}
+        open={sheet === 'actions'}
+        onSheet={onSheet}
+        onClose={close}
+        onOpenInfo={onOpenInfo}
+        onOpenTerminal={onOpenTerminal}
+      />
       {sheet === 'rename' && <RenameSheet key={`rename-${key}`} session={session} onClose={close} />}
       {sheet === 'label' && <LabelSheet key={`label-${key}`} session={session} onClose={close} />}
       {sheet === 'remark' && <RemarkSheet key={`remark-${key}`} session={session} onClose={close} />}
@@ -89,12 +99,14 @@ function ActionsSheet({
   onSheet,
   onClose,
   onOpenInfo,
+  onOpenTerminal,
 }: {
   session: Session;
   open: boolean;
   onSheet: (next: SessionSheetKind | null) => void;
   onClose: () => void;
   onOpenInfo?: () => void;
+  onOpenTerminal?: () => void;
 }) {
   const { busy, copy, resume } = useSessionActions();
   const label = useLabelStore((s) => s.labels[session.sessionId]);
@@ -108,9 +120,10 @@ function ActionsSheet({
   };
   return (
     <Sheet open={open} onClose={onClose} title={sessionDisplayTitle(session)} detents={FIT_LARGE} testId="session-actions-sheet">
-      {onOpenInfo && (
+      {(onOpenInfo || onOpenTerminal) && (
         <ListSection label="Open">
-          <ListRow title="Info" subtitle="Status, model, notes, queue, agents" chevron onClick={thenClose(onOpenInfo)} />
+          {onOpenInfo && <ListRow title="Info" subtitle="Status, model, notes, queue, agents" chevron onClick={thenClose(onOpenInfo)} />}
+          {onOpenTerminal && <ListRow title="Terminal" subtitle="Full screen, with keys to type" chevron onClick={thenClose(onOpenTerminal)} />}
         </ListSection>
       )}
       <ListSection header="Edit">

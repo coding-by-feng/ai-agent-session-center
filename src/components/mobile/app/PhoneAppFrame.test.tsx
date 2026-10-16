@@ -151,19 +151,33 @@ describe('PhoneAppFrame', () => {
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
   });
 
-  it('switches segments in place, the terminal segment showing the session’s terminal', async () => {
+  it('switches segments in place: Chat · Changes · Project (AASC-56)', async () => {
     const user = userEvent.setup();
     render(<PhoneAppFrame />);
     await user.click(await screen.findByRole('button', { name: /Working one/ }));
     const before = await screen.findByTestId('phone-session');
-    await user.click(await screen.findByRole('tab', { name: 'Terminal' }));
-    expect(await screen.findByTestId('terminal-container')).toHaveTextContent('term-s2');
+    expect(screen.queryByRole('tab', { name: 'Terminal' })).toBeNull();
+    await user.click(await screen.findByRole('tab', { name: 'Project' }));
     // The same screen, not a new one: focus stays on the segment that was chosen.
     expect(screen.getByTestId('phone-session')).toBe(before);
-    expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveFocus();
-    expect(screen.getByRole('tabpanel', { name: 'Terminal' })).toBeTruthy();
-    expect(window.location.search).toBe('?m=/sessions/s2/terminal');
+    expect(screen.getByRole('tab', { name: 'Project' })).toHaveFocus();
+    expect(screen.getByRole('tabpanel', { name: 'Project' })).toBeTruthy();
+    expect(window.location.search).toBe('?m=/sessions/s2/project');
     expect(usePhoneNavStore.getState().stacks.sessions).toHaveLength(2);
+  });
+
+  it('opens the terminal full screen from ⋯, and Back returns to Chat (AASC-56)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    await screen.findByTestId('phone-session');
+    await user.click(screen.getByRole('button', { name: 'Session actions' }));
+    await user.click(await screen.findByRole('button', { name: /^Terminal/ }));
+    expect(await screen.findByTestId('terminal-container')).toHaveTextContent('term-s2');
+    expect(window.location.search).toBe('?m=/sessions/s2/terminal');
+    await user.click(screen.getByRole('button', { name: 'Back to Chat' }));
+    await waitFor(() => expect(window.location.search).toBe('?m=/sessions/s2/chat'));
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2/chat']);
   });
 
   it('keeps each tab its own stack', async () => {
@@ -203,6 +217,9 @@ describe('PhoneAppFrame', () => {
     goTo('/?session=s4&tab=terminal');
     render(<PhoneAppFrame />);
     expect(await screen.findByTestId('terminal-container')).toHaveTextContent('term-s4');
+    // A screen over the session's Chat (AASC-56): Back returns to Chat.
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s4/chat', '/sessions/s4/terminal']);
+    expect(screen.getByRole('button', { name: 'Back to Chat' })).toBeTruthy();
   });
 
   it('does nothing with a link to a session this phone can’t see', async () => {
@@ -332,11 +349,11 @@ describe('PhoneAppFrame', () => {
   it('keeps the segment and the stack when the session on show re-keys', async () => {
     goTo('/?m=/sessions/s2/terminal');
     render(<PhoneAppFrame />);
-    expect(await screen.findByTestId('phone-session')).toBeTruthy();
+    expect(await screen.findByTestId('phone-session-terminal')).toBeTruthy();
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBe('s2'));
     const s2 = useSessionStore.getState().sessions.get('s2')!;
     act(() => useSessionStore.getState().updateSession({ ...s2, sessionId: 's2b', replacesId: 's2' }));
-    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2b/terminal']));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s2b/chat', '/sessions/s2b/terminal']));
     expect(useSessionStore.getState().selectedSessionId).toBe('s2b');
     expect(screen.getByTestId('terminal-container')).toBeTruthy();
     expect(window.location.search).toBe('?m=/sessions/s2b/terminal');

@@ -5,9 +5,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { Session } from '@/types';
 
-vi.mock('../../PhoneProjectBrowser', () => ({
-  default: ({ projectPath, sessionId }: { projectPath: string; sessionId: string }) => <div data-testid="files">{sessionId}:{projectPath}</div>,
-}));
 vi.mock('@/components/session/NotesTab', () => ({ default: ({ sessionId }: { sessionId: string }) => <div data-testid="notes">{sessionId}</div> }));
 vi.mock('@/components/session/QueueTab', () => ({
   default: ({ sessionId, terminalId, fullHeight }: { sessionId: string; terminalId: string; fullHeight: boolean }) => (
@@ -30,7 +27,6 @@ beforeEach(() => {
 
 describe('InfoPageScreen', () => {
   it.each([
-    ['files', 'Files', 's1:/w/web'],
     ['notes', 'Notes', 's1'],
     ['queue', 'Queue', 's1:term-1:true'],
     ['agents', 'Agents', 's1'],
@@ -39,12 +35,6 @@ describe('InfoPageScreen', () => {
     render(<InfoPageScreen sessionId="s1" page={page} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toContain(title);
     expect((await screen.findByTestId(page)).textContent).toBe(shows);
-  });
-
-  it('says so when the session has no project folder', () => {
-    useSessionStore.setState({ sessions: new Map([['s1', { sessionId: 's1', title: 'web', status: 'idle', projectPath: '' } as unknown as Session]]) });
-    render(<InfoPageScreen sessionId="s1" page="files" />);
-    expect(screen.getByText('No project folder')).toBeTruthy();
   });
 
   it('says the session is gone when it isn’t here', () => {

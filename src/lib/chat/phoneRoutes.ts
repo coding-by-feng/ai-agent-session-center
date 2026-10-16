@@ -2,10 +2,14 @@
  * phoneRoutes.ts — the screens of the new phone frame (AASC-39), as paths.
  *
  *   /sessions                     Sessions tab root
- *   /sessions/<id>/chat|changes|terminal   a session, on one segment
+ *   /sessions/<id>/chat|changes|project   a session, on one segment (AASC-56)
+ *   /sessions/<id>/terminal       a Claude / Codex session's terminal: a screen pushed
+ *                                 over its Chat (Back returns to Chat); a plain
+ *                                 shell's Terminal segment (Terminal · Project)
  *   /sessions/<id>/changes/<n>    one file's diff, from the Changes list (AASC-44)
  *   /sessions/<id>/info           its Info screen (AASC-46), and what Info opens:
- *   /sessions/<id>/info/files|notes|queue|agents|popups
+ *   /sessions/<id>/info/notes|queue|agents|popups
+ *   /sessions/<id>/info/files     an old link: the Project segment now
  *   /inbox   /queue   /more        the other tab roots
  *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings,
  *                                 Cloud, This phone, About, UI kit
@@ -23,7 +27,8 @@
 export const PHONE_TABS = ['sessions', 'inbox', 'queue', 'more'] as const;
 export type PhoneTab = (typeof PHONE_TABS)[number];
 
-export const SESSION_SEGMENTS = ['chat', 'changes', 'terminal'] as const;
+/** Every session path's last part. Which ones a session shows as tabs: `segmentsFor`. */
+export const SESSION_SEGMENTS = ['chat', 'changes', 'project', 'terminal'] as const;
 export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
 export const MORE_PAGES = [
@@ -37,8 +42,8 @@ export type MorePage = (typeof MORE_PAGES)[number];
 export const SETTINGS_SECTIONS = ['appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-/** What a session's Info screen opens (AASC-46). */
-export const INFO_PAGES = ['files', 'notes', 'queue', 'agents', 'popups'] as const;
+/** What a session's Info screen opens (AASC-46). Files moved to the Project segment (AASC-56). */
+export const INFO_PAGES = ['notes', 'queue', 'agents', 'popups'] as const;
 export type InfoPage = (typeof INFO_PAGES)[number];
 
 export type PhoneRoute =
@@ -142,7 +147,10 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   }
   if (head === 'sessions' && parts.length === 4 && parts[2] === 'info') {
     const [, sessionId, , page] = parts;
-    if (!SESSION_ID.test(sessionId) || !isOneOf(INFO_PAGES, page)) return null;
+    if (!SESSION_ID.test(sessionId)) return null;
+    // Info → Files before AASC-56 (a saved stack, an old link): the Project segment.
+    if (page === 'files') return { kind: 'session', sessionId, segment: 'project' };
+    if (!isOneOf(INFO_PAGES, page)) return null;
     return { kind: 'session-info', sessionId, page };
   }
   if (head === 'more' && parts.length === 2 && isOneOf(MORE_PAGES, parts[1]) && !isOneOf(SETTINGS_SECTIONS, parts[1])) {
@@ -170,7 +178,12 @@ export function pathChain(path: string): string[] {
   const route = parsePhonePath(path);
   if (!route) return [tabRootPath('sessions')];
   if (route.kind === 'tab-root') return [path];
-  if (route.kind === 'session') return [tabRootPath('sessions'), path];
+  if (route.kind === 'session') {
+    // A linked terminal lands over its Chat, so Back returns to Chat (AASC-56).
+    return route.segment === 'terminal'
+      ? [tabRootPath('sessions'), sessionPath(route.sessionId, 'chat'), path]
+      : [tabRootPath('sessions'), path];
+  }
   if (route.kind === 'diff') return [tabRootPath('sessions'), sessionPath(route.sessionId, 'changes'), path];
   if (route.kind === 'session-info') {
     // Under its session (on Chat: what a reload knows of it), and Info under its screens.
@@ -241,4 +254,76 @@ export function legacyDeepLinkToPath(search: string, waitsForUser: (sessionId: s
  */
 export function defaultSegment(cli: string | null): SessionSegment {
   return cli === 'claude' || cli === 'codex' ? 'chat' : 'terminal';
+}
+
+// ---------------------------------------------------------------------------
+// Segments and the terminal (AASC-56)
+// ---------------------------------------------------------------------------
+
+/** Claude Code and Codex sessions have a transcript, so a Chat; anything else is a shell to the phone. */
+export function sessionHasChat(cli: string | null): boolean {
+  return defaultSegment(cli) === 'chat';
+}
+
+/** The tabs a session shows: Chat · Changes · Project, or Terminal · Project for a shell. */
+export function segmentsFor(hasChat: boolean): readonly SessionSegment[] {
+  return hasChat ? ['chat', 'changes', 'project'] : ['terminal', 'project'];
+}
+
+/**
+ * What a session screen at `segment` shows. A shell has no Chat or Changes, so a
+ * path to either (a selection that opened Chat, a link) shows its Terminal; a
+ * chat session's `terminal` is its pushed terminal screen, not a tab.
+ */
+export function shownSegment(segment: SessionSegment, hasChat: boolean): SessionSegment {
+  if (hasChat) return segment;
+  return segment === 'chat' || segment === 'changes' ? 'terminal' : segment;
+}
+
+/** The screens that open a session on `segment`, above whatever is under them. */
+export function sessionScreens(sessionId: string, segment: SessionSegment, hasChat = true): string[] {
+  return segment === 'terminal' && hasChat
+    ? [sessionPath(sessionId, 'chat'), sessionPath(sessionId, 'terminal')]
+    : [sessionPath(sessionId, segment)];
+}
+
+function isSessionScreen(path: string | undefined, sessionId: string): boolean {
+  const route = path ? parsePhonePath(path) : null;
+  return route?.kind === 'session' && route.sessionId === sessionId;
+}
+
+/**
+ * `stack` with the session's terminal on top. A chat session's terminal goes over
+ * its Chat (a Changes or Project segment on top becomes Chat), so Back returns to
+ * Chat; a shell switches its top screen to the Terminal segment. Unchanged (the
+ * same array) when the terminal is already on top.
+ */
+export function withTerminalOnTop(stack: readonly string[], sessionId: string, hasChat: boolean): readonly string[] {
+  const terminal = sessionPath(sessionId, 'terminal');
+  if (stack[stack.length - 1] === terminal) return stack;
+  const base = isSessionScreen(stack[stack.length - 1], sessionId) ? stack.slice(0, -1) : [...stack];
+  return [...base, ...sessionScreens(sessionId, 'terminal', hasChat)];
+}
+
+/**
+ * `stack` back on the session's own screen, showing `segment` (Info → Files opens
+ * the Project segment): everything above the session's segment screen goes, and
+ * that screen switches segment. A chat session's pushed terminal is not a segment
+ * screen and goes too. With no screen of the session in the stack, it is pushed.
+ */
+export function withSegmentShown(stack: readonly string[], sessionId: string, segment: SessionSegment, hasChat: boolean): string[] {
+  for (let i = stack.length - 1; i >= 1; i--) {
+    const route = parsePhonePath(stack[i]);
+    if (route?.kind !== 'session' || route.sessionId !== sessionId) continue;
+    if (hasChat && route.segment === 'terminal') continue;
+    return [...stack.slice(0, i), sessionPath(sessionId, segment)];
+  }
+  return [...stack, sessionPath(sessionId, segment)];
+}
+
+/** How many screens at the top of `stack` are this session's own (its segments, its terminal). */
+export function sessionRunOnTop(stack: readonly string[], sessionId: string): number {
+  let n = 0;
+  for (let i = stack.length - 1; i >= 1 && isSessionScreen(stack[i], sessionId); i--) n++;
+  return n;
 }

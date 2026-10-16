@@ -43,9 +43,11 @@ import { inboxCount, needsYou } from '@/lib/chat/inboxModel';
 import {
   legacyDeepLinkToPath,
   parsePhonePath,
+  sessionHasChat,
   withoutPhonePath,
   type PhoneTab,
 } from '@/lib/chat/phoneRoutes';
+import { detectCli } from '@/lib/cliDetect';
 import { usePhoneAppearanceOnBody } from '@/lib/chat/phoneAppearance';
 import { rekeyedSessions } from '@/lib/chat/sessionRekey';
 import { moveSessionRead } from '@/lib/chat/sessionReads';
@@ -117,8 +119,11 @@ function useLegacyDeepLink(search: string): void {
       return !!s && needsYou(s);
     });
     const route = path ? parsePhonePath(path) : null;
-    if (route?.kind !== 'session' || !sessions.has(route.sessionId)) return;
-    usePhoneNavStore.getState().openSession(route.sessionId, route.segment);
+    const target = route?.kind === 'session' ? sessions.get(route.sessionId) : undefined;
+    if (route?.kind !== 'session' || !target) return;
+    // A Claude / Codex terminal opens over its Chat, a shell's as its Terminal tab (AASC-56).
+    const hasChat = sessionHasChat(detectCli(target));
+    usePhoneNavStore.getState().openSession(route.sessionId, hasChat ? route.segment : 'terminal', 'sessions', hasChat);
   }, [search, snapshotReceived, sessions]);
 }
 

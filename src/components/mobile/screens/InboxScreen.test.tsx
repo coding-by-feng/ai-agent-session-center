@@ -121,6 +121,15 @@ describe('InboxScreen', () => {
     expect(pushSpy).toHaveBeenCalledWith('/sessions/a/chat');
   });
 
+  it('opens a terminal-only request’s terminal over its chat, so Back returns to Chat (AASC-56)', () => {
+    stubMac();
+    useSessionStore.setState({ sessions: new Map([['e', session('e', 'guess-1', 'approval')]]) });
+    usePhoneNavStore.setState({ tab: 'inbox', stacks: { ...usePhoneNavStore.getState().stacks, inbox: ['/inbox'] } });
+    render(<InboxScreen />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open terminal' }));
+    expect(usePhoneNavStore.getState().stacks.inbox).toEqual(['/inbox', '/sessions/e/chat', '/sessions/e/terminal']);
+  });
+
   it('marks everything read on this phone', () => {
     stubMac();
     render(<InboxScreen />);

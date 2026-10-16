@@ -19,6 +19,7 @@ vi.mock('@/lib/sessionCopy', () => ({ copySession: vi.fn(async () => 'term-copy'
 vi.mock('@/lib/alarmEngine', () => ({ muteSession: vi.fn(), unmuteSession: vi.fn(), alertSession: vi.fn(), unalertSession: vi.fn() }));
 
 import SessionMenuSheet from './SessionMenuSheet';
+import SessionSheets from './SessionSheets';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import { requestSessionKill, requestSessionResume } from '@/lib/sessionActions';
@@ -49,6 +50,34 @@ describe('SessionMenuSheet', () => {
     const rows = within(sheet).getAllByRole('button').map((b) => b.textContent ?? '');
     for (const label of ['Restart', 'Fork', 'Mute', 'Info', 'Kill session']) expect(rows.some((t) => t.startsWith(label))).toBe(true);
     expect(rows.some((t) => /Pin/.test(t))).toBe(false);
+  });
+
+  it('offers Terminal when the screen gives it a way there (AASC-56), and closes first', async () => {
+    const user = userEvent.setup();
+    useSessionStore.setState({ sessions: new Map([['s1', make()]]) });
+    const onClose = vi.fn();
+    const onTerminal = vi.fn();
+    render(<SessionMenuSheet sessionId="s1" onClose={onClose} onTerminal={onTerminal} />);
+    const sheet = screen.getByRole('dialog', { name: 'web' });
+    await user.click(within(sheet).getByRole('button', { name: /^Terminal/ }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Terminal without one (on the terminal itself)', () => {
+    const { sheet } = setup();
+    expect(within(sheet).queryByRole('button', { name: /^Terminal/ })).toBeNull();
+  });
+
+  it('the Sessions list’s actions sheet offers Terminal too', async () => {
+    const user = userEvent.setup();
+    useSessionStore.setState({ sessions: new Map([['s1', make()]]) });
+    const onOpenTerminal = vi.fn();
+    const onSheet = vi.fn();
+    render(<SessionSheets sessionId="s1" sheet="actions" onSheet={onSheet} onOpenTerminal={onOpenTerminal} />);
+    await user.click(within(screen.getByTestId('session-actions-sheet')).getByRole('button', { name: /^Terminal/ }));
+    expect(onSheet).toHaveBeenCalledWith(null);
+    expect(onOpenTerminal).toHaveBeenCalledTimes(1);
   });
 
   it('restarts only after a confirm', async () => {

@@ -196,9 +196,71 @@ describe('tabs', () => {
     nav().openSession('s9', 'terminal');
     history.flush();
     expect(nav().tab).toBe('sessions');
-    expect(stack()).toEqual(['/sessions', '/sessions/s9/terminal']);
+    // The terminal is pushed over the chat (AASC-56): Back returns to Chat, then the list.
+    expect(stack()).toEqual(['/sessions', '/sessions/s9/chat', '/sessions/s9/terminal']);
     expect(history.url).toBe('/?m=/sessions/s9/terminal');
     history.back();
+    expect(stack()).toEqual(['/sessions', '/sessions/s9/chat']);
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('opens a shell’s terminal as its own segment, nothing under it', () => {
+    install();
+    nav().openSession('s9', 'terminal', 'sessions', false);
+    history.flush();
+    expect(stack()).toEqual(['/sessions', '/sessions/s9/terminal']);
+  });
+});
+
+describe('the terminal and the Project segment (AASC-56)', () => {
+  it('pushes the terminal over Chat, and Back returns to Chat', () => {
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().openTerminal('s1');
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+    expect(history.url).toBe('/?m=/sessions/s1/terminal');
+    expect(nav().lastAction).toBe('push');
+    history.back();
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    expect(history.url).toBe('/?m=/sessions/s1/chat');
+  });
+
+  it('opened from Project, puts Chat under the terminal', () => {
+    install();
+    nav().push('/sessions/s1/project');
+    nav().openTerminal('s1');
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+    history.back();
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+  });
+
+  it('switches a shell to its Terminal segment in place', () => {
+    install();
+    nav().push('/sessions/s1/project');
+    const depth = history.entries.length;
+    nav().openTerminal('s1', false);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/terminal']);
+    expect(history.entries.length).toBe(depth);
+  });
+
+  it('Info → Files: back to the session screen, on Project, in one traversal', () => {
+    install();
+    nav().push('/sessions/s1/chat');
+    nav().push('/sessions/s1/info');
+    nav().showSegment('s1', 'project');
+    history.flush();
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/project']);
+    expect(history.url).toBe('/?m=/sessions/s1/project');
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('pops several screens at once (a shell’s Back past a chat path under its terminal)', () => {
+    install('/?m=/sessions/s1/terminal');
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat', '/sessions/s1/terminal']);
+    nav().popScreens(2);
+    history.flush();
     expect(stack()).toEqual(['/sessions']);
   });
 });
@@ -485,7 +547,7 @@ describe('entries that are not the frame’s', () => {
 
 describe('a session re-keyed (/clear, a resume)', () => {
   it('follows it on every stack, in place: same screens, same segment, no history traversal', () => {
-    install('/?m=/sessions/old-1/terminal');
+    install('/?m=/sessions/old-1/changes');
     nav().push('/sessions/old-1/info');
     nav().push('/sessions/old-1/info/notes');
     usePhoneNavStore.setState({ stacks: { ...nav().stacks, inbox: ['/inbox', '/sessions/old-1/chat'], queue: ['/queue', '/sessions/other/chat'] } });
@@ -494,7 +556,7 @@ describe('a session re-keyed (/clear, a resume)', () => {
 
     nav().renameSession('old-1', 'new-1');
 
-    expect(nav().stacks.sessions).toEqual(['/sessions', '/sessions/new-1/terminal', '/sessions/new-1/info', '/sessions/new-1/info/notes']);
+    expect(nav().stacks.sessions).toEqual(['/sessions', '/sessions/new-1/changes', '/sessions/new-1/info', '/sessions/new-1/info/notes']);
     expect(nav().stacks.inbox).toEqual(['/inbox', '/sessions/new-1/chat']);
     expect(nav().stacks.queue).toEqual(['/queue', '/sessions/other/chat']);
     expect(go).not.toHaveBeenCalled();
@@ -504,7 +566,7 @@ describe('a session re-keyed (/clear, a resume)', () => {
 
     // Back still walks the screens, now under the new id.
     history.back();
-    expect(stack()).toEqual(['/sessions', '/sessions/new-1/terminal', '/sessions/new-1/info']);
+    expect(stack()).toEqual(['/sessions', '/sessions/new-1/changes', '/sessions/new-1/info']);
     expect(history.url).toBe('/?m=/sessions/new-1/info');
   });
 

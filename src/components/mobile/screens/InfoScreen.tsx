@@ -5,7 +5,7 @@
  *       Claude Code · Working · 1h 12m
  *   SESSION   status · model/effort › · context · plan usage · project › · room ›
  *             label › · remark › · notifications (●) · loud alerts (●) · driving
- *   OPEN      Files › Notes › Queue › Agents › AI popups ›
+ *   OPEN      Files › (the session's Project tab, AASC-56) Notes › Queue › Agents › AI popups ›
  *   ACTIONS   Rename · Restart | Resume · Fork · Clone · Move to room · Manage rooms
  *             Kill session (red, confirms)
  *
@@ -31,7 +31,8 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { phoneStatus } from '@/lib/chat/phoneStatus';
-import { infoPath, type InfoPage } from '@/lib/chat/phoneRoutes';
+import { infoPath, sessionHasChat, type InfoPage } from '@/lib/chat/phoneRoutes';
+import { detectCli } from '@/lib/cliDetect';
 import { faultLabel } from '@/lib/resumeWatchdog';
 import {
   contextWords,
@@ -74,6 +75,7 @@ function ControlRows({ sessionId }: { sessionId: string }) {
 function InfoBody({ session }: { session: Session }) {
   const { sessionId } = session;
   const push = usePhoneNavStore((s) => s.push);
+  const showSegment = usePhoneNavStore((s) => s.showSegment);
   const room = useRoomStore((s) => s.rooms.find((r) => r.sessionIds.includes(sessionId)));
   const label = useLabelStore((s) => s.labels[sessionId]);
   const queued = useQueueStore((s) => s.queues.get(sessionId)?.length ?? 0);
@@ -84,6 +86,8 @@ function InfoBody({ session }: { session: Session }) {
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
   const to = useCallback((kind: SessionSheetKind) => () => setSheet(kind), []);
   const openPage = (page: InfoPage) => () => push(infoPath(sessionId, page));
+  // Files is the session's own Project tab (AASC-56), not a second browser: back to it.
+  const openProject = () => showSegment(sessionId, 'project', sessionHasChat(detectCli(session)));
 
   const ended = session.status === 'ended';
   const model = modelWords(session);
@@ -119,7 +123,7 @@ function InfoBody({ session }: { session: Session }) {
         />
         <ListRow title="Context" value={context ?? 'Not reported yet'} />
         <ListRow title="Plan usage" subtitle={plan ?? 'Not reported yet'} />
-        <ListRow title="Project" value={session.projectName || '—'} chevron onClick={openPage('files')} ariaLabel={`Project ${session.projectName}: open its files`} />
+        <ListRow title="Project" value={session.projectName || '—'} chevron onClick={openProject} ariaLabel={`Project ${session.projectName}: open its files`} />
         <ListRow title="Room" value={room?.name ?? 'None'} chevron onClick={to('move-room')} />
         <ListRow title="Label" value={label ?? 'None'} chevron onClick={to('label')} />
         <ListRow title="Remark" subtitle={session.remark || 'None'} chevron onClick={to('remark')} />
@@ -137,7 +141,7 @@ function InfoBody({ session }: { session: Session }) {
       </ListSection>
 
       <ListSection header="Open">
-        <ListRow title="Files" subtitle="The project, read-only" chevron onClick={openPage('files')} />
+        <ListRow title="Files" subtitle="The project, read-only: its Project tab" chevron onClick={openProject} />
         <ListRow title="Notes" value={notes > 0 ? String(notes) : undefined} chevron onClick={openPage('notes')} />
         <ListRow title="Queue" value={queued > 0 ? String(queued) : undefined} chevron onClick={openPage('queue')} />
         <ListRow title="Agents" value={subagents > 0 ? `${subagents} running` : undefined} chevron onClick={openPage('agents')} />

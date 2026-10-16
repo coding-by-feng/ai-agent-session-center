@@ -421,3 +421,10 @@
   .search, .searchShown, .peekChev { transition: none; }
   .stripDot { animation: none; }
 }
+
+/* "Open terminal" under the opened peek (AASC-56): the terminal is a screen now. */
+.peekActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--ph-space-2);
+}

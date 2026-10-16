@@ -25,7 +25,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { sessionPath } from '@/lib/chat/phoneRoutes';
+import { sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
+import { detectCli } from '@/lib/cliDetect';
 import {
   filterInbox,
   inboxItems,
@@ -95,6 +96,7 @@ export default function InboxScreen() {
   const sessions = useSessionStore((s) => s.sessions);
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   const push = usePhoneNavStore((s) => s.push);
+  const openTerminal = usePhoneNavStore((s) => s.openTerminal);
   const offer = useSyncExternalStore(subscribeInterrupted, getInterruptedOffer, () => null);
   const now = useNow();
   const [filter, setFilter] = useState<InboxFilter>('waiting');
@@ -118,7 +120,15 @@ export default function InboxScreen() {
     });
   }, []);
   const onRead = useCallback((id: string) => updateRead([id]), [updateRead]);
-  const open = useCallback((sessionId: string, segment: 'chat' | 'terminal' = 'chat') => push(sessionPath(sessionId, segment)), [push]);
+  const open = useCallback((sessionId: string, segment: 'chat' | 'terminal' = 'chat') => {
+    if (segment === 'chat') {
+      push(sessionPath(sessionId, 'chat'));
+      return;
+    }
+    // The terminal is a screen over the session's Chat (AASC-56), so Back lands on Chat.
+    const target = useSessionStore.getState().sessions.get(sessionId);
+    openTerminal(sessionId, target ? sessionHasChat(detectCli(target)) : true);
+  }, [push, openTerminal]);
 
   const markAll = (
     <Button small variant="plain" onClick={() => updateRead(items.map((i) => i.id))}>Mark all read</Button>

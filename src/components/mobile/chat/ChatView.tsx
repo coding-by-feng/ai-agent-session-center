@@ -8,7 +8,7 @@
  *   queued prompts, dimmed, with Pull back
  *   [ New activity ↓ ]
  *   ● Working · Bash · 0:42                 ■ Stop      (while it works)
- *   terminal peek
+ *   terminal peek                (tap: twelve lines and "Open terminal")
  *
  * Fills the segment panel (`flex: 1; min-height: 0`): the composer and the
  * waiting card mount below the panel as its sibling (AASC-42/43).
@@ -44,7 +44,7 @@ const PhoneConversationAi = lazy(() => import('../PhoneConversationAi'));
 
 export interface ChatViewProps {
   session: Session;
-  /** Switch the session screen to its Terminal segment. */
+  /** Open the session's terminal (a screen pushed over the chat, AASC-56). */
   onTerminal: () => void;
   /** Take a queued prompt back (default: out of the queue, into the composer's draft). */
   onPullBack?: (item: QueuedItem) => void;
@@ -151,6 +151,7 @@ export default function ChatView({ session, onTerminal, onPullBack }: ChatViewPr
       rememberView={rememberView}
       working={working}
       onPullBack={onPullBack}
+      onTerminal={onTerminal}
     />
   );
 }
@@ -168,6 +169,7 @@ interface ChatBodyProps {
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
   working: boolean;
   onPullBack?: (item: QueuedItem) => void;
+  onTerminal: () => void;
 }
 
 function ChatBody({
@@ -183,6 +185,7 @@ function ChatBody({
   rememberView,
   working,
   onPullBack,
+  onTerminal,
 }: ChatBodyProps) {
   const { sessionId } = session;
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -325,7 +328,7 @@ function ChatBody({
           </button>
         )}
       </div>
-      {working && <StatusStrip session={session} peek={peek} />}
+      {working && <StatusStrip session={session} peek={peek} onOpenTerminal={onTerminal} />}
       <SelectionReadAloud sessionId={sessionId} />
       <Suspense fallback={null}>
         <PhoneConversationAi sessionId={sessionId} />

@@ -1,7 +1,8 @@
 /**
- * SessionMenuSheet — the session screen's ⋯ (AASC-46): the four actions used
- * most, one tap away; everything else is on Info (tap the title).
+ * SessionMenuSheet — the session screen's ⋯ (AASC-46): the actions used most,
+ * one tap away; everything else is on Info (tap the title).
  *
+ *   Terminal ›   (AASC-56: the terminal left the tabs; not on the terminal itself)
  *   Restart (Resume once it has ended) · Fork · Mute / Turn notifications on
  *   Info ›
  *   Kill session (red)
@@ -24,9 +25,11 @@ export interface SessionMenuSheetProps {
   sessionId: string;
   /** Keep it stable: the sheet's focus handling re-runs when it changes. */
   onClose: () => void;
+  /** Opens the session's terminal; the menu offers "Terminal" when given. */
+  onTerminal?: () => void;
 }
 
-export default function SessionMenuSheet({ sessionId, onClose }: SessionMenuSheetProps) {
+export default function SessionMenuSheet({ sessionId, onClose, onTerminal }: SessionMenuSheetProps) {
   const session = useSessionStore((s) => s.sessions.get(sessionId));
   const push = usePhoneNavStore((s) => s.push);
   const { busy, copy, resume, setNotifications } = useSessionActions();
@@ -51,6 +54,14 @@ export default function SessionMenuSheet({ sessionId, onClose }: SessionMenuShee
     <>
       <Sheet open={confirm === null} onClose={onClose} title={sessionDisplayTitle(session)} detents={FIT} testId="session-menu-sheet">
         <ListSection label="Session actions">
+          {onTerminal && (
+            <ListRow
+              title="Terminal"
+              subtitle={session.terminalId ? 'Full screen, with keys to type' : 'No terminal right now'}
+              chevron
+              onClick={thenClose(onTerminal)}
+            />
+          )}
           {ended ? (
             <ListRow
               title={busy === 'resume' ? 'Resuming…' : 'Resume'}

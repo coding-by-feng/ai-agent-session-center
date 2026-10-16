@@ -1,6 +1,6 @@
 /**
  * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop"
- * and the terminal peek under it. Status and tool come from the session object
+ * and the terminal peek under it, whose opened face has "Open terminal" (AASC-56). Status and tool come from the session object
  * (hook-driven, instant), not from the transcript.
  *
  * Stop is Esc, written to the session's terminal the way the phone's key bar
@@ -34,7 +34,14 @@ function currentTool(session: Session, since: number): string | null {
   return last && last.timestamp >= since ? last.tool : null;
 }
 
-export default function StatusStrip({ session, peek }: { session: Session; peek: readonly string[] }) {
+export interface StatusStripProps {
+  session: Session;
+  peek: readonly string[];
+  /** Opens the session's terminal screen, from the opened peek (AASC-56). */
+  onOpenTerminal: () => void;
+}
+
+export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStripProps) {
   const { sessionId, terminalId } = session;
   const baton = useControlBaton(sessionId);
   const [now, setNow] = useState(() => Date.now());
@@ -89,7 +96,7 @@ export default function StatusStrip({ session, peek }: { session: Session; peek:
         </Button>
       </div>
       {error && <p className={styles.stripError} role="alert">{error}</p>}
-      <TerminalPeek terminalId={terminalId} lines={peek} />
+      <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
     </div>
   );
 }

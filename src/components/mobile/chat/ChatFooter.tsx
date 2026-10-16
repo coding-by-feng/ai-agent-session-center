@@ -19,7 +19,7 @@ import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ChatFooterProps {
   session: Session;
-  /** Switch the session screen to its Terminal segment. */
+  /** Open the session's terminal (a screen pushed over the chat, AASC-56). */
   onTerminal: () => void;
 }
 

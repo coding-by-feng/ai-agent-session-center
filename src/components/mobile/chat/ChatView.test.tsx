@@ -217,6 +217,15 @@ describe('ChatView', () => {
     expect(writeTerminal).toHaveBeenCalledWith('term-1', '\x1b');
   });
 
+  it('opens the terminal from the live preview’s "Open terminal" (AASC-56)', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    const onTerminal = vi.fn();
+    render(<ChatView session={session({ status: 'working' })} onTerminal={onTerminal} />);
+    await userEvent.click(await screen.findByTestId('chat-terminal-peek'));
+    await userEvent.click(screen.getByRole('button', { name: 'Open terminal' }));
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+  });
+
   it('stays subscribed to the terminal across turns: a status flip never re-downloads the scrollback', async () => {
     const socket = connectSocket();
     fetchChatPage.mockResolvedValue(claudePage());
