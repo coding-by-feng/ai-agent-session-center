@@ -107,6 +107,22 @@ afterEach(() => {
 // Summary line
 // ---------------------------------------------------------------------------
 
+// Found on a real iPhone run (Oct 2026): an Explain-in-English entry read "→ Chinese" here; the chip
+// always named the native language.
+describe('ReviewView — the language chip', () => {
+  it('names the language each entry answered in, and none for a custom prompt', async () => {
+    mockRows([
+      entry({ uuid: 'u1', mode: 'explain-learning' }),
+      entry({ id: 2, uuid: 'u2', mode: 'translate-selection-native' }),
+      entry({ id: 3, uuid: 'u3', mode: 'custom' }),
+    ]);
+    renderView();
+    await screen.findAllByText('→ English');
+    expect(screen.getAllByText('→ English')).toHaveLength(1);
+    expect(screen.getAllByText('→ Chinese')).toHaveLength(1);
+  });
+});
+
 describe('ReviewView — summary line', () => {
   it('names the tab and counts the entries', async () => {
     mockRows([entry({ uuid: 'a' }), entry({ uuid: 'b' })]);
@@ -344,7 +360,8 @@ describe('ReviewView — rows', () => {
     renderView();
     const header = await rowHeader(/Explain \(learning\)/);
     expect(within(header).getByText('Explain (learning)')).toBeInTheDocument();
-    expect(within(header).getByText('→ Chinese')).toBeInTheDocument();
+    // An explain-learning entry answered in the learning language.
+    expect(within(header).getByText('→ English')).toBeInTheDocument();
     expect(within(header).getByText('agent-manager · Fix the bug · 5m ago')).toBeInTheDocument();
     expect(within(header).getByText('pullback')).toBeInTheDocument();
   });

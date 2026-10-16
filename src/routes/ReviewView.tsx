@@ -29,6 +29,7 @@ import {
   sourceTextOf,
   type ArchiveFilter,
   type ModeFilter,
+  reviewEntryLanguage,
 } from '@/lib/reviewEntry';
 import { EntryDetail, StarGlyph, type EntryDetailProps } from '@/components/review/ReviewEntry';
 import Button from '@/components/ui/Button';
@@ -90,7 +91,7 @@ function EntryRow({ expanded, onToggle, onFavorite, setRowRef, ...detail }: Entr
               {row.alias
                 ? <span className={styles.aliasLabel} title={row.alias}>{row.alias}</span>
                 : <span className={styles.modeLabel}>{MODE_LABELS[row.mode]}</span>}
-              <Chip tone="info">→ {row.nativeLanguage}</Chip>
+              {reviewEntryLanguage(row) && <Chip tone="info">→ {reviewEntryLanguage(row)}</Chip>}
               {row.archived === 1 && <Chip>archived</Chip>}
             </span>
             <span className={styles.rowMeta}>{metaLine(row)}</span>
