@@ -39,6 +39,16 @@ export const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
   'custom': 'Custom prompt',
 };
 
+/**
+ * The language an entry's answer is in, for its "→ …" chip: the learning language for the
+ * `-learning` modes, the native one for the rest, none for a custom prompt. The chip used to
+ * name the native language on every entry, so an English explanation read "→ 简体中文".
+ */
+export function reviewEntryLanguage(row: Pick<DbTranslationLog, 'mode' | 'nativeLanguage' | 'learningLanguage'>): string | null {
+  if (row.mode === 'custom') return null;
+  return row.mode.endsWith('-learning') ? row.learningLanguage : row.nativeLanguage;
+}
+
 export const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
   'explain-learning': '🔎',
   'explain-native': '🌐',

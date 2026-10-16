@@ -20,6 +20,7 @@ import {
   MODE_OPTIONS,
   NO_MATCH_HINT,
   NO_SOURCE,
+  reviewEntryLanguage,
   PHONE_EMPTY_HINT,
   SEARCH_DEBOUNCE_MS,
   countEntries,
@@ -169,7 +170,7 @@ export default function PhoneReview() {
             <div className={styles.detailScroll}>
               <div className={styles.detailMeta}>
                 <span>{MODE_ICONS[openRow.mode]} {MODE_LABELS[openRow.mode]}</span>
-                <span>→ {openRow.nativeLanguage}</span>
+                {reviewEntryLanguage(openRow) && <span>→ {reviewEntryLanguage(openRow)}</span>}
                 <span>{metaLine(openRow)}</span>
               </div>
               <Button
@@ -232,7 +233,7 @@ function ReviewRow({ row, onOpen, onFavorite }: {
         <span className={styles.rowTop}>
           <span aria-hidden="true">{MODE_ICONS[row.mode]}</span>
           <span className={styles.rowTitle} id={titleId}>{entryName(row)}</span>
-          <Chip tone="info">→ {row.nativeLanguage}</Chip>
+          {reviewEntryLanguage(row) && <Chip tone="info">→ {reviewEntryLanguage(row)}</Chip>}
           {row.archived === 1 && <Chip>archived</Chip>}
         </span>
         <span className={styles.rowMeta}>{metaLine(row)}</span>

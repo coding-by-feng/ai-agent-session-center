@@ -21,6 +21,7 @@ import {
   deleteLog,
 } from '@/lib/translationLog';
 import type { DbTranslationLog } from '@/lib/db';
+import { reviewEntryLanguage } from '@/lib/reviewEntry';
 import PopupResponse from './PopupResponse';
 import styles from '@/styles/modules/AiPopupHistory.module.css';
 
@@ -201,7 +202,7 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
                     ) : (
                       <span className={styles.modeLabel}>{MODE_LABELS[row.mode]}</span>
                     )}
-                    <span className={styles.langChip}>→ {row.nativeLanguage}</span>
+                    {reviewEntryLanguage(row) && <span className={styles.langChip}>→ {reviewEntryLanguage(row)}</span>}
                   </div>
                   <div className={styles.rowMeta}>
                     <span>{relativeTime(row.createdAt)}</span>
