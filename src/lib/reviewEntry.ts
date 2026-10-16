@@ -21,7 +21,7 @@ export const NO_SOURCE = '(no source captured)';
 export const EMPTY_HINT =
   'Select text in the terminal or in a markdown file and click 🔎 / 🌐. ' +
   'Your explanations and translations will be saved here for review.';
-/** A phone saves an entry from a session's Chat (its Ask AI), never a terminal or a file. */
+/** A phone saves an entry from Ask AI in a session's Chat, its Terminal or a project file (AASC-57). */
 export const PHONE_EMPTY_HINT =
   'Select text in a session’s Chat, Terminal or a project file and tap Ask AI. ' +
   'Your explanations and translations will be saved here for review.';
