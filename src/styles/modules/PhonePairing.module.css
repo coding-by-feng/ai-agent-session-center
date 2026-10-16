@@ -156,6 +156,23 @@
   margin: 0;
 }
 
+/* AASC-52: cloud phone devices no paired phone holds. Text wraps; the buttons drop below when narrow. */
+.cloudLeftover {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloudText {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary, #e0e0f0);
+  overflow-wrap: anywhere;
+}
+
 .error {
   margin: 0;
   font-size: 11px;

@@ -2,7 +2,8 @@
 //
 // Two kinds of route, mounted BEFORE authMiddleware:
 //
-//   Desktop-only (pairing, the paired-phones list, approve, deny/revoke)
+//   Desktop-only (pairing, the paired-phones list, approve, deny/revoke, and the
+//   cloud phone devices not linked to a paired phone: /cloud-phones, AASC-52)
 //     The same gate as RESOURCES: a loopback request on the main listener with a
 //     loopback Host and, for writes, a same-origin page. A web page open in the
 //     Mac's own browser reaches 127.0.0.1 too, so loopback alone would let it
@@ -15,15 +16,21 @@
 //     They ARE the authentication, so authMiddleware can't sit in front of them.
 //     JSON only, no cross-site browser requests, the login rate limiter, and all
 //     refused when no dashboard password is set (remote access needs one).
+//
+//   Signed-in phone (backend-code, AASC-52) — the same gates, plus the phone's
+//     own session token from /session (Bearer): its backend code for push goes
+//     to an approved phone over that session, never into the QR.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { isLocalResourceRequest, isSameOriginWrite } from '../resourceRouter.js';
 import { REMOTE_REQUIRES_PASSWORD } from '../authManager.js';
 import { TooManyPairingCodesError, toView, type DeviceAuth } from './deviceAuth.js';
+import type { BackendCodeOutcome, PhoneBackendCodes } from './phoneBackendCode.js';
+import type { CloudPhoneAudit } from './cloudPhoneAudit.js';
 import log from '../logger.js';
 
-/** Where the QR sends the phone. The codes ride in the fragment, which browsers never send to a server. */
+/** Where the QR sends the phone. The code rides in the fragment, which browsers never send to a server. */
 export const PAIRING_LINK_BASE = 'https://aasc.work/pair';
 
 export interface PairingTarget {
@@ -31,19 +38,6 @@ export interface PairingTarget {
   port: number;
   lan: string | null;
   tailnet: string | null;
-}
-
-export interface BackendPhoneCode {
-  /** Backend host, e.g. api.aasc.work (bare host, https implied). */
-  host: string;
-  code: string;
-  codeRef: string;
-  /**
-   * This Mac's own backend device id. Every notification the Mac asks the
-   * backend to send carries it, so a phone paired with several Macs knows
-   * which one a tap belongs to.
-   */
-  macDeviceId?: string;
 }
 
 export interface MobileRouterDeps {
@@ -67,19 +61,24 @@ export interface MobileRouterDeps {
     clear(ip: string): void;
   };
   /**
-   * A phone-scoped backend pairing code, when the Mac is connected to the AASC
-   * backend (cloud connector). Absent or null: the QR carries the Mac code only.
+   * Who signed this request in (authMiddleware's token check): null for no
+   * valid session, `deviceId: null` for a password sign-in, else the phone.
+   * Omitted: nobody is signed in here.
    */
-  mintBackendCode?: () => Promise<BackendPhoneCode | null>;
+  sessionOf?: (req: Request) => { deviceId: string | null } | null;
+  /** Backend codes for signed-in phones (AASC-52). Omitted: no cloud on this Mac. */
+  backendCodes?: Pick<PhoneBackendCodes, 'issue'>;
+  /** Backend phone devices not linked to a paired phone (AASC-52). Omitted: no cloud. */
+  cloudPhones?: CloudPhoneAudit;
 }
 
 const PairBody = z.object({
   code: z.string().min(4).max(32),
   label: z.string().min(1).max(200),
   platform: z.enum(['ios', 'android']),
-  // Accepted for older shells and ignored: the Mac records the backend code it
-  // put in this QR itself (deviceAuth.attachBackendCode), so a phone can't name
-  // another phone's backend device for a later revoke.
+  // Accepted for older shells and ignored: the Mac binds the backend code it
+  // issues to the phone itself (deviceAuth.bindBackendCode), so a phone can't
+  // name another phone's backend device for a later revoke.
   beCodeRef: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 }).strict();
 
@@ -94,18 +93,40 @@ const DeviceProof = z.object({
   proof: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict();
 
-export function buildPairingLink(target: PairingTarget, macCode: string, backend: BackendPhoneCode | null): string {
+/** The session token says which phone asks; the body says nothing. */
+const BackendCodeBody = z.object({}).strict();
+
+/**
+ * The QR's link: the Mac's name, addresses, port and one-time code. Never a
+ * backend code (AASC-52): the phone gets that over its signed-in session.
+ */
+export function buildPairingLink(target: PairingTarget, macCode: string): string {
   const params = new URLSearchParams({ v: '2', name: target.name });
   if (target.lan) params.set('lan', target.lan);
   if (target.tailnet) params.set('ts', target.tailnet);
   params.set('p', String(target.port));
   params.set('mc', macCode);
-  if (backend) {
-    params.set('be', backend.host);
-    params.set('bc', backend.code);
-    if (backend.macDeviceId && /^[A-Za-z0-9_-]{1,64}$/.test(backend.macDeviceId)) params.set('md', backend.macDeviceId);
-  }
   return `${PAIRING_LINK_BASE}#${params.toString()}`;
+}
+
+const NO_CLOUD = {
+  error: 'This Mac isn’t connected to the AASC cloud, so it has no notifications to set up.',
+  code: 'NO_CLOUD',
+} as const;
+const CLOUD_UNAVAILABLE = { error: 'The AASC cloud didn’t answer. Try again later.', code: 'CLOUD_UNAVAILABLE' } as const;
+
+/** A refused backend-code request as status + body. */
+function backendCodeRefusal(out: Exclude<BackendCodeOutcome, { ok: true }>): [number, Record<string, unknown>] {
+  switch (out.reason) {
+    case 'pending': return [403, { error: 'Approve this phone on your Mac first', code: 'DEVICE_PENDING' }];
+    case 'unknown':
+    case 'revoked': return [401, { error: 'This phone is no longer paired', code: out.reason === 'revoked' ? 'DEVICE_REVOKED' : 'DEVICE_UNKNOWN' }];
+    case 'no-cloud': return [409, NO_CLOUD];
+    case 'busy': return [409, { error: 'A backend code for this phone is already being made', code: 'BACKEND_CODE_BUSY' }];
+    case 'outstanding': return [409, { error: 'This phone’s last backend code is still unused', code: 'BACKEND_CODE_OUTSTANDING', retryAfter: out.retryAfter }];
+    case 'rate-limited': return [429, { error: 'Too many backend codes for this phone. Try again later.', code: 'RATE_LIMITED', retryAfter: out.retryAfter }];
+    case 'cloud-failed': return [502, CLOUD_UNAVAILABLE];
+  }
 }
 
 function clientIp(req: Request): string {
@@ -129,8 +150,13 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   const router = Router();
 
   // Desktop routes: the local gate first (404, so other devices learn nothing),
-  // then the dashboard session.
-  router.use(['/pairing', '/devices'], (req, res, next) => {
+  // then the dashboard session. The cloud phone list calls the backend, so even
+  // a GET of it must come from the AASC page itself (AASC-52).
+  router.use('/cloud-phones', (req, res, next) => {
+    if (isSameOriginWrite(req)) next();
+    else res.status(404).json({ error: 'Not found' });
+  });
+  router.use(['/pairing', '/devices', '/cloud-phones'], (req, res, next) => {
     const local = req.method === 'GET'
       ? isLocalResourceRequest(req)
       : isLocalResourceRequest(req) && isSameOriginWrite(req);
@@ -183,24 +209,15 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       }
       throw err;
     }
-    let backend: BackendPhoneCode | null = null;
-    try {
-      backend = (await deps.mintBackendCode?.()) ?? null;
-    } catch (err) {
-      // Pairing with the Mac still works; push needs the backend and can be added by re-pairing later.
-      log.warn('mobile', `Backend phone code unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    // The phone that redeems this Mac code is tied to the backend device this
-    // backend code creates, so one revoke on the Mac cuts both (AASC-51).
-    if (backend) deps.deviceAuth.attachBackendCode(pairing.code, backend.codeRef);
+    // The Mac code only: the backend code goes to the phone once it is approved
+    // and signed in (POST /backend-code, AASC-52).
     const target = deps.pairingTarget();
     res.json({
       success: true,
       data: {
         code: pairing.code,
         expiresAt: pairing.expiresAt,
-        link: buildPairingLink(target, pairing.code, backend),
-        backendIncluded: backend !== null,
+        link: buildPairingLink(target, pairing.code),
         target,
       },
     });
@@ -228,6 +245,33 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       return;
     }
     res.json({ success: true });
+  });
+
+  // Backend phone devices this Mac made that no paired phone holds any more
+  // (AASC-52): a count, and one action that revokes them.
+  router.get('/cloud-phones', async (_req, res) => {
+    if (!deps.cloudPhones) {
+      res.json({ success: true, data: { cloud: false } });
+      return;
+    }
+    try {
+      res.json({ success: true, data: await deps.cloudPhones.count() });
+    } catch {
+      res.status(502).json(CLOUD_UNAVAILABLE);
+    }
+  });
+
+  router.post('/cloud-phones/remove-unlinked', async (_req, res) => {
+    try {
+      const out = deps.cloudPhones ? await deps.cloudPhones.removeUnlinked() : { cloud: false as const };
+      if (!out.cloud) {
+        res.status(409).json(NO_CLOUD);
+        return;
+      }
+      res.json({ success: true, data: { removed: out.removed, failed: out.failed } });
+    } catch {
+      res.status(502).json(CLOUD_UNAVAILABLE);
+    }
   });
 
   // ── Phone ────────────────────────────────────────────────────────────────
@@ -294,6 +338,36 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     res.setHeader('Set-Cookie',
       `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${deps.sessionTtlSeconds}${isSecure ? '; Secure' : ''}`);
     res.json({ success: true, data: { token, expiresIn: deps.sessionTtlSeconds, device: toView(result.device) } });
+  });
+
+  // AASC-52: an approved phone's backend code for push, over its signed-in session.
+  router.post('/backend-code', async (req, res) => {
+    if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
+    if (!BackendCodeBody.safeParse(req.body).success) {
+      res.status(400).json({ error: 'Invalid request' });
+      return;
+    }
+    const session = deps.sessionOf?.(req) ?? null;
+    if (!session) {
+      deps.rateLimit.record(clientIp(req));
+      res.status(401).json({ error: 'Sign in first', code: 'NOT_SIGNED_IN' });
+      return;
+    }
+    if (!session.deviceId) {
+      res.status(403).json({ error: 'Only a paired phone gets a backend code', code: 'NOT_A_PHONE' });
+      return;
+    }
+    if (!deps.backendCodes) {
+      res.status(409).json(NO_CLOUD);
+      return;
+    }
+    const out = await deps.backendCodes.issue(session.deviceId);
+    if (!out.ok) {
+      const [status, body] = backendCodeRefusal(out);
+      res.status(status).json(body);
+      return;
+    }
+    res.json({ success: true, data: out.code });
   });
 
   router.post('/unpair', (req, res) => {

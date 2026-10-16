@@ -104,7 +104,7 @@ describe('Mac settings', () => {
     const t = createHarness();
     await seedMac(t, KASON_MBP);
     await seedMac(t, STUDIO);
-    t.vault.set(`backend.${KASON_MBP.id}`, JSON.stringify({ host: 'api.aasc.work', deviceId: 'be-1', token: 'b'.repeat(43) }));
+    t.vault.set(`backend.${KASON_MBP.id}`, JSON.stringify(t.mac.seedBackendDevice()));
     await t.app.start();
     click(t.root, 'Settings for Kason-MBP');
     click(t.root, 'Unpair this phone');

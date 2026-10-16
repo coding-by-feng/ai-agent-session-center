@@ -1,12 +1,14 @@
 // test/phoneCloudBridge.test.ts — AASC-15/16: pairing and push go through the cloud connection when one is
 // connected, and nothing breaks when it isn't.
 import { describe, it, expect, vi } from 'vitest';
-import { createPhoneCloudBridge, PHONE_BACKEND_SCOPES } from '../server/mobile/phoneCloudBridge.js';
+import {
+  BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, createPhoneCloudBridge, PHONE_BACKEND_SCOPES,
+} from '../server/mobile/phoneCloudBridge.js';
 import { CloudError, type CloudConnector } from '../server/cloud/types.js';
 
 type Call = { method: string; path: string; body?: unknown };
 
-function fakeCloud(state: 'connected' | 'offline' | 'disconnected', answer: (c: Call) => unknown) {
+function fakeCloud(state: 'connected' | 'offline' | 'disconnected' | 'revoked', answer: (c: Call) => unknown) {
   const calls: Call[] = [];
   const cloud = {
     client: {
@@ -34,24 +36,111 @@ const MESSAGE = {
 };
 
 describe('mintBackendCode', () => {
-  it('asks the backend for a phone code with push only, and puts its host in the QR', async () => {
+  it('asks the backend for a phone code with push only, and says which host and Mac it is for', async () => {
     const { cloud, calls } = fakeCloud('connected', () => CODE);
     const warn = vi.fn();
     const code = await createPhoneCloudBridge({ cloud, warn }).mintBackendCode();
     expect(code).toEqual({ host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac' });
-    expect(calls).toEqual([{ method: 'POST', path: '/v1/devices/pairing-codes', body: { kind: 'phone', scopes: [...PHONE_BACKEND_SCOPES], ttlSeconds: 600 } }]);
+    expect(calls).toEqual([{ method: 'POST', path: '/v1/devices/pairing-codes', body: { kind: 'phone', scopes: [...PHONE_BACKEND_SCOPES], ttlSeconds: BACKEND_CODE_TTL_SECONDS } }]);
     expect(PHONE_BACKEND_SCOPES).toEqual(['push:register']);
+    // Issued just in time to a signed-in phone that redeems it at once (AASC-52): the backend's shortest life.
+    expect(BACKEND_CODE_TTL_SECONDS).toBe(60);
   });
 
-  it('pairs Mac-only when not connected, and when the backend refuses (said once, without codes)', async () => {
+  it('gives nothing without a cloud connection, and when the backend refuses (said once, without codes)', async () => {
     expect(await createPhoneCloudBridge({ cloud: null, warn: vi.fn() }).mintBackendCode()).toBeNull();
-    const offline = fakeCloud('offline', () => CODE);
-    expect(await createPhoneCloudBridge({ cloud: offline.cloud, warn: vi.fn() }).mintBackendCode()).toBeNull();
-    expect(offline.calls).toEqual([]);
+    for (const state of ['disconnected', 'revoked'] as const) {
+      const gone = fakeCloud(state, () => CODE);
+      expect(await createPhoneCloudBridge({ cloud: gone.cloud, warn: vi.fn() }).mintBackendCode()).toBeNull();
+      expect(gone.calls).toEqual([]);
+    }
     const warn = vi.fn();
     const refusing = fakeCloud('connected', () => new CloudError('pairing_codes_outstanding', 'Too many', 409));
     expect(await createPhoneCloudBridge({ cloud: refusing.cloud, warn }).mintBackendCode()).toBeNull();
-    expect(warn).toHaveBeenCalledWith('Phone pairing continues without a backend code: pairing_codes_outstanding');
+    expect(warn).toHaveBeenCalledWith('No backend code for the phone: pairing_codes_outstanding');
+  });
+
+  it('tries a saved connection nobody has checked yet (offline right after the Mac restarts): the phone asked', async () => {
+    const offline = fakeCloud('offline', () => CODE);
+    expect(await createPhoneCloudBridge({ cloud: offline.cloud, warn: vi.fn() }).mintBackendCode()).toMatchObject({ code: CODE.code });
+  });
+});
+
+describe('cloudAvailable (AASC-52)', () => {
+  it('is true for a saved connection that isn’t revoked, checked or not', () => {
+    expect(createPhoneCloudBridge({ cloud: null, warn: vi.fn() }).cloudAvailable()).toBe(false);
+    expect(createPhoneCloudBridge({ cloud: fakeCloud('connected', () => ({})).cloud, warn: vi.fn() }).cloudAvailable()).toBe(true);
+    expect(createPhoneCloudBridge({ cloud: fakeCloud('offline', () => ({})).cloud, warn: vi.fn() }).cloudAvailable()).toBe(true);
+    expect(createPhoneCloudBridge({ cloud: fakeCloud('disconnected', () => ({})).cloud, warn: vi.fn() }).cloudAvailable()).toBe(false);
+    expect(createPhoneCloudBridge({ cloud: fakeCloud('revoked', () => ({})).cloud, warn: vi.fn() }).cloudAvailable()).toBe(false);
+  });
+});
+
+describe('retireBackendCode (AASC-52: before a phone gets a new code)', () => {
+  const page = (devices: unknown[]) => ({ devices, nextCursor: null });
+
+  it('revokes the backend device the last code made, so one phone never holds two', async () => {
+    const { cloud, calls } = fakeCloud('connected', (c) => (c.method === 'DELETE'
+      ? { revoked: true }
+      : page([{ id: 'phone-dev', kind: 'phone', createdByCode: CODE.codeRef, revokedAt: null }])));
+    expect(await createPhoneCloudBridge({ cloud, warn: vi.fn() }).retireBackendCode(CODE.codeRef)).toBe('revoked');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /v1/devices', 'DELETE /v1/devices/phone-dev']);
+  });
+
+  it('says when the last code was never used, or its device is already revoked', async () => {
+    const unused = fakeCloud('connected', () => page([]));
+    expect(await createPhoneCloudBridge({ cloud: unused.cloud, warn: vi.fn() }).retireBackendCode(CODE.codeRef)).toBe('unredeemed');
+    const done = fakeCloud('connected', () => page([{ id: 'p', kind: 'phone', createdByCode: CODE.codeRef, revokedAt: '2026-10-01T00:00:00Z' }]));
+    expect(await createPhoneCloudBridge({ cloud: done.cloud, warn: vi.fn() }).retireBackendCode(CODE.codeRef)).toBe('already-revoked');
+    expect(done.calls.map((c) => c.method)).toEqual(['GET']);
+  });
+
+  it('throws when the backend can’t be asked, so no second code is minted', async () => {
+    const failing = fakeCloud('connected', () => new CloudError('offline', 'down', 502));
+    await expect(createPhoneCloudBridge({ cloud: failing.cloud, warn: vi.fn() }).retireBackendCode(CODE.codeRef)).rejects.toMatchObject({ code: 'offline' });
+    const gone = fakeCloud('disconnected', () => page([]));
+    await expect(createPhoneCloudBridge({ cloud: gone.cloud, warn: vi.fn() }).retireBackendCode(CODE.codeRef)).rejects.toMatchObject({ code: 'disconnected' });
+    expect(gone.calls).toEqual([]);
+  });
+});
+
+describe('listPhoneDevices / revokeDevice (AASC-52)', () => {
+  it('lists the account’s live phone devices across pages: never the Mac itself, a server device or a revoked one', async () => {
+    const { cloud, calls } = fakeCloud('connected', (c) => (!c.path.includes('cursor')
+      ? { devices: [
+        { id: 'mac', kind: 'server', createdByCode: null, revokedAt: null },
+        { id: 'cli', kind: 'server', createdByCode: null, revokedAt: null },
+        { id: 'p1', kind: 'phone', createdByCode: 'ref-1', revokedAt: null },
+      ], nextCursor: 'p1' }
+      : { devices: [
+        { id: 'p2', kind: 'phone', createdByCode: 'ref-2', revokedAt: '2026-10-01T00:00:00Z' },
+        { id: 'p3', kind: 'phone', createdByCode: 'ref-3', revokedAt: null },
+        { id: 'odd', kind: null, createdByCode: 'ref-4', revokedAt: null },
+      ], nextCursor: null }));
+    const devices = await createPhoneCloudBridge({ cloud, warn: vi.fn() }).listPhoneDevices();
+    expect(devices.map((d) => d.id)).toEqual(['p1', 'p3']);
+    expect(calls.map((c) => c.path)).toEqual(['/v1/devices', '/v1/devices?cursor=p1']);
+  });
+
+  it('never lists the Mac’s own device, even if the backend called it a phone', async () => {
+    const { cloud } = fakeCloud('connected', () => ({ devices: [{ id: 'mac', kind: 'phone', createdByCode: 'r', revokedAt: null }], nextCursor: null }));
+    expect(await createPhoneCloudBridge({ cloud, warn: vi.fn() }).listPhoneDevices()).toEqual([]);
+  });
+
+  it('revokes one device by id, and refuses the Mac’s own', async () => {
+    const { cloud, calls } = fakeCloud('connected', () => ({ revoked: true }));
+    const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn() });
+    await bridge.revokeDevice('p1');
+    await expect(bridge.revokeDevice('mac')).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['DELETE /v1/devices/p1']);
+  });
+
+  it('needs a cloud connection', async () => {
+    const { cloud, calls } = fakeCloud('disconnected', () => ({}));
+    const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn() });
+    await expect(bridge.listPhoneDevices()).rejects.toMatchObject({ code: 'disconnected' });
+    await expect(bridge.revokeDevice('p1')).rejects.toMatchObject({ code: 'disconnected' });
+    expect(calls).toEqual([]);
   });
 });
 
@@ -86,6 +175,43 @@ describe('revokeBackendPhone', () => {
     expect(warn).toHaveBeenLastCalledWith(
       "Could not revoke the phone's backend device (offline): revoke its backend device there (owner CLI: owner devices / owner revoke).",
     );
+  });
+
+  it('a code not redeemed yet is looked at once more after it expires, so a revoked phone can’t redeem it later (AASC-52)', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const devices: Array<{ id: string; kind: string; createdByCode: string; revokedAt: string | null }> = [];
+      const { cloud, calls } = fakeCloud('connected', (c) => (c.method === 'DELETE' ? { revoked: true } : { devices, nextCursor: null }));
+      const issuedAt = vi.fn(() => 1_000_000 - 10_000); // issued 10 s before the revoke
+      const bridge = createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt });
+      await bridge.revokeBackendPhone(CODE.codeRef);
+      expect(calls.map((c) => c.method)).toEqual(['GET']);
+      // The revoked phone redeems its code anyway, before the backend lets it expire.
+      devices.push({ id: 'late-dev', kind: 'phone', createdByCode: CODE.codeRef, revokedAt: null });
+      await vi.advanceTimersByTimeAsync(BACKEND_CODE_TTL_SECONDS * 1000 - 10_000 + BACKEND_CODE_EXPIRY_MARGIN_MS - 1);
+      expect(calls.map((c) => c.method)).toEqual(['GET']);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /v1/devices', 'GET /v1/devices', 'DELETE /v1/devices/late-dev']);
+      // Once: nothing else is scheduled.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(calls).toHaveLength(3);
+      expect(issuedAt).toHaveBeenCalledWith(CODE.codeRef);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules nothing for a code long expired, or one it has no record of', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const { cloud, calls } = fakeCloud('connected', () => ({ devices: [], nextCursor: null }));
+      await createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt: () => 0 }).revokeBackendPhone(CODE.codeRef);
+      await createPhoneCloudBridge({ cloud, warn: vi.fn(), issuedAt: () => null }).revokeBackendPhone(CODE.codeRef);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(calls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('tries a saved connection nobody has checked yet (offline right after the Mac restarts)', async () => {

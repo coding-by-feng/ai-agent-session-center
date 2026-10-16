@@ -200,12 +200,21 @@ either way.
    match. If they differ, someone else scanned your QR: press **Deny** and pair again.
 4. **Choose how to connect.** Tailscale is used by default. The home-network address is used only
    if you allow it for that Mac (it's unencrypted, and the app marks it ⚠).
-5. **Notifications** (optional): after the Mac allows the phone, the app asks once whether it may
-   send notifications. You can change this later in the phone's settings.
+5. **Notifications** (optional): after the Mac allows the phone, the app asks that Mac for its own
+   cloud code over the signed-in connection (the QR carries none, AASC-52) and then asks once
+   whether it may send notifications. A Mac without the AASC cloud simply has no notifications;
+   the app asks it again the next time it opens. You can change this later in the phone's settings.
 
 **Remove a phone:** on the Mac, open the devices panel → **Revoke…** next to the phone → **Revoke**.
 The phone loses access at once (and its notifications stop); the next time it opens, it wipes its
 credentials and returns to the pairing screen. From the phone, **Unpair** in the app does the same.
+Changing the dashboard password revokes every paired phone, and its cloud device, as soon as AASC
+starts with the new password.
+
+**Leftover cloud devices:** if the devices panel says "N cloud phone devices aren't linked to a paired
+phone", **Remove them** revokes those cloud devices (made by this Mac, held by no phone paired here: a revoke
+the cloud missed, or an old code redeemed late). It never touches a paired phone, the Mac itself or
+another Mac's phones; cloud devices this Mac has no record of need the owner CLI.
 
 **Lost phone:** revoke it on the Mac straight away. Nothing on the phone works after that.
 
@@ -229,7 +238,7 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 | `PushPlatform` (`pushRegistration.ts`) | `@capacitor/push-notifications`: `checkPermissions`, `requestPermissions`, `register`, `unregister`, `addListener('registration' \| 'registrationError')`; `Capacitor.getPlatform()` | `environment()`: iOS reads the `aps-environment` entitlement (debug = `sandbox`, TestFlight/App Store = `production`), Android returns `production` |
 | `KeyValueStore` (`pushRegistration.ts`) | `@capacitor/preferences` `get`/`set` | Non-secret only (the "asked once" flag, session→Mac hints) |
 | `HttpRequester` (`http.ts`) | `CapacitorHttp.request({ method, url, headers, data })` | Native HTTP: no CORS, no WebView cookies. Send the headers as given (JSON calls carry `Content-Type: application/json`: Android writes no body without it); omit `data` when `body` is absent (the backend's DELETE refuses a body). The pairing `HttpClient.post` must set the JSON content type itself |
-| `BackendCredential` source (`pushRegistration.ts`) | `DeviceVault` | One per Mac pairing that carried a backend code |
+| `BackendCredential` source (`pushRegistration.ts`) | `DeviceVault` | One per Mac with a cloud connection: `backendLink.ts` asks that Mac for a backend code after it allows the phone (AASC-52) and redeems it; a 401 from the backend drops it, so the next sign-in asks again |
 | Push arrivals | `addListener('pushNotificationReceived', n)` → `parsePush(n)` → `decideForeground(...)` | Foreground only; the system banner is off (`presentationOptions: []`) |
 | Push taps | `addListener('pushNotificationActionPerformed', a)` → `parsePush(a.notification)` → `openFromTap(...)` | Capacitor keeps the tap until a listener exists, so a cold start still gets it; the listener must live in the page that is loaded (shell, or the Mac UI forwarding to the shell) |
 | `TapDeps.signIn` (`notificationTap.ts`) | `openSession` + `CapacitorCookies.setCookie({ url: origin, key: 'auth_token', value })` | The tap outcome never carries the token |
@@ -248,7 +257,8 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 ## Decisions (taken 2026-10-15, on the recommendations)
 
 1. **Which Mac sent a push: done.** The backend adds `aasc.mac` / `data.mac` (the asking Mac's backend device id); the
-   pairing link carries it as `md=`; a paired Mac keeps it as `PairedServer.backendDeviceId`, and a tap goes to that Mac only.
+   Mac sends it with the phone's backend code (`macDeviceId`, AASC-52; the pairing link no longer carries `md=`); a
+   paired Mac keeps it as `PairedServer.backendDeviceId`, and a tap goes to that Mac only.
 2. **iOS categories: done.** The backend sends `aps.category = AASC_<KIND>` (no actions).
 3. **Interrupted is high importance**, as the plan and AASC-19 say (decided before any Android install).
 4. **Widget while the app is closed: open.** Push-driven updates need a native notification extension (iOS) and

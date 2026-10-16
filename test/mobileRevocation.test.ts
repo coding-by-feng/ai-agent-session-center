@@ -12,8 +12,30 @@ vi.mock('../server/db.js', () => ({
 }));
 
 import {
-  createToken, validateToken, getTokenDeviceId, revokeTokensForDevice, refreshToken,
+  createToken, validateToken, getTokenDeviceId, revokeTokensForDevice, refreshToken, requestSession,
 } from '../server/authManager.js';
+import type { IncomingMessage } from 'node:http';
+
+const req = (headers: Record<string, string>) => ({ headers, url: '/api/mobile/backend-code' }) as unknown as IncomingMessage;
+
+describe('requestSession (AASC-52: who asks for a backend code)', () => {
+  it('names the paired phone behind a Bearer session, nobody for a password sign-in, null without a valid one', () => {
+    const phone = createToken('phone-rs');
+    const desktop = createToken();
+    expect(requestSession(req({ authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-rs' });
+    expect(requestSession(req({ authorization: `Bearer ${desktop}` }))).toEqual({ deviceId: null });
+    expect(requestSession(req({ authorization: 'Bearer not-a-token' }))).toBeNull();
+    expect(requestSession(req({}))).toBeNull();
+    revokeTokensForDevice('phone-rs');
+    expect(requestSession(req({ authorization: `Bearer ${phone}` }))).toBeNull();
+  });
+
+  it('reads the cookie before the Bearer header, like every other route', () => {
+    const phone = createToken('phone-cookie');
+    const desktop = createToken();
+    expect(requestSession(req({ cookie: `auth_token=${desktop}`, authorization: `Bearer ${phone}` }))).toEqual({ deviceId: null });
+  });
+});
 
 describe('device-bound session tokens', () => {
   it('remember which phone they belong to; password logins belong to none', () => {

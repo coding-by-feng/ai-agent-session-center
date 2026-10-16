@@ -1,8 +1,13 @@
 // pairingLink.ts — read the QR / link the desktop shows (AASC-17).
 //
-// https://aasc.work/pair#v=2&name=…&lan=…&ts=…&p=…&mc=…[&be=…&bc=…]
+// https://aasc.work/pair#v=2&name=…&lan=…&ts=…&p=…&mc=…
 // Everything here came from a camera or a tapped link, so every field is
 // validated before the shell touches the network with it.
+//
+// AASC-52: the link carries the Mac's code only. A QR from before also had a
+// backend code (`be`, `bc`, `md`); those are ignored: anyone who photographed
+// the QR could redeem that half. The backend code now comes from the Mac after
+// it allows this phone (backendLink.ts).
 
 export interface PairingLink {
   version: 2;
@@ -11,21 +16,15 @@ export interface PairingLink {
   tailnet: string | null;
   port: number;
   macCode: string;
-  backendHost: string | null;
-  backendCode: string | null;
-  /** The Mac's own backend device id (`md`): every push it asks for names it (aasc.mac). */
-  macDeviceId: string | null;
 }
 
 const LINK_ORIGIN = 'https://aasc.work';
 const LINK_PATH = '/pair';
 const MAC_CODE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/;
-const BACKEND_CODE = /^[A-Za-z0-9_-]{16,64}$/;
-const MAC_DEVICE_ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** The backend must live under aasc.work; a QR can't point the phone anywhere else. */
+/** The backend must live under aasc.work; nothing can point the phone anywhere else. */
 const BACKEND_HOST = /^(?:[a-z0-9-]+\.)*aasc\.work$/;
 
-/** Checked again before every backend call: a stored host must still be under aasc.work. */
+/** Checked before every backend call: a host must be under aasc.work. */
 export function isBackendHost(host: string | null | undefined): boolean {
   return typeof host === 'string' && BACKEND_HOST.test(host);
 }
@@ -76,9 +75,6 @@ export function parsePairingLink(input: string): PairingLink | null {
   const tailnet = p.get('ts');
   const port = Number(p.get('p'));
   const macCode = p.get('mc') ?? '';
-  const backendHost = p.get('be');
-  const backendCode = p.get('bc');
-  const macDeviceId = p.get('md');
 
   if (!name) return null;
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
@@ -87,19 +83,6 @@ export function parsePairingLink(input: string): PairingLink | null {
   const tsOk = tailnet !== null && isTailnetAddress(tailnet);
   if ((lan !== null && !lanOk) || (tailnet !== null && !tsOk)) return null; // a bad address is not ignored, it's refused
   if (!lanOk && !tsOk) return null;
-  if ((backendHost === null) !== (backendCode === null)) return null;
-  if (backendHost !== null && (!BACKEND_HOST.test(backendHost) || !BACKEND_CODE.test(backendCode ?? ''))) return null;
 
-  return {
-    version: 2,
-    name,
-    lan: lanOk ? lan : null,
-    tailnet: tsOk ? tailnet : null,
-    port,
-    macCode,
-    backendHost,
-    backendCode,
-    // Only with a backend code (it names the Mac's backend device); anything malformed is ignored.
-    macDeviceId: backendHost !== null && macDeviceId !== null && MAC_DEVICE_ID.test(macDeviceId) ? macDeviceId : null,
-  };
+  return { version: 2, name, lan: lanOk ? lan : null, tailnet: tsOk ? tailnet : null, port, macCode };
 }

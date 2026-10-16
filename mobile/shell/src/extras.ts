@@ -186,6 +186,9 @@ export function createExtras(host: ExtrasHost) {
     /** A Mac allowed this phone: the one-time notification question (nothing while push is off). */
     approved: (): Promise<void> => wiring.paired().catch(() => undefined),
 
+    /** A sign-in gave this phone a new backend device (AASC-52): push registers with it, no question. */
+    backendLinked: (): Promise<void> => wiring.refresh().catch(() => undefined),
+
     dispose(): void {
       offs.forEach((off) => off());
       wiring.dispose();

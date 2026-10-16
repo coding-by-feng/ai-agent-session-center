@@ -25,8 +25,8 @@ export interface PairedPhone {
 export interface PhonePairing {
   code: string;
   expiresAt: number;
+  /** The QR: the Mac's code only. A phone gets its backend code once approved (AASC-52). */
   link: string;
-  backendIncluded: boolean;
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -67,6 +67,29 @@ export async function approvePhone(id: string): Promise<void> {
 export async function removePhone(id: string): Promise<void> {
   const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   await readJson(res, 'Could not remove the phone');
+}
+
+/**
+ * Backend phone devices this Mac made that no paired phone holds (AASC-52).
+ * `cloud: false`: no cloud connection, nothing to say.
+ */
+export type CloudPhones = { cloud: false } | { cloud: true; unlinked: number };
+
+export async function loadCloudPhones(signal?: AbortSignal): Promise<CloudPhones> {
+  const res = await fetch('/api/mobile/cloud-phones', { signal });
+  const body = await readJson<{ data?: { cloud?: unknown; unlinked?: unknown } }>(res, 'Could not check cloud phone devices');
+  const unlinked = body.data?.unlinked;
+  return body.data?.cloud === true && typeof unlinked === 'number' && Number.isInteger(unlinked) && unlinked >= 0
+    ? { cloud: true, unlinked }
+    : { cloud: false };
+}
+
+/** Revoke them on the backend. Never this Mac's own device or a phone paired here. */
+export async function removeUnlinkedCloudPhones(): Promise<{ removed: number; failed: number }> {
+  const res = await fetch('/api/mobile/cloud-phones/remove-unlinked', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+  const body = await readJson<{ data?: { removed?: unknown; failed?: unknown } }>(res, 'Could not remove the cloud phone devices');
+  const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0);
+  return { removed: count(body.data?.removed), failed: count(body.data?.failed) };
 }
 
 /** "ABCDEFGHJK" → "ABCDE-FGHJK", easier to read aloud or type. */

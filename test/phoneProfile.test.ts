@@ -164,6 +164,9 @@ describe('phoneRuleFor', () => {
     ['POST', '/phone-cloud/browse'], ['DELETE', '/phone-cloud/status'], ['PUT', '/phone-cloud/resources/abc/versions'],
     ['GET', '/phone-cloud'], ['GET', '/phone-cloud/resources'], ['GET', '/phone-cloud/resources/abc'],
     ['GET', '/phone-cloud/resources/abc/versions/2'], ['GET', '/phone-cloud/projects'],
+    // /api/mobile is the mobile router's own (mounted ahead of the profile): the phone's backend code
+    // checks its session itself, and the desktop's cloud phone list is never a phone's (AASC-52).
+    ['POST', '/mobile/backend-code'], ['GET', '/mobile/cloud-phones'], ['POST', '/mobile/cloud-phones/remove-unlinked'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();

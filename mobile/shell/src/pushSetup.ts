@@ -13,7 +13,7 @@ import { parsePush } from './pushPayload.js';
 import { createPushRegistrar, type BackendCredential, type PushRegistrar } from './pushRegistration.js';
 import { openFromTap, type TapOutcome } from './notificationTap.js';
 import type { ShellDeps } from './native.js';
-import { LAST_MAC_KEY, readBackendCredential, readMacCredentials, type SavedMac } from './savedMacs.js';
+import { forgetBackendCredential, LAST_MAC_KEY, readBackendCredential, readMacCredentials, type SavedMac } from './savedMacs.js';
 import { listSessions } from './sessions.js';
 import { probeWith, SESSION_COOKIE_MAX_AGE } from './shellFlows.js';
 
@@ -25,6 +25,8 @@ export interface PushWiring {
   start(): Promise<PushStart>;
   /** A Mac just allowed this phone: ask for permission once (pushRegistration 'paired'). */
   paired(): Promise<void>;
+  /** A sign-in just gave this phone a backend device (AASC-52): register with it too, never a prompt. */
+  refresh(): Promise<void>;
   dispose(): void;
 }
 
@@ -37,9 +39,10 @@ export interface PushAppHooks {
   tapFinished?(): void;
 }
 
-async function backendCredentials(deps: ShellDeps, macs: readonly SavedMac[]): Promise<BackendCredential[]> {
-  const found = await Promise.all(macs.map((m) => readBackendCredential(deps.vault, m.id).catch(() => null)));
-  return found.filter((c): c is BackendCredential => c !== null);
+/** Each Mac's backend credential, with the Mac it belongs to. */
+async function backendCredentials(deps: ShellDeps, macs: readonly SavedMac[]): Promise<Array<{ macId: string; cred: BackendCredential }>> {
+  const found = await Promise.all(macs.map(async (m) => ({ macId: m.id, cred: await readBackendCredential(deps.vault, m.id).catch(() => null) })));
+  return found.filter((f): f is { macId: string; cred: BackendCredential } => f.cred !== null);
 }
 
 /**
@@ -71,7 +74,7 @@ export function tapDeps(deps: ShellDeps, macs: readonly SavedMac[], lastServerId
 
 export function createPushWiring(deps: ShellDeps, app: PushAppHooks): PushWiring {
   let registrar: PushRegistrar | null = null;
-  let credentials: BackendCredential[] = [];
+  let credentials: Array<{ macId: string; cred: BackendCredential }> = [];
   let offTap: (() => void) | null = null;
 
   async function handleTap(raw: unknown): Promise<void> {
@@ -97,9 +100,13 @@ export function createPushWiring(deps: ShellDeps, app: PushAppHooks): PushWiring
         platform: host.platform,
         store: deps.store,
         http: deps.requester,
-        pairing: () => ({ paired: app.macs().length > 0, backend: credentials }),
+        pairing: () => ({ paired: app.macs().length > 0, backend: credentials.map((c) => c.cred) }),
+        // The backend no longer knows this device (revoked from the Mac or the owner CLI): forget its
+        // token, so the next sign-in asks that Mac for a new one (AASC-52).
         onRevoked: (deviceId) => {
-          credentials = credentials.filter((c) => c.deviceId !== deviceId);
+          const gone = credentials.filter((c) => c.cred.deviceId === deviceId);
+          credentials = credentials.filter((c) => c.cred.deviceId !== deviceId);
+          gone.forEach((c) => void forgetBackendCredential(deps.vault, c.macId).catch(() => undefined));
         },
       });
       offTap = host.onTap((n) => void handleTap(n).catch(() => undefined));
@@ -110,6 +117,11 @@ export function createPushWiring(deps: ShellDeps, app: PushAppHooks): PushWiring
       if (!registrar) return;
       credentials = await backendCredentials(deps, app.macs());
       await registrar.start('paired');
+    },
+    async refresh() {
+      if (!registrar) return;
+      credentials = await backendCredentials(deps, app.macs());
+      await registrar.start('launch');
     },
     dispose() {
       offTap?.();

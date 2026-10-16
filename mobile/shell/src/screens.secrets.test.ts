@@ -40,8 +40,8 @@ describe('where the tokens go', () => {
     t.mac.approve();
     await until(t.root, () => t.navigations.length > 0);
 
-    // Every secret the Mac and the backend handed out: device, backend and session tokens.
-    expect(t.mac.issued.length).toBeGreaterThanOrEqual(3);
+    // Every secret the Mac and the backend handed out: device and session tokens, the backend code, the backend token.
+    expect(t.mac.issued.length).toBeGreaterThanOrEqual(4);
     const visible = [
       ...t.store.values(),
       ...t.navigations,
@@ -55,10 +55,14 @@ describe('where the tokens go', () => {
     expect(local.setItem).not.toHaveBeenCalled();
     expect(session.setItem).not.toHaveBeenCalled();
 
-    // The device token reached the vault, the session token only the native cookie.
-    const [device, backend, sessionToken] = t.mac.issued;
-    expect([...t.vault.values()].join('\n')).toContain(device);
-    expect([...t.vault.values()].join('\n')).toContain(backend);
+    // The device and backend tokens reached the vault, the session token only the native cookie. The backend
+    // code the Mac issued after approval (AASC-52) went to the backend and nowhere else: not even the vault.
+    const [device, sessionToken, backendCode, backend] = t.mac.issued;
+    const vaulted = [...t.vault.values()].join('\n');
+    expect(vaulted).toContain(device);
+    expect(vaulted).toContain(backend);
+    expect(vaulted).not.toContain(backendCode);
+    expect(t.mac.backendCodes()).toEqual([backendCode]);
     expect(t.cookies.map((c) => c.token)).toEqual([sessionToken]);
   });
 

@@ -53,14 +53,86 @@ function pairPhone(label = 'Kason iPhone') {
   return result;
 }
 
-describe('backend code (AASC-51)', () => {
-  it('is Mac-bound only when the Mac attached it to the pairing code the phone redeemed', () => {
+function approvedPhone(label = 'Kason iPhone') {
+  const phone = pairPhone(label);
+  auth.approve(phone.device.id);
+  return phone;
+}
+
+describe('backend code (AASC-51, AASC-52)', () => {
+  it('a redeemed pairing code never carries one: the QR has the Mac code only', () => {
     expect(pairPhone().device).toMatchObject({ beCodeRef: null, beCodeRefMacBound: false });
-    const { code } = auth.createPairingCode();
-    expect(auth.attachBackendCode(code, 'ref-1')).toBe(true);
-    const bound = auth.redeem({ code, label: 'Phone', platform: 'ios' })!;
-    expect(bound.device).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
-    expect(store.rows.get(bound.device.id)).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
+    expect('attachBackendCode' in auth).toBe(false);
+  });
+
+  it('goes only to an approved phone whose token is from the current password', () => {
+    expect(auth.backendCodeHolder('00000000-0000-4000-8000-000000000000')).toEqual({ ok: false, reason: 'unknown' });
+    const pending = pairPhone('Pending');
+    expect(auth.backendCodeHolder(pending.device.id)).toEqual({ ok: false, reason: 'pending' });
+    const active = approvedPhone();
+    expect(auth.backendCodeHolder(active.device.id)).toMatchObject({ ok: true, device: { id: active.device.id, status: 'active' } });
+    auth.revoke(active.device.id);
+    expect(auth.backendCodeHolder(active.device.id)).toEqual({ ok: false, reason: 'revoked' });
+  });
+
+  it('a phone from before a password change is refused and revoked on the spot', () => {
+    const phone = approvedPhone();
+    epoch = 'pw-2';
+    expect(auth.backendCodeHolder(phone.device.id)).toEqual({ ok: false, reason: 'revoked' });
+    expect(store.rows.get(phone.device.id)?.status).toBe('revoked');
+    expect(onRevoked).toHaveBeenCalledTimes(1);
+  });
+
+  it('is bound to the phone it was issued to, by the Mac (never by the phone)', () => {
+    const phone = approvedPhone();
+    expect(auth.bindBackendCode(phone.device.id, 'ref-1')).toBe(true);
+    expect(store.rows.get(phone.device.id)).toMatchObject({ beCodeRef: 'ref-1', beCodeRefMacBound: true });
+    // Asking again replaces it: one phone, one backend code.
+    expect(auth.bindBackendCode(phone.device.id, 'ref-2')).toBe(true);
+    expect(store.rows.get(phone.device.id)).toMatchObject({ beCodeRef: 'ref-2', beCodeRefMacBound: true });
+    const pending = pairPhone('Pending');
+    expect(auth.bindBackendCode(pending.device.id, 'ref-3')).toBe(false);
+    expect(store.rows.get(pending.device.id)?.beCodeRef).toBeNull();
+  });
+
+  it('lists the backend codes bound to live phones only', () => {
+    const a = approvedPhone('A');
+    const b = approvedPhone('B');
+    approvedPhone('C'); // no backend code
+    auth.bindBackendCode(a.device.id, 'ref-a');
+    auth.bindBackendCode(b.device.id, 'ref-b');
+    auth.revoke(b.device.id);
+    store.insert({ ...a.device, id: 'legacy', tokenHash: 'f'.repeat(64), beCodeRef: 'phone-chosen', beCodeRefMacBound: false });
+    expect([...auth.linkedBackendCodeRefs()]).toEqual(['ref-a']);
+  });
+});
+
+describe('a password change (AASC-52)', () => {
+  it('revokes every phone paired under the old password at once, not at its next sign-in', () => {
+    const a = approvedPhone('A');
+    const b = pairPhone('B'); // pending phones too
+    auth.bindBackendCode(a.device.id, 'ref-a');
+    expect(auth.revokeStaleCredentials()).toBe(0);
+    expect(onRevoked).not.toHaveBeenCalled();
+    epoch = 'pw-2';
+    const c = approvedPhone('C'); // paired under the new password: stays
+    expect(auth.revokeStaleCredentials()).toBe(2);
+    expect(onRevoked.mock.calls.map(([d]) => d.id).sort()).toEqual([a.device.id, b.device.id].sort());
+    // The handler gets the full record, so it can revoke the backend device bound to it.
+    expect(onRevoked.mock.calls.find(([d]) => d.id === a.device.id)?.[0]).toMatchObject({ beCodeRef: 'ref-a', beCodeRefMacBound: true, status: 'revoked' });
+    expect(store.rows.get(c.device.id)?.status).toBe('active');
+    expect(auth.revokeStaleCredentials()).toBe(0); // once
+  });
+
+  it('revokes nothing when no password is in force: an unreadable config must not wipe every phone', () => {
+    const a = approvedPhone('A');
+    epoch = null; // server-config.json missing, truncated or cleared: the phone routes refuse anyway
+    expect(auth.revokeStaleCredentials()).toBe(0);
+    expect(store.rows.get(a.device.id)?.status).toBe('active');
+    epoch = 'pw-1'; // the same password back: the phone still works
+    expect(signIn(a.device.id, a.deviceToken).ok).toBe(true);
+    epoch = 'pw-2'; // a different one: revoked then
+    expect(auth.revokeStaleCredentials()).toBe(1);
   });
 });
 

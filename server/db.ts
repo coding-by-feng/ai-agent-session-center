@@ -950,8 +950,8 @@ export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;
 }
 export function updateMobileDevice(id: string, patch: Partial<Pick<MobileDeviceRow,
-  'status' | 'approved_at' | 'last_seen_at' | 'revoked_at'>>): void {
-  const allowed = new Set(['status', 'approved_at', 'last_seen_at', 'revoked_at']);
+  'status' | 'approved_at' | 'last_seen_at' | 'revoked_at' | 'be_code_ref' | 'be_code_ref_mac_bound'>>): void {
+  const allowed = new Set(['status', 'approved_at', 'last_seen_at', 'revoked_at', 'be_code_ref', 'be_code_ref_mac_bound']);
   const keys = (Object.keys(patch) as Array<keyof typeof patch>).filter((k) => allowed.has(k));
   if (keys.length === 0) return;
   const sets = keys.map((k) => `${k} = @${k}`).join(', ');
@@ -962,4 +962,34 @@ export function listMobileDevices(): MobileDeviceRow[] {
 }
 export function deleteMobileDevice(id: string): void {
   db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(id);
+}
+
+// Every backend phone code this Mac minted (AASC-52): which phone it went to and
+// when. Never the code itself, only its non-secret ref. Seeded once from the
+// refs phones already hold (revoked rows too), so a backend device made from an
+// earlier code still counts as this Mac's.
+db.exec(`CREATE TABLE IF NOT EXISTS mobile_backend_codes (
+  code_ref TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  minted_at INTEGER NOT NULL
+)`);
+try {
+  db.exec(`INSERT OR IGNORE INTO mobile_backend_codes (code_ref, device_id, minted_at)
+    SELECT be_code_ref, id, COALESCE(approved_at, created_at) FROM mobile_devices
+    WHERE be_code_ref IS NOT NULL AND be_code_ref_mac_bound = 1`);
+} catch (err: unknown) {
+  log.warn('db', `Backend code ledger not seeded: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+export interface MobileBackendCodeRow {
+  code_ref: string;
+  device_id: string;
+  minted_at: number;
+}
+
+export function insertMobileBackendCode(row: MobileBackendCodeRow): void {
+  db.prepare('INSERT OR IGNORE INTO mobile_backend_codes (code_ref, device_id, minted_at) VALUES (@code_ref, @device_id, @minted_at)').run(row);
+}
+export function getMobileBackendCode(codeRef: string): MobileBackendCodeRow | null {
+  return (db.prepare('SELECT * FROM mobile_backend_codes WHERE code_ref = ?').get(codeRef) as MobileBackendCodeRow | undefined) ?? null;
 }

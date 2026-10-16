@@ -2,8 +2,10 @@
 //
 // Answers the same routes as server/mobile/mobileRouter.ts and the backend's
 // device pairing, with the same status codes, and checks the device proof the
-// way the Mac does. Never bundled into a release build: only platform/dev.ts
-// (development mode) and the tests import it.
+// way the Mac does. The backend code comes from the Mac to a signed-in phone
+// (POST /api/mobile/backend-code, AASC-52) and is single use at the backend.
+// Never bundled into a release build: only platform/dev.ts (development mode)
+// and the tests import it.
 import type { HttpMethod, HttpRequest, HttpRequester } from '../http.js';
 import { deviceProof, type HttpClient, type HttpResponse } from '../pairingClient.js';
 
@@ -20,6 +22,10 @@ export interface FakeMacOptions {
   denyAfter?: number | null;
   confirmCode?: string;
   backendHost?: string;
+  /** Does this Mac have a cloud connection (AASC-52)? Without one it answers NO_CLOUD. Default: yes. */
+  cloud?: boolean;
+  /** This Mac's own backend device id, sent with each backend code. */
+  macDeviceId?: string | null;
   /** What GET /api/sessions lists to a signed-in phone (the sessions shared with it). */
   sessions?: ReadonlyArray<{ sessionId: string; status: string; title: string; lastActivityAt?: number }>;
 }
@@ -57,6 +63,14 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   let codeUsed = false;
   const backendHost = opts.backendHost ?? 'api.aasc.work';
   let backendTargets = 0;
+  let cloud = opts.cloud ?? true;
+  let backendDown = false;
+  let backendHang = false;
+  /** Backend codes the Mac issued, and whether the backend has redeemed each. */
+  const backendCodes = new Map<string, boolean>();
+  /** Backend device tokens by device id, and the ids revoked. */
+  const backendDevices = new Map<string, string>();
+  const revokedBackend = new Set<string>();
   const sessionTokens = new Set<string>();
   /** Items the phone appended to a queue: [sessionId, body]. */
   const queued: Array<[string, unknown]> = [];
@@ -70,9 +84,16 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   /** The routes a signed-in phone uses (Bearer session token, as the shell sends it). */
   function sessionRoute(path: string, method: HttpMethod, headers: Record<string, string>, body: unknown): HttpResponse | null {
     const queue = /^\/api\/sessions\/([^/]+)\/queue\/items$/.exec(path);
-    if (!(method === 'GET' && path === '/api/sessions') && !(method === 'POST' && queue)) return null;
+    const backendCode = method === 'POST' && path === '/api/mobile/backend-code';
+    if (!(method === 'GET' && path === '/api/sessions') && !(method === 'POST' && queue) && !backendCode) return null;
     const token = (headers.Authorization ?? '').replace(/^Bearer /, '');
-    if (!sessionTokens.has(token)) return ok(401, { error: 'Unauthorized' });
+    if (!sessionTokens.has(token)) return ok(401, { error: 'Sign in first', code: 'NOT_SIGNED_IN' });
+    if (backendCode) {
+      if (!cloud) return ok(409, { error: 'This Mac isn’t connected to the AASC cloud', code: 'NO_CLOUD' });
+      const code = issue(randomHex(16)); // 32 characters, inside the backend code's alphabet
+      backendCodes.set(code, false);
+      return ok(200, { success: true, data: { host: backendHost, code, macDeviceId: opts.macDeviceId === undefined ? 'mac-dev-1' : opts.macDeviceId } });
+    }
     const listed = opts.sessions ?? [];
     if (!queue) return ok(200, Object.fromEntries(listed.map((x) => [x.sessionId, x])));
     const id = decodeURIComponent(queue[1]);
@@ -126,10 +147,23 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     return ok(404, { error: 'Not found' });
   }
 
-  function backendRoute(path: string, method: HttpMethod): HttpResponse {
+  function backendRoute(path: string, method: HttpMethod, headers: Record<string, string>, body: Record<string, unknown>): HttpResponse {
+    if (backendDown) throw new Error('backend unreachable');
     if (method === 'POST' && path === '/v1/devices/pair') {
-      return ok(201, { success: true, data: { deviceId: `be-${randomHex(4)}`, token: issue(randomHex(32)) } });
+      const code = String(body.code ?? '');
+      if (backendCodes.get(code) !== false) return ok(401, { success: false, error: { code: 'invalid_pairing_code' } });
+      backendCodes.set(code, true);
+      const deviceId = `be-${randomHex(4)}`;
+      const token = issue(randomHex(32));
+      backendDevices.set(deviceId, token);
+      return ok(201, { success: true, data: { deviceId, token } });
     }
+    const bearerToken = (headers.Authorization ?? '').replace(/^Bearer /, '');
+    const device = [...backendDevices.entries()].find(([, t]) => t === bearerToken)?.[0];
+    if (path === '/v1/push/targets/self' && (!device || revokedBackend.has(device))) {
+      return ok(401, { success: false, error: { code: 'unauthorized' } });
+    }
+    if (method === 'PUT' && path === '/v1/push/targets/self') return ok(200, { success: true, data: { targetId: `t-${device}` } });
     if (method === 'DELETE' && path === '/v1/push/targets/self') {
       backendTargets += 1;
       return ok(200, { success: true });
@@ -140,7 +174,10 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   async function handle(req: HttpRequest): Promise<HttpResponse> {
     calls.push({ method: req.method, url: req.url, headers: { ...req.headers }, body: req.body });
     const url = new URL(req.url);
-    if (url.protocol === 'https:' && url.host === backendHost) return backendRoute(url.pathname, req.method);
+    if (url.protocol === 'https:' && url.host === backendHost) {
+      if (backendHang) return new Promise<HttpResponse>(() => undefined); // a cloud that never answers
+      return backendRoute(url.pathname, req.method, req.headers ?? {}, (req.body ?? {}) as Record<string, unknown>);
+    }
     if (!reachable.has(url.origin)) throw new Error('network unreachable');
     return macRoute(url.pathname, req.method, (req.body ?? {}) as Record<string, unknown>, req.headers ?? {});
   }
@@ -192,6 +229,31 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
       if (d) d[1].status = 'revoked';
     },
     pushTargetsRemoved: () => backendTargets,
+    /** The Mac gets (or loses) its cloud connection. */
+    setCloud(on: boolean) {
+      cloud = on;
+    },
+    /** The backend stops (or starts) answering: refused at once. */
+    setBackendDown(down: boolean) {
+      backendDown = down;
+    },
+    /** The backend hangs: requests never come back. */
+    setBackendHang(hang: boolean) {
+      backendHang = hang;
+    },
+    /** Every backend code the Mac issued, oldest first. */
+    backendCodes: () => [...backendCodes.keys()],
+    /** A backend device this phone redeemed earlier (tests): its credential, as the vault keeps it. */
+    seedBackendDevice(): { host: string; deviceId: string; token: string } {
+      const deviceId = `be-${randomHex(4)}`;
+      const token = issue(randomHex(32));
+      backendDevices.set(deviceId, token);
+      return { host: backendHost, deviceId, token };
+    },
+    /** Revoke a backend device, as "Remove them" on the Mac or the owner CLI would. */
+    revokeBackendDevice(deviceId: string) {
+      revokedBackend.add(deviceId);
+    },
   };
 }
 

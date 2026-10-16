@@ -7,8 +7,8 @@
 // After pairing, the device token never travels again: signing in answers a
 // single-use server nonce with HMAC-SHA256(key = SHA-256(token), nonce), so a
 // sniffed exchange on the home network can't be replayed.
-import type { PairingLink } from './pairingLink.js';
-import { field } from './http.js';
+import { isBackendHost, type PairingLink } from './pairingLink.js';
+import { errorCode, field, jsonHeaders, type HttpRequester } from './http.js';
 
 export interface HttpResponse {
   status: number;
@@ -56,12 +56,44 @@ export async function pairWithMac(
   return { deviceId, deviceToken, confirmCode };
 }
 
-/** Pair with the backend for push. Null when the QR carried no backend code. */
+const BACKEND_CODE = /^[A-Za-z0-9_-]{16,64}$/;
+const MAC_DEVICE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+export type BackendCodeResult =
+  | { status: 'ok'; host: string; code: string; macDeviceId: string | null }
+  /** The Mac has no cloud connection: Mac only, nothing to say. */
+  | { status: 'no-cloud' }
+  /** Anything else (offline, refused, too soon): asked again at the next sign-in. */
+  | { status: 'unavailable' };
+
+/**
+ * AASC-52: ask the Mac that just allowed this phone for its backend code, over
+ * the session it signed in with. Never throws; the code stays in memory only.
+ */
+export async function requestBackendCode(http: HttpRequester, origin: string, sessionToken: string): Promise<BackendCodeResult> {
+  let res: HttpResponse;
+  try {
+    res = await http.request({ method: 'POST', url: `${origin}/api/mobile/backend-code`, headers: jsonHeaders(sessionToken), body: {} });
+  } catch {
+    return { status: 'unavailable' };
+  }
+  if (res.status === 409 && errorCode(res.data) === 'NO_CLOUD') return { status: 'no-cloud' };
+  if (res.status !== 200) return { status: 'unavailable' };
+  const host = field(res.data, ['data', 'host']);
+  const code = field(res.data, ['data', 'code']);
+  const macDeviceId = field(res.data, ['data', 'macDeviceId']);
+  if (typeof host !== 'string' || !isBackendHost(host) || typeof code !== 'string' || !BACKEND_CODE.test(code)) {
+    return { status: 'unavailable' };
+  }
+  return { status: 'ok', host, code, macDeviceId: typeof macDeviceId === 'string' && MAC_DEVICE_ID.test(macDeviceId) ? macDeviceId : null };
+}
+
+/** Redeem the backend code a Mac issued, for this phone's own backend device (push). */
 export async function pairWithBackend(
-  http: HttpClient, link: PairingLink, label: string,
-): Promise<{ deviceId: string; token: string } | null> {
-  if (!link.backendHost || !link.backendCode) return null;
-  const res = await http.post(`https://${link.backendHost}/v1/devices/pair`, { code: link.backendCode, name: label.slice(0, 128) });
+  http: HttpClient, host: string, code: string, label: string,
+): Promise<{ deviceId: string; token: string }> {
+  if (!isBackendHost(host) || !BACKEND_CODE.test(code)) throw new Error('Not an AASC backend code');
+  const res = await http.post(`https://${host}/v1/devices/pair`, { code, name: label.slice(0, 128) });
   if (res.status !== 200 && res.status !== 201) throw new Error(`Backend pairing failed (${res.status})`);
   const token = field(res.data, ['data', 'token']);
   const deviceId = field(res.data, ['data', 'deviceId']);

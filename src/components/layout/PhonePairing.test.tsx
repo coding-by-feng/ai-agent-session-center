@@ -10,6 +10,9 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 let phones: PairedPhone[] = [];
 let offered = true;
 let calls: Array<{ url: string; method: string }> = [];
+/** What GET /api/mobile/cloud-phones answers (AASC-52), and what removing them leaves. */
+let cloudPhones: { cloud: boolean; unlinked?: number };
+let removal: { removed: number; failed: number };
 
 function json(status: number, body: unknown) {
   return Promise.resolve({ ok: status < 400, status, json: async () => body });
@@ -26,14 +29,21 @@ beforeEach(() => {
   phones = [];
   offered = true;
   calls = [];
+  cloudPhones = { cloud: true, unlinked: 0 };
+  removal = { removed: 0, failed: 0 };
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ url, method });
     if (url === '/api/mobile/devices') return json(200, { success: true, data: { devices: phones, pairingOffered: offered } });
+    if (url === '/api/mobile/cloud-phones') return json(200, { success: true, data: cloudPhones });
+    if (url === '/api/mobile/cloud-phones/remove-unlinked' && method === 'POST') {
+      cloudPhones = { cloud: true, unlinked: removal.failed };
+      return json(200, { success: true, data: removal });
+    }
     if (url === '/api/mobile/pairing') {
       return json(200, {
         success: true,
-        data: { code: 'ABCDEFGHJK', expiresAt: Date.now() + 120_000, link: 'https://aasc.work/pair#v=2&mc=ABCDEFGHJK', backendIncluded: false },
+        data: { code: 'ABCDEFGHJK', expiresAt: Date.now() + 120_000, link: 'https://aasc.work/pair#v=2&mc=ABCDEFGHJK' },
       });
     }
     if (url.endsWith('/approve')) { phones = phones.map((p) => ({ ...p, status: 'active', confirmCode: null })); return json(200, { success: true }); }
@@ -60,7 +70,8 @@ describe('PhonePairing', () => {
     expect(await screen.findByRole('img', { name: 'QR code to pair a phone' })).toBeTruthy();
     expect(screen.getByText('ABCDE-FGHJK')).toBeTruthy();
     expect(screen.getByText(/Expires in [12]:\d\d/)).toBeTruthy();
-    expect(screen.getByText(/Notifications need the AASC backend/)).toBeTruthy();
+    // AASC-52: the QR never carries a backend code, so there is no "pair again for notifications" note.
+    expect(screen.queryByText(/Notifications need the AASC backend/)).toBeNull();
     expect(calls.some((c) => c.url === '/api/mobile/pairing' && c.method === 'POST')).toBe(true);
   });
 
@@ -135,6 +146,75 @@ describe('PhonePairing', () => {
     expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
   });
 });
+
+describe('cloud phone devices not linked to a paired phone (AASC-52)', () => {
+  const active = () => phone({ status: 'active', confirmCode: null, lastSeenAt: Date.now() });
+
+  it('says how many, and removes them only after a second click', async () => {
+    phones = [active()];
+    cloudPhones = { cloud: true, unlinked: 2 };
+    removal = { removed: 2, failed: 0 };
+    render(<PhonePairing />);
+    expect(await screen.findByText('2 cloud phone devices aren’t linked to a paired phone.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove them' }));
+    expect(calls.some((c) => c.url === '/api/mobile/cloud-phones/remove-unlinked')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove them' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 2' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/cloud-phones/remove-unlinked' && c.method === 'POST')).toBe(true));
+    await waitFor(() => expect(screen.queryByText(/aren’t linked to a paired phone/)).toBeNull());
+    expect(screen.getByText('Kason iPhone')).toBeTruthy(); // the paired phone stays
+  });
+
+  it('says it in the singular, and what couldn’t be removed', async () => {
+    phones = [active()];
+    cloudPhones = { cloud: true, unlinked: 1 };
+    removal = { removed: 0, failed: 1 };
+    render(<PhonePairing />);
+    expect(await screen.findByText('1 cloud phone device isn’t linked to a paired phone.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove them' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 1' }));
+    expect(await screen.findByText('1 couldn’t be removed. Try again later.')).toBeTruthy();
+  });
+
+  it('shows nothing when there are none, or no cloud connection', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    await screen.findByText('Kason iPhone');
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/cloud-phones')).toBe(true));
+    expect(screen.queryByText(/linked to a paired phone/)).toBeNull();
+    cleanupAndRender({ cloud: false });
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/mobile/cloud-phones')).toHaveLength(2));
+    expect(screen.queryByText(/linked to a paired phone/)).toBeNull();
+  });
+
+  it('asks the cloud once when the panel opens, not on every 2-second refresh', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      phones = [active()];
+      render(<PhonePairing />);
+      await screen.findByText('Kason iPhone');
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls.filter((c) => c.url === '/api/mobile/devices').length).toBeGreaterThan(3);
+      expect(calls.filter((c) => c.url === '/api/mobile/cloud-phones')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the line even with no phone paired and pairing not offered: they are leftovers', async () => {
+    offered = false;
+    cloudPhones = { cloud: true, unlinked: 3 };
+    render(<PhonePairing />);
+    expect(await screen.findByText('3 cloud phone devices aren’t linked to a paired phone.')).toBeTruthy();
+  });
+});
+
+function cleanupAndRender(next: { cloud: boolean; unlinked?: number }) {
+  document.body.replaceChildren();
+  cloudPhones = next;
+  render(<PhonePairing />);
+}
 
 describe('qrSvg', () => {
   it('encodes a pairing link into a square grid with a quiet zone', () => {

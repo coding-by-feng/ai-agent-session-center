@@ -70,6 +70,8 @@ function pairScreen(notice: string | null = null, error: string | null = null): 
 export interface ShellTiming {
   pollMs: number;
   pollMaxMs: number;
+  /** How long opening a Mac waits for its backend device (shellFlows LINK_BUDGET_MS). */
+  linkMs?: number;
 }
 
 export function createShellApp(
@@ -192,7 +194,7 @@ export function createShellApp(
       pollTimer = null;
       const current = find(mac.id);
       if (my !== gen || !deps || !current) return;
-      const out = await serial(() => signInAndOpen(deps, macs, current, '/'));
+      const out = await serial(() => signInAndOpen(deps, macs, current, '/', undefined, timing.linkMs));
       if (my !== gen) return;
       if (out.kind === 'revoked') {
         macs = out.macs;
@@ -234,11 +236,12 @@ export function createShellApp(
     const my = gen;
     const out = await serial(() => signInAndOpen(deps, macs, mac, back, (c) => {
       if (my === gen) update({ status: tryingText(mac, c) });
-    }));
+    }, timing.linkMs));
     if (my !== gen) return; // the user cancelled
     switch (out.kind) {
       case 'navigate':
-        leaveFor(out);
+        if (out.backendLinked) await extras?.backendLinked(); // push registers before the Mac's page loads
+        if (my === gen) leaveFor(out);
         return;
       case 'pending':
         showApprove(out.mac, false);

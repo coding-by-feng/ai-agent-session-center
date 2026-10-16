@@ -1,19 +1,22 @@
 // shellHarness.ts — the shell app on a fake phone and a fake Mac, for the screen tests (AASC-17).
 // Plain TS (no vitest import) so it type-checks with the shell; never bundled.
 import { createShellApp, type ShellApp, type ShellTiming } from '../app.js';
-import { createFakeMac, type FakeDeviceStatus, type FakeMacOptions } from '../dev/fakeMac.js';
+import { createFakeMac, type FakeDeviceStatus, type FakeMac, type FakeMacOptions } from '../dev/fakeMac.js';
 import type { BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { NotificationLike } from '../pushPayload.js';
 import { loadMacs, saveMacs, withMac, writeMacCredentials, type SavedMac } from '../savedMacs.js';
 
 export const TAILNET = 'http://100.101.102.103:3333';
 export const LAN = 'http://192.168.1.20:3333';
-export const LINK = 'https://aasc.work/pair#v=2&name=Kason-MBP&lan=192.168.1.20&ts=100.101.102.103&p=3333&mc=K7Q2M9XPZT'
-  + '&be=api.aasc.work&bc=abcdefghijklmnopqrstuv&md=mac-dev-1';
+export const LINK = 'https://aasc.work/pair#v=2&name=Kason-MBP&lan=192.168.1.20&ts=100.101.102.103&p=3333&mc=K7Q2M9XPZT';
+/** A QR from before AASC-52: it also carried a backend code, which the shell now ignores. */
+export const LEGACY_LINK = `${LINK}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv&md=mac-dev-1`;
 export const LAN_ONLY_LINK = 'https://aasc.work/pair#v=2&name=Home-Mac&lan=192.168.1.20&p=3333&mc=K7Q2M9XPZT';
 
 export interface HarnessOptions {
   mac?: FakeMacOptions;
+  /** The same fake Mac again (a later launch of the same phone); `mac` is ignored then. */
+  fakeMac?: FakeMac;
   search?: string;
   launchUrl?: string | null;
   os?: ShellOs;
@@ -31,7 +34,7 @@ export interface HarnessOptions {
 }
 
 export function createHarness(opts: HarnessOptions = {}) {
-  const mac = createFakeMac({ reachable: [TAILNET], approveAfter: null, confirmCode: '482913', ...opts.mac });
+  const mac = opts.fakeMac ?? createFakeMac({ reachable: [TAILNET], approveAfter: null, confirmCode: '482913', ...opts.mac });
   const vault = new Map<string, string>(Object.entries(opts.vault ?? {}));
   const store = new Map<string, string>(Object.entries(opts.store ?? {}));
   const cookies: Array<{ origin: string; token: string; maxAgeSeconds: number }> = [];
@@ -44,6 +47,8 @@ export function createHarness(opts: HarnessOptions = {}) {
     registered: 0,
     permissionAsked: 0,
     tap: null as ((n: NotificationLike) => void) | null,
+    /** The platform's token listener: a test calls it to hand the registrar a push token. */
+    token: null as ((token: string) => void) | null,
     share: opts.share ?? null,
     authAsked: 0,
     biometricPass: opts.biometric?.pass ?? false,
@@ -67,7 +72,12 @@ export function createHarness(opts: HarnessOptions = {}) {
         extras.registered += 1;
       },
       unregister: async () => undefined,
-      onToken: () => () => undefined,
+      onToken: (cb) => {
+        extras.token = cb;
+        return () => {
+          extras.token = null;
+        };
+      },
       onRegistrationError: () => () => undefined,
       environment: () => 'production',
     },

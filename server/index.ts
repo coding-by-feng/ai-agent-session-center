@@ -32,13 +32,15 @@ import { resolvePort, killPortProcess } from './portManager.js';
 import { getLocalIP, getTailnetIP } from './networkInfo.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
-import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
+import { sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
-import { createPhoneRevokedHandler } from './mobile/phoneRevocation.js';
+import { createPhoneRevokedHandler, revokePhonesFromOldPassword } from './mobile/phoneRevocation.js';
+import { createPhoneBackendCodes } from './mobile/phoneBackendCode.js';
+import { createCloudPhoneAudit } from './mobile/cloudPhoneAudit.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { createPhoneCloud, createPhoneCloudRouter } from './mobile/phoneCloud.js';
 import { createCloudReadLog } from './mobile/cloudReadLog.js';
@@ -52,6 +54,7 @@ import {
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
+  requestSession,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
@@ -129,7 +132,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const cloudSetup = await openCloudConnection(options);
   const cloud = cloudSetup?.cloud ?? null;
   // Phone pairing and push through the cloud connection, when one is connected (AASC-15/16).
-  const phoneCloud = createPhoneCloudBridge({ cloud, warn: (message) => log.warn('mobile', message) });
+  const phoneCloud = createPhoneCloudBridge({
+    cloud,
+    warn: (message) => log.warn('mobile', message),
+    // A revoked phone's code that wasn't redeemed yet is checked once more after it expires (AASC-52).
+    issuedAt: (codeRef) => sqliteBackendCodeLedger.mintedAt(codeRef),
+  });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
 
@@ -277,13 +285,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   // -- Phone pairing (AASC-15) --
   // Mounted before authMiddleware: /pair, /session and /unpair are the phone's
-  // own authentication, and the desktop routes use the RESOURCES local gate.
+  // own authentication, /backend-code checks the phone's session itself
+  // (AASC-52), and the desktop routes use the RESOURCES local gate.
   const deviceAuth = createDeviceAuth({
     store: sqliteMobileDeviceStore,
-    // Changing the dashboard password revokes every paired phone on its next sign-in.
+    // A device token is bound to the dashboard password it was issued under.
     credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
     // End every session and live socket the phone holds, then revoke the backend
-    // device it created from the QR's backend code (if any): one revoke cuts both.
+    // device it created from the backend code the Mac issued it: one revoke cuts both.
     onRevoked: createPhoneRevokedHandler({
       revokeTokens: revokeTokensForDevice,
       disconnect: disconnectDevice,
@@ -291,6 +300,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       info: (message) => log.info('mobile', message),
     }),
   });
+  // The password is read at startup: a changed one revokes every phone paired
+  // under the old one now, backend devices included (AASC-52), not at its next sign-in.
+  revokePhonesFromOldPassword(deviceAuth, (message) => log.info('mobile', message));
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
@@ -306,7 +318,22 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       tailnet: getTailnetIP(),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
-    mintBackendCode: () => phoneCloud.mintBackendCode(),
+    sessionOf: requestSession,
+    // AASC-52: an approved, signed-in phone asks for its backend code; never in the QR.
+    backendCodes: createPhoneBackendCodes({
+      deviceAuth,
+      cloud: phoneCloud,
+      ledger: sqliteBackendCodeLedger,
+      info: (message) => log.info('mobile', message),
+      warn: (message) => log.warn('mobile', message),
+    }),
+    // The desktop's "cloud phone devices not linked to a paired phone" line.
+    cloudPhones: createCloudPhoneAudit({
+      cloud: phoneCloud,
+      linkedCodeRefs: () => deviceAuth.linkedBackendCodeRefs(),
+      mintedHere: (codeRef) => sqliteBackendCodeLedger.has(codeRef),
+      warn: (message) => log.warn('mobile', message),
+    }),
   }));
 
   // -- Agent Resources (RESOURCES tab) --

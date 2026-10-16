@@ -255,6 +255,16 @@ export function extractToken(req: IncomingMessage): string | null {
 }
 
 /**
+ * Who signed this request in (AASC-52): null without a valid session, `deviceId:
+ * null` for a password sign-in, else the paired phone the session belongs to.
+ * The same token lookup as authMiddleware (cookie, then Bearer, then query).
+ */
+export function requestSession(req: IncomingMessage): { deviceId: string | null } | null {
+  const token = extractToken(req);
+  return validateToken(token) ? { deviceId: getTokenDeviceId(token) } : null;
+}
+
+/**
  * Express middleware: protect routes that require authentication.
  * Checks cookie, Authorization header, and query string.
  * Skips auth check if password is not enabled.

@@ -114,17 +114,17 @@ async function pairedPhone(): Promise<{ deviceId: string; deviceToken: string; c
 }
 
 describe('POST /pairing (desktop)', () => {
-  it('returns a code and an aasc.work link with the codes in the fragment', async () => {
+  it('returns a code and an aasc.work link with the code in the fragment', async () => {
     const res = await call('POST', '/pairing', { body: {} });
     expect(res.status).toBe(200);
-    const { code, link, backendIncluded } = res.body.data;
+    const { code, link } = res.body.data;
     expect(link.startsWith(`${PAIRING_LINK_BASE}#`)).toBe(true);
     const params = new URLSearchParams(link.split('#')[1]);
     expect(params.get('mc')).toBe(code);
     expect(params.get('lan')).toBe('192.168.1.20');
     expect(params.get('ts')).toBe('100.100.1.2');
     expect(params.get('p')).toBe('3333');
-    expect(backendIncluded).toBe(false);
+    expect(res.body.data).not.toHaveProperty('backendIncluded');
   });
 
   it('refuses when no dashboard password is set (phones are remote devices)', async () => {
@@ -285,22 +285,11 @@ describe('phone routes', () => {
 });
 
 describe('buildPairingLink', () => {
-  it('adds the backend host and code when the Mac is connected to the backend', () => {
-    const link = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: null }, 'MACCODE234',
-      { host: 'api.aasc.work', code: 'backendcode', codeRef: 'ref1' });
+  it('carries the Mac code only: never a backend host, code or Mac device id (AASC-52)', () => {
+    const link = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: '100.100.1.2' }, 'MACCODE234');
     const params = new URLSearchParams(link.split('#')[1]);
-    expect(params.get('be')).toBe('api.aasc.work');
-    expect(params.get('bc')).toBe('backendcode');
+    expect([...params.keys()]).toEqual(['v', 'name', 'ts', 'p', 'mc']);
+    expect(params.get('mc')).toBe('MACCODE234');
     expect(params.has('lan')).toBe(false);
-    expect(link).not.toContain('ref1'); // the code reference is the Mac's own bookkeeping
-  });
-
-  it('names this Mac’s backend device so a phone with several Macs knows who sent a notification', () => {
-    const link = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: null }, 'MACCODE234',
-      { host: 'api.aasc.work', code: 'backendcode', codeRef: 'ref1', macDeviceId: 'mac-device-1' });
-    expect(new URLSearchParams(link.split('#')[1]).get('md')).toBe('mac-device-1');
-    const odd = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: null }, 'MACCODE234',
-      { host: 'api.aasc.work', code: 'backendcode', codeRef: 'ref1', macDeviceId: 'bad id&x=1' });
-    expect(new URLSearchParams(odd.split('#')[1]).has('md')).toBe(false);
   });
 });

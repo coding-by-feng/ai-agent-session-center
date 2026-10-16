@@ -29,13 +29,14 @@ export interface MobileDeviceRecord {
   status: DeviceStatus;
   confirmCode: string;
   /**
-   * Non-secret reference to the backend pairing code the Mac put in this phone's
-   * QR, when there was one: revoking the phone revokes the backend device that
-   * code created (AASC-51). Recorded by the Mac, never taken from the phone.
+   * Non-secret reference to the backend pairing code the Mac last issued to this
+   * phone (AASC-52: over its signed-in session, never in the QR): revoking the
+   * phone revokes the backend device that code created. Recorded by the Mac,
+   * never taken from the phone.
    */
   beCodeRef: string | null;
   /**
-   * True only when the Mac bound `beCodeRef` itself (attachBackendCode). A phone
+   * True only when the Mac bound `beCodeRef` itself (bindBackendCode). A phone
    * paired before AASC-51 chose its own at /pair: a revoke never acts on that one.
    */
   beCodeRefMacBound: boolean;
@@ -65,7 +66,8 @@ export interface MobileDeviceView {
 export interface MobileDeviceStore {
   insert(rec: MobileDeviceRecord): void;
   get(id: string): MobileDeviceRecord | null;
-  update(id: string, patch: Partial<Pick<MobileDeviceRecord, 'status' | 'approvedAt' | 'lastSeenAt' | 'revokedAt'>>): void;
+  update(id: string, patch: Partial<Pick<MobileDeviceRecord,
+    'status' | 'approvedAt' | 'lastSeenAt' | 'revokedAt' | 'beCodeRef' | 'beCodeRefMacBound'>>): void;
   /** Pending and active devices (revoked ones are kept but not listed). */
   listLive(): MobileDeviceRecord[];
   remove(id: string): void;
@@ -88,12 +90,18 @@ export type ExchangeResult =
   | { ok: true; device: MobileDeviceRecord }
   | { ok: false; reason: 'invalid' | 'pending' | 'revoked' };
 
+/** May this phone be given a backend code (AASC-52)? */
+export type BackendCodeHolder =
+  | { ok: true; device: MobileDeviceRecord }
+  | { ok: false; reason: 'unknown' | 'pending' | 'revoked' };
+
 export interface DeviceAuthOptions {
   store: MobileDeviceStore;
   now?: () => number;
   /**
    * Fingerprint of the current dashboard password. A device token issued under
-   * another fingerprint is revoked on its next sign-in.
+   * another fingerprint is revoked (revokeStaleCredentials at startup, and on
+   * its next sign-in).
    */
   credentialEpoch?: () => string | null;
   /** Called once when a device stops being usable (deny, revoke, unpair, pending expiry). */
@@ -162,11 +170,8 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const { store } = opts;
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
-  /**
-   * Open pairing codes, keyed by their hash, with the backend code minted beside
-   * each one for the same QR. In memory on purpose: they live two minutes.
-   */
-  const codes = new Map<string, { expiresAt: number; beCodeRef: string | null }>();
+  /** Open pairing codes, keyed by their hash. In memory on purpose: they live two minutes. */
+  const codes = new Map<string, { expiresAt: number }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
 
@@ -212,29 +217,15 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();
       const code = newPairingCode();
       const expiresAt = now() + PAIRING_CODE_TTL_MS;
-      codes.set(hashSecret(code), { expiresAt, beCodeRef: null });
+      codes.set(hashSecret(code), { expiresAt });
       return { code, expiresAt };
     },
 
     /**
-     * Remember the backend code minted for the same QR as `code`, so the phone
-     * that redeems `code` is tied to the backend device that one creates. The
-     * phone never reports it: it redeems the two halves separately.
-     */
-    attachBackendCode(code: string, beCodeRef: string): boolean {
-      pruneCodes();
-      const hash = hashSecret(normalizePairingCode(code));
-      const entry = codes.get(hash);
-      if (!entry) return false;
-      codes.set(hash, { ...entry, beCodeRef });
-      return true;
-    },
-
-    /**
      * Redeem a pairing code. The device comes back pending, with its token shown
-     * this once. Its backend code is the one the Mac attached to this code; a
-     * value the phone sends is never used, or a phone could point a later revoke
-     * at another phone's backend device.
+     * this once, and no backend code: the QR carries none (AASC-52), and a value
+     * the phone sends is never used, or a phone could point a later revoke at
+     * another phone's backend device.
      */
     redeem(input: { code: string; label: string; platform: DevicePlatform }):
       { device: MobileDeviceRecord; deviceToken: string } | null {
@@ -251,9 +242,9 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         tokenHash: hashSecret(deviceToken),
         status: 'pending',
         confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
-        beCodeRef: entry.beCodeRef,
-        // Only attachBackendCode puts a codeRef next to a pairing code.
-        beCodeRefMacBound: entry.beCodeRef !== null,
+        // Issued later, to the approved phone only (bindBackendCode).
+        beCodeRef: null,
+        beCodeRefMacBound: false,
         credentialEpoch: currentEpoch(),
         createdAt: now(),
         approvedAt: null,
@@ -331,6 +322,61 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     list(): MobileDeviceView[] {
       expirePending();
       return store.listLive().map(toView);
+    },
+
+    /**
+     * May this phone get a backend code (AASC-52)? Only once approved, and only
+     * with a token from the current dashboard password: one from before a
+     * password change is revoked here, as at sign-in.
+     */
+    backendCodeHolder(deviceId: string): BackendCodeHolder {
+      expirePending();
+      const rec = store.get(deviceId);
+      if (!rec) return { ok: false, reason: 'unknown' };
+      if (rec.status === 'revoked') return { ok: false, reason: 'revoked' };
+      if (rec.credentialEpoch !== currentEpoch()) {
+        revokeRecord(rec);
+        return { ok: false, reason: 'revoked' };
+      }
+      if (rec.status === 'pending') return { ok: false, reason: 'pending' };
+      return { ok: true, device: rec };
+    },
+
+    /**
+     * Record the backend code the Mac just issued to this approved phone, so
+     * revoking the phone revokes the backend device that code creates. Replaces
+     * the previous one: a phone holds one backend code at a time.
+     */
+    bindBackendCode(deviceId: string, beCodeRef: string): boolean {
+      const rec = store.get(deviceId);
+      if (!rec || rec.status !== 'active') return false;
+      store.update(deviceId, { beCodeRef, beCodeRefMacBound: true });
+      return true;
+    },
+
+    /** The backend codes bound to phones still paired (pending or active). */
+    linkedBackendCodeRefs(): Set<string> {
+      return new Set(store.listLive()
+        .filter((rec) => rec.beCodeRefMacBound && rec.beCodeRef)
+        .map((rec) => rec.beCodeRef as string));
+    },
+
+    /**
+     * Revoke every phone whose token came from another dashboard password, at
+     * once: the password is read at startup, so a change takes effect when the
+     * server starts with it. Each revoke fires onRevoked, which also revokes the
+     * phone's backend device. Returns how many phones were revoked.
+     *
+     * Nothing happens while no password is in force: serverConfig.ts reads a
+     * missing or unreadable file as "no password", and phone routes are refused
+     * then anyway. A phone is revoked once a different password is set.
+     */
+    revokeStaleCredentials(): number {
+      const epoch = currentEpoch();
+      if (epoch === null) return 0;
+      const stale = store.listLive().filter((rec) => rec.credentialEpoch !== epoch);
+      stale.forEach(revokeRecord);
+      return stale.length;
     },
 
     /** Test seam: how many pairing codes are open. */

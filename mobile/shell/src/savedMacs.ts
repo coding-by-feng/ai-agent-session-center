@@ -137,6 +137,11 @@ export async function writeBackendCredential(vault: DeviceVault, id: string, cre
   await vault.set(backendKey(id), JSON.stringify({ host: cred.host, deviceId: cred.deviceId, token: cred.token }));
 }
 
+/** Forget a Mac's backend token only: the backend revoked it, and the next sign-in asks that Mac for a new one. */
+export async function forgetBackendCredential(vault: DeviceVault, id: string): Promise<void> {
+  await vault.delete(backendKey(id));
+}
+
 /** Forget both tokens of a Mac. Each removal is tried even when the other fails. */
 export async function forgetCredentials(vault: DeviceVault, id: string): Promise<void> {
   await Promise.allSettled([vault.delete(macKey(id)), vault.delete(backendKey(id))]);

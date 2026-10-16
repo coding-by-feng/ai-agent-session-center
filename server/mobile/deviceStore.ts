@@ -1,6 +1,8 @@
-// deviceStore.ts — the SQLite-backed MobileDeviceStore (table mobile_devices in db.ts).
+// deviceStore.ts — the SQLite-backed MobileDeviceStore (table mobile_devices in db.ts)
+// and BackendCodeLedger (table mobile_backend_codes, AASC-52).
 import * as db from '../db.js';
 import type { MobileDeviceRecord, MobileDeviceStore } from './deviceAuth.js';
+import type { BackendCodeLedger } from './phoneBackendCode.js';
 
 function fromRow(row: db.MobileDeviceRow): MobileDeviceRecord {
   return {
@@ -48,6 +50,8 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
       ...(patch.approvedAt !== undefined && { approved_at: patch.approvedAt }),
       ...(patch.lastSeenAt !== undefined && { last_seen_at: patch.lastSeenAt }),
       ...(patch.revokedAt !== undefined && { revoked_at: patch.revokedAt }),
+      ...(patch.beCodeRef !== undefined && { be_code_ref: patch.beCodeRef }),
+      ...(patch.beCodeRefMacBound !== undefined && { be_code_ref_mac_bound: patch.beCodeRefMacBound ? 1 : 0 }),
     });
   },
   listLive() {
@@ -55,5 +59,17 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
   },
   remove(id) {
     db.deleteMobileDevice(id);
+  },
+};
+
+export const sqliteBackendCodeLedger: BackendCodeLedger = {
+  record({ codeRef, deviceId, mintedAt }) {
+    db.insertMobileBackendCode({ code_ref: codeRef, device_id: deviceId, minted_at: mintedAt });
+  },
+  mintedAt(codeRef) {
+    return db.getMobileBackendCode(codeRef)?.minted_at ?? null;
+  },
+  has(codeRef) {
+    return db.getMobileBackendCode(codeRef) !== null;
   },
 };

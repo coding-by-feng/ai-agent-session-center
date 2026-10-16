@@ -13,19 +13,27 @@
  * Until the phone app ships, the Mac doesn't offer pairing (AASC-30): no Pair
  * button, and no section at all unless phones were paired before, which still
  * list here with Allow / Revoke.
+ *
+ * The QR carries the Mac's code only: an approved phone gets its backend code
+ * for notifications over its own session (AASC-52). Backend phone devices this
+ * Mac made that no paired phone holds any more get one line and a "Remove them"
+ * action. That check calls the cloud, so it runs when the panel opens and once
+ * a minute, not on the 2-second refresh.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
 import { showToast } from '@/components/ui/ToastContainer';
 import { qrSvg } from '@/lib/qrSvg';
 import {
-  approvePhone, formatConfirmCode, formatPairingCode, loadPhonePairing, removePhone, startPhonePairing,
-  type PairedPhone, type PhonePairing as Pairing,
+  approvePhone, formatConfirmCode, formatPairingCode, loadCloudPhones, loadPhonePairing, removePhone,
+  removeUnlinkedCloudPhones, startPhonePairing, type PairedPhone, type PhonePairing as Pairing,
 } from '@/lib/mobilePairingApi';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
 /** How often the list refreshes while the panel is open. */
 const POLL_MS = 2000;
+/** How often the cloud is asked about leftover phone devices (each check lists the account's devices). */
+const CLOUD_POLL_MS = 60_000;
 
 /** Every paired phone has the same, narrower set than a password sign-in (server/mobile/phoneProfile.ts). */
 const ACCESS_LABEL = 'shared sessions only';
@@ -48,6 +56,12 @@ function relative(at: number | null): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+function cloudLine(n: number): string {
+  return n === 1
+    ? '1 cloud phone device isn’t linked to a paired phone.'
+    : `${n} cloud phone devices aren’t linked to a paired phone.`;
 }
 
 function PairingQr({ link }: { link: string }) {
@@ -75,6 +89,20 @@ export default function PhonePairing() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  /** Backend phone devices no paired phone holds (AASC-52); 0 with no cloud or when the check fails. */
+  const [cloudUnlinked, setCloudUnlinked] = useState(0);
+  const [confirmCloud, setConfirmCloud] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
+
+  const refreshCloud = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const state = await loadCloudPhones(signal);
+      setCloudUnlinked(state.cloud ? state.unlinked : 0);
+    } catch {
+      // A background check: an unreachable cloud just shows no line.
+      if (!signal?.aborted) setCloudUnlinked(0);
+    }
+  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -99,6 +127,16 @@ export default function PhonePairing() {
       clearInterval(timer);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshCloud(controller.signal);
+    const timer = setInterval(() => void refreshCloud(controller.signal), CLOUD_POLL_MS);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [refreshCloud]);
 
   const remaining = pairing ? secondsLeft(pairing.expiresAt, now) : 0;
   const pairingLive = pairing !== null && remaining > 0;
@@ -129,11 +167,27 @@ export default function PhonePairing() {
     }
   };
 
+  const handleRemoveCloud = async () => {
+    setCloudBusy(true);
+    setError(null);
+    try {
+      const { removed, failed } = await removeUnlinkedCloudPhones();
+      if (removed > 0) showToast(`Removed ${removed} cloud phone ${removed === 1 ? 'device' : 'devices'}`, 'info', 3000);
+      if (failed > 0) setError(`${failed} couldn’t be removed. Try again later.`);
+      setConfirmCloud(false);
+      await refreshCloud();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const pending = phones.filter((p) => p.status === 'pending');
   const active = phones.filter((p) => p.status === 'active');
 
-  // Not offered and nothing paired: a release without the phone app shows nothing about phones.
-  if (offered !== true && phones.length === 0 && !pairingLive && !error) return null;
+  // Not offered and nothing paired or left over: a release without the phone app shows nothing about phones.
+  if (offered !== true && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
 
   return (
     <section className={styles.section} aria-label="Paired phones">
@@ -155,9 +209,6 @@ export default function PhonePairing() {
             <span className={styles.countdown} aria-live="polite">
               Expires in {formatCountdown(remaining)}
             </span>
-            {!pairing.backendIncluded && (
-              <span className={styles.note}>Notifications need the AASC backend; pair again once it is connected.</span>
-            )}
             <Button size="sm" variant="quiet" onClick={() => setPairing(null)}>Cancel</Button>
           </div>
         </div>
@@ -210,6 +261,22 @@ export default function PhonePairing() {
       )}
 
       {active.length > 0 && <p className={styles.note}>{ACCESS_DETAIL}</p>}
+
+      {cloudUnlinked > 0 && (
+        <div className={styles.cloudLeftover}>
+          <span className={styles.cloudText}>{cloudLine(cloudUnlinked)}</span>
+          {confirmCloud ? (
+            <span className={styles.actions}>
+              <Button size="sm" variant="danger" onClick={handleRemoveCloud} disabled={cloudBusy}>
+                Remove {cloudUnlinked}
+              </Button>
+              <Button size="sm" variant="quiet" onClick={() => setConfirmCloud(false)} disabled={cloudBusy}>Keep</Button>
+            </span>
+          ) : (
+            <Button size="sm" variant="quiet" onClick={() => setConfirmCloud(true)}>Remove them</Button>
+          )}
+        </div>
+      )}
 
       {offered === true && active.length === 0 && pending.length === 0 && !pairingLive && (
         <p className={styles.empty}>No phones paired.</p>

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadMacs, readBackendCredential, readMacCredentials } from './savedMacs';
 import { SESSION_COOKIE_MAX_AGE } from './shellFlows';
-import { click, createHarness, heading, LAN, pairUntilApproval, TAILNET, until } from './testing/shellHarness';
+import { click, createHarness, heading, LAN, LEGACY_LINK, pairUntilApproval, TAILNET, until } from './testing/shellHarness';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -33,6 +33,33 @@ describe('Approve on your Mac', () => {
     expect(mac).toMatchObject({ name: 'Kason-MBP', status: 'active', confirmCode: null, lastPath: 'tailnet', backendDeviceId: 'mac-dev-1' });
     expect(await readMacCredentials(t.deps.vault, mac.id)).not.toBeNull();
     expect(await readBackendCredential(t.deps.vault, mac.id)).toMatchObject({ host: 'api.aasc.work' });
+  });
+
+  it('gets its backend code from the Mac once allowed, over its own session: never from the QR (AASC-52)', async () => {
+    const t = createHarness();
+    await pairUntilApproval(t);
+    // Nothing reached the backend while the phone waited for approval.
+    expect(t.mac.calls.filter((c) => c.url.startsWith('https://'))).toEqual([]);
+    t.mac.approve();
+    await until(t.root, () => t.navigations.length > 0);
+    const ask = t.mac.calls.find((c) => c.url === `${TAILNET}/api/mobile/backend-code`);
+    expect(ask?.method).toBe('POST');
+    expect(ask?.headers.Authorization).toBe(`Bearer ${t.cookies[0].token}`);
+    const redeem = t.mac.calls.find((c) => c.url === 'https://api.aasc.work/v1/devices/pair');
+    expect(redeem?.body).toEqual({ code: t.mac.backendCodes()[0], name: 'Android phone' });
+    // Asked once, after the session and before the Mac's page loads.
+    const order = t.mac.calls.map((c) => c.url);
+    expect(order.indexOf(`${TAILNET}/api/mobile/backend-code`)).toBeGreaterThan(order.lastIndexOf(`${TAILNET}/api/mobile/session`));
+  });
+
+  it('ignores the backend code an old QR carries: it redeems only what the Mac issues after approval', async () => {
+    const t = createHarness();
+    await pairUntilApproval(t, LEGACY_LINK);
+    t.mac.approve();
+    await until(t.root, () => t.navigations.length > 0);
+    const redeemed = t.mac.calls.filter((c) => c.url === 'https://api.aasc.work/v1/devices/pair').map((c) => (c.body as { code: string }).code);
+    expect(redeemed).toEqual([t.mac.backendCodes()[0]]);
+    expect(redeemed).not.toContain('abcdefghijklmnopqrstuv');
   });
 
   it('allows the home network when it was turned on at pairing, and tries it first', async () => {
@@ -91,7 +118,7 @@ describe('Approve on your Mac', () => {
     await until(t.root, () => heading(t.root) === 'Pair with a Mac');
     expect(t.root.textContent).toContain('Pairing cancelled.');
     expect([...t.mac.devices.values()].map((d) => d.status)).toEqual(['revoked']);
-    expect(t.mac.pushTargetsRemoved()).toBe(1);
+    expect(t.mac.pushTargetsRemoved()).toBe(0); // a phone waiting for approval holds no backend device (AASC-52)
     expect(t.vault.size).toBe(0);
     expect(await loadMacs(t.deps.store)).toEqual([]);
   });

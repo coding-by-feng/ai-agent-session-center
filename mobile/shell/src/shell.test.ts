@@ -2,7 +2,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parsePairingLink, isPrivateLanAddress, isTailnetAddress } from './pairingLink';
 import { candidates, pickReachable, isAllowedNavigation, type PairedServer } from './connectionPlan';
-import { pairWithMac, pairWithBackend, openSession, unpairSelf, deviceProof, type HttpClient } from './pairingClient';
+import { pairWithMac, pairWithBackend, requestBackendCode, openSession, unpairSelf, deviceProof, type HttpClient } from './pairingClient';
+import type { HttpRequest, HttpRequester } from './http';
 import { proofForToken } from '../../../server/mobile/deviceAuth';
 import { parseReauthRequest, returnUrl } from './reauth';
 
@@ -11,22 +12,16 @@ const GOOD = 'https://aasc.work/pair#v=2&name=Kason-MBP&lan=192.168.1.20&ts=100.
 describe('parsePairingLink', () => {
   it('reads the link the desktop shows', () => {
     expect(parsePairingLink(GOOD)).toEqual({
-      version: 2, name: 'Kason-MBP', lan: '192.168.1.20', tailnet: '100.101.102.103', port: 3333,
-      macCode: 'K7Q2M9XPZT', backendHost: null, backendCode: null, macDeviceId: null,
+      version: 2, name: 'Kason-MBP', lan: '192.168.1.20', tailnet: '100.101.102.103', port: 3333, macCode: 'K7Q2M9XPZT',
     });
   });
 
-  it('reads the backend code when present', () => {
-    const link = parsePairingLink(`${GOOD}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv`);
-    expect(link?.backendHost).toBe('api.aasc.work');
-    expect(link?.backendCode).toBe('abcdefghijklmnopqrstuv');
-  });
-
-  it('reads the Mac’s backend device id only with a backend code, and ignores a malformed one', () => {
-    const withBackend = `${GOOD}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv`;
-    expect(parsePairingLink(`${withBackend}&md=3f2c1d5e-8a4b`)?.macDeviceId).toBe('3f2c1d5e-8a4b');
-    expect(parsePairingLink(`${withBackend}&md=bad%20id`)?.macDeviceId).toBeNull();
-    expect(parsePairingLink(`${GOOD}&md=3f2c1d5e-8a4b`)?.macDeviceId).toBeNull();
+  it.each([
+    ['a backend code (an old QR)', '&be=api.aasc.work&bc=abcdefghijklmnopqrstuv&md=3f2c1d5e-8a4b'],
+    ['a backend outside aasc.work', '&be=api.evil.example&bc=abcdefghijklmnopqrstuv'],
+    ['a backend host without a code', '&be=api.aasc.work'],
+  ])('ignores %s: the backend code comes from the Mac after approval (AASC-52)', (_label, extra) => {
+    expect(parsePairingLink(`${GOOD}${extra}`)).toEqual(parsePairingLink(GOOD));
   });
 
   it.each([
@@ -38,8 +33,6 @@ describe('parsePairingLink', () => {
     ['non-tailnet ts', GOOD.replace('100.101.102.103', '100.200.1.1')],
     ['bad port', GOOD.replace('p=3333', 'p=99999')],
     ['bad code', GOOD.replace('mc=K7Q2M9XPZT', 'mc=K7Q2M9XPZ0')],
-    ['backend outside aasc.work', `${GOOD}&be=api.evil.example&bc=abcdefghijklmnopqrstuv`],
-    ['backend host without code', `${GOOD}&be=api.aasc.work`],
     ['no address at all', 'https://aasc.work/pair#v=2&name=X&p=3333&mc=K7Q2M9XPZT'],
     ['garbage', 'not a link'],
   ])('refuses %s', (_label, input) => {
@@ -101,8 +94,21 @@ function fakeHttp(routes: Record<string, { status: number; data: unknown }>): Ht
   };
 }
 
+function fakeRequester(answer: (req: HttpRequest) => { status: number; data: unknown } | Error): HttpRequester & { calls: HttpRequest[] } {
+  const calls: HttpRequest[] = [];
+  return {
+    calls,
+    async request(req) {
+      calls.push(req);
+      const out = answer(req);
+      if (out instanceof Error) throw out;
+      return out;
+    },
+  };
+}
+
 describe('pairing client', () => {
-  const link = parsePairingLink(`${GOOD}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv`)!;
+  const link = parsePairingLink(GOOD)!;
   const origin = 'http://100.101.102.103:3333';
   const deviceId = '0b4b63b5-f006-42f9-9d53-1960c7f9117a';
 
@@ -121,10 +127,48 @@ describe('pairing client', () => {
     await expect(pairWithMac(http, origin, link, 'Phone', 'ios')).rejects.toThrow(/unexpected/);
   });
 
-  it('pairs with the backend only when the QR carried a backend code', async () => {
+  it('redeems the backend code the Mac issued with the backend', async () => {
     const http = fakeHttp({ 'https://api.aasc.work/v1/devices/pair': { status: 200, data: { success: true, data: { token: 'b'.repeat(43), deviceId: 'be-1' } } } });
-    expect(await pairWithBackend(http, link, 'Phone')).toEqual({ deviceId: 'be-1', token: 'b'.repeat(43) });
-    expect(await pairWithBackend(http, { ...link, backendHost: null, backendCode: null }, 'Phone')).toBeNull();
+    expect(await pairWithBackend(http, 'api.aasc.work', 'abcdefghijklmnopqrstuv', 'Phone')).toEqual({ deviceId: 'be-1', token: 'b'.repeat(43) });
+    expect(http.calls).toEqual([{ url: 'https://api.aasc.work/v1/devices/pair', body: { code: 'abcdefghijklmnopqrstuv', name: 'Phone' } }]);
+  });
+
+  it('never sends a backend code anywhere but aasc.work', async () => {
+    const http = fakeHttp({});
+    await expect(pairWithBackend(http, 'api.evil.example', 'abcdefghijklmnopqrstuv', 'Phone')).rejects.toThrow();
+    expect(http.calls).toEqual([]);
+  });
+
+  describe('requestBackendCode (AASC-52)', () => {
+    const url = `${origin}/api/mobile/backend-code`;
+    const ok = { status: 200, data: { success: true, data: { host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: 'mac-dev-1' } } };
+
+    it('asks the Mac with the signed-in session, as JSON', async () => {
+      const http = fakeRequester(() => ok);
+      expect(await requestBackendCode(http, origin, 'sess-token')).toEqual({
+        status: 'ok', host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: 'mac-dev-1',
+      });
+      expect(http.calls).toEqual([{ method: 'POST', url, headers: { Authorization: 'Bearer sess-token', 'Content-Type': 'application/json' }, body: {} }]);
+    });
+
+    it('hears “no cloud” as its own answer, and everything else as try again later', async () => {
+      expect(await requestBackendCode(fakeRequester(() => ({ status: 409, data: { code: 'NO_CLOUD' } })), origin, 't')).toEqual({ status: 'no-cloud' });
+      for (const res of [
+        { status: 409, data: { code: 'BACKEND_CODE_OUTSTANDING' } },
+        { status: 401, data: { code: 'DEVICE_REVOKED' } },
+        { status: 429, data: { code: 'RATE_LIMITED' } },
+        { status: 502, data: { code: 'CLOUD_UNAVAILABLE' } },
+      ]) expect(await requestBackendCode(fakeRequester(() => res), origin, 't')).toEqual({ status: 'unavailable' });
+      expect(await requestBackendCode(fakeRequester(() => new Error('offline')), origin, 't')).toEqual({ status: 'unavailable' });
+    });
+
+    it('refuses an answer that points outside aasc.work or isn’t a code; drops a malformed Mac id', async () => {
+      const answer = (data: Record<string, unknown>) => fakeRequester(() => ({ status: 200, data: { data: { ...ok.data.data, ...data } } }));
+      expect(await requestBackendCode(answer({ host: 'api.evil.example' }), origin, 't')).toEqual({ status: 'unavailable' });
+      expect(await requestBackendCode(answer({ code: 'short' }), origin, 't')).toEqual({ status: 'unavailable' });
+      expect(await requestBackendCode(answer({ macDeviceId: 'bad id' }), origin, 't')).toMatchObject({ status: 'ok', macDeviceId: null });
+      expect(await requestBackendCode(answer({ macDeviceId: null }), origin, 't')).toMatchObject({ status: 'ok', macDeviceId: null });
+    });
   });
 
   const challengeRoute = { [`${origin}/api/mobile/challenge`]: { status: 200, data: { data: { nonce: 'nonce-abcdefghijklmnopqrstuvwx' } } } };

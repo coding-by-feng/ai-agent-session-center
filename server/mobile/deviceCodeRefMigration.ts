@@ -3,7 +3,7 @@
 // Before AASC-51, /pair stored whatever `beCodeRef` the phone sent. Revoking a
 // phone now revokes the backend device its codeRef names, so a phone-chosen one
 // could point a revoke at another phone's backend device. Rows record who bound
-// the codeRef (be_code_ref_mac_bound, set only from attachBackendCode); this
+// the codeRef (be_code_ref_mac_bound, set only by the Mac: bindBackendCode); this
 // clears every codeRef the Mac did not bind and says how many phones are left
 // for the owner CLI. Same style as db.ts's sessions migration: PRAGMA table_info
 // is the source of truth, and a second run finds nothing to do.

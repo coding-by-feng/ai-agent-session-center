@@ -79,6 +79,11 @@ app.use('/api/mobile', createMobileRouter({
   sessionTtlSeconds: 3600,
   pairingTarget: () => ({ name: 'Emu-Mac', port: PORT, lan: PAIRING_LAN, tailnet: null }),
   rateLimit: { check: () => 0, record: () => undefined, clear: () => undefined },
+  // No cloud here: a signed-in phone asking for its backend code (AASC-52) is told NO_CLOUD.
+  sessionOf: (req) => {
+    const tok = cookieToken(req.headers.cookie) ?? bearer(req.headers.authorization);
+    return tok !== null && sessions.has(tok) ? { deviceId: sessions.get(tok) ?? null } : null;
+  },
 }));
 
 app.get('/api/auth/status', (req, res) => res.json({ passwordRequired: true, authenticated: authed(req) }));

@@ -4,21 +4,24 @@
 // reauth); this file orders the calls and keeps the two stores in step. No
 // outcome carries a token: tokens go from the HTTP answer into the vault or the
 // native cookie and nowhere else (not the screen, Preferences, a URL or a log).
+import { linkBackend } from './backendLink.js';
 import { candidates, isAllowedNavigation, pickReachable, type Candidate } from './connectionPlan.js';
-import { openSession, pairWithBackend, pairWithMac, unpairSelf } from './pairingClient.js';
+import { openSession, pairWithMac, unpairSelf } from './pairingClient.js';
 import type { PairingLink } from './pairingLink.js';
 import { removePushTarget } from './pushRegistration.js';
 import { returnUrl } from './reauth.js';
 import type { ShellDeps } from './native.js';
 import {
   allowedOrigins, forgetCredentials, LAST_MAC_KEY, readBackendCredential, readMacCredentials, saveMacs,
-  withMac, withoutMac, writeBackendCredential, writeMacCredentials, type SavedMac,
+  withMac, withoutMac, writeMacCredentials, type SavedMac,
 } from './savedMacs.js';
 
 /** = plan 07 §4: a path that doesn't answer GET /api/auth/status within 3 s is down. */
 export const PROBE_TIMEOUT_MS = 3_000;
 /** = the Mac's one-hour device session (deviceAuth sessionTtlSeconds). */
 export const SESSION_COOKIE_MAX_AGE = 3_600;
+/** How long opening a Mac waits for the backend device (AASC-52) before going on without it. */
+export const LINK_BUDGET_MS = 5_000;
 
 export function probeWith(deps: Pick<ShellDeps, 'requester'>): (origin: string) => Promise<boolean> {
   return async (origin) => {
@@ -34,6 +37,19 @@ export function probeWith(deps: Pick<ShellDeps, 'requester'>): (origin: string) 
       clearTimeout(timer);
     }
   };
+}
+
+/** `work`'s answer, or `fallback` once `ms` have passed (the work itself is not cancelled). */
+async function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The first path that answers; `onTry` names each one as it is tried (for the status line). */
@@ -55,9 +71,9 @@ export type PairOutcome =
   | { ok: false; reason: 'unreachable' | 'refused' | 'storage'; message: string };
 
 /**
- * Redeem the Mac's code first (it lasts 2 minutes and a failure leaves nothing
- * behind anywhere), keep the token in the vault, then the backend code (push is
- * optional: a failure there doesn't undo the pairing).
+ * Redeem the Mac's code (it lasts 2 minutes and a failure leaves nothing behind
+ * anywhere) and keep the token in the vault. Push comes later: the Mac issues
+ * the backend code once it has allowed this phone (signInAndOpen, AASC-52).
  */
 export async function pairNewMac(
   deps: ShellDeps, macs: readonly SavedMac[], link: PairingLink,
@@ -65,7 +81,7 @@ export async function pairNewMac(
 ): Promise<PairOutcome> {
   const draft: SavedMac = {
     id: deps.newId(), name: link.name, port: link.port, lan: link.lan, tailnet: link.tailnet,
-    lanAllowed: opts.allowLan && link.lan !== null, backendDeviceId: link.macDeviceId,
+    lanAllowed: opts.allowLan && link.lan !== null, backendDeviceId: null,
     status: 'pending', confirmCode: null, phoneName: opts.phoneName, lastPath: null,
   };
   const reached = await reach(deps, draft, onTry);
@@ -88,21 +104,14 @@ export async function pairNewMac(
   const mac: SavedMac = { ...draft, confirmCode: pairing.confirmCode, lastPath: reached.kind };
   const next = withMac(macs, mac);
   await saveMacs(deps.store, next);
-  try {
-    const backend = await pairWithBackend(deps.http, link, opts.phoneName);
-    if (backend && link.backendHost) {
-      await writeBackendCredential(deps.vault, mac.id, { host: link.backendHost, deviceId: backend.deviceId, token: backend.token });
-    }
-  } catch {
-    /* notifications only: the Mac pairing stands, and pairing again adds them */
-  }
   return { ok: true, mac, macs: next };
 }
 
 // ── Opening a Mac ────────────────────────────────────────────────────────
 
 export type OpenOutcome =
-  | { kind: 'navigate'; url: string; mac: SavedMac; macs: SavedMac[] }
+  /** `backendLinked`: this sign-in gave the phone a new backend device for push (AASC-52). */
+  | { kind: 'navigate'; url: string; mac: SavedMac; macs: SavedMac[]; backendLinked: boolean }
   | { kind: 'pending'; mac: SavedMac }
   /** Wiped from this phone: the Mac removed it, or the vault lost its key. */
   | { kind: 'revoked'; mac: SavedMac; macs: SavedMac[]; why: 'revoked' | 'key-missing' }
@@ -112,10 +121,13 @@ export type OpenOutcome =
 /**
  * Sign in on the first path that answers, put the session in the WebView's
  * cookie and say where to go: `back` on that Mac (a path, from reauth), only
- * if the navigation guard allows it.
+ * if the navigation guard allows it. A phone without its backend device for
+ * this Mac asks for one first (backendLink.ts): quietly, within `linkMs`, and
+ * again next time if it didn't work.
  */
 export async function signInAndOpen(
   deps: ShellDeps, macs: readonly SavedMac[], mac: SavedMac, back: string, onTry?: (c: Candidate) => void,
+  linkMs = LINK_BUDGET_MS,
 ): Promise<OpenOutcome> {
   const reached = await reach(deps, mac, onTry);
   if (!reached) return { kind: 'offline', mac, tried: candidates(mac) };
@@ -137,12 +149,16 @@ export async function signInAndOpen(
     case 'ok':
       break;
   }
-  const opened: SavedMac = { ...mac, status: 'active', confirmCode: null, lastPath: reached.kind };
-  const next = withMac(macs, opened);
   const url = returnUrl(reached.origin, back);
-  if (!isAllowedNavigation(url, next)) {
+  if (!isAllowedNavigation(url, withMac(macs, { ...mac, status: 'active', lastPath: reached.kind }))) {
     return { kind: 'error', mac, message: 'This address isn’t one this phone paired with, so it wasn’t opened.' };
   }
+  const backend = await within(linkBackend(deps, mac, reached.origin, session.token), linkMs, { kind: 'failed' } as const);
+  const opened: SavedMac = {
+    ...mac, status: 'active', confirmCode: null, lastPath: reached.kind,
+    backendDeviceId: (backend.kind === 'linked' ? backend.macDeviceId : null) ?? mac.backendDeviceId ?? null,
+  };
+  const next = withMac(macs, opened);
   try {
     await deps.cookies.set(reached.origin, session.token, SESSION_COOKIE_MAX_AGE);
     await deps.navigator.allowOrigins(allowedOrigins(next));
@@ -151,7 +167,7 @@ export async function signInAndOpen(
   }
   await saveMacs(deps.store, next);
   await deps.store.set(LAST_MAC_KEY, opened.id);
-  return { kind: 'navigate', url, mac: opened, macs: next };
+  return { kind: 'navigate', url, mac: opened, macs: next, backendLinked: backend.kind === 'linked' };
 }
 
 // ── Unpairing ────────────────────────────────────────────────────────────
