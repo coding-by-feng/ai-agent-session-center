@@ -26,9 +26,10 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 import {
-  receiveRooms, handleRoomOpMessage, onRoomsSocketConnected, startRoomSync, hasServerRooms,
-  ROOM_PUSH_DELAY_MS, _resetRoomSyncForTests,
+  receiveRooms, handleRoomOpMessage, onRoomsSocketConnected, startRoomSync, hasServerRooms, requestRoomChange,
+  ROOM_PUSH_DELAY_MS, ROOM_RESYNC_MS, _resetRoomSyncForTests,
 } from './roomSync';
+import { NO_WRITER_MESSAGE } from './roomOps';
 
 const room = (id: string, sessionIds: string[], over: Partial<Room> = {}): Room =>
   ({ id, name: `Room ${id}`, sessionIds, collapsed: false, createdAt: 1, roomIndex: 0, ...over });
@@ -171,6 +172,32 @@ describe('the writer applies room changes other devices ask for', () => {
     expect(byId('r2')?.sessionIds).toEqual(['b']);
   });
 
+  it('reorders (AASC-55): listOrder only, rooms the asker can\'t see keep their slot, roomIndex never moves', () => {
+    useRoomStore.setState({ rooms: [
+      room('r1', ['a'], { roomIndex: 3 }),
+      room('hidden', [], { roomIndex: 0 }),
+      room('r2', ['b'], { roomIndex: 7 }),
+    ] });
+    // List order now (by the 3D slot, never reordered yet): hidden, r1, r2.
+    op({ type: 'reorder', roomIds: ['r2', 'r1'] });
+    const rooms = useRoomStore.getState().rooms;
+    expect(Object.fromEntries(rooms.map((r) => [r.id, r.listOrder]))).toEqual({ hidden: 0, r2: 1, r1: 2 });
+    expect(Object.fromEntries(rooms.map((r) => [r.id, r.roomIndex]))).toEqual({ r1: 3, hidden: 0, r2: 7 });
+    expect(rooms.map((r) => r.id)).toEqual(['r1', 'hidden', 'r2']); // the array (and so the 3D scene) untouched
+  });
+
+  it('ignores a malformed reorder, and room ids it doesn\'t have inside one', () => {
+    const before = JSON.stringify(useRoomStore.getState().rooms);
+    op({ type: 'reorder', roomIds: [] });
+    op({ type: 'reorder', roomIds: ['r1', 'r1'] });
+    op({ type: 'reorder', roomIds: 'r1' });
+    op({ type: 'reorder', roomIds: ['r1', 4] });
+    op({ type: 'reorder', roomIds: ['nope'] });
+    expect(JSON.stringify(useRoomStore.getState().rooms)).toBe(before);
+    op({ type: 'reorder', roomIds: ['r2', 'nope', 'r1'] });
+    expect(useRoomStore.getState().rooms.map((r) => [r.id, r.listOrder])).toEqual([['r1', 1], ['r2', 0]]);
+  });
+
   it('ignores an op for a room it doesn\'t have, a colour off the palette and a malformed op', () => {
     const before = JSON.stringify(useRoomStore.getState().rooms);
     op({ type: 'move', sessionId: 'a', roomId: 'nope' });
@@ -257,5 +284,65 @@ describe('everyone else takes the Mac\'s list', () => {
     setWriter('the-mac');
     receiveRooms({ revision: 1, rooms: [room('ok', ['a']), { id: 5 } as unknown as Room] });
     expect(useRoomStore.getState().rooms.map((r) => r.id)).toEqual(['ok']);
+  });
+});
+
+describe('a room change from this device\'s UI (AASC-55)', () => {
+  const byId = (id: string) => useRoomStore.getState().rooms.find((r) => r.id === id);
+  const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+  const gets = () => fetchMock.mock.calls.filter(([url, init]) => url === '/api/rooms' && (init as RequestInit | undefined)?.method === 'GET');
+  const opBodies = () => fetchMock.mock.calls.filter(([url]) => url === '/api/rooms/ops').map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+
+  beforeEach(() => {
+    useRoomStore.setState({ rooms: [room('r1', ['a'], { roomIndex: 2 }), room('r2', ['b'], { roomIndex: 5 })] });
+  });
+
+  it('on the writer: applies at once, asks nobody, and a reorder never moves the 3D slot', async () => {
+    setWriter('me');
+    expect(await requestRoomChange({ type: 'reorder', roomIds: ['r2', 'r1'] }, true)).toEqual({ ok: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect([byId('r2')?.listOrder, byId('r1')?.listOrder]).toEqual([0, 1]);
+    expect([byId('r1')?.roomIndex, byId('r2')?.roomIndex]).toEqual([2, 5]);
+  });
+
+  it('elsewhere: posts the op, shows an accepted reorder or move here, and waits for the Mac\'s list', async () => {
+    setWriter('the-mac');
+    receiveRooms({ revision: 4, rooms: useRoomStore.getState().rooms });
+    fetchMock.mockImplementation(async () => answer(202, { ok: true, opId: 'op-1' }));
+    await requestRoomChange({ type: 'reorder', roomIds: ['r2', 'r1'] }, false);
+    await requestRoomChange({ type: 'move', sessionId: 'a', roomId: 'r2' }, false);
+    expect(opBodies()).toEqual([{ type: 'reorder', roomIds: ['r2', 'r1'] }, { type: 'move', sessionId: 'a', roomId: 'r2' }]);
+    expect(byId('r2')).toMatchObject({ listOrder: 0, sessionIds: ['b', 'a'], roomIndex: 5 });
+    // The Mac's push arrives: nothing is read again.
+    receiveRooms({ revision: 5, rooms: useRoomStore.getState().rooms });
+    await vi.advanceTimersByTimeAsync(ROOM_RESYNC_MS + 10);
+    expect(gets()).toHaveLength(0);
+  });
+
+  it('elsewhere: when no newer list comes (the Mac could not apply it), reads the list again and drops the guess', async () => {
+    setWriter('the-mac');
+    const macList = useRoomStore.getState().rooms;
+    receiveRooms({ revision: 4, rooms: macList });
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => (url === '/api/rooms' && init?.method === 'GET'
+      ? answer(200, { ok: true, revision: 4, rooms: macList })
+      : answer(202, { ok: true, opId: 'op-1' })));
+    await requestRoomChange({ type: 'reorder', roomIds: ['r2', 'r1'] }, false);
+    expect(byId('r2')?.listOrder).toBe(0);
+    await vi.advanceTimersByTimeAsync(ROOM_RESYNC_MS + 10);
+    expect(gets()).toHaveLength(1);
+    expect(byId('r2')?.listOrder).toBeUndefined();
+  });
+
+  it('elsewhere: leaves the list alone when the Mac refuses, and for ops other than a gesture', async () => {
+    setWriter('the-mac');
+    fetchMock.mockResolvedValueOnce(answer(409, { ok: false, error: 'no-writer' }));
+    const before = JSON.stringify(useRoomStore.getState().rooms);
+    expect(await requestRoomChange({ type: 'reorder', roomIds: ['r2', 'r1'] }, false))
+      .toEqual({ ok: false, message: NO_WRITER_MESSAGE });
+    fetchMock.mockResolvedValueOnce(answer(202, { ok: true }));
+    await requestRoomChange({ type: 'rename', roomId: 'r1', name: 'Main' }, false);
+    expect(JSON.stringify(useRoomStore.getState().rooms)).toBe(before);
+    await vi.advanceTimersByTimeAsync(ROOM_RESYNC_MS + 10);
+    expect(gets()).toHaveLength(0);
   });
 });

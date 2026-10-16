@@ -59,6 +59,12 @@ describe('parseRoomOp', () => {
     expect(parseRoomOp({ type: 'move', sessionId: 's', roomId: null })).toEqual({ type: 'move', sessionId: 's', roomId: null });
   });
 
+  it('takes a reorder (AASC-55): room ids in their new list order', () => {
+    expect(parseRoomOp({ type: 'reorder', roomIds: ['r2', 'r1'] })).toEqual({ type: 'reorder', roomIds: ['r2', 'r1'] });
+    const most = Array.from({ length: ROOM_LIMITS.rooms }, (_, i) => `r${i}`);
+    expect(parseRoomOp({ type: 'reorder', roomIds: most })).toEqual({ type: 'reorder', roomIds: most });
+  });
+
   it.each([
     [{ type: 'create', name: '   ' }],
     [{ type: 'create', name: 'x'.repeat(ROOM_LIMITS.name + 1) }],
@@ -68,6 +74,15 @@ describe('parseRoomOp', () => {
     [{ type: 'move', sessionId: 's' }],
     [{ type: 'move', sessionId: 's', roomId: 'r1', roomIndex: 3 }],
     [{ type: 'setRoomIndex', roomId: 'r1', roomIndex: 2 }],
+    [{ type: 'reorder', roomIds: [] }],
+    [{ type: 'reorder', roomIds: ['r1', 'r1'] }],
+    [{ type: 'reorder', roomIds: ['r1', ''] }],
+    [{ type: 'reorder', roomIds: ['r1', 7] }],
+    [{ type: 'reorder', roomIds: 'r1' }],
+    [{ type: 'reorder', roomIds: ['x'.repeat(ROOM_LIMITS.id + 1)] }],
+    [{ type: 'reorder', roomIds: Array.from({ length: ROOM_LIMITS.rooms + 1 }, (_, i) => `r${i}`) }],
+    [{ type: 'reorder', roomIds: ['r1'], roomIndex: 2 }],
+    [{ type: 'reorder', roomIds: ['r1'], listOrder: { r1: 0 } }],
     [null],
   ])('refuses %j', (body) => {
     expect(parseRoomOp(body)).toBeNull();
@@ -349,6 +364,27 @@ describe('POST /rooms/ops', () => {
       expect(res.json.error).toBe('Room not found');
     }
     expect(h.sent).toEqual([]);
+  });
+
+  it('a remote device reorders the rooms it can see (AASC-55): forwarded as asked', async () => {
+    const res = await call('POST', '/rooms/ops', PHONE, { type: 'reorder', roomIds: ['target', 'mixed', 'empty'] });
+    expect(res.status).toBe(202);
+    expect(h.sent).toEqual([{ clientId: 'mac', msg: { type: 'room_op', opId: 'op-1', op: { type: 'reorder', roomIds: ['target', 'mixed', 'empty'] } } }]);
+  });
+
+  it('a remote device may not name a room hidden from it, or an unknown one, in a reorder: 404, the same answer', async () => {
+    for (const roomIds of [['target', 'secret'], ['no-such-room', 'mixed'], ['secret']]) {
+      const res = await call('POST', '/rooms/ops', PHONE, { type: 'reorder', roomIds });
+      expect(res.status, roomIds.join()).toBe(404);
+      expect(res.json.error).toBe('Room not found');
+    }
+    expect(h.sent).toEqual([]);
+  });
+
+  it('this machine may reorder every room, a reorder never carries roomIndex', async () => {
+    expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'reorder', roomIds: ['secret', 'mixed'] })).status).toBe(202);
+    expect(h.sent[0].msg.op).toEqual({ type: 'reorder', roomIds: ['secret', 'mixed'] });
+    expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'reorder', roomIds: ['secret'], roomIndex: 1 })).status).toBe(400);
   });
 
   it('a remote device may not delete a room that holds sessions hidden from it', async () => {

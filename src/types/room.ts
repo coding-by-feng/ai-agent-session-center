@@ -41,13 +41,18 @@ export interface Room {
  *  - color   a palette colour, or null for the room's slot colour
  *  - delete  the room; its sessions stay open and leave it
  *  - move    a session into a room, or out of every room (null)
+ *  - reorder the rooms' LIST order (`listOrder`, AASC-55): `roomIds` in their new
+ *            order. A device names only the rooms it can see; the writer puts
+ *            them in the slots they hold and leaves every other room where it
+ *            is. Never `roomIndex` (the 3D slot).
  */
 export type RoomOp =
   | { type: 'create'; name: string; sessionId?: string }
   | { type: 'rename'; roomId: string; name: string }
   | { type: 'color'; roomId: string; color: string | null }
   | { type: 'delete'; roomId: string }
-  | { type: 'move'; sessionId: string; roomId: string | null };
+  | { type: 'move'; sessionId: string; roomId: string | null }
+  | { type: 'reorder'; roomIds: string[] };
 
 /** The rooms as one device may see them, with the revision they were cut at. */
 export interface RoomList {

@@ -11,6 +11,7 @@
  */
 import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
 import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
+import { roomsInListOrder } from '@/lib/roomOrder';
 import type { Room } from '@/stores/roomStore';
 import type { SessionSortMode } from '@/stores/uiStore';
 import type { Session } from '@/types';
@@ -105,11 +106,7 @@ export function buildStripItems({ filtered, all, rooms, mode, recentIds }: Strip
   // world-space room slot; see Room.roomIndex). Falling back to roomIndex, then
   // array order, keeps existing rooms in their visible order until the user
   // first reorders one.
-  const orderedRooms = [...rooms].sort(
-    (a, b) =>
-      (a.listOrder ?? a.roomIndex ?? Number.MAX_SAFE_INTEGER) -
-      (b.listOrder ?? b.roomIndex ?? Number.MAX_SAFE_INTEGER),
-  );
+  const orderedRooms = roomsInListOrder(rooms);
 
   for (const room of orderedRooms) {
     const roomSessions = filtered.filter((s) => room.sessionIds.includes(s.sessionId));

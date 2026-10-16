@@ -179,6 +179,19 @@ describe('groupSessions', () => {
     expect(groups[0].room?.id).toBe('r1');
   });
 
+  it('shows a room with no listed sessions in its slot (AASC-55: something to drop into), not while filtered or searched', () => {
+    const list = [mk('a'), mk('b', { status: 'working' })];
+    const rooms = [room('r1', 'First', ['a'], 0), room('empty', 'Empty', [], 1), room('r3', 'Third', ['b', 'gone'], 2)];
+    const titles = (over: Partial<GroupInput>) => groupSessions(input(list, { groupBy: 'room', rooms, ...over }))
+      .map((g) => `${g.title}:${g.sessions.length}`);
+    expect(titles({})).toEqual(['First:1', 'Empty:0', 'Third:1']);
+    const empty = groupSessions(input(list, { groupBy: 'room', rooms }))[1];
+    expect(empty).toMatchObject({ key: 'room:empty', kind: 'room', room: { id: 'empty' } });
+    expect(empty.color).toBeTruthy();
+    expect(titles({ filter: 'working' })).toEqual(['Third:1']);
+    expect(titles({ query: 'zzz' })).toEqual([]);
+  });
+
   it('groups by project with where to start a session', () => {
     const list = [mk('a', { projectPath: '/w/app', projectName: 'app' }), mk('b', { projectPath: '/w/site', projectName: 'site' }), mk('c', { projectPath: '/w/app', projectName: 'app' })];
     const groups = groupSessions(input(list, { groupBy: 'project' }));

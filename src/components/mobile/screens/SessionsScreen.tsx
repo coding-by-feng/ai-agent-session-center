@@ -12,18 +12,25 @@
  * and Codex, Terminal otherwise) and marks it read here; swipe it for Mark read,
  * Mute and More; hold it for rename, label, remark, room, fork, clone, restart
  * and kill (kill and restart confirm). Group by Room / Project use the desktop
- * strip's grouping and order; a room group's ⋯ kills its live sessions after a
- * confirm. Pull down (or Refresh in the search bar) re-asks the Mac.
+ * strip's grouping and order. Grouped by room (AASC-55) the list is the
+ * desktop's room strip on a phone: hold a room's ≡ to reorder rooms, hold a
+ * session's ≡ to drag it into another room (tap it for "Move to room…"), tap a
+ * room's name to fold it (this phone only), and its ⋯ moves it up or down,
+ * renames, recolours, deletes it or kills its sessions (only those shared with
+ * this phone). Pull down (or Refresh in the search bar) re-asks the Mac.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { Session } from '@/types';
-import type { Room } from '@/stores/roomStore';
-import { Button, Chip, ConfirmSheet, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
+import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
 import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
-import { RoomIcon } from '../RoomSheets';
+import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
+import { RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
+import { useCollapsedRooms } from './useCollapsedRooms';
+import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSessionRoomDrag';
+import { useIsHostDevice } from '../views/hostAccess';
 import SessionListRow from './SessionListRow';
 import ConnectionBanner from './ConnectionBanner';
 import NewSessionSheet from './NewSessionSheet';
@@ -38,10 +45,12 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
 import { refreshSessionList } from '@/lib/sessionRefresh';
-import { liveRoomSessions, killRoomSessions } from '@/lib/roomKill';
+import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
+import type { RoomDragRect } from '@/lib/roomDragReorder';
+import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
+import { reorderOpFor, sessionDropOp, type RoomGroupRect } from '@/lib/chat/roomsListModel';
 import { defaultSegment, infoPath, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
-import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { restartBlocker } from '@/lib/chat/sessionInfoModel';
 import { markSessionRead, readStamp, useSessionReads } from '@/lib/chat/sessionReads';
 import { useClock } from '@/lib/chat/clock';
@@ -60,10 +69,10 @@ import {
   type SessionsGroupBy,
 } from '@/lib/chat/sessionsModel';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
+import roomStyles from '@/styles/modules/mobile/SessionRooms.module.css';
 
 const GROUP_KEY = 'aasc.phoneSessionsGroup';
 const FIT = ['fit'] as const;
-const KILL_NAME_CAP = 8;
 
 const PULL_WORDS: Record<PullPhase, string> = {
   idle: '',
@@ -129,6 +138,21 @@ function HostCard({ onNew, blocker }: { onNew: () => void; blocker: string | nul
 // One group (a status section, a room, a project)
 // ---------------------------------------------------------------------------
 
+/** What a group grouped by room adds (AASC-55): folding, both drags, the room's menu. */
+interface RoomGrouping {
+  collapsed: ReadonlySet<string>;
+  onToggleRoom: (roomId: string) => void;
+  onRoomMenu: (roomId: string) => void;
+  onRoomGripDown: (e: PointerEvent, roomId: string) => void;
+  /** The room being reordered, and how far each passed room slides aside. */
+  liftedRoomId: string | null;
+  roomShifts: ReadonlyMap<string, number>;
+  registerRoomEl: (roomId: string, el: HTMLElement | null) => void;
+  registerGroup: (key: string, roomId: string | null, el: HTMLElement | null) => void;
+  gripFor: (sessionId: string, fromRoomId: string | null) => GripHandlers;
+  sessionDrag: SessionDrag | null;
+}
+
 interface GroupProps {
   group: SessionGroup;
   /** The Idle section may fold (not while a search lists every match). */
@@ -137,16 +161,35 @@ interface GroupProps {
   now: number;
   folded: boolean;
   onToggleFold: () => void;
-  onRoomMenu: (room: Room) => void;
   rowProps: (session: Session) => { swipeActions: SwipeAction[]; menuItems: ContextMenuItem[] };
   onOpen: (session: Session) => void;
+  /** Set when grouped by room. */
+  rooms?: RoomGrouping;
 }
 
-function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, onRoomMenu, rowProps, onOpen }: GroupProps) {
+function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms }: GroupProps) {
   const count = group.sessions.length;
+  const roomId = group.room?.id ?? null;
+  const roomFolded = !!(rooms && roomId && rooms.collapsed.has(roomId));
+  const groupRef = useCallback((el: HTMLDivElement | null) => {
+    if (!rooms) return;
+    rooms.registerGroup(group.key, roomId, el);
+    if (roomId) rooms.registerRoomEl(roomId, el);
+  }, [rooms, group.key, roomId]);
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
-  const header = (
+  const header = rooms && group.room ? (
+    <RoomGroupHeader
+      room={group.room}
+      title={group.title}
+      count={count}
+      color={group.color}
+      collapsed={roomFolded}
+      onToggle={rooms.onToggleRoom}
+      onMenu={rooms.onRoomMenu}
+      onGripDown={rooms.onRoomGripDown}
+    />
+  ) : (
     <div className={styles.groupHeader}>
       {group.color && <span className={styles.swatch} style={{ '--swatch': group.color } as CSSProperties} aria-hidden="true" />}
       <h2 className={styles.groupTitle}>{group.title} · {count}</h2>
@@ -155,24 +198,25 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, onR
           {folded ? `Show ${count}` : 'Hide'}
         </button>
       )}
-      {group.room && (
-        <button
-          type="button"
-          className={styles.groupIcon}
-          onClick={() => onRoomMenu(group.room!)}
-          aria-label={`Actions for the room ${group.title}`}
-          aria-haspopup="dialog"
-        >
-          <EllipsisIcon />
-        </button>
-      )}
     </div>
   );
+  const drag = rooms?.sessionDrag ?? null;
+  const roomShift = roomId ? rooms?.roomShifts.get(roomId) : undefined;
   return (
-    <div className={styles.group}>
+    <div
+      ref={groupRef}
+      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}`}
+      data-room-lifted={roomId && rooms?.liftedRoomId === roomId ? '' : undefined}
+      data-drop-target={drag && drag.overRoomId === roomId && drag.fromRoomId !== roomId ? '' : undefined}
+      style={roomShift ? ({ '--room-shift': `${roomShift}px` } as CSSProperties) : undefined}
+      data-testid={rooms ? `room-group-${roomId ?? 'none'}` : undefined}
+    >
       {header}
+      {roomFolded ? null : (
       <ListSection label={group.title} className={styles.groupList}>
-      {folded ? (
+      {count === 0 && rooms ? (
+        <li className={roomStyles.emptyRoom}>No sessions. Hold a session’s ≡ and drop it here.</li>
+      ) : folded ? (
         <li className={styles.foldedNote}>
           <button type="button" className={styles.foldedButton} onClick={onToggleFold} aria-expanded={false}>
             {count} idle sessions folded · Show them
@@ -186,10 +230,13 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, onR
           hideRoom={groupBy === 'room'}
           hideProject={groupBy === 'project'}
           onOpen={onOpen}
+          grip={rooms?.gripFor(s.sessionId, roomId)}
+          dragY={drag?.sessionId === s.sessionId ? drag.dy : undefined}
           {...rowProps(s)}
         />
       ))}
       </ListSection>
+      )}
     </div>
   );
 }
@@ -219,14 +266,11 @@ export default function SessionsScreen() {
   const [newOpen, setNewOpen] = useState(false);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
-  // Rooms by id, read from the store when used: membership can change (rooms
-  // sync from the Mac) between the menu, the confirm and the kill.
   const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
-  const [roomKillId, setRoomKillId] = useState<string | null>(null);
-  const roomMenu = rooms.find((r) => r.id === roomMenuId) ?? null;
-  const roomKill = rooms.find((r) => r.id === roomKillId) ?? null;
-  const [killing, setKilling] = useState(false);
-  const killingRef = useRef(false);
+  const [manageRooms, setManageRooms] = useState(false);
+  const isHost = useIsHostDevice();
+  const isRoomWriter = useIsRoomWriter();
+  const { collapsed: collapsedRooms, toggle: toggleRoom } = useCollapsedRooms(rooms);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const setGroupBy = useCallback((next: SessionsGroupBy) => {
@@ -249,8 +293,7 @@ export default function SessionsScreen() {
   const openNew = useCallback(() => setNewOpen(true), []);
   const closeGroupSheet = useCallback(() => setGroupSheet(false), []);
   const closeRoomMenu = useCallback(() => setRoomMenuId(null), []);
-  const openRoomMenu = useCallback((room: Room) => setRoomMenuId(room.id), []);
-  const cancelRoomKill = useCallback(() => { if (!killingRef.current) setRoomKillId(null); }, []);
+  const closeManageRooms = useCallback(() => setManageRooms(false), []);
   const openSheet = useCallback((id: string, kind: SessionSheetKind) => {
     setSheetFor(id);
     setSheet(kind);
@@ -287,36 +330,69 @@ export default function SessionsScreen() {
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);
+  const { scrollerRef: pullScrollerRef } = pull;
   useEffect(() => {
     // The Screen's own scroller is the one the pull reads and writes (--pull).
-    pull.scrollerRef.current = pullHost.current?.parentElement as HTMLDivElement | null;
+    pullScrollerRef.current = pullHost.current?.parentElement as HTMLDivElement | null;
   });
 
   useEffect(() => {
     if (searching) searchRef.current?.focus();
   }, [searching]);
 
-  const runRoomKill = useCallback(async () => {
-    const room = useRoomStore.getState().rooms.find((r) => r.id === roomKillId);
-    if (killingRef.current) return;
-    const targets = room ? liveRoomSessions(room, useSessionStore.getState().sessions) : [];
-    if (!room || targets.length === 0) {
-      setRoomKillId(null);
-      return;
-    }
-    killingRef.current = true;
-    setKilling(true);
-    try {
-      await killRoomSessions(room.name, targets);
-    } finally {
-      killingRef.current = false;
-      setKilling(false);
-      setRoomKillId(null);
-    }
-  }, [roomKillId]);
+  // ---- Grouped by room (AASC-55) ----
+  const byRoom = groupBy === 'room';
+  // The room groups on screen, in order: what a room drag and Move up / down reorder.
+  const visibleRoomIds = useMemo(
+    () => (byRoom ? groups.flatMap((g) => (g.room ? [g.room.id] : [])) : []),
+    [byRoom, groups],
+  );
+  const roomEls = useRef(new Map<string, HTMLElement>());
+  const registerRoomEl = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) roomEls.current.set(id, el);
+    else roomEls.current.delete(id);
+  }, []);
+  const getRoomRects = useCallback((): RoomDragRect[] => visibleRoomIds.flatMap((id) => {
+    const el = roomEls.current.get(id);
+    if (!el) return [];
+    const r = el.getBoundingClientRect();
+    return [{ id, top: r.top, bottom: r.bottom }];
+  }), [visibleRoomIds]);
+  const getRoomEl = useCallback((id: string) => roomEls.current.get(id), []);
+  const commitRoomOrder = useCallback((nextIds: string[]) => {
+    const op = reorderOpFor(useRoomStore.getState().rooms, nextIds);
+    if (!op) return;
+    void requestRoomChange(op, isRoomWriter).then((outcome) => {
+      if (!outcome.ok) showToast(outcome.message, 'error');
+    });
+  }, [isRoomWriter]);
+  const roomDrag = useRoomDragReorder(visibleRoomIds, getRoomRects, commitRoomOrder, getRoomEl);
 
-  const killTargets = roomKill ? liveRoomSessions(roomKill, sessions) : [];
-  const killNames = killTargets.slice(0, KILL_NAME_CAP).map(sessionDisplayTitle);
+  const dropSession = useCallback((sessionId: string, fromRoomId: string | null, target: RoomGroupRect | null) => {
+    const op = sessionDropOp(sessionId, fromRoomId, target);
+    if (!op || op.type !== 'move') return;
+    const name = op.roomId ? useRoomStore.getState().rooms.find((r) => r.id === op.roomId)?.name : null;
+    void requestRoomChange(op, isRoomWriter).then((outcome) => {
+      if (!outcome.ok) showToast(outcome.message, 'error');
+      else showToast(name ? `Moved to ${name}` : 'Taken out of its room', 'info');
+    });
+  }, [isRoomWriter]);
+  const tapGrip = useCallback((sessionId: string) => openSheet(sessionId, 'move-room'), [openSheet]);
+  const sessionDrag = useSessionRoomDrag(dropSession, tapGrip);
+
+  const roomGrouping = useMemo<RoomGrouping | undefined>(() => (byRoom ? {
+    collapsed: collapsedRooms,
+    onToggleRoom: toggleRoom,
+    onRoomMenu: setRoomMenuId,
+    onRoomGripDown: roomDrag.onPointerDown,
+    liftedRoomId: roomDrag.draggingId,
+    roomShifts: roomDrag.shifts,
+    registerRoomEl,
+    registerGroup: sessionDrag.registerGroup,
+    gripFor: sessionDrag.gripFor,
+    sessionDrag: sessionDrag.drag,
+  } : undefined), [byRoom, collapsedRooms, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
+    registerRoomEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const actions = (
     <>
@@ -379,12 +455,19 @@ export default function SessionsScreen() {
         now={now}
         folded={foldable && !idleOpen}
         onToggleFold={() => setIdleOpen((v) => !v)}
-        onRoomMenu={openRoomMenu}
         rowProps={rowProps}
         onOpen={open}
+        rooms={roomGrouping}
       />
       );
     });
+    if (byRoom) {
+      body = (
+        <div className={roomStyles.roomList} data-room-drag={roomDrag.draggingId ? '' : undefined} data-session-drag={sessionDrag.drag ? '' : undefined}>
+          {body}
+        </div>
+      );
+    }
   }
 
   return (
@@ -432,6 +515,13 @@ export default function SessionsScreen() {
             />
           </div>
         )}
+        {snapshotReceived && counts.all > 0 && byRoom && (
+          <div className={roomStyles.roomsBar}>
+            <Button small variant="plain" icon={<RoomIcon />} onClick={() => setManageRooms(true)}>
+              New or manage rooms
+            </Button>
+          </div>
+        )}
         {body}
       </div>
 
@@ -458,39 +548,8 @@ export default function SessionsScreen() {
           ))}
         </ListSection>
       </Sheet>
-      <Sheet open={roomMenu !== null} onClose={closeRoomMenu} title={roomMenu ? `Room “${roomMenu.name}”` : 'Room'} detents={FIT} testId="room-menu-sheet">
-        {roomMenu && (
-          <ListSection label="Room actions">
-            <ListRow
-              title={`Kill all sessions in “${roomMenu.name}”…`}
-              destructive
-              disabledReason={liveRoomSessions(roomMenu, sessions).length === 0 ? 'No live sessions in this room.' : undefined}
-              onClick={() => {
-                setRoomKillId(roomMenu.id);
-                setRoomMenuId(null);
-              }}
-            />
-          </ListSection>
-        )}
-      </Sheet>
-      <ConfirmSheet
-        open={roomKill !== null}
-        title={roomKill ? `Kill all sessions in “${roomKill.name}”?` : 'Kill all sessions?'}
-        message={(
-          <>
-            <span className={styles.killList}>
-              {killNames.join(', ')}
-              {killTargets.length > KILL_NAME_CAP && ` +${killTargets.length - KILL_NAME_CAP} more`}
-            </span>
-            {` This ends ${killTargets.length} live ${killTargets.length === 1 ? 'session' : 'sessions'}. Ended sessions are skipped.`}
-          </>
-        )}
-        confirmLabel={`Kill ${killTargets.length}`}
-        danger
-        busy={killing}
-        onConfirm={() => void runRoomKill()}
-        onCancel={cancelRoomKill}
-      />
+      <RoomGroupSheets menuRoomId={roomMenuId} onCloseMenu={closeRoomMenu} visibleRoomIds={visibleRoomIds} remote={!isHost} />
+      <ManageRoomsSheet open={manageRooms} onClose={closeManageRooms} />
     </Screen>
   );
 }

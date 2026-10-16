@@ -30,11 +30,13 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { isPopoutWindow } from '@/lib/windowRole';
 import { isNativeMobileApp } from '@/lib/platform';
 import { isImportInProgress, isRestorePending } from '@/lib/workspaceSnapshot';
-import { applyRoomOp, readRoomOp } from '@/lib/roomOps';
-import type { Room, RoomList } from '@/types';
+import { applyRoomOp, readRoomOp, sendRoomOp, type RoomOpOutcome } from '@/lib/roomOps';
+import type { Room, RoomList, RoomOp } from '@/types';
 
 /** How long after a change the writer pushes; changes in between go in the same push. */
 export const ROOM_PUSH_DELAY_MS = 500;
+/** How long a device waits for the Mac's list after showing an accepted reorder / move itself. */
+export const ROOM_RESYNC_MS = 3000;
 
 type RoomRole = 'writer' | 'viewer' | 'unknown';
 
@@ -138,6 +140,59 @@ async function fetchRooms(): Promise<void> {
   } catch {
     /* best-effort: the next rooms_update brings the list */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Room changes asked for from this device's UI (AASC-55)
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-read the server's list `delayMs` from now unless a newer one arrived
+ * meanwhile, and take it even at the revision this device already has. Used
+ * after showing an accepted change locally: if the Mac could not apply it (a
+ * room or session it no longer has) its list did not change, so no
+ * `rooms_update` comes to replace the local guess.
+ */
+function resyncRoomsIfUnchanged(sinceRevision: number, delayMs: number): void {
+  setTimeout(() => {
+    if (lastRevision > sinceRevision || roomRole() !== 'viewer') return;
+    void (async () => {
+      try {
+        const res = await fetch('/api/rooms', { method: 'GET' });
+        if (!res.ok) return;
+        const body = (await res.json()) as Partial<RoomList> | null;
+        if (!body || typeof body.revision !== 'number' || !Array.isArray(body.rooms)) return;
+        if (body.revision >= lastRevision && roomRole() === 'viewer') take({ revision: body.revision, rooms: body.rooms });
+      } catch {
+        /* best-effort: the next rooms_update brings the list */
+      }
+    })();
+  }, delayMs);
+}
+
+/**
+ * One room change from this device's UI: applied here on the device that owns
+ * the rooms, asked of the Mac anywhere else.
+ *
+ * A gesture's result — a reorder, a session dropped into a room — also shows on
+ * this device as soon as the Mac has accepted it, so a dragged room doesn't wait
+ * for the round trip through the Mac's push: `listOrder` / membership only. The
+ * Mac's next `rooms_update` replaces the whole list; if none comes within
+ * ROOM_RESYNC_MS (the Mac could not apply it, so its list did not change) the
+ * server's list is read again and taken. Anything else waits for the update.
+ */
+export async function requestRoomChange(op: RoomOp, isWriter: boolean): Promise<RoomOpOutcome> {
+  if (isWriter) {
+    applyRoomOp(op);
+    return { ok: true };
+  }
+  const outcome = await sendRoomOp(op);
+  if (outcome.ok && (op.type === 'reorder' || op.type === 'move')) {
+    const since = lastRevision;
+    applyRoomOp(op);
+    resyncRoomsIfUnchanged(since, ROOM_RESYNC_MS);
+  }
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------

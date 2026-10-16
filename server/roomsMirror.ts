@@ -77,6 +77,12 @@ const roomOpSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('color'), roomId: roomIdSchema, color: paletteColor.nullable() }).strict(),
   z.object({ type: z.literal('delete'), roomId: roomIdSchema }).strict(),
   z.object({ type: z.literal('move'), sessionId: sessionIdSchema, roomId: roomIdSchema.nullable() }).strict(),
+  // AASC-55: the rooms' LIST order (listOrder), never their 3D slot (roomIndex).
+  z.object({
+    type: z.literal('reorder'),
+    roomIds: z.array(roomIdSchema).min(1).max(ROOM_LIMITS.rooms)
+      .refine((ids) => new Set(ids).size === ids.length, 'room ids must be unique'),
+  }).strict(),
 ]);
 
 /** A pushed room list (`{ rooms }`), or null when it is malformed or over a limit. Unknown fields are dropped. */
@@ -85,7 +91,7 @@ export function parseRoomList(body: unknown): Room[] | null {
   return parsed.success ? parsed.data.rooms.map(stripUndefined) : null;
 }
 
-/** One room change from another device, or null. Never carries `roomIndex`: that is a 3D slot. */
+/** One room change from another device, or null. Never carries `roomIndex`: that is a 3D slot (a reorder is list order only). */
 export function parseRoomOp(body: unknown): RoomOp | null {
   const parsed = roomOpSchema.safeParse(body);
   return parsed.success ? (stripUndefined(parsed.data) as RoomOp) : null;

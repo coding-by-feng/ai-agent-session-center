@@ -529,12 +529,6 @@
   margin-top: var(--ph-space-2);
 }
 
-.killList {
-  display: block;
-  margin-bottom: var(--ph-space-2);
-  font-weight: 600;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pull, .row { transition: none; }
   .pullHost[data-pull='refreshing'] .pullSpinner { animation-duration: 2400ms; }

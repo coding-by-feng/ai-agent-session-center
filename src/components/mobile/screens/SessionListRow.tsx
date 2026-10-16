@@ -12,7 +12,8 @@
  *
  * With `swipeActions` the row swipes left to reveal them; with `menuItems` a
  * press-and-hold (or right click, Shift+F10) opens them as a menu. The swipe is
- * never the only way: the menu repeats its actions.
+ * never the only way: the menu repeats its actions. With `grip` (grouped by
+ * room) a ≡ before the row drags it into another room (AASC-55).
  */
 import type { CSSProperties } from 'react';
 import type { Session } from '@/types';
@@ -28,7 +29,9 @@ import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
 import { useClock } from '@/lib/chat/clock';
+import type { GripHandlers } from './useSessionRoomDrag';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
+import roomStyles from '@/styles/modules/mobile/SessionRooms.module.css';
 
 export interface SessionListRowProps {
   session: Session;
@@ -43,6 +46,20 @@ export interface SessionListRowProps {
   hideRoom?: boolean;
   swipeActions?: ReadonlyArray<SwipeAction>;
   menuItems?: ReadonlyArray<ContextMenuItem>;
+  /** A grip before the row (Sessions grouped by room, AASC-55): hold and drag
+   *  it into another room, or tap it for "Move to room…". Always shown, never
+   *  revealed on hover, so the row never moves under a finger. */
+  grip?: GripHandlers;
+  /** This row is being dragged: it follows the finger by `dragY` px. */
+  dragY?: number;
+}
+
+function GripIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M5 8h14M5 12h14M5 16h14" />
+    </svg>
+  );
 }
 
 function CliMark({ cli }: { cli: string | null }) {
@@ -60,6 +77,8 @@ export default function SessionListRow({
   hideRoom,
   swipeActions,
   menuItems,
+  grip,
+  dragY,
 }: SessionListRowProps) {
   const room = useRoomStore((s) => (hideRoom ? undefined : s.rooms.find((r) => r.sessionIds.includes(session.sessionId))));
   const label = useLabelStore((s) => s.labels[session.sessionId]);
@@ -114,11 +133,32 @@ export default function SessionListRow({
     </button>
   );
 
+  const withGrip = grip ? (
+    <div className={roomStyles.gripRow}>
+      <button
+        type="button"
+        className={roomStyles.grip}
+        aria-label={`Move ${title} to another room: hold and drag it onto a room, or tap to choose`}
+        aria-haspopup="dialog"
+        data-testid={`session-grip-${session.sessionId}`}
+        {...grip}
+      >
+        <GripIcon />
+      </button>
+      {button}
+    </div>
+  ) : button;
   const withMenu = menuItems?.length
-    ? <ContextMenu items={menuItems} label={`Actions for ${title}`}>{button}</ContextMenu>
-    : button;
+    ? <ContextMenu items={menuItems} label={`Actions for ${title}`}>{withGrip}</ContextMenu>
+    : withGrip;
+  const dragging = dragY !== undefined;
   return (
-    <li className={styles.item}>
+    <li
+      className={styles.item}
+      data-grip={grip ? '' : undefined}
+      data-dragging={dragging ? '' : undefined}
+      style={dragging ? ({ '--drag-y': `${dragY}px` } as CSSProperties) : undefined}
+    >
       {swipeActions?.length ? <SwipeRow actions={swipeActions}>{withMenu}</SwipeRow> : withMenu}
     </li>
   );

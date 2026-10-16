@@ -15,6 +15,8 @@ import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { needsYou, waitingLine } from './inboxModel';
 import { buildStripItems } from '@/lib/sessionStrip';
+import { roomsInListOrder } from '@/lib/roomOrder';
+import { roomColor } from '@/lib/roomColor';
 import { numberedSessions } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 
@@ -205,9 +207,27 @@ export function groupSessions({ sessions, groupBy, filter, query, labels, rooms,
   const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds: [] });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
+  const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>
+    ({ key: `room:${room.id}`, kind: 'room', title: room.name, sessions: list, room, color });
+  // AASC-55: unfiltered, every room has a group, an empty one too — something
+  // to drop a session into, and to reorder, fold or kill like any other. The
+  // desktop strip leaves empty rooms out; filtered or searched, so does the phone.
+  const showEmptyRooms = groupBy === 'room' && filter === 'all' && !query.trim();
+  const framed = new Set(items.flatMap((item) => (item.type === 'room' ? [item.room.id] : [])));
+  const ordered = showEmptyRooms ? roomsInListOrder(rooms) : [];
+  const emptyRooms = ordered.filter((r) => !framed.has(r.id));
+  const rank = (r: Room) => ordered.indexOf(r);
+  const placeEmptyBefore = (room: Room | null) => {
+    // Empty rooms go where list order puts them: before the first framed room that ranks after them.
+    while (emptyRooms.length > 0 && (room === null || rank(emptyRooms[0]) < rank(room))) {
+      const empty = emptyRooms.shift()!;
+      groups.push(roomGroup(empty, [], roomColor(empty)));
+    }
+  };
   for (const item of items) {
     if (item.type === 'room') {
-      groups.push({ key: `room:${item.room.id}`, kind: 'room', title: item.room.name, sessions: item.sessions, room: item.room, color: item.color });
+      placeEmptyBefore(item.room);
+      groups.push(roomGroup(item.room, item.sessions, item.color));
     } else if (item.type === 'project') {
       const { group } = item;
       groups.push({
@@ -223,6 +243,7 @@ export function groupSessions({ sessions, groupBy, filter, query, labels, rooms,
       loose.push(item.session);
     }
   }
+  placeEmptyBefore(null);
   if (loose.length > 0) {
     groups.push({ key: `none:${groupBy}`, kind: 'none', title: groupBy === 'room' ? 'No room' : 'No project', sessions: loose });
   }

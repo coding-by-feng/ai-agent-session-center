@@ -11,10 +11,11 @@
  * (`applyRoomOp`) and its next push brings the result back to everyone.
  *
  * Only room-store actions are used, and never `setRoomIndex`: `roomIndex` is a
- * 3D world slot, and a colour is `Room.color`.
+ * 3D world slot, a colour is `Room.color`, and a reorder is `Room.listOrder`.
  */
 import { useRoomStore } from '@/stores/roomStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
+import { listOrdersAfterReorder } from '@/lib/roomOrder';
 import type { RoomOp } from '@/types';
 
 /** What a phone says when no Mac window is connected to apply a change. */
@@ -31,6 +32,16 @@ export function moveSessionToRoom(sessionId: string, roomId: string | null): voi
 
 const hasRoom = (roomId: string): boolean => useRoomStore.getState().rooms.some((r) => r.id === roomId);
 const isString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/** As many rooms as the server lets a list hold (ROOM_LIMITS.rooms). */
+const MAX_REORDER_IDS = 200;
+
+/** A reorder's ids: non-empty strings, none repeated, not more than a list can hold. */
+function readRoomIds(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_REORDER_IDS) return null;
+  if (!value.every(isString)) return null;
+  return new Set(value).size === value.length ? [...value] : null;
+}
 
 /**
  * A room op as the server sent it, or null when it is not one. The server has
@@ -55,6 +66,10 @@ export function readRoomOp(value: unknown): RoomOp | null {
     case 'move':
       if (!isString(op.sessionId)) return null;
       return op.roomId === null || isString(op.roomId) ? { type: 'move', sessionId: op.sessionId, roomId: op.roomId } : null;
+    case 'reorder': {
+      const roomIds = readRoomIds(op.roomIds);
+      return roomIds ? { type: 'reorder', roomIds } : null;
+    }
     default:
       return null;
   }
@@ -81,6 +96,13 @@ export function applyRoomOp(op: RoomOp): void {
     case 'move':
       if (op.roomId === null || hasRoom(op.roomId)) moveSessionToRoom(op.sessionId, op.roomId);
       return;
+    case 'reorder': {
+      // listOrder only, dense over every room; rooms the asker can't see keep
+      // their slot, and ids this device doesn't have are skipped.
+      const orders = listOrdersAfterReorder(store.rooms, op.roomIds);
+      if (orders) store.setListOrders(orders);
+      return;
+    }
   }
 }
 

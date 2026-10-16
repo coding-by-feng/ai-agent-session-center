@@ -3,11 +3,13 @@
  * moves a session by dragging it between room frames or with the control
  * bar's room select, and manages rooms in the 3D scene's HUD; a phone has
  * neither, so both are sheets, opened from a session's Info → Room and from a
- * room's group menu on Sessions (AASC-40/46):
+ * room's group menu on Sessions (AASC-40/46, AASC-55):
  *
  *  - MoveToRoomSheet: "No room", every room (colour, name, size, the current
  *    one ticked), and a new room made and moved into in one step.
  *  - ManageRoomsSheet: create, rename, colour and delete rooms.
+ *  - RoomEditSheet / DeleteRoomConfirm: one room's rename, colour or delete,
+ *    straight from its group's menu on Sessions (AASC-55).
  *
  * The Mac owns the rooms (lib/roomSync.ts). On the device that owns them — the
  * Mac's window at a phone's size, the workspace writer — the sheets use the
@@ -24,6 +26,7 @@ import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
 import { moveSessionToRoom, sendRoomOp } from '@/lib/roomOps';
+import { roomsInListOrder } from '@/lib/roomOrder';
 import { useIsRoomWriter } from '@/lib/roomSync';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { useRoomStore, type Room } from '@/stores/roomStore';
@@ -36,11 +39,6 @@ const ROOM_NAME_MAX = 40;
 /** Names for the palette's colours, in its order: a swatch is a button and needs words. */
 const COLOR_NAMES: readonly string[] = ['Orange', 'Blue', 'Green', 'Purple', 'Yellow', 'Pink', 'Cyan', 'Coral'];
 
-/** The rooms in the drawer's order: `listOrder`, then the 3D slot. */
-function roomsInListOrder(rooms: readonly Room[]): Room[] {
-  const rank = (r: Room) => r.listOrder ?? r.roomIndex ?? Number.MAX_SAFE_INTEGER;
-  return [...rooms].sort((a, b) => rank(a) - rank(b));
-}
 
 const sessionCount = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
@@ -199,7 +197,7 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<Room | null>(null);
-  const cancelDelete = useCallback(() => setDeleting(null), []);
+  const endDelete = useCallback(() => setDeleting(null), []);
 
   const create = async () => {
     const trimmed = name.trim();
@@ -214,18 +212,6 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
     const sent = await askTheMac({ type: 'create', name: trimmed }, `Making room "${trimmed}"…`);
     setBusy(false);
     if (sent) setName('');
-  };
-
-  const confirmDelete = async () => {
-    if (!deleting) return;
-    const room = deleting;
-    setDeleting(null);
-    if (isWriter) {
-      useRoomStore.getState().deleteRoom(room.id);
-      showToast(`Room "${room.name}" deleted`, 'info');
-      return;
-    }
-    await askTheMac({ type: 'delete', roomId: room.id }, `Deleting room "${room.name}"…`);
   };
 
   return (
@@ -261,26 +247,85 @@ export function ManageRoomsSheet({ open, onClose }: { open: boolean; onClose: ()
           <RoomsFromMacNote />
         </div>
       </BottomSheet>
-      <ConfirmSheet
-        open={deleting !== null}
-        title={deleting ? `Delete room "${deleting.name}"?` : 'Delete room?'}
-        message={deleting && deleting.sessionIds.length > 0
-          ? `Its ${sessionCount(deleting.sessionIds.length)} stay open; they just leave the room.`
-          : 'The room is empty.'}
-        confirmLabel="Delete room"
-        danger
-        onConfirm={() => void confirmDelete()}
-        onCancel={cancelDelete}
-      />
+      <DeleteRoomConfirm room={deleting} onDone={endDelete} />
     </>
+  );
+}
+
+/**
+ * "Delete room?" for one room (null = closed). Its sessions stay open and just
+ * leave it. On the writer the store deletes it; elsewhere the Mac is asked (and
+ * refuses a room holding sessions hidden from this device).
+ */
+export function DeleteRoomConfirm({ room, onDone }: { room: Room | null; onDone: () => void }) {
+  const isWriter = useIsRoomWriter();
+  const confirm = async () => {
+    if (!room) return;
+    onDone();
+    if (isWriter) {
+      useRoomStore.getState().deleteRoom(room.id);
+      showToast(`Room "${room.name}" deleted`, 'info');
+      return;
+    }
+    await askTheMac({ type: 'delete', roomId: room.id }, `Deleting room "${room.name}"…`);
+  };
+  return (
+    <ConfirmSheet
+      open={room !== null}
+      title={room ? `Delete room "${room.name}"?` : 'Delete room?'}
+      message={room && room.sessionIds.length > 0
+        ? `Its ${sessionCount(room.sessionIds.length)} stay open; they just leave the room.`
+        : 'The room is empty.'}
+      confirmLabel="Delete room"
+      danger
+      onConfirm={() => void confirm()}
+      onCancel={onDone}
+    />
   );
 }
 
 type CardMode = 'view' | 'rename' | 'color';
 
-function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => void }) {
+/**
+ * One room's sheet, opened straight on Rename or Colour from a room group's
+ * menu on Sessions (AASC-55). `roomId` null = closed.
+ */
+export function RoomEditSheet({ roomId, mode, onClose }: { roomId: string | null; mode: 'rename' | 'color'; onClose: () => void }) {
+  const room = useRoomStore((s) => (roomId ? s.rooms.find((r) => r.id === roomId) : undefined));
+  const [deleting, setDeleting] = useState<Room | null>(null);
+  const endDelete = useCallback(() => setDeleting(null), []);
+  return (
+    <>
+      <BottomSheet open={!!room} onClose={onClose} title={mode === 'rename' ? 'Rename room' : 'Room colour'}>
+        {room && (
+          <div className={styles.sheet} data-testid="room-edit">
+            <ul className={styles.rooms} role="list">
+              <RoomCard key={`${room.id}-${mode}`} room={room} onDelete={setDeleting} initialMode={mode} onDone={onClose} />
+            </ul>
+            <RoomsFromMacNote />
+          </div>
+        )}
+      </BottomSheet>
+      <DeleteRoomConfirm room={deleting} onDone={() => { endDelete(); onClose(); }} />
+    </>
+  );
+}
+
+interface RoomCardProps {
+  room: Room;
+  onDelete: (room: Room) => void;
+  initialMode?: CardMode;
+  /** Called once a rename or colour is applied (or handed to the Mac). */
+  onDone?: () => void;
+}
+
+function RoomCard({ room, onDelete, initialMode = 'view', onDone }: RoomCardProps) {
   const isWriter = useIsRoomWriter();
-  const [mode, setMode] = useState<CardMode>('view');
+  const [mode, setMode] = useState<CardMode>(initialMode);
+  const finish = () => {
+    setMode('view');
+    onDone?.();
+  };
   const [draft, setDraft] = useState(room.name);
   const [busy, setBusy] = useState(false);
   const color = roomColor(room);
@@ -288,30 +333,30 @@ function RoomCard({ room, onDelete }: { room: Room; onDelete: (room: Room) => vo
   const rename = async () => {
     const trimmed = draft.trim();
     if (!trimmed || trimmed === room.name) {
-      setMode('view');
+      finish();
       return;
     }
     if (isWriter) {
       useRoomStore.getState().renameRoom(room.id, trimmed);
-      setMode('view');
+      finish();
       return;
     }
     setBusy(true);
     const sent = await askTheMac({ type: 'rename', roomId: room.id, name: trimmed }, `Renaming to "${trimmed}"…`);
     setBusy(false);
-    if (sent) setMode('view');
+    if (sent) finish();
   };
 
   const pick = async (value: string | undefined) => {
     if (isWriter) {
       useRoomStore.getState().setRoomColor(room.id, value);
-      setMode('view');
+      finish();
       return;
     }
     setBusy(true);
     const sent = await askTheMac({ type: 'color', roomId: room.id, color: value ?? null }, `Changing the colour of ${room.name}…`);
     setBusy(false);
-    if (sent) setMode('view');
+    if (sent) finish();
   };
 
   return (

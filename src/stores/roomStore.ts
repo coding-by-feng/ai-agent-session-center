@@ -38,6 +38,9 @@ interface RoomState {
   /** List-view display order only — see `Room.listOrder`. Never touches
    *  `roomIndex`, so this can never move a room in the 3D scene. */
   setListOrder: (roomId: string, listOrder: number | undefined) => void;
+  /** Many rooms' list order in one write (a reorder, AASC-55); rooms not in
+   *  `orders` keep theirs. Like `setListOrder`, never touches `roomIndex`. */
+  setListOrders: (orders: ReadonlyMap<string, number>) => void;
   /** The room's own colour (a ROOM_COLOR_PALETTE entry); undefined = its slot colour. */
   setRoomColor: (roomId: string, color: string | undefined) => void;
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
@@ -165,6 +168,16 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       const rooms = state.rooms.map((r) =>
         r.id === roomId ? { ...r, listOrder } : r,
       );
+      saveToLocalStorage(rooms);
+      return { rooms };
+    }),
+
+  setListOrders: (orders) =>
+    set((state) => {
+      const rooms = state.rooms.map((r) => {
+        const listOrder = orders.get(r.id);
+        return listOrder === undefined || listOrder === r.listOrder ? r : { ...r, listOrder };
+      });
       saveToLocalStorage(rooms);
       return { rooms };
     }),

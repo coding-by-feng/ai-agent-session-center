@@ -4,6 +4,7 @@
 //   GET  /rooms      the list, cut for the caller (a remote device: shared sessions only)
 //   PUT  /rooms      the workspace writer's whole list (409 not-workspace-writer for anyone else)
 //   POST /rooms/ops  one change asked for by another device, handed to the writer over its socket
+//                    (create, rename, color, delete, move, and reorder: list order only, AASC-55)
 //
 // The Mac stays the owner of rooms: nothing here changes the list on another
 // device's behalf. An op is checked against what the caller may see, then sent
@@ -153,11 +154,15 @@ export function createRoomsService(deps: RoomsServiceDeps): RoomsService {
     }
 
     // A room the caller can't see is "not found" too: its copy of the list is the
-    // only one it may act on.
-    const roomId = op.type === 'create' ? null : op.roomId;
+    // only one it may act on. A reorder names rooms only, every one of them checked.
+    const visibleIds = new Set(viewFor(isLocal).map((r) => r.id));
+    if (op.type === 'reorder' && !op.roomIds.every((id) => visibleIds.has(id))) {
+      respondNotFound(res, 'Room');
+      return;
+    }
+    const roomId = op.type === 'create' || op.type === 'reorder' ? null : op.roomId;
     if (roomId !== null) {
-      const visible = viewFor(isLocal).some((r) => r.id === roomId);
-      if (!visible) {
+      if (!visibleIds.has(roomId)) {
         respondNotFound(res, 'Room');
         return;
       }

@@ -1,0 +1,224 @@
+/* The phone's Sessions list grouped by room (AASC-55): room headers (≡ drag to
+   reorder, fold, ⋯), the session grip (≡ drag into another room), the drop
+   target, and the carry previews. Every control is at least 44×44 and always
+   shown: nothing appears on hover, so nothing moves under a finger. */
+
+.roomsBar {
+  display: flex;
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
+}
+
+/* ---- A room group ---- */
+
+.roomGroup {
+  position: relative;
+  border-radius: var(--ph-radius-card);
+}
+
+/* While a room is carried, every group gets a translate (0 for the ones that
+   stay): the passed ones slide aside by --room-shift (set from the drag hook's
+   shifts), the lifted one follows the finger by --room-drag-dy (written by the
+   hook on every move, no transition so it never lags). On drop the attribute
+   and the shifts go in the same render that commits the order, so nothing
+   slides back; the hook's settle animation glides the rooms into place. */
+.roomList[data-room-drag] .roomGroup {
+  translate: 0 var(--room-shift, 0px);
+  transition: translate 180ms ease-out;
+}
+
+/* `scale` must equal LIFT_SCALE in useRoomDragReorder.ts: the drop's settle starts from it. */
+.roomList[data-room-drag] .roomGroup[data-room-lifted] {
+  z-index: 2;
+  translate: 0 var(--room-drag-dy, 0px);
+  scale: 1.02;
+  background: var(--ph-bg);
+  box-shadow: var(--ph-shadow);
+  transition: scale 150ms ease-out;
+}
+
+/* The room a held session would land in. Colour is not the only signal: the
+   outline is 2px and the header text turns to the accent. */
+.roomGroup[data-drop-target] {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+  background: var(--ph-accent-tint);
+}
+
+.roomGroup[data-drop-target] .toggle { color: var(--ph-accent); }
+
+/* ---- Header: ≡ ▾ ■ NAME · N ⋯ ---- */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  margin: 0 var(--ph-gutter);
+}
+
+.roomGrip,
+.grip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  min-height: var(--ph-target);
+  color: var(--ph-text-tertiary);
+  /* The finger that holds it must not scroll the list instead. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: grab;
+}
+
+.roomGrip { height: var(--ph-target); }
+
+.roomList[data-room-drag] .roomGroup[data-room-lifted] .roomGrip,
+.roomList li[data-dragging] .grip {
+  color: var(--ph-accent);
+  cursor: grabbing;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.toggle,
+.menuButton,
+.grip {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-family: var(--ph-font);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  width: 100%;
+  min-height: var(--ph-target);
+  padding: 0 var(--ph-space-2);
+  border-radius: var(--ph-radius);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.titleText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  transition: rotate var(--ph-motion-fast) ease;
+}
+
+.chevron[data-open] { rotate: 90deg; }
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--swatch);
+}
+
+.menuButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin-right: calc(-1 * var(--ph-space-3));
+  border-radius: var(--ph-radius);
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .toggle:hover,
+  .menuButton:hover,
+  .grip:hover { background: var(--ph-fill); }
+}
+
+.toggle:active,
+.menuButton:active,
+.grip:active { background: var(--ph-fill-strong); }
+
+.toggle:focus-visible,
+.menuButton:focus-visible,
+.grip:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+.emptyRoom {
+  display: flex;
+  align-items: center;
+  min-height: var(--ph-row);
+  padding: var(--ph-space-2) var(--ph-space-4);
+  list-style: none;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
+}
+
+/* ---- A session row with its grip ---- */
+
+.gripRow {
+  display: flex;
+  align-items: stretch;
+  background: var(--ph-surface);
+}
+
+.gripRow > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The row separator starts after the grip and the status ring. */
+.roomList li[data-grip] + li[data-grip]::before { left: 112px; }
+
+/* A held session follows the finger, above the groups it crosses; its list
+   stops clipping it while it is out of its own group. */
+.roomList[data-session-drag] ul { overflow: visible; }
+
+.roomList li[data-dragging] {
+  z-index: 3;
+  translate: 0 var(--drag-y, 0px);
+  border-radius: var(--ph-radius-card);
+  box-shadow: var(--ph-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roomList[data-room-drag] .roomGroup,
+  .roomList[data-room-drag] .roomGroup[data-room-lifted],
+  .chevron { transition: none; }
+}
+
+/* The kill-room confirm's list of names. */
+.killList {
+  display: block;
+  margin-bottom: var(--ph-space-2);
+  font-weight: 600;
+}
