@@ -651,6 +651,25 @@ describe('isAgentProcessName', () => {
     expect(['claude', 'codex', 'node', 'Claude'].every(isAgentProcessName)).toBe(true);
     expect(['zsh', 'bash', 'sh', 'vim', 'ssh', 'tmux', '', null, undefined].some(isAgentProcessName)).toBe(false);
   });
+
+  // Claude Code's native installer runs ~/.local/share/claude/versions/<version>, so the kernel (and node-pty's
+  // pty.process) names the process "2.1.301", not "claude" — seen on a real Mac, Oct 2026.
+  it('knows a natively installed Claude by its version-named binary, and only that binary', () => {
+    const home = mkdtempSync(join(tmpdir(), 'aasc-native-claude-'));
+    try {
+      mkdirSync(join(home, '.local', 'share', 'claude', 'versions'), { recursive: true });
+      writeFileSync(join(home, '.local', 'share', 'claude', 'versions', '2.1.301'), '');
+      vi.stubEnv('HOME', home);
+      expect(isAgentProcessName('2.1.301')).toBe(true);
+      // A version-shaped name with no such Claude binary is not an agent; nor is anything shell-like.
+      expect(isAgentProcessName('2.1.999')).toBe(false);
+      expect(isAgentProcessName('1.0')).toBe(false);
+      expect(isAgentProcessName('../2.1.301')).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ops shells on the live connection', () => {

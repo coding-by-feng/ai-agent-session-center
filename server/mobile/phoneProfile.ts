@@ -23,7 +23,7 @@
 // what the DASHBOARD does on a phone's behalf; what reaches the agent's prompt is
 // the agent's business. See AASC-28 for the open decision on `!` from phones.
 
-import { realpathSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
@@ -217,9 +217,22 @@ export function phoneMayRead(target: string, sharedProjects: readonly string[], 
 /** Foreground programs that are an agent, not a shell (node-pty reports the process name). */
 const AGENT_PROCESS_NAMES = new Set(['claude', 'codex', 'gemini', 'node']);
 
+/**
+ * Claude Code's native installer runs `~/.local/share/claude/versions/<version>`, so the
+ * kernel — and node-pty's `pty.process` — names the process `2.1.301`, never `claude`.
+ * A version-shaped name counts only when that exact binary is there: a shell is never one.
+ */
+const NATIVE_CLAUDE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
+
+function isNativeClaudeBinary(name: string): boolean {
+  return NATIVE_CLAUDE_VERSION.test(name)
+    && existsSync(join(homedir(), '.local', 'share', 'claude', 'versions', name));
+}
+
 /** Is this terminal's foreground program an agent? Unknown (null) is not. */
 export function isAgentProcessName(name: string | null | undefined): boolean {
-  return typeof name === 'string' && AGENT_PROCESS_NAMES.has(name.toLowerCase());
+  if (typeof name !== 'string') return false;
+  return AGENT_PROCESS_NAMES.has(name.toLowerCase()) || isNativeClaudeBinary(name);
 }
 
 /** Uploads (queue images, note media) one phone may make per minute. */

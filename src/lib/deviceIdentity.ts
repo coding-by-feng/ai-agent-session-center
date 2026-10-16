@@ -46,9 +46,16 @@ export function deriveDeviceLabel(probe: DeviceProbe): string {
   const ua = probe.userAgent || '';
   const platform = probe.platform || '';
   const os = detectOs(ua, platform);
-  const app = probe.isElectron ? 'Desktop App' : detectBrowser(ua);
+  const app = probe.isElectron ? 'Desktop App' : ua.includes(NATIVE_APP_TOKEN) ? 'AASC App' : detectBrowser(ua);
   return `${os} · ${app}`;
 }
+
+/**
+ * The phone app's user-agent token (`NATIVE_APP_UA_TOKEN` in platform.ts, repeated here
+ * because this module stays import-free). Its WebView names no browser brand on iOS and a
+ * Chrome one on Android, so without this the app read as "Browser" or "Chrome".
+ */
+const NATIVE_APP_TOKEN = 'AASC-Mobile/';
 
 function detectOs(ua: string, platform: string): string {
   // iPadOS 13+ reports a desktop UA; `platform` is 'MacIntel' but it exposes

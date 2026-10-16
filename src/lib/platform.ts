@@ -81,7 +81,7 @@ export function isDesktopApp(): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * The native shell (Capacitor) appends `AASC-Mobile/<version> (<platform>)` to
+ * The native shell (Capacitor) appends `AASC-Mobile/<version>` (no platform suffix) to
  * its WebView user agent. A CAPABILITY check like {@link useIsDesktopApp}: the
  * app has a shell to re-authenticate through and no desktop automation to run.
  * The user agent is spoofable, so this only ever shapes UX; the server never
@@ -96,7 +96,13 @@ export function nativeAppPlatform(userAgent?: string): NativePlatform | null {
   const ua = userAgent ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent);
   const at = ua.indexOf(NATIVE_APP_UA_TOKEN);
   if (at < 0) return null;
-  return /\(android\)/i.test(ua.slice(at)) ? 'android' : 'ios';
+  const tail = ua.slice(at);
+  if (/\(android\)/i.test(tail)) return 'android';
+  if (/\(ios\)/i.test(tail)) return 'ios';
+  // The shells don't append the suffix (seen on a real iPhone, Oct 2026): read the platform
+  // from the WebView's own user agent, or an Android app would re-authenticate through
+  // the iOS shell's origin.
+  return /\bAndroid\b/.test(ua) ? 'android' : 'ios';
 }
 
 /** True inside the AASC phone app. Constant for the page's lifetime. */

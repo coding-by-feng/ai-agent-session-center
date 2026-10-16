@@ -33,6 +33,17 @@ describe('native app detection', () => {
     expect(nativeShellReauthUrl('/x', SAFARI_UA)).toBeNull();
   });
 
+  // The strings the shells really send (seen on an iPhone 17, Oct 2026): no "(ios)"/"(android)" suffix,
+  // whatever capacitor.config.ts says. The platform must come from the rest of the user agent.
+  it('reads the platform from a real WebView user agent that has no platform suffix', () => {
+    const realIos = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 AASC-Mobile/1';
+    const realAndroid = 'Mozilla/5.0 (Linux; Android 15; Pixel 8 Build/AP3A.241005.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/141.0.7390.122 Mobile Safari/537.36 AASC-Mobile/1';
+    expect(nativeAppPlatform(realIos)).toBe('ios');
+    expect(nativeAppPlatform(realAndroid)).toBe('android');
+    expect(nativeShellReauthUrl('/queue', realAndroid)).toBe('https://localhost/?reauth=1&back=%2Fqueue');
+    expect(nativeShellReauthUrl('/queue', realIos)).toBe('capacitor://localhost/?reauth=1&back=%2Fqueue');
+  });
+
   it('gives a landscape phone the phone layout, but not a short desktop window', () => {
     expect(MOBILE_MEDIA_QUERY).toBe('(max-width: 480px), (max-height: 480px) and (pointer: coarse)');
   });

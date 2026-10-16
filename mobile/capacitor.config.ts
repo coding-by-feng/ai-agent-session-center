@@ -14,7 +14,8 @@ const config: CapacitorConfig = {
   appName: 'AASC',
   webDir: 'shell/dist',
   // The server's UI checks this token (src/lib/platform.ts) for UX only, never auth.
-  // Native code appends the platform: `AASC-Mobile/1 (ios)` / `(android)`.
+  // No platform suffix is appended (the real iOS string ends in a bare `AASC-Mobile/1`):
+  // nativeAppPlatform() takes the platform from the rest of the user agent.
   appendUserAgent: 'AASC-Mobile/1',
   loggingBehavior: release ? 'none' : 'debug',
   ios: { webContentsDebuggingEnabled: !release },
