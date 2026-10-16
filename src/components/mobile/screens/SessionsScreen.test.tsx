@@ -405,7 +405,7 @@ describe('SessionsScreen', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New session' })).toBeNull());
     await user.click(screen.getByRole('button', { name: 'New session' }));
     const again = await screen.findByRole('dialog', { name: 'New session' });
-    await user.click(within(again).getByRole('button', { name: 'Other folder or more options…' }));
+    await user.click(within(again).getByRole('button', { name: 'More options…' }));
     expect(useUiStore.getState().activeModal).toBe('new-session');
     act(() => useUiStore.getState().closeModal());
   });

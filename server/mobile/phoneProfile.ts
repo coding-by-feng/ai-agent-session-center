@@ -2,8 +2,10 @@
 //
 // A password sign-in (an iPad's browser) keeps the dashboard's full power. A
 // paired phone can be lost or stolen, so its session token gets a narrower set:
-// watch and drive shared sessions, start claude or codex in a known project
-// folder, and read files inside shared sessions' projects. Nothing that starts a
+// watch and drive shared sessions, start claude or codex in a folder under the
+// home folder that isn't hidden or private (AASC-54; a known project folder may
+// be hidden), browse those folders' names, and read files inside shared
+// sessions' projects. Nothing that starts a
 // free-form command (startup commands, ops shells, SSH, tmux), writes files,
 // loads or saves the workspace, or changes how the Mac itself is set up.
 //
@@ -23,12 +25,12 @@
 // what the DASHBOARD does on a phone's behalf; what reaches the agent's prompt is
 // the agent's business. See AASC-28 for the open decision on `!` from phones.
 
-import { existsSync, realpathSync } from 'fs';
+import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
-import { HOME_SECRET_SEGMENTS, segmentLooksSecret } from './secretPaths.js';
+import { browsableFolder, expandHome, inside, realOrNull, touchesSecret, writtenFolder } from './homeFolders.js';
 import {
   filterPhoneChangesAnswer,
   filterPhoneChatAnswer,
@@ -51,12 +53,15 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - files     read-only, inside a shared session's project
  * - commands  the autocomplete catalog, for a shared project or none
  * - upload    an image upload, within the phone's per-minute budget
- * - launch    a known project folder and a CLI AASC launches, nothing else
+ * - launch    a CLI AASC launches, in a known project folder or a folder under home that
+ *             isn't hidden or private (AASC-54), nothing else
+ * - folders   the folder browser: a folder under home that isn't hidden or private (AASC-54)
  * - origin    an AI popup: from a shared session, asked from a shared session's terminal
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
-export type PhoneRule = 'allow' | 'terminal' | 'type' | 'prompt' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
+export type PhoneRule =
+  | 'allow' | 'terminal' | 'type' | 'prompt' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'folders' | 'origin';
 
 interface PhoneRoute {
   method: RegExp;
@@ -135,8 +140,9 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // and a per-device limit itself.
   route('POST', '/sessions/:id/requests/[^/]+/answer', 'answer'),
   route('DELETE', '/terminals/:id', 'terminal'),
-  // Starting a session.
+  // Starting a session, and the folder browser that finds where (AASC-54): folder names under home.
   route('POST', '/terminals', 'launch'),
+  route('GET', '/folders', 'folders'),
   // The project tab, read-only.
   route('GET', '/files/(list|read|stream|search|grep|resolve)', 'files'),
   // Skill-note favourites for the compose autocomplete (AASC-20, M9): key, fav, tags, abbr only.
@@ -155,26 +161,6 @@ export function phoneRuleFor(method: string, path: string): PhoneRule | null {
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────
-
-
-function realOrNull(p: string): string | null {
-  try {
-    return realpathSync.native(p);
-  } catch {
-    return null;
-  }
-}
-
-function inside(child: string, root: string): boolean {
-  return child === root || child.startsWith(root.endsWith(sep) ? root : root + sep);
-}
-
-/** Does a path under the home folder pass through anything a phone may never read? */
-function touchesSecret(pathInHome: string): boolean {
-  const segments = pathInHome.split(sep).filter(Boolean).map((s) => s.toLowerCase());
-  if (segments.length > 0 && HOME_SECRET_SEGMENTS.has(segments[0])) return true;
-  return segments.some(segmentLooksSecret);
-}
 
 /**
  * Where a project lives on disk, or null when a phone may not use it: it must
@@ -252,6 +238,9 @@ export const PHONE_TERMINALS_PER_MINUTE = 10;
  */
 export const PHONE_PROMPTS_PER_MINUTE = 20;
 
+/** Folder listings one phone may ask for per minute (AASC-54): a person drills down a few a minute. */
+export const PHONE_FOLDER_LISTS_PER_MINUTE = 60;
+
 const BUDGET_WINDOW_MS = 60_000;
 
 /** The routes that open a new agent terminal: launch, resume, restart, reconnect, fork, clone, AI popup. */
@@ -267,11 +256,6 @@ export function opensTerminal(method: string, path: string): boolean {
 }
 
 const one = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typeof v === 'string' ? v : '');
-
-function expandHome(p: string, home: string): string {
-  if (p === '~') return home;
-  return p.startsWith('~/') ? join(home, p.slice(2)) : p;
-}
 
 /** The paths a project-tab request reads: its root and the file or folder in it. */
 function filesTargets(req: Request, home: string): string[] | null {
@@ -307,31 +291,77 @@ export function filterPhoneSearchAnswer(body: unknown, root: string, shared: rea
 
 // ── Launch ───────────────────────────────────────────────────────────────────
 
-/** The CLIs AASC launches. */
+/**
+ * The CLIs AASC launches. Not `gemini`: AASC no longer installs Gemini hooks (its support
+ * is being removed, hooks/install-hooks-api.js), so a Gemini session would never get a card's
+ * status, chat or prompts — the phone could start it and then never see it work.
+ */
 export const PHONE_CLIS: ReadonlySet<string> = new Set(['claude', 'codex']);
 
 /**
  * What a phone's launch may carry: the quick-launch request plus the new-session
  * form's name, model and effort. Anything else is refused, among them a startup
- * command, an ops shell, SSH or tmux settings, a resume id and a permission mode.
+ * command, an ops shell, SSH or tmux settings, an API key, Remote Control, a resume
+ * id and a permission mode.
  */
 const PHONE_LAUNCH_FIELDS = new Set([
   'workingDir', 'command', 'forceNew', 'requireExistingDir', 'sessionTitle', 'label', 'model', 'effortLevel',
 ]);
 
-/** Why a phone may not start this session, or null when it may. */
-export function phoneLaunchRefusal(body: unknown, allowedDirs: readonly string[], home: string): string | null {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'Choose a project folder and a CLI';
+const OUTSIDE_HOME = 'A phone can start sessions only in a folder inside your home folder that isn’t hidden or private';
+
+/** Why the folder check refused, in the words the phone shows. */
+const FOLDER_REFUSALS = {
+  outside: OUTSIDE_HOME,
+  missing: 'There’s no folder at that path on the Mac',
+} as const;
+
+/**
+ * `known`: a known project's folder (in `trustedDirs`: Claude Code has worked there). Any other
+ * folder — a shared session's included, since a phone's own launch makes one — starts without
+ * the dashboard confirming Claude's folder-trust prompt for it.
+ */
+export type PhoneLaunchDecision = { ok: true; workingDir: string; known: boolean } | { ok: false; reason: string };
+
+/**
+ * May a phone start this session, and in which real folder? A known project
+ * folder (or a shared session's) as before — it may sit in a hidden folder,
+ * never in a private one — or, since AASC-54, any existing folder under the home
+ * folder that isn't hidden or private, after links are followed. Never the home
+ * folder itself: the agent would take the whole home folder as its project.
+ * `workingDir` is the real path that was checked, so the session starts there
+ * and not wherever a link points by the time the terminal opens.
+ */
+export function phoneLaunchDecision(
+  body: unknown,
+  allowedDirs: readonly string[],
+  home: string,
+  trustedDirs: readonly string[] = allowedDirs,
+): PhoneLaunchDecision {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, reason: 'Choose a project folder and a CLI' };
   const fields = body as Record<string, unknown>;
   const extra = Object.keys(fields).filter((k) => fields[k] !== undefined && !PHONE_LAUNCH_FIELDS.has(k));
-  if (extra.length > 0) return `A phone can't set ${extra.sort().join(', ')} when starting a session`;
+  if (extra.length > 0) return { ok: false, reason: `A phone can’t set ${extra.sort().join(', ')} when starting a session` };
   if (typeof fields.command !== 'string' || !PHONE_CLIS.has(fields.command)) {
-    return 'A phone can start only claude or codex';
+    return { ok: false, reason: 'A phone can start only claude or codex' };
   }
-  if (typeof fields.workingDir !== 'string' || fields.workingDir === '') return 'Choose a project folder';
-  const real = realOrNull(expandHome(fields.workingDir, home));
-  if (real && allowedDirs.some((dir) => phoneProjectRoot(dir, home) === real)) return null;
-  return 'A phone can start sessions only in a known project folder';
+  if (typeof fields.workingDir !== 'string' || fields.workingDir.trim() === '') return { ok: false, reason: 'Choose a project folder' };
+  const requested = expandHome(fields.workingDir.trim(), home);
+  const real = isAbsolute(requested) ? realOrNull(requested) : null;
+  const isRoot = (dir: string): boolean => phoneProjectRoot(dir, home) === real;
+  if (real && allowedDirs.some(isRoot)) return { ok: true, workingDir: real, known: trustedDirs.some(isRoot) };
+  const folder = browsableFolder(requested, home);
+  if (!folder.ok) return { ok: false, reason: FOLDER_REFUSALS[folder.reason] };
+  if (folder.path === realOrNull(home)) {
+    return { ok: false, reason: 'Choose a folder inside your home folder, not the home folder itself' };
+  }
+  return { ok: true, workingDir: folder.path, known: false };
+}
+
+/** Why a phone may not start this session, or null when it may. */
+export function phoneLaunchRefusal(body: unknown, allowedDirs: readonly string[], home: string): string | null {
+  const decision = phoneLaunchDecision(body, allowedDirs, home);
+  return decision.ok ? null : decision.reason;
 }
 
 // ── AI popups ────────────────────────────────────────────────────────────────
@@ -385,6 +415,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   const uploads = new Map<string, Bucket>();
   const terminalsOpened = new Map<string, Bucket>();
   const prompts = new Map<string, Bucket>();
+  const folderLists = new Map<string, Bucket>();
 
   /** Count one more in this phone's current minute; true when it goes over `limit`. */
   function overBudget(buckets: Map<string, Bucket>, phone: string, limit: number): boolean {
@@ -407,7 +438,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     return Math.max(1, Math.ceil((bucket.windowStart + BUDGET_WINDOW_MS - now()) / 1000));
   }
 
-  function refusal(rule: PhoneRule, req: Request, phone: string): string | null {
+  function refusal(rule: PhoneRule, req: Request, res: Response, phone: string): string | null {
     switch (rule) {
       case 'allow':
         return null;
@@ -439,8 +470,22 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         const shared = deps.sharedProjectPaths();
         return targets && targets.every((t) => phoneMayRead(t, shared, home)) ? null : 'outside shared projects';
       }
-      case 'launch':
-        return phoneLaunchRefusal(req.body, [...deps.knownProjectPaths(), ...deps.sharedProjectPaths()], home);
+      case 'launch': {
+        const known = deps.knownProjectPaths();
+        const decision = phoneLaunchDecision(req.body, [...known, ...deps.sharedProjectPaths()], home, known);
+        if (!decision.ok) return decision.reason;
+        // Start in the folder that was checked (`~` expanded, links followed), and only there:
+        // never the home-folder fallback if it is gone by the time the terminal opens.
+        req.body = { ...(req.body as Record<string, unknown>), workingDir: decision.workingDir, requireExistingDir: true };
+        // In a new folder the person on the phone answers Claude's trust prompt (its hooks and
+        // MCP servers run once trusted); the dashboard doesn't confirm it for them.
+        if (!decision.known) res.locals.phoneUntrustedFolder = true;
+        return null;
+      }
+      case 'folders':
+        // The path as written (no disk access here; the route checks the real path, off the event loop).
+        if (!writtenFolder(one(req.query.path), home)) return 'outside the home folder or private';
+        return overBudget(folderLists, phone, PHONE_FOLDER_LISTS_PER_MINUTE) ? 'too many folder lists' : null;
       case 'origin':
         return phoneFloatingRefusal(req.body, deps) ? 'not from a shared session' : null;
     }
@@ -455,7 +500,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     const rule = phoneRuleFor(req.method, req.path);
     let reason: string | null;
     try {
-      reason = rule ? refusal(rule, req, phone) : 'not open to phones';
+      reason = rule ? refusal(rule, req, res, phone) : 'not open to phones';
     } catch {
       reason = 'malformed request';
     }
@@ -500,6 +545,10 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     }
     if ((rule === 'type' || rule === 'answer') && reason === 'the agent is not running') {
       res.status(409).json({ error: `A phone can ${rule} only while the agent is running`, code: 'AGENT_NOT_RUNNING' });
+      return;
+    }
+    if (rule === 'folders' && reason === 'too many folder lists') {
+      res.status(429).json({ error: 'Too many folder lists from this phone; try again in a minute', code: 'PHONE_RATE_LIMITED' });
       return;
     }
     if (rule === 'upload') {

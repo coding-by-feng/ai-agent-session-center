@@ -164,6 +164,9 @@ export interface SshConfig {
   privateKeyPath?: string;
   workingDir?: string;
   command?: string;
+  /** False: a phone's launch in a new folder (AASC-54). Kept so a restart, resume or fork
+   *  of that session leaves Claude's folder-trust prompt to the person too. */
+  autoConfirmTrust?: false;
 }
 
 /** Archived previous session data (used for SSH resume chains) */

@@ -38,7 +38,7 @@ const CLOUD_POLL_MS = 60_000;
 /** Every paired phone has the same, narrower set than a password sign-in (server/mobile/phoneProfile.ts). */
 const ACCESS_LABEL = 'shared sessions only';
 const ACCESS_DETAIL =
-  'Paired phones can watch and drive shared sessions, start Claude or Codex in a known project, and read files '
+  'Paired phones can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
   + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
 
 function secondsLeft(expiresAt: number, now: number): number {

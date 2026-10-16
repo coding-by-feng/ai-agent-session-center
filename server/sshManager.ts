@@ -610,8 +610,9 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // Auto-confirm Claude Code's "Yes, I trust this folder" safety prompt.
       // Runs for ALL terminals (including deferredLaunch ones where the caller
       // writes the launch command) because the trust prompt can appear regardless
-      // of who initiates the claude launch.
-      {
+      // of who initiates the claude launch. Not for a phone's launch in a new
+      // folder (`autoConfirmTrust: false`, AASC-54): its person answers the prompt.
+      if (config.autoConfirmTrust !== false) {
         let trustBuffer = '';
         let trustHandled = false;
         const trustDisp = ptyProcess.onData((data: string) => {

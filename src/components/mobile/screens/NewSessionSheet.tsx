@@ -6,20 +6,28 @@
  *   agent-manager            [Claude] [Codex]
  *   ~/Documents/claude/agent-manager
  *   …
- *   [ Other folder or more options… ]
+ *   [ Browse folders on the Mac… ]
+ *   [ More options… ]
  *
  * One tap starts Claude or Codex in a project you have worked in; the new
- * session is selected, and the frame's selection bridge opens its Chat. "Other
- * folder or more options…" opens the full form (folder, model, effort, flags,
- * room), full screen on a phone. A paired phone may start only claude or codex
- * in a known folder (server/mobile/phoneProfile.ts), which is exactly what a
- * chip sends; the Mac says why when it refuses (launchSession toasts it).
+ * session is selected, and the frame's selection bridge opens its Chat.
+ * "Browse folders on the Mac…" (AASC-54) picks any folder under the home folder
+ * that isn't hidden or private; it then sits at the top with the same chips,
+ * and a folder no agent has worked in asks "Start in a new folder?" first.
+ * "More options…" opens the full form (title, room, model, effort), full screen
+ * on a phone, with the chosen folder in it. A paired phone may start only claude or codex, in a folder the
+ * Mac allows (server/mobile/phoneProfile.ts), which is exactly what a chip
+ * sends; the Mac says why when it refuses (launchSession toasts it).
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, ListSection, Sheet } from '../kit';
+import NewFolderConfirm from '../NewFolderConfirm';
+import PhoneFolderBrowser from '../PhoneFolderBrowser';
 import { CLI_LAUNCHERS, type CliCommand } from '@/components/layout/cliLaunchers';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { isKnownFolder } from '@/lib/folderBrowser';
 import { launchBlocker, launchSession, shortenPath } from '@/lib/launchSession';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
 
@@ -33,8 +41,20 @@ export interface NewSessionSheetProps {
 }
 
 const DETENTS = ['medium', 'large'] as const;
-/** The recent projects listed; the full form reaches any folder. */
+/** The recent projects listed; the folder browser and the full form reach any other folder. */
 export const RECENT_PROJECT_LIMIT = 8;
+
+const cliLabel = (command: CliCommand): string => CLI_LAUNCHERS.find((c) => c.command === command)?.label ?? command;
+
+/** Folders an agent has worked in: known projects, this phone's recent folders, live sessions' projects. */
+function useUsedFolders(known: readonly string[]): string[] {
+  const sessions = useSessionStore((s) => s.sessions);
+  return useMemo(() => {
+    const used = new Set(known);
+    for (const s of sessions.values()) if (s.projectPath) used.add(s.projectPath);
+    return [...used];
+  }, [known, sessions]);
+}
 
 function ProjectRow({
   dir,
@@ -82,10 +102,21 @@ function ProjectRow({
 
 function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; preferDir?: string | null; blocker: string | null }) {
   const known = useKnownProjects();
+  const used = useUsedFolders(known);
   const dirs = (preferDir ? [preferDir, ...known.filter((d) => d !== preferDir)] : known).slice(0, RECENT_PROJECT_LIMIT);
   const [pending, setPending] = useState<string | null>(null);
   // `pending` lands on the next render; this stops a second tap before it.
   const inFlight = useRef(false);
+  const [browsing, setBrowsing] = useState(false);
+  /** A folder picked in the browser, with the Mac's home folder. */
+  const [chosen, setChosen] = useState<{ dir: string; home: string } | null>(null);
+  /** A launch waiting for "Start in a new folder?". */
+  const [confirm, setConfirm] = useState<{ dir: string; command: CliCommand } | null>(null);
+  // The chosen folder lands above the list, out of sight when the sheet was scrolled to its buttons.
+  const chosenRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (chosen) chosenRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [chosen]);
 
   const launch = useCallback(async (dir: string, command: CliCommand) => {
     if (inFlight.current) return;
@@ -100,25 +131,65 @@ function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; 
     }
   }, [onClose]);
 
+  // A recent project starts at once; a folder no agent has worked in asks first.
+  const requestLaunch = useCallback((dir: string, command: CliCommand) => {
+    if (isKnownFolder(dir, used, chosen?.home)) void launch(dir, command);
+    else setConfirm({ dir, command });
+  }, [used, chosen, launch]);
+
+  const confirmLaunch = useCallback(() => {
+    if (!confirm) return;
+    setConfirm(null);
+    void launch(confirm.dir, confirm.command);
+  }, [confirm, launch]);
+
+  const pick = useCallback((dir: string, home: string) => {
+    setChosen({ dir, home });
+    setBrowsing(false);
+  }, []);
+
   const openFullForm = useCallback(() => {
     onClose();
-    useUiStore.getState().openModal('new-session');
-  }, [onClose]);
+    useUiStore.getState().openNewSession(chosen?.dir);
+  }, [onClose, chosen]);
 
   return (
     <>
+      {/* A marker, not a wrapper: the sheet styles its lists as its direct children. */}
+      <span ref={chosenRef} aria-hidden="true" />
+      {chosen && (
+        <ListSection header="Chosen folder" footer={isKnownFolder(chosen.dir, used, chosen.home) ? undefined : 'No agent has worked here yet.'}>
+          <ProjectRow dir={chosen.dir} pending={pending} blocker={blocker} onLaunch={requestLaunch} />
+        </ListSection>
+      )}
       {dirs.length > 0 ? (
         <ListSection header="Recent projects" footer="One tap starts the session and opens its chat.">
           {dirs.map((dir) => (
-            <ProjectRow key={dir} dir={dir} pending={pending} blocker={blocker} onLaunch={launch} />
+            <ProjectRow key={dir} dir={dir} pending={pending} blocker={blocker} onLaunch={requestLaunch} />
           ))}
         </ListSection>
       ) : (
-        <p className={styles.sheetLead}>No projects yet. Choose a folder in the full form.</p>
+        !chosen && <p className={styles.sheetLead}>No projects yet. Browse the Mac’s folders to choose one.</p>
       )}
       <div className={styles.sheetFooter}>
-        <Button block onClick={openFullForm} disabledReason={blocker ?? undefined}>Other folder or more options…</Button>
+        <Button block onClick={() => setBrowsing(true)} disabledReason={blocker ?? undefined}>Browse folders on the Mac…</Button>
       </div>
+      <div className={styles.sheetFooter}>
+        <Button block onClick={openFullForm} disabledReason={blocker ?? undefined}>More options…</Button>
+      </div>
+      <PhoneFolderBrowser
+        open={browsing}
+        onClose={() => setBrowsing(false)}
+        onPick={pick}
+        startPath={chosen?.dir ?? null}
+        known={used}
+      />
+      <NewFolderConfirm
+        dir={confirm?.dir ?? null}
+        cliLabel={confirm ? cliLabel(confirm.command) : ''}
+        onConfirm={confirmLaunch}
+        onCancel={() => setConfirm(null)}
+      />
     </>
   );
 }

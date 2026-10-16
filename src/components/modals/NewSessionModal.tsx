@@ -5,11 +5,16 @@
  *
  * On a phone it fills the screen (Modal.module.css). In the phone app
  * (AASC-18) it asks only for what a paired phone may send (server/mobile/
- * phoneProfile.ts): a project folder, Claude or Codex, a title, the room, model
- * and effort. The API key, Remote Control, the commands terminal and a
- * free-form command are refused for a phone, so they are not offered.
+ * phoneProfile.ts): a folder, Claude or Codex, a title, the room, model and
+ * effort. The API key, Remote Control, the commands terminal and a free-form
+ * command are refused for a phone, so they are not offered. AASC-54: the folder
+ * can be any folder under the Mac's home folder that isn't hidden or private,
+ * found with "Browse…" (the phone's folder browser, loaded lazily: the kit
+ * stays out of the desktop's entry chunk); one no agent has worked in asks
+ * "Start in a new folder?" before the session starts. The room is asked of the
+ * Mac (a phone doesn't own the room list).
  */
-import { useEffect, useState, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useState, useMemo } from 'react';
 import type {
   CodexModelOption,
   CreateTerminalRequest,
@@ -28,6 +33,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import { getCommandSuggestions, saveCommand } from '@/lib/commandSuggestions';
+import { isKnownFolder } from '@/lib/folderBrowser';
+import { sendRoomOp } from '@/lib/roomOps';
 import {
   deriveRemoteControlName,
   loadRemoteControlSettings,
@@ -40,6 +47,10 @@ import {
   normalizeEffortLevel,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
+
+// Phone-only (the phone kit): never in the desktop's entry chunk.
+const PhoneFolderBrowser = lazy(() => import('@/components/mobile/PhoneFolderBrowser'));
+const NewFolderConfirm = lazy(() => import('@/components/mobile/NewFolderConfirm'));
 
 // ---------------------------------------------------------------------------
 // Working directory history (localStorage)
@@ -136,9 +147,30 @@ export default function NewSessionModal() {
   const [remoteControlNameTouched, setRemoteControlNameTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  // The phone app's folder browser, the folder waiting for "Start in a new folder?",
+  // and the Mac's home folder (from the browser) to read a typed `~/…` path.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [confirmDir, setConfirmDir] = useState<string | null>(null);
+  const [macHome, setMacHome] = useState<string | null>(null);
+
+  // A folder handed in by the opener (the phone's ＋ sheet, AASC-54). Adjusted
+  // during render, not in an effect: the form stays mounted between openings.
+  const newSessionDir = useUiStore((s) => s.newSessionDir);
+  const [seenNewSessionDir, setSeenNewSessionDir] = useState<string | null>(null);
+  if (newSessionDir !== seenNewSessionDir) {
+    setSeenNewSessionDir(newSessionDir);
+    if (newSessionDir) setWorkingDir(newSessionDir);
+  }
 
   // Working directory history (merged with known Claude Code projects)
   const workdirHistory = useKnownProjects();
+  // Folders an agent has worked in: these start without the new-folder confirm.
+  const sessions = useSessionStore((s) => s.sessions);
+  const usedFolders = useMemo(() => {
+    const used = new Set(workdirHistory);
+    for (const s of sessions.values()) if (s.projectPath) used.add(s.projectPath);
+    return [...used];
+  }, [workdirHistory, sessions]);
 
   // Command history
   const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
@@ -211,10 +243,15 @@ export default function NewSessionModal() {
   const commandValid = command.trim().length > 0;
   const formValid = workingDirValid && commandValid;
 
-  async function handleSubmit() {
+  async function handleSubmit(newFolderConfirmed = false) {
     // Mark all required fields as touched so validation errors show
     setTouched({ workingDir: true, command: true });
     if (submitting || !formValid) return;
+    // A phone asks before it starts where no agent has worked (AASC-54).
+    if (phoneApp && !newFolderConfirmed && !isKnownFolder(workingDir, usedFolders, macHome)) {
+      setConfirmDir(workingDir.trim());
+      return;
+    }
     setSubmitting(true);
 
     // No host/username — the server resolves a host-less request to a local
@@ -236,6 +273,8 @@ export default function NewSessionModal() {
           ? effectiveRemoteControlName
           : undefined,
       forceNew: true,
+      // A phone's folder must be there: never the home-folder fallback for a missing one.
+      requireExistingDir: phoneApp || undefined,
     };
 
     try {
@@ -267,8 +306,12 @@ export default function NewSessionModal() {
         // Auto-select the new session so the detail panel stays open
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
-          // Assign to selected room
-          if (roomId) {
+          // Assign to selected room. The phone app asks the Mac, which owns the list.
+          if (roomId && phoneApp) {
+            void sendRoomOp({ type: 'move', sessionId: data.terminalId, roomId }).then((outcome) => {
+              if (!outcome.ok) showToast(outcome.message, 'error');
+            });
+          } else if (roomId) {
             useRoomStore.getState().addSession(roomId, data.terminalId);
           }
         }
@@ -298,7 +341,11 @@ export default function NewSessionModal() {
               placeholder={phoneApp ? 'Choose a project folder' : '~'}
               className={styles.workdirCombo}
             />
-            <BrowseDirButton onPick={setWorkingDir} defaultPath={workingDir} />
+            {phoneApp ? (
+              <Button onClick={() => setBrowseOpen(true)}>Browse…</Button>
+            ) : (
+              <BrowseDirButton onPick={setWorkingDir} defaultPath={workingDir} />
+            )}
           </div>
           {touched.workingDir && !workingDirValid && (
             <span className={styles.sshFieldError}>Required</span>
@@ -491,13 +538,37 @@ export default function NewSessionModal() {
         <Button onClick={() => closeModal()}>CANCEL</Button>
         <Button
           variant="primary"
-          onClick={handleSubmit}
+          onClick={() => void handleSubmit()}
           disabled={submitting || !formValid}
           aria-busy={submitting || undefined}
         >
           {submitting ? 'CREATING...' : 'CREATE'}
         </Button>
       </div>
+      {phoneApp && (browseOpen || confirmDir !== null) && (
+        <Suspense fallback={null}>
+          <PhoneFolderBrowser
+            open={browseOpen}
+            onClose={() => setBrowseOpen(false)}
+            onPick={(dir, home) => {
+              setWorkingDir(dir);
+              setMacHome(home);
+              setBrowseOpen(false);
+            }}
+            startPath={workingDir.trim() || null}
+            known={usedFolders}
+          />
+          <NewFolderConfirm
+            dir={confirmDir}
+            cliLabel={CLI_LAUNCHERS.find((c) => c.command === command)?.label ?? command}
+            onConfirm={() => {
+              setConfirmDir(null);
+              void handleSubmit(true);
+            }}
+            onCancel={() => setConfirmDir(null)}
+          />
+        </Suspense>
+      )}
     </Modal>
   );
 }

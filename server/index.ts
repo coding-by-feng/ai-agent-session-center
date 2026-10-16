@@ -34,6 +34,7 @@ import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
 import { sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
+import { createFolderRouter } from './mobile/folderRouter.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
@@ -418,7 +419,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
   // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
   const chatRouter = createChatRouter({ getSession });
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, apiRouter);
+  // The phone's folder browser for a new session (AASC-54): folder names under the home folder.
+  const folderRouter = createFolderRouter();
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, folderRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

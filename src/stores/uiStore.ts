@@ -55,6 +55,9 @@ interface UiState {
    *  activeModal by openRoomKill; cleared by closeModal. `openModal` carries no
    *  payload, so the target rides here rather than in activeModal. */
   roomKillTargetId: string | null;
+  /** The folder the new-session form opens with (the phone's folder browser, AASC-54).
+   *  Set by openNewSession; cleared by closeModal. */
+  newSessionDir: string | null;
   detailPanelOpen: boolean;
   detailPanelMinimized: boolean;
   pendingFileOpen: PendingFileOpen | null;
@@ -110,6 +113,8 @@ interface UiState {
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
   openRoomKill: (roomId: string) => void;
+  /** Open the new-session form, with `workingDir` in its folder field when given. */
+  openNewSession: (workingDir?: string | null) => void;
   closeModal: () => void;
   setDetailPanelOpen: (open: boolean) => void;
   minimizeDetailPanel: () => void;
@@ -283,6 +288,7 @@ function loadLiveHintDismissed(): boolean {
 export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   roomKillTargetId: null,
+  newSessionDir: null,
   detailPanelOpen: false,
   detailPanelMinimized: false,
   pendingFileOpen: null,
@@ -305,7 +311,9 @@ export const useUiStore = create<UiState>((set) => ({
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
   // Clear the room-kill target too, so a stale id can't leak into the next open.
-  closeModal: () => set({ activeModal: null, roomKillTargetId: null }),
+  openNewSession: (workingDir) => set({ activeModal: 'new-session', newSessionDir: workingDir || null }),
+  // Clear the new-session folder too: the next plain open keeps the form's own.
+  closeModal: () => set({ activeModal: null, roomKillTargetId: null, newSessionDir: null }),
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
   minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),

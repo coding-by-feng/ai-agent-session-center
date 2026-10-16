@@ -1,8 +1,10 @@
 // knownProjects.ts — the project folders Claude Code has worked in (~/.claude/projects/).
 //
-// The quick-launch list, and (AASC-28) the only folders a paired phone may
-// start a session in. One function, so the list a phone is shown and the list
-// it is checked against can't drift apart.
+// The quick-launch list, and (AASC-28) the folders a paired phone may start a
+// session in even when they sit in a hidden folder; since AASC-54 a phone may
+// also start in any other folder under home that isn't hidden or private
+// (mobile/homeFolders.ts). One function, so the list a phone is shown and the
+// list it is checked against can't drift apart.
 
 import { readdirSync, existsSync } from 'fs';
 import { homedir } from 'os';

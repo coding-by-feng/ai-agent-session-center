@@ -167,6 +167,8 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   sessionTitle?: string;
   enableOpsTerminal?: boolean;
   forceNew?: boolean;
+  /** Answer 400 for a missing local folder instead of falling back to the home folder (the phone's form always sends it). */
+  requireExistingDir?: boolean;
   /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string;
   /** Model launch override for Claude or Codex. */

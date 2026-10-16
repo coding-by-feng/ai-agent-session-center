@@ -169,6 +169,13 @@ export interface TerminalConfig {
    */
   isOps?: boolean;
   /**
+   * Answer Claude Code's "Yes, I trust this folder" prompt by itself (default).
+   * False for a paired phone's launch in a folder no agent has used (AASC-54):
+   * a folder's own `.claude/settings.json` hooks or MCP servers run once it is
+   * trusted, so a person decides, on the phone's terminal.
+   */
+  autoConfirmTrust?: boolean;
+  /**
    * Process-isolation marker for any session spawned from another session
    * (clone/fork actions and floating popups). Forks share the origin's
    * projectPath, which would otherwise cause the kill-by-PID lookup to match

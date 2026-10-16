@@ -1982,6 +1982,9 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.isFork) config.isFork = true;
     if (body.isFloating) config.isFloating = true;
     if (body.originSessionId) config.originSessionId = body.originSessionId;
+    // A paired phone's launch in a folder no agent has used (the phone profile says so):
+    // the person on the phone answers Claude's folder-trust prompt, not the dashboard.
+    if (res.locals.phoneUntrustedFolder === true) config.autoConfirmTrust = false;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {

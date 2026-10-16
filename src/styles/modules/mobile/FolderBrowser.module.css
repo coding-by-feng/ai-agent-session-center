@@ -1,0 +1,116 @@
+/* PhoneFolderBrowser — "Browse folders on the Mac" (AASC-54). Tokens: phoneTokens.css. */
+
+.crumbs {
+  margin: 0 calc(var(--ph-space-4) * -1) var(--ph-space-3);
+  padding: 0 var(--ph-space-4);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.crumbs::-webkit-scrollbar { display: none; }
+
+.crumbList {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.crumb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ph-space-1);
+}
+
+.crumbSep {
+  color: var(--ph-text-tertiary);
+}
+
+.crumbButton,
+.crumbCurrent {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ph-target);
+  padding: 0 var(--ph-space-2);
+  border-radius: var(--ph-radius-sm);
+  font: inherit;
+  font-size: var(--ph-size-secondary);
+}
+
+.crumbButton {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ph-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+
+@media (hover: hover) {
+  .crumbButton:hover { background: var(--ph-fill); }
+}
+
+.crumbButton:active { background: var(--ph-fill-strong); }
+
+.crumbButton:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.crumbCurrent {
+  font-weight: 600;
+  color: var(--ph-text);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ph-space-2);
+  margin: 0 0 var(--ph-space-4);
+  padding: var(--ph-space-3) var(--ph-space-4);
+  border-radius: var(--ph-radius);
+  background: var(--ph-danger-tint);
+}
+
+.noticeText {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+  overflow-wrap: anywhere;
+}
+
+.status {
+  margin: var(--ph-space-4) 0;
+  font-size: var(--ph-size-secondary);
+  color: var(--ph-text-secondary);
+}
+
+.hint {
+  margin: var(--ph-space-2) 0 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.confirmPath {
+  display: block;
+  margin-top: var(--ph-space-2);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  color: var(--ph-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crumbButton { transition: none; }
+}
