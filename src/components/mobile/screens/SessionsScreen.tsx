@@ -520,7 +520,8 @@ export default function SessionsScreen() {
             />
           </div>
         )}
-        {snapshotReceived && counts.all > 0 && byRoom && (
+        {/* Rooms stay manageable with no session shared here (only the filters need sessions). */}
+        {snapshotReceived && byRoom && (
           <div className={roomStyles.roomsBar}>
             <Button small variant="plain" icon={<RoomIcon />} onClick={() => setManageRooms(true)}>
               New or manage rooms

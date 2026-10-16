@@ -235,6 +235,14 @@ describe('SessionsScreen', () => {
       expect(killed).toEqual(['/api/sessions/s1/kill']);
     });
 
+    // Found on a real iPhone (Oct 2026): with no session shared, rooms couldn't be made, renamed
+    // or deleted from the phone at all (a test room was left on the Mac).
+    it('still offers New or manage rooms when no session is shared with this phone', () => {
+      useSessionStore.setState({ sessions: new Map() });
+      render(<SessionsScreen />);
+      expect(screen.getByRole('button', { name: 'New or manage rooms' })).toBeTruthy();
+    });
+
     it('offers no room kill when none of its live sessions is shared with this phone', async () => {
       const user = userEvent.setup();
       render(<SessionsScreen />); // the fixtures carry no remoteVisible
