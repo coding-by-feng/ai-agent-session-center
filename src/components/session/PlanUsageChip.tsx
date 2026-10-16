@@ -133,6 +133,7 @@ function TipBody({ view, note }: { view: PlanUsageView; note: PlanUsageSyncNote 
           {view.asOfAge ? ` · ${view.asOfAge}` : ''}
         </p>
       )}
+      {view.sourceNote && <p className={styles.planUsageTipNote}>{view.sourceNote}</p>}
       <p className={styles.planUsageTipSync} data-tone={note.tone}>
         <span className={styles.planUsageTipSyncGlyph} aria-hidden="true">
           {note.glyph}

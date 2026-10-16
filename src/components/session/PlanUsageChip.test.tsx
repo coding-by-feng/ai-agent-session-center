@@ -288,7 +288,12 @@ describe('PlanUsageChip', () => {
       click();
       await settle();
       expect(chip().getAttribute('data-sync')).toBe('done');
-      expect(within(showTooltip()).getByText('Up to date · checked just now')).toBeTruthy();
+      expect(within(showTooltip()).getByText('No newer reading · checked just now')).toBeTruthy();
+    });
+
+    it('says where the numbers come from', () => {
+      render(<PlanUsageChip session={withUsage()} />);
+      expect(within(showTooltip()).getByText("From Claude's last reply, so claude.ai can be ~1% ahead")).toBeTruthy();
     });
 
     it('says when the numbers were updated', async () => {
@@ -319,7 +324,7 @@ describe('PlanUsageChip', () => {
       click();
       expect(live().textContent).toBe('Syncing plan usage');
       await settle();
-      expect(live().textContent).toBe('Plan usage is up to date');
+      expect(live().textContent).toBe('No newer plan usage reading');
     });
 
     it('goes back to offering the click once the answer is as old as a stale report', async () => {

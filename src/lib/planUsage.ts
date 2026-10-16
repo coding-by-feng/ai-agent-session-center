@@ -74,6 +74,12 @@ export interface PlanUsageView {
   asOf: string | null;
   /** How long ago that was ("1h 45m ago"): a clock time alone cannot be judged. Null with no report. */
   asOfAge: string | null;
+  /**
+   * Where the figures come from. Each CLI reports usage only with its own latest
+   * reply, so a page that asks the server live (claude.ai) can be a point or two
+   * ahead. Null with no report.
+   */
+  sourceNote: string | null;
   /** The tooltip's first line. */
   tooltipTitle: string;
   /** Why there is no number; null when there is one. */
@@ -233,6 +239,10 @@ function resetPhrase(resetsAt: number, now: number, opts: TimeFormatOptions): st
 // ---------------------------------------------------------------------------
 
 const CLI_NAME: Record<PlanCli, string> = { claude: 'Claude Code', codex: 'Codex' };
+const SOURCE_NOTE: Record<PlanCli, string> = {
+  claude: "From Claude's last reply, so claude.ai can be ~1% ahead",
+  codex: "From Codex's last turn",
+};
 const CLI_SHORT: Record<PlanCli, string> = { claude: 'Claude', codex: 'Codex' };
 
 const EMPTY_REASON: Record<PlanCli, string> = {
@@ -280,6 +290,7 @@ export function describePlanUsage(
     stale: usage ? isStale(usage, now) : false,
     asOf: usage ? formatAsOf(usage.asOf, now, opts) : null,
     asOfAge: usage ? formatAge(usage.asOf, now) : null,
+    sourceNote: usage ? SOURCE_NOTE[cli] : null,
   };
 
   const live = usage ? activeWindows(usage, now) : [];
@@ -358,7 +369,8 @@ export function describeSync(state: PlanUsageSyncState, now: number): PlanUsageS
       const when = formatAge(state.checkedAt, now);
       return state.changed
         ? { tone: 'ok', glyph: '✓', text: `Updated ${when}`, spoken: 'Plan usage updated' }
-        : { tone: 'ok', glyph: '✓', text: `Up to date · checked ${when}`, spoken: 'Plan usage is up to date' };
+        : // Not "up to date": no tapped session has replied since, which says nothing about claude.ai.
+          { tone: 'ok', glyph: '✓', text: `No newer reading · checked ${when}`, spoken: 'No newer plan usage reading' };
     }
     case 'failed':
       return { tone: 'error', glyph: '!', text: "Couldn't sync · click to retry", spoken: "Couldn't sync plan usage" };

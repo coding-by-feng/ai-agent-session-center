@@ -249,6 +249,15 @@ describe('describePlanUsage', () => {
     expect(v.stale).toBe(false);
   });
 
+  it('says where the numbers come from, and that claude.ai can be ahead of a Claude reading', () => {
+    const u = usage([win(300, 23), win(10080, 81, NOW + 3 * DAY)]);
+    expect(describePlanUsage('claude', u, NOW, FMT).sourceNote).toBe(
+      "From Claude's last reply, so claude.ai can be ~1% ahead",
+    );
+    expect(describePlanUsage('codex', { ...u, cli: 'codex' }, NOW, FMT).sourceNote).toBe("From Codex's last turn");
+    expect(describePlanUsage('claude', null, NOW, FMT).sourceNote).toBeNull();
+  });
+
   it('headlines the weekly window when it is the more used one', () => {
     const v = describePlanUsage('claude', usage([win(300, 10), win(10080, 80, NOW + 3 * DAY)]), NOW, FMT);
     expect(v.headline?.label).toBe('wk');
@@ -408,8 +417,8 @@ describe('describeSync', () => {
     expect(note).toEqual({
       tone: 'ok',
       glyph: '✓',
-      text: 'Up to date · checked 3m ago',
-      spoken: 'Plan usage is up to date',
+      text: 'No newer reading · checked 3m ago',
+      spoken: 'No newer plan usage reading',
     });
   });
 
