@@ -5,7 +5,7 @@
  * Ported from public/js/terminalManager.js.
  */
 import { useRef, useCallback, useEffect, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
@@ -55,6 +55,12 @@ interface UseTerminalOptions {
   ws: WebSocket | null;
   /** Terminal theme name */
   themeName?: string;
+  /**
+   * An explicit xterm palette (the phone app's theme, AASC-58). When given it
+   * wins over the saved terminal theme and a change restyles the open terminal
+   * at once; `setTheme` still writes the saved theme for terminals without one.
+   */
+  palette?: ITheme;
   /** Project root path — enables clickable file paths in terminal output */
   projectPath?: string;
 }
@@ -642,7 +648,7 @@ function forceCanvasRepaint(
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminalOptions): UseTerminalReturn {
+export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
   // Phones render at the PTY's width and pan; everything else fits its
@@ -691,6 +697,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
+  const paletteRef = useRef(palette);
   const wsRef = useRef(ws);
   /** The `/` list's view of typing (setInputTap); read by handlers installed once per terminal. */
   const inputTapRef = useRef<TerminalInputTap | null>(null);
@@ -745,6 +752,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   useEffect(() => {
     themeNameRef.current = themeName;
   }, [themeName]);
+
+  // An explicit palette follows its owner live (the phone's theme picker).
+  useEffect(() => {
+    paletteRef.current = palette;
+    if (!palette) return;
+    const active = activeRef.current;
+    if (active) active.term.options.theme = palette;
+    if (containerRef.current) containerRef.current.style.background = palette.background || '';
+  }, [palette]);
 
   useEffect(() => {
     projectPathRef.current = projectPath;
@@ -861,7 +877,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       })();
       themeNameRef.current = savedTheme;
 
-      const theme = resolveTheme(savedTheme);
+      const theme = paletteRef.current ?? resolveTheme(savedTheme);
       container.style.background = theme.background || '';
 
       // Clear stale pending output for this terminal
@@ -945,7 +961,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           fontWeightBold: '700',
           lineHeight: 1.15,
           letterSpacing: 0,
-          theme: resolveTheme(themeNameRef.current),
+          theme: paletteRef.current ?? resolveTheme(themeNameRef.current),
           allowProposedApi: true,
           // OSC 8 hyperlinks otherwise use xterm's built-in confirm() warning.
           // Our handler accepts HTTP(S) only, then Electron routes the new-window

@@ -13,7 +13,7 @@
 import { ListRow, ListSection, Screen } from '../kit';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { usePresenceStore } from '@/stores/presenceStore';
-import { usePhoneAppearance, PHONE_APPEARANCES } from '@/lib/chat/phoneAppearance';
+import { useSettingsStore, THEMES } from '@/stores/settingsStore';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { CLOUD_PAGE, LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
 import { morePath } from '@/lib/chat/phoneRoutes';
@@ -21,7 +21,7 @@ import { morePath } from '@/lib/chat/phoneRoutes';
 /** The settings rows, shared by More and More → Settings. */
 export function SettingsRows() {
   const push = usePhoneNavStore((s) => s.push);
-  const [appearance] = usePhoneAppearance();
+  const themeName = useSettingsStore((s) => s.themeName);
   return (
     <>
       {SETTINGS_PAGES.map((item) => (
@@ -29,7 +29,7 @@ export function SettingsRows() {
           key={item.page}
           title={item.title}
           subtitle={item.subtitle}
-          value={item.page === 'appearance' ? PHONE_APPEARANCES.find((a) => a.value === appearance)?.label : undefined}
+          value={item.page === 'appearance' ? THEMES.find((t) => t.name === themeName)?.label : undefined}
           chevron
           onClick={() => push(morePath(item.page))}
         />

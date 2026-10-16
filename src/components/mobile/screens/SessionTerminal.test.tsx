@@ -1,6 +1,7 @@
 // SessionTerminal.test.tsx — the Terminal segment (AASC-45): the key bar and its
 // sticky Ctrl, the raw input line, Fit / Pan and the text size (local only), the
-// "driving elsewhere" lock, and the ⋯ sheet's confirmed Clear.
+// "driving elsewhere" lock, the ⋯ sheet's confirmed Clear, and the palette
+// that follows this phone's theme (AASC-58).
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { DevicePresence, Session } from '@/types';
@@ -23,9 +24,10 @@ const term = vi.hoisted(() => ({
   attach: vi.fn(),
   handleTerminalGeometry: vi.fn(),
   fitState: null as null | { fontSize: number; fitted: boolean },
+  options: [] as Array<{ palette?: unknown; themeName?: string }>,
 }));
 vi.mock('@/hooks/useTerminal', () => ({
-  useTerminal: () => ({
+  useTerminal: (opts: { palette?: unknown; themeName?: string }) => (term.options.push(opts), {
     containerRef: { current: null },
     attach: term.attach,
     detach: vi.fn(),
@@ -71,6 +73,8 @@ vi.mock('@/stores/wsStore', async (importOriginal) => {
 
 import SessionTerminal from './SessionTerminal';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { phoneTerminalTheme } from '@/lib/chat/phoneThemes';
 
 function device(clientId: string, isLocal: boolean): DevicePresence {
   return { clientId, label: clientId === 'desk' ? 'MacBook' : 'iPhone', address: '', isLocal, connections: 1, connectedAt: 1, lastSeenAt: 1 };
@@ -112,6 +116,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   listeners.length = 0;
   term.fitState = null;
+  term.options.length = 0;
   presence();
 });
 
@@ -120,6 +125,17 @@ afterEach(() => {
 });
 
 describe('SessionTerminal', () => {
+  it('paints the terminal in this phone’s theme, and repaints it when the theme changes', () => {
+    localStorage.setItem('terminal-theme', 'github-dark'); // a desktop choice never overrides the phone's theme
+    useSettingsStore.setState({ themeName: 'dracula' });
+    render(<SessionTerminal session={session} />);
+    expect(term.options.at(-1)?.palette).toEqual(phoneTerminalTheme('dracula'));
+    act(() => useSettingsStore.setState({ themeName: 'blonde' }));
+    expect(term.options.at(-1)?.palette).toEqual(phoneTerminalTheme('blonde'));
+    expect((term.options.at(-1)?.palette as { background: string }).background).toBe('#fdf8ef');
+    localStorage.removeItem('terminal-theme');
+  });
+
   it('shows the PTY’s real size once the Mac reports it', () => {
     render(<SessionTerminal session={session} />);
     push({ type: 'terminal_geometry', terminalId: 'term-1', cols: 160, rows: 40 });

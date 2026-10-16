@@ -1,49 +1,64 @@
 /**
- * phoneAppearance.ts — More → Settings → Appearance on the phone (AASC-47, DU5):
- * follow the system's light / dark setting (the default), or keep one of them.
+ * phoneAppearance.ts — what More → Settings → Appearance changes on the phone
+ * (AASC-47; themes AASC-58):
  *
- * This phone only (`localStorage['aasc.phoneAppearance']`). The frame mirrors it
- * onto <body> as `data-ph-appearance="light|dark"` (absent = system), which
- * phoneTokens.css reads; the accent and status hues still come from the theme.
+ *  - the theme: one of the desktop's ten (`settingsStore.themeName`, kept in
+ *    this device's own IndexedDB like every setting, so a phone's choice never
+ *    reaches the Mac's). Light or dark follows the theme (phoneThemes.ts);
+ *  - the text size: a scale on every phone type token (`--ph-text-scale`),
+ *    this phone only (`localStorage['aasc.phoneTextScale']`).
+ *
+ * The frame mirrors both onto <body> while it is mounted, so the frame and
+ * everything portaled to <body> (sheets, menus, toasts) wear them.
  */
 import { useLayoutEffect, useSyncExternalStore } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { applyPhoneTheme, clearPhoneTheme } from './phoneThemes';
 
-export type PhoneAppearance = 'system' | 'light' | 'dark';
-
-export const PHONE_APPEARANCES: ReadonlyArray<{ value: PhoneAppearance; label: string }> = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-];
-
-export const PHONE_APPEARANCE_KEY = 'aasc.phoneAppearance';
-export const PHONE_APPEARANCE_ATTR = 'data-ph-appearance';
+/** Small · Default · Large · Larger. */
+export const PHONE_TEXT_SCALES: readonly number[] = [0.9, 1, 1.15, 1.3];
+export const PHONE_TEXT_SCALE_KEY = 'aasc.phoneTextScale';
+const DEFAULT_SCALE = 1;
+const TEXT_SCALE_VAR = '--ph-text-scale';
 
 const listeners = new Set<() => void>();
 
-function parse(value: string | null): PhoneAppearance {
-  return value === 'light' || value === 'dark' ? value : 'system';
+function parse(value: string | null): number {
+  const n = value === null ? NaN : Number(value);
+  return PHONE_TEXT_SCALES.includes(n) ? n : DEFAULT_SCALE;
 }
 
-export function readPhoneAppearance(): PhoneAppearance {
+export function readPhoneTextScale(): number {
   try {
-    return parse(localStorage.getItem(PHONE_APPEARANCE_KEY));
+    return parse(localStorage.getItem(PHONE_TEXT_SCALE_KEY));
   } catch {
-    return 'system';
+    return DEFAULT_SCALE;
   }
 }
 
-let current: PhoneAppearance = readPhoneAppearance();
+let current = readPhoneTextScale();
 
-export function setPhoneAppearance(value: PhoneAppearance): void {
+export function setPhoneTextScale(value: number): void {
+  const next = PHONE_TEXT_SCALES.includes(value) ? value : DEFAULT_SCALE;
   try {
-    if (value === 'system') localStorage.removeItem(PHONE_APPEARANCE_KEY);
-    else localStorage.setItem(PHONE_APPEARANCE_KEY, value);
+    if (next === DEFAULT_SCALE) localStorage.removeItem(PHONE_TEXT_SCALE_KEY);
+    else localStorage.setItem(PHONE_TEXT_SCALE_KEY, String(next));
   } catch {
     /* storage unavailable: the choice lasts until the page reloads */
   }
-  current = value;
+  current = next;
   listeners.forEach((l) => l());
+}
+
+/** The next size up (1) or down (-1), staying at the ends. */
+export function stepPhoneTextScale(value: number, direction: 1 | -1): number {
+  const at = Math.max(0, PHONE_TEXT_SCALES.indexOf(value));
+  return PHONE_TEXT_SCALES[Math.min(PHONE_TEXT_SCALES.length - 1, Math.max(0, at + direction))];
+}
+
+/** "100%". */
+export function phoneTextScaleLabel(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -53,27 +68,28 @@ function subscribe(listener: () => void): () => void {
 
 const snapshot = () => current;
 
-export function usePhoneAppearance(): [PhoneAppearance, (value: PhoneAppearance) => void] {
-  return [useSyncExternalStore(subscribe, snapshot, snapshot), setPhoneAppearance];
+export function usePhoneTextScale(): [number, (value: number) => void] {
+  return [useSyncExternalStore(subscribe, snapshot, snapshot), setPhoneTextScale];
 }
 
-/** Put the choice on `el` (absent for system). */
-export function applyPhoneAppearance(el: HTMLElement, value: PhoneAppearance): void {
-  if (value === 'system') el.removeAttribute(PHONE_APPEARANCE_ATTR);
-  else el.setAttribute(PHONE_APPEARANCE_ATTR, value);
-}
-
-/** The frame: keep <body> in step with the choice while mounted (before paint: no flash of the other palette). */
+/** The frame: keep <body> in step with the theme and text size while mounted (before paint: no flash of the old palette). */
 export function usePhoneAppearanceOnBody(): void {
-  const [value] = usePhoneAppearance();
+  const themeName = useSettingsStore((s) => s.themeName);
+  const [scale] = usePhoneTextScale();
   useLayoutEffect(() => {
-    applyPhoneAppearance(document.body, value);
-    return () => document.body.removeAttribute(PHONE_APPEARANCE_ATTR);
-  }, [value]);
+    applyPhoneTheme(document.body, themeName);
+    return () => clearPhoneTheme(document.body);
+  }, [themeName]);
+  useLayoutEffect(() => {
+    document.body.style.setProperty(TEXT_SCALE_VAR, String(scale));
+    return () => {
+      document.body.style.removeProperty(TEXT_SCALE_VAR);
+    };
+  }, [scale]);
 }
 
 /** Tests: re-read storage. */
 export function resetPhoneAppearanceForTest(): void {
-  current = readPhoneAppearance();
+  current = readPhoneTextScale();
   listeners.forEach((l) => l());
 }

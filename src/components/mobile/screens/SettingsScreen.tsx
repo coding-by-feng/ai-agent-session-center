@@ -2,7 +2,7 @@
  * SettingsScreen — More → Settings and each of its pages (AASC-47), every one
  * a pushed screen:
  *
- *   Appearance     System / Light / Dark, the accent (from a theme), terminal text size
+ *   Appearance     the desktop's ten themes (light or dark comes with each), text size
  *   Notifications  which sessions may notify this phone (mute = no pushes, no sounds)
  *   API keys       today's phone section, kept on this phone
  *   Translation    today's phone section
@@ -19,7 +19,8 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
-import { PHONE_APPEARANCES, usePhoneAppearance } from '@/lib/chat/phoneAppearance';
+import { PHONE_TEXT_SCALES, phoneTextScaleLabel, setPhoneTextScale, stepPhoneTextScale, usePhoneTextScale } from '@/lib/chat/phoneAppearance';
+import { phonePalette } from '@/lib/chat/phoneThemes';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isNativeMobileApp } from '@/lib/platform';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
@@ -40,46 +41,49 @@ const TITLES: Record<SettingsPage, string> = {
   advanced: 'Advanced',
 };
 
-const FONT_MIN = 10;
-const FONT_MAX = 20;
+const SCALE_MIN = PHONE_TEXT_SCALES[0];
+const SCALE_MAX = PHONE_TEXT_SCALES[PHONE_TEXT_SCALES.length - 1];
+
+/** A theme in miniature: its background, two lines of its text and its accent, as the phone draws them. */
+function ThemeSwatch({ name }: { name: ThemeName }) {
+  const p = phonePalette(name);
+  const vars = { '--sw-bg': p.bg, '--sw-text': p.text, '--sw-accent': p.accent } as CSSProperties;
+  return (
+    <span className={styles.themeSwatch} style={vars} data-swatch="" aria-hidden="true">
+      <span className={styles.themeSwatchAccent} />
+    </span>
+  );
+}
 
 function AppearancePage() {
-  const [appearance, setAppearance] = usePhoneAppearance();
   const themeName = useSettingsStore((s) => s.themeName);
   const setThemeName = useSettingsStore((s) => s.setThemeName);
-  const fontSize = useSettingsStore((s) => s.fontSize);
-  const setFontSize = useSettingsStore((s) => s.setFontSize);
+  const [scale, setScale] = usePhoneTextScale();
   return (
     <>
-      <ListSection header="Light or dark" footer="System follows this phone’s own setting.">
-        {PHONE_APPEARANCES.map((a) => (
-          <ListRow
-            key={a.value}
-            title={a.label}
-            value={appearance === a.value ? 'Selected' : undefined}
-            ariaLabel={`${a.label}${appearance === a.value ? ', selected' : ''}`}
-            onClick={() => setAppearance(a.value)}
-          />
-        ))}
+      <ListSection header="Theme" footer="Colours for the whole app on this phone, its terminal included. Light or dark comes with the theme. Your Mac keeps its own.">
+        {THEMES.map((t) => {
+          const selected = themeName === t.name;
+          const scheme = phonePalette(t.name).scheme;
+          return (
+            <ListRow
+              key={t.name}
+              leading={<ThemeSwatch name={t.name} />}
+              title={t.label}
+              subtitle={scheme === 'dark' ? 'Dark' : 'Light'}
+              value={selected ? 'Selected' : undefined}
+              ariaLabel={`${t.label}, ${scheme}${selected ? ', selected' : ''}`}
+              onClick={() => setThemeName(t.name)}
+            />
+          );
+        })}
       </ListSection>
-      <ListSection header="Accent colour" footer="The phone takes its accent and status colours from one of AASC’s themes, kept readable in light and dark.">
-        {THEMES.map((t) => (
-          <ListRow
-            key={t.name}
-            leading={<span className={styles.swatch} style={{ '--swatch': t.colors[1] } as CSSProperties} aria-hidden="true" />}
-            title={t.label}
-            value={themeName === t.name ? 'Selected' : undefined}
-            ariaLabel={`${t.label} accent${themeName === t.name ? ', selected' : ''}`}
-            onClick={() => setThemeName(t.name as ThemeName)}
-          />
-        ))}
-      </ListSection>
-      <ListSection header="Terminal text" footer="The size of the terminal’s text on this phone.">
+      <ListSection header="Text size" footer="The size of the app’s text on this phone. The terminal has its own A− / A+ above it.">
         <li className={styles.stepperRow}>
-          <span className={styles.stepperValue}>{fontSize} px</span>
+          <span className={styles.stepperValue}>{phoneTextScaleLabel(scale)}</span>
           <span className={styles.stepperButtons}>
-            <Button small onClick={() => setFontSize(Math.max(FONT_MIN, fontSize - 1))} disabledReason={fontSize <= FONT_MIN ? 'Smallest already.' : undefined} aria-label="Smaller text">A−</Button>
-            <Button small onClick={() => setFontSize(Math.min(FONT_MAX, fontSize + 1))} disabledReason={fontSize >= FONT_MAX ? 'Largest already.' : undefined} aria-label="Larger text">A+</Button>
+            <Button small onClick={() => setScale(stepPhoneTextScale(scale, -1))} disabledReason={scale <= SCALE_MIN ? 'Smallest already.' : undefined} aria-label="Smaller text">A−</Button>
+            <Button small onClick={() => setScale(stepPhoneTextScale(scale, 1))} disabledReason={scale >= SCALE_MAX ? 'Largest already.' : undefined} aria-label="Larger text">A+</Button>
           </span>
         </li>
       </ListSection>
@@ -146,6 +150,7 @@ function AdvancedPage() {
         danger
         onConfirm={() => {
           resetDefaults();
+          setPhoneTextScale(1);
           setConfirming(false);
           showToast('Settings reset to defaults', 'info');
         }}

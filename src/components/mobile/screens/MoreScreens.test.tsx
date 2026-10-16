@@ -1,5 +1,5 @@
 // MoreScreens.test.tsx — the phone's More tab and what it opens (AASC-47): the
-// grouped list, Appearance (system / light / dark, accent), Notifications per
+// grouped list, Appearance (the ten desktop themes, text size — AASC-58), Notifications per
 // session, Advanced → Reset with a confirm, This phone, and Saved prompts.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -23,7 +23,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { useQueueStore } from '@/stores/queueStore';
-import { readPhoneAppearance, resetPhoneAppearanceForTest } from '@/lib/chat/phoneAppearance';
+import { PHONE_TEXT_SCALE_KEY, readPhoneTextScale, resetPhoneAppearanceForTest } from '@/lib/chat/phoneAppearance';
 
 const sess = (id: string, title: string, over: Partial<Session> = {}) =>
   ({ sessionId: id, title, projectName: title, status: 'idle', lastActivityAt: 0, ...over }) as unknown as Session;
@@ -71,16 +71,42 @@ describe('MoreScreen', () => {
 });
 
 describe('Settings pages', () => {
-  it('sets light or dark for this phone, and picks the accent from a theme', async () => {
+  it('offers the desktop’s ten themes as swatches; a tap picks one for this phone and saves it', async () => {
     const user = userEvent.setup();
-    const setTheme = vi.spyOn(useSettingsStore.getState(), 'setThemeName');
+    useSettingsStore.setState({ themeName: 'windows-xp' });
+    const persist = vi.spyOn(useSettingsStore.getState(), 'persistSetting').mockResolvedValue();
     render(<SettingsScreen page="appearance" />);
-    expect(screen.getByRole('button', { name: 'System, selected' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Dark' }));
-    expect(readPhoneAppearance()).toBe('dark');
-    expect(screen.getByRole('button', { name: 'Dark, selected' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /^Nord/ }));
-    expect(setTheme).toHaveBeenCalledWith('nord');
+    const themes = within(screen.getByRole('region', { name: 'Theme' })).getAllByRole('button');
+    expect(themes.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Command Center, dark', 'Cyberpunk, dark', 'Warm, light', 'Dracula, dark', 'Solarized, dark',
+      'Nord, dark', 'Monokai, dark', 'Light, light', 'Blonde, light', 'Windows XP, light, selected',
+    ]);
+    expect(themes.every((b) => b.querySelector('[data-swatch]'))).toBe(true);
+    // No separate light / dark switch any more: it comes with the theme.
+    expect(screen.queryByRole('button', { name: /^System/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Nord, dark' }));
+    expect(useSettingsStore.getState().themeName).toBe('nord');
+    expect(persist).toHaveBeenCalledWith('themeName', 'nord');
+    expect(screen.getByRole('button', { name: 'Nord, dark, selected' })).toBeTruthy();
+  });
+
+  it('keeps the app’s text size adjustable on this phone', async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen page="appearance" />);
+    expect(screen.getByText('100%')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Larger text' }));
+    expect(readPhoneTextScale()).toBeGreaterThan(1);
+    expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe(String(readPhoneTextScale()));
+    await user.click(screen.getByRole('button', { name: 'Smaller text' }));
+    await user.click(screen.getByRole('button', { name: 'Smaller text' }));
+    expect(readPhoneTextScale()).toBeLessThan(1);
+    expect(screen.getByRole('button', { name: 'Smaller text' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('shows the chosen theme on the Appearance row', () => {
+    useSettingsStore.setState({ themeName: 'dracula' });
+    render(<MoreScreen />);
+    expect(within(screen.getByRole('region', { name: 'Settings' })).getByRole('button', { name: /^Appearance/ }).textContent).toContain('Dracula');
   });
 
   it('switches each live session\'s notifications', async () => {
@@ -101,8 +127,11 @@ describe('Settings pages', () => {
     render(<SettingsScreen page="advanced" />);
     await user.click(screen.getByRole('button', { name: /Reset to defaults/ }));
     expect(reset).not.toHaveBeenCalled();
+    localStorage.setItem(PHONE_TEXT_SCALE_KEY, '1.3');
+    resetPhoneAppearanceForTest();
     await user.click(within(await screen.findByRole('dialog', { name: 'Reset all settings?' })).getByRole('button', { name: 'Reset' }));
     expect(reset).toHaveBeenCalled();
+    expect(readPhoneTextScale()).toBe(1); // the text size is one of this phone's settings too
   });
 
   it('lists every settings page on More → Settings', () => {

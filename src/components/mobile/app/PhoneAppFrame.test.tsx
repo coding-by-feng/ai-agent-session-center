@@ -21,7 +21,9 @@ import PhoneAppFrame from './PhoneAppFrame';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { PHONE_NAV_KEY, usePhoneNavStore } from '@/stores/phoneNavStore';
-import { PHONE_APPEARANCE_ATTR, resetPhoneAppearanceForTest, setPhoneAppearance } from '@/lib/chat/phoneAppearance';
+import { resetPhoneAppearanceForTest, setPhoneTextScale } from '@/lib/chat/phoneAppearance';
+import { PHONE_PALETTES, PHONE_SCHEME_ATTR } from '@/lib/chat/phoneThemes';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
@@ -293,15 +295,23 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/settings'));
   });
 
-  it('keeps a chosen Dark on <body> while mounted, and clears it when the frame goes', async () => {
+  it('wears this phone’s theme and text size on <body> while mounted, and clears them when the frame goes (AASC-58)', async () => {
     resetPhoneAppearanceForTest();
-    act(() => setPhoneAppearance('dark'));
+    useSettingsStore.setState({ themeName: 'monokai' });
+    act(() => setPhoneTextScale(1.15));
     const { unmount } = render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
-    expect(document.body.getAttribute(PHONE_APPEARANCE_ATTR)).toBe('dark');
+    expect(document.body.getAttribute(PHONE_SCHEME_ATTR)).toBe('dark');
+    expect(document.body.style.getPropertyValue('--ph-bg')).toBe(PHONE_PALETTES.monokai.bg);
+    expect(document.body.style.getPropertyValue('--ph-text-scale')).toBe('1.15');
+    act(() => useSettingsStore.setState({ themeName: 'light' }));
+    expect(document.body.getAttribute(PHONE_SCHEME_ATTR)).toBe('light');
+    expect(document.body.style.getPropertyValue('--ph-surface')).toBe(PHONE_PALETTES.light.surface);
     unmount();
-    expect(document.body.hasAttribute(PHONE_APPEARANCE_ATTR)).toBe(false);
-    act(() => setPhoneAppearance('system'));
+    expect(document.body.hasAttribute(PHONE_SCHEME_ATTR)).toBe(false);
+    expect(document.body.style.getPropertyValue('--ph-bg')).toBe('');
+    expect(document.body.style.getPropertyValue('--ph-text-scale')).toBe('');
+    act(() => setPhoneTextScale(1));
   });
 
   it('follows a re-keyed session under the top screen: Info and the session under it', async () => {

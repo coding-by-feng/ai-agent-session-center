@@ -6,25 +6,28 @@
    (kit sheets and menus, today's BottomSheets, toasts) share one palette. The
    frame lives in the lazy phone chunk, so the desktop never loads this file.
 
-   Colour (DU5): the phone follows the SYSTEM light / dark setting. Only the
-   accent and status hues come from the desktop theme chosen on the Mac, mixed
-   toward black (light) or white (dark) so text and rings keep their contrast on
-   phone surfaces. Chrome-heavy themes (Windows XP: tan surfaces, Tahoma, square
-   sunken fields, bevelled scrollbars) are not reproduced on the phone.
+   Colour (AASC-58): the phone wears the desktop theme chosen on this phone
+   (More → Settings → Appearance). lib/chat/phoneThemes.ts holds each theme's
+   phone palette and sets its colours as inline --ph-* properties on <body>,
+   with `data-ph-appearance="light|dark"` from the theme. The values below are
+   what those override: the scheme-wide layers (fills, separators, overlay,
+   shadows, tints) and a fallback palette for the moment before the frame
+   applies the theme. Chrome-heavy themes (Windows XP: Tahoma, square sunken
+   fields, bevelled scrollbars) keep only their colours on the phone.
 
-   Themes declare their variables on <body>; the derived --ph-* tokens are
-   declared there too (different names, no cycle). The remap of the desktop's
-   own variables (--bg-panel, --text-primary, …) happens one level down, on
-   body's children, because a property can't read its own theme value on the
-   element that redefines it. That remap lets today's phone views, embedded in
-   the new frame until their own tickets restyle them, follow the same palette.
+   The derived --ph-* tokens are declared on <body> too (different names, no
+   cycle). The remap of the desktop's own variables (--bg-panel,
+   --text-primary, …) happens one level down, on body's children, because a
+   property can't read its own theme value on the element that redefines it.
+   That remap lets today's phone views, embedded in the new frame, follow the
+   same palette.
    ============================================================ */
 
 .phoneApp {
   /* ---- Type ---- */
   --ph-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, Roboto, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   --ph-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
-  /* A future text-size setting (S / M / L / XL) scales everything through this. */
+  /* Appearance → Text size scales every type token through this (inline on <body>). */
   --ph-text-scale: 1;
   --ph-size-large-title: calc(32px * var(--ph-text-scale));
   --ph-line-large-title: calc(40px * var(--ph-text-scale));
@@ -118,47 +121,11 @@
   --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 12%, transparent);
   --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 14%, transparent);
   --ph-focus: var(--ph-accent);
+  /* The phone terminal's background before xterm paints (its theme's). */
+  --ph-terminal-bg: #0a0a1a;
 }
 
-/* Dark: the system's choice, unless this phone keeps Light; or Dark kept on
-   this phone (More → Settings → Appearance, lib/chat/phoneAppearance.ts puts
-   data-ph-appearance on <body>). The two blocks must stay the same. */
-@media (prefers-color-scheme: dark) {
-  .phoneApp:not([data-ph-appearance='light']) {
-    --ph-bg: #0b0b0f;
-    --ph-surface: #1c1c1f;
-    --ph-surface-raised: #2a2a2e;
-    --ph-bar-bg: rgba(22, 22, 25, 0.94);
-    --ph-sheet-bg: #1c1c1f;
-    --ph-sheet-group: #2a2a2e;
-    --ph-segment-selected: #5b5b62;
-    --ph-fill: rgba(118, 118, 128, 0.24);
-    --ph-fill-strong: rgba(118, 118, 128, 0.36);
-    --ph-separator: rgba(235, 235, 245, 0.18);
-    --ph-text: #f2f2f7;
-    --ph-text-secondary: #c7c7cc;
-    --ph-text-tertiary: #a1a1a8;
-    --ph-overlay: rgba(0, 0, 0, 0.56);
-    --ph-neutral-action: #48484d;
-    --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
-
-    --ph-accent: color-mix(in srgb, var(--accent-cyan, #0284c7) 50%, #fff);
-    --ph-on-accent: #0b0b0f;
-    --ph-danger: color-mix(in srgb, var(--accent-red, #dc2626) 55%, #fff);
-    --ph-on-danger: #0b0b0f;
-
-    --ph-status-approval: color-mix(in srgb, var(--accent-yellow, #d97706) 65%, #fff);
-    --ph-status-question: color-mix(in srgb, var(--accent-purple, #7c3aed) 55%, #fff);
-    --ph-status-working: color-mix(in srgb, var(--accent-cyan, #0284c7) 60%, #fff);
-    --ph-status-finished: color-mix(in srgb, var(--accent-green, #16a34a) 60%, #fff);
-
-    --ph-accent-tint: color-mix(in srgb, var(--ph-accent) 18%, transparent);
-    --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 18%, transparent);
-    --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 18%, transparent);
-  }
-}
-
+/* Dark themes: phoneThemes.ts puts data-ph-appearance="dark" on <body>. */
 .phoneApp[data-ph-appearance='dark'] {
   --ph-bg: #0b0b0f;
   --ph-surface: #1c1c1f;
@@ -269,21 +236,15 @@ body.phoneApp #root > div > nav:first-of-type {
   --selection-text: var(--ph-on-accent);
 }
 
-@media (prefers-color-scheme: dark) {
-  .phoneApp:not([data-ph-appearance='light']) > * {
-    color-scheme: dark;
-  }
-}
-
 .phoneApp[data-ph-appearance='dark'] > * {
   color-scheme: dark;
 }
 
 /* Windows XP: route its universal `font-family: var(--font-mono) !important`
    to the system font (code keeps its monospace: the theme redefines the
-   variable on pre / code / kbd / samp), and undo its white, square fields and
-   bevelled scrollbars, which the phone palette can't sit on (white fields with
-   light text in dark mode). */
+   variable on pre / code / kbd / samp; Tahoma isn't on a phone anyway), and
+   undo its square sunken fields and bevelled scrollbars: on the phone the XP
+   theme is its colours, drawn with the phone kit's shapes (AASC-58). */
 body.phoneApp[data-theme="windows-xp"] {
   --font-mono: var(--ph-font);
 }

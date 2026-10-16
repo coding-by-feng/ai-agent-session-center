@@ -16,7 +16,7 @@
  * `useTerminal` directly (TerminalContainer draws the classic phone input), so
  * the replay ring, `verifySettled` and the resize guard all apply as they do there.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '@/types';
 import { Button, EmptyState } from '../kit';
@@ -33,6 +33,7 @@ import { useControlBaton } from '@/hooks/useControlBaton';
 import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
 import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
 import { useWsStore } from '@/stores/wsStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { isNativeMobileApp } from '@/lib/platform';
 import { submitComposed } from '@/lib/terminalCompose';
 import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
@@ -40,6 +41,7 @@ import { stepTextSize, type TerminalWidthMode } from '@/lib/terminalGeometry';
 import { pressKey, type KeyBarKey } from '@/lib/chat/terminalKeys';
 import { zoomLabel } from '@/lib/chat/terminalZoom';
 import { copyText } from '@/lib/chat/copyText';
+import { phoneTerminalTheme } from '@/lib/chat/phoneThemes';
 import { showToast } from '@/components/ui/ToastContainer';
 import '@xterm/xterm/css/xterm.css';
 import styles from '@/styles/modules/mobile/PhoneTerminal.module.css';
@@ -83,14 +85,10 @@ interface ViewProps {
 }
 
 function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands, onReconnect }: ViewProps) {
-  const [themeName] = useState(() => {
-    try {
-      return localStorage.getItem('terminal-theme') || 'auto';
-    } catch {
-      return 'auto';
-    }
-  });
-  const term = useTerminal({ ws, themeName, projectPath: session.projectPath });
+  // The phone's theme paints its terminal too (AASC-58), live as it changes.
+  const themeName = useSettingsStore((s) => s.themeName);
+  const palette = useMemo(() => phoneTerminalTheme(themeName), [themeName]);
+  const term = useTerminal({ ws, palette, projectPath: session.projectPath });
   const {
     attach, setWidthMode, setTextSize, handleTerminalOutput, handleTerminalGeometry, handleTerminalCleared,
     handleTerminalReady, handleTerminalClosed, reparent, containerRef, isFullscreen, sendKeys, lineAtClientY, revealLine,

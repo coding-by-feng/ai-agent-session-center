@@ -177,7 +177,7 @@
   width: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #0a0a1a;
+  background: var(--ph-terminal-bg, #0a0a1a);
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;

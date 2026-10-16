@@ -19,7 +19,7 @@ export const LIBRARY_PAGES: readonly MoreEntry[] = [
 ];
 
 export const SETTINGS_PAGES: readonly MoreEntry[] = [
-  { page: 'appearance', title: 'Appearance', subtitle: 'Light or dark, accent colour, text size' },
+  { page: 'appearance', title: 'Appearance', subtitle: 'Theme, text size' },
   { page: 'notifications', title: 'Notifications', subtitle: 'Which sessions may notify you' },
   { page: 'api-keys', title: 'API keys', subtitle: 'Anthropic and OpenAI, kept on this phone' },
   { page: 'translation', title: 'Translation', subtitle: 'Select-to-translate languages' },
