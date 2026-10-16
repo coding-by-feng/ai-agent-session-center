@@ -925,6 +925,15 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(buildSnapshot(new Map([['sess-plain', plain]]), []).sessions[0]).not.toHaveProperty('autoConfirmTrust');
   });
 
+  // Found on a real iPhone (Oct 2026): after AASC restarted, every session was hidden from the phone,
+  // the ones it had started too, because the snapshot never kept the share.
+  it('keeps remoteVisible: true (a shared session), and only that value', () => {
+    const shared = { ...loopSession('sess-shared'), remoteVisible: true } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-shared', shared]]), []).sessions[0].remoteVisible).toBe(true);
+    const unshared = { ...loopSession('sess-unshared'), remoteVisible: false } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-unshared', unshared]]), []).sessions[0]).not.toHaveProperty('remoteVisible');
+  });
+
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
     // Non-Claude session: session.model is the raw launch command (has spaces).
     const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
@@ -1005,6 +1014,25 @@ describe('importSnapshot — loop round-trip', () => {
     const create = calls.find((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST');
     expect(create).toBeDefined();
     expect(JSON.parse(String(create!.init!.body)).autoConfirmTrust).toBe(false);
+  });
+
+  it('sends remoteVisible: true in the restore POST so a shared session stays shared', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-shared-1' }),
+    });
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-111111111111', remoteVisible: true }),
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-222222222222' }),
+      ],
+      rooms: [],
+    };
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.remoteVisible)).toEqual([true, undefined]);
   });
 
   it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {

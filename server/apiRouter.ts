@@ -459,6 +459,9 @@ const terminalCreateSchema = z.object({
   // AASC-54: a session that answers Claude's folder-trust prompt itself (a workspace restore of a phone's
   // new-folder launch). Only `false`: a caller may make a launch stricter, never turn auto-confirm back on.
   autoConfirmTrust: z.literal(false).optional(),
+  // A workspace restore of a session that was shared with remote devices. Only `true`, and only the
+  // Mac's own request may set it (a remote device's launch is shared anyway; a phone can't send it).
+  remoteVisible: z.literal(true).optional(),
   startupCommand: z.string().max(1024).optional(),
   /** Permission mode from snapshot — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode: z.string().max(100).optional(),
@@ -2087,7 +2090,9 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // A session a remote device starts is shared with remote devices from its
     // first broadcast, or the device that asked for it could never see it
     // (AASC-28). Only the new card: a device still can't unhide another one.
-    await createTerminalSession(terminalId, isLocalCaller ? config : { ...config, remoteVisible: true }, opsTerminalId);
+    // A restore by the Mac keeps a share it saved (the workspace snapshot's `remoteVisible`).
+    const shared = !isLocalCaller || body.remoteVisible === true;
+    await createTerminalSession(terminalId, shared ? { ...config, remoteVisible: true } : config, opsTerminalId);
 
     // The device that launched a session controls it. This is what makes the
     // "joining device is a spectator by default" rule fall out with no extra

@@ -79,6 +79,8 @@
   --ph-z-swipe: 30;
   --ph-z-sheet: 10030;
   --ph-z-menu: 10040;
+  /* Above sheets and menus: a refusal is usually raised from one. */
+  --ph-z-toast: 10050;
 
   /* ---- Colour: light ---- */
   --ph-bg: #f2f2f7;

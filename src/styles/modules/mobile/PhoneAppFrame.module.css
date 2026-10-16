@@ -14,8 +14,9 @@
   -webkit-text-size-adjust: 100%;
 }
 
-/* Toasts (the shared ToastContainer) sit above the tab bar, full width. */
+/* Toasts (the shared ToastContainer) sit above the tab bar, full width, and over any open sheet. */
 .frame .toasts {
+  z-index: var(--ph-z-toast);
   top: auto;
   right: var(--ph-gutter);
   bottom: calc(var(--ph-tabbar) + var(--ph-safe-bottom) + var(--ph-space-3));

@@ -61,7 +61,7 @@ import express from 'express';
 import { createServer, type Server } from 'http';
 import {
   phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile, isAgentProcessName,
-  phoneFloatingRefusal, PHONE_UPLOADS_PER_MINUTE,
+  phoneFloatingRefusal, PHONE_UPLOADS_PER_MINUTE, filterPhoneKnownProjects,
 } from '../server/mobile/phoneProfile.js';
 import { isQueueImageId } from '../server/queueImages.js';
 
@@ -449,6 +449,20 @@ async function call(method: string, path: string, headers: Record<string, string
 
 const q = (o: Record<string, string>): string => new URLSearchParams(o).toString();
 
+// Found on a real iPhone (Oct 2026): New session offered the home folder as a one-tap start, which
+// the launch rule always refuses.
+describe('filterPhoneKnownProjects', () => {
+  it('lists only the recent projects a phone may start in', () => {
+    const body = { paths: [home, project, join(home, '.ssh'), outside, join(home, '.codex', 'proj'), launchDir] };
+    expect(filterPhoneKnownProjects(body, home)).toEqual({ paths: [project, launchDir] });
+  });
+
+  it('leaves anything that is not a list of paths alone', () => {
+    expect(filterPhoneKnownProjects({ error: 'x' }, home)).toEqual({ error: 'x' });
+    expect(filterPhoneKnownProjects(null, home)).toBeNull();
+  });
+});
+
 describe('a paired phone through the API', () => {
   it('reads a shared project’s files', async () => {
     const res = await call('GET', `/files/read?${q({ root: project, path: '/README.md' })}`, PHONE);
@@ -508,6 +522,12 @@ describe('a paired phone through the API', () => {
     expect(pty.created).toEqual([]);
   });
 
+  it('gets only recent projects it may start in (the Mac’s real list sits outside the test home)', async () => {
+    const res = await call('GET', '/known-projects', PHONE);
+    expect(res.status).toBe(200);
+    expect((res.json.paths as string[]).every((p) => p.startsWith(home + '/'))).toBe(true);
+  });
+
   it('starts claude in a known project, shared with it from the first broadcast', async () => {
     const res = await call('POST', '/terminals', PHONE, { workingDir: launchDir, command: 'claude', forceNew: true });
     expect(res.status).toBe(200);
@@ -550,6 +570,17 @@ describe('a paired phone through the API', () => {
     const res = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true });
     expect(res.status).toBe(200);
     expect(store.getSession(String(res.json.terminalId))?.remoteVisible).not.toBe(true);
+  });
+
+  // A workspace restore re-creates a shared session through this route; without the flag every share
+  // was lost on each AASC restart (found on a real iPhone, Oct 2026).
+  it('keeps a restored session shared when the Mac asks, and never takes the flag from a phone', async () => {
+    const res = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true, remoteVisible: true });
+    expect(res.status).toBe(200);
+    expect(store.getSession(String(res.json.terminalId))?.remoteVisible).toBe(true);
+    const phone = await call('POST', '/terminals', PHONE, { workingDir: launchDir, command: 'claude', forceNew: true, remoteVisible: true });
+    expect(phone.status).toBe(403);
+    expect(String(phone.json.error)).toContain('remoteVisible');
   });
 
   it('is never handed a hidden session as the one already running there', async () => {

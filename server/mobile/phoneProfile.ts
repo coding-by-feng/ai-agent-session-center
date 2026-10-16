@@ -216,6 +216,17 @@ function isNativeClaudeBinary(name: string): boolean {
     && existsSync(join(homedir(), '.local', 'share', 'claude', 'versions', name));
 }
 
+/**
+ * New session's recent projects as a phone sees them: only folders its launch rule takes as a
+ * known project (`phoneProjectRoot`), so it never offers a one-tap start that is always refused
+ * (the home folder itself, a private folder, anything outside home).
+ */
+export function filterPhoneKnownProjects(body: unknown, home: string): unknown {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as { paths?: unknown }).paths)) return body;
+  const paths = (body as { paths: unknown[] }).paths;
+  return { ...(body as object), paths: paths.filter((p) => typeof p === 'string' && phoneProjectRoot(p, home) !== null) };
+}
+
 /** Is this terminal's foreground program an agent? Unknown (null) is not. */
 export function isAgentProcessName(name: string | null | undefined): boolean {
   if (typeof name !== 'string') return false;
@@ -527,6 +538,10 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
           retryAfter: retryAfter(terminalsOpened, phone),
         });
         return;
+      }
+      if (req.method === 'GET' && /^\/known-projects\/?$/.test(req.path)) {
+        const json = res.json.bind(res);
+        res.json = (body: unknown) => json(filterPhoneKnownProjects(body, home));
       }
       if (rule === 'files' && /^\/files\/(grep|search)\/?$/.test(req.path)) {
         const root = one(req.query.root);
