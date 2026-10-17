@@ -40,11 +40,11 @@ export default function ChatSearchBar({ shown, query, onQuery, count, index, onS
     }
   };
 
-  const status = !query.trim()
-    ? ''
-    : count === 0
-      ? 'None'
-      : `${index >= 0 ? index + 1 : 0} of ${count}${partial ? '+' : ''}`;
+  // Short on screen ("3/12"), so the field keeps its width; read out in full ("3 of 12").
+  const at = index >= 0 ? index + 1 : 0;
+  const more = partial ? '+' : '';
+  const status = !query.trim() ? '' : count === 0 ? 'None' : `${at}/${count}${more}`;
+  const statusLabel = count === 0 ? 'No matches' : `${at} of ${count}${more}`;
 
   return (
     <div className={`${styles.search}${shown ? ` ${styles.searchShown}` : ''}`} role="search" aria-hidden={shown ? undefined : true} data-testid="chat-search">
@@ -63,15 +63,15 @@ export default function ChatSearchBar({ shown, query, onQuery, count, index, onS
           tabIndex={shown ? 0 : -1}
         />
       </label>
-      {status && <span className={styles.searchCount} aria-live="polite">{status}</span>}
+      {status && <span className={styles.searchCount} aria-live="polite" aria-label={statusLabel}>{status}</span>}
       <button type="button" className={styles.iconBtn} onClick={() => onStep(-1)} disabled={count === 0} aria-label="Previous match" tabIndex={shown ? 0 : -1}>
-        <ArrowUpIcon size={20} />
+        <ArrowUpIcon size={18} />
       </button>
       <button type="button" className={styles.iconBtn} onClick={() => onStep(1)} disabled={count === 0} aria-label="Next match" tabIndex={shown ? 0 : -1}>
-        <ArrowDownIcon size={20} />
+        <ArrowDownIcon size={18} />
       </button>
       <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Close search" tabIndex={shown ? 0 : -1}>
-        <CrossIcon size={20} />
+        <CrossIcon size={18} />
       </button>
     </div>
   );

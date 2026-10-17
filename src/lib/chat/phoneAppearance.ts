@@ -16,7 +16,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { applyPhoneTheme, clearPhoneTheme } from './phoneThemes';
 
 /** Small · Default · Large · Larger. */
-export const PHONE_TEXT_SCALES: readonly number[] = [0.9, 1, 1.15, 1.3];
+export const PHONE_TEXT_SCALES: readonly number[] = [0.8, 0.85, 0.9, 1, 1.15, 1.3];
 export const PHONE_TEXT_SCALE_KEY = 'aasc.phoneTextScale';
 const DEFAULT_SCALE = 1;
 const TEXT_SCALE_VAR = '--ph-text-scale';

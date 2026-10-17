@@ -88,8 +88,8 @@
   z-index: var(--ph-z-bar);
   display: flex;
   align-items: center;
-  gap: var(--ph-space-1);
-  padding: var(--ph-space-1) var(--ph-space-2) var(--ph-space-1) var(--ph-gutter);
+  gap: 0;
+  padding: var(--ph-space-1) var(--ph-space-1) var(--ph-space-1) var(--ph-gutter);
   background: var(--ph-bar-bg);
   border-bottom: 0.5px solid var(--ph-separator);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
@@ -105,6 +105,7 @@
   transition: transform var(--ph-motion-fast) var(--ph-ease), visibility 0s;
 }
 
+/* One pill: the input inside it is transparent, borderless and exactly its height. */
 .searchField {
   flex: 1;
   min-width: 0;
@@ -112,10 +113,12 @@
   align-items: center;
   gap: var(--ph-space-2);
   height: 36px;
-  padding: 0 var(--ph-space-2);
+  margin-right: var(--ph-space-1);
+  padding: 0 var(--ph-space-3) 0 var(--ph-space-2);
   border-radius: var(--ph-radius);
   background: var(--ph-fill);
   color: var(--ph-text-secondary);
+  overflow: hidden;
 }
 
 .searchField:focus-within {
@@ -126,15 +129,17 @@
 .searchInput {
   flex: 1;
   min-width: 0;
-  height: 44px;
+  height: 100%;
   margin: 0;
   padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--ph-text);
   font: inherit;
   font-family: var(--ph-font);
-  font-size: var(--ph-size-body);
+  font-size: var(--ph-size-secondary);
   outline: none;
   -webkit-appearance: none;
   appearance: none;
@@ -150,7 +155,8 @@
 
 .searchCount {
   flex: none;
-  min-width: 52px;
+  min-width: 36px;
+  padding: 0 var(--ph-space-1);
   font-size: var(--ph-size-caption);
   line-height: var(--ph-line-caption);
   color: var(--ph-text-secondary);

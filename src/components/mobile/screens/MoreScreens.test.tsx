@@ -97,9 +97,10 @@ describe('Settings pages', () => {
     await user.click(screen.getByRole('button', { name: 'Larger text' }));
     expect(readPhoneTextScale()).toBeGreaterThan(1);
     expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe(String(readPhoneTextScale()));
-    await user.click(screen.getByRole('button', { name: 'Smaller text' }));
-    await user.click(screen.getByRole('button', { name: 'Smaller text' }));
-    expect(readPhoneTextScale()).toBeLessThan(1);
+    // 115 % → 100 → 90 → 85 → 80 %, the smallest (a phone screen is small).
+    for (let i = 0; i < 4; i++) await user.click(screen.getByRole('button', { name: 'Smaller text' }));
+    expect(readPhoneTextScale()).toBe(0.8);
+    expect(screen.getByText('80%')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Smaller text' })).toHaveAttribute('aria-disabled', 'true');
   });
 

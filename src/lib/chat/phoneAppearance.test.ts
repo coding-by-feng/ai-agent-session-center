@@ -33,6 +33,11 @@ describe('phoneAppearance', () => {
     expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBeNull();
   });
 
+  // A phone screen is small: the text can go down to 80 % (asked for, Oct 2026); 100 % stays the default.
+  it('offers 80 % and 85 % below 90 %', () => {
+    expect(PHONE_TEXT_SCALES).toEqual([0.8, 0.85, 0.9, 1, 1.15, 1.3]);
+  });
+
   it('steps through the sizes and stops at either end', () => {
     expect(PHONE_TEXT_SCALES[0]).toBeLessThan(1);
     expect(PHONE_TEXT_SCALES.at(-1)).toBeGreaterThan(1);

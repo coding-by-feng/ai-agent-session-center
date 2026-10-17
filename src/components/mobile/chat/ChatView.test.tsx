@@ -153,13 +153,13 @@ describe('ChatView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search this chat' }));
     const search = screen.getByRole('search');
     await userEvent.type(within(search).getByRole('searchbox'), 'npm');
-    expect(within(search).getByText('0 of 2')).toBeInTheDocument();
+    expect(within(search).getByText('0/2')).toHaveAttribute('aria-label', '0 of 2');
     await userEvent.keyboard('{Enter}');
-    expect(within(search).getByText('1 of 2')).toBeInTheDocument();
+    expect(within(search).getByText('1/2')).toHaveAttribute('aria-label', '1 of 2');
     const current = document.querySelector('[data-current]');
     expect(current).toHaveTextContent('npm run lint');
     await userEvent.click(within(search).getByRole('button', { name: 'Next match' }));
-    expect(within(search).getByText('2 of 2')).toBeInTheDocument();
+    expect(within(search).getByText('2/2')).toHaveAttribute('aria-label', '2 of 2');
     expect(document.querySelector('[data-current]')).toHaveTextContent('npm test passes');
   });
 
