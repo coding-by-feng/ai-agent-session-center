@@ -1,11 +1,20 @@
 /**
  * Combobox — custom dropdown input that replaces HTML5 <datalist>.
- * - Click arrow button → shows ALL items (no filtering)
+ * - Click arrow button → shows ALL items (no filtering); a mouse or pen also focuses the input, a finger
+ *   doesn't (the soft keyboard would rise over the list it just opened)
  * - Type in input → filters items (case-insensitive substring)
  * - Arrow keys to navigate, Enter to select, Escape to close
+ * - The list is portaled to <body> and placed like ui/Menu (`placeMenu`: below, else above, inside the
+ *   viewport): inside a modal's scrolling body an absolute list was clipped, and an option past the clip
+ *   could not be tapped (e2e run 5, F2).
  */
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
+import { placeMenu, type MenuPosition } from '@/lib/menuPlacement';
 import styles from '@/styles/modules/Combobox.module.css';
+
+/** Fallback for the list's cap when --cb-cap can't be read (Combobox.module.css owns it). */
+const LIST_MAX_HEIGHT = 200;
 
 interface ComboboxProps {
   value: string;
@@ -21,18 +30,53 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
   const [showAll, setShowAll] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<(MenuPosition & { width: number }) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // How the ▾ was last pressed. A click with no pointer event before it (keyboard, assistive tech)
+  // reads as '' and focuses, as before.
+  const arrowPointerRef = useRef('');
 
   // Click-outside to close
   useEffect(() => {
     if (!isOpen) return;
     function handleClick(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = e.target as Node;
+      if (wrapperRef.current?.contains(target) || popRef.current?.contains(target)) return;
+      setIsOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, [isOpen]);
+
+  // Place the list under the input (or above it), and keep it there while the page under it moves:
+  // the modal body scrolls, and on a phone the soft keyboard resizes the window.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const place = () => {
+      const anchor = wrapperRef.current?.getBoundingClientRect();
+      const pop = popRef.current;
+      if (!anchor || !pop) return;
+      const width = anchor.right - anchor.left;
+      // The list's own height: its content, up to the CSS cap (--cb-cap, smaller on a phone).
+      const list = pop.firstElementChild instanceof HTMLElement ? pop.firstElementChild : pop;
+      const cap = parseFloat(getComputedStyle(list).getPropertyValue('--cb-cap')) || LIST_MAX_HEIGHT;
+      const height = Math.min(list.scrollHeight, cap);
+      setPos({ ...placeMenu(anchor, { width, height }, { width: window.innerWidth, height: window.innerHeight }), width });
+    };
+    // A scroll inside the list is the user reading it, not the page moving under it.
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t instanceof Node && popRef.current?.contains(t)) return;
+      place();
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', onScroll, true);
+    };
   }, [isOpen]);
 
   const visibleItems = useMemo(() => {
@@ -75,8 +119,9 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
     } else {
       setShowAll(true);
       setIsOpen(true);
-      inputRef.current?.focus();
+      if (arrowPointerRef.current !== 'touch') inputRef.current?.focus();
     }
+    arrowPointerRef.current = '';
   }
 
   function handleSelect(item: string) {
@@ -137,6 +182,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
         <button
           type="button"
           className={`${styles.arrowBtn}${isOpen ? ` ${styles.arrowBtnOpen}` : ''}`}
+          onPointerDown={(e) => { arrowPointerRef.current = e.pointerType; }}
           onClick={handleArrowClick}
           tabIndex={-1}
           aria-label="Toggle dropdown"
@@ -144,30 +190,43 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
           &#x25BE;
         </button>
       </div>
-      {isOpen && visibleItems.length > 0 && (
-        <ul ref={listRef} className={styles.dropdown} role="listbox">
-          {visibleItems.map((item, i) => (
-            <li
-              key={item}
-              id={`cb-item-${i}`}
-              role="option"
-              aria-selected={i === highlightedIndex}
-              className={`${styles.item} ${i === highlightedIndex ? styles.itemHighlighted : ''}`}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                handleSelect(item);
-              }}
-              onMouseEnter={() => setHighlightedIndex(i)}
+      {isOpen && createPortal(
+        <div
+          ref={popRef}
+          className={styles.popover}
+          style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { visibility: 'hidden', top: 0, left: 0 }}
+        >
+          {visibleItems.length > 0 ? (
+            <ul
+              ref={listRef}
+              className={styles.dropdown}
+              style={pos ? ({ '--cb-room': `${pos.maxHeight}px` } as CSSProperties) : undefined}
+              role="listbox"
             >
-              {item}
-            </li>
-          ))}
-        </ul>
-      )}
-      {isOpen && visibleItems.length === 0 && (
-        <div className={styles.dropdown}>
-          <div className={styles.empty}>No matches</div>
-        </div>
+              {visibleItems.map((item, i) => (
+                <li
+                  key={item}
+                  id={`cb-item-${i}`}
+                  role="option"
+                  aria-selected={i === highlightedIndex}
+                  className={`${styles.item} ${i === highlightedIndex ? styles.itemHighlighted : ''}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelect(item);
+                  }}
+                  onMouseEnter={() => setHighlightedIndex(i)}
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className={styles.dropdown}>
+              <div className={styles.empty}>No matches</div>
+            </div>
+          )}
+        </div>,
+        document.body,
       )}
     </div>
   );

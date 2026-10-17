@@ -41,9 +41,7 @@ export interface RobotMemoProps {
   fontSize: number;
   /** Is this the robot whose session is open in the detail panel? Drives the selection marker. */
   isSelected: boolean;
-  /** The scene's look (`diorama` / `cyberdrome`) — swaps the model, the label and the decals. */
-  sceneStyle: string;
-  /** Which clay the diorama body is painted in — follows the palette, so it changes on a theme switch. */
+  /** Which clay the body is painted in — follows the palette, so it changes on a theme switch. */
   clayTone: string;
 }
 
@@ -71,7 +69,6 @@ export function sessionRobotPropsEqual(prev: RobotMemoProps, next: RobotMemoProp
     prev.globalCharacterModel === next.globalCharacterModel &&
     prev.fontSize === next.fontSize &&
     prev.isSelected === next.isSelected &&
-    prev.sceneStyle === next.sceneStyle &&
     prev.clayTone === next.clayTone
   );
 }

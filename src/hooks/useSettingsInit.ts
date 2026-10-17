@@ -8,7 +8,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { soundEngine } from '@/lib/soundEngine';
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcut';
-import { useIsDesktopApp } from '@/lib/platform';
+import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 
 export function useSettingsInit(): void {
   const loaded = useRef(false);
@@ -64,8 +64,12 @@ export function useSettingsInit(): void {
   // (and once on mount / after settings load). Electron mode has both an IPC PTY
   // host AND the embedded server, so we push to both channels unconditionally —
   // each is best-effort. Backends clamp + default, so a failed push is harmless.
+  // It is the Mac's setting: the route answers this machine only (another device
+  // gets a 404), and the phone app, whose routes are an allow-list, doesn't send
+  // it at all (e2e run 5, F4).
   const replayBufferBytes = useSettingsStore((s) => s.terminalReplayBufferBytes);
   useEffect(() => {
+    if (isNativeMobileApp()) return;
     try {
       window.electronAPI?.setPtyReplayBuffer?.(replayBufferBytes);
     } catch {

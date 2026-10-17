@@ -32,7 +32,6 @@ const base = (): RobotMemoProps => ({
   globalCharacterModel: 'robot',
   fontSize: 13,
   isSelected: false,
-  sceneStyle: 'diorama',
   clayTone: 'standard',
 });
 
@@ -71,7 +70,6 @@ describe('sessionRobotPropsEqual', () => {
     ['globalCharacterModel', { ...base(), globalCharacterModel: 'drone' }],
     ['fontSize', { ...base(), fontSize: 16 }],
     ['isSelected', { ...base(), isSelected: true }],
-    ['sceneStyle', { ...base(), sceneStyle: 'cyberdrome' }],
     ['clayTone', { ...base(), clayTone: 'deep' }],
   ])('re-renders when %s changes', (_field, changed) => {
     expect(sessionRobotPropsEqual(base(), changed)).toBe(false);

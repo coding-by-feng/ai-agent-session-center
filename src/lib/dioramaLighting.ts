@@ -1,8 +1,8 @@
 /**
- * The diorama style's light balance, derived from the active theme's own lighting numbers.
+ * The scene's light balance, derived from the active theme's own lighting numbers.
  *
- * The neon scene is lit by a strong key light (hard shadows) plus two coloured point lights that wash
- * the room. A tabletop model wants a gentle key light so shadows stay soft, a sky light filling them
+ * The theme's raw numbers (tuned for the retired neon look) are a strong key light (hard shadows) plus
+ * two coloured point lights that wash the room. A tabletop model wants a gentle key light so shadows stay soft, a sky light filling them
  * in, and the neon washes turned down. Scaling the THEME's numbers (rather than hard-coding new ones)
  * keeps every palette recognisably itself — a dark theme stays dark, a light one stays light.
  *
@@ -119,21 +119,17 @@ export function clayToneFor(theme: Pick<Scene3DTheme, 'background' | 'desk' | 'c
   return mean > BRIGHT_FURNITURE ? 'deep' : 'standard';
 }
 
-/** The Canvas's tone-mapping exposure — what the neon scene has always rendered with. */
+/** The Canvas's tone-mapping exposure on a dark palette. */
 export const BASE_EXPOSURE = 1.2;
-/** The diorama's exposure on a light palette, as a share of the base. */
+/** The exposure on a light palette, as a share of the base. */
 const LIGHT_EXPOSURE_SCALE = 0.85;
 
 /**
- * The tone-mapping exposure for a style on a palette. The neon scene is untouched. The diorama keeps
- * the base on a dark palette and eases it off on a light one — the tone mapper brightens by exposure,
- * and a palette that is near white already has nowhere left to go but a flat white floor.
+ * The tone-mapping exposure for a palette: the base on a dark palette, eased off on a light one — the
+ * tone mapper brightens by exposure, and a palette that is near white already has nowhere left to go
+ * but a flat white floor.
  */
-export function sceneExposure(
-  style: 'diorama' | 'cyberdrome',
-  theme: Pick<Scene3DTheme, 'background'>,
-): number {
-  if (style !== 'diorama') return BASE_EXPOSURE;
+export function sceneExposure(theme: Pick<Scene3DTheme, 'background'>): number {
   return isLightBackground(theme.background) ? BASE_EXPOSURE * LIGHT_EXPOSURE_SCALE : BASE_EXPOSURE;
 }
 

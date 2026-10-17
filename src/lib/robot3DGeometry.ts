@@ -34,34 +34,7 @@ export const robotGeo = {
 };
 
 // ---------------------------------------------------------------------------
-// Edge Geometries (4 parts — wireframe outlines)
-// ---------------------------------------------------------------------------
-
-export const robotEdgeGeo = {
-  head: new THREE.EdgesGeometry(robotGeo.head),
-  torso: new THREE.EdgesGeometry(robotGeo.torso),
-  arm: new THREE.EdgesGeometry(robotGeo.arm),
-  leg: new THREE.EdgesGeometry(robotGeo.leg),
-};
-
-// ---------------------------------------------------------------------------
-// Shared Metallic Body Materials
-// ---------------------------------------------------------------------------
-
-export const metalMat = new THREE.MeshStandardMaterial({
-  color: '#2a2a3e',
-  roughness: 0.3,
-  metalness: 0.85,
-});
-
-export const darkMat = new THREE.MeshStandardMaterial({
-  color: '#1c1c2c',
-  roughness: 0.4,
-  metalness: 0.7,
-});
-
-// ---------------------------------------------------------------------------
-// Diorama style — matte clay body, livery paint in the session colour
+// Matte clay body, livery paint in the session colour
 // ---------------------------------------------------------------------------
 
 function createClay(tone: ClayTone) {
@@ -79,7 +52,7 @@ const clay: Record<ClayTone, ReturnType<typeof createClay>> = {
 };
 
 /**
- * The diorama's clay materials for a tone — shared, so a caller that animates one clones it. The tone is
+ * The clay materials for a tone — shared, so a caller that animates one clones it. The tone is
  * a parameter and the materials are NOT exported on their own: a bare `clayMat` would be one paint for
  * every palette, which is exactly how the robot ended up white on white (see `CLAY_PAINT`).
  */
@@ -94,8 +67,7 @@ export function clayMaterials(tone: ClayTone) {
 const LIVERY_EMISSIVE: Record<ClayTone, number> = { standard: 0.28, deep: 0.06 };
 
 /**
- * Matte paint in a session's colour — the arms and the chest band, where the neon style used glowing
- * metal. On a bright palette the colour is repainted by `liveryPaint` (same hue, lit-able lightness).
+ * Matte paint in a session's colour — the arms and the chest band. On a bright palette the colour is repainted by `liveryPaint` (same hue, lit-able lightness).
  */
 export function createLiveryMat(hex: string, tone: ClayTone): THREE.MeshStandardMaterial {
   const c = new THREE.Color(liveryPaint(hex, tone));
@@ -123,20 +95,11 @@ export function createNeonMat(hex: string): THREE.MeshStandardMaterial {
   });
 }
 
-export function createEdgeMat(hex: string): THREE.LineBasicMaterial {
-  return new THREE.LineBasicMaterial({
-    color: hex,
-    transparent: true,
-    opacity: 0.3,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Pre-built Per-Palette Material Pools
 // ---------------------------------------------------------------------------
 
 export const neonMats = PALETTE.map((h) => createNeonMat(h));
-export const edgeMats = PALETTE.map((h) => createEdgeMat(h));
 const liveryPools: Record<ClayTone, THREE.MeshStandardMaterial[]> = {
   standard: PALETTE.map((h) => createLiveryMat(h, 'standard')),
   deep: PALETTE.map((h) => createLiveryMat(h, 'deep')),

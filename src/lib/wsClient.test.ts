@@ -231,6 +231,91 @@ describe('WsClient', () => {
     });
   });
 
+  // F3 (e2e run 5, Android): back in the app after 30 s away, "Reconnecting to your Mac…" stayed ~10 s.
+  // The socket closed while the page slept and only the back-off timer (up to MAX_DELAY 10 s) brought it
+  // back. Coming back into view, or back online, now reconnects at once.
+  describe('wake', () => {
+    let visibility: DocumentVisibilityState = 'visible';
+    beforeEach(() => {
+      visibility = 'visible';
+      vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+      vi.useFakeTimers();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    /** Connected once, then the socket dies and three reconnects fail: the next try is 8 s away. */
+    function asleep() {
+      const client = new WsClient({ url: '/ws', onMessage: vi.fn(), onStatus: vi.fn() });
+      client.connect();
+      lastCreatedWs.simulateOpen();
+      visibility = 'hidden';
+      lastCreatedWs.simulateClose(1006);
+      for (const wait of [1000, 2000, 4000]) {
+        vi.advanceTimersByTime(wait);
+        lastCreatedWs.simulateClose(1006);
+      }
+      return { client, dead: lastCreatedWs };
+    }
+
+    it('coming back into view reconnects at once, not at the next back-off step', () => {
+      const { client, dead } = asleep();
+      visibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(lastCreatedWs).not.toBe(dead);
+      lastCreatedWs.simulateOpen();
+      vi.advanceTimersByTime(10_000); // the old back-off timer must not open a second socket
+      expect(lastCreatedWs.readyState).toBe(MockWebSocket.OPEN);
+      client.dispose();
+    });
+
+    it('coming back online reconnects at once', () => {
+      const { client, dead } = asleep();
+      visibility = 'visible';
+      window.dispatchEvent(new Event('online'));
+      expect(lastCreatedWs).not.toBe(dead);
+      client.dispose();
+    });
+
+    it('a working socket is left alone', () => {
+      const client = new WsClient({ url: '/ws', onMessage: vi.fn(), onStatus: vi.fn() });
+      client.connect();
+      const ws = lastCreatedWs;
+      ws.simulateOpen();
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('online'));
+      expect(lastCreatedWs).toBe(ws);
+      client.dispose();
+    });
+
+    it('going into the background does not reconnect', () => {
+      const { client, dead } = asleep();
+      document.dispatchEvent(new Event('visibilitychange')); // still hidden
+      expect(lastCreatedWs).toBe(dead);
+      client.dispose();
+    });
+
+    it('after an auth failure (4001) it stays stopped: waking does not retry a refused token', () => {
+      const client = new WsClient({ url: '/ws', onMessage: vi.fn(), onStatus: vi.fn() });
+      client.connect();
+      lastCreatedWs.simulateOpen();
+      lastCreatedWs.simulateClose(4001);
+      const refused = lastCreatedWs;
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('online'));
+      expect(lastCreatedWs).toBe(refused);
+      client.dispose();
+    });
+
+    it('a disposed client stops listening', () => {
+      const { client, dead } = asleep();
+      client.dispose();
+      visibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('online'));
+      expect(lastCreatedWs).toBe(dead);
+    });
+  });
+
   describe('dispose', () => {
     it('cleans up WebSocket', () => {
       const client = new WsClient({ url: '/ws', onMessage: vi.fn(), onStatus: vi.fn() });

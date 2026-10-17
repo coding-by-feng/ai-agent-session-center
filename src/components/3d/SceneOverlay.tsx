@@ -12,7 +12,6 @@ import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useCameraStore, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET } from '@/stores/cameraStore';
 import { computeRoomCameraTarget } from '@/lib/roomGrid';
 import { soundEngine } from '@/lib/soundEngine';
-import { nextSceneStyle, resolveSceneStyle, sceneStyleLabel } from '@/lib/sceneStyle';
 import styles from '@/styles/modules/SceneOverlay.module.css';
 
 // ---------------------------------------------------------------------------
@@ -174,8 +173,6 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
   const updateSoundSettings = useSettingsStore((s) => s.updateSoundSettings);
   const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
   const setScene3dEnabled = useSettingsStore((s) => s.setScene3dEnabled);
-  const sceneStyle = resolveSceneStyle(useSettingsStore((s) => s.sceneStyle));
-  const setSceneStyle = useSettingsStore((s) => s.setSceneStyle);
 
   // The board below keeps clear of this panel with a bottom gutter
   // (--hud-clear-bottom on LiveView's .flatRoot, 232px by default). With the rooms
@@ -239,19 +236,6 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
         >
           {scene3dEnabled ? '3D On' : '3D Off'}
         </button>
-
-        {/* Scene look — only meaningful while the 3D scene is on, so it is not offered otherwise */}
-        {scene3dEnabled && (
-          <button
-            type="button"
-            className={styles.hudButton}
-            onClick={() => setSceneStyle(nextSceneStyle(sceneStyle))}
-            title={`Switch the 3D look to ${sceneStyleLabel(nextSceneStyle(sceneStyle))}`}
-            aria-label={`3D look: ${sceneStyleLabel(sceneStyle)}. Switch to ${sceneStyleLabel(nextSceneStyle(sceneStyle))}`}
-          >
-            {sceneStyleLabel(sceneStyle)}
-          </button>
-        )}
 
         <RoomPanel />
       </div>

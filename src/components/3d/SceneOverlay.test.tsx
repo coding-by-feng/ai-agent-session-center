@@ -33,6 +33,13 @@ describe('SceneOverlay — the LIVE HUD', () => {
     expect(screen.getByRole('button', { name: '3D scene' })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('offers no 3D-look switch: the diorama is the only look', () => {
+    useSettingsStore.setState({ scene3dEnabled: true } as never);
+    render(<SceneOverlay sessionCount={1} />);
+    expect(screen.queryByRole('button', { name: /3D look/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^(Cyberdrome|Diorama)$/i)).not.toBeInTheDocument();
+  });
+
   it('carries no inline colours: every state lives in the stylesheet', () => {
     const { container } = render(<SceneOverlay sessionCount={1} />);
     fireEvent.click(screen.getByRole('button', { name: /Rooms \(1\)/ }));

@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import PhoneProjectBrowser from './PhoneProjectBrowser';
 import { useUiStore } from '@/stores/uiStore';
+import { closeTopBackLayer } from '@/lib/backLayers';
+import { ScreenSlotContext } from './kit/screenSlot';
 
 vi.mock('@/components/session/PdfViewer', () => ({
   default: (p: { src: string; compact?: boolean }) => <div data-testid="pdf" data-src={p.src} data-compact={String(p.compact)} />,
@@ -126,6 +128,44 @@ async function openRowBack() {
   fireEvent.click(button('Back'));
   await within(root()).findByRole('button', { name: 'Folder docs' });
 }
+
+// e2e run 5, F5 (Android): the phone's Back from an open file left the whole session for the list, while the
+// tab's own ‹ went back to the folder. The tab's folder/file steps are back layers now, like a sheet.
+describe('PhoneProjectBrowser — the phone’s Back button', () => {
+  it('walks back up the tab’s own steps, one per press, before the screen is popped', async () => {
+    renderBrowser();
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    expect(await screen.findByText('const target = sendPrompt();')).toBeInTheDocument();
+
+    act(() => { expect(closeTopBackLayer()).toBe(true); });
+    expect(await within(root()).findByRole('button', { name: 'a.ts' })).toBeInTheDocument();
+    act(() => { expect(closeTopBackLayer()).toBe(true); });
+    expect(await within(root()).findByRole('button', { name: 'Folder lib' })).toBeInTheDocument();
+    act(() => { expect(closeTopBackLayer()).toBe(true); });
+    expect(await within(root()).findByRole('button', { name: 'Folder docs' })).toBeInTheDocument();
+    // At the project's root there is nothing left in the tab: the frame pops the screen.
+    expect(closeTopBackLayer()).toBe(false);
+  });
+
+  it('a screen pushed over the session takes the Back, not the hidden tab underneath', async () => {
+    const { rerender } = render(
+      <ScreenSlotContext.Provider value={{ isTop: true, registerScroller: () => {} }}>
+        <PhoneProjectBrowser projectPath={ROOT} sessionId="s1" />
+      </ScreenSlotContext.Provider>,
+    );
+    await openRow('Folder src');
+    expect(await within(root()).findByRole('button', { name: 'Folder lib' })).toBeInTheDocument();
+    rerender(
+      <ScreenSlotContext.Provider value={{ isTop: false, registerScroller: () => {} }}>
+        <PhoneProjectBrowser projectPath={ROOT} sessionId="s1" />
+      </ScreenSlotContext.Provider>,
+    );
+    expect(closeTopBackLayer()).toBe(false);
+    expect(within(root()).getByRole('button', { name: 'Folder lib' })).toBeInTheDocument();
+  });
+});
 
 describe('PhoneProjectBrowser — refused paths (a paired phone gets a plain 404)', () => {
   it('says a refused folder is not available on this phone, with a way back', async () => {

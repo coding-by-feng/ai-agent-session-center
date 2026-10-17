@@ -1,7 +1,7 @@
 /**
  * SessionRobot — Session-aware robot wrapper.
  * Connects a Session object to Robot3DModel with navigation AI.
- * Integrates floating labels, room navigation, and model type selection.
+ * Integrates the floating name chip, room navigation, and model type selection.
  * Uses dynamic room configs for wall collision and navigation.
  */
 import { useRef, useCallback, useEffect, useMemo, memo } from 'react';
@@ -11,7 +11,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import type { Session } from '@/types';
 import Robot3DModel from './Robot3DModel';
 import type { CliBadge } from './Robot3DModel';
-import RobotLabel from './RobotLabel';
+import RobotChip from './RobotChip';
 import RobotDialogue from './RobotDialogue';
 import StatusParticles from './StatusParticles';
 import SelectionMarker from './SelectionMarker';
@@ -21,7 +21,6 @@ import { DECAL_Y } from './sceneDecals';
 import { sessionStatusToRobotState, getRobotStateBehavior, type Robot3DState } from '@/lib/robotStateMap';
 import { PIN_BUBBLE_LIFT, attentionPinColor, chipLayout } from '@/lib/robotChip';
 import { sessionRobotPropsEqual, type RobotMemoProps } from '@/lib/sessionRobotMemo';
-import type { SceneStyle } from '@/lib/sceneStyle';
 import type { ClayTone } from '@/lib/dioramaLighting';
 import {
   collidesAnyWall,
@@ -101,10 +100,8 @@ interface SessionRobotProps {
    * (CyberdromeScene) and passed down — a Canvas never subscribes to a store itself.
    */
   isSelected: boolean;
-  /** The scene's look — see `sceneStyle.ts`. */
-  sceneStyle: SceneStyle;
   /**
-   * The clay the diorama body is painted in — derived from the palette in the DOM layer
+   * The clay the body is painted in — derived from the palette in the DOM layer
    * (`clayToneFor`), because a Canvas never reads a theme from a store itself.
    */
   clayTone: ClayTone;
@@ -134,17 +131,14 @@ function SessionRobotInner({
   globalCharacterModel,
   fontSize,
   isSelected,
-  sceneStyle,
   clayTone,
 }: SessionRobotProps) {
   const robotState = sessionStatusToRobotState(session.status);
   const behavior = getRobotStateBehavior(robotState);
-  const diorama = sceneStyle === 'diorama';
-  // A pin floats over a robot that needs the user — diorama only; the neon label has its own banner.
-  const pinColor = diorama ? attentionPinColor(robotState) : null;
+  // A pin floats over a robot that needs the user.
+  const pinColor = attentionPinColor(robotState);
 
   const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
-  const isHoveredRef = useRef(false);
 
   // Model type: per-session override → global setting (passed as prop, no store subscription)
   const modelType = (session.characterModel || globalCharacterModel || 'robot') as RobotModelType;
@@ -456,7 +450,7 @@ function SessionRobotInner({
 
   // Three.js group ref for direct position updates (avoids re-render → position change → pointer event loop)
   const groupRef = useRef<THREE.Group>(null);
-  // The diorama's flat decals (blob shadow, selection marker) hang off this group. A seated robot
+  // The flat decals (blob shadow, selection marker) hang off this group. A seated robot
   // sinks 0.12 into its chair, and the decals must stay on the floor, so the group is counter-shifted.
   const groundRef = useRef<THREE.Group>(null);
 
@@ -478,9 +472,6 @@ function SessionRobotInner({
     // cascades that cause React Error #185.
     onSelect(session.sessionId);
   }, [session.sessionId, onSelect]);
-
-  const handlePointerEnter = useCallback(() => { isHoveredRef.current = true; }, []);
-  const handlePointerLeave = useCallback(() => { isHoveredRef.current = false; }, []);
 
   const robotScale = 0.85 + (nav.current.phase % 0.2);
   // Track seated state as a pure ref — NO useState, NO setState inside the
@@ -630,8 +621,6 @@ function SessionRobotInner({
     <group
       ref={groupRef}
       onClick={handleClick}
-      onPointerEnter={handlePointerEnter}
-      onPointerLeave={handlePointerLeave}
     >
       <Robot3DModel
         neonColor={cliNeonColor}
@@ -643,25 +632,15 @@ function SessionRobotInner({
         cliBadge={cliBadge}
         currentTool={currentTool}
         statusStartTime={statusStartTimeRef.current}
-        sceneStyle={sceneStyle}
         clayTone={clayTone}
       />
       <StatusParticles state={robotState} />
-      <RobotLabel
-        session={session}
-        robotState={robotState}
-        isSelected={isSelected}
-        isHovered={isHoveredRef.current}
-        fontSize={fontSize}
-        sceneStyle={sceneStyle}
-      />
+      <RobotChip session={session} isSelected={isSelected} fontSize={fontSize} />
       <RobotDialogue dialogueRef={dialogueRef} liftY={pinColor ? PIN_BUBBLE_LIFT : 0} />
-      {diorama && (
-        <group ref={groundRef} position={[0, DECAL_Y, 0]}>
-          <BlobShadow />
-          {isSelected && <SelectionMarker color={cliNeonColor} />}
-        </group>
-      )}
+      <group ref={groundRef} position={[0, DECAL_Y, 0]}>
+        <BlobShadow />
+        {isSelected && <SelectionMarker color={cliNeonColor} />}
+      </group>
       {pinColor && <AttentionPin color={pinColor} baseY={chipLayout(fontSize).pinBaseY} />}
     </group>
   );
