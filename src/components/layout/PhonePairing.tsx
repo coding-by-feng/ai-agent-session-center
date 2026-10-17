@@ -41,6 +41,19 @@ const ACCESS_DETAIL =
   'Paired phones can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
   + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
 
+const PLATFORM_NAME: Record<PairedPhone['platform'], string> = { ios: 'iPhone', android: 'Android' };
+/** Words that already tell the platform when they appear in a phone's name (an iPad pairs as `ios` too). */
+const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = { ios: /\bi(phone|pad)\b/i, android: /\bandroid\b/i };
+
+/**
+ * The platform word to show beside a phone's name, or null when the name
+ * already says it: "iPhone 13" over "iPhone · shared sessions only" repeated
+ * the word on every row. Exported for tests.
+ */
+function platformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
+  return PLATFORM_IN_NAME[p.platform].test(p.label) ? null : PLATFORM_NAME[p.platform];
+}
+
 function secondsLeft(expiresAt: number, now: number): number {
   return Math.max(0, Math.ceil((expiresAt - now) / 1000));
 }
@@ -217,7 +230,7 @@ export default function PhonePairing() {
       {pending.map((p) => (
         <div key={p.id} className={styles.pending} role="alert">
           <span className={styles.pendingText}>
-            Allow <strong>{p.label}</strong> ({p.platform === 'ios' ? 'iPhone' : 'Android'})?
+            Allow <strong>{p.label}</strong>{platformLabel(p) ? ` (${platformLabel(p)})` : ''}?
           </span>
           <span className={styles.confirm}>
             Code on the phone: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
@@ -242,7 +255,7 @@ export default function PhonePairing() {
               <span className={styles.phoneMain}>
                 <span className={styles.phoneName} title={p.label}>{p.label}</span>
                 <span className={styles.phoneMeta}>
-                  {p.platform === 'ios' ? 'iPhone' : 'Android'} · {ACCESS_LABEL} · last seen {relative(p.lastSeenAt)}
+                  {[platformLabel(p), ACCESS_LABEL, `last seen ${relative(p.lastSeenAt)}`].filter(Boolean).join(' · ')}
                 </span>
               </span>
               {confirmRevoke === p.id ? (

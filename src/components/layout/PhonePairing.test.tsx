@@ -102,10 +102,35 @@ describe('PhonePairing', () => {
   });
 
   it('says what an approved phone may do here (AASC-28)', async () => {
-    phones = [phone({ status: 'active', confirmCode: null, lastSeenAt: Date.now(), access: 'sessions-only' })];
+    phones = [phone({ label: 'Work phone', status: 'active', confirmCode: null, lastSeenAt: Date.now(), access: 'sessions-only' })];
     render(<PhonePairing />);
-    expect(await screen.findByText(/iPhone · shared sessions only · last seen/)).toBeTruthy();
+    expect(await screen.findByText(/^iPhone · shared sessions only · last seen/)).toBeTruthy();
     expect(screen.getByText(/can’t run other commands, change files or change this Mac’s settings/)).toBeTruthy();
+  });
+
+  // The name line already said "iPhone 13"; a meta line starting "iPhone ·"
+  // under it repeated the word on every row.
+  it('does not repeat the platform when the phone’s name already says it', async () => {
+    phones = [
+      phone({ id: 'p1', label: 'iPhone 13', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 'p2', label: 'Kason’s iPad', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 'p3', label: 'Pixel', platform: 'android', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+    ];
+    render(<PhonePairing />);
+    await screen.findByText('iPhone 13');
+    const metas = screen.getAllByText(/shared sessions only · last seen/).map((el) => el.textContent);
+    expect(metas).toEqual([
+      'shared sessions only · last seen just now',
+      'shared sessions only · last seen just now',
+      'Android · shared sessions only · last seen just now',
+    ]);
+  });
+
+  it('asks "Allow iPhone 13?" without a repeated "(iPhone)"', async () => {
+    phones = [phone({ label: 'iPhone 13' }), phone({ id: 'p2', label: 'Work phone' })];
+    render(<PhonePairing />);
+    const asks = (await screen.findAllByText(/^Allow .*\?$/)).map((el) => el.textContent);
+    expect(asks).toEqual(['Allow iPhone 13?', 'Allow Work phone (iPhone)?']);
   });
 
   it('shows the server’s reason when pairing is refused (no password)', async () => {
