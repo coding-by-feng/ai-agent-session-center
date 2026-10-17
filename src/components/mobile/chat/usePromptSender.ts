@@ -143,6 +143,37 @@ export function usePromptSender(sessionId: string) {
     return { ok: true };
   }, [sessionId, claimLine, putBack]);
 
+  /**
+   * Several commands, one after the other (the Model and effort sheet's \`/model\` then \`/effort\`):
+   * the Mac refuses a second prompt while the first is still being typed, so each waits until
+   * the one before has landed. Stops at the first that fails, saying so on the status line.
+   */
+  const sendInOrder = useCallback(async (messages: OutgoingMessage[]): Promise<{ ok: boolean; error?: PromptError }> => {
+    const line = claimLine();
+    for (const message of messages) {
+      line({ phase: 'sending' });
+      const result = await sendPrompt(sessionId, { text: message.text, mode: 'now' });
+      if (!result.ok) {
+        line({ phase: 'failed', message: result.error.message, error: result.error });
+        return { ok: false, error: result.error };
+      }
+      line({ phase: 'pending' });
+      const final = await waitForPrompt(sessionId, result.key, {
+        signal: polls.current?.signal,
+        onSlow: () => line({ phase: 'pending', slow: true }),
+      });
+      if (final === 'aborted') return { ok: false };
+      const outcome = promptOutcome(final);
+      if (!outcome.ok) {
+        line(outcome.unsure ? { phase: 'unsure', message: outcome.message } : { phase: 'failed', message: outcome.message });
+        return { ok: false };
+      }
+    }
+    navigator.vibrate?.(10);
+    line({ phase: 'sent', queued: false });
+    return { ok: true };
+  }, [sessionId, claimLine]);
+
   const queue = useCallback((message: OutgoingMessage) => {
     const store = useQueueStore.getState();
     const items = store.queues.get(sessionId) ?? [];
@@ -186,5 +217,5 @@ export function usePromptSender(sessionId: string) {
     if (!result.ok) showToast(result.message, 'error', 4000);
   }, []);
 
-  return { state, send, queue, denyAndTell, stop, dismiss };
+  return { state, send, sendInOrder, queue, denyAndTell, stop, dismiss };
 }

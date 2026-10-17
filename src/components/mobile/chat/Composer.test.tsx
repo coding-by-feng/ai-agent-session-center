@@ -212,7 +212,24 @@ describe('Composer', () => {
     fireEvent.click(sendButton());
     expect(await screen.findByTestId('model-sheet')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /^Sonnet/ })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
     await waitFor(() => expect(calls.find((c) => c.url.endsWith('/prompt'))?.body).toMatchObject({ text: '/model sonnet', mode: 'now' }));
+  });
+
+  // Oct 2026, by request: model and effort picked in one visit. The Mac refuses a second prompt
+  // while the first is still being typed, so the effort goes only once the model has landed.
+  it('applies the model, then the effort once the model has landed', async () => {
+    const calls = stubMac();
+    renderComposer(session());
+    fireEvent.click(screen.getByRole('button', { name: /^Model / }));
+    expect(await screen.findByTestId('model-sheet')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: /^Sonnet/ })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^High/ })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/prompt') && c.method === 'POST')).toHaveLength(2));
+    const order = calls.map((c) => (c.url.endsWith('/prompt') && c.method === 'POST' ? `send ${c.body?.text}` : /\/prompt\/[^/]+$/.test(c.url) ? 'poll' : null)).filter(Boolean);
+    expect(order.indexOf('send /model sonnet')).toBeLessThan(order.indexOf('poll'));
+    expect(order.indexOf('poll')).toBeLessThan(order.indexOf('send /effort high'));
   });
 
   it('offers the model chip with an empty box', async () => {

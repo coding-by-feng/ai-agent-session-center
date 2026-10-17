@@ -104,17 +104,21 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracod
 export const DEFAULT_EFFORT_LEVEL = 'high';
 
 /**
- * Claude Code `--model` options offered in the session creation modals.
- * Aliases (fable/opus/sonnet/haiku) resolve to the latest model in each tier;
- * full IDs pin a specific snapshot. Lineup per platform.claude.com models
- * overview, June 2026: Fable 5 (top tier), Opus 4.8, Sonnet 4.6, Haiku 4.5,
- * with Opus 4.7/4.6 still active. The Combobox also accepts any typed model ID.
+ * Claude Code `--model` options offered in the session creation modals and the phone's
+ * Model and effort sheet. Aliases (fable/opus/sonnet/haiku) resolve to the newest model in
+ * each tier; full IDs pin a version. Today's lineup first (Oct 2026: Fable 5.1, Opus 5.5,
+ * Sonnet 5.5, Haiku 5.5), then older versions still served. The Combobox also accepts any
+ * typed model ID. When a tier gets a new version, update MODEL_ALIAS_VERSIONS with it.
  */
 export const MODEL_OPTIONS = [
   'fable',
   'opus',
   'sonnet',
   'haiku',
+  'claude-fable-5-1',
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
   'claude-fable-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
@@ -122,6 +126,14 @@ export const MODEL_OPTIONS = [
   'claude-sonnet-4-6',
   'claude-haiku-4-5',
 ] as const;
+
+/** The version each alias means today, to say it next to the alias ("Newest · Opus 5.5"). */
+export const MODEL_ALIAS_VERSIONS: Readonly<Record<string, string>> = {
+  fable: 'claude-fable-5-1',
+  opus: 'claude-opus-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  haiku: 'claude-haiku-5-5',
+};
 
 /** Coerce a possibly-stale stored value to a valid level, falling back to the default. */
 export function normalizeEffortLevel(value: string | undefined): string {

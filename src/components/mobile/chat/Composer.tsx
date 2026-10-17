@@ -197,11 +197,20 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   // the Mac would refuse a /model too: the chip is off and says why.
   const blocked = decision.fieldDisabledReason ?? decision.blockedReason;
   const chipReasonId = useId();
-  const chooseCommand = useCallback((command: string) => {
-    if (blocked) return;
-    // A dialog or a turn in progress would take the keys: queue it after them.
-    void deliver({ text: command }, decision.action === 'send' ? 'send' : 'queue');
-  }, [blocked, deliver, decision.action]);
+  const chooseCommands = useCallback((commands: string[]) => {
+    if (blocked || commands.length === 0) return;
+    // A dialog or a turn in progress would take the keys: queue them after it, in order.
+    if (decision.action !== 'send') {
+      for (const text of commands) sender.queue({ text });
+      return;
+    }
+    if (commands.length === 1) {
+      void deliver({ text: commands[0] }, 'send');
+      return;
+    }
+    // `/model` then `/effort`: each waits until the one before has landed.
+    void sender.sendInOrder(commands.map((text) => ({ text })));
+  }, [blocked, deliver, decision.action, sender]);
 
   // ---- The box ----
 
@@ -460,7 +469,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         onClose={closeSheet}
         session={session}
         focus={sheet?.type === 'model' ? sheet.focus : 'model'}
-        onChoose={chooseCommand}
+        onApply={chooseCommands}
       />
       <SavedPromptSheet
         open={sheet?.type === 'saved'}

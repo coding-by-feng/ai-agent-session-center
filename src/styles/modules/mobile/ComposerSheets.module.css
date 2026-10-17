@@ -70,3 +70,10 @@
   display: inline-flex;
   color: var(--ph-accent);
 }
+
+/* Model and effort: the pinned Apply bar (a choice is picked first, then sent once). */
+.applyBar {
+  display: flex;
+  flex-direction: column;
+  padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
+}
