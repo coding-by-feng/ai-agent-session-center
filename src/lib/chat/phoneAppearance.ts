@@ -15,7 +15,7 @@ import { useLayoutEffect, useSyncExternalStore } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { applyPhoneTheme, clearPhoneTheme } from './phoneThemes';
 
-/** Small · Default · Large · Larger. */
+/** 80 · 85 · 90 · 100 (default) · 115 · 130 %: a phone screen is small, so most steps go down. */
 export const PHONE_TEXT_SCALES: readonly number[] = [0.8, 0.85, 0.9, 1, 1.15, 1.3];
 export const PHONE_TEXT_SCALE_KEY = 'aasc.phoneTextScale';
 const DEFAULT_SCALE = 1;

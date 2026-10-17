@@ -23,6 +23,7 @@ import {
   controllerOf,
   isSpectator,
   canWriteWorkspace,
+  firesQueue,
   otherDevices,
   controlledCount,
   isLocalDevice,
@@ -140,6 +141,22 @@ describe('canWriteWorkspace', () => {
   it('blocks saving when another device is the writer', () => {
     apply({ workspaceWriter: 'desktop' });
     expect(canWriteWorkspace()).toBe(false);
+  });
+});
+
+// The queue fires from exactly one device (Oct 2026: no control baton). Before the server's presence
+// arrives, every client would read "no writer yet" as "me" and all of them would fire.
+describe('firesQueue', () => {
+  it('waits for the server\'s presence', () => {
+    usePresenceStore.setState({ received: false, workspaceWriter: null });
+    expect(firesQueue()).toBe(false);
+  });
+
+  it('fires on the workspace writer only', () => {
+    apply({ workspaceWriter: 'me' });
+    expect(firesQueue()).toBe(true);
+    apply({ workspaceWriter: 'desktop' });
+    expect(firesQueue()).toBe(false);
   });
 });
 

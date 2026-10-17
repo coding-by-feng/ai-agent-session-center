@@ -2339,7 +2339,7 @@ router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: 
     const clientId = clientIdFromRequest(req);
     const sessionId = sessionIdOfTerminal(terminalId);
     if (!clientId || !sessionId || !presence.noteControlActivity(sessionId, clientId)) {
-      res.status(409).json({ error: 'Another device is driving this session', code: 'CONTROL_HELD' });
+      res.status(409).json({ error: 'This device was not recognised. Reload it and try again.', code: 'CONTROL_HELD' });
       return;
     }
   }

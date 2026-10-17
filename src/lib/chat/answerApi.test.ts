@@ -50,11 +50,12 @@ describe('answerRequest', () => {
     expect(result).toMatchObject({ ok: false, code, terminalOnly: true });
   });
 
-  it('names who drives on control_held', async () => {
+  // Oct 2026: no device holds a session any more, so a 423 only means the Mac didn't recognise the phone.
+  it('says the phone wasn\'t recognised on control_held, never that another device drives', async () => {
     stubFetch({ status: 423, body: { code: 'control_held', driver: { label: 'MacBook', online: true } } });
     const result = await answerRequest('s1', 'r', { choice: 'allow_once' });
-    expect(result).toMatchObject({ ok: false, code: 'control_held', driver: { label: 'MacBook', online: true } });
-    expect(result.ok === false && result.message).toContain('MacBook');
+    expect(result).toMatchObject({ ok: false, code: 'control_held' });
+    expect(result.ok === false && result.message).toBe('Your Mac didn’t recognise this phone. Reload the app and try again.');
   });
 
   it.each([

@@ -156,7 +156,7 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     if ((!local && !clientId) || (clientId && !deps.canControl(sessionId, clientId))) {
       // The card names the driver; another device's client id stays on the Mac.
       const holder = deps.getController(sessionId);
-      refuse(res, 423, 'control_held', 'Another device is driving this session', {
+      refuse(res, 423, 'control_held', 'This device was not recognised. Reload it and try again.', {
         driver: holder ? { label: holder.label, online: holder.online } : null,
       });
       return;

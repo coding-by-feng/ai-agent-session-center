@@ -85,7 +85,8 @@ function failureFor(status: number, reply: Reply | null): AnswerResult {
     return {
       ok: false,
       code: 'control_held',
-      message: `${driver?.label ?? 'Another device'} is driving this session.`,
+      // No device holds a session any more (Oct 2026): a 423 only means the Mac didn't know this phone.
+      message: 'Your Mac didn’t recognise this phone. Reload the app and try again.',
       driver,
     };
   }

@@ -87,8 +87,8 @@ describe('postPrompt', () => {
   it('keeps who drives and how long to wait', async () => {
     stubFetch({ status: 423, body: { code: 'control_held', driver: { label: 'MacBook', online: true } } });
     const held = await postPrompt('s1', { text: 'x', mode: 'now', key: 'k-12345678' });
-    expect(held.ok === false && held.error.driver).toEqual({ label: 'MacBook', online: true });
-    expect(held.ok === false && held.error.message).toContain('MacBook');
+    // Oct 2026: a 423 only means the Mac didn't recognise this phone (no device holds a session).
+    expect(held.ok === false && held.error.message).toBe('Your Mac didn’t recognise this phone. Reload the app and try again.');
 
     stubFetch({ status: 429, body: { code: 'PHONE_PROMPT_LIMIT', retryAfter: 12 } });
     const limited = await postPrompt('s1', { text: 'x', mode: 'now', key: 'k-12345678' });

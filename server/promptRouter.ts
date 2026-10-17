@@ -267,7 +267,7 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
       const holder = deps.controller(session.sessionId);
       res.status(423).json({
         success: false,
-        error: 'Another device is driving this session',
+        error: 'This device was not recognised. Reload it and try again.',
         code: 'control_held',
         driver: holder ? { label: holder.label, online: holder.online } : null,
       });

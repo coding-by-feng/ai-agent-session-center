@@ -21,7 +21,7 @@ vi.mock('@/lib/terminalSend', async (importOriginal) => ({
 const baton = vi.hoisted(() => ({ mine: true }));
 vi.mock('@/stores/presenceStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/stores/presenceStore')>()),
-  canWriteWorkspace: () => baton.mine,
+  firesQueue: () => baton.mine,
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 vi.mock('@/stores/queueSentStore', () => ({ recordQueueSent: vi.fn() }));

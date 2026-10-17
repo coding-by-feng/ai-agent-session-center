@@ -144,6 +144,15 @@ export function canWriteWorkspace(): boolean {
 }
 
 /**
+ * Does this device fire the queue (queued prompts, the auto-resume watchdog)? Only the workspace
+ * writer does, so a prompt is never sent twice (Oct 2026: no control baton). Waits for the server's
+ * presence: before it, every client would read "no writer yet" as itself and all would fire.
+ */
+export function firesQueue(): boolean {
+  return usePresenceStore.getState().received && canWriteWorkspace();
+}
+
+/**
  * Is `clientId` connected over loopback, according to the SERVER?
  *
  * Pure so it can be a store selector. An unknown client reads as false: callers

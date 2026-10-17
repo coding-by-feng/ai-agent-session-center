@@ -69,7 +69,7 @@ import { recordQueueSent } from '@/stores/queueSentStore';
 import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { isEffortCommand } from '@/lib/queueEffort';
 import { isModelCommand } from '@/lib/queueModel';
-import { canWriteWorkspace } from '@/stores/presenceStore';
+import { firesQueue } from '@/stores/presenceStore';
 import {
   decideResume,
   faultLabel,
@@ -295,7 +295,7 @@ export function useGlobalQueueScheduler(): void {
       // because `maybeAutoResume` runs inside this function and sends prompts
       // of its own. A pending Enter retry is dropped too: it must never press
       // Enter once another device fires the queue.
-      if (!canWriteWorkspace()) {
+      if (!firesQueue()) {
         submitRefs.current.delete(sessionId);
         return;
       }

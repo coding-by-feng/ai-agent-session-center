@@ -174,12 +174,12 @@ describe('Composer', () => {
     expect(calls.find((c) => c.url.endsWith('/prompt'))?.body).toMatchObject({ mode: 'interrupt' });
   });
 
-  it('a request taken by another device stops there, keeping the text', async () => {
+  it('a refused answer (the Mac didn\'t recognise the phone) stops there, keeping the text', async () => {
     const calls = stubMac({ answer: { status: 423, body: { code: 'control_held', driver: { label: 'MacBook', online: true } } } });
     renderComposer(session({ status: 'approval', pendingRequest: bash }));
     type('no, do this');
     fireEvent.click(sendButton());
-    expect(await screen.findByRole('alert')).toHaveTextContent('MacBook is driving');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your Mac didn’t recognise this phone');
     expect(calls.some((c) => c.url.endsWith('/prompt'))).toBe(false);
     expect(useComposerDraftStore.getState().drafts.s1).toBe('no, do this');
   });
