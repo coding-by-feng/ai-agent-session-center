@@ -73,10 +73,10 @@ describe('PhoneTerminalInput — suggestions above the keyboard', () => {
     expect(screen.queryByRole('toolbar', { name: 'Suggestions' })).toBeNull();
   });
 
-  it('has no bar while another device drives the session', () => {
+  // Oct 2026, by request: no control baton for people. Another device having typed last changes nothing here.
+  it('keeps typing on while another device typed into the session last', () => {
     holder('desk');
     render(<Harness sessionId="s1" />);
-    expect(screen.getByRole('textbox', { name: 'Message to send to the terminal' })).toBeDisabled();
-    expect(screen.queryByRole('toolbar', { name: 'Suggestions' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Message to send to the terminal' })).not.toBeDisabled();
   });
 });

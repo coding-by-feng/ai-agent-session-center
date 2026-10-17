@@ -53,9 +53,11 @@ export function controlBatonMode(
   request: PendingControlRequest | undefined,
   myId: string,
 ): ControlBatonMode {
+  // No Ask / Take control / Release any more (Oct 2026, by request): every device drives
+  // directly, so nobody is a spectator. No button asks for control now, so `asked` (a pending
+  // request) only comes from an old client.
   if (deviceCount <= 1) return 'solo';
   if (holder?.clientId === myId) return request ? 'asked' : 'driver';
-  if (holder && holder.online) return 'spectator';
   return 'free';
 }
 

@@ -21,7 +21,7 @@ vi.mock('@/lib/terminalSend', async (importOriginal) => ({
 const baton = vi.hoisted(() => ({ mine: true }));
 vi.mock('@/stores/presenceStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/stores/presenceStore')>()),
-  canControlSession: () => baton.mine,
+  canWriteWorkspace: () => baton.mine,
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 vi.mock('@/stores/queueSentStore', () => ({ recordQueueSent: vi.fn() }));
@@ -271,7 +271,7 @@ describe('useGlobalQueueScheduler — a sent prompt the CLI never took', () => {
     expect(pressEnter).not.toHaveBeenCalled();
   });
 
-  it('drops the retry when another device takes the baton', async () => {
+  it('drops the retry when another device becomes the one that fires the queue', async () => {
     setSession({ status: 'waiting' });
     queueOnce('next prompt');
     render(<Harness />);

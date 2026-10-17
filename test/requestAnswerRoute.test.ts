@@ -257,19 +257,14 @@ describe('refusals (nothing is typed)', () => {
     expect((await answer('term-no-such-session', requestId, { choice: 'allow_once' }, LOCAL)).status).toBe(404);
   });
 
-  it('423 while another connected device drives the session, naming it', async () => {
+  // Oct 2026, by request: no Ask / Take control. Any device that can see the card answers it.
+  it('answers even while another connected device drove the session last', async () => {
     const { id, requestId } = await waitingSession();
     presence.registerClient({ clientId: 'phone-other', label: 'Other phone', address: '192.168.1.71', isLocal: false });
     try {
       expect(presence.claimControl(id, 'phone-other', { label: 'Other phone' }).ok).toBe(true);
       const res = await answer(id, requestId, { choice: 'allow_once' });
-      expect(res.status).toBe(423);
-      expect(res.json).toMatchObject({ success: false, code: 'control_held' });
-      // Only what the card shows: never another device's client id.
-      expect(res.json.driver).toEqual({ label: 'Other phone', online: true });
-      expect(store.getSession(id)?.pendingRequest?.id).toBe(requestId);
-      // The driver itself answers.
-      expect((await answer(id, requestId, { choice: 'allow_once' }, OTHER_PHONE)).status).toBe(202);
+      expect(res.status).toBe(202);
       expect(pty.write).toHaveBeenCalledTimes(1);
     } finally {
       presence.unregisterClient('phone-other');

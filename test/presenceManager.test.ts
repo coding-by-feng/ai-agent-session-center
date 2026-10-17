@@ -243,80 +243,36 @@ describe('control baton', () => {
     registerClient(PHONE);
   });
 
-  it('lets anyone control an unclaimed session', () => {
-    expect(canControl('s1', DESKTOP.clientId)).toBe(true);
+  // Oct 2026, by request: no Ask / Take control / Release. Any device writes directly, and the
+  // device that acted last is the session's driver (shown, never enforced).
+  it('lets any device write to any session, claimed or not', () => {
     expect(canControl('s1', PHONE.clientId)).toBe(true);
-  });
-
-  it('locks others out once claimed', () => {
-    expect(claimControl('s1', DESKTOP.clientId).ok).toBe(true);
+    claimControl('s1', DESKTOP.clientId);
+    expect(canControl('s1', PHONE.clientId)).toBe(true);
     expect(canControl('s1', DESKTOP.clientId)).toBe(true);
-    expect(canControl('s1', PHONE.clientId)).toBe(false);
   });
 
-  it('reports the holder on denial', () => {
+  it('makes the device that writes the driver, whoever drove before', () => {
+    expect(noteControlActivity('s1', DESKTOP.clientId)).toBe(true);
+    expect(getController('s1')?.clientId).toBe(DESKTOP.clientId);
+    expect(noteControlActivity('s1', PHONE.clientId)).toBe(true);
+    expect(getController('s1')?.clientId).toBe(PHONE.clientId);
+    expect(getController('s1')?.label).toBe(PHONE.label);
+  });
+
+  it('a claim always succeeds and moves the driver, with no idle wait', () => {
     claimControl('s1', DESKTOP.clientId);
     const res = claimControl('s1', PHONE.clientId);
-    expect(res.ok).toBe(false);
-    expect(res.reason).toBe('held-by-other');
-    expect(res.controller?.label).toBe('Mac · Desktop App');
+    expect(res.ok).toBe(true);
+    expect(res.controller?.clientId).toBe(PHONE.clientId);
   });
 
-  // RULE 3 — an offline holder holds nothing.
-  it('frees the session when the holder disconnects', () => {
-    claimControl('s1', DESKTOP.clientId);
-    expect(canControl('s1', PHONE.clientId)).toBe(false);
-
-    unregisterClient(DESKTOP.clientId);
-    expect(canControl('s1', PHONE.clientId)).toBe(true);
-    expect(claimControl('s1', PHONE.clientId).ok).toBe(true);
-  });
-
-  it('still names the offline holder for the UI', () => {
+  it('still names the offline driver for the UI', () => {
     claimControl('s1', DESKTOP.clientId);
     unregisterClient(DESKTOP.clientId);
     const view = getController('s1');
     expect(view?.label).toBe('Mac · Desktop App');
     expect(view?.online).toBe(false);
-  });
-
-  it('refuses a force-takeover before the idle window elapses', () => {
-    claimControl('s1', DESKTOP.clientId);
-    advance(IDLE_TAKEOVER_MS - 1);
-
-    const res = claimControl('s1', PHONE.clientId, { force: true });
-    expect(res.ok).toBe(false);
-    expect(res.reason).toBe('not-idle-enough');
-    expect(res.retryInMs).toBe(1);
-  });
-
-  it('allows a force-takeover once the holder has been idle long enough', () => {
-    claimControl('s1', DESKTOP.clientId);
-    advance(IDLE_TAKEOVER_MS);
-
-    const res = claimControl('s1', PHONE.clientId, { force: true });
-    expect(res.ok).toBe(true);
-    expect(res.controller?.clientId).toBe(PHONE.clientId);
-    expect(canControl('s1', DESKTOP.clientId)).toBe(false);
-  });
-
-  it('activity refreshes the idle window, so an active holder is never taken from', () => {
-    claimControl('s1', DESKTOP.clientId);
-    advance(IDLE_TAKEOVER_MS - 1);
-    expect(noteControlActivity('s1', DESKTOP.clientId)).toBe(true);
-
-    advance(IDLE_TAKEOVER_MS - 1);
-    expect(claimControl('s1', PHONE.clientId, { force: true }).ok).toBe(false);
-  });
-
-  it('noteControlActivity rejects a write from a non-holder', () => {
-    claimControl('s1', DESKTOP.clientId);
-    expect(noteControlActivity('s1', PHONE.clientId)).toBe(false);
-  });
-
-  it('noteControlActivity implicitly claims a free session (creator owns it)', () => {
-    expect(noteControlActivity('s1', DESKTOP.clientId)).toBe(true);
-    expect(canControl('s1', PHONE.clientId)).toBe(false);
   });
 
   it('preserves `since` across a re-claim by the same holder', () => {
@@ -355,7 +311,6 @@ describe('control baton', () => {
     expect(getController('term-123')).toBeNull();
     expect(getController('uuid-abc')?.clientId).toBe(DESKTOP.clientId);
     expect(getController('uuid-abc')?.sessionId).toBe('uuid-abc');
-    expect(canControl('uuid-abc', PHONE.clientId)).toBe(false);
   });
 
   it('migrateControl is a no-op for an uncontrolled session', () => {

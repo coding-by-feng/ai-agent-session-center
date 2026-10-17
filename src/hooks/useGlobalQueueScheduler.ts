@@ -69,7 +69,7 @@ import { recordQueueSent } from '@/stores/queueSentStore';
 import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { isEffortCommand } from '@/lib/queueEffort';
 import { isModelCommand } from '@/lib/queueModel';
-import { canControlSession } from '@/stores/presenceStore';
+import { canWriteWorkspace } from '@/stores/presenceStore';
 import {
   decideResume,
   faultLabel,
@@ -286,15 +286,16 @@ export function useGlobalQueueScheduler(): void {
       // This scheduler ticks on EVERY connected client. Two devices watching
       // the same session would each evaluate it and each fire — the same queue
       // item typed twice into one PTY, and the auto-resume watchdog burning two
-      // attempts out of a budget sized for one. Only the device holding the
-      // session's baton may drive it.
+      // attempts out of a budget sized for one. Only the workspace writer
+      // (normally the Mac; elected by the server, one at a time) fires queued
+      // prompts. Every device may still type and send by hand (Oct 2026: no
+      // control baton for people).
       //
       // Placed above the auto-resume call below (not just above the queue),
       // because `maybeAutoResume` runs inside this function and sends prompts
-      // of its own. A session that is unclaimed, or whose holder went offline,
-      // stays drivable — see `canControlSession`. A pending Enter retry is
-      // dropped too: it must never press Enter for a device that took over.
-      if (!canControlSession(sessionId)) {
+      // of its own. A pending Enter retry is dropped too: it must never press
+      // Enter once another device fires the queue.
+      if (!canWriteWorkspace()) {
         submitRefs.current.delete(sessionId);
         return;
       }

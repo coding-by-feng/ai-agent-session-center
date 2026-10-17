@@ -205,12 +205,13 @@ describe('SessionTerminal', () => {
     expect(screen.getByText(/Too wide to fit at a readable size/)).toBeInTheDocument();
   });
 
-  it('turns typing off while another device drives, with the banner', () => {
+  // Oct 2026, by request: no control baton for people. The phone types even while the Mac typed last.
+  it('keeps typing on, with no driving banner, while another device typed last', () => {
     presence(true);
     render(<SessionTerminal session={session} />);
-    expect(screen.getByTestId('raw-input')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Escape' })).toBeDisabled();
-    expect(screen.getByTestId('driving-banner')).toHaveTextContent('Your Mac is driving');
+    expect(screen.getByTestId('raw-input')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Escape' })).not.toBeDisabled();
+    expect(screen.queryByTestId('driving-banner')).toBeNull();
   });
 
   it('shows the Mac’s word on keystrokes that reached nothing', () => {

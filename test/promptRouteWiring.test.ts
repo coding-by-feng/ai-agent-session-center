@@ -192,14 +192,18 @@ describe('the prompt route on the live server', () => {
     expect(writesTo(T_HIDDEN)).toEqual([]);
   });
 
-  it('423 while another connected device drives it, naming that device', async () => {
+  // Oct 2026, by request: no Ask / Take control. A phone's prompt goes through even while the Mac
+  // drove the session last, and the phone becomes its driver.
+  it('sends even while another connected device drove the session last, and the phone drives it now', async () => {
     presence.registerClient({ clientId: 'mac-w', label: 'Studio Mac', address: '127.0.0.1', isLocal: true });
     try {
       expect(presence.claimControl(SHARED, 'mac-w', { label: 'Studio Mac' }).ok).toBe(true);
-      const res = await prompt(SHARED);
-      expect(res.status).toBe(423);
-      expect(res.json).toMatchObject({ code: 'control_held', driver: { label: 'Studio Mac', online: true } });
-      expect(writesTo(T_SHARED)).toEqual([]);
+      hook('Stop', SHARED, T_SHARED);
+      const res = await prompt(SHARED, { text: 'over the Mac' });
+      expect(res.status).toBe(202);
+      await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['over the Mac', '\r']), { timeout: 3_000 });
+      hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'over the Mac' });
+      expect(presence.getController(SHARED)?.clientId).toBe('phone-w');
     } finally {
       presence.unregisterClient('mac-w');
     }

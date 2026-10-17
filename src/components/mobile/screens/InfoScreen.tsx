@@ -12,7 +12,7 @@
  * It replaced the classic phone layout's header chips and ⋯ sheets (removed in
  * AASC-48), so everything those offered is here, and only what a paired phone
  * may do: no Pin inside the app (AASC-50), no Share.
- * Who is driving is said in plain words, with Ask / Take / Release control.
+ * Which device typed into the session last is said in plain words (any device drives it).
  */
 import { useCallback, useState } from 'react';
 import type { Session } from '@/types';
@@ -37,7 +37,6 @@ import { faultLabel } from '@/lib/resumeWatchdog';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
 import {
   contextWords,
-  drivingWords,
   formatRunTime,
   infoSubtitle,
   modelBlocker,
@@ -52,25 +51,9 @@ const EMPTY: readonly unknown[] = [];
 
 function ControlRows({ sessionId }: { sessionId: string }) {
   const baton = useControlBaton(sessionId);
-  const driving = drivingWords(baton.mode, baton.holder?.label ?? null);
-  return (
-    <>
-      <ListRow title="Driving" value={driving} />
-      {baton.mode === 'spectator' && baton.holder && (
-        <>
-          <ListRow title="Ask for control" subtitle={`${baton.holder.label} is asked to hand it over`} onClick={() => void baton.ask()} />
-          <ListRow
-            title="Take control"
-            disabledReason={baton.canTake ? undefined : `Opens after ${baton.waitSecs}s of quiet on ${baton.holder.label}.`}
-            onClick={() => void baton.take()}
-          />
-        </>
-      )}
-      {(baton.mode === 'driver' || baton.mode === 'asked') && (
-        <ListRow title="Release control" subtitle="Another device may then drive it" onClick={() => void baton.release()} />
-      )}
-    </>
-  );
+  // Every device drives directly (Oct 2026: no Ask / Take / Release), so this only says who typed last.
+  const last = baton.mode === 'driver' ? 'This phone' : baton.holder?.label ?? null;
+  return last ? <ListRow title="Last typed from" value={last} /> : null;
 }
 
 function InfoBody({ session }: { session: Session }) {

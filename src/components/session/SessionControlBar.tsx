@@ -20,7 +20,6 @@ import Button from '@/components/ui/Button';
 import { AlertIcon, MuteIcon, ResumeIcon, ShareIcon } from '@/components/ui/icons';
 import { faultLabel } from '@/lib/resumeWatchdog';
 import { tooltips } from '@/lib/tooltips';
-import SessionControlLock from './SessionControlLock';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
@@ -148,11 +147,6 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
 
   return (
     <div className={styles.ctrlBar}>
-      {/* Who is driving this session, when more than one device is connected.
-          Renders nothing on a solo workspace. Without it, a spectator types
-          into the terminal and nothing happens — which reads as a broken app
-          rather than as another device holding the session. */}
-      <SessionControlLock sessionId={session.sessionId} />
       {session.interruption && (
         <span
           className={styles.ctrlInterrupted}

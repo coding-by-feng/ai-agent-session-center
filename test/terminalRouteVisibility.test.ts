@@ -110,13 +110,13 @@ describe('remote device', () => {
     expect(term.write).toHaveBeenCalledWith('t-shared', 'ls\r');
   });
 
-  it('is refused while another connected device drives the session', async () => {
+  // Oct 2026, by request: no Ask / Take control. A remote device types into a shared session it can see.
+  it('writes even while another connected device drove the session last', async () => {
     presence.registerClient({ clientId: 'desk-1', label: 'Desktop', address: '127.0.0.1', isLocal: true });
     expect(presence.claimControl('tv-shared', 'desk-1').ok).toBe(true);
     const res = await call('POST', '/terminals/t-shared/write', { ...REMOTE, 'X-AASC-Client-Id': 'phone-1' }, { data: 'ls\r' });
-    expect(res.status).toBe(409);
-    expect(res.json.code).toBe('CONTROL_HELD');
-    expect(term.write).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(term.write).toHaveBeenCalled();
     presence.unregisterClient('desk-1');
   });
 

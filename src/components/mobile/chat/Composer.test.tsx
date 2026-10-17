@@ -184,23 +184,15 @@ describe('Composer', () => {
     expect(useComposerDraftStore.getState().drafts.s1).toBe('no, do this');
   });
 
-  it('leaves the driving banner out while a card waits: the card says it and takes control', () => {
-    stubMac();
-    presence({ held: true });
-    renderComposer(session({ status: 'approval', pendingRequest: bash }));
-    expect(screen.queryByTestId('driving-banner')).not.toBeInTheDocument();
-    // The box still says why it is off.
-    expect(screen.getByTestId('composer-input')).toBeDisabled();
-    expect(screen.getByPlaceholderText('Your Mac is driving')).toBeInTheDocument();
-  });
-
-  it('turns off while another device drives, saying who', () => {
+  // Oct 2026, by request: no control baton for people. Another device having typed last leaves
+  // the box on, with no "… is driving" banner.
+  it('stays on, with no driving banner, while another device typed last', () => {
     stubMac();
     presence({ held: true });
     renderComposer(session());
-    expect(screen.getByTestId('composer-input')).toBeDisabled();
-    expect(screen.getByPlaceholderText('Your Mac is driving')).toBeInTheDocument();
-    expect(screen.getByTestId('driving-banner')).toHaveTextContent('Your Mac is driving');
+    expect(screen.getByTestId('composer-input')).not.toBeDisabled();
+    expect(screen.queryByTestId('driving-banner')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Your Mac is driving')).toBeNull();
   });
 
   it('puts the text back and says why when the Mac refuses it', async () => {
@@ -233,7 +225,6 @@ describe('Composer', () => {
   });
 
   it.each([
-    ['another device drives', () => presence({ held: true }), session(), 'Your Mac is driving'],
     ['the session has ended', () => {}, session({ status: 'ended' }), 'This session has ended'],
     ['the agent is still starting', () => {}, session({ status: 'connecting' }), 'The agent is still starting'],
   ])('turns the model chip off, saying why, while %s', async (_label, setup, s, reason) => {

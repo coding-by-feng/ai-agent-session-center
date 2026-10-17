@@ -17,7 +17,6 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 import PhoneTerminalInput from './PhoneTerminalInput';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { claimControl, requestControl } from '@/lib/presenceClient';
-import { IDLE_TAKEOVER_MS } from '@/hooks/useControlBaton';
 
 const SID = 's1';
 
@@ -147,33 +146,17 @@ describe('key bar', () => {
 });
 
 describe('control baton', () => {
-  it('disables typing and says who drives while another device holds the session', () => {
+  // Oct 2026, by request: no Ask / Take control. The phone types even while another device typed last.
+  it('types freely, with no banner, while another device typed into the session last', () => {
     presence('desk', 5_000);
     const onKey = vi.fn();
     render(<Harness onKey={onKey} />);
-    expect(screen.getByText('MacBook is driving this session')).toBeInTheDocument();
-    expect(compose()).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Choose 1' })).toBeDisabled();
+    expect(screen.queryByText('MacBook is driving this session')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ask for control' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Take/ })).toBeNull();
+    expect(compose()).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Choose 1' }));
-    expect(onKey).not.toHaveBeenCalled();
-  });
-
-  it('Ask for control asks the holder; Take control claims with force', async () => {
-    presence('desk', IDLE_TAKEOVER_MS + 5_000);
-    render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: 'Ask for control' }));
-    await waitFor(() => expect(requestControl).toHaveBeenCalledWith(SID));
-    const take = await screen.findByRole('button', { name: 'Take control' });
-    fireEvent.click(take);
-    await waitFor(() => expect(claimControl).toHaveBeenCalledWith(SID, true));
-  });
-
-  it('Take control waits until the holder has been idle a minute', async () => {
-    presence('desk', 5_000);
-    render(<Harness />);
-    const take = await screen.findByRole('button', { name: /^Take in \d+s$/ });
-    expect(take).toBeDisabled();
+    expect(onKey).toHaveBeenCalled();
   });
 
   it('shows no banner and types freely when nobody holds the session', () => {

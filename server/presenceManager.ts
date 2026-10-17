@@ -314,21 +314,16 @@ export function listControllers(): ControlHolderView[] {
 }
 
 /**
- * May this client write to this session? True when the session is unclaimed,
- * already theirs, or held by a device that is no longer connected.
+ * May this client write to this session? Always: any device that can see a session drives it
+ * directly (Oct 2026, by request — no Ask / Take control / Release). Visibility is checked
+ * elsewhere (`sessionVisibility.ts`); automation fires from the workspace writer only, so two
+ * devices never send one queued prompt twice. The holder below is only "who drove last".
  */
-export function canControl(sessionId: string, clientId: string): boolean {
-  const holder = controllers.get(sessionId);
-  if (!holder) return true;
-  if (holder.clientId === clientId) return true;
-  return !isClientConnected(holder.clientId);
+export function canControl(_sessionId: string, _clientId: string): boolean {
+  return true;
 }
 
-/**
- * Take the baton. Succeeds when `canControl` allows it, or — with `force` —
- * when the current holder has been idle for at least `IDLE_TAKEOVER_MS`, so an
- * unattended desktop can never lock a user out of their own session from a phone.
- */
+/** Make `clientId` the session's driver. Always succeeds; `force` is kept for old callers. */
 export function claimControl(
   sessionId: string,
   clientId: string,
@@ -336,20 +331,6 @@ export function claimControl(
 ): ControlResult {
   const holder = controllers.get(sessionId);
   const at = now();
-
-  if (holder && holder.clientId !== clientId && isClientConnected(holder.clientId)) {
-    const idleMs = at - holder.lastActivityAt;
-    if (!opts.force || idleMs < IDLE_TAKEOVER_MS) {
-      return {
-        ok: false,
-        controller: toView(holder),
-        reason: opts.force ? 'not-idle-enough' : 'held-by-other',
-        idleMs,
-        retryInMs: Math.max(0, IDLE_TAKEOVER_MS - idleMs),
-      };
-    }
-    log.info('presence', `Control of ${sessionId} force-taken from ${holder.label} (idle ${Math.round(idleMs / 1000)}s)`);
-  }
 
   const next: ControlHolder = {
     sessionId,
@@ -365,20 +346,17 @@ export function claimControl(
 }
 
 /**
- * Record that the controller acted, refreshing the idle-takeover window. Claims
- * the session implicitly when it is free, which is what makes "the device that
- * created a session controls it" fall out without an explicit claim call.
- *
- * Returns false when the write should be REJECTED (someone else holds it).
+ * Record that a device acted on a session: it becomes (or stays) the driver.
+ * Never rejects a write any more (Oct 2026); the return stays for old callers.
  */
 export function noteControlActivity(sessionId: string, clientId: string): boolean {
-  if (!canControl(sessionId, clientId)) return false;
   const holder = controllers.get(sessionId);
   const at = now();
   if (holder && holder.clientId === clientId) {
     controllers.set(sessionId, { ...holder, lastActivityAt: at });
     return true;
   }
+  // The device that acts becomes the driver, whoever drove before.
   controllers.set(sessionId, {
     sessionId,
     clientId,

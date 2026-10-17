@@ -41,7 +41,6 @@ import { requestSessionKill, requestSessionResume } from '@/lib/sessionActions';
 import { requestSessionRestart } from '@/lib/restartSession';
 import { copySession } from '@/lib/sessionCopy';
 import { muteSession } from '@/lib/alarmEngine';
-import { requestControl } from '@/lib/presenceClient';
 import { showToast } from '@/components/ui/ToastContainer';
 
 const NOW = Date.now();
@@ -95,7 +94,8 @@ describe('InfoScreen', () => {
     expect(row('Room').textContent).toContain('Mobile');
     expect(row('Label').textContent).toContain('IMPORTANT');
     expect(row('Remark').textContent).toContain('Polish pass');
-    expect(row('Driving').textContent).toContain('Nobody right now');
+    // Nobody has typed yet: no "Last typed from" row (Oct 2026: any device drives directly).
+    expect(screen.queryByText('Last typed from')).toBeNull();
     expect(screen.queryByText(/baton|PTY/i)).toBeNull();
   });
 
@@ -145,8 +145,8 @@ describe('InfoScreen', () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining('AI popups weren’t changed'), 'error');
   });
 
-  it('says who drives when another device does, and asks for control', async () => {
-    const user = userEvent.setup();
+  // Oct 2026, by request: no Ask / Take / Release. Info only says which device typed last.
+  it('says which device typed last, with no control actions', () => {
     usePresenceStore.getState().applyPresence({
       devices: [
         { clientId: 'phone', label: 'iPhone', address: '', isLocal: false, connections: 1, connectedAt: 0, lastSeenAt: 0 },
@@ -157,10 +157,8 @@ describe('InfoScreen', () => {
       workspaceWriter: 'mac',
     });
     setup();
-    expect(row('Driving').textContent).toContain('MacBook');
-    expect(screen.getByRole('button', { name: /Take control/ })).toHaveAttribute('aria-disabled', 'true');
-    await user.click(screen.getByRole('button', { name: /Ask for control/ }));
-    expect(requestControl).toHaveBeenCalledWith('s1');
+    expect(row('Last typed from').textContent).toContain('MacBook');
+    expect(screen.queryByRole('button', { name: /Take control|Ask for control|Release control/ })).toBeNull();
   });
 
   it('opens Notes, Queue, Agents and AI popups as screens', async () => {

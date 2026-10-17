@@ -17,7 +17,6 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 
 import WaitingCard from './WaitingCard';
 import { usePresenceStore } from '@/stores/presenceStore';
-import { claimControl } from '@/lib/presenceClient';
 import { waitingCardModel } from '@/lib/chat/waitingCardModel';
 
 function stubAnswer(status = 202, body: unknown = { success: true, data: { accepted: true } }) {
@@ -128,24 +127,14 @@ describe('WaitingCard', () => {
     await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'allow_always' }));
   });
 
-  it('while another device drives, the button reads "Take control and allow once", and takes control first', async () => {
-    const calls = stubAnswer();
-    presence(true);
-    renderCard(session(bash));
-    fireEvent.click(screen.getByRole('button', { name: 'Take control and allow once' }));
-    expect(await screen.findByRole('dialog', { name: 'Take control and allow once?' })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Take control and allow once' }).at(-1)!);
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(claimControl).toHaveBeenCalledWith('s1', true);
-  });
-
-  it('while another device drives, offers no "Tell Claude…" (the box is off), but always "Open terminal"', () => {
+  // Oct 2026, by request: no Take control. The card answers directly while another device typed last.
+  it('answers directly, with no take-control step, while another device typed last', async () => {
     stubAnswer();
     presence(true);
     renderCard(session(bash));
-    expect(screen.queryByRole('button', { name: /Tell Claude what to do instead/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Answering takes control/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Take control/ })).toBeNull();
     expect(screen.getByTestId('waiting-card-terminal')).toBeInTheDocument();
-    expect(screen.getByText('Your Mac is driving. Answering takes control.')).toBeInTheDocument();
   });
 
   it('a question shows its options, then Other…, which hands over to the composer', async () => {

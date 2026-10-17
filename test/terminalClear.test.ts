@@ -129,22 +129,20 @@ describe('terminal_clear', () => {
     expect(watcher.received('terminal_cleared')).toEqual([]);
   });
 
-  it('is refused for a device watching a session another device is driving', async () => {
+  // Oct 2026, by request: no control baton for people. A second device clears the output too.
+  it('clears for a second device even while another one typed last', async () => {
     const id = await newTerminal();
-    const driver = connect();
-    const spectator = connect();
-    subscribe(driver, id);
-    subscribe(spectator, id);
-    driver.deliver({ type: 'terminal_input', terminalId: id, data: 'x' }); // takes the baton
+    const first = connect();
+    const second = connect();
+    subscribe(first, id);
+    subscribe(second, id);
+    first.deliver({ type: 'terminal_input', terminalId: id, data: 'x' });
     settle();
 
-    spectator.deliver({ type: 'terminal_clear', terminalId: id });
+    second.deliver({ type: 'terminal_clear', terminalId: id });
 
-    expect(ssh.clearTerminalOutput).not.toHaveBeenCalled();
-    expect(driver.received('terminal_cleared')).toEqual([]);
-    expect(spectator.received('terminal_cleared')).toEqual([]);
-    // The same explanation a spectator's keystrokes get.
-    expect(spectator.received('control_denied')).toHaveLength(1);
+    expect(ssh.clearTerminalOutput).toHaveBeenCalled();
+    expect(second.received('control_denied')).toEqual([]);
   });
 
   it('announces nothing when the server no longer has the terminal', async () => {

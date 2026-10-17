@@ -16,10 +16,11 @@ describe('controlBatonMode', () => {
     expect(controlBatonMode(2, undefined, undefined, 'phone')).toBe('free');
     expect(controlBatonMode(2, holder('desk', false), undefined, 'phone')).toBe('free');
   });
-  it('is spectator while another online device drives', () => {
-    expect(controlBatonMode(2, holder('desk'), undefined, 'phone')).toBe('spectator');
+  // Oct 2026, by request: every device drives directly, so nobody watches and nobody asks.
+  it('is never spectator: another device that drove last leaves this one free', () => {
+    expect(controlBatonMode(2, holder('desk'), undefined, 'phone')).toBe('free');
   });
-  it('is driver when we hold it, asked when someone wants it', () => {
+  it('is driver when this device acted last (asked only for an old client\'s request)', () => {
     expect(controlBatonMode(2, holder('phone'), undefined, 'phone')).toBe('driver');
     expect(controlBatonMode(2, holder('phone'), request, 'phone')).toBe('asked');
   });
