@@ -16,6 +16,7 @@ function str(val: unknown): string {
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
+import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
 import { isPasswordEnabled, getTokenLineage, isLineageAlive, extractToken } from './authManager.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
@@ -459,9 +460,9 @@ const terminalCreateSchema = z.object({
   // AASC-54: a session that answers Claude's folder-trust prompt itself (a workspace restore of a phone's
   // new-folder launch). Only `false`: a caller may make a launch stricter, never turn auto-confirm back on.
   autoConfirmTrust: z.literal(false).optional(),
-  // A workspace restore of a session that was shared with remote devices. Only `true`, and only the
-  // Mac's own request may set it (a remote device's launch is shared anyway; a phone can't send it).
-  remoteVisible: z.literal(true).optional(),
+  // A workspace restore's saved share choice (true shared, false hidden on purpose). Only the Mac's
+  // own request may set it (a remote device's launch is shared anyway; a phone can't send it).
+  remoteVisible: z.boolean().optional(),
   startupCommand: z.string().max(1024).optional(),
   /** Permission mode from snapshot — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode: z.string().max(100).optional(),
@@ -1787,6 +1788,46 @@ router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   res.json({ success: true, remoteVisible: visible });
 });
 
+// ---- "Share new sessions with my devices" (Oct 2026, by request) — this Mac only ----
+
+router.get('/sharing-default', (req: Request, res: Response) => {
+  if (!requestIsLocal(req)) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json({ ok: true, shareNewSessions: isShareNewSessionsOn() });
+});
+
+router.put('/sharing-default', (req: Request, res: Response) => {
+  if (!requestIsLocal(req)) { res.status(404).json({ error: 'Not found' }); return; }
+  const on = req.body?.shareNewSessions;
+  if (typeof on !== 'boolean') { res.status(400).json({ error: 'shareNewSessions must be true or false' }); return; }
+  try {
+    setShareNewSessions(on);
+  } catch (err) {
+    log.error('api', `Saving the share-new-sessions setting failed: ${err instanceof Error ? err.message : String(err)}`);
+    res.status(500).json({ error: 'Could not save the setting' });
+    return;
+  }
+  log.info('api', `Share new sessions with remote devices: ${on ? 'on' : 'off'}`);
+  res.json({ ok: true, shareNewSessions: on });
+});
+
+/** Share every open session at once (the setting covers only sessions that appear later). */
+router.post('/sessions/share-all', async (req: Request, res: Response) => {
+  if (!requestIsLocal(req)) { res.status(404).json({ error: 'Not found' }); return; }
+  const changed = Object.values(getAllSessions())
+    .filter((s) => s.status !== 'ended' && s.remoteVisible !== true)
+    .map((s) => s.sessionId);
+  for (const id of changed) setSessionRemoteVisible(id, true);
+  if (changed.length > 0) {
+    roomsService.republish();
+    const { broadcast } = await import('./wsManager.js');
+    for (const id of changed) {
+      const session = getSession(id);
+      if (session) broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+    }
+  }
+  res.json({ ok: true, shared: changed.length });
+});
+
 router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
   const body = validateBody(pinnedSchema, req.body, res);
   if (!body) return;
@@ -2090,9 +2131,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // A session a remote device starts is shared with remote devices from its
     // first broadcast, or the device that asked for it could never see it
     // (AASC-28). Only the new card: a device still can't unhide another one.
-    // A restore by the Mac keeps a share it saved (the workspace snapshot's `remoteVisible`).
-    const shared = !isLocalCaller || body.remoteVisible === true;
-    await createTerminalSession(terminalId, shared ? { ...config, remoteVisible: true } : config, opsTerminalId);
+    // A remote device's launch is shared with it. The Mac's restore passes the saved choice; with
+    // none, the "share new sessions" default applies (sessionStore → shareDefault.ts).
+    const remoteVisible = !isLocalCaller ? true : body.remoteVisible;
+    await createTerminalSession(terminalId, remoteVisible === undefined ? config : { ...config, remoteVisible }, opsTerminalId);
 
     // The device that launched a session controls it. This is what makes the
     // "joining device is a spectator by default" rule fall out with no extra

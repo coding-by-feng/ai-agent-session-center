@@ -58,6 +58,7 @@ import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionE
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { TeamSerialized } from '../src/types/team.js';
+import { initialRemoteVisible, isShareNewSessionsOn } from './shareDefault.js';
 
 const sessions = new Map<string, Session>();
 const projectSessionCounters = new Map<string, number>();
@@ -1554,7 +1555,9 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     if (config.originSessionId) session.originSessionId = config.originSessionId;
   }
   if (config.isFloating) session.isFloating = true;
-  if (config.remoteVisible) session.remoteVisible = true;
+  // A saved choice (a restore) wins; otherwise the "share new sessions" default (shareDefault.ts).
+  const remoteVisible = initialRemoteVisible(config.remoteVisible);
+  if (remoteVisible !== undefined) session.remoteVisible = remoteVisible;
   attachPlanUsage(session);
   sessions.set(terminalId, session);
   invalidateSessionsCache();
@@ -2103,6 +2106,7 @@ export function registerDiscoveredSession(proc: DiscoveredProcess): void {
     : 'Unknown';
   const now = Date.now();
   const session: Session = {
+    ...(isShareNewSessionsOn() ? { remoteVisible: true } : {}),
     sessionId: id,
     status: SESSION_STATUS.IDLE,
     animationState: ANIMATION_STATE.IDLE,

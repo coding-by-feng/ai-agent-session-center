@@ -39,6 +39,7 @@ import styles from '@/styles/modules/DevicePresence.module.css';
 // Lazy: the pairing section carries a QR encoder, and this chip sits in the
 // eager header chunk. It only loads when a local user opens the panel.
 const PhonePairing = lazy(() => import('@/components/layout/PhonePairing'));
+const SharingDefault = lazy(() => import('@/components/layout/SharingDefault'));
 
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
@@ -309,6 +310,7 @@ export default function DevicePresenceChip() {
 
             {canPairPhones && (
               <Suspense fallback={null}>
+                <SharingDefault />
                 <PhonePairing />
               </Suspense>
             )}

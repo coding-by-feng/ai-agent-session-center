@@ -927,11 +927,14 @@ describe('buildSnapshot — queue automation preservation', () => {
 
   // Found on a real iPhone (Oct 2026): after AASC restarted, every session was hidden from the phone,
   // the ones it had started too, because the snapshot never kept the share.
-  it('keeps remoteVisible: true (a shared session), and only that value', () => {
+  it('keeps the share choice — shared, or hidden on purpose — and nothing for a session never chosen', () => {
     const shared = { ...loopSession('sess-shared'), remoteVisible: true } as unknown as Session;
     expect(buildSnapshot(new Map([['sess-shared', shared]]), []).sessions[0].remoteVisible).toBe(true);
+    // Hidden on purpose stays hidden after a restart, even with "share new sessions" on.
     const unshared = { ...loopSession('sess-unshared'), remoteVisible: false } as unknown as Session;
-    expect(buildSnapshot(new Map([['sess-unshared', unshared]]), []).sessions[0]).not.toHaveProperty('remoteVisible');
+    expect(buildSnapshot(new Map([['sess-unshared', unshared]]), []).sessions[0].remoteVisible).toBe(false);
+    const never = loopSession('sess-never') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-never', never]]), []).sessions[0]).not.toHaveProperty('remoteVisible');
   });
 
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
@@ -1027,12 +1030,13 @@ describe('importSnapshot — loop round-trip', () => {
       sessions: [
         makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-111111111111', remoteVisible: true }),
         makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-222222222222' }),
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-333333333333', remoteVisible: false }),
       ],
       rooms: [],
     };
     await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
     const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
-    expect(bodies.map((b) => b.remoteVisible)).toEqual([true, undefined]);
+    expect(bodies.map((b) => b.remoteVisible)).toEqual([true, undefined, false]);
   });
 
   it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {

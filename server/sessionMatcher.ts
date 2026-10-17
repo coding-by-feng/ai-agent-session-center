@@ -13,6 +13,7 @@ import { forgetSubagentSession } from './subagentTracker.js';
 import { withoutContext } from './sessionRuntime.js';
 import type { Session, SessionSource, SshConfig, PendingResume } from '../src/types/session.js';
 import type { HookPayloadBase } from '../src/types/hook.js';
+import { isShareNewSessionsOn } from './shareDefault.js';
 
 /**
  * Detect where a hook-only session originated from environment variables.
@@ -147,6 +148,8 @@ function createDefaultSession(
   sshConfig?: SshConfig | null,
 ): Session {
   const session: Session = {
+    // A session first seen through its hooks (an outside terminal): the "share new sessions" default.
+    ...(isShareNewSessionsOn() ? { remoteVisible: true } : {}),
     sessionId: session_id,
     projectPath: cwd || '',
     projectName: cwd ? cwd.split('/').filter(Boolean).pop() || 'Unknown' : 'Unknown',

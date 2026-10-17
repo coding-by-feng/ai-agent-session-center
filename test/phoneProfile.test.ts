@@ -9,6 +9,9 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { describe, it, beforeAll, afterAll, beforeEach, expect, vi } from 'vitest';
 
+// The "share new sessions" setting writes its file: keep it out of the repo's data/.
+process.env.AASC_SHARE_DEFAULT_FILE = join(mkdtempSync(join(tmpdir(), 'aasc-phone-share-')), 'share-default.json');
+
 vi.mock('../server/db.js', () => ({
   upsertSession: vi.fn(), updateSessionTitle: vi.fn(), updateSessionSummary: vi.fn(), updateSessionRemark: vi.fn(),
   updateSessionArchived: vi.fn(), migrateSessionId: vi.fn(), getPromptsForSession: vi.fn(() => []),
@@ -574,10 +577,38 @@ describe('a paired phone through the API', () => {
 
   // A workspace restore re-creates a shared session through this route; without the flag every share
   // was lost on each AASC restart (found on a real iPhone, Oct 2026).
+  // Oct 2026, by request: "Share new sessions with my devices", on the Mac only.
+  it('lets only the Mac read and change the share-new-sessions default', async () => {
+    expect((await call('GET', '/sharing-default', {})).json).toEqual({ ok: true, shareNewSessions: false });
+    expect((await call('PUT', '/sharing-default', PHONE, { shareNewSessions: true })).status).toBe(404);
+    expect((await call('PUT', '/sharing-default', {}, { shareNewSessions: 'yes' })).status).toBe(400);
+    expect((await call('PUT', '/sharing-default', {}, { shareNewSessions: true })).json).toEqual({ ok: true, shareNewSessions: true });
+    const fresh = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true });
+    expect(store.getSession(String(fresh.json.terminalId))?.remoteVisible).toBe(true);
+    expect((await call('PUT', '/sharing-default', {}, { shareNewSessions: false })).json.shareNewSessions).toBe(false);
+  });
+
+  it('shares every open session at once from the Mac, never from a phone', async () => {
+    await store.createTerminalSession('ph-share-all', { host: 'localhost', workingDir: other, command: 'claude' });
+    const wereHidden = Object.values(store.getAllSessions()).filter((s) => s.remoteVisible !== true).map((s) => s.sessionId);
+    expect((await call('POST', '/sessions/share-all', PHONE)).status).toBe(404);
+    expect(store.getSession('ph-share-all')?.remoteVisible).not.toBe(true);
+    const res = await call('POST', '/sessions/share-all', {});
+    expect(res.status).toBe(200);
+    expect(res.json.shared).toBeGreaterThan(0);
+    expect(store.getSession('ph-share-all')?.remoteVisible).toBe(true);
+    expect(store.getSession('ph-hidden')?.remoteVisible).toBe(true);
+    for (const id of wereHidden) store.setSessionRemoteVisible(id, false);
+  });
+
   it('keeps a restored session shared when the Mac asks, and never takes the flag from a phone', async () => {
     const res = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true, remoteVisible: true });
     expect(res.status).toBe(200);
     expect(store.getSession(String(res.json.terminalId))?.remoteVisible).toBe(true);
+    // A session saved hidden on purpose comes back hidden (the Mac sends false).
+    const hidden = await call('POST', '/terminals', {}, { workingDir: other, command: 'claude', forceNew: true, remoteVisible: false });
+    expect(hidden.status).toBe(200);
+    expect(store.getSession(String(hidden.json.terminalId))?.remoteVisible).toBe(false);
     const phone = await call('POST', '/terminals', PHONE, { workingDir: launchDir, command: 'claude', forceNew: true, remoteVisible: true });
     expect(phone.status).toBe(403);
     expect(String(phone.json.error)).toContain('remoteVisible');
