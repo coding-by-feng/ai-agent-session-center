@@ -21,7 +21,7 @@ describe('setup gate once the preload loads', () => {
   it('recognises a used install by files the embedded server actually writes', () => {
     const db = read('server/db.ts');
     vi.stubEnv('APP_USER_DATA', '/fixture/owner-profile');
-    try { expect(databaseDirectory()).toBe('/fixture/owner-profile/data'); }
+    try { expect(databaseDirectory()).toBe(join('/fixture/owner-profile', 'data')); }
     finally { vi.unstubAllEnvs(); }
     expect(db).toMatch(/join\(DB_DIR, 'sessions\.db'\)/);
     expect(read('server/serverConfig.ts')).toMatch(/join\(process\.env\.APP_USER_DATA, 'server-config\.json'\)/);
