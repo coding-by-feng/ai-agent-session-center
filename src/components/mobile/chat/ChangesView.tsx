@@ -37,12 +37,15 @@ export function Counts({ added, removed }: { added: number; removed: number }) {
  * The Changes segment's badge: "+42 −7" (both counts in words for a screen reader).
  * Under 420px the segment is too narrow for both, so only the added count shows.
  */
-export function ChangesBadge({ total }: { total: { added: number; removed: number } }) {
+/**
+ * The Changes tab's badge: how many files changed ("Changes 12"), short enough for
+ * four tabs on a phone (Oct 19 2026; it was "+748 −12"). The line counts are spoken.
+ */
+export function ChangesBadge({ total }: { total: { added: number; removed: number; files: number } }) {
   return (
     <>
-      <span aria-hidden="true">{total.added > 0 ? `+${total.added}` : ''}</span>
-      {total.removed > 0 && <span className={styles.badgeRemoved} aria-hidden="true">{`${total.added > 0 ? ' ' : ''}${MINUS}${total.removed}`}</span>}
-      <span className={styles.srOnly}>{`, ${countsLabel(total)}`}</span>
+      <span aria-hidden="true">{total.files}</span>
+      <span className={styles.srOnly}>{`, ${plural(total.files, 'file')} changed, ${countsLabel(total)}`}</span>
     </>
   );
 }

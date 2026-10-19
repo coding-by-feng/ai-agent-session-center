@@ -146,3 +146,41 @@ describe('PhonePrompts — a prompt, full screen', () => {
     expect(await screen.findByTestId('live-page')).toBeTruthy();
   });
 });
+
+describe('PhonePrompts — one session’s Prompts tab (Oct 19 2026)', () => {
+  function renderTab(onUseAgain = vi.fn()) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PhonePrompts sessionId="a" onUseAgain={onUseAgain} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return onUseAgain;
+  }
+
+  it.each([false, true])('reads only this session, with no session picker (on the Mac itself: %s)', async (isHost) => {
+    host.isHost = isHost;
+    renderTab();
+    expect(await screen.findByText('fix the alpha bug')).toBeTruthy();
+    expect(promptRequests().every((u) => u.searchParams.get('session') === 'a')).toBe(true);
+    expect(screen.queryByText('ship beta')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Session' })).toBeNull();
+    expect(urls.some((u) => u.pathname === '/api/db/projects')).toBe(false);
+    // Every row is this session's: no session name or "live" chip on each.
+    expect(screen.queryByText(/Alpha/)).toBeNull();
+    expect(screen.queryByText('live')).toBeNull();
+  });
+
+  it('a prompt offers Use again (not Open session), handing its text back', async () => {
+    const user = userEvent.setup();
+    const onUseAgain = renderTab();
+    await user.click(await screen.findByText('fix the alpha bug'));
+    const sheet = await screen.findByTestId('prompt-detail');
+    expect(within(sheet).queryByRole('button', { name: 'Open session' })).toBeNull();
+    await user.click(within(sheet).getByRole('button', { name: 'Use again' }));
+    expect(onUseAgain).toHaveBeenCalledWith('fix the alpha bug');
+    await waitFor(() => expect(screen.queryByTestId('prompt-detail')).toBeNull());
+  });
+});

@@ -28,7 +28,7 @@ export const PHONE_TABS = ['sessions', 'inbox', 'queue', 'more'] as const;
 export type PhoneTab = (typeof PHONE_TABS)[number];
 
 /** Every session path's last part. Which ones a session shows as tabs: `segmentsFor`. */
-export const SESSION_SEGMENTS = ['chat', 'changes', 'project', 'terminal'] as const;
+export const SESSION_SEGMENTS = ['chat', 'changes', 'project', 'prompts', 'terminal'] as const;
 export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
 export const MORE_PAGES = [
@@ -265,19 +265,19 @@ export function sessionHasChat(cli: string | null): boolean {
   return defaultSegment(cli) === 'chat';
 }
 
-/** The tabs a session shows: Chat · Changes · Project, or Terminal · Project for a shell. */
+/** The tabs a session shows: Chat · Changes · Project · Prompts, or Terminal · Project for a shell. */
 export function segmentsFor(hasChat: boolean): readonly SessionSegment[] {
-  return hasChat ? ['chat', 'changes', 'project'] : ['terminal', 'project'];
+  return hasChat ? ['chat', 'changes', 'project', 'prompts'] : ['terminal', 'project'];
 }
 
 /**
- * What a session screen at `segment` shows. A shell has no Chat or Changes, so a
- * path to either (a selection that opened Chat, a link) shows its Terminal; a
+ * What a session screen at `segment` shows. A shell has no Chat, Changes or Prompts, so a
+ * path to one (a selection that opened Chat, a link) shows its Terminal; a
  * chat session's `terminal` is its pushed terminal screen, not a tab.
  */
 export function shownSegment(segment: SessionSegment, hasChat: boolean): SessionSegment {
   if (hasChat) return segment;
-  return segment === 'chat' || segment === 'changes' ? 'terminal' : segment;
+  return segment === 'chat' || segment === 'changes' || segment === 'prompts' ? 'terminal' : segment;
 }
 
 /** The screens that open a session on `segment`, above whatever is under them. */

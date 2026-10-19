@@ -170,7 +170,7 @@ function activityKey(sessionId: string): string {
  * The session's total ("+42 −7" on the Changes segment), or null before it is known
  * or when nothing was edited. Re-reads the list a second after the session moves.
  */
-export function useSessionChangesTotal(sessionId: string): { added: number; removed: number } | null {
+export function useSessionChangesTotal(sessionId: string): { added: number; removed: number; files: number } | null {
   const { data } = useSessionChanges(sessionId);
 
   useEffect(() => {
@@ -193,5 +193,5 @@ export function useSessionChangesTotal(sessionId: string): { added: number; remo
   }, [sessionId]);
 
   if (!data || (data.total.added === 0 && data.total.removed === 0)) return null;
-  return data.total;
+  return { ...data.total, files: data.files.length };
 }

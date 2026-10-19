@@ -23,6 +23,11 @@ vi.mock('../chat/ChangesView', () => ({
   ChangesBadge: () => null,
 }));
 vi.mock('./SessionTerminal', () => ({ default: ({ session }: { session: Session }) => <div data-testid="terminal">{session.sessionId}</div> }));
+vi.mock('../views/PhonePrompts', () => ({
+  default: ({ sessionId, onUseAgain }: { sessionId?: string; onUseAgain?: (text: string) => void }) => (
+    <button type="button" data-testid="prompts" onClick={() => onUseAgain?.('run it again')}>{sessionId}</button>
+  ),
+}));
 vi.mock('../PhoneProjectBrowser', () => ({
   default: ({ projectPath, sessionId }: { projectPath: string; sessionId: string }) => <div data-testid="project">{sessionId}:{projectPath}</div>,
 }));
@@ -32,6 +37,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import type { SessionSegment } from '@/lib/chat/phoneRoutes';
 
 const base = {
@@ -61,7 +67,7 @@ beforeEach(() => {
 describe('a Claude / Codex session', () => {
   it('shows Chat · Changes · Project, and no Terminal tab', () => {
     show(claude, 'chat');
-    expect(tabNames()).toEqual(['Chat', 'Changes', 'Project']);
+    expect(tabNames()).toEqual(['Chat', 'Changes', 'Project', 'Prompts']);
     expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -69,6 +75,21 @@ describe('a Claude / Codex session', () => {
     show(claude, 'project');
     expect(screen.getByRole('tab', { name: 'Project' })).toHaveAttribute('aria-selected', 'true');
     expect((await screen.findByTestId('project')).textContent).toBe('s1:/w/web');
+  });
+
+  it('lists this session’s prompts in the Prompts tab', async () => {
+    show(claude, 'prompts');
+    expect(screen.getByRole('tab', { name: 'Prompts' })).toHaveAttribute('aria-selected', 'true');
+    expect((await screen.findByTestId('prompts')).textContent).toBe('s1');
+  });
+
+  it('"Use again" puts a prompt in the composer and goes back to Chat (never sends it)', async () => {
+    const user = userEvent.setup();
+    useComposerDraftStore.setState({ drafts: {} });
+    show(claude, 'prompts');
+    await user.click(await screen.findByTestId('prompts'));
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('run it again');
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
   });
 
   it('says so when the session has no project folder', () => {

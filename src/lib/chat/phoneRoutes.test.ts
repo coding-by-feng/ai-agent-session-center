@@ -257,16 +257,21 @@ describe('the session segments (AASC-56): Chat · Changes · Project, a shell Te
   });
 
   it('lists the segments a session shows', () => {
-    expect(segmentsFor(true)).toEqual(['chat', 'changes', 'project']);
+    expect(segmentsFor(true)).toEqual(['chat', 'changes', 'project', 'prompts']);
     expect(segmentsFor(false)).toEqual(['terminal', 'project']);
   });
 
   it('shows a shell’s chat or changes path as its Terminal; a chat session keeps its path', () => {
     expect(shownSegment('chat', false)).toBe('terminal');
     expect(shownSegment('changes', false)).toBe('terminal');
+    expect(shownSegment('prompts', false)).toBe('terminal'); // a shell has no prompts
     expect(shownSegment('project', false)).toBe('project');
     expect(shownSegment('terminal', false)).toBe('terminal');
-    for (const seg of ['chat', 'changes', 'project', 'terminal'] as const) expect(shownSegment(seg, true)).toBe(seg);
+    for (const seg of ['chat', 'changes', 'project', 'prompts', 'terminal'] as const) expect(shownSegment(seg, true)).toBe(seg);
+  });
+
+  it('reads a Prompts path (Oct 19 2026)', () => {
+    expect(parsePhonePath('/sessions/s1/prompts')).toEqual({ kind: 'session', sessionId: 's1', segment: 'prompts' });
   });
 
   it('keeps an old Info → Files link working: it opens the Project segment', () => {

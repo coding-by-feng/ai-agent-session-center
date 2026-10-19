@@ -5,7 +5,7 @@
  *   ‹      agent-manager-2       ⋯
  *      Working · Opus 5.5 · high
  *   2 more need you ›                     only while other sessions wait
- *   [ Chat │ Changes │ Project ]          a plain shell: [ Terminal │ Project ]
+ *   [ Chat │ Changes │ Project │ Prompts ] a plain shell: [ Terminal │ Project ]
  *   …the segment…
  *
  * The segment is part of the path (`/sessions/<id>/project`), switched in place
@@ -27,6 +27,7 @@ import { Button, EmptyState, Screen, SegmentedControl, useScreenSlot } from '../
 import { ChevronRightIcon, EllipsisIcon } from '../kit/kitIcons';
 import SessionTerminal from './SessionTerminal';
 import SessionProjectSegment from './SessionProjectSegment';
+import SessionPromptsSegment from './SessionPromptsSegment';
 import ChatFooter from '../chat/ChatFooter';
 import ConnectionBanner from './ConnectionBanner';
 import ChatView from '../chat/ChatView';
@@ -35,6 +36,7 @@ import { useSessionChangesTotal } from '@/stores/changesStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionSubtitle } from '@/lib/chat/phoneStatus';
@@ -58,19 +60,21 @@ const LABELS: Record<SessionSegment, string> = {
   chat: 'Chat',
   changes: 'Changes',
   project: 'Project',
+  prompts: 'Prompts',
   terminal: 'Terminal',
 };
 
-/** The session's tabs, with its edit total on Changes ("Changes +42 −7"). */
+/** The session's tabs, with how many files changed on Changes ("Changes 12"). */
 function useSegments(sessionId: string, hasChat: boolean) {
   const total = useSessionChangesTotal(sessionId);
   const added = total?.added ?? 0;
   const removed = total?.removed ?? 0;
+  const files = total?.files ?? 0;
   return useMemo(
-    () => segmentsFor(hasChat).map((value) => (value === 'changes' && (added || removed)
-      ? { value, label: LABELS[value], badge: <ChangesBadge total={{ added, removed }} /> }
+    () => segmentsFor(hasChat).map((value) => (value === 'changes' && files > 0
+      ? { value, label: LABELS[value], badge: <ChangesBadge total={{ added, removed, files }} /> }
       : { value, label: LABELS[value] })),
-    [hasChat, added, removed],
+    [hasChat, added, removed, files],
   );
 }
 
@@ -173,6 +177,11 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
   const openTerminal = useCallback(() => openTerminalIn(sessionId, hasChat), [openTerminalIn, sessionId, hasChat]);
   // A file the chat names opens in the Project tab, whose browser takes the request (as from the terminal).
   const { projectPath } = session;
+  // "Use again" in Prompts: the text back in this session's composer (never sent), on Chat.
+  const useAgain = useCallback((text: string) => {
+    useComposerDraftStore.getState().setDraft(sessionId, text);
+    show('chat');
+  }, [sessionId, show]);
   const openFile = useCallback((relPath: string) => {
     if (!projectPath) return;
     useUiStore.getState().openFileInProject(`${projectPath.replace(/\/+$/, '')}${relPath}`, projectPath);
@@ -226,6 +235,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
           {shown === 'chat' && <ChatView session={session} onTerminal={openTerminal} onOpenFile={openFile} />}
           {shown === 'changes' && <ChangesView session={session} onTerminal={openTerminal} />}
           {shown === 'project' && <SessionProjectSegment session={session} />}
+          {shown === 'prompts' && <SessionPromptsSegment sessionId={sessionId} onUseAgain={useAgain} />}
         </div>
       )}
       {shown === 'chat' && <ChatFooter session={session} onTerminal={openTerminal} />}

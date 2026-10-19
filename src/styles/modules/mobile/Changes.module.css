@@ -68,11 +68,6 @@
   color: var(--ph-text-secondary);
 }
 
-/* The Changes segment's "+42 −7": the removed count only where it fits. */
-@media (max-width: 419px) {
-  .badgeRemoved { display: none; }
-}
-
 .srOnly {
   position: absolute;
   width: 1px;

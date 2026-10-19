@@ -12,6 +12,11 @@
  *    asks for projects; a line says what stays on the Mac.
  *
  * Export (a JSON download) stays on the desktop.
+ *
+ * With `sessionId` it is one session's **Prompts** tab (Oct 19 2026): only that
+ * session, wherever the phone is, with no picker, no per-row session name, and
+ * "Use again" (`onUseAgain`: back into the composer, never sent) in place of
+ * Open session.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -69,13 +74,21 @@ function preview(text: string, query: string): string {
   return windowed.length > PROMPT_CLAMP_CHARS ? `${windowed.slice(0, PROMPT_CLAMP_CHARS)}…` : windowed;
 }
 
-export default function PhonePrompts() {
+export interface PhonePromptsProps {
+  /** One session's Prompts tab: only its prompts, no picker. */
+  sessionId?: string;
+  /** "Use again" on a prompt (the tab only): put its text back in the composer. */
+  onUseAgain?: (text: string) => void;
+}
+
+export default function PhonePrompts({ sessionId, onUseAgain }: PhonePromptsProps = {}) {
   const host = useIsHostDevice();
+  if (sessionId) return <PromptTrace key={`session:${sessionId}`} host={false} fixedSession={sessionId} onUseAgain={onUseAgain} />;
   // Keyed: crossing from remote to host (presence landing) starts clean.
   return <PromptTrace key={host ? 'host' : 'shared'} host={host} />;
 }
 
-function PromptTrace({ host }: { host: boolean }) {
+function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedSession?: string; onUseAgain?: (text: string) => void }) {
   const navigate = useNavigate();
   const sessions = useSessionStore((s) => s.sessions);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
@@ -94,7 +107,7 @@ function PromptTrace({ host }: { host: boolean }) {
     [sessions],
   );
   const listed = (id: string | null) => (id && sessionOptions.some((o) => o.value === id) ? id : undefined);
-  const session = host ? undefined : listed(picked) ?? listed(selectedSessionId) ?? sessionOptions[0]?.value;
+  const session = fixedSession ?? (host ? undefined : listed(picked) ?? listed(selectedSessionId) ?? sessionOptions[0]?.value);
 
   const { data: projects } = useQuery({
     queryKey: ['db-projects'],
@@ -178,7 +191,14 @@ function PromptTrace({ host }: { host: boolean }) {
             <h2 className={styles.groupHeading}>{group.day}</h2>
             <ul className={styles.list} role="list">
               {group.rows.map((row) => (
-                <PromptRow key={row.id} row={row} query={query} live={sessions.has(row.session_id)} onOpen={setOpenRow} />
+                <PromptRow
+                  key={row.id}
+                  row={row}
+                  query={query}
+                  live={!fixedSession && sessions.has(row.session_id)}
+                  showSession={!fixedSession}
+                  onOpen={setOpenRow}
+                />
               ))}
             </ul>
           </section>
@@ -237,7 +257,7 @@ function PromptTrace({ host }: { host: boolean }) {
           </>
         )}
       >
-        {!host && session && (
+        {!host && session && !fixedSession && (
           <>
             <Field label="Session" className={styles.inlineField}>
               <NativeSelect value={session} onChange={pickSession} options={sessionOptions} />
@@ -262,8 +282,9 @@ function PromptTrace({ host }: { host: boolean }) {
         <PromptSheet
           row={openRow}
           query={query}
-          live={sessions.has(openRow.session_id)}
+          live={!fixedSession && sessions.has(openRow.session_id)}
           onOpenSession={openSession}
+          onUseAgain={onUseAgain ? (text) => { setOpenRow(null); onUseAgain(text); } : undefined}
           onClose={closeRow}
         />
       )}
@@ -271,10 +292,12 @@ function PromptTrace({ host }: { host: boolean }) {
   );
 }
 
-function PromptRow({ row, query, live, onOpen }: {
+function PromptRow({ row, query, live, showSession, onOpen }: {
   row: PromptTraceRow;
   query: string;
   live: boolean;
+  /** Name the session on the row (not in one session's own tab). */
+  showSession: boolean;
   onOpen: (row: PromptTraceRow) => void;
 }) {
   const text = row.text ?? '';
@@ -285,7 +308,7 @@ function PromptRow({ row, query, live, onOpen }: {
       <button type="button" className={styles.rowButton} onClick={() => onOpen(row)}>
         <span className={styles.rowTop}>
           <span className={styles.rowMeta}>
-            {formatPromptClock(row.timestamp)} · {session}
+            {showSession ? `${formatPromptClock(row.timestamp)} · ${session}` : formatPromptClock(row.timestamp)}
           </span>
           {live && <Chip tone="success">live</Chip>}
         </span>
@@ -295,11 +318,13 @@ function PromptRow({ row, query, live, onOpen }: {
   );
 }
 
-function PromptSheet({ row, query, live, onOpenSession, onClose }: {
+function PromptSheet({ row, query, live, onOpenSession, onUseAgain, onClose }: {
   row: PromptTraceRow;
   query: string;
   live: boolean;
   onOpenSession: (id: string) => void;
+  /** Put the prompt back in the composer (one session's tab). */
+  onUseAgain?: (text: string) => void;
   onClose: () => void;
 }) {
   const saveSnippet = usePromptSnippetStore((s) => s.save);
@@ -342,6 +367,7 @@ function PromptSheet({ row, query, live, onOpenSession, onClose }: {
           <Button onClick={() => void copy()}>Copy</Button>
           <Button onClick={() => void save()}>Save to prompts</Button>
           {live && <Button variant="primary" onClick={() => onOpenSession(row.session_id)}>Open session</Button>}
+          {onUseAgain && <Button variant="primary" onClick={() => onUseAgain(text)}>Use again</Button>}
         </div>
       </div>
     </BottomSheet>
