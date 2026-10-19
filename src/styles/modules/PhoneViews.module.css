@@ -17,6 +17,14 @@
   overflow: hidden;
 }
 
+/* The shared view-tab kit's buttons (Filters, Add a task…) in the phone's dress (Oct 20
+   2026): sentence case at normal tracking, as the rest of the phone app writes them. */
+.view.view :global(button) {
+  font-size: max(var(--ph-size-caption), 1em);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* ---- The bar ------------------------------------------------------------- */
 
 .bar {

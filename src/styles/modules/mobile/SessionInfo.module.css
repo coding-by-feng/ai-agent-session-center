@@ -32,3 +32,29 @@
 .tab > * {
   flex: 1;
 }
+
+/* Info → Notes, Queue, Agents and AI popups are the desktop's own components (one
+   feature, one behaviour on both), in the phone's dress (Oct 20 2026): the phone's
+   font for words, monospace kept for code and commands, no tracking or forced capitals
+   on controls. Redefining --font-mono on the root is how a component takes its own font
+   (settings-system.md); `.tab.tab` outranks the desktop's two-class control rules. */
+.tab {
+  --font-mono: var(--ph-font);
+  font-family: var(--ph-font);
+}
+
+.tab :global(:is(code, pre, kbd, samp)) {
+  --font-mono: var(--ph-font-mono);
+  font-family: var(--ph-font-mono);
+}
+
+.tab.tab :global(*:not(code, pre, kbd, samp)) {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* The phone's font sets wider than the desktop's mono: 2px less side padding keeps a
+   queue row's five actions (⚡ NOW · EDIT · MOVE · DEL · ⋯) on one line at 360px. */
+.tab.tab :global(button) {
+  padding-inline: min(10px, var(--ph-space-3));
+}
