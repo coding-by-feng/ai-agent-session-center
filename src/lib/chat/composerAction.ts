@@ -2,6 +2,9 @@
  * composerAction.ts — what the phone composer's main button does (AASC-42). Pure.
  *
  *   waiting / idle      Send        sends now (POST /prompt, mode now)
+ *     …queue waiting    Queue       behind the prompts the queue will still send
+ *                                   (queueWaiting); a hold sends it ahead of them
+ *                                   (mode now, confirmed: nothing runs to interrupt)
  *   working / prompting Queue       adds an active item to the session's queue,
  *                                   which the Mac's window sends when the turn
  *                                   ends; a hold offers Send now (interrupt, confirmed);
@@ -17,6 +20,9 @@ import type { CommandEntry } from '@/lib/commandIndex';
 
 export type ComposerPrimary = 'send' | 'queue' | 'deny-and-tell';
 
+/** What holding the main button offers: interrupt and send, send ahead of the queue, or queue. */
+export type ComposerHold = 'send-now' | 'send-ahead' | 'queue';
+
 export interface ComposerInput {
   status: string;
   cli: 'claude' | 'codex' | null;
@@ -29,6 +35,8 @@ export interface ComposerInput {
   card: { kind: 'permission' | 'question' | 'plan' | 'guess' } | null;
   /** Some AASC window is up to send the queue (macWindowOpen). */
   macWindowOpen: boolean;
+  /** Prompts the session's queue will still send by itself (queueWaiting). */
+  queueWaiting?: number;
 }
 
 export interface ComposerDecision {
@@ -43,7 +51,7 @@ export interface ComposerDecision {
   placeholder: string;
   showStop: boolean;
   /** What holding the button offers. */
-  holdAction: 'send-now' | 'queue' | null;
+  holdAction: ComposerHold | null;
   /** Said under the box when a queued prompt can't be sent yet. */
   queueNote?: string;
 }
@@ -89,6 +97,18 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       placeholder: name ? `Queue a message for ${name}…` : 'Queue a message…',
       showStop: true,
       holdAction: 'send-now',
+      ...(input.macWindowOpen ? {} : { queueNote: NO_MAC_WINDOW_NOTE }),
+    };
+  }
+  if (input.status !== 'connecting' && (input.queueWaiting ?? 0) > 0) {
+    // Behind what the queue will still send, not ahead of it.
+    return {
+      action: 'queue',
+      label: 'Queue',
+      canSend: input.hasContent,
+      placeholder: name ? `Queue a message for ${name}…` : 'Queue a message…',
+      showStop: false,
+      holdAction: 'send-ahead',
       ...(input.macWindowOpen ? {} : { queueNote: NO_MAC_WINDOW_NOTE }),
     };
   }

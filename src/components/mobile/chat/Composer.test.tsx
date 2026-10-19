@@ -19,7 +19,7 @@ import Composer from './Composer';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
-import { useQueueStore } from '@/stores/queueStore';
+import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { waitingCardModel } from '@/lib/chat/waitingCardModel';
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
@@ -78,7 +78,7 @@ const sendButton = () => screen.getByTestId('composer-send');
 
 beforeEach(() => {
   useComposerDraftStore.setState({ drafts: {} });
-  useQueueStore.setState({ queues: new Map() });
+  useQueueStore.setState({ queues: new Map(), automation: new Map() });
   presence();
 });
 
@@ -126,6 +126,46 @@ describe('Composer', () => {
     expect(items[0].disabled).toBeUndefined();
     expect(calls.some((c) => c.url.endsWith('/prompt'))).toBe(false);
     expect(await screen.findByText('Queued · sent when Claude finishes')).toBeInTheDocument();
+  });
+
+  describe('while prompts still wait in the queue', () => {
+    const waitingItem = { id: 1, sessionId: 's1', text: 'first, run the tests', type: 'once', nextFireAt: 0, createdAt: 1 } as unknown as QueueItem;
+
+    it('queues a new prompt behind them even though the agent is idle', async () => {
+      const calls = stubMac();
+      useQueueStore.setState({ queues: new Map([['s1', [waitingItem]]]) });
+      renderComposer(session({ status: 'waiting' }));
+      type('then update the docs');
+      expect(sendButton()).toHaveTextContent('Queue');
+      expect(screen.queryByTestId('composer-stop')).toBeNull();
+      fireEvent.click(sendButton());
+
+      const items = useQueueStore.getState().queues.get('s1') ?? [];
+      expect(items.map((i) => i.text)).toEqual(['first, run the tests', 'then update the docs']);
+      expect(calls.some((c) => c.url.endsWith('/prompt'))).toBe(false);
+    });
+
+    it('a hold sends it ahead of them, as a plain send (nothing runs to interrupt)', async () => {
+      const calls = stubMac();
+      useQueueStore.setState({ queues: new Map([['s1', [waitingItem]]]) });
+      renderComposer(session({ status: 'idle' }));
+      type('this one first');
+      fireEvent.contextMenu(sendButton());
+      expect(await screen.findByRole('dialog', { name: 'Send it now?' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Send now' }));
+
+      await waitFor(() => expect(calls.find((c) => c.url.endsWith('/prompt'))?.body).toMatchObject({ mode: 'now', text: 'this one first' }));
+      expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+    });
+
+    it('sends as usual when the queue would not send them by itself (Auto-send off)', () => {
+      stubMac();
+      useQueueStore.setState({ queues: new Map([['s1', [waitingItem]]]) });
+      useQueueStore.getState().setAutoSend('s1', false);
+      renderComposer(session({ status: 'waiting' }));
+      type('go');
+      expect(sendButton()).toHaveTextContent('Send');
+    });
   });
 
   it('says a queued prompt waits for the Mac when no AASC window is open', () => {

@@ -22,6 +22,20 @@ describe('composerAction', () => {
     expect(d.queueNote).toBeUndefined();
   });
 
+  it.each(['waiting', 'idle'])('queues behind prompts still waiting in the queue when the agent is %s; a hold sends it ahead', (status) => {
+    const d = composerAction(input({ status, queueWaiting: 2 }));
+    expect(d).toMatchObject({ action: 'queue', label: 'Queue', canSend: true, showStop: false, holdAction: 'send-ahead' });
+    expect(d.placeholder).toBe('Queue a message for Claude…');
+    expect(composerAction(input({ status, queueWaiting: 2, macWindowOpen: false })).queueNote).toBe('Sent when AASC is open on your Mac');
+  });
+
+  it('a waiting queue changes nothing while a card waits, the session is starting, or it ended', () => {
+    expect(composerAction(input({ status: 'approval', card: { kind: 'permission' }, queueWaiting: 2 })).action).toBe('deny-and-tell');
+    expect(composerAction(input({ status: 'connecting', queueWaiting: 2 })).action).toBe('send');
+    expect(composerAction(input({ status: 'ended', queueWaiting: 2 })).canSend).toBe(false);
+    expect(composerAction(input({ status: 'working', queueWaiting: 2 })).holdAction).toBe('send-now');
+  });
+
   it('says a queued prompt waits for the Mac when no AASC window is open there', () => {
     expect(composerAction(input({ status: 'working', macWindowOpen: false })).queueNote).toBe('Sent when AASC is open on your Mac');
     expect(composerAction(input({ status: 'waiting', macWindowOpen: false })).queueNote).toBeUndefined();

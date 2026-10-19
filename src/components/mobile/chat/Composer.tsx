@@ -23,7 +23,7 @@ import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { ChevronRightIcon, CloseIcon, InfoIcon } from '../kit/kitIcons';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
-import { useQueueStore, type QueueImageAttachment } from '@/stores/queueStore';
+import { DEFAULT_AUTOMATION, useQueueStore, type QueueImageAttachment, type QueueItem } from '@/stores/queueStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { getClientId } from '@/lib/deviceIdentity';
@@ -36,6 +36,7 @@ import { formatModelLabel } from '@/lib/modelLabel';
 import { parsePhonePath } from '@/lib/chat/phoneRoutes';
 import { MAX_PROMPT_IMAGES } from '@/lib/chat/promptApi';
 import { composerAction, macWindowOpen, pickerSheetFor, pickerSheetForText, runningTool } from '@/lib/chat/composerAction';
+import { queueWaiting } from '@/lib/chat/queueWaiting';
 import type { WaitingCard } from '@/lib/chat/waitingCardModel';
 import { showToast } from '@/components/ui/ToastContainer';
 import DrivingBanner from './DrivingBanner';
@@ -62,8 +63,13 @@ type OpenSheet =
   | { type: 'model'; focus: 'model' | 'effort' }
   | { type: 'saved' };
 
-type Confirm = { type: 'send-now' } | { type: 'queue-instead' } | { type: 'stop'; tool: string };
+type Confirm = { type: 'send-now' } | { type: 'send-ahead' } | { type: 'queue-instead' } | { type: 'stop'; tool: string };
 
+const HOLD_CONFIRM = { 'send-now': { type: 'send-now' }, 'send-ahead': { type: 'send-ahead' }, queue: { type: 'queue-instead' } } as const;
+const HOLD_HINT = { 'send-now': 'Hold to send now instead', 'send-ahead': 'Hold to send now, ahead of the queue', queue: 'Hold to add it to the queue instead' } as const;
+
+/** A stable empty queue, so the selector keeps its reference (zustand bails out on equality). */
+const NO_ITEMS: readonly QueueItem[] = [];
 const MAX_LINES = 6;
 const HOLD_MS = 500;
 const PLUS_DETENTS = ['fit'] as const;
@@ -93,7 +99,10 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const workspaceWriter = usePresenceStore((s) => s.workspaceWriter);
   const devices = usePresenceStore((s) => s.devices);
   const windowOpen = macWindowOpen({ received, workspaceWriter, devices }, getClientId());
-  const queued = useQueueStore((s) => s.queues.get(sessionId)?.length ?? 0);
+  const queueItems = useQueueStore((s) => s.queues.get(sessionId) ?? NO_ITEMS);
+  const queued = queueItems.length;
+  const automation = useQueueStore((s) => s.automation.get(sessionId) ?? DEFAULT_AUTOMATION);
+  const waiting = queueWaiting(queueItems, automation);
   const sender = usePromptSender(sessionId);
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -110,6 +119,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     driverLabel: driver,
     card: card ? { kind: card.kind } : null,
     macWindowOpen: windowOpen,
+    queueWaiting: waiting,
   });
   const sending = sender.state.phase === 'sending';
   const fieldOff = !!decision.fieldDisabledReason;
@@ -259,7 +269,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     held.current.timer = setTimeout(() => {
       held.current.fired = true;
       navigator.vibrate?.(10);
-      setConfirm(decision.holdAction === 'send-now' ? { type: 'send-now' } : { type: 'queue-instead' });
+      setConfirm(HOLD_CONFIRM[decision.holdAction!]);
     }, HOLD_MS);
   };
   const onPrimaryClick = () => {
@@ -420,7 +430,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             onPointerCancel={clearHold}
             onContextMenu={(e) => {
               e.preventDefault();
-              if (decision.holdAction && decision.canSend) setConfirm(decision.holdAction === 'send-now' ? { type: 'send-now' } : { type: 'queue-instead' });
+              if (decision.holdAction && decision.canSend) setConfirm(HOLD_CONFIRM[decision.holdAction]);
             }}
             onClick={onPrimaryClick}
             data-testid="composer-send"
@@ -430,7 +440,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           </button>
           {decision.holdAction && (
             <span id={`${sessionId}-hold-hint`} className={styles.srOnly}>
-              {decision.holdAction === 'send-now' ? 'Hold to send now instead' : 'Hold to add it to the queue instead'}
+              {HOLD_HINT[decision.holdAction]}
             </span>
           )}
         </div>
@@ -484,6 +494,14 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         confirmLabel="Stop and send"
         danger
         onConfirm={() => { setConfirm(null); submit('send-now'); }}
+        onCancel={cancelConfirm}
+      />
+      <ConfirmSheet
+        open={confirm?.type === 'send-ahead'}
+        title="Send it now?"
+        message={`It goes to ${cliName} ahead of the ${waiting === 1 ? 'prompt' : `${waiting} prompts`} waiting in the queue.`}
+        confirmLabel="Send now"
+        onConfirm={() => { setConfirm(null); submit('send'); }}
         onCancel={cancelConfirm}
       />
       <ConfirmSheet
