@@ -22,6 +22,21 @@ export class WsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private lastSeq = 0;
+  private wakeListening = false;
+  /** The server refused our token (4001): waking must not retry it. An explicit connect clears it. */
+  private authRefused = false;
+
+  /**
+   * Back in view, or back online: reconnect now rather than at the next back-off
+   * step. A phone app's socket dies while it sleeps in the background, and the
+   * back-off had grown to its 10 s cap by then, so every return to the app showed
+   * "Reconnecting…" for up to 10 s (e2e run 5, F3). `reconnectNow` leaves an open
+   * or connecting socket alone.
+   */
+  private readonly onWake = (): void => {
+    if (this.authRefused || document.visibilityState !== 'visible') return;
+    this.reconnectNow();
+  };
 
   constructor(options: WsClientOptions) {
     this.options = options;
@@ -29,6 +44,12 @@ export class WsClient {
 
   connect(): void {
     if (this.disposed) return;
+    this.authRefused = false;
+    if (!this.wakeListening) {
+      this.wakeListening = true;
+      document.addEventListener('visibilitychange', this.onWake);
+      window.addEventListener('online', this.onWake);
+    }
 
     const url = new URL(this.options.url, window.location.origin);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -76,6 +97,7 @@ export class WsClient {
 
       // Auth failure -- don't reconnect
       if (event.code === 4001) {
+        this.authRefused = true;
         this.options.onStatus('disconnected');
         document.dispatchEvent(new CustomEvent('ws-auth-failed'));
         return;
@@ -136,6 +158,8 @@ export class WsClient {
 
   dispose(): void {
     this.disposed = true;
+    document.removeEventListener('visibilitychange', this.onWake);
+    window.removeEventListener('online', this.onWake);
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

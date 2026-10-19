@@ -54,13 +54,18 @@
   transform: translateY(-50%) rotate(180deg);
 }
 
+/* Portaled to <body> and placed by Combobox.tsx (top/left/width inline, from placeMenu): an absolute
+   list inside a modal's scrolling body was clipped at its edge (e2e run 5, F2). */
+.popover {
+  position: fixed;
+  z-index: var(--z-portal-menu, 10000);
+}
+
 .dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 50;
-  max-height: 200px;
+  /* Its own cap, and the room placeMenu found in the viewport (--cb-room, set inline). */
+  --cb-cap: 200px;
+  box-sizing: border-box;
+  max-height: min(var(--cb-cap), var(--cb-room, var(--cb-cap)));
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg-card, #12122a);
@@ -155,6 +160,6 @@
   }
 
   .dropdown {
-    max-height: 160px;
+    --cb-cap: 160px;
   }
 }

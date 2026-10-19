@@ -8,6 +8,10 @@
  * id changes, and it is what a restored card shows before the CLI reports in, so
  * watching them here is the difference between "Auto-send OFF is remembered" and
  * "the session comes back ON and its held prompts go out".
+ *
+ * A SHARE click does change `sessions`, but the 5 s session timer is reset by every
+ * session update, so on a busy board it waited for a lull — quit before then and the
+ * restart restored the old share state. It takes the quick save too.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -15,6 +19,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { scheduleAutoSave, scheduleAutomationSave, cancelAutoSave } from '@/lib/workspaceSnapshot';
 import { automationIntentChanged } from '@/lib/queueAutomationDiff';
+import { shareIntentChanged } from '@/lib/shareIntentDiff';
 
 // Read at save time, so the debounced callback always sees the latest state.
 const currentSessions = () => useSessionStore.getState().sessions;
@@ -29,6 +34,14 @@ export function useWorkspaceAutoSave(): void {
     // Skip initial render — only auto-save after actual changes
     scheduleAutoSave(currentSessions, currentRooms);
   }, [sessions, rooms]);
+
+  // A session's SHARE (📡) was flipped — by this device, another one, or "Share all now".
+  const seenSessions = useRef(sessions);
+  useEffect(() => {
+    const before = seenSessions.current;
+    seenSessions.current = sessions;
+    if (shareIntentChanged(before, sessions)) scheduleAutomationSave(currentSessions, currentRooms);
+  }, [sessions]);
 
   // A switch was changed by somebody. Mounting is not a change, and neither is a
   // row loaded at boot, a sync echo, or a re-key moving a config to a new id (see

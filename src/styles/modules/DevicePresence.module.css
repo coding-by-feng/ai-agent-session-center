@@ -294,47 +294,115 @@
   opacity: 0.5;
 }
 
-/* Incoming hand-over request, shown to the device that holds the session. */
+/* Incoming hand-over request, shown to the device that holds the session.
+   A full row of .ctrlBar (which wraps; in the vertical rail it is
+   `display: contents`, so this is a flex item of the switcher row), never a
+   no-wrap chip: the chip could not shrink and pushed its own dismiss past the
+   right edge of a docked panel. */
 .request {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  display: flex;
+  flex: 1 1 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px;
   border: 1px solid color-mix(in srgb, var(--accent-cyan, #00e5ff) 45%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.requestBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Wraps rather than ellipsising: in the 213px rail an ellipsis cut exactly
+   "wants control", the words the card exists to say. */
+.requestTitle {
+  overflow-wrap: anywhere;
+}
+
+.requestFrom {
   color: var(--accent-text, var(--accent-cyan));
+  font-weight: 700;
+}
+
+/* --text-primary, not --text-secondary: secondary fails 4.5:1 on this cyan
+   tint in several themes. Size, not colour, makes it the quieter line. */
+.requestHint {
+  color: var(--text-primary);
   font-size: 10.5px;
-  white-space: nowrap;
+}
+
+.requestActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Grow so that, once the rail is too narrow for both on one line, each button
+   fills the row instead of two ragged widths. */
+.grantBtn,
+.dismissBtn {
+  flex: 1 1 auto;
+  max-width: 200px;
+  min-height: 24px;
+  padding: 4px 12px;
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
 }
 
 .grantBtn {
-  padding: 3px 8px;
-  border: 1px solid currentcolor;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: 10px;
-  cursor: pointer;
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 20%, transparent);
+  color: var(--text-primary);
 }
 
 .grantBtn:hover {
-  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 22%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 24%, transparent);
 }
 
 .dismissBtn {
-  padding: 3px 6px;
-  border: none;
+  border-color: var(--border-subtle-strong);
   background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.7;
+  color: var(--text-primary);
 }
 
 .dismissBtn:hover {
-  opacity: 1;
+  background: var(--bg-subtle-strong);
+  color: var(--text-primary);
+}
+
+.grantBtn:active,
+.dismissBtn:active {
+  transform: scale(0.97);
+}
+
+.grantBtn:focus-visible,
+.dismissBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grantBtn,
+  .dismissBtn {
+    transition: none;
+  }
+
+  .grantBtn:active,
+  .dismissBtn:active {
+    transform: none;
+  }
 }

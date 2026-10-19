@@ -46,6 +46,8 @@ import { SparkIcon } from './phoneIcons';
 import { captureSelectionIn } from '@/hooks/useSelectionIn';
 import { usePhoneAiScopeOn, usePhoneAiStore } from '@/stores/phoneAiStore';
 import { phoneFileAiScope } from '@/lib/phoneAiScopes';
+import { openBackLayer } from '@/lib/backLayers';
+import { useScreenSlot } from './kit/screenSlot';
 import styles from '@/styles/modules/PhoneProject.module.css';
 
 /** Dress the portal host for where it goes, and move it there (a DOM node React doesn't own). */
@@ -94,6 +96,12 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
     setFullscreen(false);
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
   }, []);
+  // The phone's Back walks the tab's own steps (file → folder → …) before the frame pops the screen, as the
+  // ‹ above does (e2e run 5, F5). One layer per step: a press releases it, the shorter stack registers the
+  // next. Only while this screen is on show: a screen pushed over the session takes the Back itself.
+  const { isTop } = useScreenSlot();
+  const depth = stack.length;
+  useEffect(() => (isTop && depth > 1 ? openBackLayer(back) : undefined), [isTop, depth, back]);
   const goToDir = useCallback((dir: string) => {
     setNotice(null);
     setFullscreen(false);

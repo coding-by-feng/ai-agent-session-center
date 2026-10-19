@@ -114,3 +114,40 @@ describe('useWorkspaceAutoSave — an Auto-send toggle', () => {
   });
 });
 
+
+// A SHARE click changes `sessions`, but only the 5 s trailing timer saw it, and every
+// session update resets that timer: on a busy board the share never reached the
+// snapshot, and a restart brought the session back with its old share state.
+describe('useWorkspaceAutoSave — a SHARE toggle', () => {
+  const sharedOf = (snap: WorkspaceSnapshot, id: string) =>
+    snap.sessions.find((x) => x.originalSessionId === id)?.remoteVisible;
+
+  it('saves the workspace within about a second, with the share in it', async () => {
+    renderHook(() => useWorkspaceAutoSave());
+    act(() => useSessionStore.getState().toggleRemoteVisible('s1'));
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(saves().some((snap) => sharedOf(snap, 's1') === true)).toBe(true);
+  });
+
+  it('still saves while sessions keep changing every 250 ms', async () => {
+    renderHook(() => useWorkspaceAutoSave());
+    let shared = false;
+    for (let t = 0; t < 28; t++) {
+      if (t === 8) shared = true;
+      act(() =>
+        useSessionStore.getState().setSessions(
+          new Map([['s1', { ...session('s1'), lastActivityAt: t, remoteVisible: shared } as Session]]),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(250);
+    }
+    expect(saves().some((snap) => sharedOf(snap, 's1') === true)).toBe(true);
+  });
+
+  it('a session update that leaves the share alone does not take the quick save', async () => {
+    renderHook(() => useWorkspaceAutoSave());
+    act(() => useSessionStore.getState().setSessions(new Map([['s1', { ...session('s1'), lastActivityAt: 1 } as Session]])));
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(saves()).toHaveLength(0);
+  });
+});

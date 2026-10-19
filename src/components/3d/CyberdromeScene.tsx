@@ -19,7 +19,6 @@ import { useCameraStore } from '@/stores/cameraStore';
 import { saveRobotPositions, type PersistedRobotState } from '@/lib/robotPositionPersist';
 import { getAllNavInfo, robotPositionStore } from './robotPositionStore';
 import { getScene3DTheme, type Scene3DTheme } from '@/lib/sceneThemes';
-import { resolveSceneStyle, type SceneStyle } from '@/lib/sceneStyle';
 import { clayToneFor, sceneExposure, type ClayTone } from '@/lib/dioramaLighting';
 import { resolveFrameloop, UNFOCUSED_FRAME_MS } from '@/lib/sceneFrameloop';
 import { useWindowActivity } from '@/hooks/useWindowActivity';
@@ -107,7 +106,6 @@ function SceneContent({
   roomAssignments,
   fontSize,
   selectedSessionId,
-  sceneStyle,
   clayTone,
 }: {
   rooms: RoomConfig[];
@@ -128,7 +126,6 @@ function SceneContent({
   fontSize: number;
   /** The session open in the detail panel, read from the store in the DOM layer. */
   selectedSessionId: string | null;
-  sceneStyle: SceneStyle;
   /** The robots' clay, derived from the theme in the DOM layer — see `clayToneFor`. */
   clayTone: ClayTone;
 }) {
@@ -151,7 +148,6 @@ function SceneContent({
         casualAreas={casualAreas}
         workstations={workstations}
         theme={sceneTheme}
-        sceneStyle={sceneStyle}
         tone={clayTone}
       />
       <RoomLabels rooms={rooms} casualAreas={casualAreas} storeRooms={storeRooms} sessions={sessionsMap} />
@@ -169,7 +165,6 @@ function SceneContent({
           globalCharacterModel={globalCharacterModel}
           fontSize={fontSize}
           isSelected={session.sessionId === selectedSessionId}
-          sceneStyle={sceneStyle}
           clayTone={clayTone}
         />
       ))}
@@ -303,16 +298,10 @@ export default function CyberdromeScene() {
   const themeName = useSettingsStore((s) => s.themeName);
   const globalCharacterModel = useSettingsStore((s) => s.characterModel);
   const fontSize = useSettingsStore((s) => s.fontSize);
-  // The look (diorama / cyberdrome). A stored value from an older or newer build still draws.
-  const sceneStyle = resolveSceneStyle(useSettingsStore((s) => s.sceneStyle));
   const sceneTheme = useMemo(() => getScene3DTheme(themeName), [themeName]);
   // The robots' clay follows the palette: a body that reads against dark furniture turns white on bright
-  // furniture (see CLAY_PAINT). Only the diorama has clay, so the neon look keeps 'standard' and a theme
-  // switch never re-renders it.
-  const clayTone = useMemo(
-    () => (sceneStyle === 'diorama' ? clayToneFor(sceneTheme) : 'standard'),
-    [sceneStyle, sceneTheme],
-  );
+  // furniture (see CLAY_PAINT).
+  const clayTone = useMemo(() => clayToneFor(sceneTheme), [sceneTheme]);
   const controlsRef = useRef<OrbitControlsImpl>(null);
   // Render-loop gating: full rate only when this window is visible AND focused.
   // See src/lib/sceneFrameloop.ts for why a background window would otherwise
@@ -428,7 +417,7 @@ export default function CyberdromeScene() {
           // renderer on EVERY render (its layout effect has no dependency array, and `antialias` never
           // matches a renderer property, so the shallow compare never short-circuits). An effect that
           // set a different value would be undone by the next session update.
-          toneMappingExposure: sceneExposure(sceneStyle, sceneTheme),
+          toneMappingExposure: sceneExposure(sceneTheme),
         }}
         style={{ position: 'absolute', inset: 0, background: sceneTheme.background }}
         onCreated={({ gl }) => {
@@ -467,7 +456,6 @@ export default function CyberdromeScene() {
             roomAssignments={roomAssignments}
             fontSize={fontSize}
             selectedSessionId={selectedSessionId}
-            sceneStyle={sceneStyle}
             clayTone={clayTone}
           />
         </Suspense>

@@ -18,7 +18,6 @@ export {
 } from './roomGrid';
 import { ROOM_GAP, ROOM_HALF, ROOM_COLS, computeRoomCenter } from './roomGrid';
 export const WALL_H = 2.0;
-export const WALL_T = 0.08;
 export const DOOR_GAP = 1.5;        // doorway width
 
 // ---------------------------------------------------------------------------

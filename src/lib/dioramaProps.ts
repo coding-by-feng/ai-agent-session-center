@@ -38,7 +38,7 @@ export function buildDoorPosts(
 // Shared dimensions — the scene draws from these, the layout below clears them
 // ---------------------------------------------------------------------------
 
-/** The diorama's walls: 0.7 high (not the neon look's 2.0 — see `CyberdromeEnvironment`) and 0.14 thick. */
+/** The diorama's walls: 0.7 high (fence height, so the desks behind stay in view) and 0.14 thick. */
 export const DIORAMA_WALL_H = 0.7;
 export const DIORAMA_WALL_T = 0.14;
 

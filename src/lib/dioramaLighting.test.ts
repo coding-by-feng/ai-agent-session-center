@@ -96,20 +96,15 @@ describe('dioramaLighting on a dark palette', () => {
 });
 
 describe('sceneExposure', () => {
-  it('leaves the neon cyberdrome exactly as it always rendered, whatever the palette', () => {
-    expect(sceneExposure('cyberdrome', darkTheme)).toBe(BASE_EXPOSURE);
-    expect(sceneExposure('cyberdrome', lightTheme)).toBe(BASE_EXPOSURE);
-  });
-
   it('leaves the diorama on a dark palette at the base exposure', () => {
-    expect(sceneExposure('diorama', darkTheme)).toBe(BASE_EXPOSURE);
+    expect(sceneExposure(darkTheme)).toBe(BASE_EXPOSURE);
   });
 
   // The tone mapper brightens by `exposure`; on a palette that is already near white that is the
   // difference between a floor with a little shade in it and a floor that is flat white.
   it('pulls the diorama back on a light palette so its floor keeps some shade', () => {
-    expect(sceneExposure('diorama', lightTheme)).toBeLessThan(BASE_EXPOSURE);
-    expect(sceneExposure('diorama', lightTheme)).toBeGreaterThan(0.5);
+    expect(sceneExposure(lightTheme)).toBeLessThan(BASE_EXPOSURE);
+    expect(sceneExposure(lightTheme)).toBeGreaterThan(0.5);
   });
 });
 

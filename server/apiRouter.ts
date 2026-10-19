@@ -743,7 +743,11 @@ router.post('/config/keep-awake', requireLocalOnly, (req: Request, res: Response
   res.json({ success: true, data: { enabled: keepAwake.isEnabled(), awake: keepAwake.isAwake() } });
 });
 
-router.post('/config/terminal-buffer', (req: Request, res: Response) => {
+/**
+ * The Mac only, like keep-awake: it sizes every terminal this machine creates. Every client used to push its
+ * own Settings value on start-up, so a second device silently reset the Mac's buffer (e2e run 5, F4).
+ */
+router.post('/config/terminal-buffer', requireLocalOnly, (req: Request, res: Response) => {
   const body = validateBody(terminalBufferSchema, req.body, res);
   if (!body) return;
   const applied = setReplayBufferBytes(body.bytes);

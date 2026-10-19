@@ -40,22 +40,38 @@ export default function SessionControlLock({ sessionId }: Props) {
   // (useControlBaton), so the two can never disagree about who drives.
   const { mode, holder, request, canTake, waitSecs, ask, take, grant, dismiss, release } = useControlBaton(sessionId);
 
-  // (2) Someone is asking us to hand this session over.
+  // (2) Someone is asking us to hand this session over. A full-row card, not a
+  // chip: a bare "Grant" never said what it gave away, and the no-wrap chip
+  // pushed its × dismiss past the right edge of a docked panel.
   if (mode === 'asked' && request) {
     return (
-      <span className={styles.request}>
-        <span aria-hidden="true">🙋</span>
-        <span>{request.fromLabel} wants control</span>
-        <button className={styles.grantBtn} onClick={grant}>Grant</button>
-        <button
-          className={styles.dismissBtn}
-          onClick={dismiss}
-          aria-label="Dismiss control request"
-          title="Keep control"
-        >
-          ×
-        </button>
-      </span>
+      <div className={styles.request} role="group" aria-label="Control request">
+        <div className={styles.requestBody}>
+          <span className={styles.requestTitle}>
+            <span aria-hidden="true">🙋 </span>
+            <strong className={styles.requestFrom}>{request.fromLabel}</strong> wants control of this session
+          </span>
+          <span className={styles.requestHint}>
+            It will type here; you watch. Ask to take it back any time.
+          </span>
+          <span className={styles.requestActions}>
+            <button
+              className={styles.grantBtn}
+              onClick={grant}
+              title={`Hand typing in this session to ${request.fromLabel}`}
+            >
+              Grant control
+            </button>
+            <button
+              className={styles.dismissBtn}
+              onClick={dismiss}
+              title="Decline — this device keeps typing"
+            >
+              Keep control
+            </button>
+          </span>
+        </div>
+      </div>
     );
   }
 

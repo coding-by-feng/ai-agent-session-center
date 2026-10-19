@@ -90,30 +90,9 @@ describe('settingsStore', () => {
     });
   });
 
-  describe('sceneStyle', () => {
-    const realPersist = useSettingsStore.getState().persistSetting;
-    afterEach(() => {
-      useSettingsStore.setState({ persistSetting: realPersist, sceneStyle: 'diorama' });
-    });
-
-    it('starts as the diorama look', () => {
-      expect(useSettingsStore.getInitialState().sceneStyle).toBe('diorama');
-    });
-
-    it('switches the look and writes the choice to the settings table', () => {
-      const persist = vi.fn().mockResolvedValue(undefined);
-      useSettingsStore.setState({ persistSetting: persist });
-
-      useSettingsStore.getState().setSceneStyle('cyberdrome');
-
-      expect(useSettingsStore.getState().sceneStyle).toBe('cyberdrome');
-      expect(persist).toHaveBeenCalledWith('sceneStyle', 'cyberdrome');
-    });
-
-    it('restores a stored look when the settings load', () => {
-      useSettingsStore.getState().loadFromDb({ sceneStyle: 'cyberdrome' });
-      expect(useSettingsStore.getState().sceneStyle).toBe('cyberdrome');
-    });
+  it('has no scene-look setting: the diorama is the only look', () => {
+    expect('sceneStyle' in useSettingsStore.getInitialState()).toBe(false);
+    expect('setSceneStyle' in useSettingsStore.getState()).toBe(false);
   });
 
   describe('setAnimationIntensity', () => {

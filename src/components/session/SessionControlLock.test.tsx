@@ -15,7 +15,7 @@ vi.mock('@/lib/deviceIdentity', () => ({ getClientId: () => 'mac', getClientLabe
 vi.mock('@/lib/presenceClient', () => ({
   claimControl: vi.fn(),
   requestControl: vi.fn(),
-  grantControl: vi.fn(),
+  grantControl: vi.fn(async () => ({ ok: true })),
   releaseControl: vi.fn(async () => ({ ok: true, released: true })),
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
@@ -23,7 +23,7 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 import SessionControlLock from './SessionControlLock';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { releaseControl } from '@/lib/presenceClient';
+import { grantControl, releaseControl } from '@/lib/presenceClient';
 import { showToast } from '@/components/ui/ToastContainer';
 
 const SID = 'sess-1';
@@ -110,5 +110,41 @@ describe('SessionControlLock — Release', () => {
     expect(message).toMatch(/your other devices can't see it/);
     action!.onClick();
     expect(vi.mocked(showToast).mock.calls.at(-1)?.[0]).toBe('Shared — your other devices can open it now');
+  });
+});
+
+// The request card: a bare "Grant" never said what it handed over, and the
+// no-wrap chip pushed its × dismiss past the right edge of a docked panel.
+describe('SessionControlLock — incoming control request', () => {
+  function ask() {
+    setup({ remoteVisible: true, others: [device('phone', 'iPhone · AASC App', false)] });
+    usePresenceStore.getState().addRequest({ sessionId: SID, fromClientId: 'phone', fromLabel: 'iPhone · AASC App', at: 1 });
+    render(<SessionControlLock sessionId={SID} />);
+  }
+
+  beforeEach(() => vi.mocked(grantControl).mockClear());
+
+  it('says who asks, what granting does, and how to get it back', () => {
+    ask();
+    const card = screen.getByRole('group', { name: 'Control request' });
+    expect(card.textContent).toContain('iPhone · AASC App wants control of this session');
+    expect(card.textContent).toContain('It will type here; you watch. Ask to take it back any time.');
+    expect(screen.getByRole('button', { name: 'Grant control' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Keep control' })).toBeTruthy();
+  });
+
+  it('Grant control hands the session to the asking device', async () => {
+    ask();
+    fireEvent.click(screen.getByRole('button', { name: 'Grant control' }));
+    await waitFor(() => expect(grantControl).toHaveBeenCalledWith(SID, 'phone'));
+    expect(usePresenceStore.getState().pendingRequests.has(SID)).toBe(false);
+  });
+
+  it('Keep control declines without handing anything over', () => {
+    ask();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep control' }));
+    expect(grantControl).not.toHaveBeenCalled();
+    expect(usePresenceStore.getState().pendingRequests.has(SID)).toBe(false);
+    expect(screen.queryByRole('group', { name: 'Control request' })).toBeNull();
   });
 });
