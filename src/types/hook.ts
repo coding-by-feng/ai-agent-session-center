@@ -149,6 +149,8 @@ export interface TaskCompletedPayload extends HookPayloadBase {
 /** PreCompact event payload */
 export interface PreCompactPayload extends HookPayloadBase {
   hook_event_name: 'PreCompact';
+  /** 'manual' for /compact, 'auto' otherwise (both Claude Code and Codex send it). */
+  trigger?: string;
 }
 
 /** PostCompact event payload */

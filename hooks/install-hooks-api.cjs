@@ -23,18 +23,19 @@ const DENSITY_EVENTS = {
   medium: [
     'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
     'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
-    'TaskCompleted', 'SessionEnd',
+    'TaskCompleted', 'PreCompact', 'SessionEnd',
   ],
   low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'],
 };
 
-// Codex CLI (>=0.130) natively supports only these 5 lifecycle hooks via
-// [[hooks.X]] blocks. Stop / agent-turn-complete is delivered via the
+// Codex CLI (>=0.130) takes its lifecycle hooks as [[hooks.X]] blocks. Stop / agent-turn-complete is delivered via the
 // legacy `notify = "..."` config entry, not as a hooks block — listing it
 // here previously made the installer write a block Codex silently ignores.
+// Codex 0.162 also fires PreCompact / PostCompact (its hook schema lists both, with
+// `trigger`); they drive the phone's "Compacting" hint. An older Codex ignores them.
 const CODEX_DENSITY_EVENTS = {
-  high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest'],
-  medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest'],
+  high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'PreCompact', 'PostCompact'],
+  medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'PreCompact', 'PostCompact'],
   low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest'],
 };
 

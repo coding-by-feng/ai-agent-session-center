@@ -330,12 +330,27 @@
 
 @keyframes strip-pulse { 50% { opacity: 0.35; } }
 
-.stripText {
+.stripLabel {
   flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.stripText {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stripTime {
+  flex: none;
+  white-space: pre;
   font-size: var(--ph-size-secondary);
   line-height: var(--ph-line-secondary);
   color: var(--ph-text);

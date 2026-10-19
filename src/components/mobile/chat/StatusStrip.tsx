@@ -1,5 +1,7 @@
 /**
- * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop"
+ * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop",
+ * or compacts its context: "● Compacting context · auto · 0:23  ■ Stop" (timed from
+ * PreCompact; Esc cancels a compaction too)
  * and the terminal peek under it, whose opened face has "Open terminal" (AASC-56). Status and tool come from the session object
  * (hook-driven, instant), not from the transcript.
  *
@@ -13,6 +15,7 @@ import type { Session } from '@/types';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
+import { isCompacting } from '@/lib/chat/phoneStatus';
 import { Button } from '../kit';
 import TerminalPeek from './TerminalPeek';
 import { SquareStopIcon } from './chatViewIcons';
@@ -53,10 +56,13 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
     return () => clearInterval(id);
   }, []);
 
-  const since = turnStart(session);
-  const tool = currentTool(session, since);
+  const compacting = isCompacting(session, now) ? session.compacting : null;
+  const since = compacting ? compacting.since : turnStart(session);
+  const tool = compacting ? null : currentTool(session, since);
   const elapsed = formatDuration(Math.max(0, now - since));
-  const label = session.status === 'prompting' ? 'Starting' : 'Working';
+  const label = compacting
+    ? ['Compacting context', compacting.trigger].filter(Boolean).join(' · ')
+    : session.status === 'prompting' ? 'Starting' : 'Working';
 
   const stop = async () => {
     if (!terminalId) return;
@@ -77,10 +83,13 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
     <div className={styles.strip} data-testid="chat-status-strip">
       <div className={styles.stripRow}>
         <span className={styles.stripDot} aria-hidden="true" />
-        <span className={styles.stripText}>
-          {label}
-          {tool && <> · <span className={styles.stripTool}>{tool}</span></>}
-          {elapsed && <> · <span aria-label={`for ${elapsed}`}>{elapsed}</span></>}
+        {/* The time has its own box, so a long label truncates before the time does. */}
+        <span className={styles.stripLabel}>
+          <span className={styles.stripText}>
+            {label}
+            {tool && <> · <span className={styles.stripTool}>{tool}</span></>}
+          </span>
+          {elapsed && <span className={styles.stripTime}> · <span aria-label={`for ${elapsed}`}>{elapsed}</span></span>}
         </span>
         <Button
           small

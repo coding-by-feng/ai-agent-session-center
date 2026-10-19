@@ -1,6 +1,6 @@
 // phoneStatus.test.ts — a session status in the phone's plain words and tones (AASC-38).
 import { describe, it, expect } from 'vitest';
-import { phoneStatus, sessionStatusLine, sessionSubtitle } from './phoneStatus';
+import { COMPACTING_STALE_MS, isCompacting, phoneStatus, sessionStatusLine, sessionSubtitle } from './phoneStatus';
 
 describe('phoneStatus', () => {
   it('names every status in plain words with its tone', () => {
@@ -35,5 +35,38 @@ describe('sessionStatusLine / sessionSubtitle', () => {
     expect(sessionSubtitle({ ...base, runtime: { model: 'Opus 5.5', effort: 'high' } })).toBe('Working · Opus 5.5 · high');
     expect(sessionSubtitle({ ...base, effortLevel: 'max' })).toBe('Working · Opus 5.5 · max');
     expect(sessionSubtitle({ ...base, model: 'gpt-5.5-codex' })).toBe('Working · gpt-5.5-codex');
+  });
+});
+
+describe('compacting', () => {
+  const now = 1_000_000;
+  const compacting = { since: now - 5_000, trigger: 'auto' as const };
+
+  it('is compacting from PreCompact until the server clears it, for at most COMPACTING_STALE_MS', () => {
+    expect(isCompacting({ compacting }, now)).toBe(true);
+    expect(isCompacting({ compacting: null }, now)).toBe(false);
+    expect(isCompacting({}, now)).toBe(false);
+    // A lost end hook must not leave "Compacting" up for good.
+    expect(isCompacting({ compacting: { since: now - COMPACTING_STALE_MS, trigger: null } }, now)).toBe(false);
+  });
+
+  it('says "Compacting" in the working tone over an idle, finished or working status', () => {
+    for (const status of ['idle', 'waiting', 'working', 'prompting']) {
+      expect(phoneStatus(status, false, true)).toEqual({ tone: 'working', label: 'Compacting', glyph: 'working' });
+    }
+  });
+
+  it('never hides a question, an approval, an interruption or the end', () => {
+    expect(phoneStatus('approval', false, true)).toMatchObject({ label: 'Waiting for approval' });
+    expect(phoneStatus('input', false, true)).toMatchObject({ label: 'Has a question' });
+    expect(phoneStatus('waiting', true, true)).toMatchObject({ label: 'Interrupted' });
+    expect(phoneStatus('ended', false, true)).toMatchObject({ label: 'Ended' });
+  });
+
+  it('shows in the list line and the session subtitle', () => {
+    const live = { compacting: { since: Date.now(), trigger: 'manual' as const } };
+    expect(sessionStatusLine({ status: 'idle', interruption: null, projectName: 'exmouth', ...live })).toBe('Compacting · exmouth');
+    expect(sessionSubtitle({ status: 'idle', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', ...live }))
+      .toBe('Compacting · Opus 5.5 · high');
   });
 });

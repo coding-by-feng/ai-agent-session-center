@@ -30,7 +30,7 @@ import { useNotesStore } from '@/stores/notesStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { phoneStatus } from '@/lib/chat/phoneStatus';
+import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { infoPath, sessionHasChat, type InfoPage } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { faultLabel } from '@/lib/resumeWatchdog';
@@ -95,7 +95,7 @@ function InfoBody({ session }: { session: Session }) {
       <ListSection header="Session">
         <ListRow
           leading={<StatusRing status={session.status} interrupted={!!session.interruption} />}
-          title={phoneStatus(session.status, !!session.interruption).label}
+          title={phoneStatus(session.status, !!session.interruption, isCompacting(session)).label}
           value={formatRunTime(session, now)}
         />
         <ListRow

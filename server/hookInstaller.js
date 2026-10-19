@@ -64,7 +64,7 @@ export function ensureHooksInstalled(config) {
   //       reinforced by the legacy `notify` entry installed by install-hooks-core.
   const codexDensityEvents = {
     high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'Stop'],
-    medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop'],
+    medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'PreCompact', 'PostCompact', 'Stop'],
     low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop'],
   };
 
@@ -111,7 +111,7 @@ export function ensureHooksInstalled(config) {
     // Register in settings.json
     const densityEvents = {
       high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'TeammateIdle', 'TaskCompleted', 'PreCompact', 'SessionEnd'],
-      medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'TaskCompleted', 'SessionEnd'],
+      medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'TaskCompleted', 'PreCompact', 'SessionEnd'],
       low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'],
     };
     const events = densityEvents[density] || densityEvents.medium;

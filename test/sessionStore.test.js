@@ -394,6 +394,46 @@ describe('sessionStore', () => {
       });
       expect(result).toBeTruthy();
     });
+
+    describe('compacting (phone hint)', () => {
+      const compact = (id, extra = {}) =>
+        handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.PRE_COMPACT, ...extra });
+
+      it('marks a session compacting on PreCompact, with its trigger', () => {
+        createSession('cmp-start');
+        const before = Date.now();
+        const { session } = compact('cmp-start', { trigger: 'auto' });
+        expect(session.compacting).toEqual({ since: expect.any(Number), trigger: 'auto' });
+        expect(session.compacting.since).toBeGreaterThanOrEqual(before);
+      });
+
+      it('keeps the trigger null when the CLI sends none or an unknown one', () => {
+        createSession('cmp-notrigger');
+        expect(compact('cmp-notrigger').session.compacting.trigger).toBeNull();
+        expect(compact('cmp-notrigger', { trigger: 'weird' }).session.compacting.trigger).toBeNull();
+        expect(compact('cmp-notrigger', { trigger: 'manual' }).session.compacting.trigger).toBe('manual');
+      });
+
+      it('does not change the status: an idle compaction stays idle', () => {
+        createSession('cmp-status');
+        expect(compact('cmp-status').session.status).toBe(SESSION_STATUS.IDLE);
+      });
+
+      it.each([
+        ['PostCompact (Codex)', { hook_event_name: EVENT_TYPES.POST_COMPACT }],
+        ["Claude's SessionStart after a compaction", { hook_event_name: EVENT_TYPES.SESSION_START, source: 'compact' }],
+        ['the next prompt', { hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT, prompt: 'go on' }],
+        ['a tool call', { hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'Bash', tool_input: { command: 'ls' } }],
+        ['Stop', { hook_event_name: EVENT_TYPES.STOP }],
+        ['SessionEnd', { hook_event_name: EVENT_TYPES.SESSION_END }],
+      ])('clears it on %s', (_name, payload) => {
+        const id = `cmp-clear-${payload.hook_event_name}`;
+        createSession(id);
+        compact(id, { trigger: 'manual' });
+        const { session } = handleEvent({ session_id: id, ...payload });
+        expect(session.compacting).toBeNull();
+      });
+    });
   });
 
   describe('handleEvent - returns null for missing session_id', () => {

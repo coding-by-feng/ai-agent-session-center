@@ -4,7 +4,7 @@
 // previous / next, reads again when the session moves, and Stop writes Esc only
 // when this phone may type.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
 import type { ChatEntry, ChatPage } from '@/types/chat';
@@ -215,6 +215,23 @@ describe('ChatView', () => {
     expect(strip).toHaveTextContent('Working · Bash');
     await userEvent.click(within(strip).getByRole('button', { name: 'Stop the agent (Esc)' }));
     expect(writeTerminal).toHaveBeenCalledWith('term-1', '\x1b');
+  });
+
+  it('while compacting, even idle: the strip says so, with its trigger and time, and Stop still sends Esc', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    render(<ChatView session={session({ status: 'idle', compacting: { since: Date.now() - 23_000, trigger: 'auto' } })} onTerminal={() => {}} />);
+    const strip = await screen.findByTestId('chat-status-strip');
+    expect(strip).toHaveTextContent(/^Compacting context · auto · 0:2\d/);
+    expect(strip).not.toHaveTextContent('Working');
+    await userEvent.click(within(strip).getByRole('button', { name: 'Stop the agent (Esc)' }));
+    expect(writeTerminal).toHaveBeenCalledWith('term-1', '\x1b');
+  });
+
+  it('shows no strip for a compaction whose end hook never came (stale)', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    render(<ChatView session={session({ status: 'idle', compacting: { since: Date.now() - 60 * 60_000, trigger: null } })} onTerminal={() => {}} />);
+    await waitFor(() => expect(fetchChatPage).toHaveBeenCalled());
+    expect(screen.queryByTestId('chat-status-strip')).toBeNull();
   });
 
   it('opens the terminal from the live preview’s "Open terminal" (AASC-56)', async () => {

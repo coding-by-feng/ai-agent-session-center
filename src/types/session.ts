@@ -208,6 +208,17 @@ export interface SessionInterruption {
   detectedAt: number;
 }
 
+/**
+ * A context compaction in progress: set by a PreCompact hook, cleared when it ends
+ * (PostCompact, or Claude's SessionStart with source `compact`) or by the next turn
+ * event. Live-only; the phone ignores one older than `COMPACTING_STALE_MS`.
+ */
+export interface SessionCompacting {
+  since: number;
+  /** 'auto' (the context filled up, or compacted while idle) or 'manual' (/compact), when the CLI says. */
+  trigger: 'auto' | 'manual' | null;
+}
+
 // ---------------------------------------------------------------------------
 // Waiting requests (AASC-43): what a waiting session is asking, structured
 // ---------------------------------------------------------------------------
@@ -396,6 +407,8 @@ export interface Session {
    * auto-resume watchdog reads as "recovered". Absent on a healthy session.
    */
   interruption?: SessionInterruption | null;
+  /** A context compaction in progress (see `SessionCompacting`); absent or null otherwise. */
+  compacting?: SessionCompacting | null;
   /**
    * How the session came to need approval (AASC-16 push): a PermissionRequest hook,
    * a permission_prompt Notification, or the approval timeout guess. Live-only;

@@ -10,7 +10,7 @@ import type { ControlBatonMode } from '@/hooks/useControlBaton';
 import { restartNeedsConfirm } from '@/lib/restartSession';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { detectCli } from '@/lib/cliDetect';
-import { phoneStatus } from './phoneStatus';
+import { isCompacting, phoneStatus } from './phoneStatus';
 
 /** Restart is the terminal toolbar's: the agent's own terminal, never a fork's. */
 export function canRestartSession(session: Pick<Session, 'source' | 'terminalId' | 'isFork' | 'status'>): boolean {
@@ -55,7 +55,7 @@ function cliName(session: Session): string | null {
 
 /** "Claude Code · Working · 1h 12m": the Info screen's line under the title. */
 export function infoSubtitle(session: Session, now: number): string {
-  const { label } = phoneStatus(session.status, !!session.interruption);
+  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session));
   return [cliName(session), label, formatRunTime(session, now)].filter(Boolean).join(' · ');
 }
 

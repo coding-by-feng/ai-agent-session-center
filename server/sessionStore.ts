@@ -48,6 +48,7 @@ import {
 } from './db.js';
 import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
 import { nextPendingRequest, guessPendingRequest, requestCliOf } from './pendingRequests.js';
+import { nextCompacting } from './compactingState.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
 import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
@@ -918,6 +919,12 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     hookData as unknown as Record<string, unknown>, requestCliOf(session.cliSource), Date.now(),
   );
   if (pendingRequest !== (session.pendingRequest ?? null)) session.pendingRequest = pendingRequest;
+
+  // A context compaction in progress, for the phone's "Compacting" hint.
+  const compacting = nextCompacting(
+    session.compacting ?? null, hook_event_name, hookData as unknown as Record<string, unknown>, Date.now(),
+  );
+  if (compacting !== (session.compacting ?? null)) session.compacting = compacting;
 
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {

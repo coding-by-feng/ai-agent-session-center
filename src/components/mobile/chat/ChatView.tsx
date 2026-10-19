@@ -25,6 +25,7 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { buildChatItems, findMatches, type ChatItem, type QueuedItem } from '@/lib/chat/buildChatItems';
 import { plural } from '@/lib/chat/chatFormat';
+import { isCompacting } from '@/lib/chat/phoneStatus';
 import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
 import { matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -96,6 +97,8 @@ export default function ChatView({ session, onTerminal, onPullBack, popup }: Cha
   const queue = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const working = isWorking(session.status);
   const awaiting = isAwaiting(session.status);
+  // A compaction shows the strip too, idle or not (the phone's "Compacting" hint).
+  const busy = working || isCompacting(session);
 
   const items = useMemo(
     () => (data ? buildChatItems(data.entries, { live: working || awaiting, awaiting, queue }) : []),
@@ -157,7 +160,7 @@ export default function ChatView({ session, onTerminal, onPullBack, popup }: Cha
       initialView={data.view}
       loadOlder={loadOlderAction}
       rememberView={rememberView}
-      working={working}
+      working={busy}
       onPullBack={onPullBack}
       onTerminal={onTerminal}
       popup={popup}
@@ -176,6 +179,7 @@ interface ChatBodyProps {
   initialView?: ChatViewMemory;
   loadOlder: (sessionId: string) => Promise<void>;
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
+  /** Working or compacting: shows the status strip and keeps the terminal peek live. */
   working: boolean;
   onPullBack?: (item: QueuedItem) => void;
   onTerminal: () => void;

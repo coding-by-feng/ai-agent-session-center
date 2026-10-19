@@ -73,6 +73,9 @@ export const CODEX_DENSITY_EVENTS: Record<string, string[]> = {
     EVENT_TYPES.PRE_TOOL_USE,
     EVENT_TYPES.POST_TOOL_USE,
     EVENT_TYPES.PERMISSION_REQUEST,
+    // The phone's "Compacting" hint: rare, cheap, and the only start signal.
+    EVENT_TYPES.PRE_COMPACT,
+    EVENT_TYPES.POST_COMPACT,
     EVENT_TYPES.STOP,
   ],
   low: [
@@ -98,6 +101,7 @@ export const DENSITY_EVENTS: Record<string, string[]> = {
     EVENT_TYPES.SUBAGENT_START,
     EVENT_TYPES.SUBAGENT_STOP,
     EVENT_TYPES.TASK_COMPLETED,
+    EVENT_TYPES.PRE_COMPACT,
     EVENT_TYPES.SESSION_END,
   ],
   low: [

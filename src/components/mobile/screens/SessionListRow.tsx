@@ -24,7 +24,7 @@ import { ClaudeIcon, CodexIcon } from '@/components/layout/CliBrandIcons';
 import { useRoomStore } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { phoneStatus } from '@/lib/chat/phoneStatus';
+import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
@@ -85,7 +85,7 @@ export default function SessionListRow({
   const clock = useClock();
   const labelColor = useLabelStore((s) => (label ? s.labelColor(label) : undefined));
   const title = sessionDisplayTitle(session);
-  const status = phoneStatus(session.status, !!session.interruption).label;
+  const status = phoneStatus(session.status, !!session.interruption, isCompacting(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
   const cli = detectCli(session);
