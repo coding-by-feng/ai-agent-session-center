@@ -9,7 +9,6 @@ import {
   filterCount,
   formatAge,
   groupSessions,
-  hostCounts,
   isUnreadFinish,
   matchesFilter,
   matchesSearch,
@@ -199,11 +198,7 @@ describe('groupSessions', () => {
   });
 });
 
-describe('host card and connection', () => {
-  it('counts live sessions and the ones that need you', () => {
-    expect(hostCounts([mk('a', { status: 'approval' }), mk('b'), mk('c', { status: 'ended' }), mk('d', { status: 'input', isFloating: true })])).toEqual({ live: 2, needYou: 1 });
-  });
-
+describe('connection', () => {
   it('names the path to the Mac from the page address', () => {
     expect(connectionPath('localhost')).toBe('this-mac');
     expect(connectionPath('127.0.0.1')).toBe('this-mac');

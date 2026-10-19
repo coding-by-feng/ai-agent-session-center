@@ -4,7 +4,6 @@ import type { Session } from '@/types';
 import {
   canRestartSession,
   contextWords,
-  drivingWords,
   formatRunTime,
   killMessage,
   modelWords,
@@ -43,13 +42,6 @@ describe('facts in words', () => {
     expect(formatRunTime({ startedAt: 0, endedAt: null }, 50 * 3_600_000)).toBe('2d 2h');
   });
 
-  it('says who drives without the word baton', () => {
-    expect(drivingWords('driver', null)).toBe('This phone');
-    expect(drivingWords('asked', null)).toBe('This phone');
-    expect(drivingWords('spectator', 'MacBook')).toBe('MacBook');
-    expect(drivingWords('free', null)).toBe('Nobody right now');
-    expect(drivingWords('solo', null)).toBe('Nobody right now');
-  });
 
   it('names the live model and effort first', () => {
     expect(modelWords({ model: 'opus', runtime: { model: 'claude-opus-5-5', effort: 'high' } } as Session)).toBe('Opus 5.5 · high');

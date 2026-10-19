@@ -1,6 +1,6 @@
 // phoneStatus.test.ts — a session status in the phone's plain words and tones (AASC-38).
 import { describe, it, expect } from 'vitest';
-import { COMPACTING_STALE_MS, isCompacting, phoneStatus, sessionStatusLine, sessionSubtitle } from './phoneStatus';
+import { COMPACTING_STALE_MS, isCompacting, phoneStatus, sessionSubtitle } from './phoneStatus';
 
 describe('phoneStatus', () => {
   it('names every status in plain words with its tone', () => {
@@ -23,13 +23,8 @@ describe('phoneStatus', () => {
   });
 });
 
-describe('sessionStatusLine / sessionSubtitle', () => {
+describe('sessionSubtitle', () => {
   const base = { status: 'working', interruption: null, projectName: 'agent-manager', model: 'claude-opus-5-5' } as const;
-
-  it('joins the status with the project for a list row', () => {
-    expect(sessionStatusLine(base)).toBe('Working · agent-manager');
-    expect(sessionStatusLine({ ...base, projectName: '' })).toBe('Working');
-  });
 
   it('prefers the live model and effort for the session subtitle', () => {
     expect(sessionSubtitle({ ...base, runtime: { model: 'Opus 5.5', effort: 'high' } })).toBe('Working · Opus 5.5 · high');
@@ -63,9 +58,8 @@ describe('compacting', () => {
     expect(phoneStatus('ended', false, true)).toMatchObject({ label: 'Ended' });
   });
 
-  it('shows in the list line and the session subtitle', () => {
+  it('shows in the session subtitle', () => {
     const live = { compacting: { since: Date.now(), trigger: 'manual' as const } };
-    expect(sessionStatusLine({ status: 'idle', interruption: null, projectName: 'exmouth', ...live })).toBe('Compacting · exmouth');
     expect(sessionSubtitle({ status: 'idle', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', ...live }))
       .toBe('Compacting · Opus 5.5 · high');
   });

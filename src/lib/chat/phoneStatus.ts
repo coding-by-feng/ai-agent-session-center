@@ -50,14 +50,7 @@ export function phoneStatus(status: string, interrupted = false, compacting = fa
   return known ? { ...known, glyph: status } : { tone: 'idle', label: status || 'Unknown', glyph: 'idle' };
 }
 
-type LineFields = Pick<Session, 'status' | 'interruption' | 'projectName' | 'compacting'>;
 type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting'>;
-
-/** A list row's second line: "Working · agent-manager". */
-export function sessionStatusLine(session: LineFields): string {
-  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session));
-  return [label, session.projectName].filter(Boolean).join(' · ');
-}
 
 /** A session screen's subtitle: "Working · Opus 5.5 · high" (live model and effort first). */
 export function sessionSubtitle(session: SubtitleFields): string {

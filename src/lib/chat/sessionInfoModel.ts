@@ -6,7 +6,6 @@
  * how much of its context is used, the plan's limits.
  */
 import type { Session } from '@/types';
-import type { ControlBatonMode } from '@/hooks/useControlBaton';
 import { restartNeedsConfirm } from '@/lib/restartSession';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { detectCli } from '@/lib/cliDetect';
@@ -66,13 +65,6 @@ export function modelBlocker(session: Session): string | null {
   const cli = detectCli(session);
   if (cli !== 'claude' && cli !== 'codex') return 'Only Claude Code and Codex sessions have a model.';
   return null;
-}
-
-/** Who drives this session, from this phone's point of view, in plain words. */
-export function drivingWords(mode: ControlBatonMode, holderLabel: string | null): string {
-  if (mode === 'driver' || mode === 'asked') return 'This phone';
-  if (mode === 'spectator' && holderLabel) return holderLabel;
-  return 'Nobody right now';
 }
 
 /** "Opus 5.5 · high": the live model and effort, else the launch ones, else null. */

@@ -117,19 +117,6 @@ export function formatAge(ms: number): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-/** The host card's numbers: live sessions and how many of them wait for you. */
-export function hostCounts(sessions: Iterable<SectionFields & { isFloating?: boolean }>): { live: number; needYou: number } {
-  let live = 0;
-  let needYou = 0;
-  for (const s of sessions) {
-    // As the list counts: no ended sessions, no floating AI popups.
-    if (s.status === 'ended' || s.isFloating) continue;
-    live += 1;
-    if (needsYou(s)) needYou += 1;
-  }
-  return { live, needYou };
-}
-
 export type ConnectionPath = 'this-mac' | 'tailscale' | 'home' | 'internet';
 
 export const CONNECTION_WORDS: Record<ConnectionPath, string> = {
