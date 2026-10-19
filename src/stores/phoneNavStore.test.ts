@@ -93,10 +93,11 @@ describe('installing', () => {
   it('restores a ?m= link with its parent screens under it', () => {
     install('/?m=/more/gallery');
     expect(nav().tab).toBe('more');
-    expect(stack()).toEqual(['/more', '/more/about', '/more/gallery']);
+    // The UI kit sits under This phone since About folded into it (Oct 20 2026).
+    expect(stack()).toEqual(['/more', '/more/phone', '/more/gallery']);
     expect(history.url).toBe('/?m=/more/gallery');
     history.back();
-    expect(stack()).toEqual(['/more', '/more/about']);
+    expect(stack()).toEqual(['/more', '/more/phone']);
   });
 });
 
