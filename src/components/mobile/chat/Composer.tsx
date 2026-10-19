@@ -31,7 +31,9 @@ import { detectCli } from '@/lib/cliDetect';
 import { entryToken, type CommandEntry } from '@/lib/commandIndex';
 import { insertSuggestion } from '@/lib/phoneSuggestions';
 import { readQueueImages } from '@/lib/queueImageAttach';
-import { resolveContextDisplay, resolveRuntimeDisplay } from '@/lib/sessionRuntime';
+import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
+import { describeUsage } from '@/lib/chat/usageModel';
+import { useClock } from '@/lib/chat/clock';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { parsePhonePath } from '@/lib/chat/phoneRoutes';
 import { MAX_PROMPT_IMAGES } from '@/lib/chat/promptApi';
@@ -43,6 +45,7 @@ import DrivingBanner from './DrivingBanner';
 import CommandSheet from './CommandSheet';
 import FilePickerSheet from './FilePickerSheet';
 import ModelEffortSheet from './ModelEffortSheet';
+import UsageSheet from './UsageSheet';
 import SavedPromptSheet from './SavedPromptSheet';
 import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
 import { useDriverName } from './useDriverName';
@@ -61,7 +64,8 @@ type OpenSheet =
   | { type: 'command'; start: number | null }
   | { type: 'file'; start: number | null }
   | { type: 'model'; focus: 'model' | 'effort' }
-  | { type: 'saved' };
+  | { type: 'saved' }
+  | { type: 'usage' };
 
 type Confirm = { type: 'send-now' } | { type: 'send-ahead' } | { type: 'queue-instead' } | { type: 'stop'; tool: string };
 
@@ -124,7 +128,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const sending = sender.state.phase === 'sending';
   const fieldOff = !!decision.fieldDisabledReason;
   const runtime = resolveRuntimeDisplay(session);
-  const context = resolveContextDisplay(session);
+  // Context window + plan limits on their own chip (Oct 20 2026); the clock ticks by the minute.
+  const clock = useClock();
+  const usage = describeUsage(session, clock);
   const modelLabel = runtime ? [runtime.model, runtime.effort].filter(Boolean).join(' · ') : cli === 'codex' && session.model ? formatModelLabel(session.model) : null;
 
   // Grow with the text up to six lines, then scroll inside.
@@ -341,11 +347,12 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {decision.queueNote && !line && (
         <p className={styles.note}><InfoIcon /> {decision.queueNote}</p>
       )}
-      {(queued > 0 || modelLabel) && (
+      {(queued > 0 || modelLabel || usage.chip) && (
         <div className={styles.chips}>
           {queued > 0 && (
+            // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
             <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
-              <QueueIcon /> <span>{queued} queued</span> <ChevronRightIcon />
+              <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
             </button>
           )}
           {modelLabel && (
@@ -353,17 +360,33 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
               type="button"
               className={`${styles.chip} ${styles.modelChip}`}
               onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
-              aria-label={`Model ${modelLabel}${context ? `, context ${context.pct}% used` : ''}: change`}
+              aria-label={`Model ${modelLabel}: change`}
               aria-disabled={blocked ? true : undefined}
               aria-describedby={blocked ? chipReasonId : undefined}
             >
               <span className={styles.modelText}>{modelLabel}</span>
-              {context && (
-                <span className={styles.context} data-level={context.level}>
-                  <ContextRing pct={context.pct} /> {Math.round(context.pct)}%
+              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
+            </button>
+          )}
+          {usage.chip && (
+            <button
+              type="button"
+              className={`${styles.chip} ${styles.usageChip}`}
+              onClick={() => setSheet({ type: 'usage' })}
+              aria-label={`${usage.ariaLabel} Show details.`}
+              aria-haspopup="dialog"
+            >
+              {usage.chip.context && (
+                <span className={styles.context} data-level={usage.chip.context.level}>
+                  <ContextRing pct={usage.chip.context.pct} /> {usage.chip.context.pctText}
                 </span>
               )}
-              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
+              {usage.chip.context && usage.chip.planText && <span aria-hidden="true">·</span>}
+              {usage.chip.planText && (
+                <span className={styles.planPart}>
+                  {usage.chip.planText}{usage.chip.planHigh && <span aria-hidden="true"> ▲</span>}
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -474,6 +497,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         projectPath={session.projectPath}
         onPick={pickFile}
       />
+      <UsageSheet open={sheet?.type === 'usage'} onClose={closeSheet} session={session} />
       <ModelEffortSheet
         open={sheet?.type === 'model'}
         onClose={closeSheet}

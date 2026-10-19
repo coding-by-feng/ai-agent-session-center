@@ -364,3 +364,13 @@
   .field, .tool, .primary { transition: none; }
   .primary:active:not([aria-disabled='true']) { transform: none; }
 }
+
+/* Context window + plan limits (Oct 20 2026): its own chip after the model's. */
+.usageChip {
+  flex: none;
+  gap: var(--ph-space-1);
+  color: var(--ph-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.planPart { white-space: nowrap; }

@@ -45,9 +45,11 @@ export interface ContextDisplay {
   tokens?: number;
 }
 
-/** `null` = no context segment: not reported yet (never shown as 0%), or a Codex session. */
+/**
+ * `null` = no context segment: not reported yet (never shown as 0%). Claude Code reports it
+ * through the status-line tap, Codex through its rollout's `token_count` (since Oct 20 2026).
+ */
 export function resolveContextDisplay(session: Session): ContextDisplay | null {
-  if (detectCli(session) === 'codex') return null;
   const context = session.runtime?.context;
   if (!context) return null;
   const level = context.pct >= CONTEXT_HIGH_PCT ? 'high' : context.pct >= CONTEXT_WARN_PCT ? 'warn' : 'ok';

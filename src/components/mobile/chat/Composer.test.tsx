@@ -298,10 +298,59 @@ describe('Composer', () => {
     expect(useComposerDraftStore.getState().drafts.s1).toBeUndefined();
   });
 
-  it('opens the queue from the "N queued" chip', () => {
+  it('opens the queue from the "N queued" chip, which shows just the count (its name says the rest)', () => {
     stubMac();
     useQueueStore.setState({ queues: new Map([['s1', [{ id: 1, sessionId: 's1', text: 'x', position: 0, createdAt: 1 }]]]) });
     renderComposer(session());
-    expect(screen.getByRole('button', { name: /1 queued/ })).toBeInTheDocument();
+    const chip = screen.getByRole('button', { name: /1 queued/ });
+    expect(chip).toHaveTextContent(/^1$/);
+  });
+
+  describe('usage (Oct 20 2026): context window and plan limits', () => {
+    const now = Date.now();
+    const withUsage = (extra: Partial<Session> = {}) => session({
+      runtime: { model: 'claude-opus-5-5', modelAt: 1, context: { pct: 59, size: 200_000, tokens: 118_312 }, contextAt: now },
+      planUsage: { cli: 'claude', asOf: now - 3 * 60_000, windows: [
+        { minutes: 300, usedPercent: 42, resetsAt: now + 133 * 60_000 },
+        { minutes: 10080, usedPercent: 61, resetsAt: now + 3 * 24 * 3_600_000 },
+      ] },
+      ...extra,
+    } as Partial<Session>);
+
+    it('shows the context % and the busiest plan window on its own chip; the model chip only names the model', () => {
+      stubMac();
+      renderComposer(withUsage());
+      const chip = screen.getByRole('button', { name: /^Usage: context 59% used, 118k of 200k tokens\. Claude plan usage: 61% of the weekly limit used/ });
+      expect(chip).toHaveTextContent('59%');
+      expect(chip).toHaveTextContent('wk 61%');
+      const model = screen.getByRole('button', { name: /^Model / });
+      expect(model).not.toHaveTextContent('%');
+    });
+
+    it('opens the Usage sheet: this session, then the account’s plan with resets and the reading’s age', async () => {
+      stubMac();
+      renderComposer(withUsage());
+      fireEvent.click(screen.getByRole('button', { name: /^Usage:/ }));
+      const sheet = await screen.findByTestId('usage-sheet');
+      expect(sheet).toHaveTextContent('Context window');
+      expect(sheet).toHaveTextContent('118k of 200k tokens');
+      expect(sheet).toHaveTextContent('Claude Code plan · your account');
+      expect(sheet).toHaveTextContent('5-hour limit');
+      expect(sheet).toHaveTextContent(/Resets in 2h 1[23]m/);
+      expect(sheet).toHaveTextContent('Weekly limit');
+      expect(sheet).toHaveTextContent(/updated 3m ago/);
+    });
+
+    it('marks a limit at 85% or more with ▲ (not colour alone)', () => {
+      stubMac();
+      renderComposer(withUsage({ planUsage: { cli: 'claude', asOf: now, windows: [{ minutes: 300, usedPercent: 91, resetsAt: now + 3_600_000 }] } } as Partial<Session>));
+      expect(screen.getByRole('button', { name: /^Usage:/ })).toHaveTextContent('5h 91% ▲');
+    });
+
+    it('has no usage chip while nothing has been reported', () => {
+      stubMac();
+      renderComposer(session());
+      expect(screen.queryByRole('button', { name: /^Usage:/ })).toBeNull();
+    });
   });
 });

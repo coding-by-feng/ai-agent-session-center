@@ -44,9 +44,13 @@ describe('resolveContextDisplay', () => {
     expect(resolveContextDisplay(withCtx({ pct: 90 }))?.level).toBe('high');
   });
 
-  it('nothing (never 0%) until Claude Code has reported it, and nothing for Codex', () => {
+  it('nothing (never 0%) until the CLI has reported it', () => {
     expect(resolveContextDisplay(session())).toBeNull();
     expect(resolveContextDisplay(session({ runtime: { model: 'Opus 5.5', modelAt: 1, contextAt: 2 } }))).toBeNull();
-    expect(resolveContextDisplay(withCtx({ pct: 42 }, { cliSource: 'codex' }))).toBeNull();
+  });
+
+  it('Codex too, once its rollout has reported it (Oct 20 2026)', () => {
+    expect(resolveContextDisplay(withCtx({ pct: 67, size: 258400, tokens: 172161 }, { cliSource: 'codex' })))
+      .toEqual({ pct: 67, size: 258400, tokens: 172161, level: 'ok' });
   });
 });

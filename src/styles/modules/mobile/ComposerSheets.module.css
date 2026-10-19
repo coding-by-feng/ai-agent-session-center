@@ -77,3 +77,97 @@
   flex-direction: column;
   padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
 }
+
+/* ---- Usage (Oct 20 2026): this session's context window, the account's plan limits ---- */
+
+.usageSection {
+  margin: 0 0 var(--ph-space-6);
+  padding: 0 var(--ph-space-4);
+}
+
+.usageHeading {
+  margin: 0 0 var(--ph-space-2);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ph-text-secondary);
+}
+
+.usageRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  padding: var(--ph-space-3);
+  border-radius: var(--ph-radius);
+  background: var(--ph-sheet-group);
+}
+
+.usageRow + .usageRow { margin-top: var(--ph-space-2); }
+
+.usageHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+  color: var(--ph-text);
+}
+
+.usagePct {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.usageMeter {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ph-fill-strong);
+}
+
+.usageMeterFill {
+  display: block;
+  width: var(--usage-pct, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ph-accent);
+}
+
+.usageMeterFill[data-level='warn'] { background: var(--ph-status-approval); }
+.usageMeterFill[data-level='high'] { background: var(--ph-danger); }
+
+.usageDetail,
+.usageEmpty,
+.usageNote {
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+.usageEmpty { padding: var(--ph-space-2) 0; }
+.usageNote { margin-top: var(--ph-space-2); }
+
+.usageAlert {
+  margin: 0 0 var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

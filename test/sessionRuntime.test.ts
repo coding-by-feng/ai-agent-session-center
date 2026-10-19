@@ -178,6 +178,37 @@ describe('readingFromTranscript — Codex rollouts', () => {
     });
   });
 
+  /** A rollout `token_count` event as Codex 0.162 writes it (a real one, trimmed). */
+  const tokenCount = (info: unknown, s: number): string => JSON.stringify({
+    timestamp: T(s), type: 'event_msg',
+    payload: { type: 'token_count', info, rate_limits: { primary: { used_percent: 12, window_minutes: 300 } } },
+  });
+  const usage = (total: number, reasoning = 0) => ({
+    total_token_usage: { total_tokens: total * 9 },
+    last_token_usage: {
+      input_tokens: total - 3957, cached_input_tokens: total - 4481, cache_write_input_tokens: 0,
+      output_tokens: 3957, reasoning_output_tokens: reasoning, total_tokens: total,
+    },
+    model_context_window: 258400,
+  });
+
+  it('reads the context window from the newest token_count (Oct 20 2026: the phone shows it for Codex too)', () => {
+    const r = readingFromTranscript([tokenCount(usage(90_000), 1), turnContext('gpt-6-astra', 'high', 2), tokenCount(usage(172_161), 3)]);
+    expect(r.context).toEqual({ pct: 67, size: 258400, tokens: 172161 });
+    expect(r.contextAt).toBe(at(3));
+  });
+
+  it('leaves reasoning tokens out of the window (they are not kept in the context)', () => {
+    expect(readingFromTranscript([tokenCount(usage(172_161, 20_000), 1)]).context).toEqual({ pct: 59, size: 258400, tokens: 152161 });
+  });
+
+  it('says nothing about the context for a token_count with no usage (the one Codex writes before any reply)', () => {
+    const r = readingFromTranscript([tokenCount(null, 1)]);
+    expect(r.context).toBeUndefined();
+    expect(r.contextAt).toBeUndefined();
+    expect(readingFromTranscript([tokenCount({ last_token_usage: { total_tokens: 5 } }, 1)]).context).toBeUndefined();
+  });
+
   it('a turn with no effort, or garbage in it, says the effort is unknown', () => {
     expect(readingFromTranscript([turnContext('gpt-6-astra', null, 1)])).toEqual({
       model: 'gpt-6-astra', modelAt: at(1), launchModel: 'gpt-6-astra', launchModelAt: at(1),

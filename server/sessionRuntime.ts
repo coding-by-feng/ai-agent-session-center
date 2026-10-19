@@ -20,7 +20,8 @@
  * only, newest wins, and `null` (no reply yet, or just after `/clear`) clears it.
  *
  * Codex has no status-line tap; its rollout file writes a `turn_context` line (model +
- * effort) at the start of every turn, and the same fold reads it.
+ * effort) at the start of every turn, and the same fold reads it. Its `token_count`
+ * events carry the context window too (`last_token_usage` of `model_context_window`).
  *
  * The values also become the session's launch flags ({@link launchFlagsFromRuntime}),
  * so every resume relaunches with the model and effort the session last ran on.
@@ -60,8 +61,9 @@ interface TranscriptLine {
   content?: unknown;
   commandRun?: { command?: unknown; args?: unknown } | null;
   message?: { model?: unknown } | null;
-  /** Codex rollouts: `{ type: 'turn_context', payload: { model, effort } }`. */
-  payload?: { model?: unknown; effort?: unknown } | null;
+  /** Codex rollouts: `{ type: 'turn_context', payload: { model, effort } }`, and
+   *  `{ type: 'event_msg', payload: { type: 'token_count', info } }`. */
+  payload?: { model?: unknown; effort?: unknown; type?: unknown; info?: unknown } | null;
 }
 
 function parseLine(line: string): TranscriptLine | null {
@@ -83,6 +85,8 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
   let effortSet = false;
   let launchModel: string | undefined;
   let launchModelAt: number | undefined;
+  let context: SessionContextUsage | undefined;
+  let contextAt: number | undefined;
   // A `/model` menu pick prints only a display name; the next reply names the model.
   let awaitingPickedModel = false;
 
@@ -138,6 +142,16 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
       continue;
     }
 
+    if (entry.type === 'event_msg' && entry.payload?.type === 'token_count') {
+      // Codex: one per reply. The first of a session has no usage yet and says nothing.
+      const usage = contextFromCodexInfo(entry.payload.info);
+      if (usage) {
+        context = usage;
+        contextAt = when;
+      }
+      continue;
+    }
+
     if (entry.type === 'turn_context') {
       const id = entry.payload?.model;
       if (typeof id === 'string' && id.trim()) {
@@ -180,11 +194,32 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
     reading.effortAt = effortAt;
     reading.effortSet = effortSet;
   }
+  if (contextAt !== undefined) {
+    reading.context = context;
+    reading.contextAt = contextAt;
+  }
   return reading;
 }
 
 const countOf = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
+
+/**
+ * A Codex `token_count` event's `info` → the context window: the last reply's tokens
+ * (reasoning tokens are not kept in the context) of `model_context_window`. Codex's own
+ * "% context left" also discounts a fixed start-up share, so it can read a point or two
+ * apart. Undefined when the event carries no usage.
+ */
+function contextFromCodexInfo(raw: unknown): SessionContextUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const info = raw as { last_token_usage?: unknown; model_context_window?: unknown };
+  const size = countOf(info.model_context_window);
+  const last = info.last_token_usage as { total_tokens?: unknown; reasoning_output_tokens?: unknown } | null | undefined;
+  const total = countOf(last?.total_tokens);
+  if (!size || total === undefined) return undefined;
+  const tokens = Math.max(0, total - (countOf(last?.reasoning_output_tokens) ?? 0));
+  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size, tokens };
+}
 
 /**
  * The tap's `context` object (`{ used_percentage, size, tokens }`). Claude Code computes
