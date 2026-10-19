@@ -21,7 +21,7 @@ import CopyButton from '../CopyButton';
 import ReadAloudButton from '../../ReadAloudButton';
 import { SparkIcon } from '../../phoneIcons';
 import { usePhoneAiScopeOn, usePhoneAiStore } from '@/stores/phoneAiStore';
-import { useReadAloudReady } from '@/hooks/useReadAloud';
+import { useReadAloudReady, useReadAloudSpeaking } from '@/hooks/useReadAloud';
 import styles from '@/styles/modules/mobile/ChatItems.module.css';
 
 const ChatMarkdown = lazy(() => import('./ChatMarkdown'));
@@ -42,7 +42,11 @@ export default function AssistantText({ item, sessionId }: AssistantTextProps) {
   const canAsk = usePhoneAiScopeOn(sessionId);
   const canRead = useReadAloudReady();
   const [revealed, setRevealed] = useState(false);
-  const showActions = item.isAnswer && (item.latestAnswer || revealed);
+  const speakKey = `chat:${sessionId}:${item.key}`;
+  // While this answer is read aloud its button stays, even once a newer answer takes over:
+  // a read-aloud button that unmounts stops its own reading.
+  const speaking = useReadAloudSpeaking(speakKey);
+  const showActions = item.isAnswer && (item.latestAnswer || revealed || speaking);
   const reveal = item.isAnswer && !item.latestAnswer
     ? (e: MouseEvent<HTMLElement>) => { if (isOwnTap(e)) setRevealed((v) => !v); }
     : undefined;
@@ -62,7 +66,7 @@ export default function AssistantText({ item, sessionId }: AssistantTextProps) {
       {showActions && (
         <div className={styles.answerActions}>
           <CopyButton text={item.text} className={styles.answerBtn} label="Copy this answer" />
-          {canRead && <ReadAloudButton speakKey={`chat:${sessionId}:${item.key}`} source={() => item.text} />}
+          {canRead && <ReadAloudButton speakKey={speakKey} source={() => item.text} />}
           {canAsk && (
             <button
               type="button"

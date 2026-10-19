@@ -67,6 +67,31 @@ describe('VoiceSettings', () => {
     expect(useSettingsStore.getState().ttsSpeakingRate).toBe(0.75);
   });
 
+  it('stops the sample quietly: stopping is not an error (the player rejects as it stops)', async () => {
+    const user = userEvent.setup();
+    let fail: (e: Error) => void = () => {};
+    vi.mocked(ttsEngine.speak).mockImplementationOnce(() => new Promise<void>((_, reject) => { fail = reject; }));
+    vi.mocked(ttsEngine.stop).mockImplementation(() => fail(new Error('Audio playback failed')));
+    useSettingsStore.setState({ googleTtsApiKey: 'AIza-saved', ttsEnabled: true });
+    render(<VoiceSettings />);
+    await user.click(screen.getByRole('button', { name: 'Play a sample' }));
+    await user.click(screen.getByRole('button', { name: 'Stop the sample' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Play a sample' })).toBeTruthy();
+  });
+
+  it('stops a playing sample when the page closes', async () => {
+    const user = userEvent.setup();
+    vi.mocked(ttsEngine.speak).mockImplementationOnce(() => new Promise<void>(() => {}));
+    useSettingsStore.setState({ googleTtsApiKey: 'AIza-saved', ttsEnabled: true });
+    const { unmount } = render(<VoiceSettings />);
+    await user.click(screen.getByRole('button', { name: 'Play a sample' }));
+    vi.mocked(ttsEngine.stop).mockClear();
+    unmount();
+    expect(ttsEngine.stop).toHaveBeenCalled();
+  });
+
   it('plays a sample with the chosen voices once it is on', async () => {
     const user = userEvent.setup();
     useSettingsStore.setState({ googleTtsApiKey: 'AIza-saved', ttsEnabled: true, ttsVoiceEn: 'en-US-Studio-O' });

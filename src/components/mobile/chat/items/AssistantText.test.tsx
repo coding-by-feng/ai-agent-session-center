@@ -2,8 +2,10 @@
 // under the latest answer only; an older answer shows them when tapped (or from its
 // "Actions for this answer" button, for keyboards and screen readers). Read aloud only
 // once Voice is set up on this phone.
-import { describe, it, expect, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+vi.mock('@/lib/ttsEngine', () => ({ ttsEngine: { speak: vi.fn(() => new Promise<void>(() => {})), stop: vi.fn() } }));
 import AssistantText from './AssistantText';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { AssistantItem } from '@/lib/chat/buildChatItems';
@@ -39,6 +41,15 @@ describe('AssistantText actions', () => {
   it('offers a button for the same, for keyboards and screen readers', () => {
     render(<AssistantText item={answer({ latestAnswer: false })} sessionId="s1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Actions for this answer' }));
+    expect(screen.getByRole('button', { name: 'Copy this answer' })).toBeInTheDocument();
+  });
+
+  it('keeps an answer’s actions while it is being read, after a newer answer takes over', async () => {
+    useSettingsStore.setState({ ttsEnabled: true, googleTtsApiKey: 'AIza-x' });
+    const { rerender } = render(<AssistantText item={answer()} sessionId="s1" />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Read aloud/ })); });
+    rerender(<AssistantText item={answer({ latestAnswer: false })} sessionId="s1" />);
+    // Unmounting the button would stop the reading mid-sentence.
     expect(screen.getByRole('button', { name: 'Copy this answer' })).toBeInTheDocument();
   });
 

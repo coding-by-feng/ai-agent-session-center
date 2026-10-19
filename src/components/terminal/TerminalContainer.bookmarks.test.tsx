@@ -37,6 +37,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 import { showToast } from '@/components/ui/ToastContainer';
 import TerminalContainer from './TerminalContainer';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 let terminalN = 0;
 
@@ -98,11 +99,24 @@ describe('terminal bookmarks on a phone', () => {
     expect(showToast).toHaveBeenCalledWith('That line is no longer in the terminal’s scrollback', 'info', 3000);
   });
 
-  it('offers read-aloud for the terminal’s own session, and no full screen inside a sheet', async () => {
+  it('offers read-aloud for the terminal’s own session once Voice is set up, and no full screen inside a sheet', async () => {
+    useSettingsStore.setState({ ttsEnabled: true, googleTtsApiKey: 'AIza-x' });
+    try {
+      render(<TerminalContainer terminalId={`term-bm-${++terminalN}`} ws={null} controlSessionId="s1" inSheet />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
+      expect(await screen.findByRole('button', { name: 'Read the last answer aloud' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull();
+    } finally {
+      useSettingsStore.setState({ ttsEnabled: false, googleTtsApiKey: '' });
+    }
+  });
+
+  it('lists no read-aloud action until Voice is set up (Oct 20 2026)', async () => {
+    useSettingsStore.setState({ ttsEnabled: false, googleTtsApiKey: '' });
     render(<TerminalContainer terminalId={`term-bm-${++terminalN}`} ws={null} controlSessionId="s1" inSheet />);
     fireEvent.click(await screen.findByRole('button', { name: 'Terminal actions' }));
-    expect(await screen.findByRole('button', { name: 'Read the last answer aloud' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull();
+    await screen.findByRole('button', { name: /Scroll to the bottom/ });
+    expect(screen.queryByRole('button', { name: 'Read the last answer aloud' })).toBeNull();
   });
 });
 

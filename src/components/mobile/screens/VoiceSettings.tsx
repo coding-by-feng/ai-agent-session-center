@@ -14,7 +14,7 @@
  * in AASC reads; until then the phone's 🔊 buttons could only say "set it up".
  * The key goes to the Mac with each request (POST /api/tts/*), never stored there.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, ListRow, ListSection, Sheet } from '../kit';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { checkTTSStatus, ttsEngine } from '@/lib/ttsEngine';
@@ -70,6 +70,13 @@ export default function VoiceSettings() {
   const [picking, setPicking] = useState<'en' | 'zh' | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
+  /** The running sample's id: stopping one makes the player reject, which is not an error. */
+  const sampleRun = useRef<number | null>(null);
+  useEffect(() => {
+    const run = sampleRun;
+    // Leaving the page stops the sample: nothing would be left on screen to stop it with.
+    return () => { if (run.current !== null) stopReadAloud(); };
+  }, []);
 
   const hasKey = apiKey.trim().length > 0;
   const changed = draft.trim() !== apiKey.trim();
@@ -90,19 +97,25 @@ export default function VoiceSettings() {
 
   const playSample = async () => {
     if (playing) {
+      sampleRun.current = null;
       stopReadAloud();
       setPlaying(false);
       return;
     }
     stopReadAloud();
+    const run = Date.now();
+    sampleRun.current = run;
     setPlaying(true);
     setPlayError(null);
     try {
       await ttsEngine.speak(TTS_SAMPLE_TEXT, { apiKey: apiKey.trim(), voiceEn, voiceZh, speakingRate: rate });
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : String(err));
+      if (sampleRun.current === run) setPlayError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPlaying(false);
+      if (sampleRun.current === run) {
+        sampleRun.current = null;
+        setPlaying(false);
+      }
     }
   };
 

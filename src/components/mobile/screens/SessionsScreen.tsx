@@ -512,7 +512,7 @@ export default function SessionsScreen() {
               className={styles.search}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name, project, label or remark"
+              placeholder="Name, project, remark or what was said"
               aria-label="Search sessions"
               enterKeyHint="search"
             />

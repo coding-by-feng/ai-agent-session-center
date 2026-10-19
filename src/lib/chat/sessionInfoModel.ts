@@ -62,6 +62,8 @@ export function infoSubtitle(session: Session, now: number): string {
 /** Why the model can't be changed from here, or null. */
 export function modelBlocker(session: Session): string | null {
   if (session.status === 'ended') return 'It has ended.';
+  // The composer refuses commands until the agent is up; Info → Model opens its sheet.
+  if (session.status === 'connecting') return 'The agent is still starting.';
   const cli = detectCli(session);
   if (cli !== 'claude' && cli !== 'codex') return 'Only Claude Code and Codex sessions have a model.';
   return null;

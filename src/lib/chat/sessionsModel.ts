@@ -72,7 +72,7 @@ export function matchesFilter(session: SectionFields, filter: SessionsFilter): b
   return true;
 }
 
-/** Search by name, project, label and remark; every word must match somewhere. */
+/** Search by name, project and remark; every word must match somewhere. */
 export function matchesSearch(session: Session, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;

@@ -58,6 +58,11 @@ export interface ReadAloud {
   toggle: (source: () => string | Promise<string>) => void;
 }
 
+/** Is `key` reading right now? Only reads the state: unlike useReadAloud, unmounting stops nothing. */
+export function useReadAloudSpeaking(key: string): boolean {
+  return useSyncExternalStore(subscribe, () => speakingKey === key, () => false);
+}
+
 /** `key` names the button: the same answer read from two places is two buttons. */
 export function useReadAloud(key: string): ReadAloud {
   const speaking = useSyncExternalStore(subscribe, () => speakingKey === key, () => false);

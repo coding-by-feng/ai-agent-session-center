@@ -19,7 +19,7 @@ import { extractXtermSelection } from '@/lib/selectionExtractors';
 import { useIsMobile } from '@/lib/platform';
 import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
 import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
-import { useReadAloud } from '@/hooks/useReadAloud';
+import { useReadAloud, useReadAloudReady } from '@/hooks/useReadAloud';
 import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
 import { fetchLatestAnswer } from '@/lib/latestAnswer';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -331,12 +331,14 @@ export default memo(function TerminalContainer({
   // ---- Read the last answer aloud (AASC-20): the terminal's own session ----
   const answerSessionId = controlSessionId ?? null;
   const { speaking, toggle: toggleReadAloud } = useReadAloud(`terminal:${terminalId ?? ''}`);
-  const readAloud = useMemo(() => (answerSessionId && terminalId ? {
+  // Offered once Voice is set up (Oct 20 2026), as the chat's buttons are; it could only toast the hint before.
+  const readAloudReady = useReadAloudReady();
+  const readAloud = useMemo(() => (answerSessionId && terminalId && (readAloudReady || speaking) ? {
     speaking,
     onToggle: () => toggleReadAloud(
       () => fetchLatestAnswer(answerSessionId, useSessionStore.getState().sessions.get(answerSessionId)?.responseLog),
     ),
-  } : undefined), [answerSessionId, terminalId, speaking, toggleReadAloud]);
+  } : undefined), [answerSessionId, terminalId, readAloudReady, speaking, toggleReadAloud]);
 
   // Listen for terminal WS messages
   useEffect(() => {

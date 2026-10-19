@@ -205,6 +205,12 @@ describe('InfoScreen', () => {
     expect(screen.queryByRole('dialog', { name: 'Model and effort' })).toBeNull();
   });
 
+  it('can’t change the model while the agent is still starting, and says why (the composer would drop it)', () => {
+    setup({ status: 'connecting' });
+    expect(screen.getByRole('button', { name: /^Model/ })).toHaveAttribute('aria-disabled', 'true');
+    expect(row('Model').textContent).toContain('The agent is still starting.');
+  });
+
   it('can’t change the model of a session that ended, and says why', () => {
     setup({ status: 'ended' });
     expect(screen.getByRole('button', { name: /^Model/ })).toHaveAttribute('aria-disabled', 'true');
