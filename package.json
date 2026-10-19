@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently \"vite --open\" \"tsx watch server/index.ts --no-open\"",
     "build": "vite build",
+    "prepack": "npm run build",
     "start": "tsx server/index.ts",
     "start:no-open": "tsx server/index.ts --no-open",
     "preview": "vite preview",
@@ -58,7 +59,7 @@
     "url": "git+https://github.com/coding-by-feng/ai-agent-session-center.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.12.0"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -102,12 +103,14 @@
   },
   "files": [
     "server/**/*",
+    "src/lib/**/*",
+    "src/types/**/*",
+    "!src/**/*.test.*",
+    "!src/**/__tests__/**",
     "dist/client/**/*",
     "static/**/*",
     "hooks/**/*",
-    "bin/**/*",
-    "types/**/*",
-    "data/.gitkeep"
+    "bin/**/*"
   ],
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",

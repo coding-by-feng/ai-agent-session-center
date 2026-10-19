@@ -25,6 +25,7 @@ import type { ResourceJobs } from './cloud/resourceJobs.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
+import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
 import { respawnTerminalConfig } from './respawnConfig.js';
 import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
@@ -131,6 +132,15 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 }
 
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
+  // npm 11 runs no install scripts until approved, which left node-pty's spawn-helper at 0644 and
+  // every terminal failing with "posix_spawnp failed" in an npx install (ptySpawnHelper.ts).
+  if (process.env.ELECTRON !== '1') {
+    const helper = ensureSpawnHelperExecutable();
+    for (const file of helper.fixed) log.info('pty', `made node-pty's spawn-helper executable: ${file}`);
+    for (const { file, error } of helper.failed) {
+      log.warn('pty', `terminals cannot start until node-pty's spawn-helper is executable (${error}); run: chmod +x "${file}"`);
+    }
+  }
   const cloudSetup = await openCloudConnection(options);
   const cloud = cloudSetup?.cloud ?? null;
   // Phone pairing and push through the cloud connection, when one is connected (AASC-15/16).
