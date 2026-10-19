@@ -5,7 +5,9 @@
  *
  * - No raw HTML: react-markdown escapes it (no rehype-raw here, ever).
  * - Links open outside the app through the app's window-open policy
- *   (`target="_blank"`); only http(s) and mailto links are links at all.
+ *   (`target="_blank"`); only http(s) and mailto links are links at all, except
+ *   a file of the session's project: a relative link or an inline `code` path
+ *   ("docs/plan.md") opens it in the Project tab (FileLink).
  * - Code blocks scroll sideways inside their own box, with Copy; blocks over 200
  *   lines are left unhighlighted (a phone shouldn't tokenise a whole file). A reply
  *   with no fenced code skips the highlighter altogether: react-markdown builds its
@@ -19,6 +21,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark-dimmed.css';
 import { childrenToText } from '@/lib/markdownHeadings';
 import CopyButton from '../CopyButton';
+import FileLink from '../FileLink';
 import styles from '@/styles/modules/mobile/ChatMarkdown.module.css';
 
 const LONG_CODE_LINES = 200;
@@ -35,6 +38,18 @@ interface HastNode {
 function textOf(node: HastNode): string {
   if (node.type === 'text') return node.value ?? '';
   return (node.children ?? []).map(textOf).join('');
+}
+
+/** Marks inline code (`code` outside a `pre`) with `data-inline`: the one place a path may become a link. */
+function rehypeMarkInlineCode() {
+  const visit = (node: HastNode, parent: HastNode | null) => {
+    if (node.type === 'element' && node.tagName === 'code') {
+      if (parent?.tagName !== 'pre') (node.properties ??= {}).dataInline = true;
+      return;
+    }
+    node.children?.forEach((child) => visit(child, node));
+  };
+  return (tree: HastNode) => visit(tree, null);
 }
 
 /** Marks code blocks too long to highlight with `no-highlight` (rehype-highlight skips those). */
@@ -75,8 +90,23 @@ function CodeBlock({ children }: HTMLAttributes<HTMLPreElement>) {
   );
 }
 
+/** Inline code; a path to a file of the project is a tap that opens it. */
+function Code({ children, className, ...rest }: HTMLAttributes<HTMLElement> & { 'data-inline'?: unknown }) {
+  const inline = rest['data-inline'] !== undefined;
+  const code = <code className={className}>{children}</code>;
+  if (!inline) return code;
+  return (
+    <FileLink path={childrenToText(children)} className={styles.fileCode} fallback={code}>
+      <code>{children}</code>
+    </FileLink>
+  );
+}
+
 function Link({ href, children }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  if (!href || !SAFE_HREF.test(href)) return <>{children}</>;
+  if (href && !SAFE_HREF.test(href)) {
+    return <FileLink path={href} className={styles.fileLink} fallback={<>{children}</>}>{children}</FileLink>;
+  }
+  if (!href) return <>{children}</>;
   return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 }
 
@@ -91,10 +121,10 @@ function Image({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) {
     : <span>[{label}]</span>;
 }
 
-const COMPONENTS = { pre: CodeBlock, a: Link, table: Table, img: Image };
+const COMPONENTS = { pre: CodeBlock, code: Code, a: Link, table: Table, img: Image };
 const REMARK = [remarkGfm];
-const REHYPE_CODE = [rehypeSkipLongCode, rehypeHighlight];
-const REHYPE_PLAIN: typeof REHYPE_CODE = [];
+const REHYPE_CODE = [rehypeMarkInlineCode, rehypeSkipLongCode, rehypeHighlight];
+const REHYPE_PLAIN: typeof REHYPE_CODE = [rehypeMarkInlineCode];
 /** A fenced code block that names its language: the only thing the highlighter colours. */
 const FENCE_WITH_LANGUAGE = /(^|\n)\s*(```|~~~)\s*[\w+#.-]/;
 

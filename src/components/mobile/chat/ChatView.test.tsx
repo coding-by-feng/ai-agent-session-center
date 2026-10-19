@@ -234,6 +234,65 @@ describe('ChatView', () => {
     expect(screen.queryByTestId('chat-status-strip')).toBeNull();
   });
 
+  describe('files named in the chat open in the Project tab', () => {
+    const filesPage = (): ApiResult<ChatPage> => ({
+      ok: true,
+      data: {
+        entries: [
+          entry({ kind: 'user', text: 'write the plan to a md file' }),
+          entry({ kind: 'tool_use', id: 'w', name: 'Write', input: { file_path: '/p/docs/plans/plan.md', content: '# Plan' } }),
+          entry({ kind: 'tool_result', toolUseId: 'w', isError: false, output: 'File created', truncated: false }),
+          entry({
+            kind: 'assistant',
+            text: 'The plan is in `docs/plans/plan.md`; see [the plan](docs/plans/plan.md) and `/p/reports/q3.pdf:4`. Ran `npm test`; `plan.md` alone, `/elsewhere/x.md` and [site](https://example.com) stay as they are.',
+          }),
+        ],
+        before: 'b0',
+        after: 'a9',
+        cli: 'claude',
+        hasMore: false,
+      },
+    });
+    const render$ = (onOpenFile = vi.fn()) => {
+      fetchChatPage.mockResolvedValue(filesPage());
+      render(<ChatView session={session({ projectPath: '/p' })} onTerminal={() => {}} onOpenFile={onOpenFile} />);
+      return onOpenFile;
+    };
+    const fileLinks = () => Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-file-link]'));
+
+    it('makes inline code paths and relative links taps, and nothing else', async () => {
+      const onOpenFile = render$();
+      await screen.findByRole('link', { name: 'site' }); // the lazy Markdown has rendered
+      expect(fileLinks().map((b) => b.dataset.fileLink)).toEqual(['/docs/plans/plan.md', '/docs/plans/plan.md', '/reports/q3.pdf']);
+      expect(screen.getByText('npm test').closest('a')).toBeNull();
+      const bare = screen.getAllByText('plan.md').filter((el) => el.tagName === 'CODE');
+      expect(bare).toHaveLength(1);
+      expect(bare[0].closest('a')).toBeNull();
+      expect(screen.getByRole('link', { name: 'site' })).toHaveAttribute('href', 'https://example.com');
+      await userEvent.click(screen.getByRole('link', { name: /^the plan\s*\(open in Project\)$/ }));
+      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md');
+      await userEvent.click(screen.getByRole('link', { name: /^\/p\/reports\/q3\.pdf:4\s*\(open in Project\)$/ }));
+      expect(onOpenFile).toHaveBeenLastCalledWith('/reports/q3.pdf');
+    });
+
+    it('opens the file a tool wrote from its expanded row', async () => {
+      const onOpenFile = render$();
+      const row = (await screen.findAllByRole('button', { expanded: false })).find((b) => b.textContent?.includes('plan.md'));
+      await userEvent.click(row!);
+      await userEvent.click(screen.getByRole('link', { name: /^\/p\/docs\/plans\/plan\.md\s*\(open in Project\)$/ }));
+      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md');
+    });
+
+    it('leaves every name plain without a way to open it', async () => {
+      fetchChatPage.mockResolvedValue(filesPage());
+      render(<ChatView session={session({ projectPath: '/p' })} onTerminal={() => {}} />);
+      await screen.findByRole('link', { name: 'site' });
+      expect(fileLinks()).toEqual([]);
+      expect(screen.queryByRole('link', { name: /open in Project/ })).toBeNull();
+      expect(screen.getByText(/see the plan and/)).toBeInTheDocument();
+    });
+  });
+
   it('opens the terminal from the live preview’s "Open terminal" (AASC-56)', async () => {
     fetchChatPage.mockResolvedValue(claudePage());
     const onTerminal = vi.fn();

@@ -33,6 +33,7 @@ import { Button, EmptyState, useScreenSlot } from '../kit';
 import ChatItemView from './items/ChatItemView';
 import ChatSearchBar from './ChatSearchBar';
 import StatusStrip from './StatusStrip';
+import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
 import SelectionReadAloud from './SelectionReadAloud';
 import { useChatLive } from './useChatLive';
 import { useChatScroll } from './useChatScroll';
@@ -54,6 +55,8 @@ export interface ChatViewProps {
    * but shows the new popup under the root session, and the empty state speaks of the answer.
    */
   popup?: { rootSessionId: string; terminalId: string };
+  /** Open a file of the project, named in the chat, in the Project tab ("/docs/plan.md"). */
+  onOpenFile?: (relPath: string) => void;
 }
 
 const EMPTY_QUEUE: never[] = [];
@@ -88,7 +91,7 @@ function openMembersOf(item: ChatItem, opened: Record<string, boolean>): string 
   return item.members.filter((m) => opened[m.key]).map((m) => m.key).join(',');
 }
 
-export default function ChatView({ session, onTerminal, onPullBack, popup }: ChatViewProps) {
+export default function ChatView({ session, onTerminal, onPullBack, popup, onOpenFile }: ChatViewProps) {
   const { sessionId } = session;
   useChatLive(session);
   const data = useChatStore((s) => s.sessions[sessionId]);
@@ -99,6 +102,12 @@ export default function ChatView({ session, onTerminal, onPullBack, popup }: Cha
   const awaiting = isAwaiting(session.status);
   // A compaction shows the strip too, idle or not (the phone's "Compacting" hint).
   const busy = working || isCompacting(session);
+  const { projectPath } = session;
+  // Files the chat names open in the Project tab (FileLink); without a folder they stay text.
+  const fileLinks = useMemo<ChatFileLinks | null>(
+    () => (onOpenFile && projectPath ? { projectPath, open: onOpenFile } : null),
+    [onOpenFile, projectPath],
+  );
 
   const items = useMemo(
     () => (data ? buildChatItems(data.entries, { live: working || awaiting, awaiting, queue }) : []),
@@ -148,7 +157,7 @@ export default function ChatView({ session, onTerminal, onPullBack, popup }: Cha
     );
   }
 
-  return (
+  const body = (
     <ChatBody
       session={session}
       items={items}
@@ -166,6 +175,7 @@ export default function ChatView({ session, onTerminal, onPullBack, popup }: Cha
       popup={popup}
     />
   );
+  return fileLinks ? <FileLinkContext.Provider value={fileLinks}>{body}</FileLinkContext.Provider> : body;
 }
 
 interface ChatBodyProps {

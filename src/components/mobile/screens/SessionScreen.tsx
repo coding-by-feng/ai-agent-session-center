@@ -18,7 +18,7 @@
  *
  * "N more need you ›" swaps in the next waiting session (in place of this one's
  * screens, its terminal and Chat included): triage without walking back through
- * each one. A file path tapped in the terminal opens in the Project tab. While shown, the session is the
+ * each one. A file path tapped in the terminal, or named in the chat, opens in the Project tab. While shown, the session is the
  * selected one, as the classic panel makes it.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -171,6 +171,13 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
 
   const show = useCallback((seg: SessionSegment) => replace(sessionPath(sessionId, seg)), [replace, sessionId]);
   const openTerminal = useCallback(() => openTerminalIn(sessionId, hasChat), [openTerminalIn, sessionId, hasChat]);
+  // A file the chat names opens in the Project tab, whose browser takes the request (as from the terminal).
+  const { projectPath } = session;
+  const openFile = useCallback((relPath: string) => {
+    if (!projectPath) return;
+    useUiStore.getState().openFileInProject(`${projectPath.replace(/\/+$/, '')}${relPath}`, projectPath);
+    show('project');
+  }, [projectPath, show]);
   // Back from a tab leaves the session: past any other screen of it left under this
   // one (a shell's chat path under its Terminal, from a link).
   const leave = useCallback(() => {
@@ -216,7 +223,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
       ) : (
         <div id={panelId} role="tabpanel" aria-labelledby={`${segmentIds}-${shown}`} className={styles.panel}>
           {shown === 'terminal' && <SessionTerminal session={session} />}
-          {shown === 'chat' && <ChatView session={session} onTerminal={openTerminal} />}
+          {shown === 'chat' && <ChatView session={session} onTerminal={openTerminal} onOpenFile={openFile} />}
           {shown === 'changes' && <ChangesView session={session} onTerminal={openTerminal} />}
           {shown === 'project' && <SessionProjectSegment session={session} />}
         </div>

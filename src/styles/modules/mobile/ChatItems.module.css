@@ -310,6 +310,55 @@
   overflow-wrap: anywhere;
 }
 
+/* The touched file as a tap that opens it in the Project tab (FileLink). */
+.detailFile {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: var(--ph-space-1) var(--ph-space-2);
+  border-radius: 8px;
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+.detailFilePath {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  overflow-wrap: anywhere;
+}
+
+.detailFileOpen {
+  flex: none;
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  color: var(--ph-accent);
+}
+
+@media (hover: hover) {
+  .detailFile:hover {
+    background: var(--ph-fill-strong, var(--ph-fill));
+  }
+}
+
+.detailFile:active {
+  opacity: 0.6;
+}
+
+.detailFile:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
 .pre {
   margin: 0;
   max-width: 100%;

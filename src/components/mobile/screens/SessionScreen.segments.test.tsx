@@ -10,7 +10,12 @@ import type { Session } from '@/types';
 
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 vi.mock('../chat/ChatView', () => ({
-  default: ({ onTerminal }: { onTerminal: () => void }) => <button type="button" onClick={onTerminal}>chat: open terminal</button>,
+  default: ({ onTerminal, onOpenFile }: { onTerminal: () => void; onOpenFile?: (relPath: string) => void }) => (
+    <>
+      <button type="button" onClick={onTerminal}>chat: open terminal</button>
+      <button type="button" onClick={() => onOpenFile?.('/docs/plan.md')}>chat: open docs/plan.md</button>
+    </>
+  ),
 }));
 vi.mock('../chat/ChatFooter', () => ({ default: () => <div data-testid="chat-footer" /> }));
 vi.mock('../chat/ChangesView', () => ({
@@ -143,6 +148,16 @@ describe('its terminal screen, kept honest (AASC-56 review)', () => {
     await waitFor(() => expect(stack()).toEqual(['/sessions', '/sessions/s1/project']));
     // Left for the Project tab's browser to open.
     expect(useUiStore.getState().pendingFileOpen).toEqual({ filePath: 'src/a.ts', projectPath: '/w/web' });
+  });
+
+  it('opens a file named in the chat in the Project tab', async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ pendingFileOpen: null });
+    show(claude, 'chat');
+    await user.click(screen.getByRole('button', { name: 'chat: open docs/plan.md' }));
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/project']);
+    // The request the Project tab's browser opens (an absolute path inside the project).
+    expect(useUiStore.getState().pendingFileOpen).toEqual({ filePath: '/w/web/docs/plan.md', projectPath: '/w/web' });
   });
 
   it('leaves a path from another project alone', () => {

@@ -64,6 +64,40 @@
   border-radius: 2px;
 }
 
+/* A file of the session's project (FileLink): opens it in the Project tab. */
+.md .fileLink,
+.md .fileCode {
+  color: var(--ph-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none; /* no "#" link preview on a long press */
+}
+
+.md .fileCode > code {
+  color: inherit;
+}
+
+@media (hover: hover) {
+  .md .fileLink:hover,
+  .md .fileCode:hover {
+    text-decoration-style: solid;
+  }
+}
+
+.md .fileLink:active,
+.md .fileCode:active {
+  opacity: 0.6;
+}
+
+.md .fileLink:focus-visible,
+.md .fileCode:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .md blockquote {
   margin: 0 0 var(--ph-space-3);
   padding-left: var(--ph-space-3);

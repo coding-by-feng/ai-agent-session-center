@@ -4,6 +4,9 @@
  * lines, then Show all) or, for an edit, the inline diff. A failed call is drawn
  * with a red edge and the word "Failed", never colour alone.
  *
+ * The file a read or edit touched, shown open, is a tap that opens it in the
+ * Project tab (FileLink).
+ *
  * Expansion is the chat's (`expanded` / `onToggle`, so search can open a row) at
  * the top level, and the row's own inside a folded group.
  */
@@ -14,6 +17,7 @@ import { editFiles } from '@/lib/chat/editDiff';
 import { formatDuration } from '@/lib/chat/chatFormat';
 import OutputBlock from './OutputBlock';
 import InlineDiff from './InlineDiff';
+import FileLink from '../FileLink';
 import { CheckIcon, ChevronIcon, CrossIcon, FileIcon, GlobeIcon, LockIcon, PencilIcon, SearchIcon, TerminalIcon, ToolIcon } from '../chatViewIcons';
 import styles from '@/styles/modules/mobile/ChatItems.module.css';
 
@@ -136,7 +140,17 @@ function ToolDetail({ call }: { call: ToolCall }) {
   return (
     <>
       {call.redacted && <p className={styles.note}>Hidden on phones: this touched a secret file.</p>}
-      {call.path && <div className={styles.detailLabel}>{call.path}</div>}
+      {call.path && (
+        // A file of the project opens in the Project tab; a secret one stays plain (the phone can't read it).
+        call.secret || call.redacted
+          ? <div className={styles.detailLabel}>{call.path}</div>
+          : (
+            <FileLink path={call.path} className={styles.detailFile} fallback={<div className={styles.detailLabel}>{call.path}</div>}>
+              <span className={styles.detailFilePath}>{call.path}</span>
+              <span className={styles.detailFileOpen} aria-hidden="true">Open ›</span>
+            </FileLink>
+          )
+      )}
       {edit && <InlineDiff files={editFiles(call.name, call.input)} />}
       {call.command && <OutputBlock text={`$ ${call.command}`} wrap label="Command" />}
       {showInput && inputText(call) && <OutputBlock text={inputText(call)} wrap label="Input" />}
