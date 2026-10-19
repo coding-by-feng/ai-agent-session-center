@@ -103,56 +103,26 @@
   outline-offset: 0;
 }
 
-/* ---- Host card ---- */
+/* ---- The Mac, in one line (was a card until Oct 19 2026) ---- */
 
-.hostCard {
-  margin: 0 var(--ph-gutter) var(--ph-space-3);
-  padding: var(--ph-space-3) var(--ph-space-2) var(--ph-space-1) var(--ph-space-4);
-  border-radius: var(--ph-radius-card);
-  background: var(--ph-surface);
+.hostStrip {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-height: 32px;
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
   font-family: var(--ph-font);
 }
 
-.hostTop {
-  display: flex;
-  align-items: center;
-  gap: var(--ph-space-3);
-}
-
-.hostIcon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--ph-radius);
-  background: var(--ph-accent-tint);
-  color: var(--ph-accent);
-}
-
-.hostText {
-  display: flex;
-  flex-direction: column;
+.hostLine {
+  flex: 1;
   min-width: 0;
-}
-
-.hostName {
   overflow: hidden;
-  font-size: var(--ph-size-body);
-  font-weight: 600;
-  line-height: var(--ph-line-body);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.hostState {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--ph-size-caption);
-  line-height: var(--ph-line-caption);
-  color: var(--ph-text-secondary);
 }
 
 .dot {
@@ -163,24 +133,7 @@
   background: var(--ph-status-approval);
 }
 
-.hostState[data-online] .dot { background: var(--ph-status-finished); }
-
-.hostBottom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0 var(--ph-space-2);
-  margin-top: var(--ph-space-1);
-}
-
-.hostCounts {
-  font-size: var(--ph-size-secondary);
-  line-height: var(--ph-line-secondary);
-  color: var(--ph-text);
-}
-
-.hostCounts strong { font-weight: 600; color: var(--ph-text); }
+.hostStrip[data-online] .dot { background: var(--ph-status-finished); }
 
 /* ---- Filter chips (scroll sideways, never the page) ---- */
 

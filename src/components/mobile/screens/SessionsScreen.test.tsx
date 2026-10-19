@@ -85,13 +85,20 @@ const region = (name: string) => screen.getByRole('region', { name });
 const names = (el: HTMLElement) => within(el).getAllByTestId(/^session-row-/).map((r) => r.getAttribute('data-testid')!.replace('session-row-', ''));
 
 describe('SessionsScreen', () => {
-  it('shows the Mac, its live count and how many need you', () => {
+  it('says in one line whether the Mac is online, how it is reached and which Mac (Oct 19 2026: no card)', () => {
     render(<SessionsScreen />);
-    const card = screen.getByRole('region', { name: 'Your Mac' });
-    expect(within(card).getByText('Online', { exact: false })).toBeTruthy();
-    expect(card.textContent).toContain('4 live');
-    expect(card.textContent).toContain('1 needs you');
-    expect(within(card).getByRole('button', { name: /New session here/ })).toBeTruthy();
+    const strip = screen.getByRole('region', { name: 'Your Mac' });
+    expect(strip.textContent).toMatch(/^Online · .+ · .+$/);
+    // The counts are the chips' (All N, Needs you N); the ＋ is the nav bar's.
+    expect(strip.textContent).not.toContain('live');
+    expect(within(strip).queryByRole('button')).toBeNull();
+    expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy();
+  });
+
+  it('puts the title in the bar: no separate large title row', () => {
+    render(<SessionsScreen />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sessions');
+    expect(document.querySelector('[class*="largeTitle"]')).toBeNull();
   });
 
   it('lists Needs you, Working, Finished and Idle in that order, ended sessions left for History', () => {
@@ -434,12 +441,11 @@ describe('SessionsScreen', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
-  it('keeps the list while reconnecting but says why a new session can’t start', () => {
+  it('keeps the list while reconnecting, and says it is reconnecting', () => {
     useWsStore.setState({ connected: false });
     render(<SessionsScreen />);
     expect(screen.getByTestId('session-row-s1')).toBeTruthy();
-    const card = screen.getByRole('region', { name: 'Your Mac' });
-    expect(card.textContent).toContain('Reconnecting…');
-    expect(within(card).getByRole('button', { name: /New session here/ })).toHaveAttribute('aria-disabled', 'true');
+    const strip = screen.getByRole('region', { name: 'Your Mac' });
+    expect(strip.textContent).toMatch(/^Reconnecting… · /);
   });
 });

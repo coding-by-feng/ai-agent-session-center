@@ -1,10 +1,8 @@
 /**
  * SessionsScreen — the Sessions tab's root (AASC-40, design §5.1).
  *
- *   Sessions                               ⌕  ＋
- *   ┌ 🖥 MacBook  ● Online · Home network ┐
- *   │ 12 live · 3 need you   New session › │
- *   └──────────────────────────────────────┘
+ *            Sessions                     ⌕  ＋   the title in the bar (no large title)
+ *   ● Online · Home network · MacBook             one line; the chips count, ＋ starts
  *   (All 12) (Needs you 3) (Working 4) (Group: Status ▾)
  *   NEEDS YOU · WORKING · FINISHED · IDLE (folds when long)
  *
@@ -62,7 +60,6 @@ import {
   connectionPath,
   filterCount,
   groupSessions,
-  hostCounts,
   isUnreadFinish,
   type SessionGroup,
   type SessionsFilter,
@@ -99,37 +96,18 @@ async function refreshOrSay(): Promise<void> {
 // Host card
 // ---------------------------------------------------------------------------
 
-function HostCard({ onNew, blocker }: { onNew: () => void; blocker: string | null }) {
+function HostStatus() {
   const connected = useWsStore((s) => s.connected);
-  const sessions = useSessionStore((s) => s.sessions);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
-  const { live, needYou } = useMemo(() => hostCounts(sessions.values()), [sessions]);
   const path = connectionPath(window.location.hostname);
+  // One line (Oct 19 2026): the counts are the chips' and New session is the bar's ＋.
+  // State and path come first, so a long Mac name is what truncates.
   return (
-    <section className={styles.hostCard} aria-label="Your Mac">
-      <div className={styles.hostTop}>
-        <span className={styles.hostIcon} aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="12" rx="2" />
-            <path d="M2 20h20" />
-          </svg>
-        </span>
-        <span className={styles.hostText}>
-          <span className={styles.hostName}>{macName || 'Your Mac'}</span>
-          <span className={styles.hostState} data-online={connected ? '' : undefined}>
-            <span className={styles.dot} aria-hidden="true" />
-            {connected ? 'Online' : 'Reconnecting…'} · {CONNECTION_WORDS[path]}
-          </span>
-        </span>
-      </div>
-      <div className={styles.hostBottom}>
-        <span className={styles.hostCounts}>
-          {live} live{needYou > 0 && <> · <strong>{needYou} need{needYou === 1 ? 's' : ''} you</strong></>}
-        </span>
-        <Button small variant="plain" icon={<PlusIcon width={18} height={18} />} onClick={onNew} disabledReason={blocker ?? undefined}>
-          New session here
-        </Button>
-      </div>
+    <section className={styles.hostStrip} aria-label="Your Mac" data-online={connected ? '' : undefined}>
+      <span className={styles.dot} aria-hidden="true" />
+      <span className={styles.hostLine}>
+        {connected ? 'Online' : 'Reconnecting…'} · {CONNECTION_WORDS[path]} · {macName || 'Your Mac'}
+      </span>
     </section>
   );
 }
@@ -476,7 +454,7 @@ export default function SessionsScreen() {
   }
 
   return (
-    <Screen title="Sessions" large banner={<ConnectionBanner />} actions={actions} testId="phone-sessions">
+    <Screen title="Sessions" banner={<ConnectionBanner />} actions={actions} testId="phone-sessions">
       <div
         ref={pullHost}
         className={styles.pullHost}
@@ -508,7 +486,7 @@ export default function SessionsScreen() {
             </Button>
           </div>
         )}
-        {snapshotReceived && <HostCard onNew={openNew} blocker={blocker} />}
+        {snapshotReceived && <HostStatus />}
         {snapshotReceived && counts.all > 0 && (
           <div className={styles.chips} role="group" aria-label="Show">
             {SESSIONS_FILTERS.map((f) => (

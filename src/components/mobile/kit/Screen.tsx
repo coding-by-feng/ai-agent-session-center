@@ -2,7 +2,7 @@
  * Screen — one phone screen (AASC-38): a NavBar, an optional banner, the content,
  * an optional footer pinned to the bottom (a composer, an action bar).
  *
- * `large` (tab roots): the 32px title scrolls with the content and the bar shows
+ * `large` (unused since Oct 19 2026: tab roots now keep the title in the bar to save height): the 32px title scrolls with the content and the bar shows
  * the compact title once it has gone. `scroll={false}` hands the whole content
  * area to a child that scrolls itself (the terminal, an embedded list).
  *

@@ -135,7 +135,7 @@ export default function InboxScreen() {
   );
 
   return (
-    <Screen title="Inbox" large banner={<ConnectionBanner />} actions={unread > 0 ? markAll : undefined} testId="phone-inbox">
+    <Screen title="Inbox" banner={<ConnectionBanner />} actions={unread > 0 ? markAll : undefined} testId="phone-inbox">
       <div className={styles.filters} role="group" aria-label="Show">
         <Chip label="Waiting" count={waitingCount(items)} selected={filter === 'waiting'} onClick={() => setFilter('waiting')} />
         <Chip label="Finished" count={finished.length} selected={filter === 'finished'} onClick={() => setFilter('finished')} />

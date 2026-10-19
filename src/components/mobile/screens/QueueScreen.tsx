@@ -353,7 +353,7 @@ export default function QueueScreen() {
   );
 
   return (
-    <Screen title="Queue" large banner={<ConnectionBanner />} actions={actions} testId="phone-queue">
+    <Screen title="Queue" banner={<ConnectionBanner />} actions={actions} testId="phone-queue">
       <div className={styles.sender}>
         <Banner tone={sender.tone === 'ok' ? 'info' : 'warning'} title={sender.title}>{sender.detail}</Banner>
       </div>

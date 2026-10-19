@@ -42,7 +42,7 @@ export default function MoreScreen() {
   const push = usePhoneNavStore((s) => s.push);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   return (
-    <Screen title="More" large testId="phone-more">
+    <Screen title="More" testId="phone-more">
       <ListSection header="Library">
         {LIBRARY_PAGES.map((item) => (
           <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(morePath(item.page))} />
