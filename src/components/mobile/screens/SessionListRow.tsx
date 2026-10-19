@@ -8,7 +8,8 @@
  * The CLI's mark (Claude / Codex) sits on a status ring that carries the status
  * glyph too (never colour alone); then the display title, how long since it
  * last did something, the one line that matters now (the pending ask, the
- * running tool, the start of the last answer), and project · room · label.
+ * running tool, the start of the last answer), and project · room. No label: labels are
+ * each device's own (labelStore never syncs), so the phone shows none (Oct 20 2026).
  *
  * With `swipeActions` the row swipes left to reveal them; with `menuItems` a
  * press-and-hold (or right click, Shift+F10) opens them as a menu. The swipe is
@@ -22,7 +23,6 @@ import type { ContextMenuItem, SwipeAction } from '../kit';
 import { ChevronRightIcon } from '../kit/kitIcons';
 import { ClaudeIcon, CodexIcon } from '@/components/layout/CliBrandIcons';
 import { useRoomStore } from '@/stores/roomStore';
-import { useLabelStore } from '@/stores/labelStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
@@ -81,9 +81,7 @@ export default function SessionListRow({
   dragY,
 }: SessionListRowProps) {
   const room = useRoomStore((s) => (hideRoom ? undefined : s.rooms.find((r) => r.sessionIds.includes(session.sessionId))));
-  const label = useLabelStore((s) => s.labels[session.sessionId]);
   const clock = useClock();
-  const labelColor = useLabelStore((s) => (label ? s.labelColor(label) : undefined));
   const title = sessionDisplayTitle(session);
   const status = phoneStatus(session.status, !!session.interruption, isCompacting(session)).label;
   const line = detail ?? nowLine(session);
@@ -91,7 +89,7 @@ export default function SessionListRow({
   const cli = detectCli(session);
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
   const cliWord = cli === 'claude' ? 'Claude Code' : cli === 'codex' ? 'Codex' : null;
-  const spoken = [title, cliWord, status, line, project, room ? `room ${room.name}` : null, label ? `label ${label}` : null, age === 'now' ? 'active now' : `${age} ago`]
+  const spoken = [title, cliWord, status, line, project, room ? `room ${room.name}` : null, age === 'now' ? 'active now' : `${age} ago`]
     .filter(Boolean)
     .join(', ');
 
@@ -113,17 +111,12 @@ export default function SessionListRow({
           <span className={styles.age}>{age}</span>
         </span>
         {line && <span className={styles.line}>{line}</span>}
-        {(project || room || label) && (
+        {(project || room) && (
           <span className={styles.meta}>
             {project && <span className={styles.project}>{project}</span>}
             {room && (
               <span className={styles.roomChip} style={{ '--room-color': roomColor(room) } as CSSProperties}>
                 {room.name}
-              </span>
-            )}
-            {label && (
-              <span className={styles.labelChip} style={{ '--label-color': labelColor } as CSSProperties}>
-                {label}
               </span>
             )}
           </span>

@@ -31,7 +31,7 @@ import {
   type HistoryFilters,
 } from '@/lib/historyQuery';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { statusColor, statusLabel } from '@/lib/sessionStatusStyle';
+import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { requestSessionResume } from '@/lib/sessionActions';
 import { useSessionStore } from '@/stores/sessionStore';
 import { SessionDetailBody } from '@/components/history/SessionDetailDialog';
@@ -203,13 +203,15 @@ function HostHistory() {
 function HostRow({ session, now, onOpen }: { session: DbSessionRow; now: number; onOpen: (id: string) => void }) {
   const name = sessionName(session);
   const chip = statusChip(session);
+  // The phone's own status words (phoneStatus), as on its Sessions list; the chip keeps its tone.
+  const label = session.status === 'ended' ? 'Ended' : phoneStatus(session.status).label;
   const project = session.title && session.project_name ? session.project_name : '';
   return (
     <li className={styles.row}>
       <button type="button" className={styles.rowButton} onClick={() => onOpen(session.id)}>
         <span className={styles.rowTop}>
           <span className={styles.rowTitle}>{name}</span>
-          <Chip tone={chip.tone}>{chip.title ? `${chip.label} · ${chip.title}` : chip.label}</Chip>
+          <Chip tone={chip.tone}>{chip.title ? `${label} · ${chip.title}` : label}</Chip>
         </span>
         <span className={styles.rowMeta}>
           {[project, formatDate(session.started_at, now), sessionDuration(session, now)].filter(Boolean).join(' · ')}
@@ -288,13 +290,13 @@ function SharedHistory() {
             {rows.map((s) => {
               const title = sessionDisplayTitle(s);
               const project = s.projectName && s.projectName !== title ? s.projectName : '';
-              const label = s.status === 'ended' ? 'Ended' : statusLabel(s.status);
+              const status = phoneStatus(s.status, !!s.interruption, isCompacting(s, now));
               return (
-                <li key={s.sessionId} className={styles.row} style={{ '--row-accent': statusColor(s.status) } as CSSProperties}>
+                <li key={s.sessionId} className={styles.row} style={{ '--row-accent': `var(--ph-status-${status.tone})` } as CSSProperties}>
                   <button type="button" className={`${styles.rowButton} ${styles.rowAccent}`} onClick={() => setOpenId(s.sessionId)}>
                     <span className={styles.rowTop}>
                       <span className={styles.rowTitle}>{title}</span>
-                      <span className={styles.rowStatus}>{label}</span>
+                      <span className={styles.rowStatus}>{status.label}</span>
                     </span>
                     <span className={styles.rowMeta}>
                       {[project, s.lastActivityAt ? `active ${formatDate(s.lastActivityAt, now)}` : ''].filter(Boolean).join(' · ')}

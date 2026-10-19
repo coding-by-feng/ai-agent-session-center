@@ -1,11 +1,11 @@
 /**
  * MoreScreen — the More tab's root (AASC-47, design §5.8): a grouped list.
  *
- *   LIBRARY     History · Prompt Trace · Saved prompts · Review · Agenda
+ *   LIBRARY     History · Prompt Trace (on the Mac itself) · Saved prompts · Review · Agenda
  *   AASC CLOUD  Cloud: resources and projects, read through the Mac (AASC-51)
  *   SETTINGS    Appearance · Notifications · Voice · Translation · Advanced
- *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair
- *   ABOUT
+ *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair; AASC's
+ *               version (About folded in here, Oct 20 2026)
  *
  * Each row pushes a screen of its own (lib/chat/phoneRoutes.ts: `/more/<page>`, a
  * Settings page at `/more/settings/<section>`, so back from it returns to Settings).
@@ -17,6 +17,7 @@ import { useSettingsStore, THEMES } from '@/stores/settingsStore';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { CLOUD_PAGE, LIBRARY_PAGES, SETTINGS_PAGES } from '@/lib/chat/morePages';
 import { morePath } from '@/lib/chat/phoneRoutes';
+import { useIsHostDevice } from '../views/hostAccess';
 
 /** The settings rows, shared by More and More → Settings. */
 export function SettingsRows() {
@@ -41,10 +42,11 @@ export function SettingsRows() {
 export default function MoreScreen() {
   const push = usePhoneNavStore((s) => s.push);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
+  const isHost = useIsHostDevice();
   return (
     <Screen title="More" testId="phone-more">
       <ListSection header="Library">
-        {LIBRARY_PAGES.map((item) => (
+        {LIBRARY_PAGES.filter((item) => isHost || !item.hostOnly).map((item) => (
           <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(morePath(item.page))} />
         ))}
       </ListSection>
@@ -57,13 +59,10 @@ export default function MoreScreen() {
       <ListSection header="This phone">
         <ListRow
           title={macName ? `Paired with ${macName}` : 'Paired Mac'}
-          subtitle={`${CONNECTION_WORDS[connectionPath(window.location.hostname)]} · lock, unpair`}
+          subtitle={`${CONNECTION_WORDS[connectionPath(window.location.hostname)]} · lock, unpair, version`}
           chevron
           onClick={() => push('/more/phone')}
         />
-      </ListSection>
-      <ListSection header="About">
-        <ListRow title="About" subtitle="What this is, and the UI kit" chevron onClick={() => push('/more/about')} />
       </ListSection>
     </Screen>
   );

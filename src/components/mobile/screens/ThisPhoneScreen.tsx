@@ -4,8 +4,12 @@
  * last sync, a problem in plain words; the account has no name the Mac knows,
  * so none is shown), this phone's name on the Mac, and the way to the lock and
  * unpairing, which live in the AASC app's own settings (lib/chat/thisPhone.ts).
+ * Then what About used to say (folded in Oct 20 2026): the AASC version serving
+ * these screens and where they run; the designers' UI kit only in a dev build.
  */
 import { ListRow, ListSection, Screen } from '../kit';
+import { GalleryIcon } from '../kit/kitIcons';
+import { APP_VERSION } from '@/lib/appVersion';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
@@ -35,6 +39,7 @@ function CloudRow() {
 
 export default function ThisPhoneScreen() {
   const pop = usePhoneNavStore((s) => s.pop);
+  const push = usePhoneNavStore((s) => s.push);
   const connected = useWsStore((s) => s.connected);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const myName = usePresenceStore((s) => s.devices.find((d) => d.clientId === getClientId())?.label);
@@ -68,6 +73,13 @@ export default function ThisPhoneScreen() {
           <ListRow title="Lock and unpair" value="In the AASC app" />
         </ListSection>
       )}
+      <ListSection header="AASC" footer="These screens are served by your Mac, so they update with AASC there. Nothing here is stored in the cloud.">
+        <ListRow title="AASC on your Mac" value={APP_VERSION ?? 'Unknown'} />
+        <ListRow title="Running in" value={inApp ? `The ${nativeAppPlatform() === 'android' ? 'Android' : 'iPhone'} app` : 'A phone browser'} />
+        {import.meta.env.DEV && (
+          <ListRow leading={<GalleryIcon />} title="UI kit" subtitle="For designers: every phone component and its states" chevron onClick={() => push('/more/gallery')} />
+        )}
+      </ListSection>
     </Screen>
   );
 }

@@ -1,6 +1,7 @@
 import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync } from 'fs';
 
 // Suppress EPIPE/ECONNRESET noise from Vite's WS proxy.
 // These happen every time the browser closes a WebSocket mid-proxy (page refresh,
@@ -12,8 +13,12 @@ logger.error = (msg, opts) => {
   _origError(msg, opts);
 };
 
+/** The version the phone's This phone screen names (the bundle a phone loads is the Mac's). */
+const { version: appVersion } = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')) as { version: string };
+
 export default defineConfig({
   customLogger: logger,
+  define: { __AASC_VERSION__: JSON.stringify(appVersion) },
   plugins: [react()],
   publicDir: 'static',
   resolve: {

@@ -154,6 +154,40 @@ describe('PhoneHistory — a remote device', () => {
   });
 });
 
+describe('PhoneHistory — the phone’s own status words (Oct 20 2026)', () => {
+  it('names each status as the Sessions list does, not as the desktop does', () => {
+    useSessionStore.setState({
+      sessions: new Map([
+        ['w', live('w', { title: 'Done turn', status: 'waiting', lastActivityAt: 40 })],
+        ['q', live('q', { title: 'Asking', status: 'input', lastActivityAt: 30 })],
+        ['p', live('p', { title: 'Approve me', status: 'approval', lastActivityAt: 20 })],
+      ]),
+    });
+    renderView();
+    const texts = rowButtons().map((b) => b.textContent ?? '');
+    expect(texts[0]).toContain('Finished');
+    expect(texts[1]).toContain('Has a question');
+    expect(texts[2]).toContain('Waiting for approval');
+    expect(texts.join(' ')).not.toMatch(/Waiting for input|Approval needed/);
+  });
+
+  it('uses the same words for the Mac’s own history rows', async () => {
+    host.isHost = true;
+    vi.mocked(authFetch).mockImplementation(async (input) => {
+      const { pathname } = new URL(String(input), 'http://localhost');
+      const body = pathname === '/api/db/sessions'
+        ? { sessions: [row('h1', { status: 'waiting' }), row('h2', { status: 'input' })], total: 2, page: 1, pageSize: 50 }
+        : [];
+      return { ok: true, status: 200, json: async () => body } as Response;
+    });
+    renderView();
+    await waitFor(() => expect(rowButtons()).toHaveLength(2));
+    const texts = rowButtons().map((b) => b.textContent ?? '');
+    expect(texts[0]).toContain('Finished');
+    expect(texts[1]).toContain('Has a question');
+  });
+});
+
 describe('PhoneHistory — on the Mac itself', () => {
   beforeEach(() => { host.isHost = true; });
 

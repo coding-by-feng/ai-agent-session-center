@@ -40,6 +40,19 @@ interface ComposerDraftState {
   appendToDraft: (sessionId: string, text: string) => void;
   /** A session re-keyed (/clear, a resume): its draft follows the new id (after any draft already there). */
   moveDraft: (oldId: string, newId: string) => void;
+  /**
+   * A sheet another screen asked this session's composer to open (Oct 20 2026: Info →
+   * Model opens the composer's model sheet, the one model sheet, so the change goes
+   * out the way the composer sends it). The composer clears it when it opens it.
+   */
+  sheetRequest: ComposerSheetRequest | null;
+  requestSheet: (sessionId: string, sheet: ComposerSheetRequest['sheet']) => void;
+  clearSheetRequest: () => void;
+}
+
+export interface ComposerSheetRequest {
+  sessionId: string;
+  sheet: 'model';
 }
 
 /** `text` after `draft`, on a new line unless the draft is empty or already ends one. */
@@ -77,4 +90,7 @@ export const useComposerDraftStore = create<ComposerDraftState>((set) => ({
       save(drafts);
       return { drafts };
     }),
+  sheetRequest: null,
+  requestSheet: (sessionId, sheet) => set({ sheetRequest: { sessionId, sheet } }),
+  clearSheetRequest: () => set({ sheetRequest: null }),
 }));

@@ -185,12 +185,12 @@ describe('PhoneAppFrame', () => {
     render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
     await user.click(tabButton('More'));
-    await user.click(await screen.findByRole('button', { name: /About/ }));
-    expect(await screen.findByTestId('phone-more-about')).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: /Saved prompts/ }));
+    expect(await screen.findByTestId('phone-more-saved-prompts')).toBeTruthy();
     await user.click(tabButton('Queue'));
     expect(await screen.findByTestId('phone-queue')).toBeTruthy();
     await user.click(tabButton('More'));
-    expect(await screen.findByTestId('phone-more-about')).toBeTruthy();
+    expect(await screen.findByTestId('phone-more-saved-prompts')).toBeTruthy();
   });
 
   it('pops to the tab’s root when the current tab is tapped again', async () => {
@@ -198,7 +198,7 @@ describe('PhoneAppFrame', () => {
     render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
     await user.click(tabButton('More'));
-    await user.click(await screen.findByRole('button', { name: /About/ }));
+    await user.click(await screen.findByRole('button', { name: /Paired/ }));
     await user.click(await screen.findByRole('button', { name: /UI kit/ }));
     expect(await screen.findByTestId('phone-gallery')).toBeTruthy();
     await user.click(tabButton('More'));

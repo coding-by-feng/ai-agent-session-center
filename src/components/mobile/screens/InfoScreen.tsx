@@ -4,7 +4,7 @@
  *   ‹      agent-manager-2
  *       Claude Code · Working · 1h 12m
  *   SESSION   status · model/effort › · context · plan usage · project › · room ›
- *             label › · remark › · notifications (●) · loud alerts (●) · AI popups (●) · driving
+ *             remark › · notifications (●) · loud alerts (●) · AI popups (●) · driving
  *   OPEN      Files › (the session's Project tab, AASC-56) Notes › Queue › Agents › AI popups ›
  *   ACTIONS   Rename · Restart | Resume · Fork · Clone · Move to room · Manage rooms
  *             Kill session (red, confirms)
@@ -24,7 +24,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { useLabelStore } from '@/stores/labelStore';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useNotesStore } from '@/stores/notesStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
@@ -61,7 +61,6 @@ function InfoBody({ session }: { session: Session }) {
   const push = usePhoneNavStore((s) => s.push);
   const showSegment = usePhoneNavStore((s) => s.showSegment);
   const room = useRoomStore((s) => s.rooms.find((r) => r.sessionIds.includes(sessionId)));
-  const label = useLabelStore((s) => s.labels[sessionId]);
   const queued = useQueueStore((s) => s.queues.get(sessionId)?.length ?? 0);
   const notes = useNotesStore((s) => s.notes.get(sessionId) ?? EMPTY).length;
   const popups = useFloatingSessionsStore((s) => s.floats.filter((f) => f.originSessionId === sessionId).length);
@@ -72,11 +71,18 @@ function InfoBody({ session }: { session: Session }) {
   const openPage = (page: InfoPage) => () => push(infoPath(sessionId, page));
   // Files is the session's own Project tab (AASC-56), not a second browser: back to it.
   const openProject = () => showSegment(sessionId, 'project', sessionHasChat(detectCli(session)));
+  // Model is the composer's model sheet (Oct 20 2026): one sheet, and the change goes out as
+  // the composer sends it (queued behind a turn, /model before /effort). Only Claude Code and
+  // Codex have a model (modelBlocker), and both have a Chat.
+  const openModel = () => {
+    useComposerDraftStore.getState().requestSheet(sessionId, 'model');
+    showSegment(sessionId, 'chat', true);
+  };
 
   const ended = session.status === 'ended';
   const model = modelWords(session);
   const context = contextWords(session);
-  const plan = planWords(session);
+  const plan = planWords(session, now);
   const subagents = session.subagents?.filter((a) => a.status === 'working').length ?? 0;
   const modelWhyNot = modelBlocker(session);
   const restartWhyNot = restartBlocker(session);
@@ -103,13 +109,12 @@ function InfoBody({ session }: { session: Session }) {
           value={model ?? 'Not reported yet'}
           chevron={!modelWhyNot}
           disabledReason={modelWhyNot ?? undefined}
-          onClick={to('model')}
+          onClick={openModel}
         />
         <ListRow title="Context" value={context ?? 'Not reported yet'} />
         <ListRow title="Plan usage" subtitle={plan ?? 'Not reported yet'} />
         <ListRow title="Project" value={session.projectName || '—'} chevron onClick={openProject} ariaLabel={`Project ${session.projectName}: open its files`} />
         <ListRow title="Room" value={room?.name ?? 'None'} chevron onClick={to('move-room')} />
-        <ListRow title="Label" value={label ?? 'None'} chevron onClick={to('label')} />
         <ListRow title="Remark" subtitle={session.remark || 'None'} chevron onClick={to('remark')} />
         <ListRow
           title="Notifications"

@@ -17,12 +17,12 @@
  * - Sending is the Mac's confirmed send, polled until it lands (usePromptSender).
  * - While another device drives, the box is off and says who, with Take control.
  */
-import { useCallback, useId, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import type { Session } from '@/types';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { ChevronRightIcon, CloseIcon, InfoIcon } from '../kit/kitIcons';
 import { useControlBaton } from '@/hooks/useControlBaton';
-import { useComposerDraftStore } from '@/stores/composerDraftStore';
+import { useComposerDraftStore, type ComposerSheetRequest } from '@/stores/composerDraftStore';
 import { DEFAULT_AUTOMATION, useQueueStore, type QueueImageAttachment, type QueueItem } from '@/stores/queueStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
@@ -109,6 +109,22 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const waiting = queueWaiting(queueItems, automation);
   const sender = usePromptSender(sessionId);
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
+  // A sheet Info asked for (Model ›): one that arrived before this composer mounted, then any later one.
+  useEffect(() => {
+    const take = (request: ComposerSheetRequest | null) => {
+      if (request?.sessionId !== sessionId) return;
+      useComposerDraftStore.getState().clearSheetRequest();
+      setSheet({ type: 'model', focus: 'model' });
+    };
+    const first = setTimeout(() => take(useComposerDraftStore.getState().sheetRequest), 0);
+    const unsubscribe = useComposerDraftStore.subscribe((s, prev) => {
+      if (s.sheetRequest !== prev.sheetRequest) take(s.sheetRequest);
+    });
+    return () => {
+      clearTimeout(first);
+      unsubscribe();
+    };
+  }, [sessionId]);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);

@@ -67,7 +67,7 @@ const CLOUD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 
 /** A More page reached from another More page, not from the More list itself. */
 const MORE_PARENT: Partial<Record<MorePage, MorePage>> = {
-  gallery: 'about',
+  gallery: 'phone',
   appearance: 'settings',
   notifications: 'settings',
   voice: 'settings',

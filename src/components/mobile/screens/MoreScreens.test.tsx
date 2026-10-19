@@ -50,17 +50,30 @@ afterEach(() => {
 });
 
 describe('MoreScreen', () => {
-  it('lists Library, Settings, This phone and About, each a pushed screen', async () => {
+  it('lists Library, Settings and This phone, each a pushed screen; About lives in This phone', async () => {
     const user = userEvent.setup();
     render(<MoreScreen />);
-    expect(within(screen.getByRole('region', { name: 'Library' })).getAllByRole('button').map((b) => b.textContent))
-      .toEqual(expect.arrayContaining([expect.stringContaining('History'), expect.stringContaining('Prompt Trace'), expect.stringContaining('Saved prompts'), expect.stringContaining('Review'), expect.stringContaining('Agenda')]));
+    const library = within(screen.getByRole('region', { name: 'Library' })).getAllByRole('button').map((b) => b.textContent ?? '');
+    for (const t of ['History', 'Saved prompts', 'Review', 'Agenda']) expect(library.some((l) => l.startsWith(t))).toBe(true);
+    // A paired phone reads prompts one session at a time: its session's Prompts tab, not a second Prompt Trace.
+    expect(library.some((l) => l.startsWith('Prompt Trace'))).toBe(false);
+    expect(screen.queryByRole('region', { name: 'About' })).toBeNull();
     const settings = within(screen.getByRole('region', { name: 'Settings' })).getAllByRole('button').map((b) => b.textContent ?? '');
     for (const t of ['Appearance', 'Notifications', 'Voice', 'Translation', 'Advanced']) expect(settings.some((s) => s.startsWith(t))).toBe(true);
     await user.click(screen.getByRole('button', { name: /Saved prompts/ }));
     expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/saved-prompts');
     await user.click(screen.getByRole('button', { name: /Paired with MacBook/ }));
     expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/phone');
+  });
+
+  it('lists Prompt Trace on the Mac itself, where it reads every session', () => {
+    usePresenceStore.getState().applyPresence({
+      devices: [{ clientId: 'phone', label: 'MacBook browser', address: '', isLocal: true, connections: 1, connectedAt: 0, lastSeenAt: 0 }],
+      controllers: [], restoreOwner: 'phone', workspaceWriter: 'phone',
+    });
+    render(<MoreScreen />);
+    const library = within(screen.getByRole('region', { name: 'Library' })).getAllByRole('button').map((b) => b.textContent ?? '');
+    expect(library.some((l) => l.startsWith('Prompt Trace'))).toBe(true);
   });
 
   it('has no layout switch: every phone has this design (AASC-48)', () => {
@@ -148,6 +161,16 @@ describe('ThisPhoneScreen', () => {
     expect(screen.getByText('Kason’s iPhone')).toBeTruthy();
     expect(screen.getByText('On this Mac')).toBeTruthy();
     expect(screen.getByText('In the AASC app')).toBeTruthy();
+  });
+
+  it('says which AASC serves it and where it runs (what About said)', () => {
+    render(<ThisPhoneScreen />);
+    const about = screen.getByRole('region', { name: 'AASC' });
+    expect(within(about).getByText('AASC on your Mac')).toBeTruthy();
+    expect(within(about).getByText('Running in')).toBeTruthy();
+    expect(within(about).getByText('A phone browser')).toBeTruthy();
+    // The bundle's version, or "Unknown" where the build set none (tests, harnesses).
+    expect(within(about).getByText(/^(\d+\.\d+\.\d+.*|Unknown)$/)).toBeTruthy();
   });
 });
 

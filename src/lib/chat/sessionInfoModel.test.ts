@@ -58,14 +58,25 @@ describe('facts in words', () => {
   });
 
   it('shows the context share only when reported (never a made-up 0 %)', () => {
-    expect(contextWords({ runtime: { context: { pct: 37.6, size: 200_000 } } } as unknown as Session)).toBe('38 % used');
+    expect(contextWords({ runtime: { context: { pct: 37.6, size: 200_000 } } } as unknown as Session)).toBe('38% used');
     expect(contextWords({ runtime: {} } as Session)).toBeNull();
   });
 
-  it('names the plan windows', () => {
-    const planUsage = { cli: 'claude', asOf: 1, windows: [{ minutes: 300, usedPercent: 42.2, resetsAt: null }, { minutes: 10_080, usedPercent: 61, resetsAt: null }] };
-    expect(planWords({ planUsage } as unknown as Session)).toBe('5 h 42 % · Week 61 %');
-    expect(planWords({ planUsage: null } as Session)).toBeNull();
+  it('names the plan windows as the desktop and the Usage sheet do (Oct 20 2026)', () => {
+    const now = 1_000_000;
+    const planUsage = { cli: 'claude', asOf: now - 60_000, windows: [{ minutes: 300, usedPercent: 42.2, resetsAt: null }, { minutes: 10_080, usedPercent: 61, resetsAt: null }] };
+    const s = (over: object) => ({ cliSource: 'claude', ...over }) as unknown as Session;
+    expect(planWords(s({ planUsage }), now)).toBe('5-hour 42% · Weekly 61%');
+    expect(planWords(s({ planUsage: null }), now)).toBeNull();
+  });
+
+  it('drops a window that has reset and says when the reading is old, by the desktop’s rules', () => {
+    const now = 10_000_000;
+    const planUsage = {
+      cli: 'claude', asOf: now - 60 * 60_000,
+      windows: [{ minutes: 300, usedPercent: 90, resetsAt: now - 1000 }, { minutes: 10_080, usedPercent: 61, resetsAt: now + 86_400_000 }],
+    };
+    expect(planWords({ cliSource: 'claude', planUsage } as unknown as Session, now)).toBe('Weekly 61% · an old reading');
   });
 });
 

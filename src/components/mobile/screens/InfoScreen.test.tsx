@@ -36,6 +36,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
+import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import { requestSessionKill, requestSessionResume } from '@/lib/sessionActions';
 import { requestSessionRestart } from '@/lib/restartSession';
@@ -88,11 +89,12 @@ describe('InfoScreen', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('AASC Q & A');
     expect(screen.getByText('Claude Code · Working · 1h 12m')).toBeTruthy();
     expect(row('Model').textContent).toContain('Opus 5.5 · high');
-    expect(row('Context').textContent).toContain('38 % used');
-    expect(row('Plan usage').textContent).toContain('5 h 42 % · Week 61 %');
+    expect(row('Context').textContent).toContain('38% used');
+    expect(row('Plan usage').textContent).toContain('5-hour 42% · Weekly 61%');
     expect(row('Project').textContent).toContain('agent-manager');
     expect(row('Room').textContent).toContain('Mobile');
-    expect(row('Label').textContent).toContain('IMPORTANT');
+    // Labels are each device's own, never synced (labelStore): the phone shows none (Oct 20 2026).
+    expect(screen.queryByRole('button', { name: /^Label/ })).toBeNull();
     expect(row('Remark').textContent).toContain('Polish pass');
     // Nobody has typed yet: no "Last typed from" row (Oct 2026: any device drives directly).
     expect(screen.queryByText('Last typed from')).toBeNull();
@@ -193,15 +195,14 @@ describe('InfoScreen', () => {
     expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/project']);
   });
 
-  it('switches the model by typing /model through the Mac', async () => {
+  it('opens the chat composer’s model sheet, the one model sheet (Oct 20 2026)', async () => {
     const user = userEvent.setup();
+    usePhoneNavStore.setState({ tab: 'sessions', stacks: { ...defaultStacks(), sessions: ['/sessions', '/sessions/s1/chat', '/sessions/s1/info'] } });
     setup();
     await user.click(screen.getByRole('button', { name: /^Model/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Model and effort' });
-    await user.click(within(sheet).getByRole('button', { name: 'Sonnet' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s1/prompt', expect.objectContaining({ method: 'POST' })));
-    const body = JSON.parse((fetchMock.mock.calls.find((c) => c[0] === '/api/sessions/s1/prompt')![1] as RequestInit).body as string);
-    expect(body.text).toBe('/model sonnet');
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/chat']);
+    expect(useComposerDraftStore.getState().sheetRequest).toMatchObject({ sessionId: 's1', sheet: 'model' });
+    expect(screen.queryByRole('dialog', { name: 'Model and effort' })).toBeNull();
   });
 
   it('can’t change the model of a session that ended, and says why', () => {

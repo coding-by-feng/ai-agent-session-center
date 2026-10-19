@@ -92,7 +92,7 @@ export default function GalleryScreen() {
   ];
 
   return (
-    <Screen title="UI kit" subtitle="Phone components and states" onBack={pop} backLabel="Back to About" testId="phone-gallery">
+    <Screen title="UI kit" subtitle="Phone components and states" onBack={pop} backLabel="Back to This phone" testId="phone-gallery">
       <p className={styles.intro}>Last action: <strong>{lastAction}</strong></p>
 
       <Group title="Buttons">
@@ -104,7 +104,7 @@ export default function GalleryScreen() {
           <Button variant="primary" loading={loading} loadingLabel="Sending…" onClick={startLoading}>
             {loading ? 'Sending…' : 'Tap to load'}
           </Button>
-          <Button variant="primary" block disabledReason="Your Mac is driving this session">Send</Button>
+          <Button variant="primary" block disabledReason="Nothing to send yet">Send</Button>
           <div className={styles.row}>
             <Button small onClick={say('Small')}>Small</Button>
             <Button small variant="plain" onClick={say('Small plain')}>Small plain</Button>

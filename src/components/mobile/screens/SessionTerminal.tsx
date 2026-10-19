@@ -396,9 +396,10 @@ export default function SessionTerminal({ session }: { session: Session }) {
     fetch(`/api/sessions/${encodeURIComponent(sessionId)}/reconnect-terminal`, { method: 'POST' }).catch(() => {});
   }, [sessionId]);
 
-  // The COMMANDS tab: a plain shell on the Mac, which the phone app is never given (AASC-28).
+  // The COMMANDS tab: a plain shell on the Mac, which the phone app is never given (AASC-28),
+  // so the app lists no row for it (Oct 20 2026: it was a row that could only say no).
   const commands: CommandsRow | null = native
-    ? { kind: 'unavailable' }
+    ? null
     : opsId
       ? { kind: 'switch', showing: onShell ? 'shell' : 'agent', onClick: () => setShowing(onShell ? 'agent' : 'shell') }
       : null;

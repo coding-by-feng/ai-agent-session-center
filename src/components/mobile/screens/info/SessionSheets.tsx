@@ -1,7 +1,8 @@
 /**
  * SessionSheets — one session's sheets on the phone (AASC-40 / AASC-46): its
- * actions, rename, label, remark, room, model and effort, and the restart and
- * kill confirms. The Sessions list (long press, swipe "More"), Info and the
+ * actions, rename, remark, room, and the restart and kill confirms. Model and
+ * effort are the composer's sheet (Oct 20 2026), and labels stay on the device
+ * that set them (labelStore never syncs), so the phone offers neither here. The Sessions list (long press, swipe "More"), Info and the
  * session's ⋯ sheet all open them, so an action works the same wherever it was
  * asked for.
  *
@@ -9,41 +10,31 @@
  * agent); everything else changes something that can be changed back. Only what
  * a paired phone may do is offered: no Pin (AASC-50), no Share.
  */
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import type { Session } from '@/types';
-import type { CodexModelOption, ListCodexModelsResponse } from '@/types/api';
-import { Button, ConfirmSheet, ListRow, ListSection, Sheet, Chip } from '../../kit';
+import { Button, ConfirmSheet, ListRow, ListSection, Sheet } from '../../kit';
 import { ManageRoomsSheet, MoveToRoomSheet } from '../../RoomSheets';
 import { useSessionStore } from '@/stores/sessionStore';
-import { BUILTIN_LABELS, useLabelStore } from '@/stores/labelStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { requestSessionRestart, restartNeedsConfirm } from '@/lib/restartSession';
 import { requestSessionKill } from '@/lib/sessionActions';
-import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
-import { detectCli } from '@/lib/cliDetect';
-import { MODEL_STEP_OPTIONS, isModelAlias, modelStepText } from '@/lib/queueModel';
-import { EFFORT_STEP_LEVELS, effortStepText } from '@/lib/queueEffort';
-import { formatModelLabel } from '@/lib/modelLabel';
-import { killMessage, restartBlocker, restartMessage, sendSessionCommand } from '@/lib/chat/sessionInfoModel';
+import { killMessage, restartBlocker, restartMessage } from '@/lib/chat/sessionInfoModel';
 import { forkBlocker, useSessionActions } from './useSessionActions';
 import styles from '@/styles/modules/mobile/SessionSheets.module.css';
 
 export type SessionSheetKind =
   | 'actions'
   | 'rename'
-  | 'label'
   | 'remark'
   | 'move-room'
   | 'manage-rooms'
-  | 'model'
   | 'restart'
   | 'kill';
 
 /** The longest title and remark the desktop's own editors accept. */
 export const TITLE_MAX = 200;
 export const REMARK_MAX = 200;
-const LABEL_MAX = 24;
 const FIT = ['fit'] as const;
 const FIT_LARGE = ['fit', 'large'] as const;
 
@@ -78,9 +69,7 @@ export default function SessionSheets({ sessionId, sheet, onSheet, onOpenInfo, o
         onOpenTerminal={onOpenTerminal}
       />
       {sheet === 'rename' && <RenameSheet key={`rename-${key}`} session={session} onClose={close} />}
-      {sheet === 'label' && <LabelSheet key={`label-${key}`} session={session} onClose={close} />}
       {sheet === 'remark' && <RemarkSheet key={`remark-${key}`} session={session} onClose={close} />}
-      {sheet === 'model' && <ModelSheet key={`model-${key}`} session={session} onClose={close} />}
       <MoveToRoomSheet sessionId={sheet === 'move-room' ? key : null} onClose={close} onManage={manageRooms} />
       <ManageRoomsSheet open={sheet === 'manage-rooms'} onClose={close} />
       <RestartConfirm session={session} open={sheet === 'restart'} onClose={close} />
@@ -109,7 +98,6 @@ function ActionsSheet({
   onOpenTerminal?: () => void;
 }) {
   const { busy, copy, resume } = useSessionActions();
-  const label = useLabelStore((s) => s.labels[session.sessionId]);
   const ended = session.status === 'ended';
   const restartWhyNot = restartBlocker(session);
   const forkWhyNot = forkBlocker(session);
@@ -128,7 +116,6 @@ function ActionsSheet({
       )}
       <ListSection header="Edit">
         <ListRow title="Rename" chevron onClick={to('rename')} />
-        <ListRow title="Label" value={label} chevron onClick={to('label')} />
         <ListRow title="Remark" chevron onClick={to('remark')} />
         <ListRow title="Move to room" chevron onClick={to('move-room')} />
       </ListSection>
@@ -219,55 +206,6 @@ export function RenameSheet({ session, onClose }: { session: Session; onClose: (
   );
 }
 
-export function LabelSheet({ session, onClose }: { session: Session; onClose: () => void }) {
-  const active = useLabelStore((s) => s.labels[session.sessionId]);
-  const custom = useLabelStore((s) => s.custom);
-  const [name, setName] = useState('');
-  const all = [...BUILTIN_LABELS, ...custom];
-  const set = (label: string | null) => useLabelStore.getState().setLabel(session.sessionId, label);
-  const add = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const existing = all.find((l) => l.name.toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      set(existing.name);
-    } else {
-      useLabelStore.getState().addCustom(trimmed, ROOM_COLOR_PALETTE[custom.length % ROOM_COLOR_PALETTE.length]);
-      set(trimmed);
-    }
-    setName('');
-  };
-  return (
-    <Sheet open onClose={onClose} title="Label" detents={FIT_LARGE} testId="label-sheet">
-      <div className={styles.chips} role="group" aria-label="Labels">
-        {all.map((l) => (
-          <Chip key={l.name} label={l.name} selected={active === l.name} onClick={() => set(active === l.name ? null : l.name)} />
-        ))}
-      </div>
-      <SheetForm onSubmit={add}>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>New label</span>
-          <input
-            className={styles.input}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={LABEL_MAX}
-            enterKeyHint="done"
-            autoComplete="off"
-          />
-        </label>
-        <div className={styles.actions}>
-          {active ? <Button onClick={() => set(null)}>Remove label</Button> : <span />}
-          <Button type="submit" variant="primary" disabledReason={name.trim() ? undefined : 'Type a label first.'}>Add</Button>
-        </div>
-      </SheetForm>
-      <div className={styles.done}>
-        <Button block onClick={onClose}>Done</Button>
-      </div>
-    </Sheet>
-  );
-}
-
 export function RemarkSheet({ session, onClose }: { session: Session; onClose: () => void }) {
   const remark = session.remark ?? '';
   const [draft, setDraft] = useState(remark);
@@ -296,103 +234,6 @@ export function RemarkSheet({ session, onClose }: { session: Session; onClose: (
           <Button type="submit" variant="primary" disabledReason={unchanged ? 'Nothing changed yet.' : undefined}>Save</Button>
         </div>
       </SheetForm>
-    </Sheet>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Model and effort
-// ---------------------------------------------------------------------------
-
-function useCodexModels(enabled: boolean): CodexModelOption[] | null {
-  const [models, setModels] = useState<CodexModelOption[] | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    fetch('/api/codex/models', { signal: controller.signal, cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.json() as Promise<ListCodexModelsResponse>;
-      })
-      .then((data) => setModels(Array.isArray(data.models) ? data.models : []))
-      .catch(() => {
-        if (!controller.signal.aborted) setModels([]);
-      });
-    return () => controller.abort();
-  }, [enabled]);
-  return models;
-}
-
-export function ModelSheet({ session, onClose }: { session: Session; onClose: () => void }) {
-  const cli = detectCli(session);
-  const codexModels = useCodexModels(cli === 'codex');
-  const [sending, setSending] = useState<string | null>(null);
-  const current = (session.runtime?.model || session.model || '').toLowerCase();
-  const effort = session.runtime?.effort || session.effortLevel || '';
-
-  const send = useCallback(async (text: string, words: string) => {
-    if (sending) return;
-    setSending(text);
-    const result = await sendSessionCommand(session.sessionId, text);
-    setSending(null);
-    if (result.ok) {
-      showToast(`Asked your Mac to switch to ${words}`, 'success');
-      onClose();
-    } else {
-      showToast(result.error, 'error');
-    }
-  }, [sending, session.sessionId, onClose]);
-
-  const busyReason = sending ? 'Sending…' : undefined;
-  const claudeModels = MODEL_STEP_OPTIONS;
-  return (
-    <Sheet open onClose={onClose} title="Model and effort" detents={['medium', 'large']} testId="model-sheet">
-      <p className={styles.lead}>The change is typed into the session as a command, as on your Mac.</p>
-      {cli === 'claude' && (
-        <>
-          <ListSection header="Model" footer="A tier name follows the newest model in its tier.">
-            {claudeModels.filter(isModelAlias).map((m) => (
-              <ListRow
-                key={m}
-                title={formatModelLabel(m)}
-                value={current.includes(m) ? 'Current' : undefined}
-                disabledReason={busyReason}
-                onClick={() => void send(modelStepText(m), formatModelLabel(m))}
-              />
-            ))}
-          </ListSection>
-          <ListSection header="A pinned model">
-            {claudeModels.filter((m) => !isModelAlias(m)).map((m) => (
-              <ListRow key={m} title={formatModelLabel(m)} subtitle={m} disabledReason={busyReason} onClick={() => void send(modelStepText(m), formatModelLabel(m))} />
-            ))}
-          </ListSection>
-          <ListSection header="Effort">
-            {EFFORT_STEP_LEVELS.map((level) => (
-              <ListRow
-                key={level}
-                title={level}
-                value={effort === level ? 'Current' : undefined}
-                disabledReason={busyReason}
-                onClick={() => void send(effortStepText(level), `${level} effort`)}
-              />
-            ))}
-          </ListSection>
-        </>
-      )}
-      {cli === 'codex' && (
-        <ListSection header="Model" footer={codexModels === null ? 'Asking your Mac for Codex’s models…' : codexModels.length === 0 ? 'Your Mac couldn’t list Codex’s models.' : undefined}>
-          {(codexModels ?? []).map((m) => (
-            <ListRow
-              key={m.id}
-              title={m.displayName}
-              subtitle={m.description || undefined}
-              value={current === m.id.toLowerCase() ? 'Current' : m.isDefault ? 'Default' : undefined}
-              disabledReason={busyReason}
-              onClick={() => void send(`/model ${m.id}`, m.displayName)}
-            />
-          ))}
-        </ListSection>
-      )}
     </Sheet>
   );
 }

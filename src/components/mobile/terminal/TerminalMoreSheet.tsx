@@ -13,9 +13,7 @@ import { BookmarkIcon, EraseIcon, FollowIcon, ReconnectIcon, RefreshIcon, SparkI
 import { CommandsIcon, CopyIcon, FullscreenIcon } from '../chat/chatIcons';
 import styles from '@/styles/modules/mobile/PhoneTerminal.module.css';
 
-export type CommandsRow =
-  | { kind: 'unavailable' }
-  | { kind: 'switch'; showing: 'agent' | 'shell'; onClick: () => void };
+export type CommandsRow = { kind: 'switch'; showing: 'agent' | 'shell'; onClick: () => void };
 
 export interface TerminalMoreSheetProps {
   open: boolean;
@@ -104,19 +102,11 @@ export default function TerminalMoreSheet(props: TerminalMoreSheetProps) {
         </ListSection>
         {commands && (
           <ListSection header="Commands">
-            {commands.kind === 'unavailable' ? (
-              <ListRow
-                leading={<CommandsIcon />}
-                title="Commands"
-                disabledReason="A plain shell on your Mac. The phone app can’t open it: run commands on the Mac."
-              />
-            ) : (
-              <ListRow
-                leading={<CommandsIcon />}
-                title={commands.showing === 'agent' ? 'Open Commands (a plain shell)' : 'Back to the agent'}
-                onClick={run(commands.onClick)}
-              />
-            )}
+            <ListRow
+              leading={<CommandsIcon />}
+              title={commands.showing === 'agent' ? 'Open Commands (a plain shell)' : 'Back to the agent'}
+              onClick={run(commands.onClick)}
+            />
           </ListSection>
         )}
         <ListSection header="Connection">

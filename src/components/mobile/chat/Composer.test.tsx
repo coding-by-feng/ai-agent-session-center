@@ -273,6 +273,24 @@ describe('Composer', () => {
     expect(order.indexOf('poll')).toBeLessThan(order.indexOf('send /effort high'));
   });
 
+  it('opens its model sheet when Info asks for it, once (Oct 20 2026)', async () => {
+    stubMac();
+    useComposerDraftStore.getState().requestSheet('s1', 'model');
+    renderComposer(session({ status: 'waiting' }));
+    expect(await screen.findByRole('dialog', { name: 'Model and effort' })).toBeInTheDocument();
+    expect(useComposerDraftStore.getState().sheetRequest).toBeNull();
+  });
+
+  it('leaves another session’s sheet request alone', async () => {
+    stubMac();
+    useComposerDraftStore.getState().requestSheet('other', 'model');
+    renderComposer(session({ status: 'waiting' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('dialog', { name: 'Model and effort' })).toBeNull();
+    expect(useComposerDraftStore.getState().sheetRequest).toMatchObject({ sessionId: 'other' });
+    useComposerDraftStore.setState({ sheetRequest: null });
+  });
+
   it('offers the model chip with an empty box', async () => {
     stubMac();
     renderComposer(session());

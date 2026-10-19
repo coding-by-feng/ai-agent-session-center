@@ -14,6 +14,11 @@ vi.mock('@/lib/presenceClient', () => ({
   releaseControl: vi.fn(async () => ({ ok: true, released: true })),
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
+const platform = vi.hoisted(() => ({ native: false }));
+vi.mock('@/lib/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/platform')>()),
+  isNativeMobileApp: () => platform.native,
+}));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 const term = vi.hoisted(() => ({
@@ -218,6 +223,18 @@ describe('SessionTerminal', () => {
     render(<SessionTerminal session={session} />);
     push({ type: 'terminal_error', terminalId: 'term-1', error: 'A phone can type only while the agent is running' });
     expect(screen.getByRole('alert')).toHaveTextContent('A phone can type only while the agent is running');
+  });
+
+  it('lists no Commands row in the phone app, which is never given the plain shell (Oct 20 2026)', async () => {
+    platform.native = true;
+    try {
+      render(<SessionTerminal session={session} />);
+      fireEvent.click(screen.getByRole('button', { name: 'More terminal actions' }));
+      await screen.findByRole('button', { name: 'Clear output…' });
+      expect(screen.queryByText('Commands')).toBeNull();
+    } finally {
+      platform.native = false;
+    }
   });
 
   it('clears the output only after a confirm, from the ⋯ sheet', async () => {

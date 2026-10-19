@@ -112,7 +112,7 @@ describe('SessionsScreen', () => {
     expect(screen.queryByTestId('session-row-s5')).toBeNull();
   });
 
-  it('says what matters now on each row, with project, room and label', () => {
+  it('says what matters now on each row, with project and room, and no label (labels stay on the device that set them)', () => {
     render(<SessionsScreen />);
     const ask = screen.getByTestId('session-row-s1');
     expect(ask.textContent).toContain('Wants to run: npm test');
@@ -120,7 +120,7 @@ describe('SessionsScreen', () => {
     expect(ask.getAttribute('aria-label')).toMatch(/Approve me, Claude Code, Waiting for approval, Wants to run: npm test/);
     expect(screen.getByTestId('session-row-s2').textContent).toContain('Bash: npm run build');
     expect(screen.getByTestId('session-row-s3').textContent).toContain('All tests pass.');
-    expect(screen.getByTestId('session-row-s4').textContent).toContain('IMPORTANT');
+    expect(screen.getByTestId('session-row-s4').textContent).not.toContain('IMPORTANT');
   });
 
   it('filters to the sessions that need you or are working', async () => {
@@ -134,7 +134,7 @@ describe('SessionsScreen', () => {
     expect(screen.getAllByTestId(/^session-row-/)).toHaveLength(4);
   });
 
-  it('searches by name, project, label and remark', async () => {
+  it('searches by name, project and remark (not by label, which the phone no longer shows)', async () => {
     const user = userEvent.setup();
     render(<SessionsScreen />);
     await user.click(screen.getByRole('button', { name: 'Search' }));
@@ -143,7 +143,7 @@ describe('SessionsScreen', () => {
     expect(screen.getAllByTestId(/^session-row-/).map((r) => r.dataset.testid)).toEqual(['session-row-s1']);
     await user.clear(box);
     await user.type(box, 'important');
-    expect(screen.getAllByTestId(/^session-row-/).map((r) => r.dataset.testid)).toEqual(['session-row-s4']);
+    expect(screen.queryAllByTestId(/^session-row-/)).toEqual([]);
     await user.clear(box);
     await user.type(box, 'nothing like this');
     expect(screen.getByText(/Nothing matches/)).toBeTruthy();
@@ -167,15 +167,16 @@ describe('SessionsScreen', () => {
     expect(names(region('Idle'))).toContain('s3');
   });
 
-  it('offers rename, label, remark, room, fork, clone, restart and kill on a long press; kill confirms', async () => {
+  it('offers rename, remark, room, fork, clone, restart and kill on a long press, and no label; kill confirms', async () => {
     const user = userEvent.setup();
     render(<SessionsScreen />);
     fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
     const menu = await screen.findByRole('menu', { name: 'Actions for Working one' });
     const items = within(menu).getAllByRole('menuitem').map((i) => i.textContent);
-    for (const label of ['Rename', 'Label…', 'Remark…', 'Move to room…', 'Fork', 'Clone', 'Restart…', 'Kill…']) {
+    for (const label of ['Rename', 'Remark…', 'Move to room…', 'Fork', 'Clone', 'Restart…', 'Kill…']) {
       expect(items.some((t) => t?.startsWith(label))).toBe(true);
     }
+    expect(items.some((t) => t?.startsWith('Label'))).toBe(false);
     expect(items.some((t) => /Pin/.test(t ?? ''))).toBe(false);
     await user.click(within(menu).getByRole('menuitem', { name: /Kill/ }));
     expect(requestSessionKill).not.toHaveBeenCalled();

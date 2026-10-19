@@ -57,15 +57,19 @@
   outline-offset: -2px;
 }
 
+/* "N more need you ›": 36px drawn (Oct 20 2026: a 44px band on every session screen), with
+   the tap area still 44px: ::after reaches 9px down, over the segments' top padding (the nav
+   bar above paints over anything reaching up). */
 .nextWaiting {
   appearance: none;
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
   justify-content: flex-end;
   gap: var(--ph-space-1);
   width: 100%;
-  min-height: var(--ph-target);
+  min-height: 36px;
   margin: 0;
   padding: 0 var(--ph-space-3) 0 var(--ph-gutter);
   border: 0;
@@ -78,6 +82,12 @@
   font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.nextWaiting::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 -9px;
 }
 
 .nextWaiting svg { color: var(--ph-status-approval); }

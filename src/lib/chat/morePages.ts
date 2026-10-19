@@ -8,11 +8,16 @@ export interface MoreEntry {
   page: MorePage;
   title: string;
   subtitle: string;
+  /**
+   * Listed only on the Mac itself (hostAccess). Prompt Trace on a paired phone was the
+   * session's Prompts tab behind a session picker (Oct 20 2026), so it isn't listed there.
+   */
+  hostOnly?: boolean;
 }
 
 export const LIBRARY_PAGES: readonly MoreEntry[] = [
   { page: 'history', title: 'History', subtitle: 'Past sessions; resume one' },
-  { page: 'prompts', title: 'Prompt Trace', subtitle: 'Every prompt you sent' },
+  { page: 'prompts', title: 'Prompt Trace', subtitle: 'Every prompt you sent', hostOnly: true },
   { page: 'saved-prompts', title: 'Saved prompts', subtitle: 'Prompts you keep for reuse' },
   { page: 'review', title: 'Review', subtitle: 'Saved AI popups' },
   { page: 'agenda', title: 'Agenda', subtitle: 'Tasks' },

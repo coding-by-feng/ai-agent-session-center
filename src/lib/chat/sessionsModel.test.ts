@@ -44,7 +44,6 @@ const input = (sessions: Session[], over: Partial<GroupInput> = {}): GroupInput 
   groupBy: 'status',
   filter: 'all',
   query: '',
-  labels: {},
   rooms: [],
   reads: {},
   ...over,
@@ -124,13 +123,12 @@ describe('filters and search', () => {
     expect(filterCount(list, 'working')).toBe(1);
   });
 
-  it('searches name, project, label and remark, every word', () => {
+  it('searches name, project and remark, every word', () => {
     const s = mk('a', { title: 'Payment fix', projectName: 'exmouth', remark: 'waiting on Kim' });
     expect(matchesSearch(s, '')).toBe(true);
     expect(matchesSearch(s, 'payment')).toBe(true);
     expect(matchesSearch(s, 'EXMOUTH')).toBe(true);
     expect(matchesSearch(s, 'kim')).toBe(true);
-    expect(matchesSearch(s, 'urgent', 'Urgent')).toBe(true);
     expect(matchesSearch(s, 'payment kim')).toBe(true);
     expect(matchesSearch(s, 'payment bob')).toBe(false);
   });

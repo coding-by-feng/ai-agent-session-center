@@ -8,7 +8,7 @@
  *
  * Ended sessions stay in History. A row opens the session (Chat for Claude Code
  * and Codex, Terminal otherwise) and marks it read here; swipe it for Mark read,
- * Mute and More; hold it for rename, label, remark, room, fork, clone, restart
+ * Mute and More; hold it for rename, remark, room, fork, clone, restart
  * and kill (kill and restart confirm). Group by Room / Project use the desktop
  * strip's grouping and order; the list opens by Room when the Mac has rooms (as the
  * desktop strip does), else by Status, until this phone picks one. Grouped by room (AASC-55) the list is the
@@ -39,7 +39,6 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { useLabelStore } from '@/stores/labelStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -231,7 +230,6 @@ export default function SessionsScreen() {
   const connected = useWsStore((s) => s.connected);
   const hiddenCount = useWsStore((s) => s.hiddenCount);
   const rooms = useRoomStore((s) => s.rooms);
-  const labels = useLabelStore((s) => s.labels);
   const push = usePhoneNavStore((s) => s.push);
   const reads = useSessionReads();
   const now = useClock();
@@ -262,8 +260,8 @@ export default function SessionsScreen() {
   }, []);
 
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, labels, rooms, reads }),
-    [sessions, groupBy, filter, query, labels, rooms, reads],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads }),
+    [sessions, groupBy, filter, query, rooms, reads],
   );
   const counts = useMemo(() => ({
     all: filterCount(sessions.values(), 'all'),
@@ -305,7 +303,6 @@ export default function SessionsScreen() {
       { id: 'read', label: 'Mark read', disabledReason: unread ? undefined : 'Nothing new since you read it.', onSelect: () => markRead(s) },
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
       { id: 'rename', label: 'Rename', icon: <RenameIcon />, onSelect: () => openSheet(id, 'rename') },
-      { id: 'label', label: 'Label…', onSelect: () => openSheet(id, 'label') },
       { id: 'remark', label: 'Remark…', onSelect: () => openSheet(id, 'remark') },
       { id: 'room', label: 'Move to room…', icon: <RoomIcon />, onSelect: () => openSheet(id, 'move-room') },
       { id: 'fork', label: 'Fork', icon: <ForkIcon />, disabledReason: forkBlocker(s) ?? undefined, onSelect: () => void copy(id, 'fork') },

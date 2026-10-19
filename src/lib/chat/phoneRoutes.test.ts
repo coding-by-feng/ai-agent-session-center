@@ -158,7 +158,7 @@ describe('tabOfPath / pathChain', () => {
     expect(pathChain('/sessions/x/terminal')).toEqual(['/sessions', '/sessions/x/chat', '/sessions/x/terminal']);
     expect(pathChain('/sessions/x/project')).toEqual(['/sessions', '/sessions/x/project']);
     expect(pathChain('/more/history')).toEqual(['/more', '/more/history']);
-    expect(pathChain('/more/gallery')).toEqual(['/more', '/more/about', '/more/gallery']);
+    expect(pathChain('/more/gallery')).toEqual(['/more', '/more/phone', '/more/gallery']);
     expect(pathChain('/sessions/x/changes/2')).toEqual(['/sessions', '/sessions/x/changes', '/sessions/x/changes/2']);
   });
 

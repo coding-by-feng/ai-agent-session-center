@@ -17,7 +17,6 @@ import { EmptyState, Screen } from '../kit';
 
 const LibraryScreen = lazy(() => import('../screens/LibraryScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
-const AboutScreen = lazy(() => import('../screens/AboutScreen'));
 const ThisPhoneScreen = lazy(() => import('../screens/ThisPhoneScreen'));
 const InfoScreen = lazy(() => import('../screens/InfoScreen'));
 const InfoPageScreen = lazy(() => import('../screens/info/InfoPageScreen'));
@@ -61,7 +60,8 @@ export default function RouteScreen({ path }: { path: string }) {
       return <SettingsScreen page={route.page} />;
     case 'cloud': return <CloudScreen />;
     case 'phone': return <ThisPhoneScreen />;
-    case 'about': return <AboutScreen />;
+    // About folded into This phone (Oct 20 2026); an old link lands there.
+    case 'about': return <ThisPhoneScreen />;
     case 'gallery': return <GalleryScreen />;
     default: return <LibraryScreen page={route.page} />;
   }

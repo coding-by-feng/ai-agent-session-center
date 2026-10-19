@@ -11,6 +11,7 @@ import { restartNeedsConfirm } from '@/lib/restartSession';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { detectCli } from '@/lib/cliDetect';
 import { isCompacting, phoneStatus } from './phoneStatus';
+import { describeUsage } from './usageModel';
 
 /** Restart is the terminal toolbar's: the agent's own terminal, never a fork's. */
 export function canRestartSession(session: Pick<Session, 'source' | 'terminalId' | 'isFork' | 'status'>): boolean {
@@ -85,25 +86,20 @@ export function modelWords(session: Pick<Session, 'model' | 'runtime' | 'effortL
 /** "38 %" of the context window, or null when the CLI hasn't said. */
 export function contextWords(session: Pick<Session, 'runtime'>): string | null {
   const pct = session.runtime?.context?.pct;
-  return typeof pct === 'number' && Number.isFinite(pct) ? `${Math.round(pct)} % used` : null;
+  return typeof pct === 'number' && Number.isFinite(pct) ? `${Math.round(pct)}% used` : null;
 }
 
-/** "5 h 42 % · week 61 %", or null when no session of this CLI has reported its limits. */
-export function planWords(session: Pick<Session, 'planUsage'>): string | null {
-  const windows = session.planUsage?.windows;
-  if (!windows || windows.length === 0) return null;
-  const parts = windows
-    .filter((w) => Number.isFinite(w.usedPercent))
-    .map((w) => `${windowName(w.minutes)} ${Math.round(w.usedPercent)} %`);
-  return parts.length ? parts.join(' · ') : null;
-}
-
-function windowName(minutes: number): string {
-  if (!minutes) return 'Limit';
-  if (minutes === 10_080) return 'Week';
-  if (minutes % 1440 === 0) return `${minutes / 1440} d`;
-  if (minutes % 60 === 0) return `${minutes / 60} h`;
-  return `${minutes} min`;
+/**
+ * "5-hour 42% · Weekly 61%", or null when no session of this CLI has reported its
+ * limits. The desktop chip's rules (describePlanUsage, Oct 20 2026): a window that has
+ * reset is dropped, an old reading says so; the words are the Usage sheet's.
+ */
+export function planWords(session: Session, now: number): string | null {
+  const plan = describeUsage(session, now).plan;
+  if (!plan) return null;
+  if (plan.state !== 'ready') return plan.state === 'expired' ? plan.reason : null;
+  const rows = plan.rows.map((r) => `${r.name.charAt(0).toUpperCase()}${r.name.slice(1)} ${r.percentText}`);
+  return [...rows, ...(plan.stale ? ['an old reading'] : [])].join(' · ');
 }
 
 export type CommandResult = { ok: true } | { ok: false; error: string };

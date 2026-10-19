@@ -70,10 +70,10 @@ export function matchesFilter(session: SectionFields, filter: SessionsFilter): b
 }
 
 /** Search by name, project, label and remark; every word must match somewhere. */
-export function matchesSearch(session: Session, query: string, label?: string | null): boolean {
+export function matchesSearch(session: Session, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const haystack = [sessionDisplayTitle(session), session.projectName, session.projectPath, label, session.remark]
+  const haystack = [sessionDisplayTitle(session), session.projectName, session.projectPath, session.remark]
     .filter(Boolean)
     .join('\n')
     .toLowerCase();
@@ -174,7 +174,6 @@ export interface GroupInput {
   groupBy: SessionsGroupBy;
   filter: SessionsFilter;
   query: string;
-  labels: Readonly<Record<string, string>>;
   rooms: readonly Room[];
   reads: ReadMap;
 }
@@ -187,10 +186,10 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, labels, rooms, reads }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
   const listed = numberedSessions(sessions).filter(
-    (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query, labels[s.sessionId]),
+    (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
   );
 
   if (groupBy === 'status') {
