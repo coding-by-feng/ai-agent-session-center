@@ -10,7 +10,8 @@
  * and Codex, Terminal otherwise) and marks it read here; swipe it for Mark read,
  * Mute and More; hold it for rename, label, remark, room, fork, clone, restart
  * and kill (kill and restart confirm). Group by Room / Project use the desktop
- * strip's grouping and order. Grouped by room (AASC-55) the list is the
+ * strip's grouping and order; the list opens by Room when the Mac has rooms (as the
+ * desktop strip does), else by Status, until this phone picks one. Grouped by room (AASC-55) the list is the
  * desktop's room strip on a phone: hold a room's ≡ to reorder rooms, hold a
  * session's ≡ to drag it into another room (tap it for "Move to room…"), tap a
  * room's name to fold it (this phone only), and its ⋯ moves it up or down,
@@ -78,12 +79,13 @@ const PULL_WORDS: Record<PullPhase, string> = {
   refreshing: 'Refreshing…',
 };
 
-function readGroupBy(): SessionsGroupBy {
+/** The grouping this phone chose, or null if it never chose one (then rooms decide, below). */
+function readGroupChoice(): SessionsGroupBy | null {
   try {
     const v = localStorage.getItem(GROUP_KEY);
-    return v === 'room' || v === 'project' ? v : 'status';
+    return v === 'room' || v === 'project' || v === 'status' ? v : null;
   } catch {
-    return 'status';
+    return null;
   }
 }
 
@@ -236,7 +238,10 @@ export default function SessionsScreen() {
   const { copy, setNotifications, markRead } = useSessionActions();
 
   const [filter, setFilter] = useState<SessionsFilter>('all');
-  const [groupBy, setGroupByState] = useState<SessionsGroupBy>(readGroupBy);
+  const [groupChoice, setGroupChoice] = useState<SessionsGroupBy | null>(readGroupChoice);
+  // Rooms first, as the desktop's strip opens, when the Mac has any (Oct 20 2026: a phone that
+  // opened on Status hid its rooms and their management behind the half-visible "By status" chip).
+  const groupBy: SessionsGroupBy = groupChoice ?? (rooms.length > 0 ? 'room' : 'status');
   const [groupSheet, setGroupSheet] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -252,7 +257,7 @@ export default function SessionsScreen() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const setGroupBy = useCallback((next: SessionsGroupBy) => {
-    setGroupByState(next);
+    setGroupChoice(next);
     try { localStorage.setItem(GROUP_KEY, next); } catch { /* the choice lasts until reload */ }
   }, []);
 

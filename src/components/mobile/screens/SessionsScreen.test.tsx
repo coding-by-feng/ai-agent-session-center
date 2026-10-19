@@ -68,6 +68,8 @@ const room = (id: string, name: string, sessionIds: string[], listOrder: number)
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
   localStorage.clear();
+  // Most tests read the status sections: an explicit choice, as a phone that picked Status has.
+  localStorage.setItem('aasc.phoneSessionsGroup', 'status');
   resetSessionReadsForTest();
   useSessionStore.setState({ sessions: fixtures(), selectedSessionId: null });
   useWsStore.setState({ snapshotReceived: true, connected: true, hiddenCount: 0 });
@@ -195,6 +197,39 @@ describe('SessionsScreen', () => {
     await user.clear(input);
     await user.type(input, 'Better name{Enter}');
     expect(setTitle).toHaveBeenCalledWith('s4', 'Better name');
+  });
+
+  describe('the grouping a phone starts on (Oct 20 2026: rooms first, like the desktop strip)', () => {
+    beforeEach(() => localStorage.removeItem('aasc.phoneSessionsGroup'));
+    const headings = () => screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+
+    it('opens grouped by room, with room management, when the Mac has rooms', () => {
+      render(<SessionsScreen />);
+      expect(screen.getByRole('button', { name: 'By room' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /New or manage rooms/ })).toBeTruthy();
+      expect(headings()).toEqual(['Mobile · 2', 'Backend · 1', 'No room · 1']);
+      // Not a choice this phone made: nothing is saved until it picks one.
+      expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBeNull();
+    });
+
+    it('opens by status when the Mac has no rooms', () => {
+      useRoomStore.setState({ rooms: [] });
+      render(<SessionsScreen />);
+      expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
+    });
+
+    it('keeps the grouping this phone chose', async () => {
+      const user = userEvent.setup();
+      const { unmount } = render(<SessionsScreen />);
+      await user.click(screen.getByRole('button', { name: 'By room' }));
+      await user.click(within(await screen.findByRole('dialog', { name: 'Group sessions by' })).getByRole('button', { name: /^Status/ }));
+      expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBe('status');
+      unmount();
+      render(<SessionsScreen />);
+      expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
+    });
   });
 
   it('groups by room in the Mac\'s order, an empty room too', async () => {
