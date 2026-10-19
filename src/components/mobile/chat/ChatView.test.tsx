@@ -28,6 +28,7 @@ const { useQueueStore } = await import('@/stores/queueStore');
 const { useComposerDraftStore } = await import('@/stores/composerDraftStore');
 const { useWsStore } = await import('@/stores/wsStore');
 const { ScreenSlotContext } = await import('../kit');
+const { PEEK_OPEN_KEY, writePeekOpen } = await import('@/lib/chat/peekPreference');
 
 /** This device's socket, as the terminal peek sees it: records what is sent, can push messages. */
 class FakeSocket extends EventTarget {
@@ -93,6 +94,7 @@ function session(over: Partial<Session> = {}): Session {
 }
 
 beforeEach(() => {
+  localStorage.removeItem(PEEK_OPEN_KEY);
   fetchChatPage.mockReset();
   writeTerminal.mockClear();
   baton.mode = 'solo';
@@ -293,10 +295,29 @@ describe('ChatView', () => {
     });
   });
 
+  it('hides the terminal’s last lines until ⌄ asks for them, and the phone remembers (Oct 19 2026)', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    const { unmount } = render(<ChatView session={session({ status: 'working' })} onTerminal={() => {}} />);
+    const strip = await screen.findByTestId('chat-status-strip');
+    expect(screen.queryByTestId('chat-terminal-peek')).toBeNull();
+    const toggle = within(strip).getByRole('button', { name: 'Show the terminal’s last lines' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(toggle);
+    expect(screen.getByTestId('chat-terminal-peek')).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    unmount();
+
+    render(<ChatView session={session({ status: 'working' })} onTerminal={() => {}} />);
+    expect(await screen.findByTestId('chat-terminal-peek')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show the terminal’s last lines' }));
+    expect(screen.queryByTestId('chat-terminal-peek')).toBeNull();
+  });
+
   it('opens the terminal from the live preview’s "Open terminal" (AASC-56)', async () => {
     fetchChatPage.mockResolvedValue(claudePage());
     const onTerminal = vi.fn();
     render(<ChatView session={session({ status: 'working' })} onTerminal={onTerminal} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Show the terminal’s last lines' }));
     await userEvent.click(await screen.findByTestId('chat-terminal-peek'));
     await userEvent.click(screen.getByRole('button', { name: 'Open terminal' }));
     expect(onTerminal).toHaveBeenCalledTimes(1);
@@ -304,6 +325,7 @@ describe('ChatView', () => {
 
   it('stays subscribed to the terminal across turns: a status flip never re-downloads the scrollback', async () => {
     const socket = connectSocket();
+    writePeekOpen(true); // the lines are on show
     fetchChatPage.mockResolvedValue(claudePage());
     const view = (status: Session['status']) => <ChatView session={session({ status })} onTerminal={() => {}} />;
     const { rerender } = render(view('working'));

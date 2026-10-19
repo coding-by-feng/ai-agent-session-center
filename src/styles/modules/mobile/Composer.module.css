@@ -90,7 +90,13 @@
   justify-content: space-between;
   gap: var(--ph-space-2);
   min-width: 0;
+  /* The chips keep 44px targets but overlap the footer's padding and the gap: the row
+     reads ~32px, not 60 (Oct 19 2026, the working area was ~180pt on a phone). */
+  margin-bottom: calc(-1 * var(--ph-space-1));
 }
+
+/* Only when nothing sits above it: a note, the sent line or a waiting card would be overlapped. */
+.footer > .composer:first-child > .chips:first-child { margin-top: calc(-1 * var(--ph-space-2)); }
 
 .chip {
   appearance: none;

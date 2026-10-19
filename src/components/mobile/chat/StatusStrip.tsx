@@ -1,7 +1,8 @@
 /**
  * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop",
  * or compacts its context: "● Compacting context · auto · 0:23  ■ Stop" (timed from
- * PreCompact; Esc cancels a compaction too)
+ * PreCompact; Esc cancels a compaction too). The terminal's last lines sit under it
+ * only once ⌄ asks for them (Oct 19 2026, remembered per phone: peekPreference).
  * and the terminal peek under it, whose opened face has "Open terminal" (AASC-56). Status and tool come from the session object
  * (hook-driven, instant), not from the transcript.
  *
@@ -10,15 +11,16 @@
  * control baton like the key bar: while another device drives, it says who and
  * stays off; the server refuses a stray write anyway (409).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { Session } from '@/types';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
 import { isCompacting } from '@/lib/chat/phoneStatus';
+import { readPeekOpen, writePeekOpen } from '@/lib/chat/peekPreference';
 import { Button } from '../kit';
 import TerminalPeek from './TerminalPeek';
-import { SquareStopIcon } from './chatViewIcons';
+import { ChevronIcon, SquareStopIcon } from './chatViewIcons';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
 const TICK_MS = 1000;
@@ -50,6 +52,13 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   const [now, setNow] = useState(() => Date.now());
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [peekOpen, setPeekOpen] = useState(readPeekOpen);
+  const peekId = useId();
+  const togglePeek = () => {
+    const next = !peekOpen;
+    setPeekOpen(next);
+    writePeekOpen(next);
+  };
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -91,6 +100,17 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           </span>
           {elapsed && <span className={styles.stripTime}> · <span aria-label={`for ${elapsed}`}>{elapsed}</span></span>}
         </span>
+        <button
+          type="button"
+          className={styles.stripToggle}
+          data-open={peekOpen ? '' : undefined}
+          aria-expanded={peekOpen}
+          aria-controls={peekOpen ? peekId : undefined}
+          aria-label="Show the terminal’s last lines"
+          onClick={togglePeek}
+        >
+          <ChevronIcon size={18} />
+        </button>
         <Button
           small
           variant="secondary"
@@ -100,12 +120,17 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           loadingLabel="Stopping"
           disabledReason={disabledReason}
           aria-label="Stop the agent (Esc)"
+          className={styles.stripStop}
         >
           Stop
         </Button>
       </div>
       {error && <p className={styles.stripError} role="alert">{error}</p>}
-      <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
+      {peekOpen && (
+        <div id={peekId}>
+          <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
+        </div>
+      )}
     </div>
   );
 }

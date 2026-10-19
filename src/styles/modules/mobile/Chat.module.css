@@ -307,7 +307,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--ph-space-1);
-  padding: var(--ph-space-2) var(--ph-gutter);
+  padding: var(--ph-space-1) var(--ph-gutter);
   border-top: 0.5px solid var(--ph-separator);
   background: var(--ph-bar-bg);
 }
@@ -329,6 +329,65 @@
 }
 
 @keyframes strip-pulse { 50% { opacity: 0.35; } }
+
+/* ⌄ shows the terminal's last lines under the strip (hidden by default, Oct 19 2026). */
+.stripToggle {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.stripToggle svg {
+  transform: rotate(90deg);
+  transition: transform var(--ph-motion-fast) ease;
+}
+
+.stripToggle[data-open] svg { transform: rotate(-90deg); }
+
+@media (hover: hover) {
+  .stripToggle:hover { background: var(--ph-fill); }
+}
+
+.stripToggle:active { background: var(--ph-fill-strong); }
+
+.stripToggle:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stripToggle svg { transition: none; }
+}
+
+/* Under 360px the ⌄ leaves the tool name no room ("Working · … · 9:14"): Stop keeps its
+   icon and its spoken name, and its word goes (the kit Button's label is its last span). */
+@media (max-width: 359px) {
+  .stripStop:is(button) > span:last-child,
+  .stripStop > button > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
 
 .stripLabel {
   flex: 1;
