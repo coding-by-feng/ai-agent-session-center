@@ -47,6 +47,20 @@ describe('inboxItems', () => {
     const [item] = inboxItems(map(session('a', 'approval', { pendingRequest: bash() })), { titleOf, now: NOW });
     expect(item).toMatchObject({ kind: 'approval', sessionId: 'a', title: 'Session a', line: 'Wants to run: npm run build', waiting: true, at: NOW - 120_000 });
     expect(item.id).toBe('approval:a:toolu_1');
+    expect(item.command).toBe('npm run build');
+  });
+
+  it('keeps the whole command of an approval, however long, for the row to show before Allow', () => {
+    const long = `rm -rf ./build && ${'x'.repeat(200)} && echo done`;
+    const req = { ...bash(), input: { command: long } };
+    const [item] = inboxItems(map(session('a', 'approval', { pendingRequest: req })), { titleOf, now: NOW });
+    expect(item.line.length).toBeLessThanOrEqual(140);
+    expect(item.command).toBe(long);
+  });
+
+  it('gives a question no command', () => {
+    const [item] = inboxItems(map(session('b', 'input', { waitingDetail: 'Which branch?' })), { titleOf, now: NOW });
+    expect(item.command).toBeUndefined();
   });
 
   it('lists a question with what it asks', () => {

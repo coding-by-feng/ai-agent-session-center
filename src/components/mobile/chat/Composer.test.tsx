@@ -117,7 +117,8 @@ describe('Composer', () => {
     renderComposer(session({ status: 'working' }));
     type('then update the docs');
     expect(sendButton()).toHaveTextContent('Queue');
-    expect(screen.getByRole('button', { name: /^Stop/ })).toBeInTheDocument();
+    // Stop lives on the status strip above (Oct 20 2026): one Stop, not a second beside Queue.
+    expect(screen.queryByTestId('composer-stop')).toBeNull();
     fireEvent.click(sendButton());
 
     const items = useQueueStore.getState().queues.get('s1') ?? [];

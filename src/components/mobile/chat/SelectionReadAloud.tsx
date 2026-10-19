@@ -4,11 +4,12 @@
  * (PhoneConversationAi). It stays while the reading plays, even after the tap
  * clears the selection (a read-aloud button that unmounts stops its own reading).
  * The text is captured as the finger lands, before the tap can collapse it.
+ * It shows only once Voice is set up on this phone (Oct 20 2026; Settings → Voice).
  */
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { selectedTextIn, useSelectionIn } from '@/hooks/useSelectionIn';
-import { useReadAloud } from '@/hooks/useReadAloud';
+import { useReadAloud, useReadAloudReady } from '@/hooks/useReadAloud';
 import ReadAloudButton from '../ReadAloudButton';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
@@ -17,8 +18,9 @@ export default function SelectionReadAloud({ sessionId, overSheet }: { sessionId
   const speakKey = `chat-selection:${sessionId}`;
   const selected = useSelectionIn(sessionId, true);
   const { speaking } = useReadAloud(speakKey);
+  const ready = useReadAloudReady();
   const held = useRef('');
-  if (!selected && !speaking) return null;
+  if (!(selected && ready) && !speaking) return null;
   return createPortal(
     <div
       className={styles.selectionSpeak}

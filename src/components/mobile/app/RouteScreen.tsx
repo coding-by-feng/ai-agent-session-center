@@ -55,7 +55,7 @@ export default function RouteScreen({ path }: { path: string }) {
     case 'settings':
     case 'appearance':
     case 'notifications':
-    case 'api-keys':
+    case 'voice':
     case 'translation':
     case 'advanced':
       return <SettingsScreen page={route.page} />;

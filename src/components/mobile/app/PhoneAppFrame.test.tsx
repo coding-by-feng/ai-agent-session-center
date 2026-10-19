@@ -261,7 +261,7 @@ describe('PhoneAppFrame', () => {
     await screen.findByTestId('phone-sessions');
     await user.click(tabButton(/Inbox/));
     const inbox = await screen.findByTestId('phone-inbox');
-    expect(within(inbox).getByText('Wants to run: npm test')).toBeTruthy();
+    expect(within(inbox).getByTestId('inbox-command')).toHaveTextContent('npm test');
     await user.click(within(inbox).getByRole('button', { name: /Question/ }));
     await screen.findByTestId('phone-session');
     expect(usePhoneNavStore.getState().tab).toBe('inbox');

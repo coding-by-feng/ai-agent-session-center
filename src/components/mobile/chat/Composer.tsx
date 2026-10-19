@@ -13,7 +13,7 @@
  *   session's project. /model and /effort open their choices as a sheet.
  * - The main button follows lib/chat/composerAction: Send (idle, waiting),
  *   Queue while it works (hold: Send now, confirmed), "Deny and tell Claude"
- *   while a card waits (hold: queue instead). Stop beside it while it works.
+ *   while a card waits (hold: queue instead). Stop is the status strip's, above it.
  * - Sending is the Mac's confirmed send, polled until it lands (usePromptSender).
  * - While another device drives, the box is off and says who, with Take control.
  */
@@ -37,7 +37,7 @@ import { useClock } from '@/lib/chat/clock';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { parsePhonePath } from '@/lib/chat/phoneRoutes';
 import { MAX_PROMPT_IMAGES } from '@/lib/chat/promptApi';
-import { composerAction, macWindowOpen, pickerSheetFor, pickerSheetForText, runningTool } from '@/lib/chat/composerAction';
+import { composerAction, macWindowOpen, pickerSheetFor, pickerSheetForText } from '@/lib/chat/composerAction';
 import { queueWaiting } from '@/lib/chat/queueWaiting';
 import type { WaitingCard } from '@/lib/chat/waitingCardModel';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -49,7 +49,7 @@ import UsageSheet from './UsageSheet';
 import SavedPromptSheet from './SavedPromptSheet';
 import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
 import { useDriverName } from './useDriverName';
-import { AtIcon, CameraIcon, CommandsIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, SendIcon, SlashIcon, SnippetIcon, StopIcon } from './chatIcons';
+import { AtIcon, CameraIcon, CommandsIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ComposerProps {
@@ -67,7 +67,7 @@ type OpenSheet =
   | { type: 'saved' }
   | { type: 'usage' };
 
-type Confirm = { type: 'send-now' } | { type: 'send-ahead' } | { type: 'queue-instead' } | { type: 'stop'; tool: string };
+type Confirm = { type: 'send-now' } | { type: 'send-ahead' } | { type: 'queue-instead' };
 
 const HOLD_CONFIRM = { 'send-now': { type: 'send-now' }, 'send-ahead': { type: 'send-ahead' }, queue: { type: 'queue-instead' } } as const;
 const HOLD_HINT = { 'send-now': 'Hold to send now instead', 'send-ahead': 'Hold to send now, ahead of the queue', queue: 'Hold to add it to the queue instead' } as const;
@@ -287,12 +287,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     submit();
   };
 
-  const stop = () => {
-    const tool = runningTool(session);
-    if (tool) setConfirm({ type: 'stop', tool });
-    else void sender.stop(session.terminalId ?? null);
-  };
-
   const openQueue = () => {
     const path = `/sessions/${sessionId}/info/queue`;
     const nav = usePhoneNavStore.getState();
@@ -435,11 +429,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             </button>
           )}
           <span className={styles.spacer} />
-          {decision.showStop && (
-            <button type="button" className={`${styles.tool} ${styles.stop}`} onClick={stop} aria-label={`Stop ${cliName}`} data-testid="composer-stop">
-              <StopIcon />
-            </button>
-          )}
           <button
             type="button"
             className={styles.primary}
@@ -534,15 +523,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         message={`The waiting request stays open. Your message is sent after it is answered and ${cliName} finishes.`}
         confirmLabel="Add to queue"
         onConfirm={() => { setConfirm(null); submit('queue'); }}
-        onCancel={cancelConfirm}
-      />
-      <ConfirmSheet
-        open={confirm?.type === 'stop'}
-        title={`Stop ${cliName}?`}
-        message={confirm?.type === 'stop' ? `It is running ${confirm.tool}. Stopping interrupts it.` : ''}
-        confirmLabel="Stop"
-        danger
-        onConfirm={() => { setConfirm(null); void sender.stop(session.terminalId ?? null); }}
         onCancel={cancelConfirm}
       />
     </div>

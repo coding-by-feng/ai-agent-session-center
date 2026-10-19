@@ -76,6 +76,12 @@ describe('parsePhonePath / phonePath', () => {
     expect(morePath('history')).toBe('/more/history');
   });
 
+  it('opens Voice for an old API keys link (Voice took its place, Oct 20 2026)', () => {
+    expect(parsePhonePath('/more/settings/voice')).toEqual({ kind: 'more', page: 'voice' });
+    expect(parsePhonePath('/more/settings/api-keys')).toEqual({ kind: 'more', page: 'voice' });
+    expect(parsePhonePath('/more/api-keys')).toBeNull();
+  });
+
   it('round-trips a session\'s Info and each screen it opens (AASC-46)', () => {
     expect(infoPath('term-1')).toBe('/sessions/term-1/info');
     expect(parsePhonePath('/sessions/term-1/info')).toEqual({ kind: 'session-info', sessionId: 'term-1', page: null });

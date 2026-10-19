@@ -34,6 +34,8 @@ export interface InboxItem {
   waiting: boolean;
   /** continue-all: why those sessions stopped. */
   reason?: 'restart' | 'interruptions';
+  /** An approval's whole command, unclipped: the row shows it above Allow (Oct 20 2026). */
+  command?: string;
 }
 
 export type InboxFilter = 'waiting' | 'finished' | 'all';
@@ -71,6 +73,15 @@ function askLine(session: Session): string {
   return oneLine(card.title.replace(/^\w+ wants/, 'Wants'));
 }
 
+/** The command an approval would run, whole, when it is one. */
+function askCommand(session: Session): string | undefined {
+  const card = waitingCardModel(session);
+  if (!card || card.kind === 'question') return undefined;
+  const { detail } = card;
+  const text = detail.type === 'command' ? detail.command : card.kind === 'guess' && detail.type === 'text' ? detail.text : '';
+  return text.trim() || undefined;
+}
+
 function waitingItem(session: Session, titleOf: (s: Session) => string): InboxItem | null {
   const request = session.pendingRequest ?? null;
   const asking = request ? request.kind === 'question' : session.status === 'input';
@@ -87,6 +98,7 @@ function waitingItem(session: Session, titleOf: (s: Session) => string): InboxIt
     line: askLine(session),
     at: request?.raisedAt ?? session.lastActivityAt ?? 0,
     waiting: true,
+    ...(approving ? { command: askCommand(session) } : {}),
   };
 }
 

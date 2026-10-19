@@ -31,7 +31,6 @@ export const PlusIcon = (p: IconProps) => <Svg {...p}><path d="M12 5v14M5 12h14"
 
 export const SendIcon = (p: IconProps) => <Svg strokeWidth="2.2" {...p}><path d="M12 19V5M6 11l6-6 6 6" /></Svg>;
 
-export const StopIcon = (p: IconProps) => <Svg {...p}><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none" /></Svg>;
 
 export const SlashIcon = (p: IconProps) => <Svg {...p}><path d="M15 4L9 20" /></Svg>;
 

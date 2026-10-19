@@ -49,7 +49,6 @@ export interface ComposerDecision {
   /** Why the box itself is off. */
   fieldDisabledReason?: string;
   placeholder: string;
-  showStop: boolean;
   /** What holding the button offers. */
   holdAction: ComposerHold | null;
   /** Said under the box when a queued prompt can't be sent yet. */
@@ -65,7 +64,7 @@ export function composerAction(input: ComposerInput): ComposerDecision {
   const reply = name ? `Reply to ${name}…` : 'Message the agent…';
 
   if (input.status === 'ended') {
-    return { action: 'send', label: 'Send', canSend: false, fieldDisabledReason: 'This session has ended', placeholder: reply, showStop: false, holdAction: null };
+    return { action: 'send', label: 'Send', canSend: false, fieldDisabledReason: 'This session has ended', placeholder: reply, holdAction: null };
   }
   if (input.spectator) {
     return {
@@ -74,7 +73,6 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       canSend: false,
       fieldDisabledReason: `${input.driverLabel ?? 'Another device'} is driving`,
       placeholder: reply,
-      showStop: false,
       holdAction: null,
     };
   }
@@ -85,7 +83,6 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       label: question ? 'Send answer' : `Deny and tell ${name ?? 'the agent'}`,
       canSend: input.hasContent,
       placeholder: question ? 'Answer in your own words…' : `Tell ${name ?? 'the agent'} what to do instead…`,
-      showStop: false,
       holdAction: 'queue',
     };
   }
@@ -95,7 +92,6 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       label: 'Queue',
       canSend: input.hasContent,
       placeholder: name ? `Queue a message for ${name}…` : 'Queue a message…',
-      showStop: true,
       holdAction: 'send-now',
       ...(input.macWindowOpen ? {} : { queueNote: NO_MAC_WINDOW_NOTE }),
     };
@@ -107,15 +103,14 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       label: 'Queue',
       canSend: input.hasContent,
       placeholder: name ? `Queue a message for ${name}…` : 'Queue a message…',
-      showStop: false,
       holdAction: 'send-ahead',
       ...(input.macWindowOpen ? {} : { queueNote: NO_MAC_WINDOW_NOTE }),
     };
   }
   if (input.status === 'connecting') {
-    return { action: 'send', label: 'Send', canSend: false, blockedReason: 'The agent is still starting', placeholder: reply, showStop: false, holdAction: null };
+    return { action: 'send', label: 'Send', canSend: false, blockedReason: 'The agent is still starting', placeholder: reply, holdAction: null };
   }
-  return { action: 'send', label: 'Send', canSend: input.hasContent, placeholder: reply, showStop: false, holdAction: null };
+  return { action: 'send', label: 'Send', canSend: input.hasContent, placeholder: reply, holdAction: null };
 }
 
 /**

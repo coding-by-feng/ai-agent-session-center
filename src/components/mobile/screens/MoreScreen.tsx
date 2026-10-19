@@ -3,7 +3,7 @@
  *
  *   LIBRARY     History · Prompt Trace · Saved prompts · Review · Agenda
  *   AASC CLOUD  Cloud: resources and projects, read through the Mac (AASC-51)
- *   SETTINGS    Appearance · Notifications · API keys · Translation · Advanced
+ *   SETTINGS    Appearance · Notifications · Voice · Translation · Advanced
  *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair
  *   ABOUT
  *

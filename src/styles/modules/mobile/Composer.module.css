@@ -295,10 +295,6 @@
 .tool:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 .tool:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.stop {
-  color: var(--ph-danger);
-}
-
 /* A long main label ("Deny and tell Claude") needs the room: / and @ stay in ＋. */
 @media (max-width: 430px) {
   .toolbar[data-long] .optional { display: none; }

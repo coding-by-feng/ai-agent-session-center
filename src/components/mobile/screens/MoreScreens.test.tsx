@@ -56,7 +56,7 @@ describe('MoreScreen', () => {
     expect(within(screen.getByRole('region', { name: 'Library' })).getAllByRole('button').map((b) => b.textContent))
       .toEqual(expect.arrayContaining([expect.stringContaining('History'), expect.stringContaining('Prompt Trace'), expect.stringContaining('Saved prompts'), expect.stringContaining('Review'), expect.stringContaining('Agenda')]));
     const settings = within(screen.getByRole('region', { name: 'Settings' })).getAllByRole('button').map((b) => b.textContent ?? '');
-    for (const t of ['Appearance', 'Notifications', 'API keys', 'Translation', 'Advanced']) expect(settings.some((s) => s.startsWith(t))).toBe(true);
+    for (const t of ['Appearance', 'Notifications', 'Voice', 'Translation', 'Advanced']) expect(settings.some((s) => s.startsWith(t))).toBe(true);
     await user.click(screen.getByRole('button', { name: /Saved prompts/ }));
     expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/saved-prompts');
     await user.click(screen.getByRole('button', { name: /Paired with MacBook/ }));
@@ -137,7 +137,7 @@ describe('Settings pages', () => {
 
   it('lists every settings page on More → Settings', () => {
     render(<SettingsScreen />);
-    expect(screen.getAllByRole('button').map((b) => b.textContent ?? '').filter((t) => /^(Appearance|Notifications|API keys|Translation|Advanced)/.test(t))).toHaveLength(5);
+    expect(screen.getAllByRole('button').map((b) => b.textContent ?? '').filter((t) => /^(Appearance|Notifications|Voice|Translation|Advanced)/.test(t))).toHaveLength(5);
   });
 });
 

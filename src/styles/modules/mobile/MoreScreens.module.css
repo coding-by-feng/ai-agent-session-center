@@ -221,3 +221,42 @@
   align-items: start;
   gap: var(--ph-space-3);
 }
+
+/* ---- Voice (Settings → Voice) ---- */
+
+.formRow {
+  padding: var(--ph-space-3) var(--ph-space-4);
+  list-style: none;
+}
+
+.keyForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-3);
+}
+
+.keyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ph-space-2);
+}
+
+.keyStatus {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-danger);
+  overflow-wrap: anywhere;
+}
+
+.keyStatus[data-ok] {
+  color: var(--ph-text-secondary);
+}
+
+.sampleRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ph-space-2);
+  margin: 0 var(--ph-gutter) var(--ph-space-4);
+}

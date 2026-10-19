@@ -40,6 +40,17 @@ export function stopReadAloud(): void {
 export const READ_ALOUD_SETUP_HINT =
   'Read aloud uses Google Text-to-Speech: turn on voice output and add your API key in Settings.';
 
+/**
+ * Is read aloud set up on this device (voice output on, a key saved)? The phone shows
+ * its 🔊 buttons only then (Oct 20 2026): before, every answer carried one that could
+ * only say "set it up" — in a Settings page the phone didn't have.
+ */
+export function useReadAloudReady(): boolean {
+  const enabled = useSettingsStore((s) => s.ttsEnabled);
+  const hasKey = useSettingsStore((s) => s.googleTtsApiKey.trim().length > 0);
+  return enabled && hasKey;
+}
+
 export interface ReadAloud {
   /** This button's reading is playing (or loading). */
   speaking: boolean;

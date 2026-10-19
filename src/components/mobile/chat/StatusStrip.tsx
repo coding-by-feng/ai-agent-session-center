@@ -7,9 +7,9 @@
  * (hook-driven, instant), not from the transcript.
  *
  * Stop is Esc, written to the session's terminal the way the phone's key bar
- * writes keys (`writeTerminal`, POST /api/terminals/:id/write). It obeys the
- * control baton like the key bar: while another device drives, it says who and
- * stays off; the server refuses a stray write anyway (409).
+ * writes keys (`writeTerminal`, POST /api/terminals/:id/write). It is the phone's
+ * only Stop (Oct 20 2026: the composer had a second, which asked first where this
+ * one didn't): while a tool runs it asks first, since stopping interrupts the tool.
  */
 import { useEffect, useId, useState } from 'react';
 import type { Session } from '@/types';
@@ -17,8 +17,10 @@ import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
 import { isCompacting } from '@/lib/chat/phoneStatus';
+import { runningTool } from '@/lib/chat/composerAction';
+import { detectCli } from '@/lib/cliDetect';
 import { readPeekOpen, writePeekOpen } from '@/lib/chat/peekPreference';
-import { Button } from '../kit';
+import { Button, ConfirmSheet } from '../kit';
 import TerminalPeek from './TerminalPeek';
 import { ChevronIcon, SquareStopIcon } from './chatViewIcons';
 import styles from '@/styles/modules/mobile/Chat.module.css';
@@ -52,6 +54,10 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   const [now, setNow] = useState(() => Date.now());
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The tool a confirmed Stop would interrupt, while its confirm is open. */
+  const [confirmTool, setConfirmTool] = useState<string | null>(null);
+  const cli = detectCli(session);
+  const cliName = cli === 'codex' ? 'Codex' : cli === 'claude' ? 'Claude' : 'the agent';
   const [peekOpen, setPeekOpen] = useState(readPeekOpen);
   const peekId = useId();
   const togglePeek = () => {
@@ -80,6 +86,11 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
     const result = await writeTerminal(terminalId, PHONE_KEY_SEQUENCES.esc);
     setStopping(false);
     if (!result.ok) setError(result.message);
+  };
+  const askStop = () => {
+    const running = runningTool(session);
+    if (running) setConfirmTool(running);
+    else void stop();
   };
 
   const disabledReason = !terminalId
@@ -115,7 +126,7 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           small
           variant="secondary"
           icon={<SquareStopIcon size={16} />}
-          onClick={() => void stop()}
+          onClick={askStop}
           loading={stopping}
           loadingLabel="Stopping"
           disabledReason={disabledReason}
@@ -131,6 +142,15 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
         </div>
       )}
+      <ConfirmSheet
+        open={confirmTool !== null}
+        title={`Stop ${cliName}?`}
+        message={`It is running ${confirmTool ?? 'a tool'}. Stopping interrupts it.`}
+        confirmLabel="Stop"
+        danger
+        onConfirm={() => { setConfirmTool(null); void stop(); }}
+        onCancel={() => setConfirmTool(null)}
+      />
     </div>
   );
 }

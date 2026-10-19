@@ -90,7 +90,11 @@ interface ItemBase {
 }
 
 export interface UserItem extends ItemBase { kind: 'user'; text: string; images: number; truncated: boolean }
-export interface AssistantItem extends ItemBase { kind: 'assistant'; text: string; truncated: boolean; isAnswer: boolean }
+export interface AssistantItem extends ItemBase {
+  kind: 'assistant'; text: string; truncated: boolean; isAnswer: boolean;
+  /** The newest answer in the chat: the one whose actions show without a tap (Oct 20 2026). */
+  latestAnswer: boolean;
+}
 export interface ThinkingItem extends ItemBase { kind: 'thinking'; length: number; durationMs?: number }
 export interface ToolItem extends ItemBase { kind: 'tool'; call: ToolCall }
 export interface ToolGroupItem extends ItemBase {
@@ -232,7 +236,7 @@ function flatten(entries: readonly ChatEntry[], live: boolean, awaiting: boolean
         out.push({ kind: 'user', key: e.key, timestamp: e.timestamp, text: e.text, images: e.images ?? 0, truncated: !!e.truncated, sig: '', searchText: e.text });
         break;
       case 'assistant':
-        out.push({ kind: 'assistant', key: e.key, timestamp: e.timestamp, text: e.text, truncated: !!e.truncated, isAnswer: false, sig: '', searchText: e.text });
+        out.push({ kind: 'assistant', key: e.key, timestamp: e.timestamp, text: e.text, truncated: !!e.truncated, isAnswer: false, latestAnswer: false, sig: '', searchText: e.text });
         break;
       case 'thinking': {
         if (prev?.kind === 'thinking') {
@@ -360,6 +364,7 @@ function finish(items: ChatItem[], live: boolean): ChatItem[] {
   let latestTodo = -1;
   // A turn still under way has no answer yet: its last reply so far isn't one.
   let answerSeen = live;
+  let latestMarked = false;
   const out = items.slice();
   for (let i = out.length - 1; i >= 0; i -= 1) {
     const item = out[i];
@@ -367,14 +372,15 @@ function finish(items: ChatItem[], live: boolean): ChatItem[] {
     if (item.kind === 'user') answerSeen = false;
     if (item.kind === 'assistant' && !answerSeen) {
       answerSeen = true;
-      out[i] = { ...item, isAnswer: true };
+      out[i] = { ...item, isAnswer: true, latestAnswer: !latestMarked };
+      latestMarked = true;
     }
   }
   if (latestTodo >= 0) out[latestTodo] = { ...(out[latestTodo] as TodoItem), latest: true };
   return out.map((item) => {
     if (item.kind === 'tool' || item.kind === 'tool-group' || item.kind === 'subagent') return item;
     if (item.kind === 'todo') return { ...item, sig: `${item.latest}|${item.done}/${item.total}` };
-    if (item.kind === 'assistant') return { ...item, sig: `${item.isAnswer}|${item.text.length}` };
+    if (item.kind === 'assistant') return { ...item, sig: `${item.isAnswer}|${item.latestAnswer}|${item.text.length}` };
     if (item.kind === 'thinking') return { ...item, sig: `${item.length}|${item.durationMs ?? 0}` };
     if (item.kind === 'divider') return { ...item, sig: item.label };
     return { ...item, sig: item.key };

@@ -26,6 +26,7 @@ const { default: ChatView } = await import('./ChatView');
 const { useChatStore } = await import('@/stores/chatStore');
 const { useQueueStore } = await import('@/stores/queueStore');
 const { useComposerDraftStore } = await import('@/stores/composerDraftStore');
+const { useSettingsStore } = await import('@/stores/settingsStore');
 const { useWsStore } = await import('@/stores/wsStore');
 const { ScreenSlotContext } = await import('../kit');
 const { PEEK_OPEN_KEY, writePeekOpen } = await import('@/lib/chat/peekPreference');
@@ -119,12 +120,22 @@ describe('ChatView', () => {
     expect(screen.getByLabelText('Error')).toHaveTextContent('1 error in icons.tsx');
   });
 
-  it('gives the answer Copy and Read aloud, and only the answer', async () => {
+  it('gives the answer Copy, and Read aloud once Voice is set up, and only the answer', async () => {
     fetchChatPage.mockResolvedValue(claudePage());
-    render(<ChatView session={session()} onTerminal={() => {}} />);
+    const { unmount } = render(<ChatView session={session()} onTerminal={() => {}} />);
     await screen.findByText('Centre the minimize bar');
     expect(screen.getAllByRole('button', { name: 'Copy this answer' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /Read aloud/ })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Read aloud/ })).toBeNull();
+    unmount();
+
+    useSettingsStore.setState({ ttsEnabled: true, googleTtsApiKey: 'AIza-x' });
+    try {
+      render(<ChatView session={session()} onTerminal={() => {}} />);
+      await screen.findByText('Centre the minimize bar');
+      expect(screen.getAllByRole('button', { name: /Read aloud/ })).toHaveLength(1);
+    } finally {
+      useSettingsStore.setState({ ttsEnabled: false, googleTtsApiKey: '' });
+    }
   });
 
   it('pulls a queued prompt back into the composer draft', async () => {

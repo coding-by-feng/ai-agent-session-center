@@ -12,19 +12,19 @@ function input(extra: Partial<ComposerInput> = {}): ComposerInput {
 describe('composerAction', () => {
   it.each(['waiting', 'idle'])('sends at once when the agent is %s', (status) => {
     const d = composerAction(input({ status }));
-    expect(d).toMatchObject({ action: 'send', label: 'Send', canSend: true, showStop: false, holdAction: null });
+    expect(d).toMatchObject({ action: 'send', label: 'Send', canSend: true, holdAction: null });
     expect(d.placeholder).toBe('Reply to Claude…');
   });
 
-  it.each(['working', 'prompting'])('queues while the agent is %s, offers Stop, and Send now on a hold', (status) => {
+  it.each(['working', 'prompting'])('queues while the agent is %s, and offers Send now on a hold', (status) => {
     const d = composerAction(input({ status }));
-    expect(d).toMatchObject({ action: 'queue', label: 'Queue', canSend: true, showStop: true, holdAction: 'send-now' });
+    expect(d).toMatchObject({ action: 'queue', label: 'Queue', canSend: true, holdAction: 'send-now' });
     expect(d.queueNote).toBeUndefined();
   });
 
   it.each(['waiting', 'idle'])('queues behind prompts still waiting in the queue when the agent is %s; a hold sends it ahead', (status) => {
     const d = composerAction(input({ status, queueWaiting: 2 }));
-    expect(d).toMatchObject({ action: 'queue', label: 'Queue', canSend: true, showStop: false, holdAction: 'send-ahead' });
+    expect(d).toMatchObject({ action: 'queue', label: 'Queue', canSend: true, holdAction: 'send-ahead' });
     expect(d.placeholder).toBe('Queue a message for Claude…');
     expect(composerAction(input({ status, queueWaiting: 2, macWindowOpen: false })).queueNote).toBe('Sent when AASC is open on your Mac');
   });
@@ -68,7 +68,6 @@ describe('composerAction', () => {
     const d = composerAction(input({ spectator: true, driverLabel: 'MacBook' }));
     expect(d.canSend).toBe(false);
     expect(d.fieldDisabledReason).toBe('MacBook is driving');
-    expect(d.showStop).toBe(false);
   });
 
   it('cannot send to a session that is still starting, and says why', () => {

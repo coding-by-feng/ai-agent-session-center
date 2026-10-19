@@ -210,6 +210,18 @@ describe('buildChatItems — live, partial and redacted', () => {
     expect(items[0].searchText).not.toContain('leaked');
   });
 
+  it('marks the newest answer as the latest, which alone shows its actions (Oct 20 2026)', () => {
+    const entries = stream(
+      { kind: 'user', text: 'one' }, { kind: 'assistant', text: 'First answer.' },
+      { kind: 'user', text: 'two' }, { kind: 'assistant', text: 'Second answer.' },
+    );
+    const answers = buildChatItems(entries).filter((i) => i.kind === 'assistant');
+    expect(answers.map((a) => a.kind === 'assistant' && [a.isAnswer, a.latestAnswer])).toEqual([[true, false], [true, true]]);
+    // While a new turn runs, the previous turn's answer is still the latest one.
+    const live = buildChatItems([...entries, ...stream({ kind: 'user', text: 'three' }, { kind: 'assistant', text: 'Working on it.' })], { live: true });
+    expect(live.filter((i) => i.kind === 'assistant').map((a) => a.kind === 'assistant' && a.latestAnswer)).toEqual([false, true, false]);
+  });
+
   it('marks no answer in a turn still under way', () => {
     const entries = stream({ kind: 'user', text: 'go' }, { kind: 'assistant', text: 'Starting.' }, { kind: 'tool_use', id: 'q', name: 'Bash', input: { command: 'ls' } });
     expect(buildChatItems(entries, { live: true })[1]).toMatchObject({ kind: 'assistant', isAnswer: false });

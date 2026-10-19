@@ -73,7 +73,9 @@ describe('InboxScreen', () => {
     render(<InboxScreen />);
     const items = screen.getAllByTestId('inbox-item');
     expect(items.map((i) => within(i).getByText(/agent-manager-2|exmouth-erp-1|aasc-backend-1/).textContent)).toEqual(['agent-manager-2', 'exmouth-erp-1', 'aasc-backend-1']);
-    expect(screen.getByText('Wants to run: npm run build')).toBeInTheDocument();
+    // An approval shows its whole command, not a clipped line, above Allow (Oct 20 2026).
+    expect(screen.getByTestId('inbox-command')).toHaveTextContent('npm run build');
+    expect(screen.queryByText('Wants to run: npm run build')).not.toBeInTheDocument();
     expect(screen.getByText('Which payment phase applies?')).toBeInTheDocument();
     expect(screen.getByText('Stopped: API Error: 529')).toBeInTheDocument();
     expect(screen.queryByText(/pricing page/)).not.toBeInTheDocument();

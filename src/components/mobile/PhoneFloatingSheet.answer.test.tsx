@@ -65,6 +65,8 @@ beforeEach(() => {
     translationEnabled: true, translationTrigger: 'auto', translationNativeLanguage: '简体中文',
     translationLearningLanguage: 'English', translationInheritContext: true,
     selectionSpawnModel: '', selectionSpawnCodexModel: '', selectionSpawnEffort: '',
+    // Read aloud shows once Voice is set up on the phone (Oct 20 2026).
+    ttsEnabled: true, googleTtsApiKey: 'AIza-test',
   });
   useFloatingSessionsStore.setState({
     floats: [{ terminalId: 't-2', label: 'Explain (English)', originSessionId: 'root', createdAt: 1 }],

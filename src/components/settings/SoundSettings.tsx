@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   soundEngine,
@@ -9,6 +9,7 @@ import {
 } from '@/lib/soundEngine';
 import { ambientEngine } from '@/lib/ambientEngine';
 import { ttsEngine, checkTTSStatus } from '@/lib/ttsEngine';
+import { TTS_EN_VOICES, TTS_SAMPLE_TEXT, TTS_ZH_VOICES } from '@/lib/ttsVoices';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -28,29 +29,8 @@ type CliTabId = (typeof CLI_TABS)[number]['id'];
 const SOUND_NAMES = soundEngine.getSoundNames();
 const SOUND_OPTIONS: SelectOption[] = SOUND_NAMES.map((s) => ({ value: s, label: s }));
 
-const TTS_EN_VOICES: SelectOption[] = [
-  { value: 'en-US-Chirp3-HD-Aoede', label: 'Aoede (Chirp 3 HD, female)' },
-  { value: 'en-US-Chirp3-HD-Charon', label: 'Charon (Chirp 3 HD, male)' },
-  { value: 'en-US-Chirp3-HD-Fenrir', label: 'Fenrir (Chirp 3 HD, male)' },
-  { value: 'en-US-Chirp3-HD-Kore', label: 'Kore (Chirp 3 HD, female)' },
-  { value: 'en-US-Chirp3-HD-Leda', label: 'Leda (Chirp 3 HD, female)' },
-  { value: 'en-US-Chirp3-HD-Orus', label: 'Orus (Chirp 3 HD, male)' },
-  { value: 'en-US-Chirp3-HD-Puck', label: 'Puck (Chirp 3 HD, male)' },
-  { value: 'en-US-Chirp3-HD-Zephyr', label: 'Zephyr (Chirp 3 HD, female)' },
-  { value: 'en-US-Studio-O', label: 'Studio O (female)' },
-  { value: 'en-US-Studio-Q', label: 'Studio Q (male)' },
-  { value: 'en-US-Neural2-F', label: 'Neural2 F (female)' },
-  { value: 'en-US-Neural2-D', label: 'Neural2 D (male)' },
-];
-
-const TTS_ZH_VOICES: SelectOption[] = [
-  { value: 'cmn-CN-Chirp3-HD-Aoede', label: 'Aoede (Chirp 3 HD, female)' },
-  { value: 'cmn-CN-Chirp3-HD-Charon', label: 'Charon (Chirp 3 HD, male)' },
-  { value: 'cmn-CN-Chirp3-HD-Kore', label: 'Kore (Chirp 3 HD, female)' },
-  { value: 'cmn-CN-Chirp3-HD-Puck', label: 'Puck (Chirp 3 HD, male)' },
-  { value: 'cmn-CN-Wavenet-A', label: 'Wavenet A (female)' },
-  { value: 'cmn-CN-Wavenet-B', label: 'Wavenet B (male)' },
-];
+const EN_VOICE_OPTIONS: SelectOption[] = [...TTS_EN_VOICES];
+const ZH_VOICE_OPTIONS: SelectOption[] = [...TTS_ZH_VOICES];
 
 const AMBIENT_PRESETS: Array<{ value: AmbientPreset; label: string }> = [
   { value: 'off', label: 'Off' },
@@ -141,7 +121,7 @@ export default function SoundSettings() {
     if (ttsPreviewBusy || !ttsKeyConfigured) return;
     setTtsPreviewBusy(true);
     try {
-      await ttsEngine.speak('Hello. 你好,这是语音预览。Ready to read your terminal output.', {
+      await ttsEngine.speak(TTS_SAMPLE_TEXT, {
         apiKey: googleTtsApiKey,
         voiceEn: ttsVoiceEn,
         voiceZh: ttsVoiceZh,
@@ -282,11 +262,11 @@ export default function SoundSettings() {
         >
           <div>
             <label style={{ fontSize: 12, opacity: 0.8 }}>English voice</label>
-            <Select value={ttsVoiceEn} onChange={setTtsVoiceEn} options={TTS_EN_VOICES} />
+            <Select value={ttsVoiceEn} onChange={setTtsVoiceEn} options={EN_VOICE_OPTIONS} />
           </div>
           <div>
             <label style={{ fontSize: 12, opacity: 0.8 }}>中文 voice</label>
-            <Select value={ttsVoiceZh} onChange={setTtsVoiceZh} options={TTS_ZH_VOICES} />
+            <Select value={ttsVoiceZh} onChange={setTtsVoiceZh} options={ZH_VOICE_OPTIONS} />
           </div>
         </div>
 

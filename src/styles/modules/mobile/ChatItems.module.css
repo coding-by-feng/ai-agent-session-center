@@ -103,6 +103,37 @@
   margin-top: var(--ph-space-2);
 }
 
+/* An older answer's actions show on a tap; this button is the same for keyboards and
+   screen readers, out of sight until it has focus. */
+.revealActions {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.revealActions:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  min-height: var(--ph-target);
+  margin: var(--ph-space-2) 0 0;
+  padding: 0 var(--ph-space-3);
+  overflow: visible;
+  clip: auto;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  color: var(--ph-accent);
+  font: inherit;
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
 .note {
   margin: var(--ph-space-2) 0 0;
   font-size: var(--ph-size-caption);

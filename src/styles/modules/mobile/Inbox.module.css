@@ -146,6 +146,31 @@ button.main:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 
   color: var(--ph-text-tertiary);
 }
 
+/* An approval's whole command, as the session's card shows it: wrapped, never clipped,
+   since one tap allows it. A very long one scrolls inside its own box. */
+.command {
+  box-sizing: border-box;
+  min-height: var(--ph-target);
+  max-height: 40vh;
+  margin: 0 var(--ph-space-4) var(--ph-space-2) 52px;
+  padding: var(--ph-space-2) var(--ph-space-3);
+  overflow: auto;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-overflow-scrolling: touch;
+}
+
+.command:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
 .actions,
 .options {
   display: flex;

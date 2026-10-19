@@ -2,7 +2,8 @@
  * InboxItemRow — one thing waiting in the Inbox (AASC-43), answerable in place.
  *
  *   ● ⚠ agent-manager-2 · 2m                       ›   tap: open the session
- *     Wants to run: npm run build
+ *     Wants to run
+ *     ┌ npm run build ┐                                the whole command, wrapped, never clipped
  *     [ Deny ]  [ Allow once ]                         the CLI's choices ("Always" only in the session)
  *
  * Approvals and questions answer through the same checked route and the same
@@ -107,7 +108,7 @@ export default function InboxItemRow({ item, session, now, unread, onOpen, onRea
           <span className={styles.age}>· {inboxAge(item.at, now)}</span>
           {unread && <span className={styles.unread} role="img" aria-label="Unread" />}
         </span>
-        <span className={styles.line}>{item.line}</span>
+        <span className={styles.line}>{item.command ? 'Wants to run' : item.line}</span>
       </span>
     </>
   );
@@ -122,6 +123,8 @@ export default function InboxItemRow({ item, session, now, unread, onOpen, onRea
       ) : (
         <div className={styles.main}>{head}</div>
       )}
+      {/* One tap allows it, so what it runs is shown whole, not cut at two lines. */}
+      {item.command && <pre className={styles.command} tabIndex={0} aria-label="The command" data-testid="inbox-command">{item.command}</pre>}
       {(item.kind === 'approval' || item.kind === 'question') && session && (
         <Answers item={item} session={session} onOpen={onOpen} onRead={onRead} />
       )}

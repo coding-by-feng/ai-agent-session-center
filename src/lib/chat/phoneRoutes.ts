@@ -33,13 +33,13 @@ export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
 export const MORE_PAGES = [
   'history', 'prompts', 'saved-prompts', 'review', 'agenda',
-  'settings', 'appearance', 'notifications', 'api-keys', 'translation', 'advanced',
+  'settings', 'appearance', 'notifications', 'voice', 'translation', 'advanced',
   'cloud', 'phone', 'about', 'gallery',
 ] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
 
 /** The Settings pages: pushed over the Settings list, at /more/settings/<section>. */
-export const SETTINGS_SECTIONS = ['appearance', 'notifications', 'api-keys', 'translation', 'advanced'] as const;
+export const SETTINGS_SECTIONS = ['appearance', 'notifications', 'voice', 'translation', 'advanced'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** What a session's Info screen opens (AASC-46). Files moved to the Project segment (AASC-56). */
@@ -70,7 +70,7 @@ const MORE_PARENT: Partial<Record<MorePage, MorePage>> = {
   gallery: 'about',
   appearance: 'settings',
   notifications: 'settings',
-  'api-keys': 'settings',
+  voice: 'settings',
   translation: 'settings',
   advanced: 'settings',
 };
@@ -158,6 +158,10 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   }
   if (head === 'more' && parts.length === 3 && parts[1] === 'settings' && isOneOf(SETTINGS_SECTIONS, parts[2])) {
     return { kind: 'more', page: parts[2] };
+  }
+  // API keys before Oct 20 2026 (a saved stack, an old link): Voice took its place.
+  if (head === 'more' && parts.length === 3 && parts[1] === 'settings' && parts[2] === 'api-keys') {
+    return { kind: 'more', page: 'voice' };
   }
   if (head === 'more' && parts.length === 3 && parts[1] === 'cloud' && CLOUD_ID.test(parts[2])) {
     return { kind: 'cloud-resource', resourceId: parts[2] };

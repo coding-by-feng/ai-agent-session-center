@@ -4,7 +4,7 @@
  *
  *   Appearance     the desktop's ten themes (light or dark comes with each), text size
  *   Notifications  which sessions may notify this phone (mute = no pushes, no sounds)
- *   API keys       today's phone section, kept on this phone
+ *   Voice          read aloud: the Google key, voices and speed (VoiceSettings)
  *   Translation    today's phone section
  *   Advanced       Reset to defaults (confirms)
  *
@@ -25,18 +25,18 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isNativeMobileApp } from '@/lib/platform';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
 import { useSessionActions } from './info/useSessionActions';
+import VoiceSettings from './VoiceSettings';
 import styles from '@/styles/modules/mobile/MoreScreens.module.css';
 
-const ApiKeySettings = lazy(() => import('@/components/settings/ApiKeySettings'));
 const TranslationSettings = lazy(() => import('@/components/settings/TranslationSettings'));
 
-export type SettingsPage = 'settings' | 'appearance' | 'notifications' | 'api-keys' | 'translation' | 'advanced';
+export type SettingsPage = 'settings' | 'appearance' | 'notifications' | 'voice' | 'translation' | 'advanced';
 
 const TITLES: Record<SettingsPage, string> = {
   settings: 'Settings',
   appearance: 'Appearance',
   notifications: 'Notifications',
-  'api-keys': 'API keys',
+  voice: 'Voice',
   translation: 'Translation',
   advanced: 'Advanced',
 };
@@ -139,13 +139,13 @@ function AdvancedPage() {
   const cancel = useCallback(() => setConfirming(false), []);
   return (
     <>
-      <ListSection header="Reset" footer="Every setting on this phone goes back to its default: theme, sounds, translation and the API keys saved here. Your Mac’s settings are not touched.">
+      <ListSection header="Reset" footer="Every setting on this phone goes back to its default: theme, voice, translation and the voice key saved here. Your Mac’s settings are not touched.">
         <ListRow title="Reset to defaults" destructive onClick={() => setConfirming(true)} />
       </ListSection>
       <ConfirmSheet
         open={confirming}
         title="Reset all settings?"
-        message="Every setting on this phone goes back to its default, API keys included. This cannot be undone."
+        message="Every setting on this phone goes back to its default, the voice key included. This cannot be undone."
         confirmLabel="Reset"
         danger
         onConfirm={() => {
@@ -167,11 +167,12 @@ export default function SettingsScreen({ page = 'settings' }: { page?: SettingsP
   if (page === 'appearance') body = <AppearancePage />;
   else if (page === 'notifications') body = <NotificationsPage />;
   else if (page === 'advanced') body = <AdvancedPage />;
-  else if (page === 'api-keys' || page === 'translation') {
+  else if (page === 'voice') body = <VoiceSettings />;
+  else if (page === 'translation') {
     body = (
       <div className={styles.legacy}>
         <Suspense fallback={<EmptyState live title="Loading…" />}>
-          {page === 'api-keys' ? <ApiKeySettings /> : <TranslationSettings phone />}
+          <TranslationSettings phone />
         </Suspense>
       </div>
     );
