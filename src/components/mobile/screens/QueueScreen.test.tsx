@@ -25,6 +25,7 @@ vi.mock('@/components/session/QueueItemEditModal', () => ({
 
 import QueueScreen, { REORDER_HOLD_MS } from './QueueScreen';
 import { DEFAULT_AUTOMATION, useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { useWsStore } from '@/stores/wsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
@@ -206,7 +207,16 @@ describe('QueueScreen', () => {
 
   it('says when nothing is queued', () => {
     useQueueStore.setState({ queues: new Map() });
+    useWsStore.setState({ snapshotReceived: true });
     render(<QueueScreen />);
     expect(screen.getByText('Nothing queued')).toBeTruthy();
+  });
+
+  it('says it is loading, not "Nothing queued", before the Mac’s first snapshot (Oct 20 2026)', () => {
+    useQueueStore.setState({ queues: new Map() });
+    useWsStore.setState({ snapshotReceived: false, connected: true });
+    render(<QueueScreen />);
+    expect(screen.getByText('Loading the queue…')).toBeTruthy();
+    expect(screen.queryByText('Nothing queued')).toBeNull();
   });
 });

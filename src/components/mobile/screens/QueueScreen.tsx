@@ -28,6 +28,7 @@ import QueueMoveSheet from '@/components/session/QueueMoveSheet';
 import { DEFAULT_AUTOMATION, useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
@@ -295,6 +296,8 @@ function GroupHeader({ group, onOpen }: { group: QueueGroup; onOpen: () => void 
 }
 
 export default function QueueScreen() {
+  const snapshotReceived = useWsStore((s) => s.snapshotReceived);
+  const connected = useWsStore((s) => s.connected);
   const queues = useQueueStore((s) => s.queues);
   const sessions = useSessionStore((s) => s.sessions);
   const received = usePresenceStore((s) => s.received);
@@ -357,7 +360,10 @@ export default function QueueScreen() {
       <div className={styles.sender}>
         <Banner tone={sender.tone === 'ok' ? 'info' : 'warning'} title={sender.title}>{sender.detail}</Banner>
       </div>
-      {groups.length === 0 ? (
+      {groups.length === 0 && !snapshotReceived ? (
+        // Before the Mac's first snapshot an empty queue means "not loaded", not "nothing queued".
+        <EmptyState live title={connected ? 'Loading the queue…' : 'Connecting to your Mac…'} />
+      ) : groups.length === 0 ? (
         <EmptyState
           icon={<QueueTabIcon />}
           title="Nothing queued"

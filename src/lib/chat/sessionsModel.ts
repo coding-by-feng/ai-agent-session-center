@@ -17,11 +17,12 @@ import { needsYou, waitingLine } from './inboxModel';
 import { buildStripItems } from '@/lib/sessionStrip';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
-import { numberedSessions } from '@/lib/sessionSort';
+import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 
 export type SessionsFilter = 'all' | 'needs-you' | 'working';
-export type SessionsGroupBy = 'status' | 'room' | 'project';
+/** `activity`: one list, most recently active first: the desktop strip's Recent activity view (Oct 20 2026). */
+export type SessionsGroupBy = 'status' | 'room' | 'project' | 'activity';
 export type StatusSection = 'needs-you' | 'working' | 'finished' | 'idle';
 
 export const SESSIONS_FILTERS: ReadonlyArray<{ value: SessionsFilter; label: string }> = [
@@ -30,10 +31,12 @@ export const SESSIONS_FILTERS: ReadonlyArray<{ value: SessionsFilter; label: str
   { value: 'working', label: 'Working' },
 ];
 
-export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: SessionsGroupBy; label: string }> = [
-  { value: 'status', label: 'Status' },
-  { value: 'room', label: 'Room' },
-  { value: 'project', label: 'Project' },
+/** `chip`: what the Sessions tab's grouping chip says (short: it shares a row with the filters). */
+export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: SessionsGroupBy; label: string; chip: string }> = [
+  { value: 'status', label: 'Status', chip: 'By status' },
+  { value: 'room', label: 'Room', chip: 'By room' },
+  { value: 'project', label: 'Project', chip: 'By project' },
+  { value: 'activity', label: 'Recent activity', chip: 'By recent' },
 ];
 
 const SECTION_TITLES: Record<StatusSection, string> = {
@@ -201,6 +204,11 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads }
       const sorted = [...list].sort(section === 'needs-you' ? byLongestWaiting : byRecent);
       return [{ key: `status:${section}`, kind: 'status' as const, title: SECTION_TITLES[section], sessions: sorted, section }];
     });
+  }
+
+  if (groupBy === 'activity') {
+    // The desktop's own ordering for this view (sessionSort), so both list the same order.
+    return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: sortSessionsByActivity(listed) }] : [];
   }
 
   const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds: [] });

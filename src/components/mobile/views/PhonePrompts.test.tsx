@@ -173,6 +173,20 @@ describe('PhonePrompts — one session’s Prompts tab (Oct 19 2026)', () => {
     expect(screen.queryByText('live')).toBeNull();
   });
 
+  it('says "No prompts recorded yet" once, not twice, for a session with none (Oct 20 2026)', async () => {
+    useSessionStore.setState({ sessions: new Map([['c', live('c', 'Gamma', 5)]]) });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PhonePrompts sessionId="c" onUseAgain={vi.fn()} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('No prompts recorded yet')).toBeTruthy();
+    expect(screen.queryByText('No prompts')).toBeNull();
+  });
+
   it('a prompt offers Use again (not Open session), handing its text back', async () => {
     const user = userEvent.setup();
     const onUseAgain = renderTab();

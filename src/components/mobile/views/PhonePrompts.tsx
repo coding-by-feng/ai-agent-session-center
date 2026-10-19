@@ -153,9 +153,10 @@ function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedS
     .filter(Boolean).length;
   const first = total === 0 ? 0 : (filters.page - 1) * PROMPTS_PAGE_SIZE + 1;
   const last = Math.min(filters.page * PROMPTS_PAGE_SIZE, total);
-  const summary = isLoading || (!host && !session)
+  // No count when there are none: the empty state below says so (Oct 20 2026: it said it twice).
+  const summary = isLoading || (!host && !session) || total === 0
     ? ''
-    : total === 0 ? 'No prompts' : `${total.toLocaleString()} prompt${total === 1 ? '' : 's'} · ${first}–${last}`;
+    : `${total.toLocaleString()} prompt${total === 1 ? '' : 's'} · ${first}–${last}`;
 
   const openSession = useCallback((id: string) => {
     selectSession(id);

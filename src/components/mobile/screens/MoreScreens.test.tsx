@@ -21,6 +21,7 @@ import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useWsStore } from '@/stores/wsStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { PHONE_TEXT_SCALE_KEY, readPhoneTextScale, resetPhoneAppearanceForTest } from '@/lib/chat/phoneAppearance';
@@ -121,6 +122,14 @@ describe('Settings pages', () => {
     useSettingsStore.setState({ themeName: 'dracula' });
     render(<MoreScreen />);
     expect(within(screen.getByRole('region', { name: 'Settings' })).getByRole('button', { name: /^Appearance/ }).textContent).toContain('Dracula');
+  });
+
+  it('says it is loading, not "No live sessions", before the Mac’s first snapshot (Oct 20 2026)', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    useWsStore.setState({ snapshotReceived: false, connected: true });
+    render(<SettingsScreen page="notifications" />);
+    expect(screen.getByText('Loading sessions…')).toBeTruthy();
+    expect(screen.queryByText('No live sessions')).toBeNull();
   });
 
   it('switches each live session\'s notifications', async () => {

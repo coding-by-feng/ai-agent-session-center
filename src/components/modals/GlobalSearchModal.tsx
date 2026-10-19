@@ -8,23 +8,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useIsMobile } from '@/lib/platform';
-import type { Session } from '@/types/session';
+import { searchSessionContent, type ContentField, type ContentHit } from '@/lib/sessionContentSearch';
 import styles from '@/styles/modules/GlobalSearchModal.module.css';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type MatchField = 'prompt' | 'response' | 'tool' | 'event';
-
-interface SearchHit {
-  sessionId: string;
-  sessionTitle: string;
-  sessionStatus: string;
-  field: MatchField;
-  snippet: string;
-  timestamp: number;
-}
+type MatchField = ContentField;
+type SearchHit = ContentHit;
 
 // ---------------------------------------------------------------------------
 // Status colors
@@ -40,53 +32,6 @@ const STATUS_COLORS: Record<string, string> = {
   ended:     'var(--accent-red)',
   connecting:'var(--accent-cyan)',
 };
-
-// ---------------------------------------------------------------------------
-// Search logic (pure, runs on in-memory sessions)
-// ---------------------------------------------------------------------------
-
-function runSearch(sessions: Map<string, Session>, query: string): SearchHit[] {
-  if (!query.trim()) return [];
-  const q = query.toLowerCase();
-  const hits: SearchHit[] = [];
-
-  for (const [, session] of sessions) {
-    const sessionTitle = session.title || session.projectName || session.sessionId.slice(0, 8);
-
-    for (const p of session.promptHistory ?? []) {
-      if (p.text.toLowerCase().includes(q)) {
-        hits.push({ sessionId: session.sessionId, sessionTitle, sessionStatus: session.status, field: 'prompt', snippet: p.text, timestamp: p.timestamp });
-      }
-    }
-    for (const r of session.responseLog ?? []) {
-      if ((r.text ?? '').toLowerCase().includes(q)) {
-        hits.push({ sessionId: session.sessionId, sessionTitle, sessionStatus: session.status, field: 'response', snippet: r.text ?? '', timestamp: r.timestamp });
-      }
-    }
-    for (const t of session.toolLog ?? []) {
-      const text = `${t.tool} ${t.input ?? ''}`;
-      if (text.toLowerCase().includes(q)) {
-        hits.push({ sessionId: session.sessionId, sessionTitle, sessionStatus: session.status, field: 'tool', snippet: text, timestamp: t.timestamp });
-      }
-    }
-    for (const ev of session.events ?? []) {
-      const text = `${ev.type} ${ev.detail ?? ''}`;
-      if (text.toLowerCase().includes(q)) {
-        hits.push({ sessionId: session.sessionId, sessionTitle, sessionStatus: session.status, field: 'event', snippet: text, timestamp: ev.timestamp });
-      }
-    }
-  }
-
-  // Sort: active/working sessions first, then by recency
-  const STATUS_ORDER: Record<string, number> = { working: 0, prompting: 1, approval: 2, input: 2, waiting: 3, idle: 4, connecting: 5, ended: 6 };
-  hits.sort((a, b) => {
-    const so = (STATUS_ORDER[a.sessionStatus] ?? 5) - (STATUS_ORDER[b.sessionStatus] ?? 5);
-    if (so !== 0) return so;
-    return b.timestamp - a.timestamp;
-  });
-
-  return hits.slice(0, 100);
-}
 
 // ---------------------------------------------------------------------------
 // Highlight helper
@@ -132,7 +77,7 @@ export default function GlobalSearchModal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const hits = useMemo(() => runSearch(sessions, query), [sessions, query]);
+  const hits = useMemo(() => searchSessionContent(sessions.values(), query), [sessions, query]);
 
   // Reset selection when hits change
   useEffect(() => { setSelectedIdx(0); }, [hits.length]);

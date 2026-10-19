@@ -193,13 +193,17 @@ section.group { margin-bottom: var(--ph-space-4); }
   min-width: 0;
 }
 
+/* Two lines of the prompt (Oct 20 2026: one line cut most prompts after three words);
+   the whole text is a tap away, in the editor. */
 .line {
+  display: -webkit-box;
   overflow: hidden;
   font-size: var(--ph-size-body);
   line-height: var(--ph-line-body);
   color: var(--ph-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .summary {

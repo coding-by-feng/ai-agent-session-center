@@ -67,6 +67,9 @@ import {
 } from '@/lib/chat/sessionsModel';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
 import roomStyles from '@/styles/modules/mobile/SessionRooms.module.css';
+import ConversationHits, { CONTENT_HITS_SHOWN } from './ConversationHits';
+import { searchSessionContent } from '@/lib/sessionContentSearch';
+import { useMoreToTheRight } from '@/hooks/useMoreToTheRight';
 
 const GROUP_KEY = 'aasc.phoneSessionsGroup';
 const FIT = ['fit'] as const;
@@ -82,7 +85,7 @@ const PULL_WORDS: Record<PullPhase, string> = {
 function readGroupChoice(): SessionsGroupBy | null {
   try {
     const v = localStorage.getItem(GROUP_KEY);
-    return v === 'room' || v === 'project' || v === 'status' ? v : null;
+    return v === 'room' || v === 'project' || v === 'status' || v === 'activity' ? v : null;
   } catch {
     return null;
   }
@@ -144,9 +147,11 @@ interface GroupProps {
   onOpen: (session: Session) => void;
   /** Set when grouped by room. */
   rooms?: RoomGrouping;
+  /** A project group's ＋: a new session in its folder, as the desktop's project frames offer. */
+  onNewHere?: (dir: string) => void;
 }
 
-function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms }: GroupProps) {
+function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
   const roomFolded = !!(rooms && roomId && rooms.collapsed.has(roomId));
@@ -172,6 +177,11 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
     <div className={styles.groupHeader}>
       {group.color && <span className={styles.swatch} style={{ '--swatch': group.color } as CSSProperties} aria-hidden="true" />}
       <h2 className={styles.groupTitle}>{group.title} · {count}</h2>
+      {group.kind === 'project' && group.launchPath && group.local !== false && onNewHere && (
+        <button type="button" className={styles.groupIcon} onClick={() => onNewHere(group.launchPath!)} aria-label={`New session in ${group.title}`} aria-haspopup="dialog">
+          <PlusIcon />
+        </button>
+      )}
       {foldable && (
         <button type="button" className={styles.groupAction} onClick={onToggleFold} aria-expanded={!folded}>
           {folded ? `Show ${count}` : 'Hide'}
@@ -245,6 +255,8 @@ export default function SessionsScreen() {
   const [searching, setSearching] = useState(false);
   const [idleOpen, setIdleOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  /** The folder the New session sheet lists first: a project group's ＋. */
+  const [newDir, setNewDir] = useState<string | null>(null);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
   const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
@@ -253,6 +265,7 @@ export default function SessionsScreen() {
   const isRoomWriter = useIsRoomWriter();
   const { collapsed: collapsedRooms, toggle: toggleRoom } = useCollapsedRooms(rooms);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [chipsRef, moreChips] = useMoreToTheRight<HTMLDivElement>();
 
   const setGroupBy = useCallback((next: SessionsGroupBy) => {
     setGroupChoice(next);
@@ -263,6 +276,12 @@ export default function SessionsScreen() {
     () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads }),
     [sessions, groupBy, filter, query, rooms, reads],
   );
+  // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
+  const contentHits = useMemo(() => {
+    if (!query.trim()) return [];
+    const live = [...sessions.values()].filter((s) => s.status !== 'ended' && !s.isFloating);
+    return searchSessionContent(live, query, CONTENT_HITS_SHOWN);
+  }, [sessions, query]);
   const counts = useMemo(() => ({
     all: filterCount(sessions.values(), 'all'),
     'needs-you': filterCount(sessions.values(), 'needs-you'),
@@ -271,7 +290,8 @@ export default function SessionsScreen() {
 
   const blocker = !connected ? 'Reconnecting to your Mac…' : null;
   const closeNew = useCallback(() => setNewOpen(false), []);
-  const openNew = useCallback(() => setNewOpen(true), []);
+  const openNew = useCallback(() => { setNewDir(null); setNewOpen(true); }, []);
+  const openNewHere = useCallback((dir: string) => { setNewDir(dir); setNewOpen(true); }, []);
   const closeGroupSheet = useCallback(() => setGroupSheet(false), []);
   const closeRoomMenu = useCallback(() => setRoomMenuId(null), []);
   const closeManageRooms = useCallback(() => setManageRooms(false), []);
@@ -284,6 +304,10 @@ export default function SessionsScreen() {
     markSessionRead(session.sessionId, readStamp(session));
     push(sessionPath(session.sessionId, defaultSegment(detectCli(session))));
   }, [push]);
+  const openHit = useCallback((id: string) => {
+    const target = useSessionStore.getState().sessions.get(id);
+    if (target) open(target);
+  }, [open]);
   // The actions sheet's "Terminal" (AASC-56): over the session's Chat, or a shell's Terminal tab.
   const openSessionTerminal = useCallback((id: string) => {
     const target = useSessionStore.getState().sessions.get(id);
@@ -420,11 +444,11 @@ export default function SessionsScreen() {
         action={<Button variant="primary" onClick={openNew} disabledReason={blocker ?? undefined}>Start a session</Button>}
       />
     );
-  } else if (groups.length === 0) {
+  } else if (groups.length === 0 && contentHits.length === 0) {
     body = (
       <EmptyState
         title={query ? `Nothing matches “${query}”` : filter === 'needs-you' ? 'Nothing needs you' : 'Nothing is working right now'}
-        message={query ? 'Search looks at names, projects, labels and remarks.' : undefined}
+        message={query ? 'Search looks at names, projects and remarks, and at what each session said and did.' : undefined}
         action={<Button onClick={() => { setQuery(''); setFilter('all'); }}>Show all sessions</Button>}
       />
     );
@@ -443,6 +467,7 @@ export default function SessionsScreen() {
         rowProps={rowProps}
         onOpen={open}
         rooms={roomGrouping}
+        onNewHere={openNewHere}
       />
       );
     });
@@ -453,6 +478,14 @@ export default function SessionsScreen() {
         </div>
       );
     }
+  }
+  if (snapshotReceived && contentHits.length > 0) {
+    body = (
+      <>
+        {body}
+        <ConversationHits hits={contentHits} query={query} onOpen={openHit} />
+      </>
+    );
   }
 
   return (
@@ -490,12 +523,15 @@ export default function SessionsScreen() {
         )}
         {snapshotReceived && <HostStatus />}
         {snapshotReceived && counts.all > 0 && (
-          <div className={styles.chips} role="group" aria-label="Show">
-            {SESSIONS_FILTERS.map((f) => (
-              <Chip key={f.value} label={f.label} count={counts[f.value]} selected={filter === f.value} onClick={() => setFilter(f.value)} />
-            ))}
+          <div className={styles.chipsBar}>
+            <div ref={chipsRef} className={styles.chips} data-more={moreChips ? '' : undefined} role="group" aria-label="Show">
+              {SESSIONS_FILTERS.map((f) => (
+                <Chip key={f.value} label={f.label} count={counts[f.value]} selected={filter === f.value} onClick={() => setFilter(f.value)} />
+              ))}
+            </div>
+            {/* Outside the scrolling filters (Oct 20 2026), so a narrow phone never cuts it off. */}
             <Chip
-              label={`By ${GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.label.toLowerCase()}`}
+              label={GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.chip ?? 'Group'}
               onClick={() => setGroupSheet(true)}
             />
           </div>
@@ -511,7 +547,7 @@ export default function SessionsScreen() {
         {body}
       </div>
 
-      <NewSessionSheet open={newOpen} onClose={closeNew} blocker={blocker} />
+      <NewSessionSheet open={newOpen} onClose={closeNew} preferDir={newDir} blocker={blocker} />
       <SessionSheets
         sessionId={sheetFor}
         sheet={sheet}

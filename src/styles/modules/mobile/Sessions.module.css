@@ -137,16 +137,33 @@
 
 /* ---- Filter chips (scroll sideways, never the page) ---- */
 
-.chips {
+/* The filters scroll; the grouping chip beside them stays put (Oct 20 2026). */
+.chipsBar {
   display: flex;
+  align-items: center;
   gap: var(--ph-space-2);
   margin: 0 0 var(--ph-space-2);
   padding: 0 var(--ph-gutter);
+}
+
+.chipsBar > :last-child { flex: none; }
+
+.chips {
+  display: flex;
+  flex: 1;
+  gap: var(--ph-space-2);
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
 .chips::-webkit-scrollbar { display: none; }
+
+/* More filters past the right edge: the cut chip fades, so it reads as "scroll". */
+.chips[data-more] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
 
 /* ---- Groups ---- */
 

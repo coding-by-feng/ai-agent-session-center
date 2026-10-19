@@ -484,4 +484,48 @@ describe('SessionsScreen', () => {
     const strip = screen.getByRole('region', { name: 'Your Mac' });
     expect(strip.textContent).toMatch(/^Reconnecting… · /);
   });
+
+  describe('desktop parity (Oct 20 2026)', () => {
+    it('keeps the grouping chip outside the scrolling filters, so it is never cut off', () => {
+      render(<SessionsScreen />);
+      const filters = screen.getByRole('group', { name: 'Show' });
+      expect(within(filters).queryByRole('button', { name: /^By / })).toBeNull();
+      expect(screen.getByRole('button', { name: /^By status/ })).toBeTruthy();
+    });
+
+    it('groups by recent activity, as the desktop strip’s Recent view: one list, most recently active first', async () => {
+      const user = userEvent.setup();
+      const many = fixtures();
+      many.set('s2', session('s2', 'Working one', 'working', { lastActivityAt: NOW - 1000 }));
+      many.set('s4', session('s4', 'Idle one', 'idle', { lastActivityAt: NOW - 500_000 }));
+      useSessionStore.setState({ sessions: many });
+      render(<SessionsScreen />);
+      await user.click(screen.getByRole('button', { name: /^By status/ }));
+      await user.click(within(await screen.findByTestId('group-by-sheet')).getByRole('button', { name: /Recent activity/ }));
+      expect(names(region('Recent activity'))).toEqual(['s2', 's1', 's3', 's4']);
+      expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBe('activity');
+    });
+
+    it('starts a session in a project group’s folder from its ＋, as the desktop’s project frames do', async () => {
+      const user = userEvent.setup();
+      localStorage.setItem('aasc.phoneSessionsGroup', 'project');
+      render(<SessionsScreen />);
+      await user.click(screen.getByRole('button', { name: 'New session in site' }));
+      const sheet = await screen.findByRole('dialog', { name: 'New session' });
+      const starts = within(sheet).getAllByRole('button', { name: /^New Claude session in / });
+      expect(starts[0].getAttribute('aria-label')).toBe('New Claude session in site');
+    });
+
+    it('finds a word in the sessions’ prompts, answers and tools, and opens the session it is in', async () => {
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      await user.type(screen.getByRole('searchbox', { name: 'Search sessions' }), 'tests pass');
+      const found = screen.getByRole('region', { name: 'In conversations' });
+      const hit = within(found).getByRole('button', { name: /Done one/ });
+      expect(hit.textContent).toContain('All tests pass.');
+      await user.click(hit);
+      expect(usePhoneNavStore.getState().stacks.sessions.at(-1)).toBe('/sessions/s3/chat');
+    });
+  });
 });

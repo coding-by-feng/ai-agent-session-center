@@ -18,6 +18,7 @@ import { SettingsRows } from './MoreScreen';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useWsStore } from '@/stores/wsStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { PHONE_TEXT_SCALES, phoneTextScaleLabel, setPhoneTextScale, stepPhoneTextScale, usePhoneTextScale } from '@/lib/chat/phoneAppearance';
 import { phonePalette } from '@/lib/chat/phoneThemes';
@@ -100,6 +101,8 @@ function NotificationsPage() {
   );
   const inApp = isNativeMobileApp();
   const shellHome = nativeShellHomeUrl();
+  const snapshotReceived = useWsStore((s) => s.snapshotReceived);
+  const connected = useWsStore((s) => s.connected);
   return (
     <>
       <div className={styles.banner}>
@@ -114,7 +117,9 @@ function NotificationsPage() {
           <ListRow title="Open the app’s settings" subtitle="Notifications, lock, paired Macs" chevron onClick={() => window.location.assign(shellHome)} />
         </ListSection>
       )}
-      {live.length === 0 ? (
+      {live.length === 0 && !snapshotReceived ? (
+        <EmptyState live title={connected ? 'Loading sessions…' : 'Connecting to your Mac…'} />
+      ) : live.length === 0 ? (
         <EmptyState title="No live sessions" message="Sessions you can see show up here, each with its own switch." />
       ) : (
         <ListSection header="Sessions" footer="Off mutes a session everywhere: no pushes and no sounds from it.">
