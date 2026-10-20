@@ -9,6 +9,9 @@
   background: var(--ph-bg);
 }
 
+/* Each screen is its own layer (isolation), so nothing in a screen under the top one
+   (z-index auto) can paint over the top one (z 2), whatever z-index or visibility it
+   sets (Oct 20 2026: Chat's search bar sat over Info → Queue). */
 .slot {
   position: absolute;
   inset: 0;
@@ -17,6 +20,7 @@
   min-height: 0;
   background: var(--ph-bg);
   visibility: hidden;
+  isolation: isolate;
 }
 
 .slot[data-top] {

@@ -99,9 +99,11 @@
   transition: transform var(--ph-motion-fast) var(--ph-ease), visibility 0s linear var(--ph-motion-fast);
 }
 
+/* inherit, never visible: a `visible` child shows through the stack's hidden screen
+   under the top one (the bar sat over Info → Queue, Oct 20 2026). */
 .searchShown {
   transform: none;
-  visibility: visible;
+  visibility: inherit;
   transition: transform var(--ph-motion-fast) var(--ph-ease), visibility 0s;
 }
 
