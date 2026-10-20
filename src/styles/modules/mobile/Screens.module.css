@@ -101,7 +101,8 @@
 
 .segments {
   flex: none;
-  padding: var(--ph-space-2) var(--ph-gutter);
+  /* 6px, not 8: the compact tabs' tap strip reaches 4px past the track (Oct 20 2026). */
+  padding: 6px var(--ph-gutter);
   background: var(--ph-bg);
 }
 

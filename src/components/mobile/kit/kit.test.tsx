@@ -122,6 +122,13 @@ describe('SegmentedControl', () => {
     await userEvent.click(off);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('draws shorter when compact (the CSS keeps a 44px tap height)', () => {
+    const { rerender } = render(<SegmentedControl segments={segments} value="chat" onChange={() => {}} label="Session view" />);
+    expect(screen.getByRole('tablist')).not.toHaveAttribute('data-size');
+    rerender(<SegmentedControl segments={segments} value="chat" onChange={() => {}} label="Session view" size="compact" />);
+    expect(screen.getByRole('tablist')).toHaveAttribute('data-size', 'compact');
+  });
 });
 
 describe('Sheet', () => {

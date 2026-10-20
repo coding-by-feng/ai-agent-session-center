@@ -27,9 +27,11 @@ export interface SegmentedControlProps<T extends string> {
   panelId?: string;
   /** Segment ids are `${idPrefix}-${value}`, so the panel can point back (aria-labelledby). */
   idPrefix?: string;
+  /** Compact draws 32px segments (still 44px to tap): a session screen's tabs, under its nav bar. */
+  size?: 'compact';
 }
 
-export default function SegmentedControl<T extends string>({ segments, value, onChange, label, panelId, idPrefix }: SegmentedControlProps<T>) {
+export default function SegmentedControl<T extends string>({ segments, value, onChange, label, panelId, idPrefix, size }: SegmentedControlProps<T>) {
   const autoId = useId();
   const groupId = idPrefix ?? autoId;
   const refs = useRef(new Map<T, HTMLButtonElement>());
@@ -50,7 +52,7 @@ export default function SegmentedControl<T extends string>({ segments, value, on
 
   return (
     <>
-      <div className={styles.track} role="tablist" aria-label={label}>
+      <div className={styles.track} role="tablist" aria-label={label} data-size={size}>
         {segments.map((s) => {
           const selected = s.value === value;
           const reasonId = `${groupId}-${s.value}-reason`;

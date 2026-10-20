@@ -71,6 +71,11 @@ describe('a Claude / Codex session', () => {
     expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('uses the compact tabs, to leave the conversation more room', () => {
+    show(claude, 'chat');
+    expect(screen.getByRole('tablist', { name: 'Session view' })).toHaveAttribute('data-size', 'compact');
+  });
+
   it('shows the project read-only in the Project tab', async () => {
     show(claude, 'project');
     expect(screen.getByRole('tab', { name: 'Project' })).toHaveAttribute('aria-selected', 'true');

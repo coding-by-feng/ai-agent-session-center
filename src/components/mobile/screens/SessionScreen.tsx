@@ -221,7 +221,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
           )}
           {!terminalScreen && (
             <div className={styles.segments}>
-              <SegmentedControl segments={segments} value={shown} onChange={show} label="Session view" panelId={panelId} idPrefix={segmentIds} />
+              <SegmentedControl segments={segments} value={shown} onChange={show} label="Session view" panelId={panelId} idPrefix={segmentIds} size="compact" />
             </div>
           )}
         </>

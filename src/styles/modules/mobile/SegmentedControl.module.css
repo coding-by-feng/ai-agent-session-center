@@ -1,5 +1,6 @@
 /* SegmentedControl — phone kit (AASC-38). Segments are 44px tall (the touch
-   target), inside a 2px-padded track. */
+   target), inside a 2px-padded track; compact ones are drawn 32px and still tap
+   at 44 (see below). */
 
 .track {
   display: grid;
@@ -70,6 +71,20 @@
   font-size: var(--ph-size-caption);
   font-variant-numeric: tabular-nums;
   color: var(--ph-text-secondary);
+}
+
+/* Compact (a session's tabs, Oct 20 2026): drawn 32px like iOS's own control; the
+   ::after strip makes it 44px to tap, reaching 4px past the track, so the parent keeps
+   at least 4px of padding above and below it. */
+.track[data-size='compact'] .segment {
+  position: relative;
+  min-height: 32px;
+}
+
+.track[data-size='compact'] .segment::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
 }
 
 /* On the selected segment's lighter dark-mode fill the secondary grey measured 4.0:1 (AASC-51 render check). */

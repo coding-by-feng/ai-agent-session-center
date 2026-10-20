@@ -24,7 +24,8 @@
   grid-template-columns: minmax(var(--ph-target), 1fr) minmax(0, auto) minmax(var(--ph-target), 1fr);
   align-items: center;
   gap: var(--ph-space-1);
-  min-height: calc(var(--ph-navbar) + var(--ph-space-1));
+  /* 44px, the iOS bar: a title and subtitle (22 + 16) still fit (was 48 until Oct 20 2026). */
+  min-height: var(--ph-navbar);
   padding: 0 var(--ph-space-1);
 }
 
