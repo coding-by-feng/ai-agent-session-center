@@ -15,6 +15,7 @@ import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { needsYou, waitingLine } from './inboxModel';
 import { buildStripItems } from '@/lib/sessionStrip';
+import { pickRecentSessions } from '@/lib/recentSessions';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
@@ -145,7 +146,8 @@ export function connectionPath(hostname: string): ConnectionPath {
 export interface SessionGroup {
   /** Stable: React key and fold state. */
   key: string;
-  kind: 'status' | 'room' | 'project' | 'none';
+  /** recent: the desktop rail's built-in RECENT frame (By room only); not a room. */
+  kind: 'status' | 'room' | 'project' | 'none' | 'recent';
   title: string;
   sessions: Session[];
   /** Status groups: which section. */
@@ -166,6 +168,8 @@ export interface GroupInput {
   query: string;
   rooms: readonly Room[];
   reads: ReadMap;
+  /** The clock Recent is measured against (a session leaves it after 30 quiet minutes). */
+  now: number;
 }
 
 const byRecent = (a: Session, b: Session) =>
@@ -176,7 +180,7 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, rooms, reads }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
   const listed = numberedSessions(sessions).filter(
     (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
@@ -198,7 +202,10 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads }
     return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: sortSessionsByActivity(listed) }] : [];
   }
 
-  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds: [] });
+  // By room, Recent goes first, as the desktop rail's RECENT frame: its rule and order
+  // (recentSessions.ts), narrowed by the filter and search; each also stays in its room.
+  const recentIds = groupBy === 'room' ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
+  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
   const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>
@@ -219,7 +226,9 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads }
     }
   };
   for (const item of items) {
-    if (item.type === 'room') {
+    if (item.type === 'recent') {
+      groups.push({ key: 'recent', kind: 'recent', title: 'Recent', sessions: item.sessions });
+    } else if (item.type === 'room') {
       placeEmptyBefore(item.room);
       groups.push(roomGroup(item.room, item.sessions, item.color));
     } else if (item.type === 'project') {

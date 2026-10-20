@@ -25,6 +25,7 @@ import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
 import { reorderOpFor } from '@/lib/chat/roomsListModel';
 import { killSharedRoomSessions, roomKillSummary, sharedRoomTargets } from '@/lib/chat/phoneRoomKill';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
 import type { RoomOp } from '@/types';
 import styles from '@/styles/modules/mobile/SessionRooms.module.css';
 
@@ -36,6 +37,15 @@ function ChevronIcon({ open }: { open: boolean }) {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
       className={styles.chevron} data-open={open ? '' : undefined}>
       <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      className={styles.recentIcon}>
+      <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
     </svg>
   );
 }
@@ -106,6 +116,33 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
       >
         <EllipsisIcon />
       </button>
+    </div>
+  );
+}
+
+/**
+ * The built-in Recent group's header (By room, Oct 20 2026): the desktop rail's
+ * RECENT frame. It folds like a room but is not one, so no ≡ and no ⋯; the space
+ * where ≡ sits keeps its title in line with the rooms' titles.
+ */
+export function RecentGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+  const minutes = RECENT_WINDOW_MS / 60_000;
+  return (
+    <div className={styles.header}>
+      <span className={styles.gripSpace} aria-hidden="true" />
+      <h2 className={styles.title}>
+        <button
+          type="button"
+          className={styles.toggle}
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-label={`Recent, ${count} ${count === 1 ? 'session' : 'sessions'} active in the last ${minutes} minutes, also in their rooms, ${collapsed ? 'folded' : 'open'}`}
+        >
+          <ChevronIcon open={!collapsed} />
+          <ClockIcon />
+          <span className={styles.titleText}>Recent · {count}</span>
+        </button>
+      </h2>
     </div>
   );
 }

@@ -46,6 +46,24 @@
 
 .roomGroup[data-drop-target] .toggle { color: var(--ph-accent); }
 
+/* The built-in Recent group (By room, Oct 20 2026), the desktop rail's RECENT
+   frame: a view, not a room. Dashed like the desktop's frame; the space where a
+   room's ≡ sits keeps its title in line with the rooms' titles. */
+.recentGroup > section > ul {
+  border: 1px dashed var(--ph-text-tertiary);
+}
+
+.gripSpace {
+  flex: none;
+  width: var(--ph-target);
+}
+
+.recentIcon {
+  /* A room swatch's 10px, so "Recent" starts where the room names do. */
+  flex: none;
+  color: var(--ph-text-secondary);
+}
+
 /* ---- Header: ≡ ▾ ■ NAME · N ⋯ ---- */
 
 .header {

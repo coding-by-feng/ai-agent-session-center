@@ -208,7 +208,8 @@ describe('SessionsScreen', () => {
       render(<SessionsScreen />);
       expect(screen.getByRole('button', { name: 'By room' })).toBeTruthy();
       expect(screen.getByRole('button', { name: /New or manage rooms/ })).toBeTruthy();
-      expect(headings()).toEqual(['Mobile · 2', 'Backend · 1', 'No room · 1']);
+      // Recent first, as the desktop rail's RECENT frame (s1 and s2 have a turn running).
+      expect(headings()).toEqual(['Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
       // Not a choice this phone made: nothing is saved until it picks one.
       expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBeNull();
     });
@@ -239,7 +240,7 @@ describe('SessionsScreen', () => {
     render(<SessionsScreen />);
     await user.click(screen.getByRole('button', { name: 'By status' }));
     await user.click(within(await screen.findByRole('dialog', { name: 'Group sessions by' })).getByRole('button', { name: /^Room/ }));
-    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Mobile · 2', 'Backend · 1', 'Spare · 0', 'No room · 1']);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Recent · 2', 'Mobile · 2', 'Backend · 1', 'Spare · 0', 'No room · 1']);
     expect(screen.getByText(/No sessions\. Hold a session’s ≡/)).toBeTruthy();
   });
 
@@ -295,6 +296,45 @@ describe('SessionsScreen', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    describe('Recent, the desktop rail\'s built-in frame (Oct 20 2026)', () => {
+      beforeEach(() => useUiStore.setState({ recentRoomCollapsed: false }));
+
+      it('comes first: the sessions with a turn running or work in the last 30 min, each also in its own room', () => {
+        render(<SessionsScreen />);
+        expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
+        expect(names(screen.getByTestId('room-group-recent'))).toEqual(['s1', 's2']);
+        expect(names(screen.getByTestId('room-group-r1'))).toEqual(['s1', 's3']);
+        expect(names(screen.getByTestId('room-group-r2'))).toEqual(['s2']);
+      });
+
+      it('is not a room: no ≡ to reorder, no ⋯ menu, no drag grips, and each row says its room', () => {
+        render(<SessionsScreen />);
+        const recent = screen.getByTestId('room-group-recent');
+        expect(within(recent).queryByRole('button', { name: /^Actions for the room/ })).toBeNull();
+        expect(within(recent).queryByTestId(/^room-grip-/)).toBeNull();
+        expect(within(recent).queryByTestId(/^session-grip-/)).toBeNull();
+        expect(within(within(recent).getByTestId('session-row-s1')).getByText('Mobile')).toBeTruthy();
+        expect(within(screen.getByTestId('room-group-r1')).getByTestId('session-grip-s1')).toBeTruthy();
+      });
+
+      it('folds with the desktop\'s own Recent flag, on this device', async () => {
+        const user = userEvent.setup();
+        render(<SessionsScreen />);
+        await user.click(screen.getByRole('button', { name: /^Recent, 2 sessions/ }));
+        expect(useUiStore.getState().recentRoomCollapsed).toBe(true);
+        expect(within(screen.getByTestId('room-group-recent')).queryByTestId('session-row-s1')).toBeNull();
+        expect(screen.getByRole('button', { name: /^Recent, 2 sessions.*folded/ }).getAttribute('aria-expanded')).toBe('false');
+        expect(within(screen.getByTestId('room-group-r1')).getByTestId('session-row-s1')).toBeTruthy();
+      });
+
+      it('is only in the By room view', () => {
+        localStorage.setItem('aasc.phoneSessionsGroup', 'status');
+        render(<SessionsScreen />);
+        expect(screen.queryByTestId('room-group-recent')).toBeNull();
+        expect(screen.queryByRole('heading', { name: /^Recent/ })).toBeNull();
+      });
+    });
+
     it('folds a room on this phone only, and keeps it folded after a reload', async () => {
       const user = userEvent.setup();
       const { unmount } = render(<SessionsScreen />);
@@ -302,12 +342,15 @@ describe('SessionsScreen', () => {
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       await user.click(toggle);
       expect(screen.getByRole('button', { name: /^Mobile, 2 sessions, folded/ }).getAttribute('aria-expanded')).toBe('false');
-      expect(screen.queryByTestId('session-row-s1')).toBeNull();
+      // The room folds; s1 is still listed in Recent, which is not this room.
+      const inMobile = () => within(screen.getByTestId('room-group-r1'));
+      expect(inMobile().queryByTestId('session-row-s1')).toBeNull();
+      expect(within(screen.getByTestId('room-group-recent')).getByTestId('session-row-s1')).toBeTruthy();
       expect(useRoomStore.getState().rooms.find((r) => r.id === 'r1')?.collapsed).toBe(false); // the Mac's flag untouched
       unmount();
       render(<SessionsScreen />);
-      expect(screen.queryByTestId('session-row-s1')).toBeNull();
-      expect(screen.getByTestId('session-row-s2')).toBeTruthy();
+      expect(inMobile().queryByTestId('session-row-s1')).toBeNull();
+      expect(within(screen.getByTestId('room-group-r2')).getByTestId('session-row-s2')).toBeTruthy();
     });
 
     it('moves a room down from its menu: one reorder op to the Mac, never a roomIndex', async () => {
@@ -319,7 +362,7 @@ describe('SessionsScreen', () => {
       await user.click(within(menu).getByRole('button', { name: 'Move down' }));
       await waitFor(() => expect(opBodies()).toEqual([{ type: 'reorder', roomIds: ['r2', 'r1'] }]));
       // The accepted reorder shows here at once; the 3D slots stay as they were.
-      await waitFor(() => expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Backend · 1', 'Mobile · 2', 'No room · 1']));
+      await waitFor(() => expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Recent · 2', 'Backend · 1', 'Mobile · 2', 'No room · 1']));
       expect(useRoomStore.getState().rooms.map((r) => r.roomIndex)).toEqual([0, 1]);
     });
 

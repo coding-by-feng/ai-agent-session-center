@@ -26,7 +26,7 @@ import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
 import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
-import { RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
+import { RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
 import { useCollapsedRooms } from './useCollapsedRooms';
 import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSessionRoomDrag';
 import { useIsHostDevice } from '../views/hostAccess';
@@ -40,6 +40,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useUiStore } from '@/stores/uiStore';
 import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
 import { refreshSessionList } from '@/lib/sessionRefresh';
@@ -124,6 +125,9 @@ function HostStatus() {
 interface RoomGrouping {
   collapsed: ReadonlySet<string>;
   onToggleRoom: (roomId: string) => void;
+  /** The built-in Recent group's fold: the desktop's own flag, on this device. */
+  recentCollapsed: boolean;
+  onToggleRecent: () => void;
   onRoomMenu: (roomId: string) => void;
   onRoomGripDown: (e: PointerEvent, roomId: string) => void;
   /** The room being reordered, and how far each passed room slides aside. */
@@ -154,15 +158,20 @@ interface GroupProps {
 function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
-  const roomFolded = !!(rooms && roomId && rooms.collapsed.has(roomId));
+  // Recent (By room) lists sessions that are also in their rooms: never a drop
+  // target (its null room would read as "No room") and its copies have no grip.
+  const recent = group.kind === 'recent';
+  const roomFolded = recent ? !!rooms?.recentCollapsed : !!(rooms && roomId && rooms.collapsed.has(roomId));
   const groupRef = useCallback((el: HTMLDivElement | null) => {
-    if (!rooms) return;
+    if (!rooms || recent) return;
     rooms.registerGroup(group.key, roomId, el);
     if (roomId) rooms.registerRoomEl(roomId, el);
-  }, [rooms, group.key, roomId]);
+  }, [rooms, recent, group.key, roomId]);
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
-  const header = rooms && group.room ? (
+  const header = rooms && recent ? (
+    <RecentGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleRecent} />
+  ) : rooms && group.room ? (
     <RoomGroupHeader
       room={group.room}
       title={group.title}
@@ -189,16 +198,16 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
       )}
     </div>
   );
-  const drag = rooms?.sessionDrag ?? null;
+  const drag = recent ? null : rooms?.sessionDrag ?? null;
   const roomShift = roomId ? rooms?.roomShifts.get(roomId) : undefined;
   return (
     <div
       ref={groupRef}
-      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}`}
+      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}${recent ? ` ${roomStyles.recentGroup}` : ''}`}
       data-room-lifted={roomId && rooms?.liftedRoomId === roomId ? '' : undefined}
       data-drop-target={drag && drag.overRoomId === roomId && drag.fromRoomId !== roomId ? '' : undefined}
       style={roomShift ? ({ '--room-shift': `${roomShift}px` } as CSSProperties) : undefined}
-      data-testid={rooms ? `room-group-${roomId ?? 'none'}` : undefined}
+      data-testid={rooms ? `room-group-${recent ? 'recent' : roomId ?? 'none'}` : undefined}
     >
       {header}
       {roomFolded ? null : (
@@ -216,10 +225,10 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
           key={s.sessionId}
           session={s}
           now={now}
-          hideRoom={groupBy === 'room'}
+          hideRoom={groupBy === 'room' && !recent}
           hideProject={groupBy === 'project'}
           onOpen={onOpen}
-          grip={rooms?.gripFor(s.sessionId, roomId)}
+          grip={recent ? undefined : rooms?.gripFor(s.sessionId, roomId)}
           dragY={drag?.sessionId === s.sessionId ? drag.dy : undefined}
           {...rowProps(s)}
         />
@@ -264,6 +273,8 @@ export default function SessionsScreen() {
   const isHost = useIsHostDevice();
   const isRoomWriter = useIsRoomWriter();
   const { collapsed: collapsedRooms, toggle: toggleRoom } = useCollapsedRooms(rooms);
+  const recentCollapsed = useUiStore((s) => s.recentRoomCollapsed);
+  const toggleRecent = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const searchRef = useRef<HTMLInputElement>(null);
   const [chipsRef, moreChips] = useMoreToTheRight<HTMLDivElement>();
 
@@ -273,8 +284,8 @@ export default function SessionsScreen() {
   }, []);
 
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads }),
-    [sessions, groupBy, filter, query, rooms, reads],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now }),
+    [sessions, groupBy, filter, query, rooms, reads, now],
   );
   // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
   const contentHits = useMemo(() => {
@@ -391,6 +402,8 @@ export default function SessionsScreen() {
 
   const roomGrouping = useMemo<RoomGrouping | undefined>(() => (byRoom ? {
     collapsed: collapsedRooms,
+    recentCollapsed,
+    onToggleRecent: toggleRecent,
     onToggleRoom: toggleRoom,
     onRoomMenu: setRoomMenuId,
     onRoomGripDown: roomDrag.onPointerDown,
@@ -400,7 +413,7 @@ export default function SessionsScreen() {
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
+  } : undefined), [byRoom, collapsedRooms, recentCollapsed, toggleRecent, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
     registerRoomEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const actions = (
