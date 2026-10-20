@@ -29,7 +29,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = 
   return el;
 }
 
-export type IconName = 'lock' | 'warning' | 'gear' | 'chevron' | 'back' | 'qr' | 'laptop';
+export type IconName = 'lock' | 'warning' | 'gear' | 'chevron' | 'back' | 'qr' | 'laptop' | 'trash';
 
 const PATHS: Record<IconName, string> = {
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
@@ -39,6 +39,7 @@ const PATHS: Record<IconName, string> = {
   back: 'M15 6l-6 6 6 6',
   qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z',
   laptop: 'M5 5h14v10H5zM2 19h20',
+  trash: 'M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
 
 /** A decorative stroke icon; the text next to it carries the meaning. */

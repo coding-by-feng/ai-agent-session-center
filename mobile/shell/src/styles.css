@@ -305,6 +305,7 @@ details.manual > form { padding: 4px 16px 16px; }
 .macs { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .mac {
   display: flex;
+  flex-wrap: wrap; /* the unpair question takes its own line under the row */
   align-items: stretch;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -327,8 +328,9 @@ details.manual > form { padding: 4px 16px 16px; }
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.mac-open:hover { background: var(--surface-2); }
-.mac-open:active { background: var(--border); }
+.mac-open:hover:not(:disabled) { background: var(--surface-2); }
+.mac-open:active:not(:disabled) { background: var(--border); }
+.mac-open:disabled { opacity: 0.55; cursor: not-allowed; }
 .mac-open:focus-visible, .icon-btn:focus-visible { outline-offset: -3px; }
 .mac-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .mac-name { font-weight: 600; overflow-wrap: anywhere; }
@@ -343,6 +345,19 @@ details.manual > form { padding: 4px 16px 16px; }
   border-left: 1px solid var(--border);
   border-radius: 0;
   color: var(--text-muted);
+}
+
+/* Unpairing from the list (Oct 20 2026): the row asking turns red, so it's plain which
+   of two same-named Macs goes. */
+.mac[data-unpairing] { border-color: var(--danger-border); }
+.icon-btn[aria-expanded='true'] { color: var(--danger); }
+.mac-unpair {
+  display: flex;
+  flex: 1 0 100%;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--danger-border);
 }
 
 .danger-zone {

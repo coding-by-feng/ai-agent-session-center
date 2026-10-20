@@ -21,7 +21,7 @@ import { renderMacs, renderSettings } from './ui/macScreens.js';
 import { renderLocked, renderPhone, renderShare } from './ui/extraScreens.js';
 import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
 import { PATH_LABEL } from './ui/parts.js';
-import type { Actions, Screen, ScreenContext } from './ui/screen.js';
+import type { Actions, Screen, ScreenContext, UnpairStep } from './ui/screen.js';
 import { renderApprove, renderConnecting, renderOffline } from './ui/statusScreens.js';
 
 /** How often the approval screen asks the Mac. */
@@ -80,6 +80,8 @@ export function createShellApp(
   let screen: Screen = pairScreen();
   let macs: SavedMac[] = [];
   let gen = 0;
+  /** The Mac being unpaired from the list or its settings; one at a time. */
+  let unpairing: string | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let offLink: (() => void) | null = null;
   let chain: Promise<unknown> = Promise.resolve();
@@ -124,8 +126,15 @@ export function createShellApp(
   function show(next: Screen): void {
     gen += 1;
     stopPoll();
-    screen = next;
+    screen = withoutStaleUnpair(next);
     render(true);
+  }
+
+  /** The lock shows the screen from before it again: an unpair that finished meanwhile no longer says "Telling …". */
+  function withoutStaleUnpair(next: Screen): Screen {
+    if (next.name === 'macs' && next.unpair?.step === 'busy' && next.unpair.macId !== unpairing) return { ...next, unpair: null };
+    if (next.name === 'settings' && next.step === 'busy' && next.macId !== unpairing) return { ...next, step: 'idle' };
+    return next;
   }
 
   function update(patch: Partial<Record<string, unknown>>): void {
@@ -167,6 +176,18 @@ export function createShellApp(
         return renderOffline(s, mac, ctx);
       }
     }
+  }
+
+  /** The unpair question's step, on whichever screen asks it: the Mac's settings or its row in Your Macs. */
+  function asksAbout(macId: string): boolean {
+    return (screen.name === 'macs' && screen.unpair?.macId === macId)
+      || (screen.name === 'settings' && screen.macId === macId && screen.step !== 'idle');
+  }
+
+  function setUnpairStep(macId: string, step: UnpairStep, clearNotice = false): void {
+    const notice = clearNotice ? { notice: null } : {};
+    if (screen.name === 'macs') update({ unpair: step === 'idle' ? null : { macId, step }, ...notice });
+    else if (screen.name === 'settings' && screen.macId === macId) update({ step, ...notice });
   }
 
   /** Any unexpected failure lands on a calm screen instead of a frozen one. */
@@ -359,20 +380,43 @@ export function createShellApp(
         : next.tailnet ? 'Only Tailscale is used now.' : 'This Mac has no Tailscale address, so it can’t be reached until the home network is allowed again.';
       if (screen.name === 'settings' && screen.macId === macId) update({ notice });
     })(),
-    askUnpair: () => update({ step: 'confirm', notice: null }),
-    keepPaired: () => update({ step: 'idle' }),
+    askUnpair: (macId) => {
+      // In the list, tapping the row's 🗑 again closes its question; one row asks at a time.
+      if (unpairing !== null) return;
+      const again = screen.name === 'macs' && screen.unpair?.macId === macId;
+      setUnpairStep(macId, again ? 'idle' : 'confirm', true);
+    },
+    keepPaired: (macId) => {
+      setUnpairStep(macId, 'idle');
+      // Back on the row's 🗑, not the page title, so the list keeps its place.
+      if (screen.name === 'macs') root.querySelector<HTMLElement>(`#unpair-${macId}`)?.focus();
+    },
     unpair: (macId, force) => guard(async () => {
       const mac = find(macId);
-      if (!deps || !mac || screen.name !== 'settings') return;
-      const my = gen;
-      update({ step: 'busy' });
-      const out = await serial(() => unpairMac(deps, macs, find(macId) ?? mac, { force }));
-      if (my !== gen) return;
-      if (!out.done) {
-        update({ step: 'unreachable' });
+      if (!deps || !mac || unpairing !== null || (screen.name !== 'settings' && screen.name !== 'macs')) return;
+      unpairing = macId;
+      setUnpairStep(macId, 'busy');
+      let out: Awaited<ReturnType<typeof unpairMac>>;
+      try {
+        out = await serial(() => unpairMac(deps, macs, find(macId) ?? mac, { force }));
+      } finally {
+        unpairing = null;
+      }
+      // The phone has forgotten it, whatever shows now: a list drawn meanwhile must lose it too.
+      if (out.done) macs = out.macs;
+      // Answer the screen still asking about this Mac (the same one, or the one the lock brought back); any other
+      // screen only needs a list without it.
+      if (!asksAbout(macId)) {
+        if (out.done && screen.name === 'macs') {
+          if (macs.length) render(false);
+          else show(homeScreen(null));
+        }
         return;
       }
-      macs = out.macs;
+      if (!out.done) {
+        setUnpairStep(macId, 'unreachable');
+        return;
+      }
       show(homeScreen(out.toldMac
         ? `Unpaired from ${mac.name}.`
         : `Removed ${mac.name} from this phone. Revoke it in the Mac’s devices panel too.`));

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // AASC-17: Your Macs, a Mac's settings, unpairing, and Can't reach.
 import { afterEach, describe, expect, it } from 'vitest';
+import { LOCK_SETTINGS_KEY } from './lockGate';
 import { loadMacs, readMacCredentials } from './savedMacs';
 import {
   buttonNamed, click, createHarness, fieldLabelled, heading, KASON_MBP, LAN, seedMac, STUDIO, TAILNET, until,
@@ -68,6 +69,109 @@ describe('Your Macs', () => {
     expect(heading(t.root)).toBe('Pair with a Mac');
     click(t.root, 'Your Macs');
     expect(heading(t.root)).toBe('Your Macs');
+  });
+
+  // Oct 20 2026: unpairing was only under ⚙ → the Mac's settings; two rows can share a name.
+  describe('unpairing from the list', () => {
+    const rowsText = (t: { root: HTMLElement }) => Array.from(t.root.querySelectorAll('.mac')).map((r) => r.querySelector('.mac-name')?.textContent);
+    const row = (t: { root: HTMLElement }, i: number) => t.root.querySelectorAll<HTMLElement>('.mac')[i];
+
+    it('asks in the row tapped, then the Mac is told, push stops and the phone forgets', async () => {
+      const t = await twoMacs();
+      t.vault.set(`backend.${KASON_MBP.id}`, JSON.stringify(t.mac.seedBackendDevice()));
+      click(t.root, 'Unpair from Kason-MBP');
+      expect(heading(t.root)).toBe('Your Macs');
+      expect(row(t, 0).textContent).toContain('Unpair from Kason-MBP? This phone loses access and forgets its key.');
+      expect(row(t, 0).dataset.unpairing).toBe('true');
+      expect(row(t, 1).textContent).not.toContain('Unpair from');
+      click(t.root, 'Keep it');
+      expect(t.root.textContent).not.toContain('Unpair from Kason-MBP?');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Unpair from Kason-MBP');
+      click(t.root, 'Unpair from Kason-MBP');
+      click(t.root, 'Unpair');
+      await until(t.root, () => t.root.textContent?.includes('Unpaired from Kason-MBP.') ?? false);
+      expect(heading(t.root)).toBe('Your Macs');
+      expect(rowsText(t)).toEqual(['Studio']);
+      expect(t.mac.pushTargetsRemoved()).toBe(1);
+      expect([...t.mac.devices.values()].map((d) => d.status)).toEqual(['revoked', 'active']);
+      expect(await readMacCredentials(t.deps.vault, KASON_MBP.id)).toBeNull();
+      expect((await loadMacs(t.deps.store)).map((m) => m.name)).toEqual(['Studio']);
+    });
+
+    it('tells two Macs of the same name apart: the question sits in the row tapped, one row at a time', async () => {
+      const t = createHarness();
+      const twin = { ...KASON_MBP, id: '6f1c2a10-0000-4000-8000-000000000003' };
+      await seedMac(t, KASON_MBP);
+      await seedMac(t, twin);
+      await t.app.start();
+      await until(t.root, () => heading(t.root) === 'Your Macs');
+      row(t, 1).querySelector<HTMLButtonElement>('[aria-label="Unpair from Kason-MBP"]')?.click();
+      expect(row(t, 1).textContent).toContain('Unpair from Kason-MBP?');
+      expect(row(t, 0).textContent).not.toContain('Unpair from Kason-MBP?');
+      row(t, 0).querySelector<HTMLButtonElement>('[aria-label="Unpair from Kason-MBP"]')?.click();
+      expect(row(t, 0).textContent).toContain('Unpair from Kason-MBP?');
+      expect(row(t, 1).textContent).not.toContain('Unpair from Kason-MBP?');
+      click(t.root, 'Unpair');
+      await until(t.root, () => t.root.textContent?.includes('Unpaired from Kason-MBP.') ?? false);
+      expect((await loadMacs(t.deps.store)).map((m) => m.id)).toEqual([twin.id]);
+    });
+
+    it('asks again before removing a Mac it can’t tell, then removes it from the phone only', async () => {
+      const t = createHarness({ mac: { reachable: [] } });
+      await seedMac(t, KASON_MBP);
+      await seedMac(t, STUDIO);
+      await t.app.start();
+      click(t.root, 'Unpair from Studio');
+      click(t.root, 'Unpair');
+      await until(t.root, () => row(t, 1).textContent?.includes('still lists this phone') ?? false);
+      expect(t.vault.size).toBe(2); // nothing forgotten yet
+      click(t.root, 'Remove anyway');
+      await until(t.root, () => t.root.textContent?.includes('Revoke it in the Mac’s devices panel too.') ?? false);
+      expect(rowsText(t)).toEqual(['Kason-MBP']);
+    });
+
+    it('after the lock, an unpair that finished meanwhile leaves no row stuck: another Mac can be asked', async () => {
+      // The lock shows the screen from before it again, with that row still "Telling …" (review, Oct 20 2026).
+      const t = createHarness({ biometric: { available: true, pass: true }, store: { [LOCK_SETTINGS_KEY]: JSON.stringify({ enabled: true, relockAfterMinutes: 0 }) } });
+      await seedMac(t, KASON_MBP);
+      await seedMac(t, STUDIO);
+      let release!: () => void;
+      const held = new Promise<void>((r) => { release = r; });
+      const real = t.deps.http.post;
+      t.deps.http.post = async (url, body) => {
+        if (url.endsWith('/api/mobile/unpair')) await held;
+        return real(url, body);
+      };
+      await t.app.start();
+      click(t.root, 'Unlock');
+      await until(t.root, () => heading(t.root) === 'Your Macs');
+      click(t.root, 'Unpair from Kason-MBP');
+      click(t.root, 'Unpair');
+      await until(t.root, () => t.root.textContent?.includes('Telling Kason-MBP') ?? false);
+      t.extras.pause!();
+      await new Promise((r) => setTimeout(r, 5));
+      t.extras.resume!();
+      await until(t.root, () => heading(t.root) === 'AASC is locked');
+      release();
+      await until(t.root, () => !t.vault.has(`mac.${KASON_MBP.id}`));
+      await new Promise((r) => setTimeout(r, 5));
+      click(t.root, 'Unlock');
+      await until(t.root, () => heading(t.root) === 'Your Macs');
+      expect(rowsText(t)).toEqual(['Studio']);
+      expect(t.root.textContent).not.toContain('Telling');
+      click(t.root, 'Unpair from Studio');
+      expect(row(t, 0).textContent).toContain('Unpair from Studio?');
+    });
+
+    it('keeps the list right when the screen moved on before the Mac answered', async () => {
+      const t = await twoMacs();
+      click(t.root, 'Settings for Kason-MBP');
+      click(t.root, 'Unpair this phone');
+      click(t.root, 'Unpair');
+      click(t.root, 'Your Macs'); // back, while the Mac is still being told
+      await until(t.root, () => rowsText(t).length === 1);
+      expect(rowsText(t)).toEqual(['Studio']);
+    });
   });
 
   it('forgets a Mac that removed this phone, and says so', async () => {

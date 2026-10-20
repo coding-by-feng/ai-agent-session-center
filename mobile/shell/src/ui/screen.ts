@@ -27,7 +27,8 @@ export type Screen =
   | { name: 'confirm'; link: PairingLink; allowLan: boolean; phoneName: string; busy: string | null; error: string | null }
   /** Holds the Mac itself: a refusal removes it from the list while this screen still names it. */
   | { name: 'approve'; mac: SavedMac; state: ApproveState; message: string | null }
-  | { name: 'macs'; notice: string | null }
+  /** `unpair`: the row asking "Unpair from …?" (Oct 20 2026); one row at a time. */
+  | { name: 'macs'; notice: string | null; unpair?: { macId: string; step: Exclude<UnpairStep, 'idle'> } | null }
   | { name: 'settings'; macId: string; step: UnpairStep; notice: string | null }
   | { name: 'connecting'; macId: string; back: string; reauth: boolean; status: string }
   | { name: 'offline'; macId: string; back: string; reauth: boolean; tried: Candidate[]; message: string | null }
