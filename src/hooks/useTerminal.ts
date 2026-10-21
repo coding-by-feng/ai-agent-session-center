@@ -360,6 +360,15 @@ async function uploadClipboardImages(blobs: Blob[]): Promise<string[]> {
 // never heals, even after the container becomes visible. Dropping the resize
 // (the terminal keeps its last good geometry until a real measurement arrives)
 // is always safer than sending a collapsed one.
+/**
+ * xterm recolours any foreground that falls below this contrast against its
+ * own cell background (dim text gets half). At xterm's default of 1 a Codex
+ * table header, true-colour text on a pale true-colour fill, was ~1.2:1 on
+ * light themes and read as blurry. 4.5 is WCAG AA; box-drawing glyphs are
+ * exempt, so table rules keep their colour.
+ */
+export const TERMINAL_MIN_CONTRAST_RATIO = 4.5;
+
 export const MIN_SANE_COLS = 20;
 
 /**
@@ -976,7 +985,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           scrollback: scrollbackLinesRef.current,
           convertEol: false,
           drawBoldTextInBrightColors: true,
-          minimumContrastRatio: 1,
+          minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
           // TUIs like Claude Code enable mouse tracking (DECSET 1000/1002/1006),
           // which makes a plain drag send mouse reports to the app instead of
           // selecting text. On macOS the only way to force a real text selection
