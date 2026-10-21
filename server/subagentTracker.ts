@@ -248,10 +248,17 @@ export function finishRun(
     const oldest = runs.find((r) => r.status === 'working');
     return runs.map((r) => (r === oldest ? finish(r, 'done', at) : r));
   }
-  const description = backgroundSubagents(background)?.find((t) => t.id === identity.id)?.description ?? null;
+  const listed = backgroundSubagents(background)?.find((t) => t.id === identity.id);
+  const description = listed?.description ?? null;
 
   if (!runs.some((r) => r.agentId === identity.id)) {
-    const run = { ...freshRun(identity.id, identity.type, at), description, descriptionConfirmed: description !== null };
+    // Never seen and untyped: one of Claude Code's own helper forks (progress
+    // summaries, hook agents). They never start, call no tool and leave no
+    // transcript, so a run for one is an empty "unknown" card that also takes
+    // a real agent's slot under MAX_SUBAGENT_RUNS. Same rule as recordToolCall.
+    const agentType = identity.type ?? listed?.agentType ?? null;
+    if (!agentType) return runs as SubagentRun[];
+    const run = { ...freshRun(identity.id, agentType, at), description, descriptionConfirmed: description !== null };
     return capRuns([...runs, finish(run, 'done', at)]);
   }
   const finished = runs.map((r) => (r.agentId === identity.id && r.status !== 'done' ? finish(r, 'done', at) : r));

@@ -169,6 +169,25 @@ describe('finishRun', () => {
     expect(runs[0]).toMatchObject({ agentId: 'ghost', agentType: 'Plan', status: 'done', endedAt: T0 + 5 });
   });
 
+  // Claude Code's helper forks (progress summaries, hook agents) stop with an
+  // empty agent_type, never start, call no tool and leave no transcript.
+  it('ignores an untyped SubagentStop for an agent it never saw (a helper fork)', () => {
+    const known = [run({ status: 'done', endedAt: T0 + 1 })];
+    expect(finishRun(known, { id: 'fork', type: null }, T0 + 5)).toEqual(known);
+    expect(finishRun([], { id: 'fork', type: null }, T0 + 5, [{ id: 'other', type: 'subagent', agent_type: 'Explore' }])).toEqual([]);
+  });
+
+  it('still records an untyped stop that background_tasks lists with a type', () => {
+    const bg = [{ id: 'b1', type: 'subagent', status: 'completed', description: 'Map routes', agent_type: 'Explore' }];
+    const runs = finishRun([], { id: 'b1', type: null }, T0 + 5, bg);
+    expect(runs[0]).toMatchObject({ agentId: 'b1', agentType: 'Explore', description: 'Map routes', status: 'done' });
+  });
+
+  it('still finishes a known run whose stop has no type', () => {
+    const runs = finishRun([run()], { id: 'a1', type: null }, T0 + 7);
+    expect(runs[0]).toMatchObject({ agentId: 'a1', agentType: 'Explore', status: 'done' });
+  });
+
   it('without an id closes the oldest working run', () => {
     const runs = finishRun(
       [run({ agentId: 'old', startedAt: T0 }), run({ agentId: 'new', startedAt: T0 + 1 })],

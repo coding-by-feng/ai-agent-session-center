@@ -93,6 +93,8 @@ export const AGENT_STATE_GLYPH: Record<AgentState, string> = {
 
 const LEADER_LOG_NAME = 'leader';
 const UNKNOWN_SUBAGENT_NAME = 'subagent';
+/** The type the server gives a run it never learned the type of. */
+const UNKNOWN_RUN_TYPE = 'unknown';
 
 function stateOf(status: SessionStatus, endedState: AgentState): AgentState {
   switch (status) {
@@ -173,6 +175,15 @@ function runNode(run: SubagentRun, leaderEnded: boolean): AgentNode {
 }
 
 const isFinished = (n: AgentNode) => n.state === 'done' || n.state === 'ended';
+
+/**
+ * A run the server recorded for one of Claude Code's helper forks before it
+ * learned to skip them (see finishRun): no type, no tool, no task, finished.
+ * Nothing to show or open, so it is left out everywhere.
+ */
+function isGhostRun(r: SubagentRun): boolean {
+  return r.agentType === UNKNOWN_RUN_TYPE && r.toolCount === 0 && !r.description && r.status !== 'working';
+}
 
 /** Every working agent, plus the most recently finished few, in start order. */
 function visibleAgents(all: AgentNode[]): { shown: AgentNode[]; hidden: number } {
@@ -256,7 +267,7 @@ function buildLog(
 }
 
 export function buildAgentFlow(leader: Session, teammates: readonly Session[]): AgentFlow {
-  const runs = leader.subagents ?? [];
+  const runs = (leader.subagents ?? []).filter((r) => !isGhostRun(r));
   const leaderEnded = leader.status === 'ended';
   const all = [
     ...teammates.map((m) => sessionNode(m, 'teammate')),

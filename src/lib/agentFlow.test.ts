@@ -355,3 +355,28 @@ describe('review fixes', () => {
     expect(flow.waiting).toBe(1);
   });
 });
+
+describe('helper-fork ghosts (unknown type, 0 tools, no task)', () => {
+  const ghost = (id: string) => makeRun({
+    agentId: id, agentType: 'unknown', description: null, toolCount: 0, status: 'done', endedAt: T0 + 20,
+  });
+
+  it('are left out of the cards, the counts and the log', () => {
+    const real = makeRun({ agentId: 'r1', toolCount: 3, status: 'done', endedAt: T0 + 30 });
+    const flow = buildAgentFlow(makeSession('L', { subagents: [ghost('g1'), real, ghost('g2')] }), []);
+    expect(flow.agents.map((a) => a.id)).toEqual(['r1']);
+    expect(flow.finished).toBe(1);
+    expect(flow.hiddenFinished).toBe(0);
+    expect(flow.log.some((row) => row.agentId === 'g1' || row.agentId === 'g2')).toBe(false);
+  });
+
+  it('keeps an unknown-type run that did work, has a task, or is still running', () => {
+    const runs = [
+      makeRun({ agentId: 'tools', agentType: 'unknown', description: null, toolCount: 2, status: 'done', endedAt: T0 + 20 }),
+      makeRun({ agentId: 'task', agentType: 'unknown', description: 'Check CI', toolCount: 0, status: 'done', endedAt: T0 + 21 }),
+      makeRun({ agentId: 'live', agentType: 'unknown', description: null, toolCount: 0, status: 'working' }),
+    ];
+    const flow = buildAgentFlow(makeSession('L', { subagents: runs }), []);
+    expect(flow.agents.map((a) => a.id).sort()).toEqual(['live', 'task', 'tools']);
+  });
+});
