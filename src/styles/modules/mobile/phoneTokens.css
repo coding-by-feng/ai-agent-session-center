@@ -27,8 +27,9 @@
   /* ---- Type ---- */
   --ph-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, Roboto, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   --ph-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
-  /* Appearance → Text size scales every type token through this (inline on <body>). */
-  --ph-text-scale: 1;
+  /* Appearance → Text size scales every type token through this (inline on <body>).
+     0.8 is the default ("100 %", PHONE_TEXT_BASE in phoneAppearance.ts). */
+  --ph-text-scale: 0.8;
   --ph-size-large-title: calc(32px * var(--ph-text-scale));
   --ph-line-large-title: calc(40px * var(--ph-text-scale));
   --ph-size-body: calc(17px * var(--ph-text-scale));

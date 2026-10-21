@@ -2,6 +2,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import {
+  LEGACY_PHONE_TEXT_SCALE_KEY,
+  PHONE_TEXT_BASE,
   PHONE_TEXT_SCALES,
   PHONE_TEXT_SCALE_KEY,
   readPhoneTextScale,
@@ -26,16 +28,30 @@ describe('phoneAppearance', () => {
     expect(readPhoneTextScale()).toBe(1);
     localStorage.setItem(PHONE_TEXT_SCALE_KEY, '7');
     expect(readPhoneTextScale()).toBe(1);
-    setPhoneTextScale(1.15);
-    expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe('1.15');
-    expect(readPhoneTextScale()).toBe(1.15);
+    setPhoneTextScale(1.25);
+    expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe('1.25');
+    expect(readPhoneTextScale()).toBe(1.25);
     setPhoneTextScale(1);
     expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBeNull();
   });
 
-  // A phone screen is small: the text can go down to 80 % (asked for, Oct 2026); 100 % stays the default.
-  it('offers 80 % and 85 % below 90 %', () => {
-    expect(PHONE_TEXT_SCALES).toEqual([0.8, 0.85, 0.9, 1, 1.15, 1.3]);
+  // Oct 21 2026: what used to be 80 % is the default and reads 100 %; 125 % is the old 100 %.
+  it('labels sizes from a base of 0.8, with the old default one step at 125 %', () => {
+    expect(PHONE_TEXT_BASE).toBe(0.8);
+    expect(PHONE_TEXT_SCALES).toEqual([0.85, 0.9, 1, 1.1, 1.25, 1.5]);
+    expect(1.25 * PHONE_TEXT_BASE).toBe(1);
+  });
+
+  it('moves a size saved under the old physical scale to the nearest new step', () => {
+    const cases: [string, number][] = [['0.8', 1], ['0.85', 1.1], ['0.9', 1.1], ['1', 1.25], ['1.15', 1.5], ['1.3', 1.5]];
+    for (const [old, label] of cases) {
+      localStorage.clear();
+      localStorage.setItem(LEGACY_PHONE_TEXT_SCALE_KEY, old);
+      resetPhoneAppearanceForTest();
+      expect(readPhoneTextScale()).toBe(label);
+      expect(localStorage.getItem(LEGACY_PHONE_TEXT_SCALE_KEY)).toBeNull();
+      expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe(label === 1 ? null : String(label));
+    }
   });
 
   it('steps through the sizes and stops at either end', () => {
@@ -51,15 +67,15 @@ describe('phoneAppearance', () => {
     const body = document.body;
     expect(body.getAttribute(PHONE_SCHEME_ATTR)).toBe('light');
     expect(body.style.getPropertyValue('--ph-bg')).toBe(PHONE_PALETTES['windows-xp'].bg);
-    expect(body.style.getPropertyValue('--ph-text-scale')).toBe('1');
+    expect(body.style.getPropertyValue('--ph-text-scale')).toBe('0.8');
 
     act(() => useSettingsStore.setState({ themeName: 'dracula' }));
     expect(body.getAttribute(PHONE_SCHEME_ATTR)).toBe('dark');
     expect(body.style.getPropertyValue('--ph-bg')).toBe(PHONE_PALETTES.dracula.bg);
     expect(body.style.getPropertyValue('--ph-accent')).toBe(PHONE_PALETTES.dracula.accent);
 
-    act(() => setPhoneTextScale(1.3));
-    expect(body.style.getPropertyValue('--ph-text-scale')).toBe('1.3');
+    act(() => setPhoneTextScale(1.25));
+    expect(body.style.getPropertyValue('--ph-text-scale')).toBe('1');
 
     unmount();
     expect(body.hasAttribute(PHONE_SCHEME_ATTR)).toBe(false);

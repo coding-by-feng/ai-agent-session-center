@@ -315,12 +315,12 @@ describe('PhoneAppFrame', () => {
   it('wears this phone’s theme and text size on <body> while mounted, and clears them when the frame goes (AASC-58)', async () => {
     resetPhoneAppearanceForTest();
     useSettingsStore.setState({ themeName: 'monokai' });
-    act(() => setPhoneTextScale(1.15));
+    act(() => setPhoneTextScale(1.1));
     const { unmount } = render(<PhoneAppFrame />);
     await screen.findByTestId('phone-sessions');
     expect(document.body.getAttribute(PHONE_SCHEME_ATTR)).toBe('dark');
     expect(document.body.style.getPropertyValue('--ph-bg')).toBe(PHONE_PALETTES.monokai.bg);
-    expect(document.body.style.getPropertyValue('--ph-text-scale')).toBe('1.15');
+    expect(document.body.style.getPropertyValue('--ph-text-scale')).toBe('0.88'); // 110 % of the 0.8 base
     act(() => useSettingsStore.setState({ themeName: 'light' }));
     expect(document.body.getAttribute(PHONE_SCHEME_ATTR)).toBe('light');
     expect(document.body.style.getPropertyValue('--ph-surface')).toBe(PHONE_PALETTES.light.surface);

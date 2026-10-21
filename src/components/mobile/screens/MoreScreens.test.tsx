@@ -111,10 +111,10 @@ describe('Settings pages', () => {
     await user.click(screen.getByRole('button', { name: 'Larger text' }));
     expect(readPhoneTextScale()).toBeGreaterThan(1);
     expect(localStorage.getItem(PHONE_TEXT_SCALE_KEY)).toBe(String(readPhoneTextScale()));
-    // 115 % → 100 → 90 → 85 → 80 %, the smallest (a phone screen is small).
-    for (let i = 0; i < 4; i++) await user.click(screen.getByRole('button', { name: 'Smaller text' }));
-    expect(readPhoneTextScale()).toBe(0.8);
-    expect(screen.getByText('80%')).toBeTruthy();
+    // 110 % → 100 → 90 → 85 %, the smallest (100 % is what used to be 80 %).
+    for (let i = 0; i < 3; i++) await user.click(screen.getByRole('button', { name: 'Smaller text' }));
+    expect(readPhoneTextScale()).toBe(0.85);
+    expect(screen.getByText('85%')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Smaller text' })).toHaveAttribute('aria-disabled', 'true');
   });
 
@@ -150,7 +150,7 @@ describe('Settings pages', () => {
     render(<SettingsScreen page="advanced" />);
     await user.click(screen.getByRole('button', { name: /Reset to defaults/ }));
     expect(reset).not.toHaveBeenCalled();
-    localStorage.setItem(PHONE_TEXT_SCALE_KEY, '1.3');
+    localStorage.setItem(PHONE_TEXT_SCALE_KEY, '1.5');
     resetPhoneAppearanceForTest();
     await user.click(within(await screen.findByRole('dialog', { name: 'Reset all settings?' })).getByRole('button', { name: 'Reset' }));
     expect(reset).toHaveBeenCalled();
