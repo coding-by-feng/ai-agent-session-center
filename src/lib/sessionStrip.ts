@@ -1,7 +1,7 @@
 /**
  * @module sessionStrip
- * What the session strip lists and in what order: the frames (RECENT, rooms,
- * projects) and the loose cards between them, for each of the three views
+ * What the session strip lists and in what order: the frames (PINNED, RECENT,
+ * rooms, projects) and the loose cards between them, for each of the three views
  * (Rooms / Projects / Recent activity). Pure; the store-reading half is
  * hooks/useSessionStrip.ts.
  *
@@ -22,6 +22,9 @@ export type StripItem =
   // The built-in RECENT frame. Not a Room: nothing stores it, and it is not
   // part of room reordering (only type 'room' is).
   | { type: 'recent'; sessions: Session[] }
+  // The built-in PINNED frame: every pinned session, worked out from the pin
+  // flag. Not a Room either, for the same reasons as RECENT.
+  | { type: 'pinned'; sessions: Session[] }
   // One project's frame (Projects view). Worked out from the sessions' paths,
   // so, like RECENT, it is not a Room and takes no part in room reordering.
   | { type: 'project'; group: ProjectGroup; color: string };
@@ -53,6 +56,9 @@ export interface StripItemsInput {
   mode: SessionSortMode;
   /** The RECENT frame's ids in order (Rooms view only; empty for none). */
   recentIds: readonly string[];
+  /** Draw the PINNED frame (Rooms view only). The desktop strip's toggle; the
+   *  phone's list leaves it out. */
+  showPinned?: boolean;
 }
 
 /**
@@ -65,11 +71,11 @@ export interface StripItemsInput {
  * all over a recency-ranked list.
  *
  * The Projects view swaps the room frames for one frame per project directory.
- * Rooms play no part in it (no room frames, no RECENT), though the room filter
+ * Rooms play no part in it (no room frames, no PINNED or RECENT), though the room filter
  * still narrows `filtered` first. A session with no project path follows the
  * frames as a plain card, like a room-less one does.
  */
-export function buildStripItems({ filtered, all, rooms, mode, recentIds }: StripItemsInput): StripItem[] {
+export function buildStripItems({ filtered, all, rooms, mode, recentIds, showPinned = false }: StripItemsInput): StripItem[] {
   if (mode === 'activity') {
     return filtered.map((session) => ({ type: 'session', session }));
   }
@@ -91,7 +97,14 @@ export function buildStripItems({ filtered, all, rooms, mode, recentIds }: Strip
 
   const items: StripItem[] = [];
 
-  // RECENT goes first. Its sessions also stay in their own rooms below, and it
+  // PINNED goes first, in strip order (the cards' numbers). Like RECENT, its
+  // sessions stay in their own rooms below and the room filter narrows it.
+  if (showPinned) {
+    const pinned = filtered.filter((s) => s.pinned);
+    if (pinned.length > 0) items.push({ type: 'pinned', sessions: pinned });
+  }
+
+  // RECENT goes next. Its sessions also stay in their own rooms below, and it
   // takes them from `filtered`, so the room filter narrows it too.
   if (recentIds.length > 0) {
     const shown = new Map(filtered.map((s) => [s.sessionId, s]));
@@ -124,8 +137,8 @@ export function buildStripItems({ filtered, all, rooms, mode, recentIds }: Strip
 
 /**
  * The sessions in the order the list shows them, each once: the order the
- * phone's swipe walks. RECENT is skipped (its sessions are listed again in their
- * own rooms, which is where they stay put); a folded frame still counts, since
+ * phone's swipe walks. PINNED and RECENT are skipped (their sessions are listed
+ * again in their own rooms, which is where they stay put); a folded frame still counts, since
  * folding hides cards, not sessions.
  */
 export function stripSessionOrder(items: readonly StripItem[]): string[] {
@@ -137,7 +150,7 @@ export function stripSessionOrder(items: readonly StripItem[]): string[] {
     order.push(s.sessionId);
   };
   for (const item of items) {
-    if (item.type === 'recent') continue;
+    if (item.type === 'recent' || item.type === 'pinned') continue;
     if (item.type === 'session') add(item.session);
     else if (item.type === 'room') item.sessions.forEach(add);
     else item.group.sessions.forEach(add);

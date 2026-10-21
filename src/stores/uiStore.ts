@@ -81,6 +81,12 @@ interface UiState {
    *  this cannot live on room.collapsed. Persisted to
    *  localStorage['recent-room-collapsed']. */
   recentRoomCollapsed: boolean;
+  /** Has the toolbar's Pinned room toggle hidden the rail's built-in PINNED
+   *  frame? Hidden is gone, not folded. Persisted to
+   *  localStorage['pinned-room-hidden']. */
+  pinnedRoomHidden: boolean;
+  /** Is the PINNED frame folded? Persisted to localStorage['pinned-room-collapsed']. */
+  pinnedRoomCollapsed: boolean;
   /** The "go to session #" box (SessionJumpOverlay) is open. Not persisted. */
   sessionJumpOpen: boolean;
   /** Session strip grouping/ordering. Persisted to localStorage['session-sort-mode'].
@@ -136,6 +142,8 @@ interface UiState {
   setNavRailCollapsed: (on: boolean) => void;
   toggleNavRailCollapsed: () => void;
   toggleRecentRoomCollapsed: () => void;
+  togglePinnedRoomHidden: () => void;
+  togglePinnedRoomCollapsed: () => void;
   openSessionJump: () => void;
   closeSessionJump: () => void;
   setSessionSortMode: (mode: SessionSortMode) => void;
@@ -199,11 +207,20 @@ function loadNavRailCollapsed(): boolean {
   }
 }
 
-function loadRecentRoomCollapsed(): boolean {
+/** An on/off flag stored as '1' / '0'; anything else is off. */
+function loadFlag(key: string): boolean {
   try {
-    return localStorage.getItem('recent-room-collapsed') === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
+  }
+}
+
+function saveFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch {
+    /* ignore */
   }
 }
 
@@ -298,7 +315,9 @@ export const useUiStore = create<UiState>((set) => ({
   navPosition: loadNavPosition(),
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
-  recentRoomCollapsed: loadRecentRoomCollapsed(),
+  recentRoomCollapsed: loadFlag('recent-room-collapsed'),
+  pinnedRoomHidden: loadFlag('pinned-room-hidden'),
+  pinnedRoomCollapsed: loadFlag('pinned-room-collapsed'),
   sessionJumpOpen: false,
   sessionSortMode: loadSessionSortMode(),
   collapsedProjects: loadCollapsedProjects(),
@@ -385,12 +404,20 @@ export const useUiStore = create<UiState>((set) => ({
   toggleRecentRoomCollapsed: () =>
     set((s) => {
       const next = !s.recentRoomCollapsed;
-      try {
-        localStorage.setItem('recent-room-collapsed', next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
+      saveFlag('recent-room-collapsed', next);
       return { recentRoomCollapsed: next };
+    }),
+  togglePinnedRoomHidden: () =>
+    set((s) => {
+      const next = !s.pinnedRoomHidden;
+      saveFlag('pinned-room-hidden', next);
+      return { pinnedRoomHidden: next };
+    }),
+  togglePinnedRoomCollapsed: () =>
+    set((s) => {
+      const next = !s.pinnedRoomCollapsed;
+      saveFlag('pinned-room-collapsed', next);
+      return { pinnedRoomCollapsed: next };
     }),
   openSessionJump: () => set({ sessionJumpOpen: true }),
   closeSessionJump: () => set({ sessionJumpOpen: false }),

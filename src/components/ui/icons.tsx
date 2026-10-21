@@ -208,6 +208,26 @@ export function RoomViewIcon(props: IconProps) {
   );
 }
 
+/** A room frame with a pin inside: the strip's built-in PINNED frame. Not
+ *  PinIcon, which pins or unpins one session. */
+export function PinnedFrameIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <path
+        d="M5 2.4H3.4a1.9 1.9 0 0 0-1.9 1.9v6.3a1.9 1.9 0 0 0 1.9 1.9h7.2a1.9 1.9 0 0 0 1.9-1.9V4.3a1.9 1.9 0 0 0-1.9-1.9H9.4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <path d="M6 2.4h2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path
+        d="M7 4.6c-.9 0-1.5.6-1.5 1.4 0 .6.4 1.1 1 1.4L7 10l.5-2.6c.6-.3 1-.8 1-1.4 0-.8-.6-1.4-1.5-1.4Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 /** A folder: the project's directory (the file tree's own glyph). */
 export function ProjectViewIcon() {
   return <FileTypeIcon name="project" isDir />;

@@ -1267,6 +1267,224 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
 });
 
 /**
+ * The built-in PINNED frame: every pinned session in one frame above RECENT, each
+ * also in its own room. The toolbar's Pinned room toggle hides or reshows it; its
+ * header folds it. The rules are sessionStrip.test.ts's; this block covers the render.
+ */
+describe('SessionSwitcher — built-in PINNED frame', () => {
+  const makeSession = (over: Partial<Session> & { sessionId: string }): Session => ({
+    title: over.sessionId,
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'idle',
+    startedAt: 0,
+    lastActivityAt: 0,
+    events: [],
+    promptHistory: [],
+    ...over,
+  } as Session);
+
+  const exm3d = makeSession({ sessionId: 'x3', title: 'Exmouth 3D', pinned: true });
+  const krt = makeSession({ sessionId: 'krt', title: 'Exmouth KRT', pinned: true });
+  const sms = makeSession({ sessionId: 'sms', title: 'SMS', pinned: true });
+  const phone = makeSession({ sessionId: 'ph', title: 'AASC Phone APP' });
+  const roomExm = { id: 'room-exm', name: 'EXMOUTH', sessionIds: ['x3', 'krt'], collapsed: false, createdAt: 0, listOrder: 0 } as Room;
+  const roomOps = { id: 'room-ops', name: 'SMS OPS', sessionIds: ['sms'], collapsed: false, createdAt: 0, listOrder: 1 } as Room;
+  const roomAasc = { id: 'room-aasc', name: 'AASC', sessionIds: ['ph'], collapsed: false, createdAt: 0, listOrder: 2 } as Room;
+  const allRooms = [roomExm, roomOps, roomAasc];
+  const everyone = [phone, exm3d, krt, sms];
+
+  function renderSwitcher(sessions: Session[] = everyone, current: Session = sessions[0]) {
+    useRoomStore.setState({ rooms: allRooms });
+    return render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map(sessions.map((s) => [s.sessionId, s]))}
+        onSwitch={vi.fn()}
+      />,
+    );
+  }
+
+  const framesOf = (container: HTMLElement) =>
+    [...container.querySelectorAll(':scope [class*="sessionTabStrip"] > [class*="sessionTabRoomGroup"]')] as HTMLElement[];
+  const pinnedOf = (container: HTMLElement) =>
+    container.querySelector('[class*="pinnedRoomGroup"]') as HTMLElement | null;
+  const titlesIn = (frame: HTMLElement) =>
+    [...frame.querySelectorAll('[class*="sessionTabTitle"]')].map((el) => el.textContent);
+  const roomFrame = (container: HTMLElement, name: string) =>
+    framesOf(container).find((f) => f.getAttribute('title') === name) as HTMLElement;
+  const toggle = () => screen.getByRole('button', { name: 'Pinned room' });
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'left', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(), recentRoomCollapsed: false,
+      pinnedRoomHidden: false, pinnedRoomCollapsed: false,
+    });
+  });
+
+  afterEach(() => {
+    useRoomStore.setState({ rooms: [] });
+    useUiStore.setState({
+      navPosition: 'top', selectedRoomIds: new Set(), sessionSortMode: 'room',
+      pinnedRoomHidden: false, pinnedRoomCollapsed: false,
+    });
+  });
+
+  it('sits above every other frame and lists every pinned session', () => {
+    const { container } = renderSwitcher();
+    const frames = framesOf(container);
+    expect(frames[0]).toBe(pinnedOf(container));
+    expect(within(frames[0]).getByText('Pinned')).toBeInTheDocument();
+    expect([...titlesIn(frames[0])].sort()).toEqual(['Exmouth 3D', 'Exmouth KRT', 'SMS']);
+  });
+
+  it('sits above RECENT', () => {
+    const now = Date.now();
+    const working = { ...phone, status: 'working' as const, events: [{ type: 'UserPromptSubmit', timestamp: now, detail: '' }], promptHistory: [{ text: 'go', timestamp: now }] } as Session;
+    const { container } = renderSwitcher([working, exm3d, krt, sms]);
+    const frames = framesOf(container);
+    expect(frames[0]).toBe(pinnedOf(container));
+    expect(frames[1].className).toMatch(/recentRoomGroup/);
+  });
+
+  it('keeps each pinned session in its own room too, under the same number', () => {
+    const { container } = renderSwitcher();
+    const pinned = pinnedOf(container)!;
+    const exm = roomFrame(container, 'EXMOUTH');
+    expect([...titlesIn(exm)].sort()).toEqual(['Exmouth 3D', 'Exmouth KRT']);
+    const numberIn = (frame: HTMLElement, title: string) =>
+      within(frame).getByText(title).closest('button')!.querySelector('[class*="sessionTabIndex"]')!.textContent;
+    expect(numberIn(pinned, 'Exmouth KRT')).toBe(numberIn(exm, 'Exmouth KRT'));
+  });
+
+  it('has a collapse toggle and nothing else: no grip, no ▲▼, no kill-all', () => {
+    const { container } = renderSwitcher();
+    const pinned = pinnedOf(container)!;
+    expect(within(pinned).getByRole('button', { name: 'Collapse Pinned' })).toBeInTheDocument();
+    expect(pinned.querySelector('[class*="roomDragHandle"]')).toBeNull();
+    expect(pinned.querySelector('[class*="roomMoveToggle"]')).toBeNull();
+    expect(pinned.querySelector('[class*="roomKillToggle"]')).toBeNull();
+  });
+
+  it('is not part of room reordering: ▲ on the first real room stays disabled', () => {
+    renderSwitcher();
+    expect(screen.getByRole('button', { name: 'Move room EXMOUTH up' })).toBeDisabled();
+  });
+
+  it('folds to a count, and remembers it through the ui store', () => {
+    const { container } = renderSwitcher();
+    fireEvent.click(within(pinnedOf(container)!).getByRole('button', { name: 'Collapse Pinned' }));
+    expect(useUiStore.getState().pinnedRoomCollapsed).toBe(true);
+    const pinned = pinnedOf(container)!;
+    expect(titlesIn(pinned)).toEqual([]);
+    expect(pinned.querySelector('[class*="roomCollapsedCount"]')!.textContent).toBe('3');
+    expect(within(pinned).getByRole('button', { name: 'Expand Pinned' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('the toolbar toggle hides the whole frame and shows it again', () => {
+    const { container } = renderSwitcher();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(toggle());
+    expect(useUiStore.getState().pinnedRoomHidden).toBe(true);
+    expect(pinnedOf(container)).toBeNull();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    // Hidden is not folded: the sessions are still in their rooms.
+    expect(titlesIn(roomFrame(container, 'EXMOUTH'))).toHaveLength(2);
+    fireEvent.click(toggle());
+    expect(pinnedOf(container)).not.toBeNull();
+  });
+
+  it('with nothing pinned there is no frame, but the toggle stays to change the setting', () => {
+    const unpinned = everyone.map((s) => ({ ...s, pinned: false }));
+    const { container } = renderSwitcher(unpinned);
+    expect(pinnedOf(container)).toBeNull();
+    expect(toggle()).toBeInTheDocument();
+  });
+
+  // On with no frame on screen: the tooltip must not promise a frame that is not there.
+  it.each([
+    ['nothing pinned', everyone.map((s) => ({ ...s, pinned: false })), /no pinned session is listed/],
+    ['a frame on screen', everyone, /^Every pinned session in one frame/],
+  ])('says what the toggle does with %s', (_case, sessions, description) => {
+    vi.useFakeTimers();
+    try {
+      renderSwitcher(sessions);
+      fireEvent.focus(toggle());
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(within(screen.getByRole('tooltip')).getByText(description)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a session that is unpinned', () => {
+    const { container, rerender } = renderSwitcher();
+    const next = everyone.map((s) => (s.sessionId === 'sms' ? { ...s, pinned: false } : s));
+    rerender(
+      <SessionSwitcher currentSession={next[0]} sessions={new Map(next.map((s) => [s.sessionId, s]))} onSwitch={vi.fn()} />,
+    );
+    expect(titlesIn(pinnedOf(container)!)).not.toContain('SMS');
+  });
+
+  it('marks only the real-room copy of the current session as aria-current', () => {
+    const { container } = renderSwitcher(everyone, krt);
+    const marked = container.querySelectorAll('[aria-current="true"]');
+    expect(marked).toHaveLength(1);
+    expect(roomFrame(container, 'EXMOUTH').contains(marked[0])).toBe(true);
+    const copy = within(pinnedOf(container)!).getByText('Exmouth KRT').closest('button')!;
+    expect(copy.className).toMatch(/sessionTabCardCurrent/);
+  });
+
+  it('follows the room filter like the rest of the list', () => {
+    useUiStore.setState({ selectedRoomIds: new Set(['room-ops']) });
+    const { container } = renderSwitcher();
+    expect(titlesIn(pinnedOf(container)!)).toEqual(['SMS']);
+  });
+
+  it.each(['activity', 'project'] as const)('is not in the %s view, and neither is its toggle', (mode) => {
+    useUiStore.setState({ sessionSortMode: mode });
+    const { container } = renderSwitcher();
+    expect(pinnedOf(container)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pinned room' })).toBeNull();
+  });
+
+  it('shows in the top-bar layout too, first', () => {
+    useUiStore.setState({ navPosition: 'top' });
+    const { container } = renderSwitcher();
+    expect(framesOf(container)[0]).toBe(pinnedOf(container));
+  });
+
+  // The rail's last row is View · + · folder · Pinned room … minimize · «, in 213px.
+  // With the View trigger's sliders icon it came out 6px wide and « wrapped onto a
+  // line of its own, so the rail's trigger is the word and its chevron.
+  it('makes room in the rail: the View trigger drops its leading icon there, not in the top bar', () => {
+    const viewTriggerIcons = () => screen.getByRole('button', { name: /^View:/ }).querySelectorAll('svg').length;
+    const { unmount } = renderSwitcher();
+    expect(viewTriggerIcons()).toBe(1); // the chevron
+    unmount();
+    useUiStore.setState({ navPosition: 'top' });
+    renderSwitcher();
+    expect(viewTriggerIcons()).toBe(2);
+  });
+
+  // The strip renders in a popped-out session window too, and so does the toggle,
+  // although the + / recent-directories pair beside it stays in the main window.
+  it('keeps its toggle in a popped-out session window', () => {
+    const before = window.location.href;
+    window.history.replaceState({}, '', '/?popout=session&sessionId=ph');
+    try {
+      renderSwitcher();
+      expect(toggle()).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'New session' })).toBeNull();
+    } finally {
+      window.history.replaceState({}, '', before);
+    }
+  });
+});
+
+/**
  * The PROJECT view: one frame per project directory instead of per room, each with buttons that start
  * a new Claude / Codex session there. The grouping rules themselves are projectGroups.test.ts's; the
  * header's launch behaviour is ProjectFrameHeader.test.tsx's. This block covers how the strip puts

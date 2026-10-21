@@ -22,6 +22,7 @@ import SessionRuntimeChip from './SessionRuntimeChip';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import ProjectFrameHeader from './ProjectFrameHeader';
 import SessionViewMenu from './SessionViewMenu';
+import BuiltinFrame from './BuiltinFrame';
 import { FrameCollapseIcon } from './SessionFrameIcons';
 import DetachIcon from '@/components/ui/DetachIcon';
 import IconButton from '@/components/ui/IconButton';
@@ -35,6 +36,7 @@ import {
   NewSessionIcon,
   NoteIcon,
   PinIcon,
+  PinnedFrameIcon,
   QueueBadgeIcon,
   RoomDragHandleIcon,
   SkullIcon,
@@ -57,6 +59,8 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 const RECENT_FRAME_KEY = 'builtin:recent';
 const RECENT_FRAME_TITLE =
   `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. Each is also listed in its own room.`;
+const PINNED_FRAME_KEY = 'builtin:pinned';
+const PINNED_FRAME_TITLE = 'Pinned: every pinned session. Each is also listed in its own room.';
 
 /** Detect CLI tool from session command */
 function getCliBadge(session: Session): string | null {
@@ -121,6 +125,10 @@ export default function SessionSwitcher({
   const toggleProjectCollapsed = useUiStore((s) => s.toggleProjectCollapsed);
   const recentRoomCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
+  const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
+  const togglePinnedRoomHidden = useUiStore((s) => s.togglePinnedRoomHidden);
+  const pinnedRoomCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
+  const togglePinnedRoomCollapsed = useUiStore((s) => s.togglePinnedRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
   const openModal = useUiStore((s) => s.openModal);
   // Vertical rail only when docked-left AND not maximized
@@ -217,8 +225,29 @@ export default function SessionSwitcher({
     ? currentSession.projectName
     : null;
   const pinCopy = currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin;
+  const pinnedFrameListed = tabRenderItems.some((i) => i.type === 'pinned');
+  const pinnedCopy = pinnedRoomHidden
+    ? tooltips.pinnedRoomHidden
+    : pinnedFrameListed ? tooltips.pinnedRoomShown : tooltips.pinnedRoomEmpty;
+  const showPinnedToggle = sessionSortMode === 'room' && !maximized;
   const hasRuntimeChip = resolveRuntimeDisplay(currentSession) !== null;
   const isCompact = cardDisplayMode === 'compact';
+
+  // The built-in frames (PINNED, RECENT) list second copies of cards that are
+  // also in their own rooms (see BuiltinFrame).
+  const copyCards = (list: Session[]) =>
+    list.map((s) => (
+      <SessionTabCard
+        key={s.sessionId}
+        session={s}
+        isCurrent={s.sessionId === currentSession.sessionId}
+        isCopy
+        onSwitch={handleSwitch}
+        isCompact={isCompact}
+        index={sessionIndexMap.get(s.sessionId) ?? 0}
+        needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
+      />
+    ));
 
   // ---- Inline rename for the header title (currentSession) ----
   const [headerEditing, setHeaderEditing] = useState(false);
@@ -581,6 +610,23 @@ export default function SessionSwitcher({
               <WorkdirLauncher triggerClassName={dirsTriggerClass} />
             </div>
           )}
+          {/* Hide or reshow the built-in PINNED frame. Rooms view only (the other
+              views draw no built-in frames), and not while maximized (the strip
+              is hidden). It stays when nothing is pinned, so the setting can be
+              changed. Outside the launch pair: a popped-out window has the strip too. */}
+          {showPinnedToggle && (
+            <span className={styles.switcherPinnedToggle}>
+              <IconButton
+                size="sm"
+                label={pinnedCopy.label}
+                description={pinnedCopy.description}
+                pressed={!pinnedRoomHidden}
+                onClick={togglePinnedRoomHidden}
+              >
+                <PinnedFrameIcon />
+              </IconButton>
+            </span>
+          )}
           {onClose && (
             // switcherMinimizeBtn: the phone breakpoint pulls it to the FRONT of the
             // wrap order (it is how you get back to the session list). On the wrapper:
@@ -614,49 +660,34 @@ export default function SessionSwitcher({
       {!maximized && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {tabRenderItems.map((item) => {
+            if (item.type === 'pinned') {
+              return (
+                <BuiltinFrame
+                  key={PINNED_FRAME_KEY}
+                  label="Pinned"
+                  title={PINNED_FRAME_TITLE}
+                  className={styles.pinnedRoomGroup}
+                  collapsed={pinnedRoomCollapsed}
+                  onToggleCollapse={togglePinnedRoomCollapsed}
+                  count={item.sessions.length}
+                >
+                  {copyCards(item.sessions)}
+                </BuiltinFrame>
+              );
+            }
             if (item.type === 'recent') {
               return (
-                <div
+                <BuiltinFrame
                   key={RECENT_FRAME_KEY}
-                  className={`${styles.sessionTabRoomGroup} ${styles.recentRoomGroup}${recentRoomCollapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}`}
+                  label="Recent"
                   title={RECENT_FRAME_TITLE}
+                  className={styles.recentRoomGroup}
+                  collapsed={recentRoomCollapsed}
+                  onToggleCollapse={toggleRecentRoomCollapsed}
+                  count={item.sessions.length}
                 >
-                  <span className={styles.sessionTabRoomGroupLabel}>Recent</span>
-                  {/* Collapse is the only control. RECENT is worked out from
-                      activity, so there is nothing to drag, reorder, rename,
-                      or kill as a group. */}
-                  <div className={styles.roomHeaderRow}>
-                    <button
-                      type="button"
-                      className={styles.roomCollapseToggle}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleRecentRoomCollapsed();
-                      }}
-                      title={recentRoomCollapsed ? 'Expand Recent' : 'Collapse Recent'}
-                      aria-label={recentRoomCollapsed ? 'Expand Recent' : 'Collapse Recent'}
-                      aria-expanded={!recentRoomCollapsed}
-                    >
-                      <FrameCollapseIcon collapsed={recentRoomCollapsed} />
-                    </button>
-                    {recentRoomCollapsed && (
-                      <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
-                    )}
-                  </div>
-                  {!recentRoomCollapsed &&
-                    item.sessions.map((s) => (
-                      <SessionTabCard
-                        key={s.sessionId}
-                        session={s}
-                        isCurrent={s.sessionId === currentSession.sessionId}
-                        isRecentCopy
-                        onSwitch={handleSwitch}
-                        isCompact={isCompact}
-                        index={sessionIndexMap.get(s.sessionId) ?? 0}
-                        needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
-                      />
-                    ))}
-                </div>
+                  {copyCards(item.sessions)}
+                </BuiltinFrame>
               );
             }
             if (item.type === 'project') {
@@ -850,7 +881,7 @@ export default function SessionSwitcher({
 function SessionTabCard({
   session,
   isCurrent = false,
-  isRecentCopy = false,
+  isCopy = false,
   onSwitch,
   isCompact,
   index,
@@ -859,10 +890,10 @@ function SessionTabCard({
   session: Session;
   /** The session this panel is showing — listed like the rest, marked apart. */
   isCurrent?: boolean;
-  /** This card is the RECENT frame's second listing of the session. It looks
-   *  the same, but leaves aria-current to the copy in the session's own room:
-   *  one list should announce one current item. */
-  isRecentCopy?: boolean;
+  /** This card is a built-in frame's (PINNED, RECENT) second listing of the
+   *  session. It looks the same, but leaves aria-current to the copy in the
+   *  session's own room: one list should announce one current item. */
+  isCopy?: boolean;
   onSwitch: (id: string) => void;
   isCompact: boolean;
   index: number;
@@ -927,7 +958,7 @@ function SessionTabCard({
   return (
     <button
       className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${isCurrent ? ` ${styles.sessionTabCardCurrent}` : ''}`}
-      aria-current={isCurrent && !isRecentCopy ? 'true' : undefined}
+      aria-current={isCurrent && !isCopy ? 'true' : undefined}
       data-status={session.status}
       onMouseDown={(e) => {
         if (e.detail === 1) currentAtPress.current = isCurrent;

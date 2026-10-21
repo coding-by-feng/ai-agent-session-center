@@ -47,12 +47,57 @@ describe('buildStripItems', () => {
   });
 });
 
+describe('buildStripItems — the PINNED frame', () => {
+  const all = [s('a', { pinned: true }), s('b'), s('c', { pinned: true }), s('d')];
+  const rooms = [room('R1', ['a', 'b']), room('R2', ['c'])];
+
+  it('goes first, above RECENT, and lists the pinned sessions in strip order', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: ['d'], showPinned: true });
+    expect(items.map((i) => i.type)).toEqual(['pinned', 'recent', 'room', 'room', 'session']);
+    expect(items[0].type === 'pinned' && ids(items[0].sessions)).toEqual(['a', 'c']);
+  });
+
+  it('leaves each pinned session in its own room too', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [], showPinned: true });
+    expect(items[1].type === 'room' && ids(items[1].sessions)).toEqual(['a', 'b']);
+  });
+
+  it('is absent unless asked for: the phone never asks', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [] });
+    expect(items.some((i) => i.type === 'pinned')).toBe(false);
+  });
+
+  it('is absent when nothing is pinned', () => {
+    const none = [s('b'), s('d')];
+    const items = buildStripItems({ filtered: none, all: none, rooms, mode: 'room', recentIds: [], showPinned: true });
+    expect(items.some((i) => i.type === 'pinned')).toBe(false);
+  });
+
+  it.each(['activity', 'project'] as const)('is absent in the %s view', (mode) => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode, recentIds: [], showPinned: true });
+    expect(items.some((i) => i.type === 'pinned')).toBe(false);
+  });
+
+  it('follows the room filter', () => {
+    const filtered = filterByRooms(all, new Set(['R2']), rooms);
+    const items = buildStripItems({ filtered, all, rooms, mode: 'room', recentIds: [], showPinned: true });
+    expect(items[0].type === 'pinned' && ids(items[0].sessions)).toEqual(['c']);
+  });
+});
+
 describe('stripSessionOrder — the swipe order', () => {
   it('walks the frames as drawn, skips RECENT (its sessions stay in their rooms), and lists each session once', () => {
     const all = [s('a'), s('b'), s('c'), s('d')];
     const rooms = [room('R1', ['b', 'c'])];
     const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: ['d', 'b'] });
     expect(stripSessionOrder(items)).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('skips PINNED too: its sessions stay in their rooms', () => {
+    const all = [s('a', { pinned: true }), s('b'), s('c', { pinned: true })];
+    const rooms = [room('R1', ['b', 'c'])];
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [], showPinned: true });
+    expect(stripSessionOrder(items)).toEqual(['b', 'c', 'a']);
   });
 
   it('counts a folded room: folding hides cards, not sessions', () => {

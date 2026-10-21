@@ -1,8 +1,10 @@
 /**
  * useSessionStrip — the session list the strip shows, read from the stores:
- * the numbered order, the room filter, the RECENT frame and the frames of the
- * chosen view (lib/sessionStrip.ts). The desktop strip (SessionSwitcher) and the
- * phone's session drawer (AASC-18) both call it, so they list the same thing.
+ * the numbered order, the room filter, the PINNED and RECENT frames and the
+ * frames of the chosen view (lib/sessionStrip.ts). Desktop only: SessionSwitcher
+ * is the one caller (the classic phone drawer went in AASC-48), and PINNED
+ * (`showPinned`) is the desktop strip's. The phone app's Sessions list calls
+ * buildStripItems itself, without it.
  *
  * useCompletionAttention — which sessions finished a turn while you were
  * looking at another one (the strip's green ✓, lib/sessionAttention.ts).
@@ -36,6 +38,7 @@ export interface SessionStrip {
 export function useSessionStrip(sessions: Map<string, Session>, currentSessionId: string): SessionStrip {
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
+  const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
   const rooms = useRoomStore((s) => s.rooms);
   const sortByActivity = sessionSortMode === 'activity';
 
@@ -133,8 +136,9 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       rooms,
       mode: sessionSortMode,
       recentIds: recentIdsKey ? recentIdsKey.split('\n') : [],
+      showPinned: !pinnedRoomHidden,
     }),
-    [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey],
+    [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden],
   );
 
   return { sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms, filteredSessions, items };

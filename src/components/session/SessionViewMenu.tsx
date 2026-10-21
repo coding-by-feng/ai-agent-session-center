@@ -151,12 +151,17 @@ export default function SessionViewMenu({
     maximized && 'list hidden',
   ].filter(Boolean).join(', ');
 
+  // The left rail's last row (View · + · folder · Pinned room … minimize · «) is
+  // 213px wide, and the sliders icon was the 6px too many: there the trigger is
+  // its word and chevron. The top bar has room for it.
+  const inRail = navPosition === 'left' && !maximized;
+
   return (
     <Menu
       label="View"
       triggerLabel={`View: ${state}`}
       triggerText="View"
-      triggerIcon={<ViewIcon />}
+      triggerIcon={inRail ? undefined : <ViewIcon />}
       triggerDescription="Grouping, rooms shown, card size and where the session list sits"
       active={mode !== 'room' || filtering || maximized}
       sections={sections}

@@ -163,6 +163,39 @@ describe('uiStore', () => {
     });
   });
 
+  // The rail's built-in PINNED frame: the toolbar toggle hides or shows it,
+  // and its header folds it, like RECENT's.
+  describe.each([
+    ['pinnedRoomHidden', 'pinned-room-hidden', 'togglePinnedRoomHidden'],
+    ['pinnedRoomCollapsed', 'pinned-room-collapsed', 'togglePinnedRoomCollapsed'],
+  ] as const)('%s', (flag, key, toggle) => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem(key);
+      if (stored !== null) localStorage.setItem(key, stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts off when nothing is stored', async () => {
+      expect((await freshStore(null)).getState()[flag]).toBe(false);
+    });
+
+    it('restores a stored value', async () => {
+      expect((await freshStore('1')).getState()[flag]).toBe(true);
+    });
+
+    it('toggles and persists both ways', async () => {
+      const store = await freshStore(null);
+      store.getState()[toggle]();
+      expect(store.getState()[flag]).toBe(true);
+      expect(localStorage.getItem(key)).toBe('1');
+      store.getState()[toggle]();
+      expect(store.getState()[flag]).toBe(false);
+      expect(localStorage.getItem(key)).toBe('0');
+    });
+  });
+
   // How the session strip is grouped: by room (the default), flat by recent
   // activity, or by project.
   describe('sessionSortMode', () => {

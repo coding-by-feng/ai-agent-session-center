@@ -58,6 +58,21 @@ export const tooltips = {
     label: 'Unpin session',
     description: 'Stop keeping this session fixed and auto-recreating it.',
   },
+  // The strip toolbar's toggle for the built-in PINNED frame. One label, the
+  // pressed state says which: a toggle's name stays put. Empty = on, but the
+  // frame has nothing to list (nothing pinned, or filtered out).
+  pinnedRoomShown: {
+    label: 'Pinned room',
+    description: 'Every pinned session in one frame at the top of the list, each still in its own room; click to hide it.',
+  },
+  pinnedRoomHidden: {
+    label: 'Pinned room',
+    description: 'Hidden; click to show every pinned session in one frame at the top of the list.',
+  },
+  pinnedRoomEmpty: {
+    label: 'Pinned room',
+    description: 'On, but no pinned session is listed here; click to turn it off.',
+  },
   searchPrev: {
     label: 'Previous match',
     description: 'Jump to the previous search hit in the current tab.',

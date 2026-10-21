@@ -938,6 +938,8 @@
 }
 .switcherBarVertical .switcherViewMenu { order: 6; }
 .switcherBarVertical .switcherLaunch { order: 7; }
+/* Same slot, after the launch pair in DOM order: + · folder · Pinned room. */
+.switcherBarVertical .switcherPinnedToggle { order: 7; }
 .switcherBarVertical .switcherMinimizeBtn {
   order: 8;
   margin-left: auto;
@@ -1734,19 +1736,31 @@
   border-style: dashed;
 }
 
+/* PINNED: the other built-in frame. Neutral and dashed for RECENT's reason (an
+   accent would read as a room: orange is the palette's first colour, so it
+   matched most people's first room), and told apart from RECENT by a stronger
+   neutral. Its text follows RECENT's contrast rule below. */
+.pinnedRoomGroup {
+  --room-color: var(--text-primary);
+  border-style: dashed;
+}
+
 /* The frame's text takes --text-primary. --text-secondary measured below
    4.5:1 against the label's --bg-card in solarized (2.92), nord (3.74) and
    monokai (4.26), and --text-primary is the only neutral that clears it in
    all ten themes (solarized's lowest, 4.86). The dashed border and the
    triangle keep the quieter --room-color. */
 .recentRoomGroup .sessionTabRoomGroupLabel,
-.recentRoomGroup .roomCollapsedCount {
+.recentRoomGroup .roomCollapsedCount,
+.pinnedRoomGroup .sessionTabRoomGroupLabel,
+.pinnedRoomGroup .roomCollapsedCount {
   color: var(--text-primary);
 }
 
 /* Half the rooms' 16% pill tint: at 16% the collapsed count measured 4.36:1
    in solarized, whose tint lightens the pill toward its own text. */
-.recentRoomGroup .roomCollapsedCount {
+.recentRoomGroup .roomCollapsedCount,
+.pinnedRoomGroup .roomCollapsedCount {
   background: color-mix(in srgb, var(--room-color, transparent) 8%, transparent);
 }
 
