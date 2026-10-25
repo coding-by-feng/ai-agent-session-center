@@ -14,6 +14,7 @@
  */
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
+import type { CentralLaunchRequest } from '@/types';
 
 export interface LaunchRequest {
   workingDir: string;
@@ -23,6 +24,8 @@ export interface LaunchRequest {
   forceNew?: boolean;
   /** Fail, rather than start in the home directory, if `workingDir` does not exist. */
   requireExistingDir?: boolean;
+  /** Start it as a central; the server answers 403 / 400 / 409 when it cannot be one. */
+  central?: CentralLaunchRequest;
 }
 
 export type LaunchResult =
@@ -90,9 +93,11 @@ export async function launchSession({
   command,
   forceNew,
   requireExistingDir,
+  central,
 }: LaunchRequest): Promise<LaunchResult> {
   const folder = shortenPath(workingDir);
-  const flight = `${workingDir}\u0000${command}`;
+  // A central and a plain session in one folder are different launches; two of either are not.
+  const flight = `${workingDir}\u0000${command}\u0000${central?.kind ?? ''}`;
   if (inFlight.has(flight)) {
     const error = `Already starting ${command} in ${folder}`;
     showToast(error, 'info');
@@ -106,6 +111,7 @@ export async function launchSession({
     command,
     ...(forceNew ? { forceNew: true } : {}),
     ...(requireExistingDir ? { requireExistingDir: true } : {}),
+    ...(central ? { central } : {}),
   };
 
   try {

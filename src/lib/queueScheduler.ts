@@ -170,9 +170,21 @@ export function isGateAtRest(
 export const SUBAGENT_HOLD_MAX_IDLE_MS = 15 * 60_000;
 
 /** Why a session's queue must not send right now, even though it looks done. */
-export type QueueHold = 'cancelled' | 'subagents' | 'background';
+export type QueueHold = 'not-started' | 'cancelled' | 'subagents' | 'background';
 
 /**
+ * A card that looks ready may not be, and nothing queued may be sent into it:
+ *
+ *  - `not-started`: the server's connecting timeout turned the card idle
+ *    before its CLI sent a single hook (`startHeard: false`, Rulings P4-35,
+ *    P4-41). The CLI may be showing a question that fires no hook, such as its
+ *    folder-trust prompt, where a typed prompt and its Enter would answer it.
+ *    Codex sends its first hook only at its first prompt, so a fresh Codex
+ *    card stays here until someone types into it. Nothing sends, ⚡ NOW
+ *    included (a central can press it too), until that first hook clears it, or
+ *    the person presses "It is ready — send anyway" in this window
+ *    (`startReleased`, Ruling P4-54).
+ *
  * Two things reach `waiting` — the "turn finished" signal — without the turn
  * being finished, and neither may send the next queued prompt:
  *
@@ -185,12 +197,22 @@ export type QueueHold = 'cancelled' | 'subagents' | 'background';
  *  - `subagents`: the main agent stopped but its subagents are still running.
  *  - `background`: it stopped but a background shell (or monitor) is still running.
  *
- * A cancel outranks running subagents: it is the one that needs the user.
+ * A card never heard from outranks everything, with no safety cap; a cancel
+ * outranks running subagents: it is the one that needs the user.
  */
 export function queueHoldReason(
-  session: { userCancelledAt?: number | null; subagentCount?: number; backgroundTaskCount?: number; lastActivityAt: number },
+  session: {
+    startHeard?: boolean;
+    /** The person released the `not-started` hold in this window (Ruling P4-54): treated as heard. */
+    startReleased?: boolean;
+    userCancelledAt?: number | null;
+    subagentCount?: number;
+    backgroundTaskCount?: number;
+    lastActivityAt: number;
+  },
   now: number,
 ): QueueHold | null {
+  if (session.startHeard === false && !session.startReleased) return 'not-started';
   if (session.userCancelledAt) return 'cancelled';
   if (now - session.lastActivityAt >= SUBAGENT_HOLD_MAX_IDLE_MS) return null;
   if ((session.subagentCount ?? 0) > 0) return 'subagents';
@@ -229,9 +251,11 @@ export function trackStatus(prev: StatusSeen | undefined, status: string, now: n
  * The one item a held queue may send: one you forced with ⚡ NOW. Not
  * pickNext, whose first rule resumes an in-flight chain — while held that is
  * the very chain you just stopped. A forced row of that chain itself resumes
- * it; otherwise the first forced row goes. Disabled rows never.
+ * it; otherwise the first forced row goes. Disabled rows never, and nothing
+ * at all into a card never heard from (`not-started`).
  */
-export function pickWhileHeld(items: QueueItem[]): QueueItem | null {
+export function pickWhileHeld(items: QueueItem[], hold?: QueueHold): QueueItem | null {
+  if (hold === 'not-started') return null;
   const forced = items.filter((it) => !it.disabled && it.forceStart);
   return forced.find(isExecuting) ?? forced[0] ?? null;
 }

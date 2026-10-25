@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from '
 import { join } from 'path';
 import log from './logger.js';
 import { getWaitingLabel, sanitizeModelInCommand, extractModelFromCommand } from './config.js';
+import { stripCentralLaunch } from './mcp/launch.js';
 import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
 import {
   EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE, WS_TYPES,
@@ -22,7 +23,10 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess } from './sshManager.js';
+import { createCodexTrust } from './codexTrust.js';
+import { forgetTerminalHeard, noteTerminalHeard, terminalHeard } from './heardTerminals.js';
+import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { checkTurnInterrupted } from './transcriptInterrupt.js';
 import { isCodexSession } from './sessionKillPolicy.js';
 import {
@@ -69,6 +73,31 @@ const pidToSession = new Map<number, string>();
 const pendingResume = new Map<string, PendingResume>();
 /** originalSessionId -> current sessionId — allows dedup to find sessions by their snapshot ID */
 const sessionAliases = new Map<string, string>();
+// The terminals whose CLI AASC has heard from (heardTerminals.ts, Rulings P4-41, P4-50, P4-52): the connecting timeout
+// marks a card it turns idle `startHeard: false` only for a terminal not in there; handleEvent adds the terminal and
+// clears the marker on every card of it; the prompt route types for a central only into a heard terminal.
+export { terminalHeard };
+
+/**
+ * The CLI in this terminal was heard: no card of it says otherwise any more. Called inside handleEvent, before the
+ * hook pipeline tells the hook's listeners (hookProcessor → emitTerminalHook), so a task waiting on this start finds
+ * a card the prompt route takes. `current` is the hook's own card (its delta carries the change); any other card of
+ * the terminal (a duplicate left by an adoption) is broadcast here.
+ */
+function hearTerminal(terminalId: string | null | undefined, current: Session): void {
+  if (!terminalId) return;
+  noteTerminalHeard(terminalId);
+  for (const s of sessions.values()) {
+    if (s.terminalId !== terminalId || s.startHeard !== false) continue;
+    delete s.startHeard;
+    invalidateSessionsCache();
+    if (s !== current) {
+      broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } }).catch((err: unknown) => {
+        log.error('session', `Broadcasting a heard card failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+  }
+}
 
 // Serialization cache for getAllSessions() — invalidated on any session change
 let sessionsCacheDirty = true;
@@ -529,6 +558,17 @@ async function debouncedBroadcast(data: { type: string; session?: Session; [key:
   }, BROADCAST_DEBOUNCE_MS);
 }
 
+/**
+ * Forget the session_updates for this session that still wait out the 20 ms debounce. For a caller that broadcasts the
+ * card itself right now: what waits was copied from an older card and would go out AFTER the newer one, putting back
+ * whatever changed in between. The updates of other sessions, and every other message, keep waiting.
+ */
+function dropPendingSessionUpdates(sessionId: string): void {
+  pendingBroadcasts = pendingBroadcasts.filter(
+    (item) => !(item.type === WS_TYPES.SESSION_UPDATE && item.session?.sessionId === sessionId),
+  );
+}
+
 // Broadcast helper for approval timer
 async function broadcastSessionUpdate(session: Session): Promise<void> {
   // Dirty the snapshot NOW, not when the debounce below fires: a client that connects in those
@@ -811,6 +851,14 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         ) {
           session.terminalId = orphan.terminalId;
           if (orphan.opsTerminalId) session.opsTerminalId = orphan.opsTerminalId;
+          // A central's marker goes with its terminal, and so does its absence: the survivor is the central
+          // the restore launched, or a plain session when the restore had to launch it plain (server/mcp,
+          // Ruling 16), whatever the snapshot's card said. Removing the orphan card does not revoke the
+          // central (server/mcp/lifecycle.ts). In place, like the rest of this block: `session` is used below.
+          session.central = orphan.central;
+          // Hands-off (server/mcp) is a protection, so the absorb only ever adds it: the survivor is hands-off
+          // when either card was (the restore may know of a flag the server's snapshot lacked).
+          if (orphan.handsOff) session.handsOff = true;
           if (orphan.sshConfig) session.sshConfig = orphan.sshConfig;
           if (orphan.sshHost) session.sshHost = orphan.sshHost;
           if (orphan.sshCommand) session.sshCommand = orphan.sshCommand;
@@ -849,9 +897,12 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
   // Store startup command from hook enrichment (first occurrence wins).
   // Skips subagent sessions (parent_session_id present) since their command is meaningless.
+  // A central's MCP flags (server/mcp/launch.ts) are dropped on the way in, like the status-line tap
+  // inside sanitizeModelInCommand: `ps` shows them as a bare `--mcp-config {…${AASC_MCP_TOKEN}…}`, and a
+  // resume replays this string, which typed into the central's live shell would put its token in argv.
   if ('startup_command' in hookData && hookData.startup_command
       && !session.startupCommand && !hookData.parent_session_id) {
-    session.startupCommand = sanitizeModelInCommand(hookData.startup_command);
+    session.startupCommand = stripCentralLaunch(sanitizeModelInCommand(hookData.startup_command));
     log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${session.startupCommand.slice(0,80)}`);
   }
 
@@ -1290,6 +1341,15 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   attachPlanUsage(session, hook_event_name);
   syncRuntimeWatch();
 
+  // Before the delta is built and before the hook pipeline tells this terminal's listeners (Ruling P4-41). A hook from
+  // another terminal than the card's (an adoption by path, sessionMatcher P2/P3) hears neither (Ruling P4-53); nor does
+  // one with no terminal id but a tty, a CLI in another terminal app: AASC keeps no PTY's tty to match (P4-59).
+  const hookTerminal = hookData.agent_terminal_id;
+  const ttyOnly = !hookTerminal && typeof hookData.tty_path === 'string' && hookData.tty_path !== '';
+  if (!ttyOnly && (!hookTerminal || !session.terminalId || hookTerminal === session.terminalId)) {
+    hearTerminal(session.terminalId ?? hookTerminal, session);
+  }
+
   const result: HandleEventResult = { session: { ...session } };
   // Migrate DB records when session is re-keyed (e.g., after claude --resume)
   if (session.replacesId) {
@@ -1463,8 +1523,13 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   for (const [existingKey, existing] of sessions) {
     if (existing.terminalId !== terminalId) continue;
     registerSessionAlias(terminalId, existing.sessionId);
+    // The card that owns this terminal is a central exactly when the terminal was launched as one
+    // (server/mcp): a marker it carried from before goes, as a relaunch that fell back to a plain session
+    // leaves none (Ruling 16).
+    const { central: _previousCentral, ...owner } = existing;
+    void _previousCentral;
     const updated: Session = {
-      ...existing,
+      ...owner,
       source: 'ssh',
       isExternal: false,
       sshHost: config.host || 'localhost',
@@ -1481,6 +1546,10 @@ export async function createTerminalSession(terminalId: string, config: Terminal
         command: effectiveCommand,
       },
       title: config.sessionTitle || existing.title,
+      // The terminal was launched as a central (server/mcp): the card that owns it is that central.
+      ...(config.central ? { central: { ...config.central } } : {}),
+      // A restore that comes back hands-off says so; the card's own flag (spread above) stays when it does not.
+      ...(config.handsOff ? { handsOff: true } : {}),
     };
     sessions.set(existingKey, updated);
     invalidateSessionsCache();
@@ -1546,9 +1615,14 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // initial broadcast, causing auto-save to overwrite the snapshot with stale data.
   if (config.pinned) session.pinned = config.pinned;
   if (config.muted) session.muted = config.muted;
+  // Hands-off (server/mcp) survives a restore like muted does, and is on the first broadcast.
+  if (config.handsOff) session.handsOff = true;
   if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
+  // A central (server/mcp) is a property of its card from the first broadcast: the registry finds the
+  // central's session by this marker, and every relaunch reads it back from here.
+  if (config.central) session.central = { ...config.central };
   // Carry the user's remark through a workspace restore — the session is
   // recreated under a fresh terminal id, so without this the note is dropped on
   // every restart (the app's canonical reload path).
@@ -1580,30 +1654,69 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // session_id or path doesn't match (e.g. SSH remote path mismatch), the card
   // would be stuck in connecting forever without this safety net.
   const command = effectiveCommand;
-  const connectingTimeout = /^(?:\S*\/)?(?:claude|codex)(?:\s|$)/.test(command) ? 30_000 : 3_000;
-  setTimeout(async () => {
-    const s = sessions.get(terminalId);
-    if (s && s.status === (SESSION_STATUS.CONNECTING as string)) {
-      s.status = SESSION_STATUS.IDLE;
-      s.animationState = ANIMATION_STATE.IDLE;
-      s.emote = null;
-      // A hookless CLI never reports its model, so recover one from the launch
-      // command's `--model` flag — but NEVER stamp the command itself into
-      // `model`. That older shortcut left live Codex sessions with
-      // `model = "/opt/homebrew/…/bin/codex --dangerously-bypass-approvals-and-sandbox"`,
-      // which renders as a multi-line path in the card's model slot (overflowing
-      // the 230px rail), would come back as an unquoted `--model <whole command>`
-      // on fork/resume/clone, and is dropped by buildSnapshot's safe-charset
-      // filter — silently losing the user's pinned model on restore. It also
-      // clobbered a model the caller had just set, and its `startsWith('claude')`
-      // guard missed path-qualified launches like `/usr/local/bin/claude`.
-      if (!s.model) s.model = extractModelFromCommand(command);
-      await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
-      log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
-    }
-  }, connectingTimeout);
+  const agentCli = /^(?:\S*\/)?(?:claude|codex)(?:\s|$)/.test(command);
+  // Unref'd, and its callback never rejects: a timer that outlives a test file (or the server's shutdown) must not
+  // keep the process up or surface as an unhandled rejection (Ruling P4-44).
+  const local = LOCAL_TERMINAL_HOSTS.has(config.host || 'localhost');
+  const timer = setTimeout(() => {
+    leaveConnecting(terminalId, command, agentCli, local ? workDir : null).catch((err: unknown) => {
+      log.error('session', `The connecting timeout of ${terminalId} failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, agentCli ? 30_000 : 3_000);
+  timer.unref?.();
 
   return session;
+}
+
+/**
+ * The connecting timeout: a card still `connecting` turns idle. A claude/codex card whose terminal sent no hook is
+ * marked `startHeard: false` (Rulings P4-35, P4-41): its CLI may be showing a question that fires no hook (its
+ * folder-trust prompt), so nothing may type into it for a central until its terminal's first hook clears the mark.
+ * Codex too (it sends its first hook only at its first prompt), except where it waits at its input (Ruling P4-46).
+ * A plain shell never hooks and is never marked.
+ */
+async function leaveConnecting(terminalId: string, command: string, agentCli: boolean, localFolder: string | null): Promise<void> {
+  const s = sessions.get(terminalId);
+  if (!s || s.status !== (SESSION_STATUS.CONNECTING as string)) return;
+  s.status = SESSION_STATUS.IDLE;
+  if (agentCli && !terminalHeard(terminalId)) {
+    // Codex at its input in a folder it trusts is heard by its trust record (Ruling P4-52); anything else waits.
+    if (codexAtItsInput(terminalId, command, localFolder)) noteTerminalHeard(terminalId);
+    else s.startHeard = false;
+  }
+  s.animationState = ANIMATION_STATE.IDLE;
+  s.emote = null;
+  // A hookless CLI never reports its model, so recover one from the launch
+  // command's `--model` flag — but NEVER stamp the command itself into
+  // `model`. That older shortcut left live Codex sessions with
+  // `model = "/opt/homebrew/…/bin/codex --dangerously-bypass-approvals-and-sandbox"`,
+  // which renders as a multi-line path in the card's model slot (overflowing
+  // the 230px rail), would come back as an unquoted `--model <whole command>`
+  // on fork/resume/clone, and is dropped by buildSnapshot's safe-charset
+  // filter — silently losing the user's pinned model on restore. It also
+  // clobbered a model the caller had just set, and its `startsWith('claude')`
+  // guard missed path-qualified launches like `/usr/local/bin/claude`.
+  if (!s.model) s.model = extractModelFromCommand(command);
+  await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
+  log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
+}
+
+/** Hosts whose folders are this Mac's: only there is the owner's Codex trust record the one that applies. */
+const LOCAL_TERMINAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1']);
+const CODEX_COMMAND_RE = /^(?:\S*\/)?codex(?:\s|$)/;
+const codexTrust = createCodexTrust();
+
+/**
+ * A Codex card that counts as heard at its connecting timeout (Ruling P4-46): launched on this Mac in a folder whose
+ * real path the owner's Codex trust record lists `trusted` (so Codex shows it no "Trust this folder?" prompt), with
+ * codex the terminal's foreground program (the prompt route's own test). It then waits at its input.
+ */
+function codexAtItsInput(terminalId: string, command: string, localFolder: string | null): boolean {
+  return CODEX_COMMAND_RE.test(command)
+    && localFolder !== null
+    // The foreground before the record: with no live terminal (every test) the file is never read.
+    && isAgentProcessName(getForegroundProcess(terminalId))
+    && codexTrust.trusts(localFolder);
 }
 
 export function linkTerminalToSession(sessionId: string, terminalId: string): Session | null {
@@ -1827,6 +1940,35 @@ export function setSessionMuted(sessionId: string, muted: boolean): void {
   if (session) { session.muted = muted; invalidateSessionsCache(); }
 }
 
+/**
+ * The person's hands-off switch (server/mcp/policy.ts refuses to steer such a session, HANDS_OFF): a central
+ * may read the session but never type into it, hand it a task or queue work for it. The stored card is edited in
+ * place, like every setter here (Ruling 61: the Stop's transcript check and turnGeneration hold the object), the
+ * caller gets a copy, and every window is told with a `session_update`. Absent means a central may steer it, so
+ * switching it off removes the flag rather than writing `false`.
+ *
+ * Only ever called from the localhost-only route that is never open to a central's own calls
+ * (server/mcp/http.ts): a flag a central could lift would be decoration. Follows a re-keyed id. Returns the
+ * card as it now is, or null when there is none.
+ *
+ * The broadcast goes out at once, so an older copy of the card must not follow it: one waiting in the 20 ms batch
+ * is dropped here (the new card holds everything it did); one held in hookProcessor's 250 ms throttle is brought
+ * up to date by the caller (server/mcp/handsOffSetter.ts), as that module imports this one.
+ */
+export function setSessionHandsOff(sessionId: string, on: boolean): Session | null {
+  const id = resolveSessionId(sessionId);
+  const session = id === null ? undefined : sessions.get(id);
+  if (id === null || !session) return null;
+  // In place, like every setter here: the transcript check after a Stop and turnGeneration hold this object, and a
+  // swapped-in copy would leave them writing the Esc hold onto a card nobody reads.
+  if (on) session.handsOff = true;
+  else delete session.handsOff;
+  invalidateSessionsCache();
+  dropPendingSessionUpdates(session.sessionId);
+  void broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+  return { ...session };
+}
+
 export function setSessionAlerted(sessionId: string, alerted: boolean): void {
   const session = sessions.get(sessionId);
   if (session) { session.alerted = alerted; invalidateSessionsCache(); }
@@ -1947,6 +2089,23 @@ export function reconnectSessionTerminal(
   try { saveSnapshot(); } catch { /* best effort */ }
 
   return { ok: true, session: { ...session } };
+}
+
+/**
+ * A central's card relaunched as a plain session (server/mcp/centralLaunch.ts, Ruling 16) is no central any
+ * more: the card is replaced by a copy without its marker, so the next broadcast, snapshot and relaunch see a
+ * plain session. Call it once the new terminal is the card's own (right before `reconnectSessionTerminal`),
+ * so a relaunch that fails before then leaves the card as it was. Returns the card, or null when there is none.
+ */
+export function clearSessionCentral(sessionId: string): Session | null {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  if (!session.central) return { ...session };
+  const { central: _dropped, ...plain } = session;
+  void _dropped;
+  sessions.set(sessionId, plain);
+  invalidateSessionsCache();
+  return { ...plain };
 }
 
 /**
@@ -2188,6 +2347,7 @@ export function getSessionsForRespawn(): Array<{ sessionId: string; session: Ses
 // in insertion order and steal the unlink from the origin session, disconnecting
 // its terminal in the UI.
 registerTerminalExitCallback((terminalId: string) => {
+  forgetTerminalHeard(terminalId);
   let owner: { id: string; session: Session; isOps: boolean } | null = null;
   let fallback: { id: string; session: Session; isOps: boolean } | null = null;
   for (const [id, session] of sessions) {

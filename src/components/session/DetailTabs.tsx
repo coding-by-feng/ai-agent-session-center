@@ -1,6 +1,7 @@
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
  * Tabs: Project | Terminal | Commands | Conversation | AI Popups | Notes | Queue | Agents
+ * (+ Activity, last, for a central session only: the panel passes `activityContent` for one)
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
@@ -33,6 +34,8 @@ interface DetailTabsProps {
   notesContent: ReactNode;
   queueContent: ReactNode;
   agentsContent?: ReactNode;
+  /** A central session's log of what it did (server/mcp). Only a central has the ACTIVITY tab: leave it out for any other session. */
+  activityContent?: ReactNode;
   projectContent: ReactNode;
   commandsContent?: ReactNode;
   onTabChange?: (tabId: string) => void;
@@ -62,6 +65,9 @@ const BASE_TABS = [
   { id: 'queue', label: 'QUEUE' },
   { id: 'agents', label: 'AGENTS' },
 ] as const;
+
+/** The tab only a central session has (DetailTabs shows it when it is given `activityContent`). */
+const ACTIVITY_TAB = { id: 'activity', label: 'ACTIVITY' } as const;
 
 /** Hover/screen-reader text for a tab's count badge (the digit alone is mute). */
 function countTitle(tabId: string, count: number): string {
@@ -296,6 +302,7 @@ export default function DetailTabs({
   notesContent,
   queueContent,
   agentsContent,
+  activityContent,
   projectContent,
   commandsContent,
   onTabChange,
@@ -318,6 +325,12 @@ export default function DetailTabs({
       return 'terminal';
     }
   });
+
+  // The open tab is remembered across sessions (one key for them all), so it may be ACTIVITY while the selected
+  // session is no central and has no such tab: it shows the terminal then, and the choice is kept for the next
+  // central rather than rewritten.
+  const shownTab = activeTab === ACTIVITY_TAB.id && !activityContent ? 'terminal' : activeTab;
+  const tabs: ReadonlyArray<{ id: string; label: string }> = activityContent ? [...BASE_TABS, ACTIVITY_TAB] : BASE_TABS;
 
   // Allow external callers to switch tabs programmatically
   useEffect(() => {
@@ -500,14 +513,14 @@ export default function DetailTabs({
 
   // When split or stacked is active on the project or terminal tab, show the
   // combined view instead of the individual tab content.
-  const isTermOrProj = activeTab === 'terminal' || activeTab === 'project';
+  const isTermOrProj = shownTab === 'terminal' || shownTab === 'project';
   let effectiveTab: string;
   if (isSplit && isTermOrProj) {
     effectiveTab = 'split';
   } else if (isStacked && isTermOrProj) {
     effectiveTab = 'stacked';
   } else {
-    effectiveTab = activeTab;
+    effectiveTab = shownTab;
   }
 
   // projectContent is portaled into a stable always-mounted host so the file
@@ -529,6 +542,9 @@ export default function DetailTabs({
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
     notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
     agents: <div key="scroll-agents" className={styles.tabScroll}>{agentsContent}</div>,
+    ...(activityContent
+      ? { activity: <div key="scroll-activity" className={styles.tabScroll}>{activityContent}</div> }
+      : {}),
     split: (
       <DraggableSplitView
         left={terminalContent}
@@ -565,12 +581,12 @@ export default function DetailTabs({
         ref={tabStripRef}
         data-tab-strip
       >
-        {BASE_TABS.map((tab) => {
+        {tabs.map((tab) => {
           const tabIsTermOrProj = tab.id === 'terminal' || tab.id === 'project';
           const combinedTermProj = (isSplit || isStacked) && tabIsTermOrProj;
           const isActive = combinedTermProj
-            ? activeTab === 'terminal' || activeTab === 'project'
-            : activeTab === tab.id;
+            ? shownTab === 'terminal' || shownTab === 'project'
+            : shownTab === tab.id;
           const count = tab.id === 'notes' ? notesCount
             : tab.id === 'queue' ? queueCount
               : tab.id === 'agents' ? agentsCount : 0;

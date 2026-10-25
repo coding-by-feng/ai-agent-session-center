@@ -3,6 +3,11 @@
  * Discriminated unions for type-safe message handling.
  */
 
+import type { CentralSummary } from './central.js';
+import type { McpActivityMessage, McpTaskUpdateMessage } from './mcpEvents.js';
+import type { McpConfirmMessage, McpConfirmResolvedMessage } from './mcpConfirm.js';
+import type { McpPhoneConfirmMessage, McpPhoneConfirmResolvedMessage } from './mcpPhoneConfirm.js';
+import type { SkillNoteOpMessage } from './skillNoteOps.js';
 import type { Session } from './session.js';
 import type { TeamSerialized } from './team.js';
 import type { Room, RoomOp } from './room.js';
@@ -226,11 +231,41 @@ export interface RoomOpMessage {
   op: RoomOp;
 }
 
+/**
+ * Server → the workspace writer only: a central asked to turn keep-awake on or off (POST /api/keep-awake/ops). The
+ * writer's desktop window sets its `keepAwakeWhileWorking` setting (whose effect tells the server, as the person's own
+ * switch does) and answers POST /api/keep-awake/ops/<opId>/result with a `SkillNoteOpResult`-shaped `{ ok, error? }`.
+ */
+export const KEEP_AWAKE_OP = 'keep_awake_op' as const;
+export interface KeepAwakeOpMessage {
+  type: typeof KEEP_AWAKE_OP;
+  opId: string;
+  on: boolean;
+}
+
+/**
+ * The live central sessions changed (server/mcp/http.ts): the whole list, with no token in it. Sent to this
+ * Mac's own windows only: the rows name session ids, and a remote device never learns a central exists.
+ */
+export interface CentralsUpdateMessage {
+  type: 'centrals_update';
+  centrals: CentralSummary[];
+}
+
 export type ServerMessage =
   | QueueSentMessage
   | SnippetsUpdateMessage
   | RoomsUpdateMessage
   | RoomOpMessage
+  | CentralsUpdateMessage
+  | McpActivityMessage
+  | McpTaskUpdateMessage
+  | McpConfirmMessage
+  | McpConfirmResolvedMessage
+  | McpPhoneConfirmMessage
+  | McpPhoneConfirmResolvedMessage
+  | SkillNoteOpMessage
+  | KeepAwakeOpMessage
   | SnapshotMessage
   | SessionUpdateMessage
   | SessionRemovedMessage

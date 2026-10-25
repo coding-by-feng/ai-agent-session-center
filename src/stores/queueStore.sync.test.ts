@@ -76,11 +76,42 @@ async function openWindowWithDb(rows: Array<Record<string, unknown>>): Promise<W
 /**
  * The server: keeps the last PUT per session, answers `GET /api/queues`, and
  * broadcasts every PUT to every window — including the sender, which must ignore it.
+ *
+ * `refuse` stands in for the route's own refusals (a queue over its 8 MB cap answers 400
+ * and changes nothing); `holdNextPut` keeps the next PUT on the wire — unhandled — until
+ * `release`; `write` is a write the server makes itself (a central's queue tool), told to
+ * every window under its own origin.
  */
-function startServer(windows: () => Win[]) {
+function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolean } = {}) {
   const records = new Map<string, Put>();
   const puts: Put[] = [];
+  const refused: Put[] = [];
+  const held: Array<() => void> = [];
+  let holdNext = false;
   const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) as T;
+
+  const tellEveryWindow = (put: Put) => {
+    for (const w of windows()) {
+      w.store.getState().applyRemoteQueue(
+        put.sessionId,
+        clone(put.items),
+        clone(put.automation) as never,
+        put.originClientId,
+      );
+    }
+  };
+
+  /** What the route does with a PUT once it handles it. */
+  const handle = (put: Put): Response => {
+    if (opts.refuse?.(put)) {
+      refused.push(put);
+      return new Response('{"success":false,"error":"Queue payload too large to sync"}', { status: 400 });
+    }
+    puts.push(put);
+    records.set(put.sessionId, put);
+    tellEveryWindow(put);
+    return new Response('{"ok":true}', { status: 200 });
+  };
 
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input);
@@ -98,17 +129,11 @@ function startServer(windows: () => Win[]) {
         originClientId: body.originClientId,
         keepalive: init.keepalive === true,
       };
-      puts.push(put);
-      records.set(put.sessionId, put);
-      for (const w of windows()) {
-        w.store.getState().applyRemoteQueue(
-          put.sessionId,
-          clone(put.items),
-          clone(put.automation) as never,
-          put.originClientId,
-        );
+      if (holdNext) {
+        holdNext = false;
+        return new Promise<Response>((resolve) => held.push(() => resolve(handle(put))));
       }
-      return new Response('{"ok":true}', { status: 200 });
+      return handle(put);
     }
     if (url === '/api/queues') {
       const queues = [...records.values()].map((p) => ({
@@ -125,9 +150,24 @@ function startServer(windows: () => Win[]) {
   return {
     fetchMock,
     puts,
+    refused,
     /** Put a record on the server without a window having pushed it. */
     preload(sessionId: string, items: QueueItem[]) {
       records.set(sessionId, { sessionId, items, automation: null, originClientId: '', keepalive: false });
+    },
+    /** The server's own write (a central's queue tool): stored, then told to every window under `origin`. */
+    write(sessionId: string, items: QueueItem[], origin: string) {
+      const put: Put = { sessionId, items, automation: null, originClientId: origin, keepalive: false };
+      records.set(sessionId, put);
+      tellEveryWindow(put);
+    },
+    /** Keep the next PUT on the wire, unhandled, until `release`. */
+    holdNextPut() {
+      holdNext = true;
+    },
+    /** Let every held PUT reach the route now. */
+    release() {
+      for (const land of held.splice(0)) land();
     },
     final: (sessionId: string) => idsOf(records.get(sessionId)?.items),
     putsFor: (sessionId: string) => puts.filter((p) => p.sessionId === sessionId),
@@ -397,6 +437,111 @@ describe('a push that finishes late', () => {
     );
 
     expect(queueOf(w)).toEqual([1, 3]);
+  });
+});
+
+describe('a central write while the server lacks this window’s edits (Ruling 54)', () => {
+  // The route refuses a queue over its 8 MB cap: two pasted Retina screenshots are enough.
+  const SCREENSHOTS = 'two retina screenshots';
+  const tooBig = (put: Put) => put.items.some((i) => i.text === SCREENSHOTS);
+
+  it('a central write merges instead of replacing while the window’s last push failed', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { refuse: tooBig });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.preload('s1', [mk(1), mk(2)]);
+    sync(w, [mk(1), mk(2)]);
+    await settle();
+
+    w.store.getState().add('s1', mk(3, 's1', { text: SCREENSHOTS, position: 2 }));
+    await vi.advanceTimersByTimeAsync(500); // refused: the server keeps [1, 2]
+    w.store.getState().remove('s1', 1); // the scheduler sent once-item #1 and took it out
+    await vi.advanceTimersByTimeAsync(500); // refused too
+    expect(server.refused).toHaveLength(2);
+    expect(server.final('s1')).toEqual([1, 2]);
+
+    // A central adds #9 to the row the server holds, which still has #1.
+    server.write('s1', [mk(1), mk(2), mk(9, 's1', { position: 2 })], 'mcp:central-1');
+    await vi.advanceTimersByTimeAsync(500);
+
+    // #1 does not come back to be sent again, the central's #9 is in, and the screenshots prompt is kept (after the
+    // server's items, where the merge puts this window's own adds).
+    expect(queueOf(w)).toEqual([2, 9, 3]);
+  });
+
+  it('installs the server’s list as it is again once a push has gone through, and does not push it back', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { refuse: tooBig });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.preload('s1', [mk(1)]);
+    sync(w, [mk(1)]);
+    await settle();
+
+    w.store.getState().add('s1', mk(2, 's1', { text: SCREENSHOTS, position: 1 }));
+    await vi.advanceTimersByTimeAsync(500); // refused
+    w.store.getState().remove('s1', 2); // the person takes the screenshots out again
+    await vi.advanceTimersByTimeAsync(500); // this one goes through
+    expect(server.final('s1')).toEqual([1]);
+    const pushed = server.puts.length;
+
+    server.write('s1', [mk(1), mk(9, 's1', { position: 1 })], 'mcp:central-1');
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(queueOf(w)).toEqual([1, 9]);
+    expect(server.puts).toHaveLength(pushed);
+  });
+
+  it('a central write handled while the window’s PUT is on the wire keeps both edits', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w]);
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.preload('s1', [mk(1), mk(2)]);
+    sync(w, [mk(1), mk(2)]);
+    await settle();
+
+    w.store.getState().remove('s1', 1); // the scheduler sent #1 and took it out
+    server.holdNextPut();
+    await vi.advanceTimersByTimeAsync(500); // the PUT has left; the server has not handled it yet
+    expect(server.fetchMock).toHaveBeenCalledTimes(1);
+
+    // A central's write, built from the row the server still holds.
+    server.write('s1', [mk(1), mk(2), mk(9, 's1', { position: 2 })], 'mcp:central-1');
+    expect(queueOf(w)).toEqual([2, 9]); // #1 stays gone, #9 is in
+
+    server.release(); // the window's PUT lands, then the merged list follows it
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(server.final('s1')).toEqual([2, 9]);
+    expect(queueOf(w)).toEqual([2, 9]);
+  });
+
+  it('takes no word from a push that fails after a newer one went through', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { refuse: tooBig });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.preload('s1', [mk(1)]);
+    sync(w, [mk(1)]);
+    await settle();
+
+    w.store.getState().add('s1', mk(2, 's1', { text: SCREENSHOTS, position: 1 }));
+    server.holdNextPut();
+    await vi.advanceTimersByTimeAsync(500); // the big push is on the wire
+    w.store.getState().remove('s1', 2);
+    await vi.advanceTimersByTimeAsync(500); // the newer push goes through
+    server.release(); // and the older one is refused only now
+    await settle();
+    expect(server.refused).toHaveLength(1);
+    const pushed = server.puts.length;
+
+    server.write('s1', [mk(1), mk(9, 's1', { position: 1 })], 'mcp:central-1');
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(queueOf(w)).toEqual([1, 9]);
+    expect(server.puts).toHaveLength(pushed); // the server holds this window's list: nothing to merge or send
   });
 });
 

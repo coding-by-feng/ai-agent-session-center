@@ -151,3 +151,48 @@ describe('useWorkspaceAutoSave — a SHARE toggle', () => {
     expect(saves()).toHaveLength(0);
   });
 });
+
+// Hands off (server/mcp) keeps every central from steering a session. A restore clears the board and recreates each
+// card with `handsOff` taken from the snapshot only, so a flip that never reached the snapshot (a crash or a force
+// quit on a busy board, where the 5 s session timer is reset by every update) brings the session back open to
+// centrals while the person believes it protected. It takes the quick save, like SHARE.
+describe('useWorkspaceAutoSave — a Hands off toggle', () => {
+  const handsOffOf = (snap: WorkspaceSnapshot, id: string) =>
+    snap.sessions.find((x) => x.originalSessionId === id)?.handsOff;
+  const withHandsOff = (on: boolean, extra: Partial<Session> = {}) =>
+    new Map([['s1', { ...session('s1'), ...(on ? { handsOff: true } : {}), ...extra } as Session]]);
+
+  // The snapshot has the flag within about a second, before the 5 s session timer.
+  it('a hands-off flip schedules the quick save', async () => {
+    renderHook(() => useWorkspaceAutoSave());
+    act(() => useSessionStore.getState().setSessions(withHandsOff(true)));
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(saves().some((snap) => handsOffOf(snap, 's1') === true)).toBe(true);
+  });
+
+  it('still saves while sessions keep changing every 250 ms, which keeps resetting the session timer', async () => {
+    renderHook(() => useWorkspaceAutoSave());
+    for (let t = 0; t < 28; t++) {
+      act(() => useSessionStore.getState().setSessions(withHandsOff(t >= 8, { lastActivityAt: t })));
+      await vi.advanceTimersByTimeAsync(250);
+    }
+    expect(saves().some((snap) => handsOffOf(snap, 's1') === true)).toBe(true);
+  });
+
+  it('turning it off is saved quickly too (the snapshot must not keep a protection the person removed)', async () => {
+    useSessionStore.getState().setSessions(withHandsOff(true));
+    renderHook(() => useWorkspaceAutoSave());
+    act(() => useSessionStore.getState().setSessions(withHandsOff(false)));
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(saves().length).toBeGreaterThan(0);
+    expect(saves().every((snap) => handsOffOf(snap, 's1') === undefined)).toBe(true);
+  });
+
+  it('a session update that leaves hands-off alone does not take the quick save', async () => {
+    useSessionStore.getState().setSessions(withHandsOff(true));
+    renderHook(() => useWorkspaceAutoSave());
+    act(() => useSessionStore.getState().setSessions(withHandsOff(true, { lastActivityAt: 1 })));
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(saves()).toHaveLength(0);
+  });
+});

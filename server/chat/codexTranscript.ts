@@ -17,7 +17,16 @@
  * those become `system` context entries.
  */
 import type { ChatSystemKind } from '../../src/types/chat.js';
-import { capName, cappedText, todoItems, toolResultDraft, toolUseDraft, type ChatEntryDraft } from './chatEntries.js';
+import {
+  assistantTextCap,
+  capName,
+  cappedText,
+  TEXT_CAP,
+  todoItems,
+  toolResultDraft,
+  toolUseDraft,
+  type ChatEntryDraft,
+} from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
 import type { RawCall } from './secretMarks.js';
 
@@ -66,10 +75,10 @@ function userMessage(content: unknown): ChatEntryDraft[] {
   return out;
 }
 
-function assistantMessage(content: unknown): ChatEntryDraft[] {
+function assistantMessage(content: unknown, cap: number): ChatEntryDraft[] {
   if (!Array.isArray(content)) return [];
   const text = content.filter(isRec).map((b) => str(b.text)).filter((t) => t.trim()).join('\n');
-  return text ? [{ kind: 'assistant', ...cappedText(text) }] : [];
+  return text ? [{ kind: 'assistant', ...cappedText(text, cap) }] : [];
 }
 
 /** A function call's arguments: parsed JSON, or the raw value when it isn't JSON. */
@@ -136,11 +145,11 @@ export function toolOutput(output: unknown): { text: string; isError: boolean } 
   return { text: raw, isError: RE_SCRIPT_FAILED.test(raw) };
 }
 
-function responseItem(p: Rec): ChatEntryDraft[] {
+function responseItem(p: Rec, assistantCap: number): ChatEntryDraft[] {
   switch (p.type) {
     case 'message':
       if (p.role === 'user') return userMessage(p.content);
-      if (p.role === 'assistant') return assistantMessage(p.content);
+      if (p.role === 'assistant') return assistantMessage(p.content, assistantCap);
       return [];
     case 'reasoning': {
       // How much, never what: only the summary's length, and nothing of the encrypted content.
@@ -176,13 +185,16 @@ function eventMsg(p: Rec): ChatEntryDraft[] {
   ];
 }
 
-/** The chat entries one parsed rollout record holds. `offset`: where its line starts. */
-export function codexRecordEntries(record: unknown, offset: number): ChatEntryDraft[] {
+/**
+ * The chat entries one parsed rollout record holds. `offset`: where its line starts; `assistantCap`: characters of
+ * assistant text per entry.
+ */
+export function codexRecordEntries(record: unknown, offset: number, assistantCap: number = TEXT_CAP): ChatEntryDraft[] {
   if (!isRec(record) || !isRec(record.payload)) return [];
   const p = record.payload;
   switch (record.type) {
     case 'response_item':
-      return responseItem(p);
+      return responseItem(p, assistantCap);
     case 'event_msg':
       return eventMsg(p);
     case 'turn_context': {
@@ -224,7 +236,7 @@ export function codexRecordCalls(record: unknown): RawCall[] {
 }
 
 export const codexLineReader: LineReader = {
-  entries: (record, { offset }) => codexRecordEntries(record, offset),
+  entries: (record, { offset, assistantCap }) => codexRecordEntries(record, offset, assistantTextCap(assistantCap)),
   calls: codexRecordCalls,
   timestamp: (record) => (isRec(record) && typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN),
 };

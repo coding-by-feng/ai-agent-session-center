@@ -130,6 +130,8 @@ describe('phoneRuleFor', () => {
     ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'],
     // AASC Cloud, read-only, through the Mac's connection (AASC-51).
     ['GET', '/phone-cloud/status'], ['GET', '/phone-cloud/browse'], ['GET', '/phone-cloud/resources/abc/versions'],
+    // A central's confirmations a phone may answer (P5-15): the route itself checks the phone, the tool and sharing.
+    ['GET', '/phone-confirms'], ['POST', '/phone-confirms/3f2a9c1e-0000-4000-8000-000000000000'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -175,6 +177,11 @@ describe('phoneRuleFor', () => {
     // checks its session itself, and the desktop's cloud phone list is never a phone's (AASC-52).
     ['POST', '/mobile/backend-code'], ['GET', '/mobile/cloud-phones'], ['POST', '/mobile/cloud-phones/remove-unlinked'],
     ['GET', '/a-route-added-later'],
+    // Central sessions stay this Mac's own (ruling C-M6): nothing under /mcp, and only the two phone-confirm routes.
+    ['GET', '/mcp/confirms'], ['POST', '/mcp/confirm/abc'], ['GET', '/mcp/centrals'], ['GET', '/mcp/activity'],
+    ['GET', '/mcp/tasks'], ['PUT', '/mcp/sessions/abc/hands-off'],
+    ['POST', '/phone-confirms'], ['GET', '/phone-confirms/abc'], ['DELETE', '/phone-confirms/abc'],
+    ['POST', '/phone-confirms/abc/allow'], ['PUT', '/phone-confirms/abc'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
   });

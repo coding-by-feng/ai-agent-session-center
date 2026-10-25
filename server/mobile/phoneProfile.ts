@@ -153,6 +153,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // every desktop cloud route stays under /resources (the RESOURCES local gate).
   route('GET', '/phone-cloud/(status|browse)', 'allow'),
   route('GET', '/phone-cloud/resources/:id/versions', 'allow'),
+  // A central's confirmations a phone may answer (P5-15, server/mcp/phoneConfirmRoutes.ts): only the tools whose
+  // routes this table already lets a phone call, about sessions shared with it; the route checks both, at answer
+  // time. Nothing under /mcp: that stays this Mac's own.
+  route('GET', '/phone-confirms', 'allow'),
+  route('POST', '/phone-confirms/[^/]+', 'allow'),
 ];
 
 /** The rule for a phone request, or null when phones may not call it at all. */

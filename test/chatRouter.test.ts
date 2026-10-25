@@ -135,6 +135,40 @@ describe('GET /sessions/:id/chat', () => {
     expect((await get('/sessions/gemini/chat')).body.data).toMatchObject({ entries: [], cli: null });
   });
 
+  it('takes an optional limit: the newest entries of the page, with cursors that continue from them', async () => {
+    const full = await get('/sessions/shared/chat');
+    const few = await get('/sessions/shared/chat?limit=5');
+
+    expect(few.status).toBe(200);
+    expect(few.body.data.entries).toHaveLength(5);
+    expect(texts(few.body.data)).toEqual(texts(full.body.data).slice(-5));
+    expect(few.body.data.hasMore).toBe(true);
+    // The page above the five continues where they start, with nothing skipped.
+    const above = await get(`/sessions/shared/chat?limit=5&before=${encodeURIComponent(few.body.data.before as string)}`);
+    expect(texts(above.body.data)).toEqual(texts(full.body.data).slice(-10, -5));
+  });
+
+  it('reads at most limit entries after a cursor too', async () => {
+    // The page of three starts three entries from the end: reading forward from there, two at a time.
+    const three = await get('/sessions/shared/chat?limit=3');
+    const c = encodeURIComponent(three.body.data.before as string);
+    const forward = await get(`/sessions/shared/chat?after=${c}&limit=2`);
+
+    expect(forward.body.data.entries).toHaveLength(2);
+    expect(texts(forward.body.data)).toEqual(texts(three.body.data).slice(0, 2));
+    expect(forward.body.data.hasMore).toBe(true);
+  });
+
+  it('refuses a limit that is not a whole number from 1 to 200', async () => {
+    for (const limit of ['0', '201', '-1', '1.5', 'abc', '', '5&limit=6']) {
+      const res = await get(`/sessions/shared/chat?limit=${limit}`);
+      expect(res.status, `limit=${limit}`).toBe(400);
+      expect(res.body.success).toBe(false);
+    }
+    expect((await get('/sessions/shared/chat?limit=200')).status).toBe(200);
+    expect((await get('/sessions/shared/chat?limit=1')).status).toBe(200);
+  });
+
   it('refuses a malformed cursor, or both cursors at once', async () => {
     const bad = await get('/sessions/shared/chat?before=..%2Fetc');
     expect(bad.status).toBe(400);

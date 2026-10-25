@@ -69,6 +69,12 @@ describe('launchSession', () => {
       await launchSession({ workingDir: DIR, command: 'claude', forceNew: false, requireExistingDir: false });
       expect(sentBody()).toEqual({ workingDir: DIR, command: 'claude' });
     });
+
+    it('sends the central it is asked to start, as given', async () => {
+      fetchMock.mockResolvedValue(reply({ ok: true, terminalId: 't1' }));
+      await launchSession({ workingDir: DIR, command: 'claude', forceNew: true, central: { kind: 'project' } });
+      expect(sentBody()).toEqual({ workingDir: DIR, command: 'claude', forceNew: true, central: { kind: 'project' } });
+    });
   });
 
   describe('when the server starts the session', () => {
@@ -155,6 +161,19 @@ describe('launchSession', () => {
       expect(otherDir.ok).toBe(true);
       finish();
       await first;
+    });
+
+    it('does not hold back a central behind a plain session in the same project', async () => {
+      const finish = hold();
+      const first = launchSession({ workingDir: DIR, command: 'claude', forceNew: true });
+      try {
+        fetchMock.mockResolvedValue(reply({ ok: true, terminalId: 'central' }));
+        const central = await launchSession({ workingDir: DIR, command: 'claude', forceNew: true, central: { kind: 'global' } });
+        expect(central.ok).toBe(true);
+      } finally {
+        finish();
+        await first;
+      }
     });
 
     it('lets go when the request finishes, so the next one goes through', async () => {

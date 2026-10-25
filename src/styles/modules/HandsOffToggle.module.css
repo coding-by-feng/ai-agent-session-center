@@ -1,0 +1,12 @@
+/* HandsOffToggle — the one state the shared IconButton has no look for: a change is out.
+
+   The button is NOT disabled meanwhile: a disabled button drops keyboard focus (Chromium resets it to the page and
+   never gives it back), which would throw a person who pressed Space out of the title's actions. So the busy
+   state is drawn here, on the enabled button: the progress cursor and a quieter glyph, on `aria-busy` (set by the
+   component with this class). Two selectors' worth of weight (class + attribute) so it outranks the kit's single
+   `.iconButton { cursor: pointer }` whichever stylesheet loads last. No colour of its own. */
+
+.busy[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.6;
+}

@@ -22,6 +22,7 @@ import {
 } from './sshManager.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { bindRemoteClientId } from './clientBinding.js';
+import { stripTerminalReplies } from './terminalReplies.js';
 import { isLineageAlive } from './authManager.js';
 import * as presence from './presenceManager.js';
 import { isLoopbackAddress } from './presenceManager.js';
@@ -227,7 +228,11 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             // Reads are shared across devices; WRITES are not. Two people typing
             // into one PTY interleaves their keystrokes into garbage, so a
             // spectator's input is dropped until it holds the session's baton.
-            if (!holdsControl(client, msg.terminalId)) break;
+            // Replies the terminal writes on its own (focus, Device Attributes, cursor position, mode, kitty, window
+            // and colour reports, XTVERSION) are not a person's: they must not adopt a central's worker. This is
+            // for adoption only; the PTY write below is unchanged (Rulings P4-44, P4-49 N2).
+            const typed = stripTerminalReplies(msg.data);
+            if (!holdsControl(client, msg.terminalId, typed !== '')) break;
             // A paired phone types only into a running agent: every agent
             // terminal is a login shell underneath, so after the agent exits the
             // same keystrokes would be shell commands (AASC-28).
@@ -244,8 +249,9 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
               && Number.isInteger(msg.rows) && msg.rows > 0 && msg.rows <= 200) {
             if (!client._terminalIds.has(msg.terminalId)) break;
             // A resize mutates the shared PTY — a phone in portrait would
-            // reflow the desktop's terminal to ~40 columns. Same gate as input.
-            if (!holdsControl(client, msg.terminalId)) break;
+            // reflow the desktop's terminal to ~40 columns. Same gate as input,
+            // but not input: it never adopts a central's own worker (P4-23).
+            if (!holdsControl(client, msg.terminalId, false)) break;
             // #31: Relay resize errors back to client
             const resizeErr = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
             // Every OTHER subscriber is now rendering at a stale width. Tell
@@ -264,7 +270,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
           // devices all agree on where the clear happened. It changes what every
           // device sees, so it takes the input gate.
           if (typeof msg.terminalId === 'string' && client._terminalIds.has(msg.terminalId)) {
-            if (!holdsControl(client, msg.terminalId)) break;
+            if (!holdsControl(client, msg.terminalId, false)) break;
             if (clearTerminalOutput(msg.terminalId)) broadcastTerminalCleared(msg.terminalId);
           }
           break;
@@ -412,7 +418,7 @@ function broadcastGeometry(terminalId: string): void {
 }
 
 /** Tell every subscriber of this terminal that its output was cleared. */
-function broadcastTerminalCleared(terminalId: string): void {
+export function broadcastTerminalCleared(terminalId: string): void {
   const payload = JSON.stringify({ type: WS_TYPES.TERMINAL_CLEARED, terminalId });
   for (const client of clients) {
     if (!client._terminalIds.has(terminalId) || client.readyState !== 1) continue;
@@ -465,9 +471,10 @@ function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
  * a brand-new session would be unusable for the seconds before it is matched.
  *
  * Also emits a throttled `control_denied` so the UI can explain the silence
- * rather than looking broken.
+ * rather than looking broken. `drives` is false for a resize or a clear: the
+ * same gate, but not input (presence's `lastInputAt`, Ruling P4-23).
  */
-function holdsControl(client: WsClient, terminalId: string): boolean {
+function holdsControl(client: WsClient, terminalId: string, drives = true): boolean {
   // Remote devices (AASC-27): an anonymous socket never types, and the session
   // must still be shared NOW. Un-sharing doesn't wait for the device to
   // resubscribe; every write re-checks.
@@ -483,7 +490,7 @@ function holdsControl(client: WsClient, terminalId: string): boolean {
 
   const sessionId = sessionIdForTerminal(terminalId);
   if (!sessionId) return true;
-  if (presence.noteControlActivity(sessionId, client._clientId)) return true;
+  if (presence.noteControlActivity(sessionId, client._clientId, drives)) return true;
 
   const now = Date.now();
   const lastAt = client._lastDenyAt.get(sessionId) ?? 0;

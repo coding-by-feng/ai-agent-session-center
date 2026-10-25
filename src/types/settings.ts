@@ -30,6 +30,49 @@ export interface ServerConfig {
    * overrides it. Phones paired before are listed and revocable either way.
    */
   phonePairing?: boolean;
+  /**
+   * The off switch for central sessions (server/mcp). `{ "enabled": false }` unmounts `/mcp` and
+   * stops launches from carrying MCP flags or a token. Absent, or `enabled` absent, means on.
+   * `router`, `autoRouting` and `idleWorkerMinutes` tune P4's automatic routing (server/mcp/routerConfig.ts);
+   * all are read once at start, so a change needs a restart.
+   */
+  mcp?: {
+    enabled?: boolean;
+    router?: McpRouterConfig;
+    /** `task_delegate(to: "auto")` and `task_route`. Off unless `true` (P4-10: the replay check scored 41.9 %). */
+    autoRouting?: boolean;
+    /** Minutes an idle worker a central opened is left before AASC closes it; 0 turns clean-up off (default 30). */
+    idleWorkerMinutes?: number;
+    /**
+     * P5's typed notices (server/mcp/notices.ts): one `[AASC · notice]` line typed into an idle central about its
+     * ended tasks and late-answered confirmations. Off unless `true` (Ruling P5-19): each notice starts a model turn.
+     */
+    notices?: boolean;
+  };
+}
+
+/**
+ * How the router scores a session it might reuse (every field optional; each number is clamped to its range, a
+ * value that is not a number is ignored). Defaults: same folder 3, task words 2, idle or waiting 2, context
+ * headroom 1, active within the hour 1; reuse at 4 or more; context ceiling 80 %; 5 runners-up.
+ */
+export interface McpRouterConfig {
+  /** 0-10: the session sits in the project's own folder. */
+  weightSameFolder?: number;
+  /** 0-10: the task's words appear in the session's title, summary, remark, recent prompts or edited files. */
+  weightTaskWords?: number;
+  /** 0-10: the session is idle or waiting. */
+  weightIdleOrWaiting?: number;
+  /** 0-10: the session's context window is at most half full. */
+  weightHeadroom?: number;
+  /** 0-10: the session was active within the last hour. */
+  weightRecentActivity?: number;
+  /** 1-20: the lowest score at which a session is reused instead of opening a new one. */
+  reuseThreshold?: number;
+  /** 50-95: a session whose context window is this full (%) or more is never reused. */
+  contextCeilingPct?: number;
+  /** 1-10: how many other candidates `task_route` lists. */
+  runnersUp?: number;
 }
 
 // ---------------------------------------------------------------------------

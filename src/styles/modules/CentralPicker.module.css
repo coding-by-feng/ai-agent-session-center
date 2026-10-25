@@ -1,0 +1,56 @@
+/* CentralPicker — the "Central session" field of the New Session forms: a select, then the lines that
+   explain it (what the choice reaches, which scope is taken, the missing dashboard password).
+
+   The select is the shared kit's (FormControl.module.css): its hover, focus ring, disabled look and 44px
+   touch height are the kit's, so none is redefined here. What is set here is only how the field sits in a
+   form. Two classes where the kit has one: its `.field` / `.select` rules would tie with a one-class
+   override and win or lose by load order. */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The kit's Field is a caption BESIDE its control; the fields around this one put it above. */
+.picker .field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* The kit caps a toolbar select at 280px; in a form the select is as wide as the fields around it. */
+.picker .select {
+  width: 100%;
+  max-width: none;
+}
+
+/* Hints are --text-primary 60% / --text-secondary 40%: bare --text-secondary measured under 4.5:1 on
+   several themes (Chip.module.css has the numbers); the mix holds on nine of ten and still reads quieter
+   than the field. A long folder or room name wraps, never widens the form.
+
+   Two classes on every rule here: the modal panel styles every paragraph in it (`.panel p` in Modal.module.css:
+   12px, --text-secondary, a 16px bottom margin, line-height 1.6), which beats one class. Rendered check, Oct 2026:
+   the hints stood 16px apart at 12px and the warning lost its amber text (4.54:1 on the dark theme, grey on amber). */
+.picker .hint,
+.picker .warning {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.picker .hint {
+  color: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+}
+
+/* A notice, not an error: the amber of the Chip's warning tone, with the same text recipe (the accent
+   mixed into --text-primary, which that file's audit measured at 4.5:1 or better). */
+.picker .warning {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-orange) 40%, var(--text-primary));
+}

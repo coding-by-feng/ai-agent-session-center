@@ -93,7 +93,15 @@ export function reKeyResumedSession(
   if (existing && existing.sessionId === newSessionId) {
     sessions.delete(oldSessionId);
     // Transfer terminal binding from the new terminal to the existing session
-    if (oldSession.terminalId) existing.terminalId = oldSession.terminalId;
+    if (oldSession.terminalId) {
+      existing.terminalId = oldSession.terminalId;
+      // A central's marker goes with its terminal, and so does its absence (server/mcp): the merged card is
+      // the central that terminal was launched as, or no central when it was launched plain (Ruling 16).
+      existing.central = oldSession.central;
+    }
+    // Hands-off (server/mcp) is a protection, so a merge only ever adds it: the merged card is hands-off when
+    // either card was, never freed by a card that did not know.
+    if (oldSession.handsOff) existing.handsOff = true;
     if (oldSession.opsTerminalId) existing.opsTerminalId = oldSession.opsTerminalId;
     if (oldSession.sshConfig) existing.sshConfig = oldSession.sshConfig;
     if (oldSession.sshHost) existing.sshHost = oldSession.sshHost;

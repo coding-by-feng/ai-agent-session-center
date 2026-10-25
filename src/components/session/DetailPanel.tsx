@@ -9,6 +9,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useMcpStore } from '@/stores/mcpStore';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
 import ConversationView from './ConversationView';
@@ -20,6 +21,8 @@ const AiPopupHistory = lazy(() => import('./AiPopupHistory'));
 // the tab's count badge).
 const NotesTab = lazy(() => import('./NotesTab'));
 const AgentsTab = lazy(() => import('./AgentsTab'));
+// ACTIVITY (a central session's log of what it did) exists for central sessions only.
+const CentralActivity = lazy(() => import('./CentralActivity'));
 import QueueTab from './QueueTab';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
@@ -533,6 +536,9 @@ export default function DetailPanel() {
   const lastSessionRef = useRef<Session | undefined>(undefined);
   if (session) lastSessionRef.current = session;
   const displaySession = session ?? lastSessionRef.current;
+  // May this window see what a central does? (This Mac, central sessions on: the same answer the Central picker
+  // and the Hands off switch go by.) A central's ACTIVITY tab is offered only where its log can be read.
+  const canSeeCentralActivity = useMcpStore((s) => s.available === true);
 
   // Recently-visited sessions whose ProjectTabContainers stay mounted, ordered
   // least- → most-recently-used (Map preserves insertion order; the active
@@ -884,6 +890,13 @@ export default function DetailPanel() {
             <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
               <AgentsTab sessionId={displaySession.sessionId} />
             </Suspense>
+          }
+          activityContent={
+            displaySession.central && canSeeCentralActivity ? (
+              <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
+                <CentralActivity centralId={displaySession.central.centralId} />
+              </Suspense>
+            ) : undefined
           }
           queueContent={
             <QueueTab

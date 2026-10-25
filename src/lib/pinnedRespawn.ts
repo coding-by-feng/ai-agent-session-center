@@ -17,7 +17,9 @@
  * device. The backoff timer holds a snapshot taken at the moment of death, so
  * when it fires it re-reads the live store and only relaunches a card that is
  * still there, still ended and still pinned — a card that was closed, unpinned,
- * revived or removed in the meantime is left alone.
+ * revived or removed in the meantime is left alone. The new session is built from
+ * that live card, not the snapshot, so a change made during the backoff (Hands off,
+ * a central marker, a rename) is not lost.
  */
 import type { Session } from '@/types/session';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -100,6 +102,12 @@ export function buildRespawnBody(session: Session): Record<string, unknown> | nu
     // SIGTERM the origin's claude process (they share projectPath).
     isFork: session.isFork || undefined,
     originSessionId: session.originSessionId || undefined,
+    // A central (server/mcp) comes back as the same central: the server mints it again under this id,
+    // with a new token for the new terminal. Never set on a clone or fork.
+    central: session.central ? { ...session.central } : undefined,
+    // The person's hands-off switch (server/mcp) survives a crash: the respawned card is the same session, and
+    // a central may not steer it any more than it could before. Only ever `true`: absent means steerable.
+    handsOff: session.handsOff === true ? true : undefined,
   };
 }
 
@@ -116,10 +124,13 @@ export function shouldRespawn(session: Session): boolean {
 /**
  * Re-read the store when the backoff ends: the copy we scheduled with is from the
  * moment of death, and the card may have been closed, unpinned or revived since.
+ * Answers the LIVE card when it is still wanted (the respawn is built from it, so a
+ * change made during the 2–8 s backoff — Hands off, a central marker, a rename —
+ * reaches the new session), or null when it is not.
  */
-function isStillWanted(session: Session): boolean {
+function liveCardToRespawn(session: Session): Session | null {
   const live = useSessionStore.getState().sessions.get(session.sessionId);
-  return !!live && live.status === 'ended' && shouldRespawn(live);
+  return live && live.status === 'ended' && shouldRespawn(live) ? live : null;
 }
 
 /** `attempts` without one entry stamped `at` — a respawn that was skipped is not a respawn. */
@@ -128,6 +139,7 @@ function withoutAttempt(attempts: number[], at: number): number[] {
   return i === -1 ? attempts : [...attempts.slice(0, i), ...attempts.slice(i + 1)];
 }
 
+/** Relaunches `session`, which is the live card `liveCardToRespawn` just read — never the copy taken at death. */
 async function doRespawn(session: Session): Promise<void> {
   const body = buildRespawnBody(session);
   if (!body) return;
@@ -166,13 +178,14 @@ export function onSessionEnded(session: Session): void {
   if (st.timer) clearTimeout(st.timer);
   st.timer = setTimeout(() => {
     st.timer = null;
-    if (!isStillWanted(session)) {
+    const live = liveCardToRespawn(session);
+    if (!live) {
       // Nothing was relaunched, so this death must not count toward the crash-loop
       // cap (a /clear re-key or a ✕ during the backoff would otherwise fill it).
       st.attempts = withoutAttempt(st.attempts, now);
       return;
     }
-    void doRespawn(session);
+    void doRespawn(live);
   }, backoffMs(priorAttempts));
 }
 

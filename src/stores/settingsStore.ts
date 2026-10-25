@@ -418,10 +418,20 @@ function applyAnimationSpeed(value: number): void {
 // Zustand store
 // ---------------------------------------------------------------------------
 
+/**
+ * Set once loadFromDb has run. Outside the store's state so resetDefaults cannot clear it. A change made from outside
+ * the Settings panel (a central's keep-awake op, src/lib/skillNoteOps.ts) waits for it, or the load would overwrite it.
+ */
+let loadedFromDb = false;
+export function hasLoadedSettingsFromDb(): boolean {
+  return loadedFromDb;
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...defaultSettings,
 
   loadFromDb: (settings) => {
+    loadedFromDb = true;
     // One-time migration: quiet untouched (old loud-default) per-CLI sound profiles.
     const { settings: migrated, didQuiet, bumped } = migrateSoundProfiles(settings);
     set({ ...migrated });

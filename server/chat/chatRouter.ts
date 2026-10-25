@@ -2,10 +2,14 @@
  * @module chatRouter
  * The phone chat's reads of a session's conversation (AASC-41):
  *
- *   GET /api/sessions/:id/chat[?before=<cursor> | ?after=<cursor>]
+ *   GET /api/sessions/:id/chat[?before=<cursor> | ?after=<cursor>][&limit=<1-200>]
  *     → { success: true, data: { entries, before, after, cli, hasMore, reset? } }   (src/types/chat.ts)
  *
- * No cursor gives the newest page; `before` the page above it; `after` what was written since.
+ * No cursor gives the newest page; `before` the page above it; `after` what was written since. `limit`
+ * (optional, for the MCP tools: the phone reads full pages) cuts the page to that many entries; its
+ * cursors continue from them, with nothing skipped. `assistantCap=<1-20000>` (the Mac's own callers
+ * only: the task ledger reads a task's answer whole) reads assistant text up to that many characters
+ * per entry instead of 16 KB; everything else keeps its cap.
  *
  * And what the session edited (AASC-44), from the edit calls in that same transcript:
  *
@@ -35,7 +39,8 @@ import { canSeeSession } from '../sessionVisibility.js';
 import log from '../logger.js';
 import { readClaudeChatPage } from './claudeTranscript.js';
 import { readCodexChatPage } from './codexTranscript.js';
-import { CursorError } from './transcriptPager.js';
+import { ASSISTANT_TEXT_CAP_MAX } from './chatEntries.js';
+import { CursorError, PAGE_ENTRIES } from './transcriptPager.js';
 import { locateTranscript, transcriptCliOf, type LocatorSession } from './transcriptLocator.js';
 import { buildSessionChanges } from './sessionChanges.js';
 import type { ChangesSnapshot } from './changeSet.js';
@@ -47,9 +52,22 @@ export interface ChatRouterDeps {
 }
 
 const cursor = z.string().min(1).max(64);
+/** How many entries to read, 1 to a full page. Left out, the page is full (`PAGE_ENTRIES`): the phone never asks. */
+const limit = z
+  .string()
+  .regex(/^\d{1,3}$/)
+  .transform(Number)
+  .refine((n) => n >= 1 && n <= PAGE_ENTRIES);
 const pageQuery = z
-  .object({ before: cursor.optional(), after: cursor.optional() })
+  .object({ before: cursor.optional(), after: cursor.optional(), limit: limit.optional() })
   .refine((q) => q.before === undefined || q.after === undefined);
+
+/** Characters of assistant text per entry, 1 to ASSISTANT_TEXT_CAP_MAX: only the task ledger asks. */
+const assistantCap = z
+  .string()
+  .regex(/^\d{1,5}$/)
+  .transform(Number)
+  .refine((n) => n >= 1 && n <= ASSISTANT_TEXT_CAP_MAX);
 
 const fileIndex = z.string().regex(/^\d{1,4}$/).transform(Number);
 
@@ -78,8 +96,23 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
   router.get('/sessions/:id/chat', visibleSession, async (req: Request, res: Response) => {
     const query = pageQuery.safeParse(req.query);
     if (!query.success) {
-      res.status(400).json({ success: false, error: 'before and after are cursors from an earlier page, and only one is allowed' });
+      res.status(400).json({
+        success: false,
+        error: `before and after are cursors from an earlier page, and only one is allowed; limit is a whole number from 1 to ${PAGE_ENTRIES}`,
+      });
       return;
+    }
+    let cap: number | undefined;
+    if (req.query.assistantCap !== undefined) {
+      const asked = assistantCap.safeParse(req.query.assistantCap);
+      if (!asked.success || !isLocal(req)) {
+        const error = asked.success
+          ? 'assistantCap is for AASC’s own tools on this Mac'
+          : `assistantCap is a whole number from 1 to ${ASSISTANT_TEXT_CAP_MAX}`;
+        res.status(400).json({ success: false, error });
+        return;
+      }
+      cap = asked.data;
     }
     const session = res.locals.session as Session;
     const empty: ChatPage = { entries: [], before: null, after: null, cli: transcriptCliOf(session), hasMore: false };
@@ -90,7 +123,12 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
       const read = location.cli === 'codex' ? readCodexChatPage : readClaudeChatPage;
-      const page = await read(location.path, { ...query.data, markSecrets: true, projectRoot: session.projectPath || null });
+      const page = await read(location.path, {
+        ...query.data,
+        markSecrets: true,
+        projectRoot: session.projectPath || null,
+        ...(cap !== undefined ? { assistantCap: cap } : {}),
+      });
       const data: ChatPage = { ...page, cli: location.cli };
       res.json({ success: true, data });
     } catch (err) {

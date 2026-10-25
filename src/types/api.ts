@@ -3,6 +3,7 @@
  * Covers all REST endpoints in apiRouter.
  */
 
+import type { CentralLaunchRequest } from './central.js';
 import type { Session, SessionSource } from './session.js';
 import type { TeamSerialized, TeamConfig } from './team.js';
 import type { HookStats } from './websocket.js';
@@ -175,6 +176,8 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   model?: string;
   /** If set, run `/remote-control <name>` automatically after Claude Code starts. */
   remoteControlName?: string;
+  /** Start it as a central session (server/mcp). This Mac only: the server answers 403 for another device. */
+  central?: CentralLaunchRequest;
 }
 
 export interface CreateTerminalResponse {

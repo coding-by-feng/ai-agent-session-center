@@ -101,10 +101,14 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
 
     it('puts it inside a local tmux wrapper too', async () => {
       const { createTerminal } = await import('../server/sshManager.js');
-      await createTerminal(config({ useTmux: true }), null);
+      const id = await createTerminal(config({ useTmux: true }), null);
       await settle();
       expect(typed).toHaveLength(1);
-      expect(typed[0]).toMatch(/^tmux new-session -s '[^']+' 'codex --no-daemon --dangerously-bypass-approvals-and-sandbox'\r$/);
+      // The card's id is exported inside tmux: a tmux server gives the CLI its own environment (Ruling P4-59).
+      expect(typed[0]).toBe(
+        `tmux new-session -s '${/^tmux new-session -s '([^']+)'/.exec(typed[0])?.[1]}' ` +
+          `'export AGENT_MANAGER_TERMINAL_ID='\\''${id}'\\'' && codex --no-daemon --dangerously-bypass-approvals-and-sandbox'\r`,
+      );
     });
 
     it('types the plain command when the installed Codex has no --no-daemon (older Codex)', async () => {

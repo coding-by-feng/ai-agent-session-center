@@ -155,6 +155,13 @@ export interface PromptSubmitter {
   /** Is there room for one more prompt on this terminal (none waiting behind the one in progress)? */
   hasRoom(terminalId: string): boolean;
   submit(req: PromptRequest): Promise<PromptResult>;
+  /**
+   * An `interrupt` prompt's Esc, alone: pressed only while the session still runs in that terminal, mid-turn or at
+   * a dialog (which it declines), with its agent in front; then waits, at most INTERRUPT_WAIT_MS, for the turn to
+   * stop. Types nothing else. Resolves true when it pressed Esc. (A central cancelling its own task: server/mcp.)
+   * `beforeEsc` runs just before the Esc is written, and only then (the interrupt route notes a central's Esc there).
+   */
+  interrupt(target: { sessionId: string; terminalId: string; beforeEsc?: () => void }): Promise<boolean>;
 }
 
 /** A prompt's place in its terminal's line: `done` settles once the next one may go. */
@@ -215,17 +222,17 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     });
   }
 
-  /** Press Esc and wait for the turn to stop, at most INTERRUPT_WAIT_MS. Nothing running: no Esc. */
-  function interrupt(req: PromptRequest): Promise<void> {
+  /** Press Esc and wait for the turn to stop, at most INTERRUPT_WAIT_MS. Nothing running: no Esc (false). */
+  function interrupt(req: PromptRequest, beforeEsc?: () => void): Promise<boolean> {
     const { terminalId } = req;
     const session = current(req);
-    if (!session || !INTERRUPTIBLE_STATUSES.has(session.status) || !stillOurs(req, session)) return Promise.resolve();
-    return new Promise<void>((resolve) => {
+    if (!session || !INTERRUPTIBLE_STATUSES.has(session.status) || !stillOurs(req, session)) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (): void => {
         clearTimeout(timer);
         off();
-        resolve();
+        resolve(true);
       };
       const off = deps.onTerminalHook(terminalId, (signal) => {
         if (TURN_OVER_EVENTS.has(signal.event) || TURN_OVER_STATUSES.has(signal.status)) finish();
@@ -234,8 +241,13 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
         log.info('prompt', `Interrupt of ${terminalId.slice(0, 12)}: no Stop within ${INTERRUPT_WAIT_MS} ms`);
         finish();
       }, INTERRUPT_WAIT_MS);
-      // A failed Esc means the terminal is gone; the text write that follows fails too.
-      if (!deps.write(terminalId, ESC)) finish();
+      // A failed Esc means the terminal is gone: nothing was pressed (a central Esc note left for a gone terminal is moot).
+      beforeEsc?.();
+      if (!deps.write(terminalId, ESC)) {
+        clearTimeout(timer);
+        off();
+        resolve(false);
+      }
     });
   }
 
@@ -409,6 +421,8 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
   return {
     hasRoom: (terminalId) => (lines.get(terminalId)?.length ?? 0) < MAX_PER_TERMINAL,
     submit,
+    interrupt: (target) =>
+      interrupt({ sessionId: target.sessionId, terminalId: target.terminalId, text: '', mode: 'interrupt' }, target.beforeEsc),
   };
 }
 

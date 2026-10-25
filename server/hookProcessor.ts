@@ -139,7 +139,9 @@ export function processHookEvent(
     log.debug('hook', `Broadcasting session_update for ${hookData.session_id} status=${delta.session?.status}`);
     scheduleBroadcast(hookData.session_id, delta);
     broadcast({ type: WS_TYPES.HOOK_STATS, stats: getStats() });
-    // Unthrottled, unlike the broadcast: a prompt the Mac typed waits on this (promptSubmit.ts).
+    // Unthrottled, unlike the broadcast: a prompt the Mac typed waits on this (promptSubmit.ts). handleEvent has
+    // already noted the terminal as heard and cleared its cards' never-started marker (`startHeard`, Ruling P4-41),
+    // so a task this hook releases is sent to a card the prompt route takes.
     emitTerminalHook(eventType, delta.session);
   }
 

@@ -62,6 +62,8 @@ export interface RoomsService {
   router: Router;
   /** Broadcast every device's cut again under a new revision: what a remote device may see changed. */
   republish: () => void;
+  /** The Mac's whole room list as the mirror holds it (no device's cut), as a new array. */
+  current: () => Room[];
 }
 
 function respondNotFound(res: Response, what: 'Session' | 'Room'): void {
@@ -187,5 +189,6 @@ export function createRoomsService(deps: RoomsServiceDeps): RoomsService {
   return {
     router,
     republish: () => { void publish(mirror.touch()); },
+    current: () => [...mirror.get().rooms],
   };
 }

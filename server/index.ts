@@ -8,16 +8,16 @@ import { dirname, join } from 'path';
 import { mkdir, realpath } from 'fs/promises';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
+import { handleConnection, stopHeartbeat, broadcast, broadcastByLocality, disconnectDevice, onBroadcast, sendToClientId, isPairedPhoneClient } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal } from './sshManager.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
-import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest } from './apiRouter.js';
+import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest, currentRooms } from './apiRouter.js';
 import { createRequestAnswerRouter } from './requestAnswer.js';
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
 import * as presence from './presenceManager.js';
@@ -28,7 +28,7 @@ import log from './logger.js';
 import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
 import { respawnTerminalConfig } from './respawnConfig.js';
 import { config } from './serverConfig.js';
-import { reconstructPermissionFlags } from './config.js';
+import { respawnClaudeBase } from './respawnLine.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
 import { getLocalIP, getTailnetIP } from './networkInfo.js';
@@ -48,6 +48,7 @@ import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobi
 import { createPhoneCloud, createPhoneCloudRouter } from './mobile/phoneCloud.js';
 import { createCloudReadLog } from './mobile/cloudReadLog.js';
 import { createServerPromptRouter } from './promptWiring.js';
+import { createSkillNoteOpsWiring } from './skillNoteOpsWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
@@ -66,6 +67,17 @@ import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secre
 import { cloudStateBase } from './cloud/paths.js';
 import { aliasJsonParser } from './cloud/aliasRouter.js';
 import type { CloudConnector, SecretEncryption } from './cloud/types.js';
+import { centrals } from './mcp/centrals.js';
+import { createEventHub } from './mcp/events.js';
+import { centralClient, createMcpRouter, mcpErrorHandler } from './mcp/index.js';
+import { createServerDeliver } from './mcp/deliverWiring.js';
+import { createCentralsRouter } from './mcp/http.js';
+import { startServerPhoneConfirms } from './mcp/phoneConfirmRoutes.js';
+import { createHandsOffSetter } from './mcp/handsOffSetter.js';
+import { watchCentralLifecycle } from './mcp/lifecycle.js';
+import { isMcpEnabled, recordMcpPort } from './mcp/runtime.js';
+import { bareCliCommand, discardCentralTerminal } from './mcp/centralLaunch.js';
+import { spawnRespawnTerminal } from './mcp/respawn.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -198,6 +210,27 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     );
     next();
   });
+
+  // -- Central sessions (server/mcp) --
+  // A central's token dies with the terminal it runs in, whether or not /mcp is mounted. /mcp (off with
+  // `mcp.enabled: false`) has its own gate (this Mac, naming itself, with a live central's token), so it
+  // sits ahead of the /api auth stack, the static files and the SPA fallback.
+  watchCentralLifecycle(centrals, onBroadcast, onTerminalExit);
+  // P2's runtime: the task ledger, the activity log, presence and the alias map every write tool runs on. The
+  // router gets it as `deliver`; without it every non-read tool answers UNAVAILABLE and nothing is steered.
+  // The dashboard's router reads the activity log and the tasks from the same one.
+  const mcpDeliver = isMcpEnabled() ? createServerDeliver(centrals, centralClient, { rooms: currentRooms }) : null;
+  const mcpRouter = isMcpEnabled()
+    ? createMcpRouter({
+        registry: centrals,
+        client: centralClient,
+        sessions: () => Object.values(getAllSessions()),
+        rooms: currentRooms,
+        events: createEventHub(onBroadcast),
+        ...(mcpDeliver ? { deliver: mcpDeliver } : {}),
+      })
+    : null;
+  if (mcpRouter) app.use('/mcp', mcpRouter, mcpErrorHandler);
 
   // -- Auth endpoints (no auth required) --
   app.get('/api/auth/status', (req, res) => {
@@ -432,7 +465,28 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const chatRouter = createChatRouter({ getSession });
   // The phone's folder browser for a new session (AASC-54): folder names under the home folder.
   const folderRouter = createFolderRouter();
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, folderRouter, apiRouter);
+  // The live centrals for the Central picker and the ★ badges (GET /api/mcp/centrals, and `centrals_update` to
+  // this Mac's own windows): answered to this Mac only, and built from fields, never a token (server/mcp/http.ts).
+  // The same router serves a central's activity log and its tasks (with the `mcp_activity` and `mcp_task_update`
+  // feeds, local-only too) and the hands-off switch, which a central's own calls may not flip.
+  const centralsRouter = createCentralsRouter({
+    registry: centrals,
+    sessions: () => Object.values(getAllSessions()),
+    broadcastByLocality,
+    ...(mcpDeliver ? { deliver: mcpDeliver } : {}),
+    // The store's setter, plus the hook update still held in its 250 ms throttle: it must not put the old flag back.
+    setHandsOff: createHandsOffSetter(setSessionHandsOff, refreshPendingSessionUpdate),
+  });
+  // A central's cards a paired phone may answer, their feed to remote devices and their push (P5-14/15,
+  // server/mcp/phoneConfirmRoutes.ts).
+  const phoneConfirms = startServerPhoneConfirms({
+    phoneOf: (req) => getTokenDeviceId(extractToken(req)), getSession, sessions: () => Object.values(getAllSessions()),
+    broadcastByLocality, subscribe: onBroadcast,
+    sink: () => getPushSink() ?? phoneCloud.pushSink(), onError: (message) => log.warn('push', message),
+  });
+  // A central's skill-note change or keep-awake switch, carried out by the workspace writer's window on this Mac.
+  const skillNoteOps = createSkillNoteOpsWiring(presence, { isLocal: isLocalRequest, clientId: clientIdFromRequest, isPhone: isPairedPhoneClient, sendToClient: sendToClientId });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, folderRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -531,6 +585,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
 
   const PORT = port ?? resolvePort(args, config);
+  // A central's launch line names this port (server/mcp/launch.ts): recorded before anything can start a
+  // terminal. One that is no TCP port leaves centrals unwired, with a warning; it never stops the start.
+  recordMcpPort(PORT);
   const REMOTE_LISTENER_PORT = resolveRemoteListenerPort(
     process.env.AASC_REMOTE_LISTENER_PORT, config.remoteListenerPort, PORT,
   );
@@ -563,14 +620,6 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
           // command='' skips auto-launch; we write the resume command ourselves. The
           // helper also carries a session's autoConfirmTrust: false (AASC-54).
           const newConfig = respawnTerminalConfig(session);
-          const newTerminalId = await createTerminal(newConfig, null);
-          consumePendingLink(newConfig.workingDir);
-
-          const result = reconnectSessionTerminal(sessionId, newTerminalId);
-          if ('error' in result) {
-            log.warn('server', `Respawn reconnect failed for ${sessionId.slice(0, 8)}: ${result.error}`);
-            continue;
-          }
 
           // Build resume command preserving original flags (same logic as /sessions/:id/resume)
           // Terminal IDs (term-xxx) are agent-manager internal IDs, not Claude conversation IDs.
@@ -581,17 +630,42 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
           const safeId = sessionId.replace(/'/g, "'\\''");
           let resumeCmd: string;
           if (isClaude) {
-            let baseCmd = (originalCmd || 'claude')
-              .replace(/^(\S*\/)claude/, 'claude')
-              .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
-            // Reconstruct permission flags from permissionMode if not already in command
-            baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+            // Session flags off, permission flags back, and the name rebuilt quoted from the title (Ruling P3-39).
+            const baseCmd = respawnClaudeBase(originalCmd, session);
             resumeCmd = isClaudeSessionId
               ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
               : `${baseCmd} --continue`;
           } else {
-            resumeCmd = originalCmd;
+            // A central's line starts with a bare `codex`, so its MCP flags can be put on it (server/mcp).
+            resumeCmd = session.central ? bareCliCommand(originalCmd) : originalCmd;
           }
+
+          // A central's card gets its central back in the new PTY with a new token, or comes back as a
+          // plain session with its marker cleared (Ruling 16), as every relaunch does (server/mcp/respawn.ts).
+          const { terminalId: newTerminalId, central } = await spawnRespawnTerminal(
+            session,
+            newConfig,
+            { command: resumeCmd, remoteHost: !!isRemote },
+            {
+              createTerminal: (config) => createTerminal(config, null),
+              clearSessionCentral,
+              caller: {
+                isLocal: true,
+                roomExists: (roomId) => currentRooms().some((room) => room.id === roomId),
+                isTerminalLive: (terminalId) => getTerminals().some((t) => t.terminalId === terminalId),
+              },
+            },
+          );
+          consumePendingLink(newConfig.workingDir);
+
+          const result = reconnectSessionTerminal(sessionId, newTerminalId);
+          if ('error' in result) {
+            // The card is gone: a central's new terminal would hold a token nobody sees.
+            discardCentralTerminal(central, newTerminalId, closeTerminal);
+            log.warn('server', `Respawn reconnect failed for ${sessionId.slice(0, 8)}: ${result.error}`);
+            continue;
+          }
+
           let prefix = '';
           if (isRemote) {
             prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
@@ -725,6 +799,13 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       // Save final snapshot before exiting
       try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
       try { remoteServer?.close(); } catch { /* best effort */ }
+      // MCP sessions hold event streams open: ending them first spares server.close() its 2s force-close.
+      const mcpClosed = mcpRouter?.close();
+      // Then the dashboard's feeds and P2's runtime (its prune timer and the ledger's wiring): best effort, the
+      // server stops either way. The /mcp sessions were told first, as one may be mid-write.
+      try { centralsRouter.close(); } catch { /* best effort */ }
+      try { phoneConfirms.close(); } catch { /* best effort */ }
+      try { mcpDeliver?.close(); } catch { /* best effort */ }
       const httpClosed = new Promise<void>((resolve) => {
         // Force-close after 2s if server.close() hangs (open connections).
         const timer = setTimeout(() => {
@@ -735,7 +816,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         server.close(() => { clearTimeout(timer); resolve(); });
       });
       // HTTP's deadline never bypasses the cloud jobs' filesystem/Git drain: wait for every step.
-      const results = await Promise.allSettled([cloudStopped, jobsClosed, httpClosed]);
+      const results = await Promise.allSettled([cloudStopped, jobsClosed, httpClosed, mcpClosed]);
       try { closeDb(); } catch { /* best effort */ }
       // Never reject: SIGTERM/SIGINT exit in .then(), and Electron's quit awaits this.
       for (const r of results) {

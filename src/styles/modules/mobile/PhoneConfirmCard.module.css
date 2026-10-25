@@ -1,0 +1,141 @@
+/* PhoneConfirmCard — a central's confirmation in the phone Inbox (AASC P5-15). Tokens: phoneTokens.css (light + dark). */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  margin: 0 var(--ph-gutter) var(--ph-space-3);
+  padding: 0;
+}
+
+/* Said aloud only: the cards say the rest. */
+.live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.card {
+  --card-tone: var(--ph-status-approval);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding: var(--ph-space-3);
+  border: 1px solid color-mix(in srgb, var(--card-tone) 45%, transparent);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+}
+
+/* A destructive ask reads as one: the same card, in the danger colour. */
+.card[data-risk='destructive'] { --card-tone: var(--ph-danger); }
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--card-tone);
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+}
+
+.expires {
+  flex: none;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-text-secondary);
+}
+
+.summary {
+  margin: 0;
+  font-size: var(--ph-size-body);
+  font-weight: 600;
+  line-height: var(--ph-line-body);
+  overflow-wrap: anywhere;
+}
+
+.target {
+  margin: 0;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.targetId { font-family: var(--ph-font-mono); }
+
+.detailBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  min-width: 0;
+}
+
+.detailLabel {
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* The central's own words: a bounded box that scrolls, so a long text never pushes the answers away. */
+.detail {
+  box-sizing: border-box;
+  max-height: 160px;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: var(--ph-space-2) var(--ph-space-3);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-overflow-scrolling: touch;
+}
+
+.detail:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  color: var(--ph-danger);
+}
+
+/* Two equal columns, so the line between the buttons stays put when Allow unlocks. The row keeps the height of a
+   button plus the reason line under a disabled one, so the reason going moves nothing; the buttons sit at the top. */
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--ph-space-2);
+  min-height: calc(var(--ph-target) + var(--ph-space-1) + var(--ph-line-caption));
+}
+
+.deny { color: var(--ph-danger); }

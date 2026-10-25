@@ -13,12 +13,12 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
 import { isPasswordEnabled, getTokenLineage, isLineageAlive, extractToken } from './authManager.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
+import { createTerminal, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
@@ -30,9 +30,16 @@ import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
 import { createSubagentTranscriptRouter } from './subagentTranscript.js';
+import { createSessionKeysRouter } from './sessionKeysRouter.js';
+import { createSessionInterruptRouter } from './sessionInterruptRouter.js';
+import type { PromptSubmitter } from './promptSubmit.js';
+import { centralEscBook } from './mcp/escHold.js';
+import { clearTerminalOutput, getForegroundProcess } from './sshManager.js';
+import { isAgentProcessName } from './mobile/phoneProfile.js';
+import { terminalHeard } from './heardTerminals.js';
 import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
 import { createRoomsService } from './roomsRouter.js';
-import { parseRoomList } from './roomsMirror.js';
+import { parseRoomList, roomsViewFor } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
@@ -45,6 +52,17 @@ import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags, sanitizeModelInCommand } from './config.js';
+import { stripCentralLaunch } from './mcp/launch.js';
+import { recordQueuePut } from './mcp/queuePutRefusals.js';
+import { MCP_CLIENT_PREFIX } from './mcp/policy.js';
+import { relaunchLineOf, TERMINAL_OPEN_CODE } from './mcp/relaunchRule.js';
+import { noteTerminalCloser } from './mcp/closedBy.js';
+import {
+  CENTRAL_LOCAL_ONLY, bareCliCommand, centralLaunchRefusal, centralRequestSchema, prepareCentralLaunch,
+  prepareCentralRelaunch, relaunchCentralOrPlain, spawnCentralTerminal, discardCentralTerminal, logCentralDropped,
+  type CentralCaller, type CentralLaunchContext, type CentralLaunchInput,
+} from './mcp/centralLaunch.js';
+import type { SessionCentralMarker } from '../src/types/central.js';
 import { stripCodexNoDaemon } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
@@ -56,6 +74,7 @@ import { locateTranscript, transcriptCliOf } from './chat/transcriptLocator.js';
 import { markTranscriptSecrets } from './chat/transcriptMarks.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
+import type { Room } from '../src/types/room.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
@@ -356,8 +375,22 @@ export function buildStartupLaunchCommand(
   return appendSessionName(startupCommand, sessionTitle);
 }
 
-export function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
-  const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
+/**
+ * The line that resumes a session, built from the command it was started with. The resume route types
+ * it straight into the card's live shell (`writeToTerminal`), past the launch hooks in sshManager, and
+ * a central's token is in that shell's environment. So a central's MCP flags (server/mcp/launch.ts) are
+ * taken off whatever comes out: the stored command is cleaned where it comes in, but a line that gets
+ * typed must not depend on that, because the bare `--mcp-config {…${AASC_MCP_TOKEN}…}` that `ps`
+ * records would be expanded by that shell into argv.
+ */
+export function buildResumeCommand(session: Parameters<typeof buildResumeLine>[0], sessionId: string): string {
+  return stripCentralLaunch(buildResumeLine(session, sessionId));
+}
+
+function buildResumeLine(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
+  // Cleaned before it is read, too: the rewrites below can cut a central's flag from its value (one drops
+  // `--fork-session` with the word after it), and a bare value is past what the strip on the way out finds.
+  const originalCmd = stripCentralLaunch(session.startupCommand || session.sshCommand || session.sshConfig?.command || '');
   const safeId = shellEscapeSingle(sessionId);
   // Only try --resume when the ID looks like a real CLI session UUID.
   // AASC-internal terminal IDs (term-*, test-*, and anything else that isn't
@@ -507,6 +540,8 @@ const terminalCreateSchema = z.object({
   /** Session metadata from workspace snapshot — included in creation so the first WS broadcast has them */
   pinned: z.boolean().optional(),
   muted: z.boolean().optional(),
+  /** The person's hands-off switch (server/mcp), carried through a restore like `muted`. Only ever `true` here. */
+  handsOff: z.boolean().optional(),
   alerted: z.boolean().optional(),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
@@ -518,6 +553,11 @@ const terminalCreateSchema = z.object({
   isFloating: z.boolean().optional(),
   /** Origin session that the fork/popup was spawned from. */
   originSessionId: z.string().max(200).optional(),
+  /**
+   * Start the session as a central (server/mcp): `{ kind, scopeRef? }` for a new one, the card's marker
+   * (with its `centralId`) for a restore or respawn. Local callers only; never for a fork or a popup.
+   */
+  central: centralRequestSchema.optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -536,6 +576,8 @@ const hookInstallSchema = z.object({
 
 const killSessionSchema = z.object({
   confirm: z.literal(true),
+  /** A central's kill: the terminal it was allowed to end (the card's fingerprint). Any other answers 409 `changed`. */
+  expectTerminalId: z.string().min(1).max(200).optional(),
 });
 
 /**
@@ -958,6 +1000,65 @@ router.post('/sessions/clear-all', async (req: Request, res: Response) => {
   }
 });
 
+// ---- Central sessions (server/mcp) through relaunches ----
+
+/** Whether a terminal is open now. */
+function isTerminalLive(terminalId: string): boolean {
+  return getTerminals().some((t) => t.terminalId === terminalId);
+}
+
+/** Who asks for a central's launch: this Mac or not, and the rooms this Mac has (a room central needs one). */
+function centralCaller(req: Request): CentralCaller {
+  return {
+    isLocal: requestIsLocal(req),
+    roomExists: (roomId) => roomsService.current().some((room) => room.id === roomId),
+    isTerminalLive,
+  };
+}
+
+/** What a POST /terminals request that names a central asks for. */
+type CentralAsk =
+  | { kind: 'new'; input: CentralLaunchInput }
+  | { kind: 'relaunch'; input: CentralLaunchInput & { centralId: string } }
+  | { kind: 'plain'; centralId: string; reason: string };
+
+/**
+ * What a POST /terminals request that names a central asks for. Without an id, a NEW central (refused for a
+ * remote device: only this Mac may start one). This Mac's own request may bring back any central id (a
+ * restore: its snapshot can hold one the server no longer knows). A remote device's may bring back only the
+ * central of the card it restores (`originalSessionId`), when that card is one it can see, carries that
+ * central and has no live terminal, and under that card's own kind and scope: an id taken on its word would
+ * let it create a central, widen one or take one from a live session (Ruling 18). Any other id from a remote
+ * device launches a plain session, never a refusal: a restore must not lose its card (Ruling 16), and the
+ * same device may launch a plain session anyway.
+ */
+function centralAskOf(
+  req: Request,
+  requested: CentralLaunchInput,
+  originalSessionId: string | undefined,
+): CentralAsk {
+  const { centralId } = requested;
+  if (centralId === undefined) return { kind: 'new', input: requested };
+  if (requestIsLocal(req)) return { kind: 'relaunch', input: { ...requested, centralId } };
+  const card = originalSessionId === undefined ? null : getSession(originalSessionId);
+  if (!card || card.central?.centralId !== centralId || !canSeeSession(false, card)) {
+    return { kind: 'plain', centralId, reason: 'no card this device restores and can see carries it' };
+  }
+  if (card.terminalId && isTerminalLive(card.terminalId)) {
+    return { kind: 'plain', centralId, reason: 'the card that carries it has a live terminal' };
+  }
+  return { kind: 'relaunch', input: { ...card.central } };
+}
+
+/**
+ * How a workspace restore or a pinned respawn names the session it brings back in a log line: its saved id,
+ * when that is shaped like one (the body's `originalSessionId` is not otherwise checked).
+ */
+function restoredSessionLabel(body: { originalSessionId?: string; resumeSessionId?: string }): string {
+  const id = body.originalSessionId ?? body.resumeSessionId;
+  return id !== undefined && /^[A-Za-z0-9_-]+$/.test(id) ? id : 'without a saved id';
+}
+
 // Resume a disconnected SSH session — tries `claude --resume <id>` first,
 // falls back to `claude --continue` if the conversation wasn't persisted.
 router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
@@ -979,11 +1080,22 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
 
   if (terminalExists) {
+    // A central (an `mcp:` caller) never types into a terminal that is still open (C-M7): whatever runs there now (an
+    // `ssh`, an editor) would get the line. It is told so, and the person decides.
+    if (str(req.headers['x-aasc-client-id']).startsWith(MCP_CLIENT_PREFIX)) {
+      res.status(409).json({ ok: false, code: TERMINAL_OPEN_CODE, error: 'The session’s terminal is still open.' });
+      return;
+    }
     // Terminal still alive — send resume command to it
     const result = resumeSession(sessionId);
     if ('error' in result) { res.status(400).json({ error: result.error }); return; }
 
-    writeToTerminal(result.terminalId, `${resumeCmd}\r`);
+    // A central (server/mcp) resumed in its still-open shell is typed through the launch hooks, which put
+    // its MCP flags on the line: its token is still valid and still in that shell's environment, so nothing
+    // is minted. Every other card's line is typed raw, as before: writeWhenReady would also add the
+    // status-line tap and Codex's --no-daemon, which this branch has never typed.
+    if (session.central) writeWhenReady(result.terminalId, `${resumeCmd}\r`);
+    else writeToTerminal(result.terminalId, `${resumeCmd}\r`);
     maybeInjectUltracode(result.terminalId, session.effortLevel, resumeCmd);
 
     const { broadcast } = await import('./wsManager.js');
@@ -1009,10 +1121,14 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     // Create terminal with command='' to skip auto-launch (the resume command
     // contains || which can't pass shell metacharacter validation).
     // We write the command ourselves after the shell initializes.
-    const newConfig: TerminalConfig = cfg && cfg.username
+    const baseConfig: TerminalConfig = cfg && cfg.username
       ? { ...cfg, workingDir: cfg.workingDir || '~', command: '' }
       : { host: 'localhost', workingDir: session.projectPath || '~', command: '' };
-    const newTerminalId = await createTerminal(newConfig, null);
+    // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
+    // session when the central cannot be established again (Ruling 16).
+    const plan = prepareCentralRelaunch(session, { command: resumeCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, centralCaller(req));
+    const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
+    const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
 
     // Immediately consume the pendingLink that createTerminal registered.
     // The resume flow uses pendingResume (not pendingLinks) for session matching.
@@ -1021,9 +1137,16 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     // stealing the terminal and creating a duplicate card.
     consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
+    // Resumed as a plain session: the card is no central any more.
+    if (plan.dropped !== undefined) clearSessionCentral(sessionId);
     // Update the REAL session and register pendingResume (no duplicate session)
     const result = reconnectSessionTerminal(sessionId, newTerminalId);
-    if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+    if ('error' in result) {
+      // The card is gone: a central's new terminal would hold a token nobody sees.
+      discardCentralTerminal(plan.central, newTerminalId, closeTerminal);
+      res.status(500).json({ error: result.error });
+      return;
+    }
 
     // Write the resume command once the shell is ready (prompt detected).
     // For remote sessions, export AGENT_MANAGER_TERMINAL_ID (SSH doesn't
@@ -1068,17 +1191,33 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       // SSH session: use stored SSH config.
       // Use command='' and write startupCommand after shell ready so that
       // the full original command (with all params) is preserved.
-      const launchCmd = session.startupCommand || cfg.command || 'claude';
-      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
-      const newTerminalId = await createTerminal(newConfig, null);
+      // A central's stored command is typed with a bare claude / codex word (ps records Codex as its native
+      // binary's path), so its MCP flags can be put on it; every other card's is typed as it was stored, except that
+      // a Claude line's name is rebuilt, quoted, from the card's title (Ruling P3-36): ps printed `-n "x mcp add …"` as
+      // loose words, and typed as they are `-n` takes `x` and claude runs `mcp add …`.
+      const storedCmd = session.startupCommand || cfg.command || 'claude';
+      const launchCmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+      const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
+      // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
+      // session when the central cannot be established again (Ruling 16).
+      const plan = prepareCentralRelaunch(session, { command: launchCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, centralCaller(req));
+      const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
+      const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
       consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
+      // Reconnected as a plain session: the card is no central any more.
+      if (plan.dropped !== undefined) clearSessionCentral(sessionId);
       const result = reconnectSessionTerminal(sessionId, newTerminalId);
-      if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+      if ('error' in result) {
+        // The card is gone: a central's new terminal would hold a token nobody sees.
+        discardCentralTerminal(plan.central, newTerminalId, closeTerminal);
+        res.status(500).json({ error: result.error });
+        return;
+      }
 
       // Write the original command (with full params) once shell is ready.
       // For remote SSH, export AGENT_MANAGER_TERMINAL_ID first.
-      const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       let prefix = '';
       if (isRemote) {
         prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
@@ -1094,18 +1233,28 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
     } else {
       // Non-SSH (hook-detected) session: create local terminal, write command after shell ready.
       // Use command='' to avoid shell metacharacter validation on the startup command.
-      const newConfig: TerminalConfig = {
+      const baseConfig: TerminalConfig = {
         host: 'localhost',
         workingDir: session.projectPath || '~',
         command: '',
       };
-      const newTerminalId = await createTerminal(newConfig, null);
+      // As above: a central's command with a bare claude / codex word, a Claude line's name rebuilt from the card's
+      // title, and its central in the new PTY (or a plain session when the central cannot be established again).
+      const storedCmd = session.startupCommand || 'claude';
+      const cmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      const plan = prepareCentralRelaunch(session, { command: cmd, workingDir: baseConfig.workingDir || '~', remoteHost: false }, centralCaller(req));
+      const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
+      const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
       consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
+      if (plan.dropped !== undefined) clearSessionCentral(sessionId);
       const result = reconnectSessionTerminal(sessionId, newTerminalId);
-      if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+      if ('error' in result) {
+        discardCentralTerminal(plan.central, newTerminalId, closeTerminal);
+        res.status(500).json({ error: result.error });
+        return;
+      }
 
-      const cmd = session.startupCommand || 'claude';
       writeWhenReady(newTerminalId, `${cmd}\r`);
       maybeInjectUltracode(newTerminalId, session.effortLevel, cmd);
 
@@ -1156,6 +1305,7 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
     const outcome = await restartSessionTerminal(
       session.sessionId,
       buildResumeCommand(session, session.sessionId),
+      centralCaller(req),
     );
     if (!outcome.ok) {
       res.status(outcome.status).json({ ok: false, error: outcome.error });
@@ -1403,6 +1553,26 @@ router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Re
   }
 });
 
+/**
+ * Why a central may not kill this card, or null (Ruling P5-33). It ends a session only by closing the card's own
+ * managed terminal, so: `no_safe_target` with no terminal, one AASC no longer runs, a tmux-backed one (closing it only
+ * detaches) or one another live card shares; `changed` when the terminal is not the one the central was allowed to end.
+ */
+function centralKillRefusal(
+  sessionId: string,
+  mem: { terminalId?: string | null },
+  expectTerminalId: string | undefined,
+): 'no_safe_target' | 'changed' | null {
+  const terminalId = mem.terminalId || null;
+  if (!terminalId) return 'no_safe_target';
+  if (expectTerminalId !== undefined && expectTerminalId !== terminalId) return 'changed';
+  if (!getTerminals().some((t) => t.terminalId === terminalId)) return 'no_safe_target';
+  if (isTmuxBackedTerminal(terminalId)) return 'no_safe_target';
+  const shared = Object.values(getAllSessions()).some((other) =>
+    other.sessionId !== sessionId && other.status !== SESSION_STATUS.ENDED && other.terminalId === terminalId);
+  return shared ? 'no_safe_target' : null;
+}
+
 // Kill session process — group-terminates the agent tree (SIGTERM -> SIGKILL),
 // verifies death, and only then marks the session ENDED. Reports the killed PID
 // (or a survivor) truthfully instead of always claiming success.
@@ -1417,6 +1587,18 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     return;
   }
   if (refuseWhileRestarting(sessionId, res)) return;
+  const cached = typeof mem.cachedPid === 'number' && mem.cachedPid > 0 ? mem.cachedPid : null;
+  // A central's kill never signals a pid (Ruling P5-33): the pgrep fallback killed eight live sessions on Oct 8, and a
+  // hook-reported pid can be stale, reused or planted. It ends the session only by closing the card's own managed
+  // terminal and waiting for what ran in it; anything else is refused here, before anything changes.
+  const fromCentral = clientIdFromRequest(req).startsWith(MCP_CLIENT_PREFIX);
+  if (fromCentral) {
+    const refusal = centralKillRefusal(sessionId, mem, body.expectTerminalId);
+    if (refusal) {
+      res.status(409).json({ ok: false, error: refusal });
+      return;
+    }
+  }
   // A restart that arrives while this kill is still waiting on the process must not re-link the card it is closing.
   res.once('close', holdSessionClosing(sessionId));
   // Resolve and validate the hook-reported PID. Claude may fall back to a cwd
@@ -1425,10 +1607,11 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   // PID and kill the wrong process. terminateProcessTree signals the whole process GROUP
   // (agent + child tool/MCP tree), escalating SIGTERM -> SIGKILL, because `claude`
   // runs in its own process group and a single-PID/shell signal never reaches it.
-  const cached = typeof mem.cachedPid === 'number' && mem.cachedPid > 0 ? mem.cachedPid : null;
-  const resolvedPid = !cached && mem.isFork
+  const resolvedPid = fromCentral
     ? null
-    : findClaudeProcess(sessionId, mem.projectPath);
+    : !cached && mem.isFork
+      ? null
+      : findClaudeProcess(sessionId, mem.projectPath);
   const source = detectSessionSource(sessionId);
   const terminalId = mem.terminalId || null;
   const sharedPidPeers = resolvedPid
@@ -1453,6 +1636,8 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   // When a managed terminal exists, closing that PTY is the isolated kill
   // target. Never signal the shared Codex host PID.
   const pid = processShared ? null : resolvedPid;
+  // A person's kill is never undone by re-routing a central's task elsewhere (Ruling P4-24).
+  noteTerminalCloser(terminalId, clientIdFromRequest(req));
 
   // A kill is deliberate, so the session stops being pinned BEFORE anything
   // dies, and stays unpinned even if the process then survives SIGKILL.
@@ -1473,7 +1658,15 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
 
   // Always tear down the PTY/terminal record (closes the login shell + reaps any
   // remaining descendant groups via reapPtyChildren inside closeTerminal).
-  if (terminalId) {
+  // A central's kill is that close alone, and it waits: what ran in the terminal
+  // must be gone before the card says ENDED.
+  if (fromCentral && terminalId) {
+    if (!(await closeTerminalAndWait(terminalId))) {
+      log.error('api', `A process in terminal ${terminalId.slice(0, 12)} survived a central's kill of session ${sessionId.slice(0, 8)}`);
+      res.status(500).json({ ok: false, error: 'A process in the session’s terminal could not be stopped' });
+      return;
+    }
+  } else if (terminalId) {
     closeTerminal(terminalId);
   }
 
@@ -1531,6 +1724,7 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
   // Close terminals if still active — including the ops shell, which otherwise
   // outlives the deleted card and keeps holding a slot in the terminal budget.
   if (session && session.terminalId) {
+    noteTerminalCloser(session.terminalId, clientIdFromRequest(req)); // Ruling P4-24
     closeTerminal(session.terminalId);
   }
   if (session && session.opsTerminalId) {
@@ -1588,6 +1782,36 @@ router.get('/sessions/:id/transcript', async (req: Request, res: Response) => {
 // /sessions/:id, so the remote-visibility gate above applies.
 router.use(createSubagentTranscriptRouter({ getSession }));
 
+// A central's key_send and terminal_clear (MCP P3): one safe key into an agent's terminal, or a clear. This Mac only.
+// Each dependency is read when a request comes, not at load: test suites mock these modules with partial factories.
+router.use(createSessionKeysRouter({
+  isLocal: requestIsLocal,
+  getSession: (id) => getSession(id),
+  writeToTerminal: (terminalId, bytes) => writeToTerminal(terminalId, bytes),
+  clearTerminalOutput: (terminalId) => clearTerminalOutput(terminalId),
+  broadcastTerminalCleared: (terminalId) => {
+    void import('./wsManager.js').then((ws) => ws.broadcastTerminalCleared(terminalId));
+  },
+  foregroundIsAgent: (terminalId) => isAgentProcessName(getForegroundProcess(terminalId)),
+  terminalHeard: (terminalId) => terminalHeard(terminalId),
+}));
+
+// A central's session_interrupt (MCP P5, Ruling P5-7): the server submitter's Esc, mid-turn or at a dialog only. This
+// Mac only. The submitter is built on first use: promptWiring.ts imports this module, so it is loaded when asked for.
+let interruptSubmitter: Promise<PromptSubmitter> | null = null;
+const serverSubmitter = (): Promise<PromptSubmitter> => {
+  interruptSubmitter ??= import('./promptWiring.js').then((wiring) => wiring.createServerPromptSubmitter());
+  return interruptSubmitter;
+};
+router.use(createSessionInterruptRouter({
+  isLocal: requestIsLocal,
+  getSession: (id) => getSession(id),
+  terminalHeard: (terminalId) => terminalHeard(terminalId),
+  isCentral: (req) => clientIdFromRequest(req).startsWith(MCP_CLIENT_PREFIX),
+  interrupt: async (target) => (await serverSubmitter()).interrupt(target),
+  noteCentralEsc: (sessionId, terminalId) => centralEscBook.note(sessionId, terminalId),
+}));
+
 // Update session title. setSessionTitle mutates the in-memory session AND
 // persists to SQLite (dbUpdateTitle); the new title rides the next SESSION_UPDATE
 // broadcast (the originating browser also updates its store optimistically).
@@ -1641,9 +1865,16 @@ router.get('/sessions/:id/queue', (req: Request, res: Response) => {
 router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
   const body = validateBody(sessionQueueSchema, req.body, res);
-  if (!body) return;
+  if (!body) {
+    // The window keeps the list it could not save, so a central must not write over it until a save goes through.
+    // The body failed validation, so its window id is read raw (only a short string counts).
+    const origin: unknown = req.body?.originClientId;
+    recordQueuePut(sessionId, false, typeof origin === 'string' && origin.length <= 200 ? origin : undefined);
+    return;
+  }
 
   const record = db.upsertSessionQueue(sessionId, body.items, body.automation ?? null);
+  recordQueuePut(sessionId, true, body.originClientId ?? undefined);
 
   // Fan out so other devices update live rather than only on their next
   // reload. `originClientId` lets the sender ignore its own echo — without
@@ -1871,10 +2102,21 @@ router.put('/sessions/:id/character-model', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+/** What a summary is asked for when the caller gives no template of its own. */
+const DEFAULT_SUMMARY_TEMPLATE = 'Summarize this Claude Code session in detail.';
+
+/**
+ * How the summarize route runs Claude, for every caller (Ruling P3-25): print mode on haiku, with no tools (`--tools`
+ * and an empty string, its own argument) and no MCP servers (`--strict-mcp-config` with no `--mcp-config`). The
+ * transcript is text a session wrote, so the run that reads it can do nothing but write a summary.
+ */
+export const SUMMARIZE_CLAUDE_ARGS: readonly string[] = ['-p', '--model', 'haiku', '--tools', '', '--strict-mcp-config'];
+
 /**
  * Summarize session using Claude CLI.
  * The frontend sends { context, promptTemplate } from IndexedDB data.
- * If custom_prompt is provided, use it directly as the prompt template.
+ * If custom_prompt is provided, use it directly as the prompt template. A central's (`mcp:` caller's) custom_prompt is
+ * added to AASC's own template instead, never in place of it, and its promptTemplate is not read (Ruling P3-25).
  */
 router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
   // Rate limit: max 2 concurrent summarize requests
@@ -1892,14 +2134,19 @@ router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
   }
   const { context, promptTemplate: bodyPromptTemplate, custom_prompt: customPrompt } = body;
 
-  // Determine prompt template: custom_prompt > bodyPromptTemplate > default
-  const promptTemplate = customPrompt || bodyPromptTemplate || 'Summarize this Claude Code session in detail.';
+  // Determine prompt template: custom_prompt > bodyPromptTemplate > default; a central's prompt only adds to the default.
+  const fromCentral = str(req.headers['x-aasc-client-id']).startsWith(MCP_CLIENT_PREFIX);
+  const promptTemplate = fromCentral
+    ? customPrompt
+      ? `${DEFAULT_SUMMARY_TEMPLATE}\n\nThe summary should also cover: ${customPrompt}`
+      : DEFAULT_SUMMARY_TEMPLATE
+    : customPrompt || bodyPromptTemplate || DEFAULT_SUMMARY_TEMPLATE;
 
   const summaryPrompt = `${promptTemplate}\n\n--- SESSION TRANSCRIPT ---\n${context}`;
 
   try {
     const summary = await new Promise<string>((resolve, reject) => {
-      const child = execFile('claude', ['-p', '--model', 'haiku'], {
+      const child = execFile('claude', [...SUMMARIZE_CLAUDE_ARGS], {
         timeout: 60000,
         maxBuffer: 1024 * 1024,
       }, (error, stdout) => {
@@ -1961,8 +2208,32 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
 // ── Terminals ──
 
 router.post('/terminals', async (req: Request, res: Response) => {
+  // A central never starts another central (Ruling P4-8): its own calls carry `mcp:<centralId>`. Looked at before
+  // the body is read, on the raw header, so nothing it sends can mint one. Its plain sessions are its workers.
+  if (req.body?.central !== undefined && str(req.headers['x-aasc-client-id']).startsWith(MCP_CLIENT_PREFIX)) {
+    log.warn('api', 'Refused a central request from a central');
+    res.status(403).json({ ok: false, code: 'CENTRAL_FROM_CENTRAL', error: 'A central session cannot start another central.' });
+    return;
+  }
   const body = validateBody(terminalCreateSchema, req.body, res);
   if (!body) return;
+
+  // A central (server/mcp). A fork or a popup is never one (its central request, which no client sends, is
+  // dropped rather than failing a restore). A request that brings back a central (a workspace restore, a
+  // pinned respawn: `centralAskOf`) is never refused over its central (Rulings 16 and 18): it comes back as
+  // that central, or as a plain session. A NEW central is refused when it cannot be a working one, and only
+  // this Mac may ask for one.
+  const centralRequest = body.isFork || body.isFloating ? undefined : body.central;
+  if (body.central && !centralRequest) log.warn('api', 'Dropped a central request for a fork or floating session');
+  const centralAsk = centralRequest ? centralAskOf(req, centralRequest, body.originalSessionId) : null;
+  if (centralAsk?.kind === 'new' && !requestIsLocal(req)) {
+    res.status(403).json({ ok: false, error: CENTRAL_LOCAL_ONLY });
+    return;
+  }
+  if (centralAsk?.kind === 'plain') logCentralDropped(restoredSessionLabel(body), centralAsk.centralId, centralAsk.reason);
+  const wantsCentral = centralAsk !== null && centralAsk.kind !== 'plain';
+  // Until its card exists, a central's terminal belongs to nobody: a failure before then closes it.
+  let unclaimedCentralTerminal: { terminalId: string; central: SessionCentralMarker } | null = null;
 
   // Capacity: reserve every PTY this request will spawn. An ops shell does not
   // consume session budget, so a session created with the "Commands Terminal"
@@ -2018,14 +2289,17 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.sessionTitle) config.sessionTitle = body.sessionTitle;
     // Scrub a contaminated `--model` baked into a restored startupCommand (older
     // snapshots launched with e.g. `claude-opus-4-8[1m]`) so the raw startup-launch
-    // write below and any later reconnect don't break the shell.
-    if (body.startupCommand) config.startupCommand = sanitizeModelInCommand(body.startupCommand);
+    // write below and any later reconnect don't break the shell. And drop a central's MCP flags
+    // (server/mcp/launch.ts) that a stored `ps` capture carries: replayed raw into a shell they are
+    // mangled, and the token placeholder in them is expanded wherever the shell holds a token.
+    if (body.startupCommand) config.startupCommand = stripCentralLaunch(sanitizeModelInCommand(body.startupCommand));
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
     if (body.model) config.model = body.model;
     if (body.remoteControlName) config.remoteControlName = body.remoteControlName;
     if (body.pinned) config.pinned = body.pinned;
     if (body.muted) config.muted = body.muted;
+    if (body.handsOff) config.handsOff = true;
     if (body.alerted) config.alerted = body.alerted;
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
@@ -2064,7 +2338,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
       // has authoritative IDs, and config-based fuzzy match can collapse distinct
       // sessions that share a workDir + command but differ only by conversation
       // UUID (e.g. multiple Claude sessions in the same project directory).
-      if (!body.originalSessionId) {
+      // Skip for a central too: a session that merely runs the same command there is not the central asked for.
+      if (!body.originalSessionId && !wantsCentral) {
         const existing = findActiveSessionByConfig(config);
         if (existing && reusable(existing)) {
           log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
@@ -2100,9 +2375,45 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Workspace import may intentionally send command='' plus startupCommand for
     // raw shell commands containing metacharacters. Keep the shell spawn blank,
     // then write the startup command after the prompt is ready.
+    // A central's raw startup command is typed with a bare claude / codex word, as reconnect does (ps records
+    // Codex as its native binary's path), so its MCP flags can be put on it.
+    const startupCommand = wantsCentral && config.startupCommand ? bareCliCommand(config.startupCommand) : config.startupCommand;
     const startupLaunchCmd = !resumeLaunchCmd && config.command === ''
-      ? buildStartupLaunchCommand(config.startupCommand, config.sessionTitle)
+      ? buildStartupLaunchCommand(startupCommand, config.sessionTitle)
       : null;
+
+    // A central (server/mcp) is minted here, after deduplication (a request answered with a live card must
+    // not re-mint it: that would end the token its terminal holds) and right before the spawn. A restore
+    // or respawn sends the card's centralId and gets the same central back with a new token, or a plain
+    // session when it cannot (Ruling 16: the card is never dropped over its central). A NEW central is
+    // refused up front (400 / 409) when it could not be a working one.
+    if (centralAsk && centralAsk.kind !== 'plain') {
+      const centralContext: CentralLaunchContext = {
+        command: resumeLaunchCmd ?? startupLaunchCmd ?? config.command ?? '',
+        permissionMode: config.permissionMode ?? null,
+        workingDir: config.workingDir || '~',
+        isLocal: isLocalCaller,
+        roomExists: (roomId) => roomsService.current().some((room) => room.id === roomId),
+        remoteHost: resolvedHost !== 'localhost',
+        tmux: !!(config.useTmux || config.tmuxSession),
+      };
+      if (centralAsk.kind === 'relaunch') {
+        // A new card: a central live in any terminal stays where it is (`own: null`).
+        config.central = relaunchCentralOrPlain(centralAsk.input, centralContext, restoredSessionLabel(body), {
+          own: null,
+          isLive: isTerminalLive,
+        }).central;
+      } else {
+        try {
+          config.central = prepareCentralLaunch(centralAsk.input, centralContext);
+        } catch (err: unknown) {
+          const refusal = centralLaunchRefusal(err, Object.values(getAllSessions()));
+          if (!refusal) throw err;
+          res.status(refusal.status).json(refusal.body);
+          return;
+        }
+      }
+    }
 
     // When resuming, spawn terminal with empty command so createTerminal skips
     // auto-launch (the resume command contains `||` which can't pass shell-metachar
@@ -2113,7 +2424,9 @@ router.post('/terminals', async (req: Request, res: Response) => {
     const terminalConfig: TerminalConfig = resumeLaunchCmd || startupLaunchCmd
       ? { ...config, command: '', deferredLaunch: true }
       : config;
-    const terminalId = await createTerminal(terminalConfig, null);
+    // A central whose terminal does not start is revoked: no PTY holds its token.
+    const terminalId = await spawnCentralTerminal(config.central, () => createTerminal(terminalConfig, null));
+    if (config.central) unclaimedCentralTerminal = { terminalId, central: config.central };
 
     // Create ops terminal (blank shell for manual commands) if requested
     let opsTerminalId: string | undefined;
@@ -2124,6 +2437,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
         sessionTitle: undefined,
         label: undefined,
         isOps: true,          // excluded from the session budget (terminalCapacity.ts)
+        central: undefined,   // a central's token goes in one PTY: the agent's, never its ops shell
       };
       opsTerminalId = await createTerminal(opsConfig, null);
     }
@@ -2139,6 +2453,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // none, the "share new sessions" default applies (sessionStore → shareDefault.ts).
     const remoteVisible = !isLocalCaller ? true : body.remoteVisible;
     await createTerminalSession(terminalId, remoteVisible === undefined ? config : { ...config, remoteVisible }, opsTerminalId);
+    unclaimedCentralTerminal = null;
 
     // The device that launched a session controls it. This is what makes the
     // "joining device is a spectator by default" rule fall out with no extra
@@ -2187,6 +2502,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Terminal creation failed: ${msg}`);
+    // A central's terminal that never got its card (the ops shell or the card failed) holds a token nobody sees.
+    if (unclaimedCentralTerminal) {
+      discardCentralTerminal(unclaimedCentralTerminal.central, unclaimedCentralTerminal.terminalId, closeTerminal);
+    }
     res.status(500).json({ success: false, error: 'Failed to create terminal' });
   }
 });
@@ -2241,6 +2560,7 @@ router.post('/terminals/register', requireLocalOnly, async (req: Request, res: R
 });
 
 router.delete('/terminals/:id', requireVisibleTerminal, (req: Request, res: Response) => {
+  noteTerminalCloser(str(req.params.id), clientIdFromRequest(req)); // Ruling P4-24
   closeTerminal(str(req.params.id));
   res.json({ ok: true });
 });
@@ -2710,6 +3030,29 @@ router.get('/note-media/:id', requireMediaOfSharedSession, (req: Request, res: R
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(media.path, (err) => {
     if (err && !res.headersSent) res.status(500).end();
+  });
+});
+
+/**
+ * GET /api/note-media/:id/meta — what one media file is (its session, name, type and size) as JSON, for the
+ * /mcp tool `note_media_get`: the route above answers the file itself, and the session is what a central's
+ * scope is judged by. Only this Mac asks; a remote device gets what an unknown id gets.
+ */
+router.get('/note-media/:id/meta', (req: Request, res: Response) => {
+  const id = str(req.params.id);
+  const row = requestIsLocal(req) && /^[a-f0-9]{32}$/.test(id) ? db.getNoteMedia(id) : null;
+  if (!row) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.json({
+    id: row.id,
+    sessionId: row.session_id,
+    name: row.name,
+    mime: row.mime,
+    bytes: row.bytes,
+    createdAt: row.created_at,
+    url: `/api/note-media/${row.id}`,
   });
 });
 
@@ -3616,6 +3959,17 @@ const roomsService = createRoomsService({
 });
 
 router.use(roomsService.router);
+
+/**
+ * The Mac's whole room list as GET /rooms answers this Mac: the rooms mirror with each room's session ids
+ * mapped to the sessions' current ids, so a session re-keyed since the room was saved (term-* to the CLI's
+ * own id) is still its room's; an id no session answers to stays as saved. A new array of new rooms. The
+ * /mcp endpoint scopes room centrals with it (server/index.ts): the service is private here.
+ * `roomsService.current()` itself stays raw, for the callers that want the ids as stored.
+ */
+export function currentRooms(): Room[] {
+  return roomsViewFor(roomsService.current(), true, getSession);
+}
 
 // ---- Workspace restore ownership + device presence ----
 

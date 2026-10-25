@@ -3,7 +3,7 @@
  * Captures session configs, project tab layouts, room assignments,
  * and session metadata so the workspace can be recreated later.
  */
-import type { Session, SshConfig } from '@/types';
+import type { Session, SessionCentralMarker, SshConfig } from '@/types';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -43,6 +43,11 @@ export interface SessionSnapshot {
   characterModel?: string;
   pinned?: boolean;
   muted?: boolean;
+  /**
+   * The person's hands-off switch (server/mcp): no central may type into, task or queue for this session. Only
+   * ever `true`: absent already means a central may steer it. A restore sends it back with the new terminal.
+   */
+  handsOff?: boolean;
   alerted?: boolean;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
@@ -108,6 +113,11 @@ export interface SessionSnapshot {
   isFloating?: boolean;
   /** Origin session ID — required to re-attach the floating window to its parent after restart. */
   originSessionId?: string;
+  /**
+   * The session was a central (server/mcp): its marker, never a token. A restore sends it back and the
+   * server mints the same central again, under this id, for the new terminal.
+   */
+  central?: SessionCentralMarker;
 }
 
 export interface WorkspaceSnapshot {
@@ -227,6 +237,7 @@ export function buildSnapshot(
       characterModel: session.characterModel,
       pinned: session.pinned,
       muted: session.muted,
+      ...(session.handsOff === true ? { handsOff: true as const } : {}),
       alerted: session.alerted,
       enableOpsTerminal: !!session.opsTerminalId || !!session.hadOpsTerminal,
       sshConfig: { ...session.sshConfig },
@@ -251,6 +262,7 @@ export function buildSnapshot(
       // from a legacy-snapshot float (the field is absent entirely pre-isFloating).
       isFloating: !!session.isFloating,
       originSessionId: session.originSessionId,
+      ...(session.central ? { central: { ...session.central } } : {}),
     });
   }
 
@@ -860,6 +872,7 @@ export async function importSnapshot(
           // Previously these were fire-and-forget PUTs that raced with auto-save.
           pinned: sessionSnap.pinned || undefined,
           muted: sessionSnap.muted || undefined,
+          handsOff: sessionSnap.handsOff === true ? true : undefined,
           alerted: sessionSnap.alerted || undefined,
           accentColor: sessionSnap.accentColor || undefined,
           characterModel: sessionSnap.characterModel || undefined,
@@ -869,6 +882,8 @@ export async function importSnapshot(
           isFork: sessionSnap.isFork || undefined,
           isFloating: isFloatingSnapshot(sessionSnap) || undefined,
           originSessionId: sessionSnap.originSessionId || undefined,
+          // A central comes back as the same central: the server mints it again under its saved id.
+          central: sessionSnap.central || undefined,
         }),
       });
       const data = await res.json();
@@ -905,7 +920,7 @@ export async function importSnapshot(
           }).catch(() => {});
         }
 
-        // Metadata (pinned, muted, alerted, accentColor, characterModel) is now
+        // Metadata (pinned, muted, handsOff, alerted, accentColor, characterModel) is now
         // included in the POST body above, so the first WS broadcast already has it.
         // No separate PUTs needed — eliminates the race with auto-save.
 

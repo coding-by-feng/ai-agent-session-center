@@ -4,6 +4,12 @@
  * and WebSocket message types. Shared by all server modules to eliminate string duplication.
  */
 
+// The two central-session feed names live with the shared message types, so the server and the dashboard
+// cannot spell them differently.
+import { MCP_ACTIVITY, MCP_TASK_UPDATE } from '../src/types/mcpEvents.js';
+import { MCP_CONFIRM, MCP_CONFIRM_RESOLVED } from '../src/types/mcpConfirm.js';
+import { MCP_PHONE_CONFIRM, MCP_PHONE_CONFIRM_RESOLVED } from '../src/types/mcpPhoneConfirm.js';
+
 // Hook event types (Claude Code lifecycle events)
 export const EVENT_TYPES = {
   SESSION_START: 'SessionStart',
@@ -181,6 +187,25 @@ export const WS_TYPES = {
   /** Server -> the workspace writer only: a room change another device asked
    *  for (POST /api/rooms/ops), for the writer to apply with its room store. */
   ROOM_OP: 'room_op',
+  /** Server -> this Mac's own windows only: the live central sessions (server/mcp/http.ts), the whole
+   *  list with no token in it. Never sent to a remote device: the rows name session ids. */
+  CENTRALS_UPDATE: 'centrals_update',
+  /** Server -> this Mac's own windows only: a new row of a central's activity log (every write a central
+   *  made, every refusal of one, every change of a task it handed out). One row, no token in it. */
+  MCP_ACTIVITY,
+  /** Server -> this Mac's own windows only: a task a central handed a session changed state. A view with
+   *  no answer, prompt key or terminal id. */
+  MCP_TASK_UPDATE,
+  /** Server -> this Mac's own windows only: a central's tool asked the person (server/mcp/confirm.ts). The card's
+   *  view: its card id, AASC's summary, the detail; never the central's confirmId, the arguments or a token. */
+  MCP_CONFIRM,
+  /** Server -> this Mac's own windows only: a confirmation was answered, expired or withdrawn (its card id). */
+  MCP_CONFIRM_RESOLVED,
+  /** Server -> paired phones only: a card a phone may answer (P5-15, server/mcp/phoneConfirmRoutes.ts), sent only when
+   *  the central's card and its target are shared. The same view the Mac gets; never a confirmId or the arguments. */
+  MCP_PHONE_CONFIRM,
+  /** Server -> paired phones only: a phone-answerable card was answered, expired or withdrawn (its card id). */
+  MCP_PHONE_CONFIRM_RESOLVED,
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',

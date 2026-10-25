@@ -1256,6 +1256,28 @@ describe('queueHoldReason', () => {
     expect(queueHoldReason(base, NOW)).toBeNull();
     expect(queueHoldReason({ lastActivityAt: NOW } as never, NOW)).toBeNull(); // fields absent on older sessions
   });
+
+  // Rulings P4-35, P4-41: the connecting timeout turned the card idle before its CLI sent a hook. It may be showing
+  // its folder-trust prompt, where a typed prompt (and its Enter) would answer it.
+  it('a central’s queued item is not sent to a card that went idle by the connecting timeout', () => {
+    expect(queueHoldReason({ ...base, startHeard: false }, NOW)).toBe('not-started');
+    // Outranks everything, and no safety cap lets it go: only the CLI's first hook clears it.
+    const stale = { ...base, startHeard: false, subagentCount: 1, lastActivityAt: NOW - SUBAGENT_HOLD_MAX_IDLE_MS - 1 };
+    expect(queueHoldReason(stale, NOW)).toBe('not-started');
+    expect(queueHoldReason({ ...base, startHeard: false, userCancelledAt: NOW - 500 }, NOW)).toBe('not-started');
+    // Heard (the marker cleared or never set): no hold.
+    expect(queueHoldReason({ ...base, startHeard: true }, NOW)).toBeNull();
+    expect(queueHoldReason({ ...base, startHeard: undefined }, NOW)).toBeNull();
+  });
+
+  // Ruling P4-54: the person pressed "It is ready — send anyway" in this window.
+  it('a card the person released behaves as if it had been heard', () => {
+    expect(queueHoldReason({ ...base, startHeard: false, startReleased: true }, NOW)).toBeNull();
+    // Only the not-started hold is released: a cancel or running subagents still hold.
+    expect(queueHoldReason({ ...base, startHeard: false, startReleased: true, userCancelledAt: NOW - 500 }, NOW)).toBe('cancelled');
+    expect(queueHoldReason({ ...base, startHeard: false, startReleased: true, subagentCount: 1 }, NOW)).toBe('subagents');
+    expect(queueHoldReason({ ...base, startHeard: false, startReleased: false }, NOW)).toBe('not-started');
+  });
 });
 
 describe('trackStatus / statusSettled — a status must hold for a moment before the queue acts on it', () => {
@@ -1313,6 +1335,12 @@ describe('pickWhileHeld — what ⚡ NOW may send while the queue is held', () =
   it('nothing without a force, and never a disabled row', () => {
     expect(pickWhileHeld([item({ id: 1 }), item({ id: 2, execState: 'main' })])).toBeNull();
     expect(pickWhileHeld([item({ id: 3, forceStart: true, disabled: true })])).toBeNull();
+  });
+
+  it('nothing at all for a card never heard from: a central can ⚡ NOW too (Ruling P4-41)', () => {
+    const forced = item({ id: 2, forceStart: true });
+    expect(pickWhileHeld([forced], 'not-started')).toBeNull();
+    expect(pickWhileHeld([forced], 'cancelled')?.id).toBe(2);
   });
 });
 

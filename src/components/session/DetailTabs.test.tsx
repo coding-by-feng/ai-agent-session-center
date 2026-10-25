@@ -340,3 +340,115 @@ describe('DetailTabs — active tab stays in view', () => {
     expect(strip.scrollLeft).toBe(120);
   });
 });
+
+/**
+ * The ACTIVITY tab (server/mcp): a central session's log of what it did. It is the last tab, and only a central
+ * has it: DetailPanel passes `activityContent` for a central session (when this window may drive centrals) and
+ * nothing for every other session, whose tab strip stays the eight it always had.
+ */
+describe('DetailTabs — the ACTIVITY tab of a central session', () => {
+  const baseProps = {
+    terminalContent: <div>Terminal Content</div>,
+    promptsContent: <div>Prompts Content</div>,
+    aiPopupsContent: <div>AI Popups Content</div>,
+    projectContent: <div>Project Content</div>,
+    notesContent: <div>Notes Content</div>,
+    queueContent: <div>Queue Content</div>,
+    agentsContent: <div>Agents Content</div>,
+  };
+  const withActivity = { ...baseProps, activityContent: <div>Activity Content</div> };
+  const tabIds = () => Array.from(document.querySelectorAll('[data-tab-strip] [data-tab]')).map((el) => (el as HTMLElement).dataset.tab);
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+
+  it('is not a tab for a session that is no central: the strip stays the eight it had', () => {
+    render(<DetailTabs {...baseProps} />);
+
+    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'notes', 'queue', 'agents']);
+    expect(screen.queryByText('ACTIVITY')).toBeNull();
+  });
+
+  it('is the last tab, after AGENTS, when the panel gives it content', () => {
+    render(<DetailTabs {...withActivity} />);
+
+    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'notes', 'queue', 'agents', 'activity']);
+    expect(screen.getByText('ACTIVITY')).toBeInTheDocument();
+  });
+
+  it('shows its content on click, and remembers it as the open tab', () => {
+    render(<DetailTabs {...withActivity} />);
+
+    fireEvent.click(screen.getByText('ACTIVITY'));
+
+    expect(screen.getByText('Activity Content')).toBeInTheDocument();
+    expect(localStorage.getItem('active-tab')).toBe('activity');
+  });
+
+  it('tells the panel which tab opened', () => {
+    const onTabChange = vi.fn();
+    render(<DetailTabs {...withActivity} onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByText('ACTIVITY'));
+
+    expect(onTabChange).toHaveBeenCalledWith('activity');
+  });
+
+  it('marks it the active tab when it is open, and no other', () => {
+    render(<DetailTabs {...withActivity} />);
+
+    fireEvent.click(screen.getByText('ACTIVITY'));
+
+    const active = Array.from(document.querySelectorAll('[data-tab-strip] [data-tab]'))
+      .filter((el) => el.className.includes('active'))
+      .map((el) => (el as HTMLElement).dataset.tab);
+    expect(active).toEqual(['activity']);
+  });
+
+  it('opens on it when it was the open tab and the session is a central', () => {
+    localStorage.setItem('active-tab', 'activity');
+
+    render(<DetailTabs {...withActivity} />);
+
+    // The terminal stays mounted under its hidden wrapper (to keep xterm's scroll), so it is the open tab that tells.
+    expect(screen.getByText('Activity Content')).toBeInTheDocument();
+    expect(document.querySelector('[data-tab="activity"]')?.className).toContain('active');
+    expect(document.querySelector('[data-tab="terminal"]')?.className).not.toContain('active');
+  });
+
+  it('falls back to the terminal, not a blank panel, when the open tab was ACTIVITY and this session has none', () => {
+    localStorage.setItem('active-tab', 'activity');
+
+    render(<DetailTabs {...baseProps} />);
+
+    expect(screen.getByText('Terminal Content')).toBeInTheDocument();
+    const active = Array.from(document.querySelectorAll('[data-tab-strip] [data-tab]'))
+      .filter((el) => el.className.includes('active'))
+      .map((el) => (el as HTMLElement).dataset.tab);
+    expect(active).toEqual(['terminal']);
+  });
+
+  it('goes back to ACTIVITY when the selected session is a central again (the choice was kept)', () => {
+    localStorage.setItem('active-tab', 'activity');
+    const { rerender } = render(<DetailTabs {...baseProps} />);
+    expect(screen.getByText('Terminal Content')).toBeInTheDocument();
+
+    rerender(<DetailTabs {...withActivity} />);
+
+    expect(screen.getByText('Activity Content')).toBeInTheDocument();
+  });
+
+  it('leaves the other tabs as they were', () => {
+    render(<DetailTabs {...withActivity} />);
+
+    fireEvent.click(screen.getByText('NOTES'));
+    expect(screen.getByText('Notes Content')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('AGENTS'));
+    expect(screen.getByText('Agents Content')).toBeInTheDocument();
+    expect(screen.queryByText('Activity Content')).toBeNull();
+  });
+});

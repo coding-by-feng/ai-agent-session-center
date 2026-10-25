@@ -3,6 +3,8 @@
  * Canonical source of truth — shared by server (NodeNext) and client (Vite).
  */
 
+import type { SessionCentralMarker } from './central.js';
+
 // ---------------------------------------------------------------------------
 // Enums / Literal Unions
 // ---------------------------------------------------------------------------
@@ -520,6 +522,26 @@ export interface Session {
   isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
+  /**
+   * Set when this session is a central (server/mcp): an agent AASC launched with the `aasc` MCP server
+   * and a token, so it can read and drive other sessions. Copied from the launch's config at creation and
+   * kept through every re-key, merge and relaunch (each new PTY gets a new token under the same
+   * `centralId`); a workspace snapshot saves it, never a token. Forks and clones never carry it.
+   */
+  central?: SessionCentralMarker;
+  /**
+   * The person marked this session hands-off: a central (server/mcp) may read it but never type into it,
+   * hand it a task or queue work for it (server/mcp/policy.ts refuses with HANDS_OFF). Absent means
+   * centrals may steer it, within their scope and the other rails. Only the person sets it.
+   */
+  handsOff?: boolean;
+  /**
+   * `false` when the connecting timeout turned this card idle before its CLI was heard from (no hook from its
+   * terminal yet): the CLI may still be showing a question, such as its folder-trust prompt, so nothing may type
+   * into it for a central (Rulings P4-35, P4-41). Absent or `true` means the CLI was heard. Cleared per terminal
+   * by the first hook.
+   */
+  startHeard?: boolean;
   /**
    * Marks a session the dashboard did NOT launch: a real Claude/Codex CLI
    * running in an external terminal (or started before hooks were installed), so

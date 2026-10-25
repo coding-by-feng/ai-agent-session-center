@@ -604,21 +604,24 @@ describe('queueStore — server sync', () => {
     // build stamps — which a device-keyed guard would drop and ours must apply.
     // queueStore.sync.test.ts runs the real thing: two store instances and a
     // fake server between them.
+    //
+    // Sessions no earlier test touched: the store's push bookkeeping lives for the
+    // whole file, and an unsent edit (even a cleared list) is merged in, not replaced.
     useQueueStore.getState().applyRemoteQueue(
-      's1',
-      [makeItem(1, 's1', 0)],
+      'sibling-s1',
+      [makeItem(1, 'sibling-s1', 0)],
       null,
       `${getClientId()}:another-window`,
     );
-    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+    expect(useQueueStore.getState().queues.get('sibling-s1')).toHaveLength(1);
 
     useQueueStore.getState().applyRemoteQueue(
-      's2',
-      [makeItem(2, 's2', 0)],
+      'sibling-s2',
+      [makeItem(2, 'sibling-s2', 0)],
       null,
       getClientId(),
     );
-    expect(useQueueStore.getState().queues.get('s2')).toHaveLength(1);
+    expect(useQueueStore.getState().queues.get('sibling-s2')).toHaveLength(1);
   });
 
   it("stamps its pushes with this window's origin id, not the device id", async () => {
@@ -642,19 +645,20 @@ describe('queueStore — server sync', () => {
 
   it('applies an update with no origin (a pull, not an echo)', () => {
     // syncFromServer passes null: we asked for this data, so it must apply
-    // even though we are the one who requested it.
-    useQueueStore.getState().applyRemoteQueue('s1', [makeItem(1, 's1', 0)], null, null);
-    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+    // even though we are the one who requested it. (A session no earlier test touched, as above.)
+    useQueueStore.getState().applyRemoteQueue('pull-s1', [makeItem(1, 'pull-s1', 0)], null, null);
+    expect(useQueueStore.getState().queues.get('pull-s1')).toHaveLength(1);
   });
 
   it('sorts incoming items by position, not arrival order', () => {
+    // A session no earlier test touched, as above.
     useQueueStore.getState().applyRemoteQueue(
-      's1',
-      [makeItem(3, 's1', 2), makeItem(1, 's1', 0), makeItem(2, 's1', 1)],
+      'sort-s1',
+      [makeItem(3, 'sort-s1', 2), makeItem(1, 'sort-s1', 0), makeItem(2, 'sort-s1', 1)],
       null,
       'other',
     );
-    expect(useQueueStore.getState().queues.get('s1')!.map((i) => i.id)).toEqual([1, 2, 3]);
+    expect(useQueueStore.getState().queues.get('sort-s1')!.map((i) => i.id)).toEqual([1, 2, 3]);
   });
 
   it('applies an empty remote queue — a clear on one device must propagate', () => {

@@ -346,8 +346,14 @@ export async function readSubagentTranscriptPage(file: string, opts: PageOptions
 // ---------------------------------------------------------------------------
 
 const offset = z.string().regex(/^\d{1,15}$/).transform(Number);
+/** Entries in a backward page, 1 to a full page (`PAGE_ENTRIES`). Optional: the AGENTS tab reads full pages; the MCP tool asks for fewer. */
+const limit = z
+  .string()
+  .regex(/^\d{1,3}$/)
+  .transform(Number)
+  .refine((n) => n >= 1 && n <= PAGE_ENTRIES);
 const querySchema = z
-  .object({ before: offset.optional(), from: offset.optional() })
+  .object({ before: offset.optional(), from: offset.optional(), limit: limit.optional() })
   .refine((q) => q.before === undefined || q.from === undefined);
 
 export interface SubagentTranscriptRouterDeps {
@@ -361,7 +367,10 @@ export function createSubagentTranscriptRouter(deps: SubagentTranscriptRouterDep
     try {
       const query = querySchema.safeParse(req.query);
       if (!query.success) {
-        res.status(400).json({ success: false, error: 'before and from are byte offsets, and only one is allowed' });
+        res.status(400).json({
+          success: false,
+          error: `before and from are byte offsets, and only one is allowed; limit is a whole number from 1 to ${PAGE_ENTRIES}`,
+        });
         return;
       }
       const session = deps.getSession(String(req.params.id));

@@ -13,6 +13,15 @@ export type ChatEntryDraft = DistributiveOmit<ChatEntry, 'key' | 'timestamp'>;
 
 /** Characters of user, assistant, command or system text per entry. */
 export const TEXT_CAP = 16 * 1024;
+/**
+ * The most characters of assistant text per entry a caller may ask for instead (`PageOptions.assistantCap`): the
+ * task ledger reads a task's answer whole up to this (server/mcp/ledgerTurn.ts `ANSWER_MAX`). The phone never asks.
+ */
+export const ASSISTANT_TEXT_CAP_MAX = 20_000;
+
+/** The assistant text cap a page is read with: TEXT_CAP unless the caller asked for another, never above the most. */
+export const assistantTextCap = (asked: number | undefined): number =>
+  asked === undefined || !Number.isInteger(asked) || asked < 1 ? TEXT_CAP : Math.min(asked, ASSISTANT_TEXT_CAP_MAX);
 /** Characters of a tool's input (as JSON). */
 export const TOOL_INPUT_CAP = 2 * 1024;
 /** Characters of an edit tool's input: whole, so diffs can be drawn from it. */

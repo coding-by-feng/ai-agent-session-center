@@ -13,6 +13,12 @@
  * stays out of the desktop's entry chunk); one no agent has worked in asks
  * "Start in a new folder?" before the session starts. The room is asked of the
  * Mac (a phone doesn't own the room list).
+ *
+ * Central session (server/mcp): Off, or a central for the room picked above, this folder, or every
+ * session. Only this Mac may start one, so the field shows only while mcpStore says this window may
+ * (never in the phone app), and the request carries `central` only for a choice that is still open
+ * (`centralRequestFor`). The choice is never carried over to the next opening: a central is made on
+ * purpose, each time.
  */
 import { lazy, Suspense, useEffect, useState, useMemo } from 'react';
 import type {
@@ -28,13 +34,17 @@ import Combobox from '@/components/ui/Combobox';
 import Select from '@/components/ui/Select';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
+import CentralPicker from './CentralPicker';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useMcpStore } from '@/stores/mcpStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { useCentralChoice } from '@/hooks/useCentralChoice';
 import { getCommandSuggestions, saveCommand } from '@/lib/commandSuggestions';
 import { isKnownFolder } from '@/lib/folderBrowser';
 import { sendRoomOp } from '@/lib/roomOps';
+import { centralRequestFor } from '@/lib/centralChoice';
 import {
   deriveRemoteControlName,
   loadRemoteControlSettings,
@@ -128,6 +138,8 @@ export default function NewSessionModal() {
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [roomId, setRoomId] = useState('');
+  // Central session (server/mcp). Off at every opening: see the module note.
+  const [central, setCentral] = useCentralChoice('new-session');
   const [sessionPrefs] = useState(() => loadSessionPrefs());
   const [effortLevel, setEffortLevel] = useState(normalizeEffortLevel(sessionPrefs.effortLevel));
   const [claudeModel, setClaudeModel] = useState(sessionPrefs.model || '');
@@ -178,6 +190,10 @@ export default function NewSessionModal() {
   // Rooms
   const rooms = useRoomStore((s) => s.rooms);
   const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
+
+  // May this window start a central? (Never a phone: the server refuses a new one from another device.)
+  const centralOffered = useMcpStore((s) => s.available === true) && !phoneApp;
+  const passwordEnabled = useMcpStore((s) => s.passwordEnabled);
 
   const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
   const isCodexCommand = /^(?:\S*\/)?codex(?:\s|$)/i.test(command.trim());
@@ -275,6 +291,10 @@ export default function NewSessionModal() {
       forceNew: true,
       // A phone's folder must be there: never the home-folder fallback for a missing one.
       requireExistingDir: phoneApp || undefined,
+      // The live list is read now, not at the last render: a scope taken since is left out, not refused.
+      central: centralOffered
+        ? centralRequestFor(central, { roomId, folder: workingDir, centrals: useMcpStore.getState().centrals })
+        : undefined,
     };
 
     try {
@@ -400,6 +420,17 @@ export default function NewSessionModal() {
             placeholder="None (corridor)"
           />
         </div>
+
+        {/* Central session (server/mcp): reads the room and folder above. Not in the phone app. */}
+        {centralOffered && (
+          <CentralPicker
+            value={central}
+            onChange={setCentral}
+            roomId={roomId}
+            folder={workingDir}
+            passwordEnabled={passwordEnabled}
+          />
+        )}
 
         {/* API key (not from the phone app: a phone may not set one) */}
         {!phoneApp && (

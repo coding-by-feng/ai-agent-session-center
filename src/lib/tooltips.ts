@@ -370,6 +370,20 @@ export const tooltips = {
     label: 'Disable alerts',
     description: 'Stop alerting for this session’s state changes.',
   },
+  // Both say what happens to a task a central already handed over (pinned by HandsOffToggle.test.tsx).
+  ctrlHandsOffOff: {
+    label: 'Hands off',
+    description:
+      'Keep every central from typing into this session or giving it tasks. They can still read it. ' +
+      'A task AASC is still typing in stops; one the session is already running keeps going until it ends or you stop it.',
+  },
+  ctrlHandsOffOn: {
+    label: 'Hands off is on',
+    description:
+      'No central may type into this session or give it tasks. ' +
+      'A task AASC is still typing in stops; one the session is already running keeps going until it ends or you stop it. ' +
+      'Click to let centrals steer it again.',
+  },
 } satisfies Record<string, TooltipCopy>;
 
 export type TooltipKey = keyof typeof tooltips;

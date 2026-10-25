@@ -1210,6 +1210,20 @@
   letter-spacing: 0.5px;
 }
 
+/* The ★ central badge (CentralBadge) in the name row, after the label chip. It gives way before the
+   title does (the title is what the row is for) and is capped, so a long folder name ellipsises; its
+   tooltip has the whole scope. Two classes: the badge's own module has a one-class `max-width`. In the
+   rail it joins the label chip and the project name under the title (see the block below). */
+.switcherNameDisplay .switcherCentral {
+  flex: 0 1 auto;
+  max-width: 160px;
+}
+
+.switcherBarVertical .switcherNameDisplay .switcherCentral {
+  order: 1;
+  max-width: 100%;
+}
+
 .switcherProject {
   font-size: 10px;
   color: var(--text-secondary);
@@ -1651,6 +1665,29 @@
 .sessionTabCard:hover .sessionTabPin { opacity: 0.8; }
 .sessionTabPin:hover { opacity: 1; filter: none; }
 .sessionTabPin.pinned { opacity: 1; filter: none; }
+
+/* The ★ central badge (CentralBadge) on a card. Two classes where the badge's own module has one, so
+   the placement below never depends on which stylesheet loads last. A detailed card puts it under the
+   title, where a long room or folder name ellipsises at the card's width; a compact card keeps its one
+   line and takes only the star, beside the title. */
+.sessionTabCard .sessionTabCentral {
+  max-width: 100%;
+}
+
+.sessionTabCardCompact .sessionTabCentral {
+  flex: 0 0 auto;
+}
+
+/* The worker badge (WorkerBadge) on a card, placed as the ★ badge above is: under the title on a detailed card,
+   where a long scope ellipsises at the card's width and the task id and state stay; the task id alone beside
+   the title on a compact card, which keeps its one line. */
+.sessionTabCard .sessionTabWorker {
+  max-width: 100%;
+}
+
+.sessionTabCardCompact .sessionTabWorker {
+  flex: 0 0 auto;
+}
 
 /* ---- Session tab CLI badge ---- */
 

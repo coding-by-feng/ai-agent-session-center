@@ -1,0 +1,145 @@
+/* ConfirmStack — the cards a central's confirmation waits on (server/mcp/confirm.ts).
+
+   Floating UI, so it must stay inside the viewport: it is anchored bottom-right with a 16px inset and its width is
+   capped at `min(420px, 100vw - 32px)` (328px at 360px wide), so it can never cross the left edge; its height is
+   capped too, and it scrolls inside that cap when three cards with long `detail` text do not fit. It is portaled
+   to <body> and sits at --z-confirm, above the panel, modals, fullscreen terminal and portaled menus.
+
+   Nothing here is a colour of its own: the panel, border, text and accent tokens are the ones every theme already
+   sets, so light and dark come with them. The orange rule on the card edge is the theme's own --accent-orange (an
+   attention mark, never text); the words on the card use --text-primary / --text-secondary, which the themes keep
+   at 4.5:1 or better on --bg-panel. The buttons are the shared Button (all five states) with a 44px target. */
+
+.stack {
+  position: fixed;
+  right: calc(var(--space-4) + var(--safe-right));
+  bottom: calc(var(--space-4) + var(--safe-bottom));
+  z-index: var(--z-confirm);
+  display: flex;
+  /* Reversed: the first (oldest) card stays in the corner and newer ones grow upward, so an arriving card never
+     moves the buttons under the cursor. The scroll box starts at its bottom edge, where the oldest card is. */
+  flex-direction: column-reverse;
+  gap: var(--space-2);
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  /* The stack is a column of cards; the gaps between them (and the empty corner) never catch a click. */
+  pointer-events: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-accent-strong);
+  border-left: 4px solid var(--accent-orange);
+  border-radius: 8px;
+  /* Small on purpose: the stack scrolls, so it clips anything that spills past its own edge. */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card { animation: confirm-in 200ms ease-out; }
+}
+@keyframes confirm-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.eyebrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expires { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+.summary {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.target {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.targetId { font-variant-numeric: tabular-nums; }
+
+.detailBlock { display: flex; flex-direction: column; gap: var(--space-1); }
+.detailLabel {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.detail {
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.detail:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+/* After Button's own rule on the same element (two classes beat one): the shared 32px becomes a 44px target, and the
+   label is centred explicitly because a <button> in the Electron app (Chromium 132) defaults to flex-start. */
+.actions .action {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+.error {
+  font-size: 11px;
+  color: var(--danger-text, color-mix(in srgb, var(--accent-red) 50%, var(--text-primary)));
+}
+
+.more {
+  align-self: flex-end;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-accent-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+/* Spoken, never seen: what a screen reader announces when a card arrives. */
+.live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

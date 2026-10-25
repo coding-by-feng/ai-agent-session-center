@@ -11,7 +11,10 @@
  *
  * A SHARE click does change `sessions`, but the 5 s session timer is reset by every
  * session update, so on a busy board it waited for a lull — quit before then and the
- * restart restored the old share state. It takes the quick save too.
+ * restart restored the old share state. It takes the quick save too. So does a
+ * Hands off flip (server/mcp): the restore recreates each card with `handsOff` from
+ * the snapshot alone, so a flip that missed it brings the session back open to
+ * centrals while the person believes it protected.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -19,7 +22,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { scheduleAutoSave, scheduleAutomationSave, cancelAutoSave } from '@/lib/workspaceSnapshot';
 import { automationIntentChanged } from '@/lib/queueAutomationDiff';
-import { shareIntentChanged } from '@/lib/shareIntentDiff';
+import { handsOffIntentChanged, shareIntentChanged } from '@/lib/shareIntentDiff';
 
 // Read at save time, so the debounced callback always sees the latest state.
 const currentSessions = () => useSessionStore.getState().sessions;
@@ -35,12 +38,14 @@ export function useWorkspaceAutoSave(): void {
     scheduleAutoSave(currentSessions, currentRooms);
   }, [sessions, rooms]);
 
-  // A session's SHARE (📡) was flipped — by this device, another one, or "Share all now".
+  // A session's SHARE (📡) was flipped — by this device, another one, or "Share all now" — or its Hands off.
   const seenSessions = useRef(sessions);
   useEffect(() => {
     const before = seenSessions.current;
     seenSessions.current = sessions;
-    if (shareIntentChanged(before, sessions)) scheduleAutomationSave(currentSessions, currentRooms);
+    if (shareIntentChanged(before, sessions) || handsOffIntentChanged(before, sessions)) {
+      scheduleAutomationSave(currentSessions, currentRooms);
+    }
   }, [sessions]);
 
   // A switch was changed by somebody. Mounting is not a change, and neither is a

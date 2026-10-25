@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mergeQueueItems } from './queueMerge';
-import type { QueueItem } from '@/stores/queueStore';
+import { mergeAutomation, mergeQueueItems } from './queueMerge';
+import { DEFAULT_AUTOMATION } from '@/stores/queueStore';
+import type { QueueAutomationConfig, QueueItem } from '@/stores/queueStore';
 
 const item = (id: number, over: Partial<QueueItem> = {}): QueueItem => ({
   id,
@@ -223,5 +224,55 @@ describe('mergeQueueItems', () => {
   it('returns an empty list when nothing is left on either side', () => {
     expect(mergeQueueItems(list(X), [], [])).toEqual([]);
     expect(mergeQueueItems([], [], [])).toEqual([]);
+  });
+});
+
+// `mergeAutomation(base, mine, theirs)`: the switches, key by key, against the config the server last held.
+describe('mergeAutomation', () => {
+  const cfg = (over: Partial<QueueAutomationConfig> = {}): QueueAutomationConfig => ({ ...DEFAULT_AUTOMATION, ...over });
+
+  it('takes the remote whole when the window changed nothing since base', () => {
+    const base = cfg();
+    const theirs = cfg({ paused: true, resumeMaxRetries: 7 });
+    expect(mergeAutomation(base, cfg(), theirs)).toEqual(theirs);
+  });
+
+  it('keeps a switch the window changed and takes the others from the remote', () => {
+    const merged = mergeAutomation(cfg(), cfg({ autoEnter: false }), cfg({ paused: true }));
+    expect(merged).toEqual(cfg({ autoEnter: false, paused: true }));
+  });
+
+  it('gives a key both sides changed to the window', () => {
+    const merged = mergeAutomation(cfg({ resumeMaxRetries: 3 }), cfg({ resumeMaxRetries: 5 }), cfg({ resumeMaxRetries: 7, idleGuard: false }));
+    expect(merged).toEqual(cfg({ resumeMaxRetries: 5, idleGuard: false }));
+  });
+
+  it('keeps a key the window cleared cleared, whatever the remote says', () => {
+    const base = cfg({ resumePrompt: 'go on' });
+    const mine = { ...base } as Partial<QueueAutomationConfig>;
+    delete mine.resumePrompt;
+    const merged = mergeAutomation(base, mine as QueueAutomationConfig, cfg({ resumePrompt: 'carry on', paused: true }));
+    expect('resumePrompt' in merged).toBe(false);
+    expect(merged.paused).toBe(true);
+  });
+
+  it('keeps a key the remote added and the window never had', () => {
+    const merged = mergeAutomation(cfg(), cfg({ autoSend: false }), cfg({ loopExcludeWindows: [{ id: 1, startHHMM: '01:00', endHHMM: '02:00' }] }));
+    expect(merged.autoSend).toBe(false);
+    expect(merged.loopExcludeWindows).toEqual([{ id: 1, startHHMM: '01:00', endHHMM: '02:00' }]);
+  });
+
+  it('answers the window\'s own object when the remote adds nothing to it', () => {
+    const mine = cfg({ autoEnter: false });
+    expect(mergeAutomation(cfg(), mine, cfg())).toBe(mine);
+  });
+
+  it('edits none of its inputs', () => {
+    const base = cfg();
+    const mine = cfg({ autoEnter: false });
+    const theirs = cfg({ paused: true });
+    const copies = [structuredClone(base), structuredClone(mine), structuredClone(theirs)];
+    mergeAutomation(base, mine, theirs);
+    expect([base, mine, theirs]).toEqual(copies);
   });
 });

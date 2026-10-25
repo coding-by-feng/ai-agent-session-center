@@ -12,6 +12,7 @@ function deferred() {
 async function harness(
   cloud: { stop(): Promise<void> } | null,
   cloudJobs?: Promise<{ close(): Promise<void> }>,
+  mcpRouter: { close(): Promise<void> } | null = null,
 ) {
   const source = await readFile(new URL('../server/index.ts', import.meta.url), 'utf8');
   const start = source.indexOf('  // Graceful shutdown —');
@@ -45,10 +46,25 @@ async function harness(
     'saveSnapshot',
     'getMqOffset',
     'closeDb',
+    'mcpRouter',
     code,
-  )(cloud, cloudJobs, server, null, log, noop, noop, noop, noop, noop, noop, noop, noop, closeDb) as (
-    signal: string,
-  ) => Promise<void>;
+  )(
+    cloud,
+    cloudJobs,
+    server,
+    null,
+    log,
+    noop,
+    noop,
+    noop,
+    noop,
+    noop,
+    noop,
+    noop,
+    noop,
+    closeDb,
+    mcpRouter,
+  ) as (signal: string) => Promise<void>;
   return { shutdown, closeDb, closed, server, log };
 }
 it('duplicate shutdown callers share cloud cancellation, job drain and HTTP completion', async () => {
@@ -183,5 +199,23 @@ it('job storage that never opened does not block or fail shutdown', async () => 
   const result = h.shutdown('test');
   h.closed.resolve();
   await expect(result).resolves.toBeUndefined();
+  expect(h.closeDb).toHaveBeenCalledTimes(1);
+});
+it('closes the MCP sessions before it waits for HTTP, and waits for them before the database', async () => {
+  const sessions = deferred();
+  const mcpRouter = { close: vi.fn(() => sessions.promise) };
+  const h = await harness(null, undefined, mcpRouter);
+  const result = h.shutdown('test');
+  await new Promise((r) => setImmediate(r));
+  expect(mcpRouter.close).toHaveBeenCalledTimes(1);
+  // Open MCP event streams would hold server.close() to its 2 s force-close: they end first.
+  expect(mcpRouter.close.mock.invocationCallOrder[0]).toBeLessThan(
+    h.server.close.mock.invocationCallOrder[0],
+  );
+  h.closed.resolve();
+  await new Promise((r) => setImmediate(r));
+  expect(h.closeDb).not.toHaveBeenCalled();
+  sessions.resolve();
+  await result;
   expect(h.closeDb).toHaveBeenCalledTimes(1);
 });

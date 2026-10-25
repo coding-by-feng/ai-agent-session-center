@@ -452,18 +452,19 @@ describe.skipIf(realPlatform === 'win32')('what is typed into the terminal (sshM
     it('survives being wrapped in a tmux command line', async () => {
       installTap();
       const { createTerminal } = await import('../server/sshManager.js');
-      await createTerminal(localConfig({ useTmux: true, sessionTitle: 'T' }), null);
+      const id = await createTerminal(localConfig({ useTmux: true, sessionTitle: 'T' }), null);
       await settle();
       expect(typed).toHaveLength(1);
       const line = typed[0].replace(/\r$/, '');
       expect(line.startsWith('tmux new-session -s ')).toBe(true);
-      // the shell hands tmux (name, inner command): the inner one must still be the tapped command
+      // the shell hands tmux (name, inner command): the inner one must still be the tapped command, after the
+      // card's id export (Ruling P4-59)
       const argv = execFileSync(
         '/bin/sh',
         ['-c', `${line.replace(/^tmux new-session -s /, 'set -- ')}; printf '%s' "$2"`],
         { encoding: 'utf8' },
       );
-      expect(argv).toBe(`claude${FLAG} --dangerously-skip-permissions -n "T"`);
+      expect(argv).toBe(`export AGENT_MANAGER_TERMINAL_ID='${id}' && claude${FLAG} --dangerously-skip-permissions -n "T"`);
     });
 
     it('does not put the tap into the command the terminal (or the caller) keeps', async () => {

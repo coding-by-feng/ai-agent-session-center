@@ -6,6 +6,7 @@ import SetupWizard from '@/components/setup/SetupWizard';
 import Header from '@/components/layout/Header';
 import NavBar from '@/components/layout/NavBar';
 import ToastContainer from '@/components/ui/ToastContainer';
+import ConfirmStack from '@/components/mcp/ConfirmStack';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import NewSessionModal from '@/components/modals/NewSessionModal';
 import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
@@ -108,6 +109,7 @@ function AppLayout() {
         <DetailPanel />
       </main>
       <ToastContainer />
+      <ConfirmStack />
       <SettingsPanel />
       <NewSessionModal />
       <ShortcutsPanel />
