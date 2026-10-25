@@ -15,6 +15,7 @@
  */
 import type { ChatSystemKind } from '../../src/types/chat.js';
 import {
+  assistantTextCap,
   capName,
   cappedText,
   todoItems,
@@ -132,20 +133,20 @@ function toolUse(block: Rec): ChatEntryDraft {
   return toolUseDraft(id, name, input);
 }
 
-function assistantEntries(rec: Rec, content: unknown): ChatEntryDraft[] {
+function assistantEntries(rec: Rec, content: unknown, cap: number): ChatEntryDraft[] {
   if (rec.isApiErrorMessage === true) {
     const text = typeof content === 'string' ? content : Array.isArray(content)
       ? content.filter(isRec).map((b) => str(b.text)).join('\n') : '';
     return text.trim() ? [system('info', 'API error', text)] : [];
   }
-  if (typeof content === 'string') return content.trim() ? [{ kind: 'assistant', ...cappedText(content) }] : [];
+  if (typeof content === 'string') return content.trim() ? [{ kind: 'assistant', ...cappedText(content, cap) }] : [];
   if (!Array.isArray(content)) return [];
   const out: ChatEntryDraft[] = [];
   let duration = typeof rec.thinkingDurationMs === 'number' ? rec.thinkingDurationMs : undefined;
   for (const block of content) {
     if (!isRec(block)) continue;
     if (block.type === 'text' && str(block.text).trim()) {
-      out.push({ kind: 'assistant', ...cappedText(str(block.text)) });
+      out.push({ kind: 'assistant', ...cappedText(str(block.text), cap) });
     } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
       // How much and how long, never what: the thinking itself stays on the Mac.
       out.push({ kind: 'thinking', length: str(block.thinking).length, ...(duration !== undefined ? { durationMs: duration } : {}) });
@@ -208,14 +209,14 @@ function systemEntries(rec: Rec): ChatEntryDraft[] {
   }
 }
 
-/** The chat entries one parsed Claude record holds. */
-export function claudeRecordEntries(record: unknown): ChatEntryDraft[] {
+/** The chat entries one parsed Claude record holds; `assistantCap`: characters of assistant text per entry. */
+export function claudeRecordEntries(record: unknown, assistantCap: number = TEXT_CAP): ChatEntryDraft[] {
   if (!isRec(record) || record.isSidechain === true) return [];
   const message = isRec(record.message) ? record.message : undefined;
   const content = message?.content ?? record.content;
   switch (record.type) {
     case 'assistant':
-      return assistantEntries(record, content);
+      return assistantEntries(record, content, assistantCap);
     case 'user':
       return userEntries(record, content);
     case 'system':
@@ -236,7 +237,7 @@ export function claudeRecordCalls(record: unknown): RawCall[] {
 }
 
 export const claudeLineReader: LineReader = {
-  entries: (record) => claudeRecordEntries(record),
+  entries: (record, { assistantCap }) => claudeRecordEntries(record, assistantTextCap(assistantCap)),
   calls: claudeRecordCalls,
   timestamp: (record) => (isRec(record) && typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN),
 };

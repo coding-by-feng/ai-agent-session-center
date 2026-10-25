@@ -162,6 +162,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // The command lines are fixed; the router limits a phone to one update per CLI per 10 minutes.
   route('GET', '/cli-versions', 'allow'),
   route('POST', '/cli-versions/(claude|codex)/update', 'allow'),
+  // A central's confirmations a phone may answer (P5-15, server/mcp/phoneConfirmRoutes.ts): only the tools whose
+  // routes this table already lets a phone call, about sessions shared with it; the route checks both, at answer
+  // time. Nothing under /mcp: that stays this Mac's own.
+  route('GET', '/phone-confirms', 'allow'),
+  route('POST', '/phone-confirms/[^/]+', 'allow'),
 ];
 
 /** The rule for a phone request, or null when phones may not call it at all. */

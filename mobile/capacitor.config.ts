@@ -9,14 +9,22 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const release = env.AASC_RELEASE === '1';
 
+// The phone app's own version: the one source. scripts/sync-version.mjs copies both into the Xcode
+// project (MARKETING_VERSION / CURRENT_PROJECT_VERSION) and Gradle (versionName / versionCode) before
+// every `cap sync`; it reads these two lines, so keep them literal. Raise APP_BUILD for every build
+// that goes to a phone, and APP_VERSION when what the app does changes.
+export const APP_VERSION = '1.0.0';
+export const APP_BUILD = 2;
+
 const config: CapacitorConfig = {
   appId: 'work.aasc.mobile', // decide once: it can't change after the first store upload
   appName: 'AASC',
   webDir: 'shell/dist',
   // The server's UI checks this token (src/lib/platform.ts) for UX only, never auth.
-  // No platform suffix is appended (the real iOS string ends in a bare `AASC-Mobile/1`):
-  // nativeAppPlatform() takes the platform from the rest of the user agent.
-  appendUserAgent: 'AASC-Mobile/1',
+  // No platform suffix is appended: nativeAppPlatform() takes the platform from the rest
+  // of the user agent, and nativeAppVersion() reads `<version>+<build>` for This phone
+  // (the apps before 1.0.0 sent a bare `AASC-Mobile/1`).
+  appendUserAgent: `AASC-Mobile/${APP_VERSION}+${APP_BUILD}`,
   loggingBehavior: release ? 'none' : 'debug',
   ios: { webContentsDebuggingEnabled: !release },
   android: { webContentsDebuggingEnabled: !release, allowMixedContent: false },

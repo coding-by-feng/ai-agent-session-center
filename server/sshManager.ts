@@ -12,6 +12,8 @@ import log from './logger.js';
 import { reapPtyChildren, listChildPids, terminateProcessTree } from './processMonitor.js';
 import { appendSessionName, applyClaudeLaunchFlags, applyStatusLineTap, isStatusLineTapEnabled, isStatusLineTapInstalled, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
 import { applyCodexNoDaemon, codexNoDaemonSupport, hasCodexLaunch, isCodexNoDaemonEnabled, stripCodexNoDaemon } from './codexNoDaemon.js';
+import { centrals } from './mcp/centrals.js';
+import { MCP_TOKEN_ENV, applyCentralLaunch, centralWiringFor, stripCentralLaunch, type CentralWiring, type LaunchPlace } from './mcp/launch.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
 import {
@@ -40,6 +42,41 @@ let onTerminalExitCallback: OnTerminalExitCallback | null = null;
  */
 export function registerTerminalExitCallback(cb: OnTerminalExitCallback): void {
   onTerminalExitCallback = cb;
+}
+
+// The callback above is one slot, and the session store holds it. Anything else that needs to know
+// a terminal is gone (a central's lifecycle, server/mcp/lifecycle.ts) subscribes to this feed.
+type TerminalExitListener = (terminalId: string) => void;
+const terminalExitListeners = new Set<TerminalExitListener>();
+
+/**
+ * Subscribe to terminals going away: `listener` is called with the terminal's id, once per terminal,
+ * when its PTY exits by itself and when the terminal is closed on purpose (kill, close, delete,
+ * restart). The second needs more than the PTY's exit handler: `closeTerminal` disposes it before the
+ * PTY dies, so a deliberate close never reaches it. Both are announced from `cleanup`, the one place a
+ * terminal leaves the map, which a PTY exit reaches right after the single-slot callback has run.
+ * A listener that throws is logged and stops neither the others nor the exit. Returns the unsubscribe.
+ */
+export function onTerminalExit(listener: TerminalExitListener): () => void {
+  // Wrapped, so the same function subscribed twice is two subscriptions that end separately.
+  const subscription: TerminalExitListener = (terminalId) => listener(terminalId);
+  terminalExitListeners.add(subscription);
+  return () => {
+    terminalExitListeners.delete(subscription);
+  };
+}
+
+function notifyTerminalExit(terminalId: string): void {
+  // A copy, so a listener may unsubscribe (itself or another) while this runs; one removed before
+  // its turn is skipped.
+  for (const listener of [...terminalExitListeners]) {
+    if (!terminalExitListeners.has(listener)) continue;
+    try {
+      listener(terminalId);
+    } catch (e: unknown) {
+      log.warn('pty', `A terminal-exit listener failed for ${terminalId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 }
 
 // Callback type for notifying the session store that a terminal printed a
@@ -358,6 +395,45 @@ function withStatusLineTap(local: boolean, line: string): string {
 }
 
 /**
+ * Where a launch's agent will run, for a central's token (server/mcp/launch.ts): a remote host is not
+ * this Mac, and in tmux (a new session or an attach) the token would outlive the central, since a tmux
+ * server keeps the environment it was started with for every session it creates later.
+ */
+function launchPlace(config: Pick<TerminalConfig, 'host' | 'useTmux' | 'tmuxSession'> | undefined): LaunchPlace {
+  if (!isLocal(config?.host)) return 'remote';
+  return config?.useTmux || config?.tmuxSession ? 'tmux' : 'local';
+}
+
+/**
+ * Point a central's launch line at AASC's /mcp (server/mcp/launch.ts). `wiring` is what
+ * `centralWiringFor` found for this launch: null for every launch that is not a local central's.
+ * Those lines come out without any flag of this kind, which changes nothing for a line that has none
+ * but matters for one rebuilt from a stored command (the hook records the live CLI's `ps` args, where
+ * a central's flags are still present): a terminal with no token must not type a flag that names one.
+ * Like withStatusLineTap, applied to the string typed into the PTY and nothing else, on the same two
+ * paths (createTerminal's auto-launch, writeWhenReady for the deferred ones). The token is not in the
+ * line: it is in the PTY's environment (createTerminal).
+ */
+function withCentralLaunch(wiring: CentralWiring | null, line: string): string {
+  return wiring ? applyCentralLaunch(line, { port: wiring.port }) : stripCentralLaunch(line);
+}
+
+/**
+ * Tell a central's record which terminal it runs in. A central that could not be tied to its
+ * terminal could never be revoked when that terminal closes, so if that fails the PTY (which holds
+ * its token) is killed and the failure goes on to refuse the launch. It cannot happen while the
+ * record was found a moment ago and the terminal id is new; this is the guard for when it does.
+ */
+function attachCentralTerminal(centralId: string, terminalId: string, ptyProcess: IPty): void {
+  try {
+    centrals.attachTerminal(centralId, terminalId);
+  } catch (err: unknown) {
+    killPty(terminalId, ptyProcess);
+    throw err;
+  }
+}
+
+/**
  * AASC-59: start a LOCAL interactive Codex with `--no-daemon`, so its lifecycle hooks are run
  * by the TUI in this PTY (this terminal's tty and AGENT_MANAGER_TERMINAL_ID) instead of by
  * Codex's shared app-server daemon, whose hooks carry no tty, the daemon's pid and a terminal
@@ -458,12 +534,17 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
     // runs). ultracode launches as `--effort xhigh` (its valid base) and is
     // upgraded to true ultracode via the /effort slash injection below.
     const local = isLocal(config.host);
-    const command = withStatusLineTap(
-      local,
-      applyClaudeLaunchFlags(
-        appendSessionName(baseCommand, sessionName),
-        config.model,
-        config.effortLevel,
+    // A central (server/mcp) carries its MCP flags on this line and its token in the environment below.
+    const wiring = centralWiringFor(config.central, launchPlace(config), { isTerminalLive: (id) => terminals.has(id) });
+    const command = withCentralLaunch(
+      wiring,
+      withStatusLineTap(
+        local,
+        applyClaudeLaunchFlags(
+          appendSessionName(baseCommand, sessionName),
+          config.model,
+          config.effortLevel,
+        ),
       ),
     );
     const skipAutoLaunch = config.command === '';
@@ -489,6 +570,14 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       if (config.apiKey) {
         env[apiKeyEnvForCommand(command)] = config.apiKey;
       }
+
+      // A central's bearer token goes in the environment only: never into the command line, where
+      // `ps`, a stored startup command and the terminal's own scrollback would show it. And only the
+      // token this launch was given: one the server itself inherited (it was started from inside a
+      // central's shell) is that central's, not this terminal's — the same rule as the Claude session
+      // markers stripped above.
+      delete env[MCP_TOKEN_ENV];
+      if (wiring) env[MCP_TOKEN_ENV] = wiring.token;
 
       if (local) {
         shell = getDefaultShell();
@@ -521,6 +610,10 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       });
 
       log.info('pty', `Spawned ${local ? 'local' : `remote (${config.host})`} terminal ${terminalId} (pid: ${ptyProcess.pid})`);
+
+      // A central's record learns its terminal now, before anything is awaited, so there is no
+      // moment when a central runs with no terminal for its lifecycle to watch (server/mcp/lifecycle.ts).
+      if (wiring && config.central) attachCentralTerminal(config.central.centralId, terminalId, ptyProcess);
 
       // Auto-type SSH password when password auth is used.
       // Watches PTY output for "password:" prompts and sends the stored password.
@@ -676,9 +769,11 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             // Wrap command in a new tmux session
             const tmuxName = `claude-${Date.now().toString(36)}`;
             let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
+            // Export terminal ID for hook matching: env doesn't cross SSH, and locally a tmux server gives the CLI
+            // its own environment (the first PTY's, or one AASC never started), not this PTY's — a hook without
+            // this card's id never counts as its start (Rulings P4-53, P4-59).
+            innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
             if (!local) {
-              // Export terminal ID for hook matching over SSH
-              innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
               // Classic Claude renderer on the remote side too (env doesn't cross
               // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
               innerCmd += `export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" && `;
@@ -808,6 +903,8 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         ...tmuxParentEnv,
         AGENT_MANAGER_TERMINAL_ID: terminalId,
       });
+      // Never a central's token the server inherited (see createTerminal): a tmux pane is no central.
+      delete env[MCP_TOKEN_ENV];
 
       const ptyProcess: IPty = pty.spawn(shell, ['-l'], {
         name: 'xterm-256color',
@@ -882,7 +979,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
  * Focus events (\x1b[I / \x1b[O) and Device Attributes responses
  * (\x1b[?...c / \x1b[>...c) are emitted by xterm.js but are not user input.
  */
-const TERMINAL_RESPONSE_RE = /\x1b\[I|\x1b\[O|\x1b\[\?[\d;]*c|\x1b\[>[\d;]*c/g;
+export const TERMINAL_RESPONSE_RE = /\x1b\[I|\x1b\[O|\x1b\[\?[\d;]*c|\x1b\[>[\d;]*c/g;
 
 export function writeToTerminal(terminalId: string, data: string): void {
   const term = terminals.get(terminalId);
@@ -900,7 +997,8 @@ export function writeToTerminal(terminalId: string, data: string): void {
  * Its callers type LAUNCH LINES — every deferred launch (resume, fork, clone, workspace
  * restore, floating forks) writes its `claude … || claude …` through here because
  * createTerminal was asked for an empty command — so a local Claude in the data is pointed
- * at the status-line tap on the way (withStatusLineTap). Don't use it to type free text.
+ * at the status-line tap on the way (withStatusLineTap), and a central's line at /mcp
+ * (withCentralLaunch). Don't use it to type free text.
  */
 export async function writeWhenReady(terminalId: string, data: string): Promise<boolean> {
   const term = terminals.get(terminalId);
@@ -912,7 +1010,9 @@ export async function writeWhenReady(terminalId: string, data: string): Promise<
   // Terminal might have been cleaned up while waiting
   const termNow = terminals.get(terminalId);
   if (!termNow || !termNow.pty) return false;
-  termNow.pty.write(typed);
+  // Decided now, at the moment of typing: the central must still be the one this PTY's environment has a token for.
+  const wiring = centralWiringFor(termNow.config?.central, launchPlace(termNow.config), { terminalId });
+  termNow.pty.write(withCentralLaunch(wiring, typed));
   return true;
 }
 
@@ -1395,6 +1495,9 @@ function cleanup(terminalId: string): void {
       else if (filtered.length !== arr.length) pendingLinks.set(key, filtered);
     }
     terminals.delete(terminalId);
+    // Every way out of the map — PTY exit, closeTerminal, closeTerminalAndWait — ends here, once: the
+    // next call finds no terminal.
+    notifyTerminalExit(terminalId);
   }
 }
 

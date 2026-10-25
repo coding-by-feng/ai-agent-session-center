@@ -43,7 +43,7 @@
  * Pure and dependency-free (a type import only), like the other queue helpers, so
  * the rules are testable without a store.
  */
-import type { QueueItem } from '@/stores/queueStore';
+import type { QueueAutomationConfig, QueueItem } from '@/stores/queueStore';
 
 /**
  * Fields that do not make an item "changed". `position` is the item's place in the
@@ -69,12 +69,42 @@ function sameValue(a: unknown, b: unknown): boolean {
   return true;
 }
 
+/** Do two queue automation configs say the same thing? Structural, like the items: an absent field equals `undefined`. */
+export function sameAutomation(a: unknown, b: unknown): boolean {
+  return sameValue(a, b);
+}
+
 /** The fields (other than the ignored ones) on which two items differ. */
 function changedFields(from: QueueItem, to: QueueItem): string[] {
   const before = from as unknown as Record<string, unknown>;
   const after = to as unknown as Record<string, unknown>;
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   return [...keys].filter((key) => !IGNORED_FIELDS.has(key) && !sameValue(before[key], after[key]));
+}
+
+/**
+ * One session's automation switches, merged key by key against the config the server last held. A switch this
+ * window changed since `base` keeps this window's value (one both sides changed goes to this window, the person
+ * wins, and one the window cleared stays cleared); every other switch takes the remote's, so a central's own
+ * `queue_pause` lands beside the person's `autoEnter` flip instead of undoing it. Disjoint keys are what two
+ * writers each chose, not a combination nobody did. Returns `mine` itself when the window changed nothing the
+ * remote did not also say, so a caller can tell "nothing to apply" by identity; never edits an input.
+ */
+export function mergeAutomation(
+  base: QueueAutomationConfig,
+  mine: QueueAutomationConfig,
+  theirs: QueueAutomationConfig,
+): QueueAutomationConfig {
+  const before = base as unknown as Record<string, unknown>;
+  const local = mine as unknown as Record<string, unknown>;
+  const remote = theirs as unknown as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...remote };
+  for (const key of new Set([...Object.keys(before), ...Object.keys(local)])) {
+    if (sameValue(before[key], local[key])) continue;
+    if (local[key] === undefined) delete merged[key];
+    else merged[key] = local[key];
+  }
+  return sameValue(merged, local) ? mine : (merged as unknown as QueueAutomationConfig);
 }
 
 /**

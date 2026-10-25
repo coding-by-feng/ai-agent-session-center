@@ -937,6 +937,30 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(buildSnapshot(new Map([['sess-never', never]]), []).sessions[0]).not.toHaveProperty('remoteVisible');
   });
 
+  // A central (server/mcp) is a property of its card: the snapshot keeps the marker (never a token,
+  // which the card does not have), so a restore relaunches it as the same central.
+  it('keeps the central marker, as a copy, and nothing for a session that is no central', () => {
+    const central = { centralId: '7d6c4c1e-1b0a-4c3e-9f5a-2b8e1d0c9a77', kind: 'project' as const, scopeRef: '/x' };
+    const s = { ...loopSession('sess-central'), central } as unknown as Session;
+    const saved = buildSnapshot(new Map([['sess-central', s]]), []).sessions[0];
+    expect(saved.central).toEqual(central);
+    expect(saved.central).not.toBe(central);
+    const plain = loopSession('sess-plain-c') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-plain-c', plain]]), []).sessions[0]).not.toHaveProperty('central');
+  });
+
+  // Hands-off (server/mcp) is the person's switch on a session: a central may read it, never steer it. It
+  // must survive the workspace restore like `muted` does, or a restart would hand every session back.
+  it('keeps hands-off, and nothing for a session that is not (absent already means a central may steer it)', () => {
+    const off = { ...loopSession('sess-hands-off'), handsOff: true } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-hands-off', off]]), []).sessions[0].handsOff).toBe(true);
+    const plain = loopSession('sess-hands-on') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-hands-on', plain]]), []).sessions[0]).not.toHaveProperty('handsOff');
+    // `false` is not written either: the snapshot says "hands-off" or says nothing.
+    const explicitFalse = { ...loopSession('sess-hands-false'), handsOff: false } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-hands-false', explicitFalse]]), []).sessions[0]).not.toHaveProperty('handsOff');
+  });
+
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
     // Non-Claude session: session.model is the raw launch command (has spaces).
     const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
@@ -1037,6 +1061,61 @@ describe('importSnapshot — loop round-trip', () => {
     await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
     const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
     expect(bodies.map((b) => b.remoteVisible)).toEqual([true, undefined, false]);
+  });
+
+  it('sends the central marker back in the restore POST, so the server re-mints the same central', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-central-1' }),
+    });
+    const central = { centralId: '7d6c4c1e-1b0a-4c3e-9f5a-2b8e1d0c9a77', kind: 'global' as const, scopeRef: null };
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-444444444444', central }),
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-555555555555' }),
+      ],
+      rooms: [],
+    };
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.central)).toEqual([central, undefined]);
+  });
+
+  it('sends handsOff: true in the restore POST, so a hands-off session comes back hands-off', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-hands-off-1' }),
+    });
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-666666666666', handsOff: true }),
+        makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-777777777777' }),
+      ],
+      rooms: [],
+    };
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.handsOff)).toEqual([true, undefined]);
+  });
+
+  it('round-trips hands-off: what a snapshot saved is what the restore POSTs', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-round-trip-1' }),
+    });
+    const guarded = { ...loopSession('sess-round-1'), handsOff: true } as unknown as Session;
+    const open = loopSession('sess-round-2') as unknown as Session;
+    const saved = buildSnapshot(new Map([['sess-round-1', guarded], ['sess-round-2', open]]), []);
+
+    await importSnapshot(saved, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.handsOff)).toEqual(saved.sessions.map((snap) => snap.handsOff ? true : undefined));
+    expect(bodies.filter((b) => b.handsOff === true)).toHaveLength(1);
   });
 
   it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {

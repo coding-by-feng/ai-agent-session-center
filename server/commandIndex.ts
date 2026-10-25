@@ -359,6 +359,11 @@ const CODEX_BUILTINS: BuiltinSpec[] = [
   { name: 'worktree', description: 'Start or continue a conversation in a new worktree' },
 ];
 
+/** Every built-in command name of either CLI, lowercased (for callers that must tell a command from a folder name). */
+export const BUILTIN_COMMAND_NAMES: ReadonlySet<string> = new Set(
+  [...CLAUDE_BUILTINS, ...CODEX_BUILTINS].map((b) => b.name.toLowerCase()),
+);
+
 function appendBuiltins(
   entries: CommandEntry[],
   builtins: BuiltinSpec[],

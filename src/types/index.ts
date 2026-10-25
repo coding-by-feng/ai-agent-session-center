@@ -76,6 +76,7 @@ export type {
   ControlRequestedMessage,
   RoomsUpdateMessage,
   RoomOpMessage,
+  CentralsUpdateMessage,
   ServerMessage,
   TerminalInputMessage,
   TerminalResizeMessage,
@@ -181,6 +182,26 @@ export type {
   RoomOp,
   RoomList,
 } from './room.js';
+
+// Central sessions (the marker a terminal config and a session card carry, the launch request, the live list)
+export type {
+  CentralKind,
+  CentralLaunchRequest,
+  CentralSummary,
+  SessionCentralMarker,
+} from './central.js';
+
+// Central-session events a Mac's own windows are told about (the activity log's rows, a task's changes)
+export type {
+  McpActivityDetail,
+  McpActivityMessage,
+  McpActivityOutcome,
+  McpActivityRow,
+  McpRisk,
+  McpTaskState,
+  McpTaskUpdateMessage,
+  McpTaskView,
+} from './mcpEvents.js';
 
 // Agenda
 export type {

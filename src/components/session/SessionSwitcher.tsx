@@ -17,6 +17,9 @@ import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
 import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
 import LabelPicker, { LabelChip } from './LabelPicker';
+import CentralBadge from './CentralBadge';
+import WorkerBadge from './WorkerBadge';
+import HandsOffToggle from './HandsOffToggle';
 import PlanUsageChip from './PlanUsageChip';
 import SessionRuntimeChip from './SessionRuntimeChip';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
@@ -471,6 +474,10 @@ export default function SessionSwitcher({
                 >
                   <PinIcon filled={!!currentSession.pinned} />
                 </IconButton>
+                {/* Hands off (server/mcp): the other flag on the session, so it follows Pin. Offered only where it
+                    can work (this Mac, central sessions on) and never on a central itself. Keyed by the session:
+                    a change still out for one session must not make the next one's switch look busy. */}
+                <HandsOffToggle key={currentSession.sessionId} session={currentSession} />
                 <IconButton size="sm" label="Rename session" onClick={beginHeaderEdit}>
                   <EditIcon />
                 </IconButton>
@@ -529,6 +536,10 @@ export default function SessionSwitcher({
           )}
           {currentLabel && (
             <LabelChip name={currentLabel} color={labelColor(currentLabel)} className={styles.switcherLabelChip} />
+          )}
+          {/* A central session (server/mcp): after the actions, never between them and the name. */}
+          {currentSession.central && (
+            <CentralBadge central={currentSession.central} className={styles.switcherCentral} />
           )}
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
@@ -1118,6 +1129,12 @@ function SessionTabCard({
           {title}
         </div>
       )}
+      {/* A central session (server/mcp): the star alone in a compact card, which keeps its one line. */}
+      {session.central && (
+        <CentralBadge central={session.central} compact={isCompact} className={styles.sessionTabCentral} />
+      )}
+      {/* A task a central handed this session that is not over (server/mcp): the task id alone in a compact card. */}
+      <WorkerBadge sessionId={session.sessionId} compact={isCompact} className={styles.sessionTabWorker} />
       {label && isCompact && (
         <span
           className={styles.sessionTabLabelDot}

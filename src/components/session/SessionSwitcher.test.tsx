@@ -8,6 +8,7 @@ import { useUiStore, ROOM_KILL_MODAL_ID } from '@/stores/uiStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useMcpStore } from '@/stores/mcpStore';
 import { projectColorIndex } from '@/lib/projectGroups';
 import { getClientId } from '@/lib/deviceIdentity';
 import type { DevicePresence } from '@/types/websocket';
@@ -2410,5 +2411,444 @@ describe('SessionSwitcher — the session peek', () => {
     const tip = hover(title);
     expect(within(tip).getByText('AASC Enhancement')).toBeInTheDocument();
     expect(within(tip).getByText('/electron-build')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The ★ central badge (server/mcp): the header of a session that is a central carries it, after the label
+ * chip and before the project name (never between the title and its actions), and so does its card in the
+ * rail, as the star alone on a compact card. The badge reads the card's own `central` marker.
+ */
+describe('SessionSwitcher — central badge', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'Coordinator',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'idle',
+    cliSource: 'claude',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+  const CENTRAL = { centralId: 'c1', kind: 'global', scopeRef: null } as const;
+
+  const header = (c: HTMLElement) => c.querySelector('[class*="switcherNameDisplay"]') as HTMLElement;
+  const renderHeader = (current: Session) =>
+    render(<SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} />);
+  // The strip lists the other sessions, so a card is exercised on a non-current session.
+  const renderWithCard = (carded: Session) => {
+    const current = makeSession({ sessionId: 'cur', title: 'Current' });
+    return render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  };
+  const cardOf = (c: HTMLElement, title: string) =>
+    Array.from(c.querySelectorAll('button[data-status]')).find((b) => b.textContent?.includes(title)) as HTMLElement;
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useRoomStore.setState({ rooms: [{ id: 'r1', name: 'Backend', sessionIds: [], collapsed: false, roomIndex: 0, createdAt: 1 }] });
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(), cardDisplayMode: 'detailed',
+    } as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), cardDisplayMode: 'detailed' } as never);
+    useRoomStore.setState({ rooms: [] });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  describe('in the header', () => {
+    it('shows ★ global for a global central', () => {
+      const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
+      expect(within(header(container)).getByText('★ global')).toBeInTheDocument();
+    });
+
+    it('shows ★ room <name> for a room central, from the room store', () => {
+      const { container } = renderHeader(makeSession({ central: { centralId: 'c2', kind: 'room', scopeRef: 'r1' } }));
+      expect(within(header(container)).getByText('★ room Backend')).toBeInTheDocument();
+    });
+
+    it('shows ★ project <folder> for a project central', () => {
+      const { container } = renderHeader(makeSession({ central: { centralId: 'c3', kind: 'project', scopeRef: '/Users/me/agent-manager' } }));
+      expect(within(header(container)).getByText('★ project agent-manager')).toBeInTheDocument();
+    });
+
+    it('shows nothing for a session that is not a central', () => {
+      const { container } = renderHeader(makeSession());
+      expect(within(header(container)).queryByText(/★/)).toBeNull();
+    });
+
+    it('sits after the title actions, so the name still has its actions right after it', () => {
+      const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
+      const name = container.querySelector('[class*="switcherNameText"]')?.parentElement as HTMLElement;
+      const actions = container.querySelector('[class*="switcherTitleActions"]') as HTMLElement;
+      const badge = within(header(container)).getByText('★ global');
+
+      expect(name.nextElementSibling).toBe(actions);
+      expect(actions.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('is not inside the title element, a button or a link (it is a mark beside the name)', () => {
+      const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
+      const badge = within(header(container)).getByText('★ global');
+
+      expect(badge.closest('button, a')).toBeNull();
+      expect(container.querySelector('[class*="switcherNameText"]')?.contains(badge)).toBe(false);
+    });
+
+    it('is there in the left rail too', () => {
+      useUiStore.setState({ navPosition: 'left' } as never);
+      const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
+
+      expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+      expect(within(header(container)).getByText('★ global')).toBeInTheDocument();
+    });
+  });
+
+  describe('on a card in the rail', () => {
+    it('shows the badge on the card of a session that is a central', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+
+      expect(within(cardOf(container, 'Boss Agent')).getByText('★ global')).toBeInTheDocument();
+    });
+
+    it('names the room on a room central\'s card', () => {
+      const { container } = renderWithCard(
+        makeSession({ sessionId: 's2', title: 'Room Boss', central: { centralId: 'c2', kind: 'room', scopeRef: 'r1' } }),
+      );
+
+      expect(within(cardOf(container, 'Room Boss')).getByText('★ room Backend')).toBeInTheDocument();
+    });
+
+    it('shows no badge on the card of a session that is not a central', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Plain Agent' }));
+
+      expect(within(cardOf(container, 'Plain Agent')).queryByText(/★/)).toBeNull();
+    });
+
+    it('is a mark inside the card: nothing focusable is added to the card button', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+      const card = cardOf(container, 'Boss Agent');
+      const badge = within(card).getByText('★ global');
+
+      expect(badge.closest('button')).toBe(card);
+      expect(card.querySelectorAll('[tabindex], a, input, select')).toHaveLength(0);
+    });
+
+    it('shows the star alone on a compact card, with the scope in its name', () => {
+      useUiStore.setState({ cardDisplayMode: 'compact' } as never);
+      const { container } = renderWithCard(
+        makeSession({ sessionId: 's2', title: 'Boss Agent', central: { centralId: 'c3', kind: 'project', scopeRef: '/Users/me/app' } }),
+      );
+      const card = cardOf(container, 'Boss Agent');
+
+      expect(within(card).getByLabelText('Central session: project app')).toHaveTextContent('★');
+      expect(within(card).queryByText(/project/)).toBeNull();
+    });
+  });
+});
+
+/**
+ * The worker badge (server/mcp): while a central has handed a session a task that is not over, its card in the
+ * rail carries `← ★ global · T12 · running`, the task id alone on a compact card. The badge reads the task from the
+ * store (`mcp_task_update`), so it needs nothing from the card but its id. The header does not repeat it: the
+ * selected session is listed as a card too, and the header's name row has no room to spare for it.
+ */
+describe('SessionSwitcher — worker badge', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'Backend worker',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'working',
+    cliSource: 'claude',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+
+  const taskFor = (sessionId: string, over: Record<string, unknown> = {}) => ({
+    taskId: 'T12',
+    centralId: 'c1',
+    sessionId,
+    state: 'running',
+    title: 'fix the flaky queue test',
+    createdAt: 1_000,
+    sentAt: 1_100,
+    updatedAt: 2_000,
+    error: null,
+    answerChars: null,
+    ...over,
+  });
+  const centralRow = { centralId: 'c1', kind: 'global', scopeRef: null, cli: 'claude', sessionId: 'central-card', toolsets: [], createdAt: 1 };
+  const seed = (sessionId: string, over: Record<string, unknown> = {}) =>
+    useMcpStore.setState({
+      centrals: new Map([['c1', centralRow]]),
+      tasks: new Map([['T12', taskFor(sessionId, over)]]),
+    } as never);
+
+  const header = (c: HTMLElement) => c.querySelector('[class*="switcherNameDisplay"]') as HTMLElement;
+  const renderHeader = (current: Session) =>
+    render(<SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} />);
+  // The strip lists the other sessions, so a card is exercised on a non-current session.
+  const renderWithCard = (carded: Session) => {
+    const current = makeSession({ sessionId: 'cur', title: 'Current' });
+    return render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  };
+  const cardOf = (c: HTMLElement, title: string) =>
+    Array.from(c.querySelectorAll('button[data-status]')).find((b) => b.textContent?.includes(title)) as HTMLElement;
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useRoomStore.setState({ rooms: [] });
+    useMcpStore.setState({ centrals: new Map(), tasks: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(), cardDisplayMode: 'detailed',
+    } as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), cardDisplayMode: 'detailed' } as never);
+    act(() => useMcpStore.setState({ centrals: new Map(), tasks: new Map() } as never));
+    useRoomStore.setState({ rooms: [] });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  describe('not in the header', () => {
+    it('is not in the name row, whatever the selected session’s task is', () => {
+      seed('s1');
+
+      const { container } = renderHeader(makeSession());
+
+      expect(header(container).textContent).not.toContain('T12');
+      expect(header(container).querySelector('[aria-label^="Task T12"]')).toBeNull();
+    });
+
+    it('is not in the left rail’s header either', () => {
+      useUiStore.setState({ navPosition: 'left' } as never);
+      seed('s1');
+
+      const { container } = renderHeader(makeSession());
+
+      expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+      expect(header(container).textContent).not.toContain('T12');
+    });
+  });
+
+  describe('on a card in the rail', () => {
+    it('shows the badge on the card of a session that has a task', () => {
+      seed('s2');
+
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Worker' }));
+
+      expect(cardOf(container, 'Boss Worker').textContent).toContain('← ★ global · T12 · running');
+    });
+
+    it('shows no badge on the card of a session with no task', () => {
+      seed('s2');
+
+      const { container } = renderWithCard(makeSession({ sessionId: 's3', title: 'Idle Worker' }));
+
+      expect(cardOf(container, 'Idle Worker').textContent).not.toContain('T12');
+    });
+
+    it('says the state, so a blocked worker can be seen in a long list', () => {
+      seed('s2', { state: 'blocked' });
+
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Worker' }));
+
+      expect(cardOf(container, 'Boss Worker').textContent).toContain('T12 · blocked');
+    });
+
+    it('is a mark inside the card: nothing focusable is added to the card button', () => {
+      seed('s2');
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Worker' }));
+      const card = cardOf(container, 'Boss Worker');
+      const badge = within(card).getByLabelText(/Task T12/);
+
+      expect(badge.closest('button')).toBe(card);
+      expect(card.querySelectorAll('[tabindex], a, input, select')).toHaveLength(0);
+    });
+
+    it('shows the task id alone on a compact card, with the whole badge in its name', () => {
+      useUiStore.setState({ cardDisplayMode: 'compact' } as never);
+      seed('s2', { state: 'stalled' });
+
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Worker' }));
+      const card = cardOf(container, 'Boss Worker');
+
+      expect(within(card).getByLabelText('Task T12 from the global central: stalled')).toHaveTextContent('T12');
+      expect(card.textContent).not.toContain('stalled');
+    });
+  });
+});
+
+/**
+ * Hands off (server/mcp): the person's switch that keeps every central from typing into a session. It is an icon
+ * button in the title's actions, right after Pin (both are flags on the session that change what may happen to it).
+ * It is not a fourth labelled toggle in the control bar: that group never wraps, is already as wide as the left rail,
+ * and a button with a word squeezed the title to nothing in a 1100px top bar (rendered check, Oct 2026).
+ */
+describe('SessionSwitcher — Hands off', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'Backend worker',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'idle',
+    cliSource: 'claude',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+
+  const renderHeader = (current: Session) =>
+    render(<SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} />);
+  const actions = (c: HTMLElement) => c.querySelector('[class*="switcherTitleActions"]') as HTMLElement;
+  const handsOff = (c: HTMLElement) => within(actions(c)).queryByRole('button', { name: 'Hands off' });
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useRoomStore.setState({ rooms: [] });
+    useMcpStore.setState({ available: true } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(), cardDisplayMode: 'detailed',
+    } as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true, handsOff: true }) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), cardDisplayMode: 'detailed' } as never);
+    act(() => useMcpStore.setState({ available: null } as never));
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('is offered in the title actions when this window may drive centrals', () => {
+    const { container } = renderHeader(makeSession());
+
+    expect(handsOff(container)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('comes right after Pin, before the buttons that annotate the session', () => {
+    const { container } = renderHeader(makeSession());
+
+    const names = within(actions(container)).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    const pin = names.findIndex((n) => /pin session/i.test(n ?? ''));
+    expect(pin).toBe(0);
+    expect(names[pin + 1]).toBe('Hands off');
+    expect(names[pin + 2]).toBe('Rename session');
+  });
+
+  it('shows the flag the session carries', () => {
+    const { container } = renderHeader(makeSession({ handsOff: true }));
+
+    expect(handsOff(container)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('is not offered before the window knows, or where central sessions are off', () => {
+    useMcpStore.setState({ available: null } as never);
+    const first = renderHeader(makeSession());
+    expect(handsOff(first.container)).toBeNull();
+    first.unmount();
+
+    useMcpStore.setState({ available: false } as never);
+    const second = renderHeader(makeSession());
+    expect(handsOff(second.container)).toBeNull();
+  });
+
+  it('is not offered on a central itself', () => {
+    const { container } = renderHeader(makeSession({ central: { centralId: 'c1', kind: 'global', scopeRef: null } }));
+
+    expect(handsOff(container)).toBeNull();
+  });
+
+  it('is in the left rail too, in the row of its own that the actions take there', () => {
+    useUiStore.setState({ navPosition: 'left' } as never);
+    const { container } = renderHeader(makeSession());
+
+    expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+    expect(handsOff(container)).toBeInTheDocument();
+  });
+
+  it('asks the server to switch it on when it is clicked', async () => {
+    const { container } = renderHeader(makeSession());
+    useSessionStore.getState().addSession(makeSession());
+
+    fireEvent.click(handsOff(container) as HTMLElement);
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/mcp/sessions/s1/hands-off',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ on: true }) }),
+    ));
+  });
+
+  it('does not carry a change that is out for one session over to the next one selected', async () => {
+    const first = makeSession();
+    const second = makeSession({ sessionId: 's2', title: 'Another worker' });
+    const all = new Map([[first.sessionId, first], [second.sessionId, second]]);
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    const { container, rerender } = render(<SessionSwitcher currentSession={first} sessions={all} onSwitch={vi.fn()} />);
+    fireEvent.click(handsOff(container) as HTMLElement);
+    expect(handsOff(container)).toHaveAttribute('aria-busy', 'true');
+
+    rerender(<SessionSwitcher currentSession={second} sessions={all} onSwitch={vi.fn()} />);
+
+    expect(handsOff(container)).not.toHaveAttribute('aria-busy');
+    fireEvent.click(handsOff(container) as HTMLElement);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe('/api/mcp/sessions/s2/hands-off');
+  });
+
+  it('is the selected session’s switch, whichever cards the strip lists first', async () => {
+    const other = makeSession({ sessionId: 'other', title: 'Another agent' });
+    const current = makeSession();
+    const { container } = render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[other.sessionId, other], [current.sessionId, current]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+    useSessionStore.getState().addSession(current);
+
+    fireEvent.click(handsOff(container) as HTMLElement);
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/mcp/sessions/s1/hands-off');
+  });
+
+  it('is not among the control bar’s labelled toggles any more', () => {
+    const current = makeSession();
+    render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[current.sessionId, current]])}
+        onSwitch={vi.fn()}
+        controls={<div data-testid="controls"><button>Mute</button></div>}
+      />,
+    );
+
+    expect(within(screen.getByTestId('controls')).queryByRole('button', { name: 'Hands off' })).toBeNull();
   });
 });

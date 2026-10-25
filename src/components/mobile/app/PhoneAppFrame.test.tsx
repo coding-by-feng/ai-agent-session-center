@@ -25,6 +25,7 @@ import { resetPhoneAppearanceForTest, setPhoneTextScale } from '@/lib/chat/phone
 import { PHONE_PALETTES, PHONE_SCHEME_ATTR } from '@/lib/chat/phoneThemes';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
+import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
   return {
@@ -50,6 +51,7 @@ beforeEach(() => {
   localStorage.removeItem(PHONE_NAV_KEY);
   useSessionStore.setState({ sessions: fixtures(), selectedSessionId: null });
   useWsStore.setState({ snapshotReceived: true, connected: true, hiddenCount: 0 });
+  usePhoneConfirmStore.setState({ confirms: [] });
 });
 
 const tabButton = (name: RegExp | string) => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name });
@@ -64,6 +66,17 @@ describe('PhoneAppFrame', () => {
     expect(tabButton('Inbox, 2 waiting for you')).toBeTruthy();
     expect(tabButton('Sessions')).toHaveAttribute('aria-current', 'page');
     expect(window.location.search).toBe('?m=/sessions');
+  });
+
+  it('counts a central confirmation this phone may answer in the Inbox badge (Ruling P5-22)', async () => {
+    usePhoneConfirmStore.setState({
+      confirms: [{
+        cardId: 'card-1', centralId: 'central-1', tool: 'session_kill', risk: 'destructive', summary: 'Kill the session',
+        detail: null, targetSessionId: 's2', createdAt: Date.now(), expiresAt: Date.now() + 300_000,
+      }],
+    });
+    render(<PhoneAppFrame />);
+    expect(await screen.findByRole('button', { name: 'Inbox, 3 waiting for you' })).toBeTruthy();
   });
 
   it('counts an interrupted turn as waiting', async () => {

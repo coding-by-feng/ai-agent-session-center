@@ -88,6 +88,9 @@
   --z-tooltip: 60;
   --z-portal-menu: 10000;
   --z-portal-tooltip: 10000;
+  /* A central's confirm cards: above the panel (100), modals (200), the fullscreen terminal and the portaled menus
+     (10000) — a card hidden behind them expires unseen and counts as denied. */
+  --z-confirm: 10010;
 
   /* Safe area fallbacks */
   --safe-top: env(safe-area-inset-top, 0px);

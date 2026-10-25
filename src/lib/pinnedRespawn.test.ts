@@ -112,6 +112,30 @@ describe('pinnedRespawn', () => {
       expect(body.effortLevel).toBe('ultracode');
       expect(body.model).toBe('opus');
     });
+
+    it('carries a central marker, so the respawned session is the same central (the server re-mints it)', () => {
+      const central = { centralId: '7d6c4c1e-1b0a-4c3e-9f5a-2b8e1d0c9a77', kind: 'room' as const, scopeRef: 'room-ops' };
+      const body = buildRespawnBody(mkSession({ sessionId: 'abc123', central }))!;
+      expect(body.central).toEqual(central);
+      expect(body.central).not.toBe(central);
+    });
+
+    it('sends no central for a session that is not one', () => {
+      expect(buildRespawnBody(mkSession({ sessionId: 'abc123' }))!.central).toBeUndefined();
+    });
+
+    // Hands-off (server/mcp) is a protection the person put on the session. A crash must not take it away: the
+    // respawned card is the same session, and a central may not steer it any more than it could before.
+    it('carries hands-off, so a respawned session is still closed to centrals', () => {
+      expect(buildRespawnBody(mkSession({ sessionId: 'abc123', handsOff: true }))!.handsOff).toBe(true);
+      // A `term-*` id has no CLI session to resume: a new card, which is where the flag could be lost.
+      expect(buildRespawnBody(mkSession({ sessionId: 'term-9f3', handsOff: true }))!.handsOff).toBe(true);
+    });
+
+    it('sends no hands-off for a session that is not (absent already means a central may steer it)', () => {
+      expect(buildRespawnBody(mkSession({ sessionId: 'abc123' }))!.handsOff).toBeUndefined();
+      expect(buildRespawnBody(mkSession({ sessionId: 'abc123', handsOff: false }))!.handsOff).toBeUndefined();
+    });
   });
 
   describe('shouldRespawn', () => {
@@ -197,6 +221,66 @@ describe('pinnedRespawn', () => {
       die(mkSession());
       await vi.advanceTimersByTimeAsync(2000);
       expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(1);
+    });
+
+    // The timer holds the copy taken at death, and the backoff is 2–8 s. What the person (or the server) changes on
+    // the card in that time must reach the new session: the respawn is built from the live card the timer just read.
+    describe('what the new session is built from', () => {
+      const respawnBody = (): Record<string, unknown> => {
+        const creates = fetchCallsToCreate(global.fetch as never);
+        expect(creates).toHaveLength(1);
+        return JSON.parse((creates[0][1] as RequestInit).body as string) as Record<string, unknown>;
+      };
+
+      // Hands off switched on during the backoff: the copy taken at death has no flag, the live card does.
+      it("respawn body uses the live card's hands-off", async () => {
+        const s = mkSession();
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, handsOff: true });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(respawnBody().handsOff).toBe(true);
+      });
+
+      it("respawn body uses the live card's hands-off when it was switched off during the backoff", async () => {
+        const s = mkSession({ handsOff: true });
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, handsOff: undefined });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(respawnBody()).not.toHaveProperty('handsOff');
+      });
+
+      it('takes the central marker from the live card too', async () => {
+        const s = mkSession({ sessionId: 'abc123' });
+        const central = { centralId: '7d6c4c1e-1b0a-4c3e-9f5a-2b8e1d0c9a77', kind: 'room' as const, scopeRef: 'room-ops' };
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, central });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(respawnBody().central).toEqual(central);
+      });
+
+      it('takes the title, effort and model from the live card too', async () => {
+        const s = mkSession({ sessionId: 'abc123', title: 'Old name', effortLevel: 'low', model: 'sonnet' });
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, title: 'New name', effortLevel: 'high', model: 'opus' });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(respawnBody()).toMatchObject({ sessionTitle: 'New name', effortLevel: 'high', model: 'opus' });
+      });
+
+      it('names the live card in the toast', async () => {
+        const s = mkSession({ title: 'Old name' });
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, title: 'New name' });
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(toasts.some((t) => t.kind === 'info' && t.msg.includes('[New name]'))).toBe(true);
+      });
+
+      it('still builds nothing for a live card with no ssh config (the body needs one)', async () => {
+        const s = mkSession();
+        die(s);
+        useSessionStore.getState().updateSession({ ...s, sshConfig: undefined });
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
+      });
     });
 
     it('does not count a skipped respawn toward the crash-loop cap', async () => {

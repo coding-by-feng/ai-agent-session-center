@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { db } from '@/lib/db';
 import type { DbQueueAutomation } from '@/lib/db';
 import { getWindowOriginId } from '@/lib/deviceIdentity';
-import { mergeQueueItems } from '@/lib/queueMerge';
+import { mergeAutomation, mergeQueueItems } from '@/lib/queueMerge';
 import { DEFAULT_MAX_RETRIES } from '@/lib/resumeWatchdog';
 
 export interface QueueImageAttachment {
@@ -277,9 +277,10 @@ interface QueueState {
    * `queue_update` WS message). A no-op only for this window's own echo.
    *
    * Replaces this window's list with the incoming one — except while this window
-   * has edits the server has not seen yet (a push waiting out its debounce). Then
-   * it three-way merges instead (`mergeQueueItems`) and pushes the result, so a
-   * removal or an add made here is neither undone nor lost. See `queueMerge.ts`.
+   * has edits the server has not seen yet (a push waiting out its debounce, still on
+   * the wire, or failed). Then it three-way merges instead (`mergeQueueItems`) and
+   * pushes the result, so a removal or an add made here is neither undone nor lost.
+   * See `queueMerge.ts`.
    */
   applyRemoteQueue: (
     sessionId: string,
@@ -416,6 +417,14 @@ const _installedAutomationByRemote = new Map<string, QueueAutomationConfig>();
 const _syncedBase = new Map<string, QueueItem[]>();
 
 /**
+ * Per session, the automation this window knows the server to hold: what the server
+ * last sent it, or what it last pushed successfully. The base of the key-by-key merge
+ * of the switches in `applyRemoteQueue` (see there): a switch that differs from it is
+ * one this window changed.
+ */
+const _syncedAutomation = new Map<string, QueueAutomationConfig>();
+
+/**
  * Per session, how many remote lists this window has applied. A push that finished
  * after one was applied says nothing about what the server holds now, so it must not
  * overwrite the base the newer list set.
@@ -437,10 +446,64 @@ const _pending = new Map<string, PendingPush>();
 const PUSH_DEBOUNCE_MS = 400;
 
 /**
+ * Per session, how many PUTs are on the wire: sent, not answered. A push counts as
+ * unseen by the server until its PUT comes back, not only while it waits out its
+ * debounce — a list another writer built before that PUT landed (a central's queue
+ * tool, say) knows nothing of what it carries.
+ */
+const _inFlight = new Map<string, number>();
+
+/**
+ * Sessions whose last push failed or was refused (a queue over the server's 8 MB cap,
+ * say), until a push succeeds. The server then holds an older list than this window,
+ * so a remote list built from it must be merged in, not installed over this one.
+ */
+const _unsynced = new Set<string>();
+
+/** Per session, the newest push sent: only its answer may mark the session unsynced or clear it. */
+const _newestPush = new Map<string, number>();
+let _pushCount = 0;
+
+/** Does this window hold edits the server may not have: a push waiting, on the wire, or failed? */
+function hasUnsentEdits(sessionId: string): boolean {
+  return _pending.has(sessionId) || _inFlight.has(sessionId) || _unsynced.has(sessionId);
+}
+
+/**
+ * Drop every per-session record of a session this window no longer holds anything for: no list, no switches, no push
+ * waiting or on the wire. Without it the maps only grew, and a failed push of a session that left (a re-key) kept
+ * counting it as holding unsent edits.
+ */
+function forgetSessionIfGone(sessionId: string): void {
+  const { queues, automation } = useQueueStore.getState();
+  if (queues.has(sessionId) || automation.has(sessionId)) return;
+  if (_pending.has(sessionId) || _inFlight.has(sessionId)) return;
+  _unsynced.delete(sessionId);
+  _newestPush.delete(sessionId);
+  _syncedBase.delete(sessionId);
+  _syncedAutomation.delete(sessionId);
+  _remoteEpoch.delete(sessionId);
+  _installedByRemote.delete(sessionId);
+  _installedAutomationByRemote.delete(sessionId);
+}
+
+/** A PUT came back (or never got there): it is off the wire, and the newest one says whether the server has this window's list. */
+function settlePush(sessionId: string, push: number, ok: boolean): void {
+  const left = (_inFlight.get(sessionId) ?? 1) - 1;
+  if (left > 0) _inFlight.set(sessionId, left);
+  else _inFlight.delete(sessionId);
+  if (_newestPush.get(sessionId) === push) {
+    if (ok) _unsynced.delete(sessionId);
+    else _unsynced.add(sessionId);
+  }
+  forgetSessionIfGone(sessionId);
+}
+
+/**
  * The PUT itself. Fire-and-forget by design: the local IndexedDB write is what
  * guarantees the user doesn't lose work, so a failed sync must never surface as an
  * error or block the UI — it just means this device stays authoritative until the
- * next change succeeds.
+ * next change succeeds (`_unsynced` until then).
  *
  * `keepalive` lets the request outlive the page (see `flushPendingPushes`). The
  * browser caps a keepalive body at 64 KB; a bigger one is rejected and, like any
@@ -452,17 +515,29 @@ function putQueue(
   automation: QueueAutomationConfig | null,
   keepalive: boolean,
 ): void {
+  // Built first: a body that cannot be (a value JSON has no form for) must not leave a push counted as on the wire.
+  const body = JSON.stringify({ items, automation, originClientId: getWindowOriginId() });
   const epoch = _remoteEpoch.get(sessionId) ?? 0;
+  const push = ++_pushCount;
+  _newestPush.set(sessionId, push);
+  _inFlight.set(sessionId, (_inFlight.get(sessionId) ?? 0) + 1);
   void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items, automation, originClientId: getWindowOriginId() }),
+    body,
     ...(keepalive ? { keepalive: true } : {}),
   }).then((res) => {
     // The server holds exactly this list now — unless another window's list was
     // applied while the request was out, in which case the base it set is newer.
-    if (res.ok && (_remoteEpoch.get(sessionId) ?? 0) === epoch) _syncedBase.set(sessionId, items);
-  }).catch(() => { /* offline — local copy remains the source of truth */ });
+    if (res.ok && (_remoteEpoch.get(sessionId) ?? 0) === epoch) {
+      _syncedBase.set(sessionId, items);
+      if (automation) _syncedAutomation.set(sessionId, automation);
+    }
+    settlePush(sessionId, push, res.ok);
+  }, () => {
+    // offline — local copy remains the source of truth
+    settlePush(sessionId, push, false);
+  });
 }
 
 /**
@@ -478,7 +553,12 @@ function pushQueueToServer(
   if (existing) clearTimeout(existing.timer);
   const timer = setTimeout(() => {
     _pending.delete(sessionId);
-    putQueue(sessionId, items, automation, false);
+    try {
+      putQueue(sessionId, items, automation, false);
+    } catch {
+      // A body that cannot be built (see `putQueue`) loses only its own push — the local IndexedDB copy remains —
+      // and must not throw out of a timer.
+    }
   }, PUSH_DEBOUNCE_MS);
   _pending.set(sessionId, { timer, items, automation });
 }
@@ -492,7 +572,12 @@ function pushQueueToServer(
 function flushPendingPushes(): void {
   for (const [sessionId, pending] of _pending) {
     clearTimeout(pending.timer);
-    putQueue(sessionId, pending.items, pending.automation, true);
+    try {
+      putQueue(sessionId, pending.items, pending.automation, true);
+    } catch {
+      // A body that cannot be built (see `putQueue`) loses only its own push — the local IndexedDB copy remains —
+      // and must not skip the sessions after it or leave `_pending` uncleared.
+    }
   }
   _pending.clear();
 }
@@ -724,6 +809,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           _syncedBase.set(newSessionId, base.map((i) => ({ ...i, sessionId: newSessionId })));
         }
       }
+      const automationBase = _syncedAutomation.get(oldSessionId);
+      if (automationBase) {
+        _syncedAutomation.delete(oldSessionId);
+        if (!_syncedAutomation.has(newSessionId)) _syncedAutomation.set(newSessionId, automationBase);
+      }
 
       const items = state.queues.get(oldSessionId);
       const auto = state.automation.get(oldSessionId);
@@ -942,14 +1032,16 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const remote = [...items].sort((a, b) => a.position - b.position);
       const local = state.queues.get(sessionId);
 
-      // A push waiting out its debounce means this window holds edits the server
-      // has not seen. Replacing the list would undo them (a removal comes back and
-      // is sent twice), and the push still waiting would then overwrite the server
-      // with a list built before this one arrived. So merge instead, and send the
-      // result. Nothing waiting: the incoming list is simply the newer one.
-      const hasUnpushedEdits = local !== undefined && _pending.has(sessionId);
+      // A push waiting out its debounce, still on the wire, or failed means this
+      // window holds edits the server has not seen. Replacing the list would undo
+      // them (a removal comes back and is sent twice), and the push still waiting
+      // would then overwrite the server with a list built before this one arrived.
+      // So merge instead, and send the result. Nothing unsent: the incoming list is
+      // simply the newer one. A window with no list still counts: a switch flipped
+      // there waits to push `items: []`, which would wipe what this update adds.
+      const hasUnpushedEdits = hasUnsentEdits(sessionId);
       const next = hasUnpushedEdits
-        ? mergeQueueItems(_syncedBase.get(sessionId) ?? [], local, remote)
+        ? mergeQueueItems(_syncedBase.get(sessionId) ?? [], local ?? [], remote)
         : remote;
 
       // The server holds `remote` whatever this window ends up showing.
@@ -968,14 +1060,27 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       nextQueues.set(sessionId, next);
       patch.queues = nextQueues;
 
-      // Automation is whole-object last-write-wins: it is a handful of switches,
-      // not a list, and merging them field by field would invent combinations
-      // nobody chose.
+      // Automation: with nothing unsent the incoming record is the newer one and is
+      // installed whole. While this window holds unsent edits and knows what the
+      // server last held (Ruling 62, widened by P4-20), the switches are merged key by
+      // key against that: one the window changed since keeps the window's value (the
+      // person wins a key both changed), every other takes the server's. A central's
+      // queue tool stores the WHOLE record back (`queue_pause` sends every switch), so
+      // comparing the record as one value would let its pause undo a flip the person
+      // made in the last 400 ms. The merged record is not what the server holds, so it
+      // is not marked as installed from it: it goes out with the merged list.
       if (automation) {
-        const nextAutomation = new Map(state.automation);
-        nextAutomation.set(sessionId, automation);
-        _installedAutomationByRemote.set(sessionId, automation);
-        patch.automation = nextAutomation;
+        const before = _syncedAutomation.get(sessionId);
+        const mine = state.automation.get(sessionId);
+        _syncedAutomation.set(sessionId, automation);
+        const merges = hasUnpushedEdits && before !== undefined && mine !== undefined;
+        const nextValue = merges ? mergeAutomation(before, mine, automation) : automation;
+        if (nextValue !== mine) {
+          const nextAutomation = new Map(state.automation);
+          nextAutomation.set(sessionId, nextValue);
+          if (!merges) _installedAutomationByRemote.set(sessionId, nextValue);
+          patch.automation = nextAutomation;
+        }
       }
       return patch;
     }),
@@ -1021,6 +1126,8 @@ useQueueStore.subscribe((state) => {
     if (!fromServer) {
       pushQueueToServer(sid, items, nextAutomation.get(sid) ?? null);
     }
+    // The queue left the store (a re-key): once nothing of it is waiting or on the wire, so does its bookkeeping.
+    if (!nextQueues.has(sid)) forgetSessionIfGone(sid);
   }
 
   // -- automation config (paused / idleGuard / loopExcludeWindows) --

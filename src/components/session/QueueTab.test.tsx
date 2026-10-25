@@ -25,6 +25,7 @@ import ToastContainer from '@/components/ui/ToastContainer';
 import { useQueueStore } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { setReleaseWindow, useStartReleaseStore } from '@/stores/startReleaseStore';
 import { installClipHarness } from '@/__tests__/clipHarness';
 import { openQueuePopout } from '@/lib/queuePopout';
 import { sendPromptToTerminal, IMAGE_SUBMIT_ENTER_DELAY_MS } from '@/lib/terminalSend';
@@ -148,6 +149,7 @@ describe('QueueTab — held queue notice', () => {
   beforeEach(() => {
     useQueueStore.setState({ queues: new Map([['s1', oneItem as never]]), automation: new Map(), composeDrafts: new Map() });
     useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    useStartReleaseStore.setState({ released: new Set(), releaseWindow: false });
     vi.unstubAllGlobals();
   });
 
@@ -177,6 +179,63 @@ describe('QueueTab — held queue notice', () => {
     render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
     expect(screen.getByRole('status')).toHaveTextContent(/waiting for 2 subagents/i);
     expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  });
+
+  it('for a card never heard from: says it waits for the session to report that it started (Ruling P4-41)', () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', startHeard: false }) as never]]) });
+    render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId="term-1" />);
+    expect(screen.getByRole('status')).toHaveTextContent(/waiting for the session to report that it started/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/answer it in the terminal/i);
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  });
+
+  // Ruling P4-57: the queue float, a phone and a window without the workspace baton cannot honour a release.
+  it('for a card never heard from, in a window that does not fire the queue: the banner stays, without the button', () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', startHeard: false }) as never]]) });
+    render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId="term-1" />);
+    expect(screen.getByRole('status')).toHaveTextContent(/waiting for the session to report that it started/i);
+    expect(screen.getByRole('status')).toHaveTextContent('Release it in the main AASC window.');
+    expect(screen.queryByRole('button', { name: 'It is ready — send anyway' })).toBeNull();
+  });
+
+  it('the same on the phone layout', () => {
+    platform.isMobile = true;
+    try {
+      useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', startHeard: false }) as never]]) });
+      render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId="term-1" />);
+      expect(screen.getByRole('status')).toHaveTextContent('Release it in the main AASC window.');
+      expect(screen.queryByRole('button', { name: 'It is ready — send anyway' })).toBeNull();
+    } finally {
+      platform.isMobile = false;
+    }
+  });
+
+  // Ruling P4-54: the person can tell AASC the card is ready; this window alone, until the card is replaced.
+  it('for a card never heard from: "It is ready — send anyway" releases the hold, in this window only', async () => {
+    setReleaseWindow(true);
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', startHeard: false }) as never]]) });
+    const { rerender } = render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId="term-1" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'It is ready — send anyway' }));
+
+    expect(screen.queryByRole('status')).toBeNull(); // the hold is gone
+    // The click told neither the server nor another device. (The queue's own debounced PUT of its list may land
+    // in the meantime; it carries no release.)
+    const others = fetchMock.mock.calls.filter(([url]) => !/^\/api\/sessions\/s1\/queue$/.test(String(url)));
+    expect(others).toEqual([]);
+
+    // The card is replaced (a restart gives it a new terminal): the hold and the action are back.
+    useSessionStore.setState({ sessions: new Map([['s1', session({ status: 'idle', startHeard: false, terminalId: 'term-2' }) as never]]) });
+    rerender(<QueueTab sessionId="s1" sessionStatus="idle" terminalId="term-2" />);
+    expect(screen.getByRole('status')).toHaveTextContent(/waiting for the session to report that it started/i);
+    expect(screen.getByRole('button', { name: 'It is ready — send anyway' })).toBeInTheDocument();
+  });
+
+  it('no other hold offers the release', () => {
+    useSessionStore.setState({ sessions: new Map([['s1', session({ userCancelledAt: Date.now() }) as never]]) });
+    render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    expect(screen.queryByRole('button', { name: 'It is ready — send anyway' })).toBeNull();
   });
 
   it('with the queue collapsed, its header still says it is paused (and expanding shows the notice)', async () => {

@@ -134,6 +134,30 @@ export function AlertIcon(props: IconProps) {
   );
 }
 
+/** No-entry sign — keep centrals' hands off this session. `filled` when it is on: the state is in the glyph itself
+ *  (as the pin's is), so a protected session reads as protected, not as a selected tab. A ring with a bar while off,
+ *  the same disc with the bar cut out of it while on. Not the skull (kill) or the speaker with a slash (mute): the
+ *  session stays, it is only closed to steering. */
+export function HandsOffIcon({ filled = false, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <svg {...svg(12, '0 0 16 16', props)}>
+      {filled ? (
+        <path
+          fill="currentColor"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M8 1.9a6.1 6.1 0 1 0 0 12.2A6.1 6.1 0 0 0 8 1.9ZM4.9 7.2a.8.8 0 0 0 0 1.6h6.2a.8.8 0 0 0 0-1.6H4.9Z"
+        />
+      ) : (
+        <>
+          <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M4.9 8h6.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** Circular arrow — resume an ended session. Not the terminal's refresh. */
 export function ResumeIcon(props: IconProps) {
   return (

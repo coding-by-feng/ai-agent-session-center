@@ -325,6 +325,31 @@ describe('GET /sessions/:id/subagents/:agentId/transcript', () => {
     expect(res.body.data.hasEarlier).toBe(false);
   });
 
+  it('takes an optional `limit`: the newest entries of the page, and `before` continues from them with nothing skipped', async () => {
+    const lines = [taskLine()];
+    for (let i = 1; i <= 10; i++) lines.push(textLine(`step ${i}`, i));
+    writeAgent(lines);
+    const texts = (r: { body: Record<string, any> }) => (r.body.data.entries as Array<{ text: string }>).map((e) => e.text);
+    const url = `/sessions/${SESSION_ID}/subagents/${AGENT_ID}/transcript`;
+
+    const newest = await get(app(), `${url}?limit=3`);
+    expect(texts(newest)).toEqual(['step 8', 'step 9', 'step 10']);
+    expect(newest.body.data.hasEarlier).toBe(true);
+    const above = await get(app(), `${url}?before=${newest.body.data.start}&limit=3`);
+
+    expect(texts(above)).toEqual(['step 5', 'step 6', 'step 7']);
+  });
+
+  it('gives a full page when `limit` is left out', async () => {
+    const lines = [taskLine()];
+    for (let i = 1; i <= 10; i++) lines.push(textLine(`step ${i}`, i));
+    writeAgent(lines);
+
+    const res = await get(app(), `/sessions/${SESSION_ID}/subagents/${AGENT_ID}/transcript`);
+
+    expect(res.body.data.entries).toHaveLength(10);
+  });
+
   it('says there is no transcript (data null) for a known run without a file', async () => {
     const res = await get(app(), `/sessions/${SESSION_ID}/subagents/a-without-file/transcript`);
     expect(res.status).toBe(200);
@@ -342,7 +367,7 @@ describe('GET /sessions/:id/subagents/:agentId/transcript', () => {
     expect(res.status).toBe(404);
   });
 
-  it.each(['before=-1', 'before=abc', 'from=1.5', 'before=1&from=2'])('400s a bad query (%s)', async (q) => {
+  it.each(['before=-1', 'before=abc', 'from=1.5', 'before=1&from=2', 'limit=0', 'limit=201', 'limit=abc', 'limit=1.5', 'limit=', 'limit=5&limit=6'])('400s a bad query (%s)', async (q) => {
     writeAgent([taskLine()]);
     const res = await get(app(), `/sessions/${SESSION_ID}/subagents/${AGENT_ID}/transcript?${q}`);
     expect(res.status).toBe(400);

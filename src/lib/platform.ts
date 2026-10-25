@@ -105,6 +105,25 @@ export function nativeAppPlatform(userAgent?: string): NativePlatform | null {
   return /\bAndroid\b/.test(ua) ? 'android' : 'ios';
 }
 
+export interface NativeAppVersion {
+  version: string;
+  /** Null for the apps before 1.0.0, which sent a bare `AASC-Mobile/1`. */
+  build: string | null;
+}
+
+/**
+ * The phone app's own version from its token, `AASC-Mobile/<version>+<build>`
+ * (mobile/capacitor.config.ts), for This phone. Null outside the app or when the
+ * token carries something that is no version.
+ */
+export function nativeAppVersion(userAgent?: string): NativeAppVersion | null {
+  const ua = userAgent ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  const at = ua.indexOf(NATIVE_APP_UA_TOKEN);
+  if (at < 0) return null;
+  const m = /^(\d+(?:\.\d+)*)(?:\+(\d+))?(?=$|[\s;)])/.exec(ua.slice(at + NATIVE_APP_UA_TOKEN.length));
+  return m ? { version: m[1], build: m[2] ?? null } : null;
+}
+
 /** True inside the AASC phone app. Constant for the page's lifetime. */
 export function isNativeMobileApp(userAgent?: string): boolean {
   return nativeAppPlatform(userAgent) !== null;

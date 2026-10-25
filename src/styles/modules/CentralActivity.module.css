@@ -1,0 +1,117 @@
+/* CentralActivity — the ACTIVITY tab of a central session (server/mcp): a log, newest first.
+
+   A row is a small grid, the same columns on every row so the times, tools and outcomes line up down the list
+   (the time column fits the longer of the two time formats, `Oct 24 14:05`, in the widest mono face a theme has;
+   a column of 72px let it run into the tool's, rendered check Oct 2026):
+
+     time    tool            target                  outcome
+     summary (AASC's own words, under all four)
+
+   Sized by the PANEL, not the window (a docked panel is narrow on a wide screen, the way AgentsTab does it):
+   under 560px the target takes a line of its own under the time, tool and outcome, so none of the four is squeezed
+   to nothing. Text that may be long (a tool, a target, a summary) wraps or is cut with an ellipsis, never pushes the
+   row wider than the panel.
+
+   The tool column is 16em (176px at 11px): the longest tool that writes a row is `queue_resume_after_cancel`, 25
+   characters, 15em in a 0.6em-wide mono face; at the old 132px `queue_set_item_sch…` was all a person could read.
+   The list stops at 960px: a row is four short fields, and on a 1440px window the outcome chip stood ~1000px from
+   the tool it belongs to (a flexible track on a pane that has no use for the width). The summary, which is prose,
+   still wraps at the list's width.
+
+   Colours are the theme's: muted text is the Chip's neutral mix (--text-secondary alone measures under 4.5:1 on the
+   panel in four themes, see AgentsTab.module.css), the outcome is a Chip (its tones are audited in Chip.module.css),
+   so nothing here is a colour of its own, and there is no z-index, no position and nothing clickable. */
+
+.root {
+  container: centralactivity / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 960px;
+  --activity-muted: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--activity-muted);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 16em) minmax(0, 1fr) 84px;
+  grid-template-areas:
+    'time tool target outcome'
+    'summary summary summary summary';
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.time {
+  grid-area: time;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--activity-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tool {
+  grid-area: tool;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target {
+  grid-area: target;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A session that has left the board shows only its id's start: quieter, and in the mono face ids are read in. */
+.targetGone {
+  color: var(--activity-muted);
+  font-family: var(--font-mono);
+}
+
+.outcome {
+  grid-area: outcome;
+  justify-self: end;
+}
+
+.summary {
+  grid-area: summary;
+  min-width: 0;
+  color: var(--activity-muted);
+  overflow-wrap: anywhere;
+}
+
+@container centralactivity (max-width: 560px) {
+  .row {
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'time tool outcome'
+      'target target target'
+      'summary summary summary';
+  }
+}

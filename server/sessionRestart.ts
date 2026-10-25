@@ -23,6 +23,7 @@
  */
 import {
   beginSessionRestart,
+  clearSessionCentral,
   failSessionRestart,
   getAllSessions,
   getSession,
@@ -45,6 +46,7 @@ import {
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
+import { prepareCentralRelaunch, spawnCentralTerminal, type CentralCaller } from './mcp/centralLaunch.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { Session } from '../src/types/session.js';
 
@@ -120,8 +122,11 @@ async function abandon(sessionId: string, oldTerminalId: string, newTerminalId: 
  * @param sessionId     the card to restart (an older alias is resolved)
  * @param resumeCommand the line to type into the new shell; built from the card's
  *                      state BEFORE the restart, so it still carries title/model/effort
+ * @param caller        who asked, for a central's card (server/mcp): its central is minted
+ *                      again for the new PTY whoever asks (Ruling 18); when it cannot be, the
+ *                      card is restarted as a plain session (Ruling 16)
  */
-export async function restartSessionTerminal(sessionId: string, resumeCommand: string): Promise<RestartOutcome> {
+export async function restartSessionTerminal(sessionId: string, resumeCommand: string, caller: CentralCaller): Promise<RestartOutcome> {
   const resolvedId = resolveSessionId(sessionId) ?? sessionId;
   const session = getSession(resolvedId);
   if (!session) return refuse(404, 'Session not found');
@@ -129,13 +134,13 @@ export async function restartSessionTerminal(sessionId: string, resumeCommand: s
   if (closing.has(session.sessionId)) return refuse(409, 'This session is being closed');
   restarting.add(session.sessionId);
   try {
-    return await restartLiveSession(session, resumeCommand);
+    return await restartLiveSession(session, resumeCommand, caller);
   } finally {
     restarting.delete(session.sessionId);
   }
 }
 
-async function restartLiveSession(session: Session, resumeCommand: string): Promise<RestartOutcome> {
+async function restartLiveSession(session: Session, resumeCommand: string, caller: CentralCaller): Promise<RestartOutcome> {
   // A fork's agent reports its hooks under its ORIGIN's session id, and its own id (term-*) is not
   // resumable, so a restart could neither silence the old agent nor bring its conversation back.
   if (session.isFork || session.isFloating) {
@@ -172,11 +177,21 @@ async function restartLiveSession(session: Session, resumeCommand: string): Prom
   // A local card relaunches where its agent really runs (`projectPath`, corrected from the hook's cwd):
   // `claude --resume` finds its transcript by directory, so the launch directory would not do after a `cd`.
   const workingDir = isRemote ? (cfg?.workingDir || '~') : (session.projectPath || cfg?.workingDir || '~');
+  // A central's card (server/mcp) gets its central minted again for the new PTY: same id, new token (the old
+  // agent's stops working, and it is about to be stopped). After every refusal of the restart's own, so a
+  // refused restart leaves the central and its token alone, and right before the spawn. A central that cannot
+  // be established again never fails the restart: the card comes back as a plain session (Ruling 16).
+  const plan = prepareCentralRelaunch(session, { command: resumeCommand, workingDir, remoteHost: isRemote }, caller);
+  const { central } = plan;
+  // A central minted again here has already replaced the running agent's token, so a restart that fails from
+  // now on says so, and that a restart or resume brings it back (the card keeps its marker).
+  const centralReset = central ? '; its central MCP access was reset, and a restart or resume restores it' : '';
   const newConfig: TerminalConfig = {
     ...(cfg && cfg.username ? cfg : { host: 'localhost' }),
     workingDir,
     command: '',
     ...(kept.apiKey ? { apiKey: kept.apiKey } : {}),
+    ...(central ? { central } : {}),
   };
 
   // Open the replacement BEFORE anything is stopped: a directory the shell cannot
@@ -184,21 +199,24 @@ async function restartLiveSession(session: Session, resumeCommand: string): Prom
   let newTerminalId: string;
   try {
     // command '' skips auto-launch: the resume line contains `||`, which the
-    // terminal command validator rejects, so it is typed below instead.
-    newTerminalId = await createTerminal(newConfig, null);
+    // terminal command validator rejects, so it is typed below instead. A central
+    // whose new terminal does not start is revoked (no PTY holds its new token).
+    newTerminalId = await spawnCentralTerminal(central, () => createTerminal(newConfig, null));
     // Resume matches through pendingResume, not pendingLinks. Naming this terminal
     // removes only a link of its own (none, for an empty command); the bare form
     // would drop the front link of ANOTHER terminal launching in the same directory.
     consumePendingLink(newConfig.workingDir || session.projectPath || '', newTerminalId);
   } catch (err: unknown) {
     log.error('restart', `Could not open a new terminal for ${session.sessionId.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
-    return refuse(500, 'Could not restart the session: the new terminal failed to open, and the running session was left untouched');
+    return refuse(500, central
+      ? `Could not restart the session: the new terminal failed to open, and the running session was left running${centralReset}`
+      : 'Could not restart the session: the new terminal failed to open, and the running session was left untouched');
   }
 
   const begun = beginSessionRestart(session.sessionId);
   if ('error' in begun) {
     closeTerminal(newTerminalId);
-    return refuse(409, begun.error);
+    return refuse(409, `${begun.error}${centralReset}`);
   }
   await broadcastSession(begun.session);
 
@@ -206,7 +224,7 @@ async function restartLiveSession(session: Session, resumeCommand: string): Prom
   const stopped = await closeTerminalAndWait(oldTerminalId);
   if (!stopped) {
     log.error('restart', `Agent in terminal ${oldTerminalId} survived SIGKILL for session ${session.sessionId.slice(0, 8)}`);
-    return abandon(session.sessionId, oldTerminalId, newTerminalId, 'The running session could not be stopped, so it was not restarted', true);
+    return abandon(session.sessionId, oldTerminalId, newTerminalId, `The running session could not be stopped, so it was not restarted${centralReset}`, true);
   }
 
   // A kill that began before this restart can finish while it waited. Re-linking then would resurrect a
@@ -217,6 +235,8 @@ async function restartLiveSession(session: Session, resumeCommand: string): Prom
     return refuse(409, 'The session was closed while it was restarting, so it was left closed');
   }
 
+  // Restarted as a plain session: the card is no central any more, from the moment the new terminal is its own.
+  if (plan.dropped !== undefined) clearSessionCentral(session.sessionId);
   const linked = reconnectSessionTerminal(session.sessionId, newTerminalId, { archivePrevious: false });
   if ('error' in linked) {
     return abandon(session.sessionId, oldTerminalId, newTerminalId, `Failed to restart the session: ${linked.error}`);

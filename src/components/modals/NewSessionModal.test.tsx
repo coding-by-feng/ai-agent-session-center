@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import NewSessionModal from './NewSessionModal';
+import { useMcpStore } from '@/stores/mcpStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { showToast } from '@/components/ui/ToastContainer';
+import type { CentralSummary } from '@/types';
 
 const knownProjects = vi.hoisted(() => ({ paths: [] as string[] }));
 vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => knownProjects.paths }));
@@ -291,5 +294,221 @@ describe('NewSessionModal Working Directory search', () => {
     expect(options.map((o) => o.textContent)).toEqual(['/Users/me/Documents/exmouth']);
     fireEvent.mouseDown(options[0]);
     expect(field).toHaveValue('/Users/me/Documents/exmouth');
+  });
+});
+
+// A central session (server/mcp): the Central picker, the room and folder it takes from the form, and the
+// `central` the launch carries. Only this Mac may start one, so the picker shows only while mcpStore says
+// this window may (it reads GET /api/mcp/centrals at connect), and never in the phone app.
+describe('NewSessionModal — Central session', () => {
+  const NO_PASSWORD = 'No dashboard password: a central can also reach /api directly.';
+  const ROOM = { id: 'room-1', name: 'Backend', sessionIds: [], collapsed: false, createdAt: 1, roomIndex: 0 };
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  const running = (...rows: CentralSummary[]) => act(() => {
+    useMcpStore.setState({ centrals: new Map(rows.map((r) => [r.centralId, r])) });
+  });
+  const picker = () => screen.queryByRole('combobox', { name: 'Central session' }) as HTMLSelectElement | null;
+  const choose = (value: string) => fireEvent.change(picker() as HTMLSelectElement, { target: { value } });
+  const labels = () => Array.from((picker() as HTMLSelectElement).options).map((o) => o.textContent);
+  const terminalBody = () => {
+    const call = fetchMock.mock.calls.find(([url]) => url === '/api/terminals');
+    return call ? JSON.parse(String(call[1]?.body)) as Record<string, unknown> : null;
+  };
+  const create = async () => {
+    fireEvent.click(screen.getByText('CREATE'));
+    await waitFor(() => expect(terminalBody()).not.toBeNull());
+    return terminalBody() as Record<string, unknown>;
+  };
+  const open = () => {
+    useUiStore.setState({ activeModal: 'new-session' });
+    render(<NewSessionModal />);
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('lastSession', JSON.stringify({ workingDir: '/work/app', command: 'claude' }));
+    knownProjects.paths = [];
+    vi.mocked(showToast).mockClear();
+    useRoomStore.setState({ rooms: [ROOM as never] });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    useMcpStore.setState({ centrals: new Map(), available: true, passwordEnabled: true, revision: 0 });
+    fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/terminals' && options?.method === 'POST') {
+        return { ok: true, json: async () => ({ ok: true, terminalId: 'term-central' }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    // Inside act: the form is still mounted here, and each of these stores feeds it.
+    act(() => {
+      useUiStore.getState().closeModal();
+      useMcpStore.setState({ centrals: new Map(), available: null, passwordEnabled: null });
+      useRoomStore.setState({ rooms: [] });
+    });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('offers the picker after the Room field, Off by default, and a plain launch sends no `central`', async () => {
+    open();
+
+    expect(picker()).not.toBeNull();
+    expect(picker()?.value).toBe('off');
+    const room = screen.getByPlaceholderText('None (corridor)');
+    expect(room.compareDocumentPosition(picker() as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const body = await create();
+    expect(body).not.toHaveProperty('central');
+    expect(body.workingDir).toBe('/work/app');
+  });
+
+  it('sends { kind: "global" } for Global', async () => {
+    open();
+    choose('global');
+
+    expect((await create()).central).toEqual({ kind: 'global' });
+  });
+
+  it('offers This project for the working folder, and sends that folder', async () => {
+    open();
+    expect(labels()).toEqual(['Off', 'Global', 'This project']);
+    choose('project');
+
+    expect((await create()).central).toEqual({ kind: 'project', scopeRef: '/work/app' });
+  });
+
+  it('follows the working folder: the project is the folder the session starts in', async () => {
+    open();
+    choose('project');
+    fireEvent.change(screen.getByPlaceholderText('~'), { target: { value: '/work/other' } });
+
+    expect((await create()).central).toEqual({ kind: 'project', scopeRef: '/work/other' });
+  });
+
+  it('offers This room only once a room is picked in the Room field, and sends that room', async () => {
+    open();
+    expect(labels()).toEqual(['Off', 'Global', 'This project']);
+
+    fireEvent.change(screen.getByPlaceholderText('None (corridor)'), { target: { value: 'Backend' } });
+    expect(labels()).toEqual(['Off', 'Global', 'This room', 'This project']);
+    choose('room');
+
+    const body = await create();
+    expect(body.central).toEqual({ kind: 'room', scopeRef: 'room-1' });
+  });
+
+  it('sends no `central` once the room it was for is cleared', async () => {
+    open();
+    fireEvent.change(screen.getByPlaceholderText('None (corridor)'), { target: { value: 'Backend' } });
+    choose('room');
+    expect(picker()?.value).toBe('room');
+
+    fireEvent.change(screen.getByPlaceholderText('None (corridor)'), { target: { value: '' } });
+
+    expect(picker()?.value).toBe('off');
+    expect(await create()).not.toHaveProperty('central');
+  });
+
+  it('sends no `central` for a scope a central took while the form was open', async () => {
+    open();
+    choose('global');
+    running({ centralId: 'c1', kind: 'global', scopeRef: null, cli: 'claude', sessionId: null, toolsets: [], createdAt: 1, workerCount: 0 });
+
+    expect(Array.from((picker() as HTMLSelectElement).options).find((o) => o.value === 'global')?.disabled).toBe(true);
+    expect(picker()?.value).toBe('off');
+    expect(await create()).not.toHaveProperty('central');
+  });
+
+  it('is Off again at the next opening: a central is made on purpose, never carried over', async () => {
+    open();
+    choose('global');
+    expect(picker()?.value).toBe('global');
+
+    act(() => useUiStore.getState().closeModal());
+    act(() => useUiStore.setState({ activeModal: 'new-session' }));
+
+    expect(picker()?.value).toBe('off');
+    expect(await create()).not.toHaveProperty('central');
+  });
+
+  it('keeps the rest of the launch as it was', async () => {
+    open();
+    choose('global');
+
+    const body = await create();
+    expect(body).toMatchObject({ workingDir: '/work/app', command: 'claude', forceNew: true, central: { kind: 'global' } });
+  });
+
+  it('does not seed a title for a central: the first prompt still names the card', async () => {
+    open();
+    choose('global');
+
+    const body = await create();
+    expect(body).not.toHaveProperty('sessionTitle');
+  });
+
+  describe('when this window may not start a central', () => {
+    it.each([[false], [null]])('shows no picker, and sends none, while available is %s', async (available) => {
+      useMcpStore.setState({ available });
+      open();
+
+      expect(picker()).toBeNull();
+      expect(await create()).not.toHaveProperty('central');
+    });
+
+    it('sends none for a choice made before the window lost the right (a reconnect that answered 404)', async () => {
+      open();
+      choose('global');
+      act(() => useMcpStore.setState({ available: false }));
+
+      expect(picker()).toBeNull();
+      expect(await create()).not.toHaveProperty('central');
+    });
+
+    it('shows no picker in the phone app, whatever mcpStore says', () => {
+      vi.stubGlobal('navigator', { ...navigator, userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 AASC-Mobile/1 (ios)' });
+      open();
+
+      expect(picker()).toBeNull();
+    });
+  });
+
+  describe('the dashboard password warning', () => {
+    it('is shown when no password is set', () => {
+      useMcpStore.setState({ passwordEnabled: false });
+      open();
+
+      expect(screen.getByText(NO_PASSWORD)).toBeInTheDocument();
+    });
+
+    it('is not shown with a password, or before it is known', () => {
+      useMcpStore.setState({ passwordEnabled: true });
+      open();
+      expect(screen.queryByText(NO_PASSWORD)).toBeNull();
+      act(() => useMcpStore.setState({ passwordEnabled: null }));
+      expect(screen.queryByText(NO_PASSWORD)).toBeNull();
+    });
+  });
+
+  it('shows the server\'s refusal as it comes, and keeps the form open', async () => {
+    const refusal = 'A project central needs a project folder, not your home folder: its scope would take in every session';
+    fetchMock.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url === '/api/terminals' && options?.method === 'POST') {
+        return { ok: false, status: 400, json: async () => ({ ok: false, error: refusal }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    open();
+    choose('project');
+
+    fireEvent.click(screen.getByText('CREATE'));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(refusal, 'error'));
+    expect(useUiStore.getState().activeModal).toBe('new-session');
+    expect(picker()?.value).toBe('project');
   });
 });

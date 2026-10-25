@@ -38,6 +38,8 @@ import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useIsStartReleased } from '@/stores/startReleaseStore';
+import QueueHoldBanner from './QueueHoldBanner';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -179,23 +181,10 @@ export default function QueueTab({
   const currentProjectPath = currentSession?.projectPath ?? null;
   // Same rule the scheduler applies (useGlobalQueueScheduler), so the notice
   // can never claim a hold the scheduler is not enforcing, or vice versa.
-  const queueHold = currentSession ? queueHoldReason(currentSession, Date.now()) : null;
+  const startReleased = useIsStartReleased(currentSession);
+  const queueHold = currentSession ? queueHoldReason({ ...currentSession, startReleased }, Date.now()) : null;
   const runningSubagents = currentSession?.subagentCount ?? 0;
   const runningBackground = currentSession?.backgroundTaskCount ?? 0;
-
-  /** The queue's Resume after a user cancel — the server clears the hold. */
-  const handleResumeAfterCancel = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/resume`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // resumed: false means nothing was held any more — another device got
-      // there first, or your own prompt already cleared it.
-      const body = (await res.json().catch(() => ({}))) as { resumed?: boolean };
-      showToast(body.resumed === false ? 'The queue is already running' : 'Queue resumed', 'info', 1500);
-    } catch {
-      showToast('Could not resume the queue — try again', 'error', 2500);
-    }
-  }, [sessionId]);
 
   const historyEntries = useQueueHistoryStore((s) => s.entries);
   const historyCount = historyEntries.length;
@@ -1062,7 +1051,9 @@ export default function QueueTab({
           says it, so no chip. */}
       {collapsed && queueHold && items.length > 0 && (
         <span className={styles.queueHoldChip}>
-          {queueHold === 'cancelled' ? '⏸ paused' : queueHold === 'background' ? '⏳ shell' : '⏳ subagents'}
+          {queueHold === 'not-started'
+            ? '⏳ not started'
+            : queueHold === 'cancelled' ? '⏸ paused' : queueHold === 'background' ? '⏳ shell' : '⏳ subagents'}
         </span>
       )}
     </>
@@ -1314,27 +1305,17 @@ export default function QueueTab({
         )}
         {/* Held: the user stopped the last turn (Esc fires a real Stop, so
             without this the queue would send its next prompt into the turn
-            they just stopped), or subagents are still running. Only when
-            there is something waiting to send. */}
+            they just stopped), or subagents are still running, or its CLI has
+            not reported that it started. Only when there is something waiting
+            to send. */}
         {queueHold && items.length > 0 && (
-          <div className={`${styles.queueAutoSendBanner} ${styles.queueHoldBanner}`} role="status">
-            <span>
-              {queueHold === 'cancelled'
-                ? '⏸ Paused — you stopped the last turn. Nothing sends until you resume or send a prompt yourself.'
-                : queueHold === 'background'
-                  ? `⏳ Waiting for ${runningBackground} background shell${runningBackground === 1 ? '' : 's'} to finish before sending the next prompt.`
-                  : `⏳ Waiting for ${runningSubagents} subagent${runningSubagents === 1 ? '' : 's'} to finish before sending the next prompt.`}
-            </span>
-            {queueHold === 'cancelled' && (
-              <button
-                type="button"
-                className={`${styles.queueAutoSendBannerBtn} ${styles.queueHoldBannerBtn}`}
-                onClick={() => { void handleResumeAfterCancel(); }}
-              >
-                Resume
-              </button>
-            )}
-          </div>
+          <QueueHoldBanner
+            hold={queueHold}
+            sessionId={sessionId}
+            card={currentSession}
+            runningSubagents={runningSubagents}
+            runningBackground={runningBackground}
+          />
         )}
         {/* Compose */}
         <div

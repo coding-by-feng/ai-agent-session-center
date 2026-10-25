@@ -71,6 +71,7 @@ import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubm
 import { isEffortCommand } from '@/lib/queueEffort';
 import { isModelCommand } from '@/lib/queueModel';
 import { firesQueue } from '@/stores/presenceStore';
+import { isStartReleased, setReleaseWindow } from '@/stores/startReleaseStore';
 import {
   decideResume,
   faultLabel,
@@ -369,7 +370,10 @@ export function useGlobalQueueScheduler(): void {
       // Stop), so nothing automatic may send: not the queue below, and not the
       // auto-resume watchdog, which would otherwise "continue" a turn the user
       // stopped on purpose. A fresh ⚡ NOW still forces one item further down.
-      const hold = queueHoldReason(session, now);
+      const hold = queueHoldReason(
+        { ...session, startReleased: isStartReleased({ sessionId, terminalId }) },
+        now,
+      );
 
       // ── Auto-resume watchdog ──────────────────────────────────────────────
       // Runs BEFORE the queue and independently of it: a session interrupted by
@@ -437,7 +441,7 @@ export function useGlobalQueueScheduler(): void {
       // prompt or the queue's Resume clears a cancel; subagents finishing
       // clears the other. Loop cadence is left alone, like a paused queue.
       // Only a row you forced may go — see pickWhileHeld below.
-      const heldPick = hold ? pickWhileHeld(items) : null;
+      const heldPick = hold ? pickWhileHeld(items, hold) : null;
       if (hold && !heldPick) return;
 
       const blockedByPrompting =
@@ -647,6 +651,9 @@ export function useGlobalQueueScheduler(): void {
 
     const evaluateAll = (): void => {
       if (cancelled) return;
+      // Offer "It is ready — send anyway" only in the window that fires the queue (Ruling P4-57): a release lives in
+      // this window's store, so any other window could only show a button that does nothing.
+      setReleaseWindow(firesQueue());
       // The auto-send gate now lives INSIDE evaluateSession: a manual
       // force-start or an in-flight chain must run even while auto-send is OFF,
       // so we no longer short-circuit the whole tick on the toggle here. Each
@@ -664,6 +671,7 @@ export function useGlobalQueueScheduler(): void {
     return () => {
       cancelled = true;
       clearInterval(interval);
+      setReleaseWindow(false);
     };
   }, []);
 }

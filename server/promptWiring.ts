@@ -15,7 +15,7 @@ import { onTerminalHook } from './hookSignals.js';
 import { resolveQueueImage } from './queueImages.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { createPromptRouter } from './promptRouter.js';
-import { createPromptSubmitter } from './promptSubmit.js';
+import { createPromptSubmitter, type PromptSubmitter } from './promptSubmit.js';
 
 const terminalExists = (terminalId: string): boolean => getTerminals().some((t) => t.terminalId === terminalId);
 
@@ -30,8 +30,13 @@ function remoteAccess(req: Request): (sessionId: string) => boolean {
   return (sessionId) => lineage !== null && isLineageAlive(lineage) && canSeeSession(false, getSession(sessionId));
 }
 
-export function createServerPromptRouter(): Router {
-  const submitter = createPromptSubmitter({
+/**
+ * A submitter on the live terminals, sessions and hook signals: the prompt route's, and the one a central's task
+ * cancel presses its Esc through (server/mcp/deliverWiring.ts). An Esc needs no place in a terminal's line of
+ * prompts, so the two need not share one.
+ */
+export function createServerPromptSubmitter(): PromptSubmitter {
+  return createPromptSubmitter({
     write: (terminalId, data) => {
       if (!terminalExists(terminalId)) return false;
       writeToTerminal(terminalId, data);
@@ -41,6 +46,10 @@ export function createServerPromptRouter(): Router {
     isAgentForeground: (terminalId) => isAgentProcessName(getForegroundProcess(terminalId)),
     onTerminalHook,
   });
+}
+
+export function createServerPromptRouter(): Router {
+  const submitter = createServerPromptSubmitter();
   return createPromptRouter({
     requireVisibleSession,
     isLocal: isLocalRequest,

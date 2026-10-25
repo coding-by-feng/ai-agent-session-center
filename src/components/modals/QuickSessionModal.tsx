@@ -1,6 +1,10 @@
 /**
  * QuickSessionModal - Quick-launch a session with label selection.
  * Reuses last working directory from history, allows label + workdir override.
+ *
+ * Central session (server/mcp): the same Central picker as the full form, for the room and folder picked
+ * here, shown only while mcpStore says this window may start one; Off at every opening (see
+ * NewSessionModal).
  */
 import { useState, useMemo } from 'react';
 import Modal from '@/components/ui/Modal';
@@ -8,11 +12,15 @@ import Button from '@/components/ui/Button';
 import Combobox from '@/components/ui/Combobox';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
+import CentralPicker from './CentralPicker';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useMcpStore } from '@/stores/mcpStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { useCentralChoice } from '@/hooks/useCentralChoice';
 import { getCommandSuggestions, saveCommand } from '@/lib/commandSuggestions';
+import { centralRequestFor } from '@/lib/centralChoice';
 import {
   deriveRemoteControlName,
   loadRemoteControlSettings,
@@ -80,6 +88,8 @@ export default function QuickSessionModal() {
   const [effortLevel, setEffortLevel] = useState(normalizeEffortLevel(sessionPrefs.effortLevel));
   const [model, setModel] = useState(sessionPrefs.model || '');
   const [roomId, setRoomId] = useState('');
+  // Central session (server/mcp). Off at every opening: a central is made on purpose, each time.
+  const [central, setCentral] = useCentralChoice('quick-session');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
   const [autoEnableRemoteControl, setAutoEnableRemoteControl] = useState(
@@ -95,6 +105,10 @@ export default function QuickSessionModal() {
   // Rooms
   const rooms = useRoomStore((s) => s.rooms);
   const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
+
+  // May this window start a central? (The server refuses a new one from another device.)
+  const centralOffered = useMcpStore((s) => s.available === true);
+  const passwordEnabled = useMcpStore((s) => s.passwordEnabled);
 
   // Working directory suggestions (history + known Claude Code projects)
   const workdirSuggestions = useKnownProjects();
@@ -163,6 +177,10 @@ export default function QuickSessionModal() {
           enableOpsTerminal: enableOpsTerminal || undefined,
           remoteControlName: remoteControlPayload,
           forceNew: true,
+          // The live list is read now, not at the last render: a scope taken since is left out, not refused.
+          central: centralOffered
+            ? centralRequestFor(central, { roomId, folder: workingDir, centrals: useMcpStore.getState().centrals })
+            : undefined,
         }),
       });
       const data = await res.json();
@@ -354,6 +372,19 @@ export default function QuickSessionModal() {
                 }}
                 items={roomOptions}
                 placeholder="None (corridor)"
+              />
+            </div>
+          )}
+
+          {/* Central session (server/mcp): reads the room and folder of this form. */}
+          {centralOffered && (
+            <div className={styles.quickWorkdirRow}>
+              <CentralPicker
+                value={central}
+                onChange={setCentral}
+                roomId={roomId}
+                folder={workingDir}
+                passwordEnabled={passwordEnabled}
               />
             </div>
           )}

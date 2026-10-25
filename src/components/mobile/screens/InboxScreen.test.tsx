@@ -16,6 +16,8 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 import InboxScreen from './InboxScreen';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
+import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
+import type { McpConfirmView } from '@/types/mcpConfirm';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { DEFAULT_RESUME_PROMPT } from '@/lib/resumeWatchdog';
 
@@ -60,6 +62,7 @@ function stubMac() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  usePhoneConfirmStore.setState({ confirms: [] });
   load();
 });
 
@@ -148,5 +151,55 @@ describe('InboxScreen', () => {
     expect(screen.getByText('Nothing needs you')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'See 1 finished' }));
     expect(screen.getByText('Done')).toBeInTheDocument();
+  });
+});
+
+describe('InboxScreen — central confirmations', () => {
+  const card = (over: Partial<McpConfirmView> = {}): McpConfirmView => ({
+    cardId: 'k1', centralId: 'c1', tool: 'session_kill', risk: 'ask', summary: 'Stop the session "api"',
+    detail: null, targetSessionId: null, createdAt: NOW, expiresAt: NOW + 300_000, ...over,
+  });
+
+  it('shows the cards above the filter chips and the rows', () => {
+    stubMac();
+    usePhoneConfirmStore.setState({ confirms: [card()] });
+    render(<InboxScreen />);
+    const cardEl = screen.getByTestId('phone-confirm-card');
+    const chips = screen.getByRole('group', { name: 'Show' });
+    const rows = screen.getAllByTestId('inbox-item')[0];
+    expect(cardEl.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cardEl.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Stop the session "api"')).toBeInTheDocument();
+  });
+
+  it('shows nothing extra when none wait', () => {
+    stubMac();
+    render(<InboxScreen />);
+    expect(screen.queryByTestId('phone-confirm-card')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Central confirmations' })).toBeNull();
+  });
+
+  it('keeps the cards when the Finished filter is chosen', () => {
+    stubMac();
+    usePhoneConfirmStore.setState({ confirms: [card()] });
+    render(<InboxScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /Finished/ }));
+    expect(screen.getByTestId('phone-confirm-card')).toBeInTheDocument();
+  });
+
+  it('does not say nothing needs you while a card waits', () => {
+    stubMac();
+    useSessionStore.setState({ sessions: new Map() });
+    usePhoneConfirmStore.setState({ confirms: [card()] });
+    render(<InboxScreen />);
+    expect(screen.queryByText('Nothing needs you')).toBeNull();
+    expect(screen.getByText('Nothing else needs you')).toBeInTheDocument();
+  });
+
+  it('drops a card that ran out', () => {
+    stubMac();
+    usePhoneConfirmStore.setState({ confirms: [card({ expiresAt: Date.now() - 1 })] });
+    render(<InboxScreen />);
+    expect(screen.queryByTestId('phone-confirm-card')).toBeNull();
   });
 });

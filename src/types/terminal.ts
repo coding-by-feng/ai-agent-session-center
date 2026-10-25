@@ -2,6 +2,8 @@
  * Terminal / SSH types for AI Agent Session Center.
  */
 
+import type { SessionCentralMarker } from './central.js';
+
 // ---------------------------------------------------------------------------
 // Terminal scrollback replay buffer (configurable)
 //
@@ -146,6 +148,11 @@ export interface TerminalConfig {
   /** Session metadata — set during workspace import so the first WS broadcast includes them */
   pinned?: boolean;
   muted?: boolean;
+  /**
+   * The person's hands-off switch (server/mcp): no central may type into, task or queue for the session.
+   * Carried through a workspace restore like `muted`; only ever `true`, since absent already means steerable.
+   */
+  handsOff?: boolean;
   alerted?: boolean;
   accentColor?: string;
   characterModel?: string;
@@ -192,6 +199,13 @@ export interface TerminalConfig {
   isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
+  /**
+   * Set when this terminal runs a central session (server/mcp): the agent is launched with the
+   * `aasc` MCP server added (`createTerminal`'s command, `writeWhenReady`'s typed line) and the
+   * central's bearer token in the PTY environment, never on a command line. The marker is the one
+   * the session card carries. Local terminals only: a remote host gets neither flags nor token.
+   */
+  central?: SessionCentralMarker;
   /**
    * Share the new session with remote devices from its first broadcast. Set by
    * the server only, when a remote device starts the session (AASC-28); never

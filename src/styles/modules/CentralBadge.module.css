@@ -1,0 +1,53 @@
+/* CentralBadge — the ★ mark on a session card that is a central (server/mcp).
+
+   A mark, not a control, so it is drawn as the Chip is: filled-subtle and borderless, no hover fill, the
+   default cursor. The colours are Chip's `accent` tone, recipe and all (Chip.module.css has the ten-theme
+   contrast audit: the accent mixed into --text-primary holds 4.5:1 on the light and windows-xp whites and
+   stays bright on the dark themes), so nothing here is a colour of its own.
+
+   It is a flex item of whatever row it joins (the rail card's text, the header's name row), and it may be
+   squeezed: `min-width: 0` and the ellipsis on `.badge` let a long room or folder name give way before
+   the row overflows, and the Tooltip carries the full scope. Tooltip wraps its child in a span of its own
+   (`.root > *`), which must be allowed to shrink too, or the ellipsis never gets a width to cut at. */
+
+.root {
+  display: inline-flex;
+  flex: 0 1 auto;
+  /* Never less than the star: squeezed below that a header row left a 12px sliver of padding and half a letter
+     ("★ o" in a 1100px window, rendered check Oct 2026). The word gives way to the ellipsis before the star does. */
+  min-width: 18px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.root > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.badge {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 40%, var(--text-primary));
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* The star alone: a square, so it does not look like a clipped word. */
+.compact {
+  min-width: 18px;
+  padding: 0 3px;
+  text-align: center;
+}

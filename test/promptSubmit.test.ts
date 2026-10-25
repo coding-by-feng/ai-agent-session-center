@@ -542,6 +542,98 @@ describe('a prompt sent while the agent is working', () => {
   });
 });
 
+describe('an interrupt alone (a central cancelling its own task)', () => {
+  /** Runs `interrupt` without awaiting it: the timers have to be advanced first. */
+  function interruptOf(
+    target: { sessionId: string; terminalId: string; beforeEsc?: () => void } = { sessionId: 's1', terminalId: T },
+  ): { pressed: boolean | null } {
+    const box: { pressed: boolean | null } = { pressed: null };
+    void makeSubmitter().interrupt(target).then((pressed) => { box.pressed = pressed; });
+    return box;
+  }
+
+  it('presses Esc on a running turn, resolves once it stops, and types nothing else', async () => {
+    setStatus('working');
+    const result = interruptOf();
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(result.pressed).toBeNull();
+    hook('Stop', 'waiting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(true);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+  });
+
+  it('declines an open dialog with the same Esc', async () => {
+    setStatus('approval');
+    const result = interruptOf();
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+    hook('Stop', 'waiting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(true);
+  });
+
+  it('stops waiting after 10 s when no Stop arrives', async () => {
+    setStatus('working');
+    const result = interruptOf();
+    await vi.advanceTimersByTimeAsync(INTERRUPT_WAIT_MS - 1);
+    expect(result.pressed).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result.pressed).toBe(true);
+    expect(writes).toHaveLength(1);
+  });
+
+  it('presses nothing when no turn runs', async () => {
+    const result = interruptOf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('presses nothing when the session no longer runs in that terminal', async () => {
+    setStatus('working', { terminalId: 'term-2' });
+    const result = interruptOf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('presses nothing when the agent is not in front: the shell underneath would get the Esc', async () => {
+    setStatus('working');
+    agentForeground = false;
+    const result = interruptOf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('answers not pressed when the Esc write fails (the terminal is gone), without waiting', async () => {
+    setStatus('working');
+    terminalAlive = false;
+    const result = interruptOf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.pressed).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('runs beforeEsc just before the Esc is written, and not at all when nothing is pressed', async () => {
+    const seen: string[] = [];
+    const beforeEsc = (): void => { seen.push(`before:${writes.length}`); };
+    setStatus('working');
+    interruptOf({ sessionId: 's1', terminalId: T, beforeEsc });
+    expect(seen).toEqual(['before:0']);
+    expect(writes).toEqual([{ at: 0, data: '\x1b' }]);
+
+    seen.length = 0;
+    setStatus('waiting');
+    const idle = interruptOf({ sessionId: 's1', terminalId: T, beforeEsc });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(idle.pressed).toBe(false);
+    expect(seen).toEqual([]);
+  });
+});
+
 describe('createPromptKeyCache', () => {
   it('remembers a key for 5 minutes', () => {
     const cache = createPromptKeyCache<string>();

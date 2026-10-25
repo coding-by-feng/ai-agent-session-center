@@ -31,6 +31,7 @@ import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useSessionStore } from '@/stores/sessionStore';
+import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
 import { useWsStore } from '@/stores/wsStore';
 import {
   LEAVE_WINDOW_MS,
@@ -184,7 +185,9 @@ export default function PhoneAppFrame() {
   const tab = usePhoneNavStore((s) => s.tab);
   const stack = usePhoneNavStore((s) => s.stacks[s.tab]);
   const pop = usePhoneNavStore((s) => s.pop);
-  const waiting = useSessionStore((s) => inboxCount(s.sessions));
+  // The Inbox badge counts the sessions waiting on the person and the central confirmations this phone may answer.
+  const confirmsWaiting = usePhoneConfirmStore((s) => s.confirms.length);
+  const waiting = useSessionStore((s) => inboxCount(s.sessions)) + confirmsWaiting;
   const keyboardOpen = useSoftKeyboardOpen();
 
   const scroller = useRef<HTMLElement | null>(null);

@@ -86,6 +86,11 @@ export interface ControlHolder {
   label: string;
   since: number;
   lastActivityAt: number;
+  /**
+   * When this holder last gave the session input (typed, sent a prompt, answered a request); absent while it has
+   * only resized or cleared it (Ruling P4-23). A central's own worker is adopted by a person's input only.
+   */
+  lastInputAt?: number;
 }
 
 /** A control entry as sent to clients — carries whether the holder is still connected. */
@@ -340,6 +345,7 @@ export function claimControl(
     // a stable "controlling since" rather than resetting on every keystroke.
     since: holder && holder.clientId === clientId ? holder.since : at,
     lastActivityAt: at,
+    ...(holder && holder.clientId === clientId && holder.lastInputAt !== undefined ? { lastInputAt: holder.lastInputAt } : {}),
   };
   controllers.set(sessionId, next);
   return { ok: true, controller: toView(next) };
@@ -348,12 +354,15 @@ export function claimControl(
 /**
  * Record that a device acted on a session: it becomes (or stays) the driver.
  * Never rejects a write any more (Oct 2026); the return stays for old callers.
+ * `drives` is false for an act that is not input (a resize, a clear): it moves
+ * the baton the same, but does not stamp `lastInputAt` (Ruling P4-23).
  */
-export function noteControlActivity(sessionId: string, clientId: string): boolean {
+export function noteControlActivity(sessionId: string, clientId: string, drives = true): boolean {
   const holder = controllers.get(sessionId);
   const at = now();
+  const input = drives ? { lastInputAt: at } : {};
   if (holder && holder.clientId === clientId) {
-    controllers.set(sessionId, { ...holder, lastActivityAt: at });
+    controllers.set(sessionId, { ...holder, lastActivityAt: at, ...input });
     return true;
   }
   // The device that acts becomes the driver, whoever drove before.
@@ -363,6 +372,7 @@ export function noteControlActivity(sessionId: string, clientId: string): boolea
     label: labelFor(clientId, 'Unknown device'),
     since: at,
     lastActivityAt: at,
+    ...input,
   });
   return true;
 }

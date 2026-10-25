@@ -33,8 +33,11 @@ const CHUNK = 64 * 1024;
 
 /** How one CLI's records become chat entries. */
 export interface LineReader {
-  /** The entries a parsed record holds (none for bookkeeping records). `offset`: where its line starts. */
-  entries(record: unknown, ctx: { offset: number }): ChatEntryDraft[];
+  /**
+   * The entries a parsed record holds (none for bookkeeping records). `offset`: where its line starts;
+   * `assistantCap`: characters of assistant text per entry, when the caller asked for other than TEXT_CAP.
+   */
+  entries(record: unknown, ctx: { offset: number; assistantCap?: number }): ChatEntryDraft[];
   /** The record's own time in epoch ms, or NaN when it has none. */
   timestamp(record: unknown): number;
   /** The tool calls a record makes, with their full input (ids as its entries carry them). */
@@ -53,6 +56,11 @@ export interface PageOptions {
   markSecrets?: boolean;
   /** The session's project: its own paths are judged from its root down when marking secrets. */
   projectRoot?: string | null;
+  /**
+   * Characters of assistant text per entry, up to ASSISTANT_TEXT_CAP_MAX (chatEntries.ts); left out, TEXT_CAP like
+   * every other text. Only the task ledger asks (it reads an answer whole); the phone never does.
+   */
+  assistantCap?: number;
 }
 
 type PageRecords = Array<{ offset: number; record: unknown }>;
@@ -128,14 +136,18 @@ async function readableEnd(fh: FileHandle, size: number, scanBytes: number): Pro
 }
 
 /** Keys, times and folded command output for records in file order. */
-function toEntries(reader: LineReader, records: ReadonlyArray<{ offset: number; record: unknown }>): ChatEntry[] {
+function toEntries(
+  reader: LineReader,
+  records: ReadonlyArray<{ offset: number; record: unknown }>,
+  assistantCap?: number,
+): ChatEntry[] {
   const out: ChatEntry[] = [];
   let lastTs = 0;
   for (const { offset, record } of records) {
     const own = reader.timestamp(record);
     const timestamp = Number.isFinite(own) ? own : lastTs;
     lastTs = timestamp;
-    reader.entries(record, { offset }).forEach((draft, i) => {
+    reader.entries(record, assistantCap === undefined ? { offset } : { offset, assistantCap }).forEach((draft, i) => {
       out.push({ ...draft, key: `${offset}:${i}`, timestamp } as ChatEntry);
     });
   }
@@ -211,7 +223,7 @@ export async function readChatPage(file: string, reader: LineReader, opts: PageO
     const at = (offset: number) => `${tag}:${offset}`;
     // Results look for their calls in what the page read but didn't show, then one more budget back.
     const entriesOf = async (records: PageRecords, prior: Line[], readFrom: number): Promise<ChatEntry[]> => {
-      const entries = toEntries(reader, records);
+      const entries = toEntries(reader, records, opts.assistantCap);
       if (!opts.markSecrets) return entries;
       return markSecretEntries(entries, records, fh, (r) => reader.calls(r), {
         prior,

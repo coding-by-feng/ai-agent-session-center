@@ -120,6 +120,9 @@
 
 /* Advanced */
 .advancedActions { display: flex; gap: 10px; flex-wrap: wrap; }
+.aboutRows { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 12px; font-size: 12px; }
+.aboutRows dt { color: var(--text-secondary); }
+.aboutRows dd { margin: 0; color: var(--text-primary); font-family: var(--font-mono); overflow-wrap: anywhere; }
 .settingsHint { font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; }
 
 /* Terminal replay-buffer control */

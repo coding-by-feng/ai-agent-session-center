@@ -46,9 +46,9 @@ export interface PushNotifierDeps {
   onError?: (message: string) => void;
 }
 
-const TITLE_MAX = 80;
-const TOOL_MAX = 40;
-const SESSION_REF = /^[A-Za-z0-9_-]{1,64}$/;
+export const TITLE_MAX = 80;
+export const TOOL_MAX = 40;
+export const SESSION_REF = /^[A-Za-z0-9_-]{1,64}$/;
 
 function viewOf(session: Session): PushView {
   return {
@@ -58,7 +58,7 @@ function viewOf(session: Session): PushView {
   };
 }
 
-function cleanText(raw: string, max: number): string {
+export function cleanText(raw: string, max: number): string {
   return raw.replace(/[\x00-\x1F\x7F-\x9F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 

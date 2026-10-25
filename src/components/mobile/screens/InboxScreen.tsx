@@ -9,6 +9,9 @@
  *   ⟳ aasc-backend-1 · 1m    Stopped: API Error: 529       [Continue]
  *   ✓ website-1 · 12m        "Updated the pricing page…"
  *
+ * A central's confirmations (AASC P5-15) wait above the filter chips, in every filter: they expire on their own
+ * and count as denied, so they are never filtered away. Oldest first, so a new card never moves an older one's buttons.
+ *
  * Built only from what the phone already receives (lib/chat/inboxItems). After
  * AASC restarts, the sessions it cut off come as one "Continue" item. A row
  * opens its session on this tab's own stack, so back returns here (the triage
@@ -21,8 +24,10 @@ import { Button, Chip, EmptyState, Screen } from '../kit';
 import { InboxTabIcon } from '../kit/kitIcons';
 import ConnectionBanner from './ConnectionBanner';
 import InboxItemRow from '../chat/InboxItemRow';
+import { PhoneConfirmList } from '../chat/PhoneConfirmCard';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
+import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
@@ -97,6 +102,8 @@ export default function InboxScreen() {
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   const push = usePhoneNavStore((s) => s.push);
   const openTerminal = usePhoneNavStore((s) => s.openTerminal);
+  const confirms = usePhoneConfirmStore((s) => s.confirms);
+  const pruneConfirms = usePhoneConfirmStore((s) => s.prune);
   const offer = useSyncExternalStore(subscribeInterrupted, getInterruptedOffer, () => null);
   const now = useNow();
   const [filter, setFilter] = useState<InboxFilter>('waiting');
@@ -136,6 +143,7 @@ export default function InboxScreen() {
 
   return (
     <Screen title="Inbox" banner={<ConnectionBanner />} actions={unread > 0 ? markAll : undefined} testId="phone-inbox">
+      <PhoneConfirmList confirms={confirms} onExpired={pruneConfirms} />
       <div className={styles.filters} role="group" aria-label="Show">
         <Chip label="Waiting" count={waitingCount(items)} selected={filter === 'waiting'} onClick={() => setFilter('waiting')} />
         <Chip label="Finished" count={finished.length} selected={filter === 'finished'} onClick={() => setFilter('finished')} />
@@ -146,7 +154,7 @@ export default function InboxScreen() {
       ) : shown.length === 0 ? (
         <EmptyState
           icon={<InboxTabIcon />}
-          title={filter === 'finished' ? 'No finished turns' : filter === 'waiting' ? 'Nothing needs you' : 'Nothing here yet'}
+          title={filter === 'finished' ? 'No finished turns' : filter === 'waiting' ? (confirms.length > 0 ? 'Nothing else needs you' : 'Nothing needs you') : 'Nothing here yet'}
           message={filter === 'finished'
             ? 'Turns that ended in the last 12 hours show up here.'
             : 'Approvals, questions and turns that stopped show up here.'}

@@ -33,6 +33,7 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem } from '@/stores/queueStore';
 import { recordQueueSent } from '@/stores/queueSentStore';
+import { isReleaseWindow, useStartReleaseStore } from '@/stores/startReleaseStore';
 import type { Session } from '@/types';
 
 const T0 = 1_800_000_000_000;
@@ -84,6 +85,7 @@ beforeEach(() => {
   toast.mockClear();
   baton.mine = true;
   useSessionStore.setState({ sessions: new Map() } as never);
+  useStartReleaseStore.setState({ released: new Set(), releaseWindow: false });
 });
 
 afterEach(() => {
@@ -200,6 +202,48 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     act(() => { setSession({ status: 'waiting', lastActivityAt: Date.now() }); }); // the Stop from Esc
     await advance(600); // a scheduler tick sees `waiting` in here
     act(() => { setSession({ userCancelledAt: Date.now() }); }); // the cancel line, just after
+    await advance(4000);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // Rulings P4-35, P4-41: the connecting timeout turned the card idle before its CLI sent a hook; it may be
+  // showing its folder-trust prompt, where a typed prompt and its Enter would answer it.
+  it('a central’s queued item is not sent to a card that went idle by the connecting timeout', async () => {
+    setSession({ status: 'idle', startHeard: false });
+    const forced: QueueItem = { id: 2, sessionId: 's1', text: 'forced prompt', position: 1, createdAt: T0, type: 'once', forceStart: true };
+    const queued: QueueItem = { id: 1, sessionId: 's1', text: 'next prompt', position: 0, createdAt: T0, type: 'once' };
+    useQueueStore.setState({ queues: new Map([['s1', [queued, forced]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(5000);
+    // Neither the queue nor a ⚡ NOW (a central can press it too), and no Enter.
+    expect(send).not.toHaveBeenCalled();
+    expect(pressEnter).not.toHaveBeenCalled();
+
+    // Its first hook clears the marker: the queue goes on.
+    act(() => { setSession({ startHeard: undefined, lastActivityAt: Date.now() }); });
+    await advance(3000);
+    expect(send).toHaveBeenCalled();
+  });
+
+  // Ruling P4-54: the person's "It is ready — send anyway" releases the hold for that card in this window.
+  it('the person releasing a card that never reported lets its queue send; a replaced card is held again', async () => {
+    setSession({ status: 'idle', startHeard: false });
+    const queued: QueueItem = { id: 1, sessionId: 's1', text: 'next prompt', position: 0, createdAt: T0, type: 'once' };
+    useQueueStore.setState({ queues: new Map([['s1', [queued]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(3000);
+    expect(send).not.toHaveBeenCalled();
+
+    act(() => { useStartReleaseStore.getState().release({ sessionId: 's1', terminalId: 'term-1' }); });
+    await advance(3000);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // The card is replaced (a restart gives it a new terminal): the hold is back for the next item.
+    send.mockClear();
+    act(() => {
+      setSession({ terminalId: 'term-2', status: 'idle', startHeard: false });
+      useQueueStore.setState({ queues: new Map([['s1', [{ ...queued, id: 2, text: 'again' }]]]) });
+    });
     await advance(4000);
     expect(send).not.toHaveBeenCalled();
   });
@@ -733,5 +777,29 @@ describe('useGlobalQueueScheduler — a queued /model step', () => {
     await advance(2000);
     await advance(10 * 60_000);
     expect(send.mock.calls.map((c) => c[1])).toEqual(['/model haiku']);
+  });
+});
+
+// Ruling P4-57: "send anyway" is offered only where the release can work — the window that fires the queue.
+describe('useGlobalQueueScheduler — the release window', () => {
+  it('is open while mounted and this device fires the queue, and closed again on unmount', async () => {
+    const { unmount } = render(<Harness />);
+    await advance(1100);
+    expect(isReleaseWindow()).toBe(true);
+    unmount();
+    expect(isReleaseWindow()).toBe(false);
+  });
+
+  it('stays closed on a device that does not fire the queue, and follows the baton when it moves', async () => {
+    baton.mine = false;
+    render(<Harness />);
+    await advance(2100);
+    expect(isReleaseWindow()).toBe(false);
+    baton.mine = true;
+    await advance(1100);
+    expect(isReleaseWindow()).toBe(true);
+    baton.mine = false;
+    await advance(1100);
+    expect(isReleaseWindow()).toBe(false);
   });
 });

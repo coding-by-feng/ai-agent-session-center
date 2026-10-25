@@ -7,6 +7,9 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useMcpStore } from '@/stores/mcpStore';
+import { useMcpConfirmStore } from '@/stores/mcpConfirmStore';
+import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { isPopoutWindow } from '@/lib/windowRole';
 import { isNativeMobileApp } from '@/lib/platform';
@@ -22,6 +25,7 @@ import { useCliVersionsStore } from '@/stores/cliVersionsStore';
 import { isCliVersionInfo } from '@/lib/cliVersionsApi';
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
 import { receiveRooms, handleRoomOpMessage, onRoomsSocketConnected } from '@/lib/roomSync';
+import { handleKeepAwakeOpMessage, handleSkillNoteOpMessage } from '@/lib/skillNoteOps';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -38,6 +42,12 @@ export function useWebSocket(token: string | null): WsClient | null {
     // over the main window's edits). Sounds and alarms still run in each window.
     const popout = isPopoutWindow();
     const nativeApp = isNativeMobileApp();
+    // Only the dashboard window follows the central sessions (server/mcp): it alone offers the New Session form, the
+    // Hands off button, the ACTIVITY tab and the worker badges. A pop-out gets none of them, so it is given none of
+    // the lists, tasks or rows either: a `centrals_update` (the server sends it to every window of this Mac) must
+    // not make a pop-out `available`, which is what would show the first three there. The phone app may not see a
+    // central at all.
+    const followsCentrals = !popout && !nativeApp;
 
     function handleMessage(msg: ServerMessage): void {
       switch (msg.type) {
@@ -273,6 +283,60 @@ export function useWebSocket(token: string | null): WsClient | null {
           break;
         }
 
+        // A central asked for a skill-note change (POST /api/skill-notes/ops); the notes live in this browser, so
+        // only the writer's main window applies it and answers the server with the result.
+        case 'skill_note_op': {
+          void handleSkillNoteOpMessage(msg);
+          break;
+        }
+
+        // A central turned keep-awake on or off (POST /api/keep-awake/ops): the setting lives in this window, so the
+        // writer's main window sets it (its effect tells the server) and answers the server with the result.
+        case 'keep_awake_op': {
+          void handleKeepAwakeOpMessage(msg);
+          break;
+        }
+
+        // The live central sessions changed (server/mcp): the whole list, token-free, sent to this
+        // Mac's own windows only (a remote device never receives it). A pop-out ignores it (see followsCentrals).
+        case 'centrals_update': {
+          if (followsCentrals) useMcpStore.getState().applyCentrals(msg.centrals);
+          break;
+        }
+
+        // What a central does (server/mcp), to this Mac's own windows only like the list above: one change
+        // of a task it handed out (a worker's badge), one new row of its activity log (its panel).
+        case 'mcp_task_update': {
+          if (followsCentrals) useMcpStore.getState().applyTaskUpdate(msg.task);
+          break;
+        }
+        case 'mcp_activity': {
+          if (followsCentrals) useMcpStore.getState().applyActivityRow(msg.row);
+          break;
+        }
+
+        // A central is waiting on the person (server/mcp/confirm.ts): the card to show, and later that it was
+        // answered, expired or withdrawn. This Mac's own windows only; a pop-out never shows a card.
+        case 'mcp_confirm': {
+          if (followsCentrals) useMcpConfirmStore.getState().apply(msg.confirm);
+          break;
+        }
+        case 'mcp_confirm_resolved': {
+          if (followsCentrals) useMcpConfirmStore.getState().resolved(msg.cardId);
+          break;
+        }
+
+        // The same, for the cards a paired phone may answer (server/mcp/phoneConfirmRoutes.ts, P5-15): sent to remote
+        // clients only, and kept by the phone app alone. The dashboard window follows the Mac's own feed above.
+        case 'mcp_phone_confirm': {
+          if (nativeApp) usePhoneConfirmStore.getState().apply(msg.confirm);
+          break;
+        }
+        case 'mcp_phone_confirm_resolved': {
+          if (nativeApp) usePhoneConfirmStore.getState().resolved(msg.cardId);
+          break;
+        }
+
         // Terminal and stats messages are handled by other hooks/components
         case 'team_update':
         case 'hook_stats':
@@ -290,6 +354,19 @@ export function useWebSocket(token: string | null): WsClient | null {
       // Every window reads the room list on each (re)connect: a paired phone may
       // not read the workspace snapshot, and the server may have restarted.
       if (status === 'connected') onRoomsSocketConnected();
+      // The live centrals are read on each (re)connect too: a `centrals_update` sent while the
+      // socket was down is never replayed. Only the dashboard window uses them (the New Session
+      // form lives there; a phone may not start a central, and its read would only be refused).
+      // So are the tasks in flight: a window opened mid-task has heard of none, and one that was away has
+      // missed their ends (the worker badges read them).
+      if (status === 'connected' && followsCentrals) {
+        void useMcpStore.getState().load();
+        void useMcpStore.getState().loadTasks();
+        // Confirmations still waiting: one opened while the socket was down is never replayed.
+        void useMcpConfirmStore.getState().load();
+      }
+      // The phone's own pending cards, for the same reason: one opened while the socket was down is never replayed.
+      if (status === 'connected' && nativeApp) void usePhoneConfirmStore.getState().load();
     }
 
     const { setClient } = useWsStore.getState();

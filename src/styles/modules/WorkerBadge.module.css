@@ -1,0 +1,108 @@
+/* WorkerBadge — the mark on a session card while a central (server/mcp) has handed it a task that is not over:
+   `← ★ global · T12 · running`.
+
+   A mark, not a control, so it is drawn as the Chip and the ★ CentralBadge are: filled-subtle and borderless, no
+   hover fill, the default cursor. The tones are Chip's recipes, verbatim (Chip.module.css has the ten-theme
+   contrast audit: an accent mixed into --text-primary holds 4.5:1 on the light and windows-xp whites and stays
+   bright on the dark themes), so nothing here is a colour of its own:
+     pending    the quiet neutral: the prompt is on its way (queued, sent)
+     running    the accent the central's own ★ badge has: the session works on the task
+     attention  the warning tone: the session waits on a dialog or a fault (blocked, stalled)
+
+   It is a flex item of the rail card's text, and it may be squeezed. Two parts: the LEAD (`← ★ project agent-manager`
+   and its ` · `) gives way first, the REST (`T12 · running`) never does, because the task id and the state are what the
+   badge is for. The lead is cut with an ellipsis down to about 14 characters (its flex-basis); below that it does not
+   fit on the line with the rest, wraps onto a second line, and the badge (one line high, overflow hidden) shows only
+   the first. `wrap-reverse` + `align-content: flex-end` is what makes the line that stays the one holding the rest,
+   with the DOM order (lead, then rest) untouched: the visible order is the written order. So a card with ~110px of
+   text reads `T12 · running`, not `← ★… · T12 · running` (a fragment that named no central; rendered check, Oct
+   2026), and the Tooltip carries the full scope either way. Tooltip wraps its child in a span of its own (`.root > *`),
+   which must be allowed to shrink too, or the ellipsis never gets a width to cut at.
+
+   Not in the session header: the selected session is listed as a card too, and the header's name row has no room
+   to spare (a badge there was clipped to a fragment at 440px; rendered check, Oct 2026). */
+
+.root {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.root > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.badge {
+  display: inline-flex;
+  flex-wrap: wrap-reverse;
+  align-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* The part that gives way: the scope and its separator. `flex-basis: 14ch` (room for `← ★ global · `) is the least it will be cut to; it grows
+   to its own width (max-width) when the card has room. */
+.lead {
+  display: flex;
+  flex: 1 1 14ch;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+}
+
+.scope {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ` · ` between the scope and the task: it keeps its spaces (`pre`) and goes with the lead. */
+.sep {
+  flex: 0 0 auto;
+  white-space: pre;
+}
+
+/* The part that never does. */
+.rest {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.pending {
+  background: var(--bg-subtle-strong);
+  color: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+}
+
+.running {
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 40%, var(--text-primary));
+}
+
+.attention {
+  background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-orange) 40%, var(--text-primary));
+}
+
+/* The task id alone: a square-ish tag, so it does not look like a clipped word. */
+.compact {
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 4px;
+}
