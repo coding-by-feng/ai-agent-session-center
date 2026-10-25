@@ -1,5 +1,7 @@
 // The release build's Capacitor settings (AASC-22, plan 08 §5 and §9 "Release config"):
 // web inspector and debug logging off, no custom URL scheme, navigation limited.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CapacitorConfig } from '@capacitor/cli';
 
@@ -40,6 +42,18 @@ describe('release build settings', () => {
         expect(pattern.endsWith('.aasc.work')).toBe(true);
       }
     }
+  });
+
+  // iOS ATS lets http through only to the "local network", and Tailscale's 100.64.0.0/10 is not
+  // local to it: the native probe of a tailnet Mac failed in ~10 ms ("…requires the use of a secure
+  // connection"), seen on an iPhone 13 Pro, 26 Oct 2026. ATS exceptions take domain names, never IP
+  // ranges, so ATS is off and the shell's own rules are the guard (RELEASE.md row 10). The key must
+  // stand alone: next to NSAllowsLocalNetworking or …InWebContent, iOS ignores it.
+  it('turns ATS off with NSAllowsArbitraryLoads alone, so a tailnet Mac is reachable over http', () => {
+    const plist = readFileSync(resolve(__dirname, '../../ios/App/App/Info.plist'), 'utf8');
+    const ats = /<key>NSAppTransportSecurity<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(plist)?.[1] ?? '';
+    expect([...ats.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1])).toEqual(['NSAllowsArbitraryLoads']);
+    expect(ats).toMatch(/<key>NSAllowsArbitraryLoads<\/key>\s*<true\/>/);
   });
 
   it('treats only "1" as a release build', async () => {

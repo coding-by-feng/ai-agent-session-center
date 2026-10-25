@@ -14,7 +14,7 @@ const release = env.AASC_RELEASE === '1';
 // every `cap sync`; it reads these two lines, so keep them literal. Raise APP_BUILD for every build
 // that goes to a phone, and APP_VERSION when what the app does changes.
 export const APP_VERSION = '1.0.0';
-export const APP_BUILD = 1;
+export const APP_BUILD = 2;
 
 const config: CapacitorConfig = {
   appId: 'work.aasc.mobile', // decide once: it can't change after the first store upload
