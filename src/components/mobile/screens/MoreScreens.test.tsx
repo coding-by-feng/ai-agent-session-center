@@ -180,6 +180,24 @@ describe('ThisPhoneScreen', () => {
     expect(within(about).getByText('A phone browser')).toBeTruthy();
     // The bundle's version, or "Unknown" where the build set none (tests, harnesses).
     expect(within(about).getByText(/^(\d+\.\d+\.\d+.*|Unknown)$/)).toBeTruthy();
+    // A phone browser has no app of its own to name.
+    expect(within(about).queryByText('AASC app on this phone')).toBeNull();
+  });
+
+  it('names the phone app’s own version and build, read from its user agent', () => {
+    vi.stubGlobal('navigator', { ...navigator, userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1.0.0+3' });
+    render(<ThisPhoneScreen />);
+    const about = screen.getByRole('region', { name: 'AASC' });
+    expect(within(about).getByText('AASC app on this phone')).toBeTruthy();
+    expect(within(about).getByText('1.0.0 (3)')).toBeTruthy();
+    expect(within(about).getByText('The iPhone app')).toBeTruthy();
+  });
+
+  it('says an app from before versions were sent is an older app', () => {
+    vi.stubGlobal('navigator', { ...navigator, userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1' });
+    render(<ThisPhoneScreen />);
+    const about = screen.getByRole('region', { name: 'AASC' });
+    expect(within(about).getByText('Older app (before 1.0.0)')).toBeTruthy();
   });
 });
 

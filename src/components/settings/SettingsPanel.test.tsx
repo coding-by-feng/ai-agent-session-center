@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+
+// What vite.config.ts `define`s in a real build (src/lib/appVersion.ts reads them on import).
+vi.hoisted(() => {
+  Object.assign(globalThis, {
+    __AASC_VERSION__: '2.10.58',
+    __AASC_BUILD__: { date: '2026-10-26T02:40:00.000Z', commit: 'f129192-dirty' },
+  });
+});
 
 import SettingsPanel, { SettingsButton } from './SettingsPanel';
 import { useUiStore } from '@/stores/uiStore';
@@ -89,6 +97,26 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Export Settings')).toBeInTheDocument();
     expect(screen.getByText('Import Settings')).toBeInTheDocument();
     expect(screen.getByText('Reset to Defaults')).toBeInTheDocument();
+  });
+
+  it('opens ADVANCED on About: the AASC version and build, with a copy for bug reports', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { ...navigator, userAgent: navigator.userAgent, clipboard: { writeText } });
+    try {
+      useUiStore.setState({ activeModal: 'settings' });
+      render(<SettingsPanel />);
+      fireEvent.click(screen.getByText('ADVANCED'));
+      const about = screen.getByRole('region', { name: 'About' });
+      // The first section of the tab.
+      expect(about.parentElement?.firstElementChild).toBe(about);
+      expect(within(about).getByText('2.10.58')).toBeInTheDocument();
+      expect(within(about).getByText(/· f129192-dirty$/)).toBeInTheDocument();
+      fireEvent.click(within(about).getByRole('button', { name: 'Copy version info' }));
+      expect(writeText).toHaveBeenCalledWith('AASC 2.10.58 (built 2026-10-26T02:40:00.000Z, f129192-dirty)');
+      expect(await within(about).findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('offers keep-awake only in the desktop app, and saves the choice (AASC-16)', () => {

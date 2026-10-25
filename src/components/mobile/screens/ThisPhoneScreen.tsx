@@ -5,7 +5,8 @@
  * so none is shown), this phone's name on the Mac, and the way to the lock and
  * unpairing, which live in the AASC app's own settings (lib/chat/thisPhone.ts).
  * Then what About used to say (folded in Oct 20 2026): the AASC version serving
- * these screens and where they run; the designers' UI kit only in a dev build.
+ * these screens, the phone app's own version (from its user agent), and where they
+ * run; the designers' UI kit only in a dev build.
  */
 import { ListRow, ListSection, Screen } from '../kit';
 import { GalleryIcon } from '../kit/kitIcons';
@@ -14,13 +15,19 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
 import { getClientId } from '@/lib/deviceIdentity';
-import { isNativeMobileApp, nativeAppPlatform } from '@/lib/platform';
+import { isNativeMobileApp, nativeAppPlatform, nativeAppVersion, type NativeAppVersion } from '@/lib/platform';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
 import { CLOUD_FETCH_SHORT, fetchCloudStatus, type CloudStatus } from '@/lib/chat/cloudBrowseApi';
 import { cloudStateWords, firstSentence, syncWords } from '@/lib/chat/cloudBrowseModel';
 import { useClock } from '@/lib/chat/clock';
 import { useCloudRead } from './useCloudRead';
+
+/** The app's own version as This phone says it: `1.0.0 (3)`; the apps before 1.0.0 sent no build. */
+function appVersionWords(v: NativeAppVersion | null): string {
+  if (!v) return 'Unknown';
+  return v.build === null ? 'Older app (before 1.0.0)' : `${v.version} (${v.build})`;
+}
 
 const readStatus = ({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchCloudStatus(signal);
 
@@ -75,6 +82,7 @@ export default function ThisPhoneScreen() {
       )}
       <ListSection header="AASC" footer="These screens are served by your Mac, so they update with AASC there. Nothing here is stored in the cloud.">
         <ListRow title="AASC on your Mac" value={APP_VERSION ?? 'Unknown'} />
+        {inApp && <ListRow title="AASC app on this phone" value={appVersionWords(nativeAppVersion())} />}
         <ListRow title="Running in" value={inApp ? `The ${nativeAppPlatform() === 'android' ? 'Android' : 'iPhone'} app` : 'A phone browser'} />
         {import.meta.env.DEV && (
           <ListRow leading={<GalleryIcon />} title="UI kit" subtitle="For designers: every phone component and its states" chevron onClick={() => push('/more/gallery')} />

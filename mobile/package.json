@@ -1,6 +1,6 @@
 {
   "name": "aasc-mobile",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "AASC phone app shell (Capacitor). Separate from the desktop app's dependencies.",
   "type": "module",
@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "shell:build": "vite build shell",
     "sync": "cap sync",
+    "capacitor:sync:before": "node scripts/sync-version.mjs",
     "ios": "cap open ios",
     "android": "cap open android"
   },

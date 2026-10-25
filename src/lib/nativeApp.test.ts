@@ -1,7 +1,7 @@
 // nativeApp.test.ts — AASC-17: how the server's UI behaves inside the AASC phone app.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  nativeAppPlatform, isNativeMobileApp, nativeShellReauthUrl, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
+  nativeAppPlatform, nativeAppVersion, isNativeMobileApp, nativeShellReauthUrl, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
 } from './platform';
 import { mayDrivePtyGeometry, defaultWidthMode } from './terminalGeometry';
 import { parseSessionDeepLink, stripSessionDeepLink } from './deepLink';
@@ -17,6 +17,16 @@ describe('native app detection', () => {
     expect(nativeAppPlatform(IOS_UA)).toBe('ios');
     expect(nativeAppPlatform(ANDROID_UA)).toBe('android');
     expect(isNativeMobileApp(IOS_UA)).toBe(true);
+  });
+
+  it('reads the app’s own version and build from its token (mobile/capacitor.config.ts)', () => {
+    expect(nativeAppVersion('Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1.0.0+3')).toEqual({ version: '1.0.0', build: '3' });
+    expect(nativeAppVersion('Mozilla/5.0 (Linux; Android 15) Chrome/141 Mobile Safari/537.36 AASC-Mobile/1.2.10+41 (android)')).toEqual({ version: '1.2.10', build: '41' });
+    // Every app before 1.0.0 sent a bare `AASC-Mobile/1`: a version with no build.
+    expect(nativeAppVersion(IOS_UA)).toEqual({ version: '1', build: null });
+    expect(nativeAppVersion(SAFARI_UA)).toBeNull();
+    expect(nativeAppVersion('AASC-Mobile/')).toBeNull();
+    expect(nativeAppVersion('AASC-Mobile/<script>+1')).toBeNull();
   });
 
   it('treats a phone browser as a browser, not the app', () => {

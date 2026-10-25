@@ -2,6 +2,7 @@ import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 
 // Suppress EPIPE/ECONNRESET noise from Vite's WS proxy.
 // These happen every time the browser closes a WebSocket mid-proxy (page refresh,
@@ -16,9 +17,26 @@ logger.error = (msg, opts) => {
 /** The version the phone's This phone screen names (the bundle a phone loads is the Mac's). */
 const { version: appVersion } = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')) as { version: string };
 
+/**
+ * Which commit this bundle is, for Settings → ADVANCED → About: two builds can share a version.
+ * AASC_BUILD_COMMIT wins (a build made outside a checkout); null when neither is there.
+ */
+function buildCommit(): string | null {
+  const given = process.env.AASC_BUILD_COMMIT?.trim();
+  if (given) return given;
+  try {
+    return execFileSync('git', ['describe', '--always', '--dirty'], { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export default defineConfig({
   customLogger: logger,
-  define: { __AASC_VERSION__: JSON.stringify(appVersion) },
+  define: {
+    __AASC_VERSION__: JSON.stringify(appVersion),
+    __AASC_BUILD__: JSON.stringify({ date: new Date().toISOString(), commit: buildCommit() }),
+  },
   plugins: [react()],
   publicDir: 'static',
   resolve: {

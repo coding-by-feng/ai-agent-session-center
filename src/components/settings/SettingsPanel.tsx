@@ -14,6 +14,7 @@ import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
 import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
+import { APP_BUILD, APP_VERSION, versionSummary } from '@/lib/appVersion';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -323,6 +324,53 @@ function KeepAwakeControl() {
   );
 }
 
+type CopyState = 'idle' | 'copied' | 'failed';
+const COPY_LABEL: Record<CopyState, string> = { idle: 'Copy version info', copied: 'Copied', failed: 'Couldn’t copy' };
+const COPY_RESET_MS = 2000;
+
+/** `26 Oct 2026, 15:40` in the viewer's locale; the raw stamp if it is no date. */
+function builtWords(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Which AASC this is: the version, and when and from which commit it was built (two builds can share a version). */
+function AboutSection() {
+  const [copy, setCopy] = useState<CopyState>('idle');
+  useEffect(() => {
+    if (copy === 'idle') return;
+    const t = setTimeout(() => setCopy('idle'), COPY_RESET_MS);
+    return () => clearTimeout(t);
+  }, [copy]);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(versionSummary());
+      setCopy('copied');
+    } catch {
+      setCopy('failed');
+    }
+  };
+  return (
+    <section className={styles.section} aria-labelledby="settings-about">
+      <h4 id="settings-about">About</h4>
+      <dl className={styles.aboutRows}>
+        <dt>AASC</dt>
+        <dd>{APP_VERSION ?? 'Unknown'}</dd>
+        {APP_BUILD && (
+          <>
+            <dt>Built</dt>
+            <dd>{`${builtWords(APP_BUILD.date)} · ${APP_BUILD.commit ?? 'no commit'}`}</dd>
+          </>
+        )}
+      </dl>
+      <button className={styles.fontBtn} onClick={onCopy}>
+        {COPY_LABEL[copy]}
+      </button>
+    </section>
+  );
+}
+
 // Advanced settings sub-tab
 function AdvancedSettings({
   onExport,
@@ -335,6 +383,7 @@ function AdvancedSettings({
 }) {
   return (
     <div>
+      <AboutSection />
       <TerminalBufferControl />
       <KeepAwakeControl />
 
