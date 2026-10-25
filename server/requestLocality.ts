@@ -110,3 +110,19 @@ export function isLocalRequest(req: LocalityRequest): boolean {
   if (!isLoopbackAddress(req.ip || socket?.remoteAddress || '')) return false;
   return namesThisMachine(req.headers);
 }
+
+/**
+ * A top-level GET navigation in a browser on this machine, to the main listener: checks 1–4 of
+ * isLocalRequest, and no Origin (a navigation sends none), but NOT Sec-Fetch-Site, because a
+ * redirect from another site (Google → AASC Cloud → here) is cross-site by definition. ONLY for a
+ * route that acts on nothing but a secret it handed out itself: the Google sign-in callback
+ * (AASC-61), which does nothing without the 256-bit state of a sign-in this process started.
+ */
+export function isLocalNavigation(req: LocalityRequest): boolean {
+  const socket = req.socket as Socket | undefined;
+  if (socket && remoteOnlySockets.has(socket)) return false;
+  if (hasForwardingHeaders(req.headers)) return false;
+  if (!isLoopbackAddress(req.ip || socket?.remoteAddress || '')) return false;
+  const host = hostHeaderName(typeof req.headers?.host === 'string' ? req.headers.host : undefined);
+  return host !== null && LOOPBACK_HOSTNAMES.has(host) && req.headers?.origin === undefined;
+}

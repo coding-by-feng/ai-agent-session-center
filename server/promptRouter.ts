@@ -75,8 +75,8 @@ export interface PromptRouterDeps {
   submitter: Pick<PromptSubmitter, 'submit' | 'hasRoom'>;
 }
 
-/** Prompt images per send, as the phone's composer allows. */
-export const MAX_PROMPT_IMAGES = 4;
+/** Prompt images per send, as the phone's composer allows (src/lib/chat/promptApi.ts; 10 since Oct 21 2026, was 4). */
+export const MAX_PROMPT_IMAGES = 10;
 export const MAX_PROMPT_TEXT = 65_536;
 
 /**

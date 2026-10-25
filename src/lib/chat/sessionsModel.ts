@@ -20,6 +20,7 @@ import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { owesProceed } from '@/lib/sessionStatusStyle';
 
 export type SessionsFilter = 'all' | 'needs-you' | 'working';
 /** `activity`: one list, most recently active first: the desktop strip's Recent activity view (Oct 20 2026). */
@@ -53,7 +54,7 @@ export const IDLE_FOLD_AT = 4;
 /** When this device last read each session (opened it, or marked it read), by id. */
 export type ReadMap = Readonly<Record<string, number>>;
 
-type SectionFields = Pick<Session, 'sessionId' | 'status' | 'interruption' | 'lastActivityAt'>;
+type SectionFields = Pick<Session, 'sessionId' | 'status' | 'interruption' | 'lastActivityAt' | 'pendingProceedAt'>;
 
 /** A finished turn you haven't seen: it finished after you last read the session. */
 export function isUnreadFinish(session: SectionFields, reads: ReadMap): boolean {
@@ -61,14 +62,15 @@ export function isUnreadFinish(session: SectionFields, reads: ReadMap): boolean 
 }
 
 export function statusSection(session: SectionFields, reads: ReadMap = {}): StatusSection {
-  if (needsYou(session)) return 'needs-you';
+  // Its last answer asks you to reply "proceed" (Oct 23 2026): under Idle it would fold away.
+  if (needsYou(session) || owesProceed(session)) return 'needs-you';
   if (session.status === 'working' || session.status === 'prompting') return 'working';
   if (isUnreadFinish(session, reads)) return 'finished';
   return 'idle';
 }
 
 export function matchesFilter(session: SectionFields, filter: SessionsFilter): boolean {
-  if (filter === 'needs-you') return needsYou(session);
+  if (filter === 'needs-you') return needsYou(session) || owesProceed(session);
   if (filter === 'working') return !needsYou(session) && (session.status === 'working' || session.status === 'prompting');
   return true;
 }
@@ -146,8 +148,8 @@ export function connectionPath(hostname: string): ConnectionPath {
 export interface SessionGroup {
   /** Stable: React key and fold state. */
   key: string;
-  /** recent: the desktop rail's built-in RECENT frame (By room only); not a room. */
-  kind: 'status' | 'room' | 'project' | 'none' | 'recent';
+  /** recent / pinned: the desktop rail's built-in RECENT and PINNED frames (By room only); not rooms. */
+  kind: 'status' | 'room' | 'project' | 'none' | 'recent' | 'pinned';
   title: string;
   sessions: Session[];
   /** Status groups: which section. */
@@ -202,10 +204,12 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: sortSessionsByActivity(listed) }] : [];
   }
 
-  // By room, Recent goes first, as the desktop rail's RECENT frame: its rule and order
-  // (recentSessions.ts), narrowed by the filter and search; each also stays in its room.
-  const recentIds = groupBy === 'room' ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
-  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds });
+  // By room, Pinned then Recent go first, as the desktop rail's PINNED and RECENT frames
+  // (Oct 22 2026 for Pinned): their rules and order (sessionStrip.ts, recentSessions.ts),
+  // narrowed by the filter and search; each session also stays in its room.
+  const byRoom = groupBy === 'room';
+  const recentIds = byRoom ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
+  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
   const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>
@@ -226,7 +230,9 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     }
   };
   for (const item of items) {
-    if (item.type === 'recent') {
+    if (item.type === 'pinned') {
+      groups.push({ key: 'pinned', kind: 'pinned', title: 'Pinned', sessions: item.sessions });
+    } else if (item.type === 'recent') {
       groups.push({ key: 'recent', kind: 'recent', title: 'Recent', sessions: item.sessions });
     } else if (item.type === 'room') {
       placeEmptyBefore(item.room);

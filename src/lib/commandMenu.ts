@@ -106,16 +106,30 @@ export function menuKinds(
   return cli === 'codex' ? ['command'] : ['command', 'skill'];
 }
 
-/** The dropdown rows for `query` typed after a sigil, grouped by source. */
+/**
+ * Which kinds the `/` list in a session's terminal shows: commands, then skills,
+ * on both CLIs. Unlike the queue editor, a pick here types each entry's own
+ * token, so a Codex skill goes in as `$name` (the typed `/…` is erased first),
+ * and Codex lists nothing itself for a `/` typed mid-prompt.
+ */
+export function terminalMenuKinds(): Array<'command' | 'skill'> {
+  return ['command', 'skill'];
+}
+
+/**
+ * The dropdown rows for `query` typed after a sigil, grouped by source.
+ * `kinds` overrides what the sigil lists (the terminal's own list).
+ */
 export function buildCommandMenu(
   entries: CommandEntry[],
   query: string,
   sigil: 'command' | 'skill',
   cli: 'claude' | 'codex',
   notes: SkillNotes,
+  kinds: Array<'command' | 'skill'> = menuKinds(sigil, cli),
 ): { items: CommandMenuItem[]; groupSpans: CommandMenuGroupSpan[] } {
   return groupsToItems(
-    mergeGroups(menuKinds(sigil, cli).map((k) => filterAndGroup(entries, query, k, notes))),
+    mergeGroups(kinds.map((k) => filterAndGroup(entries, query, k, notes))),
     shortcutsFor(entries),
     notes,
   );

@@ -11,9 +11,15 @@
 // answer type a digit into the agent's prompt; one cleared too early only sends the
 // user to the terminal. So without call ids on both sides, any PostToolUse of the
 // same tool ends the request.
+//
+// A background subagent's dialog is the exception: it stays up while the main agent
+// works, stops and takes the next prompt (Oct 21: one sat open seven hours, cleared
+// from the phone by the main agent's Stop). Its request ends only on that subagent's
+// own events: its call's end, its next call, its SubagentStop.
 
 import { createHash, randomUUID } from 'crypto';
 import type { PendingRequest, PendingRequestOption } from '../src/types/session.js';
+import { subagentIdentity } from './subagentTracker.js';
 
 type Kind = PendingRequest['kind'];
 type Cli = PendingRequest['cli'];
@@ -135,9 +141,11 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
   // option 2 is "switch to auto mode", not "always allow" (probed on 2.1.300).
   const suggestions = hook.permission_suggestions;
   const canAlwaysAllow = source === 'permission_request' && Array.isArray(suggestions) && suggestions.length > 0;
+  const agentId = subagentIdentity(hook)?.id;
   const request: PendingRequest = {
     id: toolUseId ?? randomUUID(),
     ...(toolUseId ? { toolUseId } : {}),
+    ...(agentId ? { agentId } : {}),
     kind,
     cli,
     tool,
@@ -149,9 +157,11 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
     raisedAt: now,
     source,
   };
-  if (input !== undefined) inputKeys.set(request, createHash('sha256').update(JSON.stringify(hook.tool_input)).digest('hex'));
+  if (input !== undefined) inputKeys.set(request, inputKeyOf(hook.tool_input));
   return request;
 }
+
+const inputKeyOf = (input: unknown): string => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 
 const isGuess = (request: PendingRequest): boolean => request.source === 'timer' || request.source === 'notification';
 
@@ -176,6 +186,38 @@ function endsCall(current: PendingRequest, hook: Record<string, unknown>): boole
   return !tool || tool === current.tool;
 }
 
+/** Is this hook about the very call `current` waits on (a PreToolUse that landed late)? */
+function isCallOf(current: PendingRequest, hook: Record<string, unknown>): boolean {
+  const toolUseId = saneString(hook.tool_use_id, MAX_ID_CHARS);
+  if (current.toolUseId && toolUseId) return current.toolUseId === toolUseId;
+  if (saneString(hook.tool_name, MAX_ID_CHARS) !== current.tool) return false;
+  const key = inputKeys.get(current);
+  return key !== undefined && hook.tool_input !== undefined && key === inputKeyOf(hook.tool_input);
+}
+
+/**
+ * A subagent's request after an event. Another agent's event, the main agent's Stop and
+ * next prompt included, leaves it alone: the dialog is still up. Its own subagent moving
+ * on (the call ending, a next call, SubagentStop) ends it. `undefined`: apply the
+ * ordinary rules to the event.
+ */
+function nextForSubagent(
+  current: PendingRequest,
+  event: string,
+  hook: Record<string, unknown>,
+): PendingRequest | null | undefined {
+  if (event === 'SessionStart' || event === 'SessionEnd') return null;
+  if (subagentIdentity(hook)?.id !== current.agentId) {
+    // Another agent's own dialog: the CLI queues the two, so the ordinary rules mark it ambiguous.
+    const tool = saneString(hook.tool_name, MAX_ID_CHARS);
+    const asking = event === 'PermissionRequest' || (event === 'PreToolUse' && tool !== undefined && ASKING_TOOLS.has(tool));
+    return asking ? undefined : current;
+  }
+  if (event === 'SubagentStop') return null;
+  if (event === 'PreToolUse' && !isCallOf(current, hook)) return null;
+  return undefined;
+}
+
 /**
  * The session's pending request after a hook event. Returns `current` itself when the
  * event changes nothing, so the caller can tell. `cli` null (a CLI whose dialogs AASC
@@ -188,6 +230,11 @@ export function nextPendingRequest(
   cli: Cli | null,
   now: number,
 ): PendingRequest | null {
+  if (current?.agentId) {
+    const subagent = nextForSubagent(current, event, hook);
+    if (subagent === null) return nextPendingRequest(null, event, hook, cli, now);
+    if (subagent !== undefined) return subagent;
+  }
   if (CLEARING_EVENTS.has(event)) return null;
   if (CALL_ENDS.has(event)) return current && endsCall(current, hook) ? null : current;
   if (!cli) return current;

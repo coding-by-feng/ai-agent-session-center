@@ -65,7 +65,7 @@ export function senderLine(
   return { tone: 'ok', title: `${writer.label} sends queued prompts`, detail: 'AASC is open there.' };
 }
 
-/** "Every 10 min · 3 steps · paused": what kind of item this is, in words. */
+/** "Every 10 min · 3 steps": what kind of item this is, in words (a pause is the row's pill). */
 export function itemSummary(item: QueueItem, now: number = Date.now()): string {
   const parts: string[] = [];
   const type = itemType(item);
@@ -75,7 +75,7 @@ export function itemSummary(item: QueueItem, now: number = Date.now()): string {
   if (steps > 1) parts.push(`${steps} steps`);
   if (item.images?.length) parts.push(`${item.images.length} ${item.images.length === 1 ? 'photo' : 'photos'}`);
   if (isExecuting(item)) parts.push('running now');
-  if (item.disabled) parts.push('paused');
+  // A paused item says so with the row's Paused pill (the session queue's), not in these words.
   return parts.join(' · ');
 }
 
@@ -97,7 +97,8 @@ function clock(ts: number, now: number): string {
 /** "Auto-send on · Auto-Enter on", or "Paused": the group's header line. */
 export function automationWords(a: QueueAutomationConfig): string {
   if (a.paused) return 'Paused';
-  return `Auto-send ${a.autoSend ? 'on' : 'off'} · Auto-Enter ${a.autoEnter ? 'on' : 'off'}`;
+  // Auto-Enter first, in the order the session's own queue shows its two switches.
+  return `Auto-Enter ${a.autoEnter ? 'on' : 'off'} · Auto-send ${a.autoSend ? 'on' : 'off'}`;
 }
 
 /**

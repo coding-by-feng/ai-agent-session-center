@@ -8,7 +8,7 @@ import { dirname, join } from 'path';
 import { mkdir, realpath } from 'fs/promises';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
+import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast, isPhoneDeviceOnline } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
@@ -16,13 +16,18 @@ import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
-import { closeDb, markStaleSessionsEnded } from './db.js';
+import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince } from './db.js';
 import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest } from './apiRouter.js';
 import { createRequestAnswerRouter } from './requestAnswer.js';
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
 import * as presence from './presenceManager.js';
 import type { ResourceJobs } from './cloud/resourceJobs.js';
+import type { ProjectJobs } from './cloud/projectJobs.js';
+import type { ResourceCatalogService } from './resourceCatalog.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
+import { createResourceUsage } from './resourceUsage.js';
+import { createGoogleSignIn, GOOGLE_CALLBACK_PATH } from './cloud/googleSignIn.js';
+import { createGoogleCallbackRouter } from './cloud/googleCallbackRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
@@ -31,24 +36,34 @@ import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { getLocalIP, getTailnetIP } from './networkInfo.js';
+import { getLocalIP } from './networkInfo.js';
+import { createTailscaleProbe } from './tailscaleStatus.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
 import { sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { createFolderRouter } from './mobile/folderRouter.js';
+import { createServerCliVersions } from './cliVersions.js';
+import { createCliVersionsRouter } from './cliVersionsRouter.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
+import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
+import { createMacPathsPublisher } from './mobile/macPathsPublisher.js';
+import { createPairingTarget } from './mobile/pairingTarget.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createPhoneRevokedHandler, revokePhonesFromOldPassword } from './mobile/phoneRevocation.js';
 import { createPhoneBackendCodes } from './mobile/phoneBackendCode.js';
 import { createCloudPhoneAudit } from './mobile/cloudPhoneAudit.js';
+import { createPhonePathLog } from './mobile/phonePathLog.js';
 import { createSkillNoteFavorites, createSkillNoteFavoritesRouter } from './mobile/skillNoteFavorites.js';
 import { createPhoneCloud, createPhoneCloudRouter } from './mobile/phoneCloud.js';
+import { createPhoneResources } from './mobile/phoneResources.js';
+import { createPhoneResourcesRouter } from './mobile/phoneResourcesRouter.js';
 import { createCloudReadLog } from './mobile/cloudReadLog.js';
 import { createServerPromptRouter } from './promptWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
+import { createTranscriptWatch } from './chat/transcriptWatch.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -65,6 +80,7 @@ import { createCloudConnection } from './cloud/connection.js';
 import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
 import { cloudStateBase } from './cloud/paths.js';
 import { aliasJsonParser } from './cloud/aliasRouter.js';
+import { createRemoteAccess } from './cloud/remoteAccess.js';
 import type { CloudConnector, SecretEncryption } from './cloud/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,8 +122,8 @@ export interface ServerOptions {
 
 /**
  * The optional AASC cloud connection (skill-notes sync, cloud aliases). It is
- * off until the user pairs this Mac, makes no request on startup, and its
- * device token lives only in `<base>/cloud/secrets`, never inside a project
+ * off until the user pairs this Mac, makes no request on startup (bar Remote access's publisher,
+ * once a phone could use this Mac), and its device token lives only in `<base>/cloud/secrets`, never inside a project
  * tree (see cloud/paths.ts; encrypted when Electron provides safeStorage). A
  * storage failure leaves the dashboard running without cloud routes rather
  * than failing the whole server.
@@ -152,10 +168,23 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
+  // Resolved up front: the routes below take it as a plain number while they are built.
+  const PORT = port ?? resolvePort(args, config);
 
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
+
+  // Sign in with Google (AASC-61): one pending sign-in per process. The callback is a cross-site
+  // browser navigation that can't carry the session cookie, so it is mounted before authMiddleware
+  // with its own loopback gate (googleCallbackRouter.ts); start/cancel live under /api/resources.
+  const googleSignIn = cloud
+    ? createGoogleSignIn({
+        connect: (input) => cloud.connectCloud(input),
+        log: (message) => log.info('cloud', message),
+      })
+    : null;
+  if (googleSignIn) app.get(GOOGLE_CALLBACK_PATH, createGoogleCallbackRouter(googleSignIn));
 
   // Cloud's raw/decompressed caps must precede the global parser: once that has
   // consumed a body, the cloud routers' own parser never sees it. Aliases take
@@ -311,23 +340,35 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       revokeBackend: (codeRef) => phoneCloud.revokeBackendPhone(codeRef),
       info: (message) => log.info('mobile', message),
     }),
+    // Sign out from the desktop: the same cut minus the revoke, so the phone
+    // keeps its pairing and signs in again with its key.
+    onSignedOut: (device) => {
+      revokeTokensForDevice(device.id);
+      disconnectDevice(device.id);
+    },
   });
   // The password is read at startup: a changed one revokes every phone paired
   // under the old one now, backend devices included (AASC-52), not at its next sign-in.
   revokePhonesFromOldPassword(deviceAuth, (message) => log.info('mobile', message));
+  // The one source of this Mac's Tailscale address: the pairing QR, /paths, the cloud and Remote access read it (AASC-60).
+  const tailscaleProbe = createTailscaleProbe();
+  // How each phone last connected (home network or Tailscale), in memory (AASC-60):
+  // written by the mobile router below, read by Remote access.
+  const phonePathLog = createPhonePathLog();
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
     // Off until the phone app ships (AASC-30): server-config.json "phonePairing" or AASC_PHONE_PAIRING.
     pairingOffered: () => isPhonePairingOffered(config, process.env),
+    isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
-    pairingTarget: () => ({
-      name: hostname().replace(/\.local$/, ''),
+    pairingTarget: createPairingTarget({
+      name: () => hostname().replace(/\.local$/, ''),
       port: PORT,
-      lan: getLocalIP(),
-      tailnet: getTailnetIP(),
+      lan: getLocalIP,
+      probe: tailscaleProbe,
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
     sessionOf: bearerSession,
@@ -346,7 +387,36 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       mintedHere: (codeRef) => sqliteBackendCodeLedger.has(codeRef),
       warn: (message) => log.warn('mobile', message),
     }),
+    pathLog: phonePathLog,
   }));
+
+  // -- Remote access (AASC-60) --
+  // What RESOURCES -> Cloud -> Remote access shows: this Mac's Tailscale, and how each paired phone reaches it.
+  // Only while a phone could use this Mac, the rule Bonjour follows: every phone route needs the dashboard
+  // password, and there must be a phone to find the Mac (paired already) or one that can pair (AASC-30).
+  const phonesCouldUse = (): boolean => shouldAdvertise({
+    passwordEnabled: isPasswordEnabled(),
+    pairingOffered: isPhonePairingOffered(config, process.env),
+    activePhones: deviceAuth.list().filter((d) => d.status === 'active').length,
+  });
+  // Tells the AASC Cloud account where this Mac is on Tailscale, so a phone away from home can look it up. Started in
+  // onReady(). No connector (its storage failed to open): the page reads `unavailable`; one not paired: `no-cloud`.
+  const macPathsPublisher = cloud
+    ? createMacPathsPublisher({
+        cloud,
+        tailnet: async () => (await tailscaleProbe.status()).address,
+        port: PORT,
+        phonesCouldUse,
+        log: { warn: (m) => log.warn('remote-access', m), debug: (m) => log.debug('remote-access', m) },
+      })
+    : null;
+  const remoteAccess = createRemoteAccess({
+    probe: tailscaleProbe,
+    ...(macPathsPublisher ? { publisher: macPathsPublisher } : {}),
+    devices: () => deviceAuth.list(),
+    pathLog: phonePathLog,
+    port: PORT,
+  });
 
   // -- Agent Resources (RESOURCES tab) --
   // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
@@ -355,7 +425,15 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // cloud connection's routes live under it (/api/resources/cloud/*) for that
   // reason: a remote device or paired phone never reaches them.
   let cloudJobs: Promise<ResourceJobs> | undefined;
+  // The same catalog and cloud jobs serve the phone's More → Resources (plan 16).
+  let resourceCatalog: ResourceCatalogService | null = null;
+  let getCloudJobs: (() => Promise<ResourceJobs>) | null = null;
+  let getCloudProjects: (() => Promise<ProjectJobs>) | null = null;
+  // Skill/command uses for the Library (Oct 23 2026): typed prompts + Claude's Skill calls, 90 days.
+  const resourceUsage = createResourceUsage({ prompts: getPromptUsesSince, skillCalls: getSkillCallsSince });
   app.use('/api/resources', authMiddleware, createResourceRouter({
+    usageCounts: () => resourceUsage.counts(),
+    onCatalogReady: (catalog) => { resourceCatalog = catalog; },
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
     cloudActiveProjectPaths: () =>
@@ -363,12 +441,17 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         .filter((s) => s.status !== 'ended')
         .map((s) => s.projectPath)
         .filter(Boolean),
+    remoteAccess,
     ...(cloudSetup
       ? {
           cloud: cloudSetup.cloud,
+          ...(googleSignIn
+            ? { cloudGoogle: { signIn: googleSignIn, returnUrl: `http://127.0.0.1:${PORT}${GOOGLE_CALLBACK_PATH}` } }
+            : {}),
           cloudAliasDirectory: cloudSetup.directory,
           cloudJobDirectory: join(cloudSetup.directory, 'resources'),
-          onCloudJobsReady: (getJobs: () => Promise<ResourceJobs>) => { cloudJobs = getJobs(); },
+          onCloudJobsReady: (getJobs: () => Promise<ResourceJobs>) => { getCloudJobs = getJobs; cloudJobs = getJobs(); },
+          onCloudProjectsReady: (getProjects: () => Promise<ProjectJobs>) => { getCloudProjects = getProjects; },
         }
       : {}),
   }));
@@ -382,15 +465,16 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // -- Protected API routes --
   // A paired phone gets a narrower set than a password sign-in (AASC-28):
   // shared sessions, a known project to launch in, read-only project files.
+  // Local sessions only: an SSH session's project path names a folder on
+  // another machine, and must not unlock the same path on this disk.
+  const sharedProjectPaths = (): string[] =>
+    Object.values(filterVisibleSessions(false, getAllSessions()))
+      .filter((s) => (s.sshHost || 'localhost') === 'localhost')
+      .map((s) => s.projectPath)
+      .filter(Boolean);
   const phoneProfile = createPhoneProfile({
     phoneOf: (req) => getTokenDeviceId(extractToken(req)),
-    // Local sessions only: an SSH session's project path names a folder on
-    // another machine, and must not unlock the same path on this disk.
-    sharedProjectPaths: () =>
-      Object.values(filterVisibleSessions(false, getAllSessions()))
-        .filter((s) => (s.sshHost || 'localhost') === 'localhost')
-        .map((s) => s.projectPath)
-        .filter(Boolean),
+    sharedProjectPaths,
     knownProjectPaths: listKnownProjects,
     isOpsTerminal,
     isSharedSession: (sessionId) => canSeeSession(false, getSession(sessionId)),
@@ -404,6 +488,17 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const cloudReads = createCloudReadLog();
   const skillNoteFavorites = createSkillNoteFavoritesRouter(createSkillNoteFavorites({ cloud, reads: cloudReads }));
   const phoneCloudRouter = createPhoneCloudRouter(createPhoneCloud({ cloud, reads: cloudReads }));
+  // More → Resources (plan 16): the desktop's Library, Cloud sync and Projects for a phone. Uses
+  // count the shared sessions only, and project resources follow the shared-project rule.
+  const phoneResourcesRouter = createPhoneResourcesRouter(createPhoneResources({
+    catalog: () => resourceCatalog,
+    usage: resourceUsage,
+    sharedSessionIds: () => Object.keys(filterVisibleSessions(false, getAllSessions())),
+    sharedProjectPaths,
+    cloud,
+    cloudJobs: () => getCloudJobs?.() ?? null,
+    cloudProjects: () => getCloudProjects?.() ?? null,
+  }), isLocalRequest);
   // A prompt the Mac types and confirms (AASC-42). In front of apiRouter, behind the
   // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
   const promptRouter = createServerPromptRouter();
@@ -429,10 +524,24 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // The phone chat's paged transcript (AASC-41) and what a session edited (AASC-44). Ahead of
   // apiRouter, with its own per-route visibility gate, so it never depends on apiRouter's.
-  const chatRouter = createChatRouter({ getSession });
+  // A chat's transcript growing is pushed (`chat_grew`) so the phone re-reads at once, not on its poll.
+  const transcriptWatch = createTranscriptWatch({
+    onGrow: (sessionId) => broadcast({ type: WS_TYPES.CHAT_GREW, sessionId }),
+  });
+  const chatRouter = createChatRouter({ getSession, watchTranscript: transcriptWatch.touch });
   // The phone's folder browser for a new session (AASC-54): folder names under the home folder.
   const folderRouter = createFolderRouter();
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, chatRouter, requestAnswer, promptRouter, folderRouter, apiRouter);
+  // The agent CLIs' versions and one-click update (Settings ▸ ADVANCED ▸ Agent CLIs, Oct 25 2026).
+  const cliVersionsRouter = createCliVersionsRouter({
+    service: createServerCliVersions((info) => broadcast({ type: WS_TYPES.CLI_UPDATE, cli: info.cli, info })),
+    isLocal: isLocalRequest,
+    // A paired phone's id, else the sign-in's lineage: identities the server issued, not a header.
+    deviceKeyOf: (req) => {
+      const token = extractToken(req);
+      return getTokenDeviceId(token) ?? getTokenLineage(token) ?? '';
+    },
+  });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -530,11 +639,11 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     log.warn('ws', `WebSocket server error: ${err.message}`);
   });
 
-  const PORT = port ?? resolvePort(args, config);
   const REMOTE_LISTENER_PORT = resolveRemoteListenerPort(
     process.env.AASC_REMOTE_LISTENER_PORT, config.remoteListenerPort, PORT,
   );
   let remoteServer: import('http').Server | null = null;
+  let lanAdvertiser: { stop(): void } | null = null;
 
   /**
    * After snapshot restore, respawn PTY terminals for SSH sessions that
@@ -620,6 +729,17 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         .then((srv) => { remoteServer = srv; })
         .catch((err: Error) => log.warn('remote-listener', `Remote-only listener failed to start: ${err.message}`));
     }
+    // Bonjour, so a paired phone finds this Mac again after its address changes (lanAdvertiser.ts).
+    if (!lanAdvertiser && phonesCouldUse()) {
+      lanAdvertiser = startLanAdvertiser({
+        name: hostname().replace(/\.local$/, ''),
+        port: PORT,
+        log: { info: (m) => log.info('mobile', m), warn: (m) => log.warn('mobile', m), debug: (m) => log.debug('mobile', m) },
+      });
+    }
+    // Tell the cloud account where this Mac is on Tailscale: a check at once, then one a minute. Its timer never keeps
+    // the process alive, and cloud.stop() at shutdown aborts a request in flight.
+    macPathsPublisher?.start();
     const localIP = getLocalIP();
     log.info('server', 'AI Agent Session Center');
     log.info('server', `Local:   http://localhost:${PORT}`);
@@ -720,11 +840,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       stopPlanUsage();
       stopSessionRuntime();
       stopHeartbeat();
+      transcriptWatch.close();
       stopMqReader();
       stopTokenCleanup();
       // Save final snapshot before exiting
       try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
       try { remoteServer?.close(); } catch { /* best effort */ }
+      try { lanAdvertiser?.stop(); } catch { /* best effort */ }
+      try { macPathsPublisher?.stop(); } catch { /* best effort */ }
       const httpClosed = new Promise<void>((resolve) => {
         // Force-close after 2s if server.close() hangs (open connections).
         const timer = setTimeout(() => {

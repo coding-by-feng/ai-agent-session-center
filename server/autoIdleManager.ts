@@ -33,6 +33,16 @@ let pendingResumeCleanupInterval: ReturnType<typeof setInterval> | null = null;
  * approval's badge to "Idle" (hiding the request) and hand the queue an `idle` it treats as sendable,
  * typing the next prompt into the dialog. The server still holds them as idle internally.
  */
+/**
+ * The CLI itself said a dialog is open (PermissionRequest, or PreToolUse of a question or
+ * plan) and nothing has closed it yet: no lost hook to guess about, the user is away. A
+ * decay would hand a phone that reconnects an `idle` snapshot, with nothing to answer.
+ */
+function dialogReportedOpen(session: Session): boolean {
+  const source = session.pendingRequest?.source;
+  return source === 'permission_request' || source === 'pre_tool_use';
+}
+
 export function startAutoIdle(
   sessions: Map<string, Session>,
   onChange?: (changed: Session[]) => void,
@@ -46,7 +56,8 @@ export function startAutoIdle(
       if (session.status === SESSION_STATUS.ENDED || session.status === SESSION_STATUS.IDLE) continue;
       const elapsed = now - session.lastActivityAt;
 
-      if (session.status === SESSION_STATUS.APPROVAL && elapsed > AUTO_IDLE_TIMEOUTS.approval) {
+      if (session.status === SESSION_STATUS.APPROVAL && elapsed > AUTO_IDLE_TIMEOUTS.approval
+        && !dialogReportedOpen(session)) {
         session.status = SESSION_STATUS.IDLE;
         session.animationState = ANIMATION_STATE.IDLE;
         session.emote = null;

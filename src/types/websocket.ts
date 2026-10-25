@@ -6,6 +6,7 @@
 import type { Session } from './session.js';
 import type { TeamSerialized } from './team.js';
 import type { Room, RoomOp } from './room.js';
+import type { CliUpdateMessage } from './cliVersions.js';
 
 // ---------------------------------------------------------------------------
 // Hook Stats (broadcast via HookStatsMessage)
@@ -195,6 +196,12 @@ export interface QueueSentMessage {
   sentAt: number;
 }
 
+/** A session's transcript grew while a chat reads it (Oct 22 2026): the cue to re-read it. */
+export interface ChatGrewMessage {
+  type: 'chat_grew';
+  sessionId: string;
+}
+
 /** The saved-prompt library changed on the Mac (AASC-20): the whole list. */
 export interface SnippetsUpdateMessage {
   type: 'snippets_update';
@@ -227,7 +234,9 @@ export interface RoomOpMessage {
 }
 
 export type ServerMessage =
+  | CliUpdateMessage
   | QueueSentMessage
+  | ChatGrewMessage
   | SnippetsUpdateMessage
   | RoomsUpdateMessage
   | RoomOpMessage

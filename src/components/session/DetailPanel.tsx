@@ -662,8 +662,16 @@ export default function DetailPanel() {
   // #10: Close on Escape — close search first, restore if minimized
   useEffect(() => {
     if (!selectedSessionId) return;
+    // An Escape that a dialog takes is the dialog's: the app's shortcut handler
+    // (registered first, in App) closes it before this one runs, so whether one
+    // was open is noted on the way down, in the capture phase. Without this, a
+    // dialog over the LIVE board (a card's kill) brought a minimized panel back.
+    let dialogWasOpen = false;
+    const note = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dialogWasOpen = useUiStore.getState().activeModal !== null;
+    };
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
+      if (e.key === 'Escape' && !dialogWasOpen && !(e.target as HTMLElement)?.closest?.('.xterm')) {
         if (searchOpen) {
           closeSearch();
         } else if (maximized) {
@@ -674,8 +682,12 @@ export default function DetailPanel() {
         // No deselect — pressing Esc while viewing output would reset scroll position
       }
     };
+    window.addEventListener('keydown', note, true);
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', note, true);
+      window.removeEventListener('keydown', handler);
+    };
   }, [selectedSessionId, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel, maximized, setMaximized]);
 
   // Reset minimized state when a new session is selected

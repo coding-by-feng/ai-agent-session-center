@@ -72,7 +72,8 @@ const VersionsSchema = z.object({
 });
 export type CloudVersions = z.infer<typeof VersionsSchema>;
 
-export type CloudFetchProblem = 'unreachable' | 'unsupported' | 'busy' | 'invalid';
+/** `missing`: the Mac has no such item for this phone (More → Resources, plan 16). */
+export type CloudFetchProblem = 'unreachable' | 'unsupported' | 'busy' | 'invalid' | 'missing';
 
 /** What the phone says when it can't get an answer from the Mac. */
 export const CLOUD_FETCH_WORDS: Record<CloudFetchProblem, string> = {
@@ -80,6 +81,7 @@ export const CLOUD_FETCH_WORDS: Record<CloudFetchProblem, string> = {
   unsupported: 'Your Mac’s AASC can’t show AASC Cloud on a phone yet. Update AASC on your Mac.',
   busy: 'Your Mac read AASC Cloud a lot just now. Try again in a moment.',
   invalid: 'Your Mac sent an answer this phone can’t read. Update AASC on your Mac.',
+  missing: 'Your Mac doesn’t have this any more, or doesn’t share it with this phone.',
 };
 
 /** The same, short enough for a list row's second line. */
@@ -88,11 +90,13 @@ export const CLOUD_FETCH_SHORT: Record<CloudFetchProblem, string> = {
   unsupported: 'Update AASC on your Mac to see it',
   busy: 'Try again in a moment',
   invalid: 'Update AASC on your Mac to see it',
+  missing: 'Not on your Mac any more',
 };
 
 export class CloudFetchError extends Error {
-  constructor(readonly problem: CloudFetchProblem, readonly retryAfter: number | null = null) {
-    super(CLOUD_FETCH_WORDS[problem]);
+  /** `words` replaces the problem's own words where a screen needs its own (More → Resources). */
+  constructor(readonly problem: CloudFetchProblem, readonly retryAfter: number | null = null, words?: string) {
+    super(words ?? CLOUD_FETCH_WORDS[problem]);
   }
 }
 

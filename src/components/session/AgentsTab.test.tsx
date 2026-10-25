@@ -119,6 +119,42 @@ describe('AgentsTab', () => {
     expect(screen.getByText('0 working · 1 waiting on you · 0 finished')).toBeTruthy();
   });
 
+  it('a teammate card selects its session, or hands it to onOpenTeammate (the phone opens its screen)', () => {
+    const team = () => seed(
+      makeSession('L', { teamId: 'team-L', teamRole: 'leader' }),
+      makeSession('T', { teamId: 'team-L', teamRole: 'member', agentName: 'reviewer', status: 'working', startedAt: T0 + 1 }),
+    );
+    team();
+    const { unmount } = render(<AgentsTab sessionId="L" />);
+    fireEvent.click(screen.getByRole('button', { name: /reviewer, teammate/i }));
+    expect(useSessionStore.getState().selectedSessionId).toBe('T');
+    unmount();
+
+    team();
+    useSessionStore.setState({ selectedSessionId: 'L' });
+    const onOpenTeammate = vi.fn();
+    render(<AgentsTab sessionId="L" onOpenTeammate={onOpenTeammate} />);
+    fireEvent.click(screen.getByRole('button', { name: /reviewer, teammate/i }));
+    expect(onOpenTeammate).toHaveBeenCalledWith('T');
+    expect(useSessionStore.getState().selectedSessionId).toBe('L');
+  });
+
+  it('hands an open subagent’s close to backLayer, and takes it back when it closes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, data: null }), { status: 200 })));
+    seed(makeSession('L', { status: 'working', subagents: [makeRun()] }));
+    const undo = vi.fn();
+    let close: (() => void) | null = null;
+    const backLayer = vi.fn((c: () => void) => { close = c; return undo; });
+    render(<AgentsTab sessionId="L" backLayer={backLayer} />);
+    expect(backLayer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Explore, subagent/i }));
+    expect(await screen.findByRole('button', { name: 'Back to all agents' })).toBeTruthy();
+    expect(backLayer).toHaveBeenCalledTimes(1);
+    act(() => close!());
+    expect(screen.queryByRole('button', { name: 'Back to all agents' })).toBeNull();
+    expect(undo).toHaveBeenCalled();
+  });
+
   it('explains an empty diagram', () => {
     seed(makeSession('L', { cliSource: 'claude' }));
     render(<AgentsTab sessionId="L" />);

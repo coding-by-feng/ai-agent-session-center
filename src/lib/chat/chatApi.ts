@@ -11,7 +11,7 @@
  * header rides on the app's own fetch (presenceClient.installClientIdentityHeaders).
  */
 import { z } from 'zod';
-import type { ChatEntry, ChatPage } from '@/types/chat';
+import type { ChatEntry, ChatPage, ContextBreakdown, ContextKind } from '@/types/chat';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; message: string };
 
@@ -101,4 +101,33 @@ export async function fetchChatPage(sessionId: string, cursor: PageCursor = {}, 
   const page = pageSchema.safeParse(result.data);
   if (!page.success) return { ok: false, status: 200, message: 'The Mac sent a conversation this phone can’t read.' };
   return { ok: true, data: { ...page.data, entries: validEntries(page.data.entries) } };
+}
+
+const CONTEXT_KINDS = [
+  'system', 'tools', 'fixed', 'memory', 'skills', 'summary', 'prompts', 'replies', 'toolCalls',
+  'read', 'bash', 'search', 'edits', 'subagents', 'web', 'mcp', 'otherTools', 'reminders',
+] as const satisfies readonly ContextKind[];
+
+const breakdownSchema = z.object({
+  tokens: z.number().nonnegative(),
+  kinds: z.array(z.object({ kind: z.enum(CONTEXT_KINDS), tokens: z.number().nonnegative() })),
+  items: z.array(z.object({ kind: z.enum(CONTEXT_KINDS), label: z.string().max(200), tokens: z.number().nonnegative() })),
+  requests: z.number().int().nonnegative(),
+  sinceCompaction: z.boolean(),
+  measuredAt: z.number(),
+});
+
+/**
+ * What fills the session's context window (Oct 22 2026):
+ *   GET /api/sessions/:id/context-breakdown → { success, data: ContextBreakdown | null }
+ * null: a Codex session, no transcript, or no request yet.
+ */
+export async function fetchContextBreakdown(sessionId: string, signal?: AbortSignal): Promise<ApiResult<ContextBreakdown | null>> {
+  const what = 'what fills the context window';
+  const result = await getData(`/api/sessions/${encodeURIComponent(sessionId)}/context-breakdown`, signal, what);
+  if (!result.ok) return result;
+  if (result.data === null) return { ok: true, data: null };
+  const parsed = breakdownSchema.safeParse(result.data);
+  if (!parsed.success) return { ok: false, status: 200, message: 'The Mac sent an answer this phone can’t read.' };
+  return { ok: true, data: parsed.data };
 }

@@ -17,6 +17,9 @@ import { migrateOriginSessionId } from '@/lib/translationLog';
 import type { Session, ServerMessage } from '@/types';
 import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
 import { useQueueSentStore } from '@/stores/queueSentStore';
+import { noteChatGrew } from '@/lib/chatGrowth';
+import { useCliVersionsStore } from '@/stores/cliVersionsStore';
+import { isCliVersionInfo } from '@/lib/cliVersionsApi';
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
 import { receiveRooms, handleRoomOpMessage, onRoomsSocketConnected } from '@/lib/roomSync';
 
@@ -226,6 +229,21 @@ export function useWebSocket(token: string | null): WsClient | null {
           if (typeof m.sessionId === 'string' && typeof m.text === 'string' && typeof m.sentAt === 'number') {
             useQueueSentStore.getState().add(m.sessionId, { text: m.text, sentAt: m.sentAt });
           }
+          break;
+        }
+
+        // A session's transcript grew while this device reads its chat (Oct 22 2026): re-read it now.
+        // Only sessions this device may see are sent here (broadcastSubject).
+        case 'chat_grew': {
+          const m = msg as unknown as { sessionId?: string };
+          if (typeof m.sessionId === 'string') noteChatGrew(m.sessionId);
+          break;
+        }
+
+        // An agent CLI's update on the Mac moved on (Oct 25 2026): Settings ▸ Agent CLIs on every device.
+        case 'cli_update': {
+          const m = msg as unknown as { info?: unknown };
+          if (isCliVersionInfo(m.info)) useCliVersionsStore.getState().receive(m.info);
           break;
         }
 

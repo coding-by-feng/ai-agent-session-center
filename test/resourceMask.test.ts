@@ -300,6 +300,8 @@ describe('hardening (review findings)', () => {
     [`curl -H "Authorization: Basic ${BASIC_AUTH}" x`, 'curl -H "Authorization: Basic ******" x'],
     [`curl -H "X-Api-Key: ${GENERIC_SECRET}" x`, 'curl -H "X-Api-Key: ******" x'],
     [`curl -u admin:${PASSWORD} https://x`, 'curl -u ****** https://x'],
+    [`wget --user=deploy https://x`, 'wget --user=****** https://x'],
+    [`http -u admin:${PASSWORD} x`, 'http -u ****** x'],
     // Assembled at runtime (like GH_TOKEN above): GitHub push protection matches on
     // format, and this placeholder is deliberately shaped like a real webhook URL.
     [`https://hooks.slack.com/services/T0123ABCD/B0456EFGH/${'aBcD'.repeat(6)}`,
@@ -352,6 +354,10 @@ describe('redactSecretsInString — more token shapes (security review M4)', () 
     'node dist/server.js --port 3333 --no-open',
     'Bash(npm run test:e2e)',
     'npm_config_registry=https://registry.npmjs.org',
+    // Oct 26 2026: these three lines of a skill blocked its cloud save as "possible secret".
+    'done | sort -u > /tmp/drift.tsv',
+    'date_stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)',
+    'Audit report saved: .claude/audit/feature-docs-2026-04-21T14-23-00Z.json',
   ])('leaves %s untouched', (input) => {
     expect(redactSecretsInString(input)).toBe(input);
   });

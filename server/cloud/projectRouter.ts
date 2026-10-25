@@ -1,6 +1,10 @@
 import { Router, json, type Request } from 'express';
 import { z } from 'zod';
-import { ProjectMutationSchema, GetProjectSchema } from '../../src/types/cloudProjects.js';
+import {
+  ProjectMutationSchema,
+  GetProjectSchema,
+  GithubLoginSchema,
+} from '../../src/types/cloudProjects.js';
 import { ResourceDependencySchema } from '../../src/types/cloudResources.js';
 import { bindingFromHeaders } from './binding.js';
 import { CloudError } from './types.js';
@@ -50,13 +54,34 @@ export function createProjectRouter(
       data: await (await getService()).listProjects(query, bindingFromHeaders(req)),
     });
   });
+  // AASC-63: the GitHub CLI's accounts (logins only) and this device's GitHub folders. Both are
+  // matched before `/projects/:id`, whose id must be a UUID.
+  router.get('/projects/github-accounts', async (req, res) => {
+    empty.parse(req.query);
+    bindingFromHeaders(req);
+    res.json({ success: true, data: await (await getService()).githubAccounts() });
+  });
+  router.get('/projects/candidates', async (req, res) => {
+    empty.parse(req.query);
+    res.json({
+      success: true,
+      data: await (await getService()).candidates(bindingFromHeaders(req)),
+    });
+  });
   router.post('/projects', async (req, res) => {
-    const body = ProjectMutationSchema.parse(req.body);
+    // A save from a folder on this device links it here; the path itself never leaves the Mac.
+    const { localPath, ...mutation } = z
+      .object({ localPath: LocalPathSchema.optional() })
+      .passthrough()
+      .parse(req.body);
+    const body = ProjectMutationSchema.parse(mutation);
     if (body.baseVersion !== null)
       throw new CloudError('invalid_request', 'Create requires an empty base revision.', 400);
     res.json({
       success: true,
-      data: await (await getService()).saveProject(body, bindingFromHeaders(req)),
+      data: await (
+        await getService()
+      ).saveProject(body, bindingFromHeaders(req), localPath ? { path: localPath } : undefined),
     });
   });
   router.put('/projects/:id', async (req, res) => {
@@ -91,6 +116,42 @@ export function createProjectRouter(
       data: await (
         await getService()
       ).getProject(id.parse(req.params.id), body, bindingFromHeaders(req)),
+    });
+  });
+  router.post('/projects/:id/remove', async (req, res) => {
+    empty.parse(req.body);
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).removeProject(id.parse(req.params.id), bindingFromHeaders(req)),
+    });
+  });
+  router.post('/projects/:id/check', async (req, res) => {
+    empty.parse(req.body);
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).checkProject(id.parse(req.params.id), bindingFromHeaders(req)),
+    });
+  });
+  router.post('/projects/:id/push', async (req, res) => {
+    empty.parse(req.body);
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).pushProject(id.parse(req.params.id), bindingFromHeaders(req)),
+    });
+  });
+  router.put('/projects/:id/account', async (req, res) => {
+    const body = z.object({ login: GithubLoginSchema.nullable() }).strict().parse(req.body);
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).setAccount(id.parse(req.params.id), body.login, bindingFromHeaders(req)),
     });
   });
   router.post('/projects/:id/pull', async (req, res) => {

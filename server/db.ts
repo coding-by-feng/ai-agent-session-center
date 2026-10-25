@@ -242,6 +242,28 @@ try {
 
 // ---- Prepared Statements ----
 
+/** A prompt's first and last 2,000 characters (the whole of a shorter one), joined by a newline. */
+const PROMPT_ENDS = `CASE WHEN length(text) > 4000 THEN substr(text, 1, 2000) || char(10) || substr(text, -2000) ELSE text END`;
+
+// RESOURCES use counts (Oct 23 2026): prompts that could name a skill, with their time, and
+// Claude's Skill calls, each with the latest prompt the USER sent in its session at or before it.
+// Harness rows (`<task-notification>`, `<<autonomous-loop-dynamic>>`…) are skipped there
+// too: one landing between a typed "/rar" and its Skill call made the call count again.
+// The (session_id, timestamp) unique index walks back to the first such prompt. The `…In`
+// statements read only the sessions in a JSON list (a phone's shared ones, Oct 24 2026).
+const PROMPT_USES_SQL = `SELECT timestamp, ${PROMPT_ENDS} AS text FROM prompts WHERE timestamp >= ? AND text NOT LIKE '<%' AND (instr(text, '/') > 0 OR instr(text, '$') > 0)`;
+const SKILL_CALLS_SQL = `
+    SELECT t.session_id AS sessionId, t.timestamp AS timestamp, t.tool_input_summary AS input,
+      p.timestamp AS promptAt,
+      CASE WHEN length(p.text) > 4000 THEN substr(p.text, 1, 2000) || char(10) || substr(p.text, -2000) ELSE p.text END AS prompt
+    FROM tool_calls t
+    LEFT JOIN prompts p ON p.id = (
+      SELECT q.id FROM prompts q
+      WHERE q.session_id = t.session_id AND q.timestamp <= t.timestamp AND q.text NOT LIKE '<%'
+      ORDER BY q.timestamp DESC LIMIT 1)
+    WHERE t.tool_name = 'Skill' AND t.timestamp >= ?`;
+const IN_SESSIONS = ' IN (SELECT value FROM json_each(?))';
+
 const stmts = {
   upsertSession: db.prepare(`
     INSERT INTO sessions (id, project_path, project_name, title, model, status, source, summary, remark, team_id, team_role, character_model, accent_color, started_at, ended_at, last_activity_at, total_prompts, total_tool_calls, archived)
@@ -286,6 +308,15 @@ const stmts = {
   updateSessionTitle: db.prepare('UPDATE sessions SET title = ? WHERE id = ?'),
 
   getPromptsBySession: db.prepare('SELECT * FROM prompts WHERE session_id = ? ORDER BY timestamp ASC'),
+  // commandUsage.ts: prompts that may name a /command or $skill, harness tags (`<…`) left out.
+  // A long prompt is read by its two ends only (where a /command sits), so a pasted log
+  // costs 4 KB, not megabytes: the whole 90 days used to be ~30 MB of text (Oct 21 2026).
+  getPromptTextsSince: db.prepare(`SELECT ${PROMPT_ENDS} AS text FROM prompts WHERE timestamp >= ? AND text NOT LIKE '<%' AND (instr(text, '/') > 0 OR instr(text, '$') > 0)`),
+  getPromptTextsSinceIn: db.prepare(`SELECT ${PROMPT_ENDS} AS text FROM prompts WHERE timestamp >= ? AND text NOT LIKE '<%' AND (instr(text, '/') > 0 OR instr(text, '$') > 0) AND session_id IN (SELECT value FROM json_each(?))`),
+  getPromptUsesSince: db.prepare(PROMPT_USES_SQL),
+  getPromptUsesSinceIn: db.prepare(`${PROMPT_USES_SQL} AND session_id${IN_SESSIONS}`),
+  getSkillCallsSince: db.prepare(SKILL_CALLS_SQL),
+  getSkillCallsSinceIn: db.prepare(`${SKILL_CALLS_SQL} AND t.session_id${IN_SESSIONS}`),
   getResponsesBySession: db.prepare('SELECT * FROM responses WHERE session_id = ? ORDER BY timestamp ASC'),
   getToolCallsBySession: db.prepare('SELECT * FROM tool_calls WHERE session_id = ? ORDER BY timestamp ASC'),
   getEventsBySession: db.prepare('SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC'),
@@ -416,6 +447,11 @@ export function upsertSession(session: Session): void {
   }
 }
 
+/** One session's history row alone (no prompts, tools or events), or null. */
+export function getSessionRow(id: string): DbSessionRow | null {
+  return (stmts.getSessionById.get(id) as DbSessionRow | undefined) ?? null;
+}
+
 /** Get a single session by ID with all child records. */
 export function getSessionDetail(id: string): SessionDetailResponse | null {
   const session = stmts.getSessionById.get(id) as DbSessionRow | undefined;
@@ -455,6 +491,38 @@ export function getPromptsForSession(id: string): Array<{ text: string; timestam
     text: r.text ?? '',
     timestamp: r.timestamp ?? 0,
   }));
+}
+
+/**
+ * The text of the prompts since `sinceMs` that may name a /command or $skill
+ * (harness tags left out), of `sessionIds` only when given — what
+ * `commandUsage.ts` counts to rank the `/` lists by use (Oct 21 2026).
+ */
+export function getPromptTextsSince(sinceMs: number, sessionIds: string[] | null): string[] {
+  const rows = (sessionIds
+    ? stmts.getPromptTextsSinceIn.all(sinceMs, JSON.stringify(sessionIds))
+    : stmts.getPromptTextsSince.all(sinceMs)) as Array<{ text: string | null }>;
+  return rows.map((r) => r.text ?? '');
+}
+
+/** Prompts since `sinceMs` that could name a skill or command, with their time (resourceUsage.ts); `sessionIds` limits them. */
+export function getPromptUsesSince(sinceMs: number, sessionIds: string[] | null = null): Array<{ timestamp: number; text: string }> {
+  const rows = (sessionIds
+    ? stmts.getPromptUsesSinceIn.all(sinceMs, JSON.stringify(sessionIds))
+    : stmts.getPromptUsesSince.all(sinceMs)) as Array<{ timestamp: number; text: string | null }>;
+  return rows.map((r) => ({ timestamp: r.timestamp, text: r.text ?? '' }));
+}
+
+/** Claude's Skill tool calls since `sinceMs`, each with the user prompt it answered (or null); `sessionIds` limits them. */
+export function getSkillCallsSince(sinceMs: number, sessionIds: string[] | null = null): Array<{
+  sessionId: string; timestamp: number; input: string; promptAt: number | null; prompt: string | null;
+}> {
+  const rows = (sessionIds
+    ? stmts.getSkillCallsSinceIn.all(sinceMs, JSON.stringify(sessionIds))
+    : stmts.getSkillCallsSince.all(sinceMs)) as Array<{
+    sessionId: string; timestamp: number; input: string | null; promptAt: number | null; prompt: string | null;
+  }>;
+  return rows.map((r) => ({ sessionId: r.sessionId, timestamp: r.timestamp, input: r.input ?? '', promptAt: r.promptAt, prompt: r.prompt }));
 }
 
 export function getSessionsByProjectPath(projectPath: string): DbSessionRow[] {
@@ -950,8 +1018,8 @@ export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;
 }
 export function updateMobileDevice(id: string, patch: Partial<Pick<MobileDeviceRow,
-  'status' | 'approved_at' | 'last_seen_at' | 'revoked_at' | 'be_code_ref' | 'be_code_ref_mac_bound'>>): void {
-  const allowed = new Set(['status', 'approved_at', 'last_seen_at', 'revoked_at', 'be_code_ref', 'be_code_ref_mac_bound']);
+  'label' | 'status' | 'approved_at' | 'last_seen_at' | 'revoked_at' | 'be_code_ref' | 'be_code_ref_mac_bound'>>): void {
+  const allowed = new Set(['label', 'status', 'approved_at', 'last_seen_at', 'revoked_at', 'be_code_ref', 'be_code_ref_mac_bound']);
   const keys = (Object.keys(patch) as Array<keyof typeof patch>).filter((k) => allowed.has(k));
   if (keys.length === 0) return;
   const sets = keys.map((k) => `${k} = @${k}`).join(', ');

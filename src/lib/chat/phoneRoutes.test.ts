@@ -4,6 +4,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   cloudResourcePath,
+  resourceItemPath,
+  resourcesPath,
   segmentsFor,
   sessionHasChat,
   sessionRunOnTop,
@@ -86,7 +88,7 @@ describe('parsePhonePath / phonePath', () => {
     expect(infoPath('term-1')).toBe('/sessions/term-1/info');
     expect(parsePhonePath('/sessions/term-1/info')).toEqual({ kind: 'session-info', sessionId: 'term-1', page: null });
     expect(phonePath({ kind: 'session-info', sessionId: 'term-1', page: null })).toBe('/sessions/term-1/info');
-    expect([...INFO_PAGES]).toEqual(['notes', 'queue', 'agents', 'popups']);
+    expect([...INFO_PAGES]).toEqual(['notes', 'queue', 'popups']);
     for (const page of INFO_PAGES) {
       const path = `/sessions/term-1/info/${page}`;
       expect(infoPath('term-1', page)).toBe(path);
@@ -227,9 +229,8 @@ describe('defaultSegment', () => {
 describe('AASC Cloud pages (AASC-51)', () => {
   const ID = '0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c';
 
-  it('round-trips More → Cloud and a resource’s versions under it', () => {
-    expect(parsePhonePath('/more/cloud')).toEqual({ kind: 'more', page: 'cloud' });
-    expect(morePath('cloud')).toBe('/more/cloud');
+  it('round-trips a cloud resource’s versions; More → Cloud is now Resources → Cloud sync (plan 16)', () => {
+    expect(parsePhonePath('/more/cloud')).toEqual({ kind: 'resources', tab: 'cloud' });
     expect(cloudResourcePath(ID)).toBe(`/more/cloud/${ID}`);
     expect(parsePhonePath(`/more/cloud/${ID}`)).toEqual({ kind: 'cloud-resource', resourceId: ID });
     expect(phonePath({ kind: 'cloud-resource', resourceId: ID })).toBe(`/more/cloud/${ID}`);
@@ -241,16 +242,45 @@ describe('AASC Cloud pages (AASC-51)', () => {
     }
   });
 
-  it('lives in the More tab, a resource stacked over the Cloud list', () => {
+  it('lives in the More tab, a resource stacked over Cloud sync', () => {
     expect(tabOfPath('/more/cloud')).toBe('more');
     expect(tabOfPath(`/more/cloud/${ID}`)).toBe('more');
-    expect(pathChain('/more/cloud')).toEqual(['/more', '/more/cloud']);
-    expect(pathChain(`/more/cloud/${ID}`)).toEqual(['/more', '/more/cloud', `/more/cloud/${ID}`]);
+    expect(pathChain('/more/cloud')).toEqual(['/more', '/more/resources/cloud']);
+    expect(pathChain(`/more/cloud/${ID}`)).toEqual(['/more', '/more/resources/cloud', `/more/cloud/${ID}`]);
   });
 
   it('survives the address bar', () => {
     const href = withPhonePath('http://mac.local:3333/?theme=light', `/more/cloud/${ID}`);
     expect(phonePathFromSearch(href.slice(href.indexOf('?')))).toBe(`/more/cloud/${ID}`);
+  });
+});
+
+describe('More → Resources (plan 16)', () => {
+  const ITEM = '00000000000000a1';
+
+  it('round-trips each tab and a Library resource', () => {
+    expect(resourcesPath()).toBe('/more/resources');
+    expect(parsePhonePath('/more/resources')).toEqual({ kind: 'resources', tab: 'library' });
+    expect(parsePhonePath('/more/resources/cloud')).toEqual({ kind: 'resources', tab: 'cloud' });
+    expect(parsePhonePath('/more/resources/projects')).toEqual({ kind: 'resources', tab: 'projects' });
+    expect(resourceItemPath(ITEM)).toBe(`/more/resources/item/${ITEM}`);
+    expect(parsePhonePath(`/more/resources/item/${ITEM}`)).toEqual({ kind: 'resource-item', id: ITEM });
+    for (const route of [{ kind: 'resources', tab: 'projects' }, { kind: 'resource-item', id: ITEM }] as const) {
+      expect(parsePhonePath(phonePath(route))).toEqual(route);
+    }
+  });
+
+  it('takes only its own tabs and a catalog id', () => {
+    for (const bad of ['/more/resources/library', '/more/resources/health', '/more/resources/item', `/more/resources/item/${ITEM.toUpperCase()}`, '/more/resources/item/abc', `/more/resources/item/${ITEM}/x`]) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
+  });
+
+  it('lives in the More tab, a resource stacked over the Library', () => {
+    expect(tabOfPath('/more/resources/projects')).toBe('more');
+    expect(tabOfPath(`/more/resources/item/${ITEM}`)).toBe('more');
+    expect(pathChain('/more/resources/projects')).toEqual(['/more', '/more/resources/projects']);
+    expect(pathChain(`/more/resources/item/${ITEM}`)).toEqual(['/more', '/more/resources', `/more/resources/item/${ITEM}`]);
   });
 });
 
@@ -263,7 +293,7 @@ describe('the session segments (AASC-56): Chat · Changes · Project, a shell Te
   });
 
   it('lists the segments a session shows', () => {
-    expect(segmentsFor(true)).toEqual(['chat', 'changes', 'project', 'prompts']);
+    expect(segmentsFor(true)).toEqual(['chat', 'changes', 'project', 'prompts', 'agents']);
     expect(segmentsFor(false)).toEqual(['terminal', 'project']);
   });
 
@@ -271,13 +301,17 @@ describe('the session segments (AASC-56): Chat · Changes · Project, a shell Te
     expect(shownSegment('chat', false)).toBe('terminal');
     expect(shownSegment('changes', false)).toBe('terminal');
     expect(shownSegment('prompts', false)).toBe('terminal'); // a shell has no prompts
+    expect(shownSegment('agents', false)).toBe('terminal'); // nor agents
     expect(shownSegment('project', false)).toBe('project');
     expect(shownSegment('terminal', false)).toBe('terminal');
-    for (const seg of ['chat', 'changes', 'project', 'prompts', 'terminal'] as const) expect(shownSegment(seg, true)).toBe(seg);
+    for (const seg of ['chat', 'changes', 'project', 'prompts', 'agents', 'terminal'] as const) expect(shownSegment(seg, true)).toBe(seg);
   });
 
   it('reads a Prompts path (Oct 19 2026)', () => {
     expect(parsePhonePath('/sessions/s1/prompts')).toEqual({ kind: 'session', sessionId: 's1', segment: 'prompts' });
+    expect(parsePhonePath('/sessions/s1/agents')).toEqual({ kind: 'session', sessionId: 's1', segment: 'agents' });
+    // Info → Agents before the tab: an old link or saved stack opens the tab.
+    expect(parsePhonePath('/sessions/s1/info/agents')).toEqual({ kind: 'session', sessionId: 's1', segment: 'agents' });
   });
 
   it('keeps an old Info → Files link working: it opens the Project segment', () => {

@@ -160,7 +160,7 @@ export interface InstallPlan {
 export type InstallDecisions = Record<string, 'keep-local' | 'replace-with-backup' | 'skip'>;
 export interface CloudJob {
   id: string;
-  kind: 'publish' | 'download' | 'install' | 'get-project' | 'pull-project';
+  kind: 'publish' | 'download' | 'install' | 'get-project' | 'pull-project' | 'push-project';
   state: 'queued' | 'running' | 'complete' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
   steps: {
     id: string;
@@ -175,7 +175,7 @@ export interface CloudJob {
 export const CloudJobSchema: z.ZodType<CloudJob> = z
   .object({
     id: z.uuid(),
-    kind: z.enum(['publish', 'download', 'install', 'get-project', 'pull-project']),
+    kind: z.enum(['publish', 'download', 'install', 'get-project', 'pull-project', 'push-project']),
     state: z.enum([
       'queued',
       'running',
@@ -250,3 +250,96 @@ export const InstallPlanSchema: z.ZodType<InstallPlan> = z
       .max(2000),
   })
   .strict();
+
+// AASC-62: Cloud → Resources as one sync list. A resource syncs once it was saved to cloud from
+// this device or installed here; everything else in the account reads "Only in cloud".
+export const SYNC_STATES = [
+  'synced',
+  'local-changed',
+  'cloud-newer',
+  'cloud-only',
+  'conflict',
+  'blocked',
+  // Oct 23 2026: "Stop syncing on this Mac" (nothing moves here until Sync again), and a resource
+  // this device synced that the cloud no longer has (removed on some device: never re-uploaded).
+  'stopped',
+  'removed',
+] as const;
+export type SyncState = (typeof SYNC_STATES)[number];
+export const SyncItemSchema = z
+  .object({
+    resourceId: CanonicalCloudIdSchema,
+    /** The Library resource on this device it syncs with (Oct 23 2026); null when there is none here. */
+    catalogId: z.string().min(1).max(1024).nullable(),
+    name: z.string().min(1).max(256),
+    agent: z.enum(['claude', 'codex', 'shared']),
+    kind: z.enum(['skill', 'command', 'rule', 'agent', 'instruction', 'memory']),
+    scope: z.enum(['global', 'project']),
+    state: z.enum(SYNC_STATES),
+    /** The cloud's latest version; null when the cloud has none left. */
+    cloudVersion: z.number().int().positive().nullable(),
+    /** The version this device last saved or installed; null when it never synced here. */
+    syncedVersion: z.number().int().positive().nullable(),
+    memory: z.boolean(),
+    /** Why a `blocked` item can't sync. */
+    reason: z.string().max(4096).optional(),
+  })
+  .strict();
+export type SyncItem = z.infer<typeof SyncItemSchema>;
+export const SyncStatusSchema = z
+  .object({
+    items: z.array(SyncItemSchema).max(10000),
+    /** Items Sync now would move without a choice (memory counts, it still asks for its OK). */
+    waiting: z.number().int().nonnegative(),
+  })
+  .strict();
+export type SyncStatus = z.infer<typeof SyncStatusSchema>;
+export const SyncChoiceSchema = z.enum(['mine', 'cloud']);
+export const SyncRequestSchema = z
+  .object({
+    /** Changed in both places: keep this device's copy (upload it) or use the cloud's. */
+    choices: z.record(CanonicalCloudIdSchema, SyncChoiceSchema).optional(),
+    /** Memory resources the user said OK to for this run. */
+    memory: z.array(CanonicalCloudIdSchema).max(10000).optional(),
+    /** Move only these (a Library row's or a selection's sync); everything else is left alone. */
+    only: z.array(CanonicalCloudIdSchema).max(10000).optional(),
+  })
+  .strict();
+export type SyncRequest = z.infer<typeof SyncRequestSchema>;
+/**
+ * Oct 23 2026: stop syncing a resource on this device, sync it again, or remove it from the cloud
+ * (every version; other devices then read it as `removed`).
+ */
+export const SyncControlRequestSchema = z
+  .object({
+    resourceId: CanonicalCloudIdSchema,
+    action: z.enum(['stop', 'resume', 'remove']),
+  })
+  .strict();
+export type SyncControlRequest = z.infer<typeof SyncControlRequestSchema>;
+export const SyncControlResultSchema = z
+  .object({
+    resourceId: CanonicalCloudIdSchema,
+    action: z.enum(['stop', 'resume', 'remove']),
+    /** How many cloud versions a remove deleted. */
+    removedVersions: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type SyncControlResult = z.infer<typeof SyncControlResultSchema>;
+export const SyncResultSchema = z
+  .object({
+    jobs: z.array(CloudJobSchema).max(2),
+    skipped: z
+      .array(
+        z
+          .object({
+            resourceId: CanonicalCloudIdSchema,
+            name: z.string().max(256),
+            reason: z.string().max(4096),
+          })
+          .strict(),
+      )
+      .max(10000),
+  })
+  .strict();
+export type SyncResult = z.infer<typeof SyncResultSchema>;

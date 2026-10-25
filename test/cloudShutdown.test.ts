@@ -12,6 +12,8 @@ function deferred() {
 async function harness(
   cloud: { stop(): Promise<void> } | null,
   cloudJobs?: Promise<{ close(): Promise<void> }>,
+  lanAdvertiser: { stop(): void } | null = null,
+  macPathsPublisher: { stop(): void } | null = null,
 ) {
   const source = await readFile(new URL('../server/index.ts', import.meta.url), 'utf8');
   const start = source.indexOf('  // Graceful shutdown —');
@@ -30,11 +32,16 @@ async function harness(
     };
   const noop = () => {};
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  // The phone chat's transcript watchers (chat_grew, Oct 22 2026) close at shutdown too.
+  const transcriptWatch = { close: vi.fn() };
   const shutdown = new Function(
     'cloud',
     'cloudJobs',
     'server',
     'remoteServer',
+    'lanAdvertiser',
+    'macPathsPublisher',
+    'transcriptWatch',
     'log',
     'stopPeriodicSave',
     'stopPlanUsage',
@@ -46,7 +53,7 @@ async function harness(
     'getMqOffset',
     'closeDb',
     code,
-  )(cloud, cloudJobs, server, null, log, noop, noop, noop, noop, noop, noop, noop, noop, closeDb) as (
+  )(cloud, cloudJobs, server, null, lanAdvertiser, macPathsPublisher, transcriptWatch, log, noop, noop, noop, noop, noop, noop, noop, noop, closeDb) as (
     signal: string,
   ) => Promise<void>;
   return { shutdown, closeDb, closed, server, log };
@@ -184,4 +191,29 @@ it('job storage that never opened does not block or fail shutdown', async () => 
   h.closed.resolve();
   await expect(result).resolves.toBeUndefined();
   expect(h.closeDb).toHaveBeenCalledTimes(1);
+});
+
+it('stops the Bonjour advertiser, so phones stop finding a Mac that is going away', async () => {
+  const lanAdvertiser = { stop: vi.fn() };
+  const h = await harness(null, undefined, lanAdvertiser);
+  const done = h.shutdown('test');
+  h.closed.resolve();
+  await done;
+  expect(lanAdvertiser.stop).toHaveBeenCalledTimes(1);
+});
+
+it('stops the Remote access publisher, so no check starts once the process is going away', async () => {
+  const macPathsPublisher = { stop: vi.fn() };
+  const h = await harness(null, undefined, null, macPathsPublisher);
+  const done = h.shutdown('test');
+  h.closed.resolve();
+  await done;
+  expect(macPathsPublisher.stop).toHaveBeenCalledTimes(1);
+});
+
+it('shuts down without a publisher (no cloud connector)', async () => {
+  const h = await harness(null, undefined, null, null);
+  const done = h.shutdown('test');
+  h.closed.resolve();
+  await expect(done).resolves.toBeUndefined();
 });

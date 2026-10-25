@@ -21,6 +21,15 @@ export interface RoomDragRect {
   bottom: number;
 }
 
+/** The vertical box the carry helpers below read. Generic over the id so the
+ *  queue's List layout (numeric ids, Oct 21 2026) carries its rows with the same
+ *  geometry: a List is the same single stacked column as the rooms. */
+export interface CarryRect<K> {
+  id: K;
+  top: number;
+  bottom: number;
+}
+
 /**
  * The slot index (0..rects.length) the pointer is currently indicating.
  *
@@ -84,12 +93,12 @@ export function applyRoomReorder(
  * The two no-op slots (its own, and just after itself) slide nothing, which is
  * the preview saying "releasing here changes nothing".
  */
-export function computeRoomShifts(
-  rects: RoomDragRect[],
-  draggedId: string,
+export function computeRoomShifts<K = string>(
+  rects: readonly CarryRect<K>[],
+  draggedId: K,
   insertIndex: number | null,
-): Map<string, number> {
-  const shifts = new Map<string, number>();
+): Map<K, number> {
+  const shifts = new Map<K, number>();
   const from = rects.findIndex((r) => r.id === draggedId);
   if (from === -1 || insertIndex === null) return shifts;
   if (insertIndex === from || insertIndex === from + 1) return shifts;
@@ -114,9 +123,9 @@ export function computeRoomShifts(
  * room's bottom, no further — past those edges it would slide over the
  * switcher controls above or the loose session cards below.
  */
-export function clampRoomDragOffset(
-  rects: RoomDragRect[],
-  draggedId: string,
+export function clampRoomDragOffset<K = string>(
+  rects: readonly CarryRect<K>[],
+  draggedId: K,
   dy: number,
 ): number {
   const dragged = rects.find((r) => r.id === draggedId);
@@ -140,9 +149,9 @@ export function clampRoomDragOffset(
  * The leading edge reaches every slot within the clamp, and at rest (dy = 0)
  * it always resolves to a no-op slot.
  */
-export function roomDragHitY(
-  rects: RoomDragRect[],
-  draggedId: string,
+export function roomDragHitY<K = string>(
+  rects: readonly CarryRect<K>[],
+  draggedId: K,
   dy: number,
 ): number | null {
   const dragged = rects.find((r) => r.id === draggedId);

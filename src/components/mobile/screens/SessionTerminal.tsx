@@ -1,18 +1,20 @@
 /**
  * SessionTerminal — the session screen's Terminal segment (AASC-45).
  *
- *   ● Live · 132×40      [Fit|Pan]  A−  A+  ⋯      state · the PTY's size · width · text size
+ *   ● Live                                      ⋯  state · more actions
  *   ┌──────────────────────────────────────────┐
  *   │ xterm: fitted to the width, or panned     │  pinch = a visual zoom, with pan
+ *   │                              [↓ Latest]  │  only while scrolled up
  *   └──────────────────────────────────────────┘
  *   Your Mac is driving            [Take control]  only when this phone can't type
  *   [ Type into the terminal…               ⏎ ]   raw input line, not the chat's box
  *   esc tab ctrl ↑ ↓ ← → 1 2 3 ⏎                   key bar, scrolls sideways
  *
  * The phone never resizes the shared PTY (`mayDrivePtyGeometry` is false on
- * phones): Fit shrinks the local font until the PTY's real columns fit (below
- * ~7 px it pans at the reading size), pinch scales the drawn canvas, and A− / A+
- * set the reading size. None of them changes a column. It's built on
+ * phones). The width picks itself (Oct 23 2026: the Fit/Pan switch, A− / A+ and the
+ * size label are gone — Fit could never fit a wide CLI on a phone): the local font
+ * shrinks until the PTY's real columns fit, and below ~7 px it pans at the reading
+ * size; pinch scales the drawn canvas; ⋯ still offers Wrap. None of them changes a column. It's built on
  * `useTerminal` directly (TerminalContainer draws the classic phone input), so
  * the replay ring, `verifySettled` and the resize guard all apply as they do there.
  *
@@ -33,6 +35,7 @@ import ZoomViewport from '../terminal/ZoomViewport';
 import PhoneKeyBar from '../terminal/PhoneKeyBar';
 import RawInputLine from '../terminal/RawInputLine';
 import TerminalMoreSheet, { type CommandsRow } from '../terminal/TerminalMoreSheet';
+import { useAtBottom } from '../terminal/useAtBottom';
 import { ExitFullscreenIcon } from '../phoneIcons';
 import { useTerminal } from '@/hooks/useTerminal';
 import { useControlBaton } from '@/hooks/useControlBaton';
@@ -46,7 +49,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { isNativeMobileApp } from '@/lib/platform';
 import { submitComposed } from '@/lib/terminalCompose';
 import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
-import { stepTextSize, type TerminalWidthMode } from '@/lib/terminalGeometry';
+import type { TerminalWidthMode } from '@/lib/terminalGeometry';
 import { pressKey, type KeyBarKey } from '@/lib/chat/terminalKeys';
 import { zoomLabel } from '@/lib/chat/terminalZoom';
 import { copyText } from '@/lib/chat/copyText';
@@ -73,7 +76,8 @@ interface Prefs {
 function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>;
-    const mode = raw.mode === 'pan' || raw.mode === 'wrap' || raw.mode === 'fit' ? raw.mode : 'fit';
+    // Wrap (from ⋯) or the automatic width; a "pan" chosen before Oct 23 2026 reads as automatic.
+    const mode = raw.mode === 'wrap' ? 'wrap' : 'fit';
     const size = typeof raw.size === 'number' && raw.size >= 6 && raw.size <= 24 ? raw.size : DEFAULT_TEXT_SIZE;
     return { mode, size };
   } catch {
@@ -123,7 +127,9 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
   const [line, setLine] = useState('');
   const [sending, setSending] = useState(false);
   const fsRef = useRef<HTMLDivElement>(null);
-  const lastNonWrap = useRef<TerminalWidthMode>(prefs.mode === 'wrap' ? 'fit' : prefs.mode);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const fsWrapRef = useRef<HTMLDivElement>(null);
+  const atBottom = useAtBottom(wrapRef, fsWrapRef);
 
   // This phone's width mode and reading size, before and after the terminal opens.
   useEffect(() => {
@@ -187,17 +193,12 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
     if (!revealLine(b)) showToast('That line is no longer in the terminal’s scrollback', 'info', 3000);
   }, [revealLine]);
 
-  // ---- Width and text size ----
+  // ---- Width: automatic, or Wrap from ⋯ ----
   const choose = (next: Partial<Prefs>) => {
     const merged = { ...prefs, ...next };
-    if (merged.mode !== 'wrap') lastNonWrap.current = merged.mode;
     setPrefs(merged);
     savePrefs(merged);
   };
-  const rendered = prefs.mode === 'fit' && term.fitState ? term.fitState.fontSize : prefs.size;
-  // A size of your own means reading at it: from Fit that is panning.
-  const resize = (direction: 1 | -1) => choose({ size: stepTextSize(rendered, direction), mode: prefs.mode === 'fit' ? 'pan' : prefs.mode });
-  const fellBack = prefs.mode === 'fit' && term.fitState?.fitted === false && !!geometry;
 
   // ---- Typing ----
   const typingOff = locked || closed;
@@ -277,14 +278,30 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
     </div>
   );
 
-  const viewer = (ref: typeof containerRef | typeof fsRef, testId: string) => (
-    <div className={styles.viewerWrap}>
+  /** `onShow`: this viewer is the one on screen (the full-screen copy is hidden until opened). */
+  const viewer = (
+    ref: typeof containerRef | typeof fsRef,
+    wrap: typeof wrapRef,
+    testId: string,
+    onShow: boolean,
+  ) => (
+    <div ref={wrap} className={styles.viewerWrap}>
       <ZoomViewport zoom={zoom} onZoom={setZoom} testId={testId}>
         <div ref={ref} className={styles.xterm} data-pan={prefs.mode === 'wrap' ? undefined : ''} />
       </ZoomViewport>
       {zoom > 1 && (
         <button type="button" className={styles.zoomChip} onClick={() => setZoom(1)} aria-label={`Zoomed to ${zoomLabel(zoom)}: reset`}>
           {zoomLabel(zoom)} · Reset
+        </button>
+      )}
+      {onShow && !atBottom && !closed && (
+        <button
+          type="button"
+          className={styles.latest}
+          onClick={term.scrollToBottom}
+          aria-label="Jump to the latest output"
+        >
+          <span aria-hidden="true">↓</span> Latest
         </button>
       )}
       {closed && (
@@ -303,39 +320,22 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
           <span className={styles.dot} data-tone={liveTone} aria-hidden="true" />
           <span className={styles.stateText}>
             <span>{live}</span>
-            {geometry && geometry.cols > 0 && <span className={styles.size}>{geometry.cols}×{geometry.rows || '?'}</span>}
           </span>
         </p>
-        <div className={styles.modeGroup} role="group" aria-label="Terminal width">
-          {(['fit', 'pan'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={styles.modeButton}
-              aria-pressed={prefs.mode === mode}
-              onClick={() => choose({ mode })}
-            >
-              {mode === 'fit' ? 'Fit' : 'Pan'}
-            </button>
-          ))}
-        </div>
-        <button type="button" className={styles.iconButton} onClick={() => resize(-1)} aria-label="Smaller text">A−</button>
-        <button type="button" className={styles.iconButton} onClick={() => resize(1)} aria-label="Larger text">A+</button>
         <button type="button" className={styles.iconButton} onClick={() => setMoreOpen(true)} aria-label="More terminal actions" aria-haspopup="dialog">
           <EllipsisIcon />
         </button>
       </div>
-      {fellBack && <p className={styles.fitNote}>Too wide to fit at a readable size, so it pans. Turn the phone sideways to fit it.</p>}
       {prefs.mode === 'wrap' && <p className={styles.fitNote}>Wrapping long lines. Tables and boxes may break up.</p>}
 
-      {viewer(containerRef, 'phone-terminal-viewport')}
+      {viewer(containerRef, wrapRef, 'phone-terminal-viewport', !isFullscreen)}
       {!isFullscreen && inputs}
 
       <TerminalMoreSheet
         open={moreOpen}
         onClose={closeMore}
         wrap={prefs.mode === 'wrap'}
-        onToggleWrap={() => choose({ mode: prefs.mode === 'wrap' ? lastNonWrap.current : 'wrap' })}
+        onToggleWrap={() => choose({ mode: prefs.mode === 'wrap' ? 'fit' : 'wrap' })}
         follow={term.autoScrollEnabled}
         onToggleFollow={term.toggleAutoScroll}
         onScrollToBottom={term.scrollToBottom}
@@ -371,7 +371,7 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
               <ExitFullscreenIcon />
             </button>
           </div>
-          {viewer(fsRef, 'phone-terminal-fullscreen')}
+          {viewer(fsRef, fsWrapRef, 'phone-terminal-fullscreen', isFullscreen)}
           {isFullscreen && inputs}
         </div>,
         document.body,

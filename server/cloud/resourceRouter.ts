@@ -4,7 +4,11 @@ import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { RESOURCE_TYPES } from '../../src/types/resources.js';
-import { ResourceDependencySchema } from '../../src/types/cloudResources.js';
+import {
+  ResourceDependencySchema,
+  SyncControlRequestSchema,
+  SyncRequestSchema,
+} from '../../src/types/cloudResources.js';
 import { bindingFromHeaders } from './binding.js';
 import { CloudError } from './types.js';
 import type { ResourceJobs } from './resourceJobs.js';
@@ -43,7 +47,9 @@ export function createResourceJobsRouter(
   const router = Router();
   router.use((req, res, next) => {
     if (
-      !/^\/(?:publish-plans|install-plans|downloads|jobs|installs|resources)(?:\/|$)/.test(req.path)
+      !/^\/(?:publish-plans|install-plans|downloads|jobs|installs|resources|sync-status|sync-now|sync-control)(?:\/|$)/.test(
+        req.path,
+      )
     )
       return next('router');
     res.set('Cache-Control', 'no-store');
@@ -80,14 +86,38 @@ export function createResourceJobsRouter(
     });
   });
   router.post('/publish-plans/:id/run', async (req, res) => {
-    empty.parse(req.body);
+    const body = z.object({ skipBlocked: z.boolean().optional() }).strict().parse(req.body);
     res.json({
       success: true,
       data: await (
         await getService()
-      ).publishPlan(id.parse(req.params.id), bindingFromHeaders(req)),
+      ).publishPlan(id.parse(req.params.id), bindingFromHeaders(req), body),
     });
   });
+  router.get('/sync-status', async (req, res) => {
+    empty.parse(req.query);
+    res.json({
+      success: true,
+      data: await (await getService()).syncStatus(bindingFromHeaders(req)),
+    });
+  });
+  router.post('/sync-now', async (req, res) =>
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).syncNow(SyncRequestSchema.parse(req.body), bindingFromHeaders(req)),
+    }),
+  );
+  // Oct 23 2026: Stop syncing on this Mac, Sync again, or Remove from cloud, for one resource.
+  router.post('/sync-control', async (req, res) =>
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).syncControl(SyncControlRequestSchema.parse(req.body), bindingFromHeaders(req)),
+    }),
+  );
   router.post('/install-plans', async (req, res) =>
     res.json({
       success: true,

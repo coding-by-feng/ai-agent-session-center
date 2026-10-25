@@ -101,9 +101,107 @@
 
 .segments {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
   /* 6px, not 8: the compact tabs' tap strip reaches 4px past the track (Oct 20 2026). */
   padding: 6px var(--ph-gutter);
   background: var(--ph-bg);
+}
+.segmentsTrack {
+  flex: 1;
+  min-width: 0;
+  /* Five tabs (Agents, Oct 22 2026) outgrow a 320–390px row: it scrolls sideways rather than cut
+     a label. Scrolling clips both axes, so the 6px block padding (cancelled by the margin) keeps
+     the compact tabs' 44px tap strip inside the scroller. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding-block: 6px;
+  margin-block: -6px;
+}
+.segmentsTrack::-webkit-scrollbar { display: none; }
+/* More tabs past the right edge: the cut one fades, so it reads as "scroll" (as the filter chips do). */
+.segmentsTrack[data-more] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+/* The tab list keeps its fill under every tab, not just the visible width. */
+.segmentsTrack > [role='tablist'] {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* The Chat read full screen (Oct 21 2026): ⛶ beside the tabs; ⤡ floats bottom-left, opposite
+   "jump to latest"; the bar and the footer are gone, so the panel pads their safe areas.
+   Oct 24 2026: ⛶ is drawn as a tool of the tab bar, the track's own fill, radius and 36px
+   height (a compact segment's 32 + the track's 2px padding), its ::after keeping 44px to tap. */
+.fullEnter,
+.fullExit {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-1);
+  min-width: var(--ph-target);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+.fullEnter {
+  position: relative;
+  min-width: 36px;
+  min-height: 36px;
+  background: var(--ph-fill);
+}
+.fullEnter::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.fullExit {
+  position: absolute;
+  left: var(--ph-gutter);
+  bottom: calc(var(--ph-space-3) + var(--ph-safe-bottom));
+  z-index: var(--ph-z-bar);
+  padding: 0 var(--ph-space-3);
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-surface-raised);
+  box-shadow: var(--ph-shadow);
+  color: var(--ph-text);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+}
+.fullExit[data-needs-you] {
+  background: var(--ph-status-approval);
+  color: var(--ph-on-accent);
+}
+@media (hover: hover) {
+  .fullEnter:hover { background: var(--ph-fill-strong); color: var(--ph-text); }
+}
+.fullEnter:active { background: var(--ph-fill-strong); }
+.fullExit:active { filter: brightness(0.92); }
+.fullEnter:focus-visible,
+.fullExit:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+.panel[data-full] {
+  position: relative;
+  padding-top: var(--ph-safe-top);
+  padding-bottom: var(--ph-safe-bottom);
+  /* The last message scrolls clear of the floating ⤡. */
+  --chat-float-clear: calc(var(--ph-target) + var(--ph-space-3));
+}
+@media (prefers-reduced-motion: reduce) {
+  .fullEnter, .fullExit { transition: none; }
 }
 
 .panel {
@@ -126,4 +224,25 @@
   min-height: 0;
   overflow-y: auto;
   padding-top: var(--ph-space-6);
+}
+
+/* A session's Agents tab (Oct 22 2026): the desktop AGENTS tab in its own scroller. */
+.agentsScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

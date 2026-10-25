@@ -149,14 +149,67 @@ describe('ChatView', () => {
     expect(useComposerDraftStore.getState().drafts.s1).toBe('then commit');
   });
 
-  it('says a session with no transcript has none and offers the Terminal', async () => {
-    fetchChatPage.mockResolvedValue({ ok: true, data: { entries: [], before: null, after: null, cli: null, hasMore: false } });
+  // Oct 23 2026: a chat with nothing in it yet shows the session's terminal, live, so a prompt
+  // sent from the phone shows what the CLI prints at once.
+  /** Terminal bytes as the server sends them: UTF-8, base64. */
+  const b64 = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const emptyPage = (cli: ChatPage['cli']): ApiResult<ChatPage> => ({
+    ok: true,
+    data: { entries: [], before: null, after: null, cli, hasMore: false },
+  });
+  it('a shell (no CLI) shows its terminal in the chat and still offers the Terminal', async () => {
+    const socket = connectSocket();
+    fetchChatPage.mockResolvedValue(emptyPage(null));
     const onTerminal = vi.fn();
     render(<ChatView session={session()} onTerminal={onTerminal} />);
-    expect(await screen.findByText('This session has no transcript')).toBeInTheDocument();
-    expect(screen.getByText('It’s a shell or another tool. Use Terminal.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Open Terminal' }));
+    const panel = await screen.findByTestId('chat-terminal-start');
+    expect(within(panel).getByText('Terminal')).toBeInTheDocument();
+    expect(within(panel).getByText('Waiting for output…')).toBeInTheDocument();
+    act(() => socket.push({ type: 'terminal_output', terminalId: 'term-1', data: b64('$ ls\r\nREADME.md src\r\n') }));
+    expect(await within(panel).findByText('README.md src')).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole('button', { name: 'Open Terminal' }));
     expect(onTerminal).toHaveBeenCalled();
+  });
+
+  it('a Claude session whose transcript is not found yet waits for it, showing its terminal — never "a shell"', async () => {
+    const socket = connectSocket();
+    fetchChatPage.mockResolvedValue(emptyPage('claude'));
+    render(<ChatView session={session()} onTerminal={() => {}} />);
+    const panel = await screen.findByTestId('chat-terminal-start');
+    expect(within(panel).getByText('Waiting for the conversation')).toBeInTheDocument();
+    expect(screen.queryByText(/a shell or another tool/)).toBeNull();
+    act(() => socket.push({ type: 'terminal_output', terminalId: 'term-1', data: b64('> which krt ticket is for 3D?\r\n● It is EE-92.\r\n') }));
+    expect(await within(panel).findByText('● It is EE-92.')).toBeInTheDocument();
+  });
+
+  it('a new session reads "No messages yet" and shows the CLI starting up', async () => {
+    const socket = connectSocket();
+    fetchChatPage.mockResolvedValue(emptyPage('claude'));
+    render(<ChatView session={session({ promptHistory: [] })} onTerminal={() => {}} />);
+    const panel = await screen.findByTestId('chat-terminal-start');
+    expect(within(panel).getByText('No messages yet')).toBeInTheDocument();
+    act(() => socket.push({ type: 'terminal_output', terminalId: 'term-1', data: b64('Welcome to Claude Code\r\n') }));
+    expect(await within(panel).findByText('Welcome to Claude Code')).toBeInTheDocument();
+  });
+
+  it('keeps one terminal subscription when the conversation replaces the panel', async () => {
+    const socket = connectSocket();
+    fetchChatPage.mockResolvedValue(emptyPage('claude'));
+    const view = (status: Session['status']) => <ChatView session={session({ status })} onTerminal={() => {}} />;
+    const { rerender } = render(view('waiting'));
+    await screen.findByTestId('chat-terminal-start');
+    fetchChatPage.mockResolvedValue(claudePage());
+    rerender(view('working')); // activity moves: the chat reads again and finds the transcript
+    expect(await screen.findByText('Centre the minimize bar', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-terminal-start')).toBeNull();
+    expect(peekRequests(socket)).toEqual(['terminal_subscribe']);
+  });
+
+  it('with no terminal on this device, keeps the plain empty state', async () => {
+    fetchChatPage.mockResolvedValue(emptyPage(null));
+    render(<ChatView session={session({ terminalId: null } as Partial<Session>)} onTerminal={() => {}} />);
+    expect(await screen.findByText('This session has no transcript')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-terminal-start')).toBeNull();
   });
 
   it('searches with a count and previous / next', async () => {
@@ -174,6 +227,48 @@ describe('ChatView', () => {
     await userEvent.click(within(search).getByRole('button', { name: 'Next match' }));
     expect(within(search).getByText('2/2')).toHaveAttribute('aria-label', '2 of 2');
     expect(document.querySelector('[data-current]')).toHaveTextContent('npm test passes');
+  });
+
+  // Oct 21 2026: the bar pulled itself down over the conversation whenever you scrolled up.
+  describe('the search bar opens only when asked', () => {
+    const bar = () => screen.getByTestId('chat-search');
+
+    it('stays away while you read back from the newest', async () => {
+      fetchChatPage.mockResolvedValue(claudePage());
+      const { container } = render(<ChatView session={session()} onTerminal={() => {}} />);
+      await screen.findByText('Centre the minimize bar');
+      // Scroll well up from the newest (jsdom has no layout: give the scroller its sizes).
+      const scroller = container.querySelector<HTMLElement>('[data-phone-scroll]')!;
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, get: () => 3000 },
+        clientHeight: { configurable: true, get: () => 600 },
+      });
+      scroller.scrollTop = 1200;
+      act(() => { scroller.dispatchEvent(new Event('scroll')); });
+      expect(bar()).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('opens, focused, when the session menu asks for this session, and ✕ puts it away', async () => {
+      fetchChatPage.mockResolvedValue(claudePage());
+      render(<ChatView session={session()} onTerminal={() => {}} />);
+      await screen.findByText('Centre the minimize bar');
+      act(() => useChatStore.getState().requestSearch('another-session'));
+      expect(bar()).toHaveAttribute('aria-hidden', 'true');
+      act(() => useChatStore.getState().requestSearch('s1'));
+      await waitFor(() => expect(bar()).not.toHaveAttribute('aria-hidden'));
+      expect(document.activeElement).toBe(within(bar()).getByRole('searchbox'));
+      expect(useChatStore.getState().searchRequest).toBeNull();
+      await userEvent.click(within(bar()).getByRole('button', { name: 'Close search' }));
+      expect(bar()).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('takes a request made before the chat mounted (the menu switched to Chat first)', async () => {
+      fetchChatPage.mockResolvedValue(claudePage());
+      useChatStore.getState().requestSearch('s1');
+      render(<ChatView session={session()} onTerminal={() => {}} />);
+      await screen.findByText('Centre the minimize bar');
+      await waitFor(() => expect(bar()).not.toHaveAttribute('aria-hidden'));
+    });
   });
 
   it('opens a folded group, and the call in it, that a search step lands on', async () => {

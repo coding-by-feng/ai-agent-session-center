@@ -61,6 +61,13 @@ interface ChatState {
   loadOlder: (sessionId: string) => Promise<void>;
   refresh: (sessionId: string) => Promise<void>;
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
+  /**
+   * A search the session menu asked for (Oct 21 2026: the bar no longer pulls itself down
+   * when you scroll up). That session's chat opens its bar, now or when it mounts.
+   */
+  searchRequest: { sessionId: string } | null;
+  requestSearch: (sessionId: string) => void;
+  clearSearchRequest: () => void;
   /** Tests and sign-out: forget everything. */
   clearAll: () => void;
 }
@@ -296,12 +303,16 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     rememberView: (sessionId, view) => patch(sessionId, { view }),
 
+    searchRequest: null,
+    requestSearch: (sessionId) => set({ searchRequest: { sessionId } }),
+    clearSearchRequest: () => set({ searchRequest: null }),
+
     clearAll: () => {
       lru = [];
       opening.clear();
       refreshing.clear();
       refreshAgain.clear();
-      set({ sessions: {} });
+      set({ sessions: {}, searchRequest: null });
     },
   };
 });

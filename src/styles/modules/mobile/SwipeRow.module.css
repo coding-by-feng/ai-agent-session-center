@@ -46,7 +46,9 @@
 
 .content {
   position: relative;
-  background: var(--ph-surface);
+  /* A list may paint its rows another colour (the Queue tab: the page's); never transparent,
+     or the actions show through. */
+  background: var(--swipe-row-bg, var(--ph-surface));
   touch-action: pan-y;
   transform: translateX(var(--swipe-x, var(--open-x)));
   transition: transform var(--ph-motion-push) var(--ph-ease);

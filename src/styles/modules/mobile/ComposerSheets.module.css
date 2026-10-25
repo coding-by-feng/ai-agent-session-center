@@ -46,6 +46,12 @@
   overflow-wrap: anywhere;
 }
 
+/* "31 uses" at the row's end (Oct 24 2026): smaller than the token, digits aligned down the list. */
+.uses {
+  font-size: var(--ph-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
 .clamp {
   display: -webkit-box;
   overflow: hidden;
@@ -78,6 +84,35 @@
   padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
 }
 
+/* Quick reply (Oct 21 2026): what the composer's P sends. */
+.quickField {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--ph-space-4));
+  min-height: calc(var(--ph-target) * 2);
+  margin: 0 var(--ph-space-4) var(--ph-space-4);
+  padding: var(--ph-space-3);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius);
+  outline: none;
+  resize: none;
+  background: var(--ph-sheet-group);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+}
+
+.quickField:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 0; }
+
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  padding: var(--ph-space-2) var(--ph-gutter) calc(var(--ph-space-2) + var(--ph-safe-bottom));
+}
+
 /* ---- Usage (Oct 20 2026): this session's context window, the account's plan limits ---- */
 
 .usageSection {
@@ -105,6 +140,116 @@
 }
 
 .usageRow + .usageRow { margin-top: var(--ph-space-2); }
+
+/* The Context window card when it opens to its details (Oct 21 2026): the card's own
+   head, meter and tokens line, as one button. */
+.usageRowButton {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  /* Fills the card (its padding included), so the pressed background reaches every edge. */
+  width: calc(100% + 2 * var(--ph-space-3));
+  min-height: var(--ph-target);
+  margin: calc(-1 * var(--ph-space-3));
+  padding: var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+.usageRowButton + .usageMore { margin-top: var(--ph-space-3); }
+@media (hover: hover) {
+  .usageRowButton:hover { background: var(--ph-fill); }
+}
+.usageRowButton:active { background: var(--ph-fill-strong); }
+.usageRowButton:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 0; }
+.usageChevron {
+  margin-left: var(--ph-space-1);
+  vertical-align: -3px;
+  color: var(--ph-text-tertiary);
+  transition: transform var(--ph-motion-fast) ease;
+}
+.usageChevron[data-open] { transform: rotate(90deg); }
+
+.usageMore {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+  padding-top: var(--ph-space-2);
+  border-top: 0.5px solid var(--ph-separator);
+}
+.usageParts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+.usagePart {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+.usagePart dt { color: var(--ph-text-secondary); }
+/* A largest item's label is a path or a command: one line, cut at the end. */
+.usagePart dt.usageItemLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.usageSubheading {
+  margin: var(--ph-space-2) 0 var(--ph-space-1);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ph-text-secondary);
+}
+.usageMore > .usageSubheading:first-child { margin-top: 0; }
+
+.usageKinds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.usageKind { display: flex; flex-direction: column; gap: 2px; }
+.usageKindHead {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+.usageKindLabel { min-width: 0; color: var(--ph-text); }
+.usageKindValue { flex: none; color: var(--ph-text-secondary); font-variant-numeric: tabular-nums; }
+.usageKindBar {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--ph-fill);
+}
+.usageKindFill {
+  display: block;
+  width: var(--usage-pct, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ph-accent);
+}
+.usageKindFill[data-free] { background: var(--ph-fill-strong); }
+.usagePart dd { margin: 0; color: var(--ph-text); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .usageRowButton, .usageChevron { transition: none; }
+}
 
 .usageHead {
   display: flex;

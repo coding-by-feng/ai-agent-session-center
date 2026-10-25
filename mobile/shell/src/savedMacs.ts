@@ -15,6 +15,9 @@ import { cleanLabel } from './text.js';
 
 export const MACS_KEY = 'aasc.macs.v1';
 export const LAST_MAC_KEY = 'aasc.lastMac';
+/** `<macId> <origin>`: rows whose key the Mac at that origin doesn't know (shellFlows releasedTwins); not proved there again. */
+export const UNKNOWN_TWINS_KEY = 'aasc.unknownTwins.v1';
+const MAX_UNKNOWN_TWINS = 32;
 /** More than anyone pairs; bounds the work on a tampered list. */
 const MAX_MACS = 20;
 const NAME_MAX = 80;
@@ -82,6 +85,20 @@ export async function loadMacs(store: KeyValueStore): Promise<SavedMac[]> {
   return out;
 }
 
+/** Only ever used to skip a probe, so a rewritten value can do no more than leave a duplicate row. */
+export async function loadUnknownTwins(store: KeyValueStore): Promise<string[]> {
+  try {
+    const parsed: unknown = JSON.parse((await store.get(UNKNOWN_TWINS_KEY)) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string').slice(-MAX_UNKNOWN_TWINS) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveUnknownTwins(store: KeyValueStore, pairs: readonly string[]): Promise<void> {
+  await store.set(UNKNOWN_TWINS_KEY, JSON.stringify(pairs.slice(-MAX_UNKNOWN_TWINS)));
+}
+
 export async function saveMacs(store: KeyValueStore, macs: readonly SavedMac[]): Promise<void> {
   await store.set(MACS_KEY, JSON.stringify(macs.slice(0, MAX_MACS)));
 }
@@ -145,4 +162,88 @@ export async function forgetBackendCredential(vault: DeviceVault, id: string): P
 /** Forget both tokens of a Mac. Each removal is tried even when the other fails. */
 export async function forgetCredentials(vault: DeviceVault, id: string): Promise<void> {
   await Promise.allSettled([vault.delete(macKey(id)), vault.delete(backendKey(id))]);
+}
+
+// ── Backend relink (AASC-60) ─────────────────────────────────────────────
+
+/**
+ * Preferences, per Mac: must the next sign-in replace its backend token, and when did a relink last finish? A 403 from
+ * GET /v1/mac-paths means the token was made without `mac-paths:read` (the backend refused that scope when the Mac
+ * issued the code, so the code was push-only); the Mac is marked, and its next sign-in asks for a new code
+ * (backendLink `relink`). Nothing here is secret, and a rewritten value can do no more than cause or skip one relink.
+ */
+export const BACKEND_RELINK_KEY = 'aasc.backendRelink.v1';
+/**
+ * A Mac relinked within this long is not marked again. One whose backend keeps refusing the scope gets a push-only
+ * code at every relink, which the cloud refuses again; each relink revokes and re-creates a backend device, so
+ * without this it would happen at every sign-in. The price: a phone that lacks the scope waits up to this long for the
+ * next automatic relink.
+ */
+export const RELINK_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+/** More than anyone pairs (MAX_MACS); bounds a tampered list. */
+const MAX_RELINKS = 32;
+
+interface RelinkEntry {
+  id: string;
+  /** The next sign-in replaces this Mac's backend token. */
+  marked: boolean;
+  /** When a relink last finished for it, if one has. */
+  relinkedAt: number | null;
+}
+
+/** Inside the cooldown? A time after `now` is a clock set back: it holds nothing off. */
+function coolingDown(entry: RelinkEntry | undefined, now: number): boolean {
+  return entry?.relinkedAt != null && entry.relinkedAt <= now && now - entry.relinkedAt < RELINK_COOLDOWN_MS;
+}
+
+/** The stored entries that make sense; a missing, unreadable or tampered value is no entries. */
+async function loadRelinks(store: KeyValueStore): Promise<RelinkEntry[]> {
+  try {
+    const parsed: unknown = JSON.parse((await store.get(BACKEND_RELINK_KEY)) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(-MAX_RELINKS).flatMap((raw): RelinkEntry[] => {
+      const e = raw as Record<string, unknown> | null;
+      if (!e || typeof e.id !== 'string' || !ID.test(e.id) || typeof e.marked !== 'boolean') return [];
+      const at = e.relinkedAt;
+      return [{ id: e.id, marked: e.marked, relinkedAt: typeof at === 'number' && Number.isFinite(at) ? at : null }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** `entry` stored last (the newest survives the cap), without the cooldowns that have ended. */
+async function saveRelink(store: KeyValueStore, entries: readonly RelinkEntry[], entry: RelinkEntry, now: number): Promise<void> {
+  const kept = [...entries.filter((e) => e.id !== entry.id && (e.marked || coolingDown(e, now))), entry];
+  await store.set(BACKEND_RELINK_KEY, JSON.stringify(kept.slice(-MAX_RELINKS)));
+}
+
+/** A 403 for this Mac's backend token: replace it at the next sign-in, unless a relink only just finished (RELINK_COOLDOWN_MS). */
+export async function markBackendRelink(store: KeyValueStore, macId: string, now: number = Date.now()): Promise<void> {
+  const entries = await loadRelinks(store);
+  const entry = entries.find((e) => e.id === macId);
+  if (entry?.marked || coolingDown(entry, now)) return;
+  await saveRelink(store, entries, { id: macId, marked: true, relinkedAt: null }, now);
+}
+
+export async function needsBackendRelink(store: KeyValueStore, macId: string): Promise<boolean> {
+  return (await loadRelinks(store)).some((e) => e.id === macId && e.marked);
+}
+
+/**
+ * A new backend token is in the vault: the Mac is no longer marked, and starts its cooldown. Only a Mac that was
+ * marked does: a link nobody asked to redo (the first one, or one after a 401) starts none, so a phone linked push-only
+ * before the backend was upgraded can still relink as soon as the cloud says so.
+ */
+export async function clearBackendRelink(store: KeyValueStore, macId: string, now: number = Date.now()): Promise<void> {
+  const entries = await loadRelinks(store);
+  if (!entries.some((e) => e.id === macId && e.marked)) return;
+  await saveRelink(store, entries, { id: macId, marked: false, relinkedAt: now }, now);
+}
+
+/** The Mac was removed from this phone: its mark and its cooldown go with it, so a record never outlives the Mac it is about. */
+export async function forgetBackendRelink(store: KeyValueStore, macId: string): Promise<void> {
+  const entries = await loadRelinks(store);
+  if (!entries.some((e) => e.id === macId)) return;
+  await store.set(BACKEND_RELINK_KEY, JSON.stringify(entries.filter((e) => e.id !== macId)));
 }

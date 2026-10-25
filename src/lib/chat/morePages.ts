@@ -31,5 +31,8 @@ export const SETTINGS_PAGES: readonly MoreEntry[] = [
   { page: 'advanced', title: 'Advanced', subtitle: 'Reset this phone’s settings' },
 ];
 
-/** AASC Cloud, read through the Mac (AASC-51): its own section, so the Mac's data and the cloud's stay apart. */
-export const CLOUD_PAGE: MoreEntry = { page: 'cloud', title: 'Cloud', subtitle: 'Resources and projects, read-only' };
+/**
+ * More → Resources (plan 16): the desktop RESOURCES tab's Library, Cloud sync and Projects,
+ * read through the Mac. It took the place of AASC-51's read-only Cloud row.
+ */
+export const RESOURCES_ENTRY = { title: 'Resources', subtitle: 'Library, cloud sync and projects' } as const;

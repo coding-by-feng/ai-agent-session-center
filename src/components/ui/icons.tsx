@@ -457,6 +457,44 @@ export function MoveRoomDownIcon(props: IconProps) {
   );
 }
 
+// ---- Prompt queue ------------------------------------------------------------------
+
+/** Six-dot grip — drag a queued prompt to a new place: the session's queue (desktop and the
+ *  phone's Info → Queue) and the phone's Queue tab, so the two never differ. The dots of
+ *  RoomDragHandleIcon, drawn taller for a prompt row. Visual only; the hit box is its own. */
+export function QueueGripIcon(props: IconProps) {
+  return (
+    <svg {...svg(8, '0 0 8 14', props)} width={8} height={14} fill="currentColor">
+      <circle cx="2" cy="2" r="1" />
+      <circle cx="6" cy="2" r="1" />
+      <circle cx="2" cy="7" r="1" />
+      <circle cx="6" cy="7" r="1" />
+      <circle cx="2" cy="12" r="1" />
+      <circle cx="6" cy="12" r="1" />
+    </svg>
+  );
+}
+
+/** Return arrow — Auto-Enter: a queued prompt is submitted, not only typed. Not Auto-send's plane. */
+export function AutoEnterIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 24 24', props)} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 10 4 15 9 20" />
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+    </svg>
+  );
+}
+
+/** Paper plane — Auto-send: the queue sends when the session is free. Not Auto-Enter's arrow. */
+export function AutoSendIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 24 24', props)} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
 /** Stacked list — a session has queued prompts (beside the count). */
 export function QueueBadgeIcon(props: IconProps) {
   return (

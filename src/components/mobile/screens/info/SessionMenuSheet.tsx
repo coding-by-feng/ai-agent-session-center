@@ -3,6 +3,7 @@
  * one tap away; everything else is on Info (tap the title).
  *
  *   Terminal ›   (AASC-56: the terminal left the tabs; not on the terminal itself)
+ *   Search this chat   (Oct 21 2026: a Claude / Codex session; the bar no longer opens by scrolling)
  *   Restart (Resume once it has ended) · Fork · Mute / Turn notifications on
  *   Info ›
  *   Kill session (red)
@@ -27,9 +28,11 @@ export interface SessionMenuSheetProps {
   onClose: () => void;
   /** Opens the session's terminal; the menu offers "Terminal" when given. */
   onTerminal?: () => void;
+  /** Opens the chat's search bar; the menu offers "Search this chat" when given (a session with a Chat). */
+  onSearch?: () => void;
 }
 
-export default function SessionMenuSheet({ sessionId, onClose, onTerminal }: SessionMenuSheetProps) {
+export default function SessionMenuSheet({ sessionId, onClose, onTerminal, onSearch }: SessionMenuSheetProps) {
   const session = useSessionStore((s) => s.sessions.get(sessionId));
   const push = usePhoneNavStore((s) => s.push);
   const { busy, copy, resume, setNotifications } = useSessionActions();
@@ -62,6 +65,7 @@ export default function SessionMenuSheet({ sessionId, onClose, onTerminal }: Ses
               onClick={thenClose(onTerminal)}
             />
           )}
+          {onSearch && <ListRow title="Search this chat" subtitle="Find words in this conversation" onClick={thenClose(onSearch)} />}
           {ended ? (
             <ListRow
               title={busy === 'resume' ? 'Resuming…' : 'Resume'}

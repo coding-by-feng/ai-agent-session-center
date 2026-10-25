@@ -66,3 +66,9 @@ it.each(['disconnect','revoke','recheck'])('stale UI cannot %s the newly configu
  const res=await fetch(`http://127.0.0.1:${(server.address() as {port:number}).port}/cloud/${action}`,{method:'POST',headers:{'content-type':'application/json','x-aasc-cloud-backend':'https://old.example','x-aasc-cloud-account':'00000000-0000-4000-8000-000000000001','x-aasc-cloud-generation':'1'},body:'{}'});
  expect(res.status).toBe(409);expect(disconnectCloud).not.toHaveBeenCalled();expect(revokeDevice).not.toHaveBeenCalled();expect((await res.json()).error.code).toBe('connection_changed');
 });
+it('defaults offer the AASC backend and this Mac name, loopback only',async()=>{
+ const {hostname}=await import('node:os');
+ const f=await setup();const res=await fetch(f.url+'/defaults');expect(res.status).toBe(200);
+ expect((await res.json()).data).toEqual({backendUrl:'https://api.aasc.work',deviceName:hostname().replace(/\.local$/,'')});
+ const remote=await setup(()=>false);expect((await fetch(remote.url+'/defaults')).status).toBe(404);
+});

@@ -12,9 +12,10 @@
  *   lines are left unhighlighted (a phone shouldn't tokenise a whole file). A reply
  *   with no fenced code skips the highlighter altogether: react-markdown builds its
  *   processor per render, and rehype-highlight registers every language each time.
- * - Tables scroll sideways in a wrapper; images show as a link to the image.
+ * - Tables keep whole words and scroll sideways in their own card (ChatTable); images
+ *   show as a link to the image.
  */
-import { memo, type AnchorHTMLAttributes, type HTMLAttributes, type ImgHTMLAttributes, type ReactNode, type TableHTMLAttributes } from 'react';
+import { memo, type AnchorHTMLAttributes, type HTMLAttributes, type ImgHTMLAttributes, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -22,6 +23,7 @@ import 'highlight.js/styles/github-dark-dimmed.css';
 import { childrenToText } from '@/lib/markdownHeadings';
 import CopyButton from '../CopyButton';
 import FileLink from '../FileLink';
+import { ChatTable, ChatTd, ChatTh } from './ChatTable';
 import styles from '@/styles/modules/mobile/ChatMarkdown.module.css';
 
 const LONG_CODE_LINES = 200;
@@ -110,10 +112,6 @@ function Link({ href, children }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 }
 
-function Table({ children }: TableHTMLAttributes<HTMLTableElement>) {
-  return <div className={styles.tableWrap}><table>{children}</table></div>;
-}
-
 function Image({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) {
   const label = `Image${alt ? `: ${alt}` : ''}`;
   return typeof src === 'string' && SAFE_HREF.test(src)
@@ -121,7 +119,7 @@ function Image({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) {
     : <span>[{label}]</span>;
 }
 
-const COMPONENTS = { pre: CodeBlock, code: Code, a: Link, table: Table, img: Image };
+const COMPONENTS = { pre: CodeBlock, code: Code, a: Link, table: ChatTable, th: ChatTh, td: ChatTd, img: Image };
 const REMARK = [remarkGfm];
 const REHYPE_CODE = [rehypeMarkInlineCode, rehypeSkipLongCode, rehypeHighlight];
 const REHYPE_PLAIN: typeof REHYPE_CODE = [rehypeMarkInlineCode];

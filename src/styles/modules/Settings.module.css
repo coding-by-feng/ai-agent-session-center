@@ -132,6 +132,44 @@
 .bufferPreset:hover { border-color: var(--accent-cyan); color: var(--text-primary); }
 .bufferPresetActive { border-color: var(--accent-cyan); color: var(--accent-text, var(--accent-cyan)); background: color-mix(in srgb, var(--accent-cyan) 12%, transparent); }
 
+/* Agent CLIs (ADVANCED) */
+.cliList { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cliRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; }
+.cliDot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.cliDotNeutral { background: var(--text-secondary); }
+.cliDotAvailable { background: var(--accent-cyan); }
+.cliDotBusy { background: var(--accent-yellow, var(--accent-orange)); animation: cliPulse 1.2s ease-in-out infinite; }
+.cliDotOk { background: var(--accent-green); }
+.cliDotError { background: var(--accent-red); }
+.cliText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cliName { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.cliStatus { font-size: 11px; color: var(--text-secondary); line-height: 1.4; overflow-wrap: anywhere; }
+.cliRow .fontBtn { flex: none; }
+.fontBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.fontBtn:disabled:hover { border-color: var(--border-subtle-strong); color: var(--text-secondary); }
+.fontBtn:not(:disabled):active { transform: scale(0.97); }
+.cliFooter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cliFooter .settingsHint { margin-bottom: 0; }
+.cliError { font-size: 11px; color: var(--text-primary); border-left: 2px solid var(--accent-red); padding-left: 8px; margin-bottom: 8px; }
+/* A running update's time and output, full width under its row (CliUpdateLog). 16px = dot + gap. */
+.cliLogArea { flex-basis: 100%; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding-left: 16px; }
+.cliProgressRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cliProgress { flex: 1 1 120px; min-width: 0; height: 4px; appearance: none; border: none; border-radius: 2px; background: var(--border-subtle); overflow: hidden; }
+.cliProgress::-webkit-progress-bar { background: var(--border-subtle); border-radius: 2px; }
+.cliProgress::-webkit-progress-value { background: var(--accent-yellow, var(--accent-orange)); border-radius: 2px; transition: width 0.2s linear; }
+.cliProgress::-moz-progress-bar { background: var(--accent-yellow, var(--accent-orange)); border-radius: 2px; }
+.cliElapsed { flex: none; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.cliLog { margin: 0; max-height: calc(8 * 1.5em + 16px); overflow: auto; padding: 8px; background: var(--bg-primary, var(--bg-card)); border: 1px solid var(--border-subtle); border-radius: 4px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.cliLog:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.cliLogEmpty { margin: 0; font-size: 11px; color: var(--text-secondary); font-style: italic; }
+.cliLogToggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 4px 8px; margin-left: -8px; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.cliLogToggle:hover { color: var(--text-primary); border-color: var(--border-subtle); }
+.cliLogToggle:active { transform: scale(0.98); }
+.cliLogToggle:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.cliLogToggle:disabled { opacity: 0.45; cursor: not-allowed; }
+@keyframes cliPulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .cliDotBusy { animation: none; } .cliProgress::-webkit-progress-value, .cliLogToggle { transition: none; } .cliLogToggle:active { transform: none; } }
+
 /* API Key */
 .apiKeyRow { display: flex; gap: 6px; align-items: center; }
 .apiKeyInput { flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-primary, #0a0a1a); color: var(--text-primary, #e0e0e0); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; outline: none; }

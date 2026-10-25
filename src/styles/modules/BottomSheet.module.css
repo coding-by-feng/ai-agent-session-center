@@ -91,6 +91,9 @@
 .body {
   flex: 1;
   min-height: 0;
+  /* Scrolling on y makes x scroll too: a child wider than the sheet (an iOS date input
+     that would not shrink, Oct 22 2026) slid the whole body sideways and cut its left edge. */
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;

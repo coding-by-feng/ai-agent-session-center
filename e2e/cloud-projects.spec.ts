@@ -121,7 +121,14 @@ test('real clone survives resource conflict; reviewed retry retains checkout; di
       args: ['rev-parse', 'HEAD'],
     }),
   ).toBe(localHead);
-  expect((await ok(t, 'b', base + `/projects/${project.id}/local`)).state).toBe('diverged');
+  // AASC-63: a refused pull never fetches, so the remote commit is not seen yet: only `ahead`.
+  // Check fetches from GitHub; then both sides have commits, and the checkout reads `diverged`.
+  expect((await ok(t, 'b', base + `/projects/${project.id}/local`)).state).toBe('ahead');
+  expect(await ok(t, 'b', base + `/projects/${project.id}/check`, {})).toMatchObject({
+    state: 'diverged',
+    ahead: 1,
+    behind: 1,
+  });
   // Both clients compare the same real revision; no implicit rebase of a stale draft.
   const updated = await ok(
     t,
@@ -144,39 +151,26 @@ test('real clone survives resource conflict; reviewed retry retains checkout; di
     error: { code: 'version_conflict', details: { headVersion: 2 } },
   });
   expect((await ok(t, 'b', base + '/status')).state).toBe('connected');
+  // AASC-63: the row shows the repository and how it compares with GitHub. A checkout with commits
+  // on both sides is offered neither Pull nor Push, only Check: merging stays the user's step.
   await b.reload();
   await b.getByRole('tab', { name: 'Projects', exact: true }).click();
-  await expect(b.getByText('A revision', { exact: true })).toBeVisible();
-  await b.getByRole('button', { name: 'Edit project', exact: true }).click();
-  await b.getByLabel('Project name', { exact: true }).fill('B retained draft');
-  await ok(
-    t,
-    'a',
-    base + `/projects/${project.id}`,
-    { mutationId: randomUUID(), baseVersion: 2, value: { ...updated, name: 'A newer revision' } },
-    'PUT',
-  );
-  await b.getByRole('button', { name: 'Save project details' }).click();
-  await expect(b.getByRole('alert')).toContainText('Cloud version changed');
-  await expect(b.getByLabel('Project name', { exact: true })).toHaveValue('B retained draft');
+  const row = b.getByRole('listitem').filter({ hasText: 'fixture-repo' });
+  await expect(row.getByText('1 commit to push · 1 behind')).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Pull' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Push' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Check' })).toBeEnabled();
   await mkdir('test-screenshots/task14', { recursive: true });
   await b.screenshot({
     animations: 'disabled',
-    path: 'test-screenshots/task14/project-conflict-desktop.png',
+    path: 'test-screenshots/task14/project-desktop.png',
   });
-  await b.getByRole('button', { name: 'Refresh connection' }).click();
-  await expect(b.getByRole('button', { name: 'Load latest for comparison' })).toBeEnabled();
-  await b.getByRole('button', { name: 'Load latest for comparison' }).click();
-  await expect(b.getByRole('region', { name: 'Revision comparison' })).toContainText(
-    'A newer revision',
-  );
-  await expect(b.getByLabel('Project name', { exact: true })).toHaveValue('B retained draft');
   await b.setViewportSize({ width: 390, height: 844 });
   await b.screenshot({ animations: 'disabled', path: 'test-screenshots/task14/project-390.png' });
   expect(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   // The project browser opens in its own window (like every Project Browser entry point).
   const opened = b.context().waitForEvent('page');
-  await b.getByRole('link', { name: 'Open project', exact: true }).click();
+  await row.getByRole('link', { name: 'Open', exact: true }).click();
   const browser = await opened;
   await expect(
     browser.getByText('Fixture project-browser boundary', { exact: true }),

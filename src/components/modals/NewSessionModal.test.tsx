@@ -259,3 +259,37 @@ describe('NewSessionModal in the phone app: folders', () => {
     expect(addSession).not.toHaveBeenCalled();
   });
 });
+
+// Oct 23 2026: the Working Directory lists every known project; its open list now has a search
+// box that finds a folder without overwriting the one already in the field.
+describe('NewSessionModal Working Directory search', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    knownProjects.paths = ['/Users/me', '/Users/me/Documents/valux', '/Users/me/Documents/exmouth', '/Users/me/Documents/kason-tools'];
+    useRoomStore.setState({ rooms: [] });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) }) as Response));
+    localStorage.setItem('lastSession', JSON.stringify({ workingDir: '/Users/me', command: 'claude' }));
+    useUiStore.setState({ activeModal: 'new-session' });
+  });
+  afterEach(() => {
+    knownProjects.paths = [];
+    useUiStore.setState({ activeModal: null });
+    vi.unstubAllGlobals();
+  });
+
+  it('finds a folder by part of its path and puts it in the field', async () => {
+    render(<NewSessionModal />);
+    const field = await screen.findByDisplayValue('/Users/me');
+    const toggle = within(field.parentElement as HTMLElement).getByRole('button', { name: 'Toggle dropdown' });
+    fireEvent.pointerDown(toggle, { pointerType: 'mouse' });
+    fireEvent.click(toggle);
+    const search = await screen.findByRole('searchbox', { name: 'Search folders' });
+    fireEvent.change(search, { target: { value: 'exm' } });
+    expect(field).toHaveValue('/Users/me');
+    const options = screen.getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['/Users/me/Documents/exmouth']);
+    fireEvent.mouseDown(options[0]);
+    expect(field).toHaveValue('/Users/me/Documents/exmouth');
+  });
+});

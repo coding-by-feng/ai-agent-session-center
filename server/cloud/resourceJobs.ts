@@ -11,6 +11,15 @@ import {
   type InstallDecisions,
   type ResourceVersion,
   type ResourceRef,
+  ResourceHeadSchema,
+  SyncControlRequestSchema,
+  SyncRequestSchema,
+  type SyncControlRequest,
+  type SyncControlResult,
+  type SyncItem,
+  type SyncRequest,
+  type SyncResult,
+  type SyncStatus,
 } from '../../src/types/cloudResources.js';
 import type { ResourceSelection } from '../../src/types/resourceSelection.js';
 import type { ResourceCatalogService } from '../resourceCatalog.js';
@@ -21,6 +30,7 @@ import {
   accountKey,
   assertCloudBinding,
   abortCheck,
+  retryRateLimit,
   type CloudBinding,
   type RetryDelay,
 } from './binding.js';
@@ -39,6 +49,13 @@ import {
 import { publicReceipt, type InstallReceipt } from './receipts.js';
 import { EXPORT_TTL_MS, removeExport, sweepExports } from './download.js';
 import type { CloudAliasesService } from './aliases.js';
+import {
+  syncEntries,
+  syncInstallDecisions,
+  syncWaiting,
+  uploadsWaitingOnDependencies,
+  type SyncStopMark,
+} from './syncStatus.js';
 export interface ResourceJobsOptions {
   cloud: CloudConnector;
   catalog: ResourceCatalogService;
@@ -83,7 +100,8 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
         close(): Promise<void>;
       }
     | undefined;
-  const isProjectJob = (id: string) => ['get-project', 'pull-project'].includes(getJob(id).kind);
+  const isProjectJob = (id: string) =>
+    ['get-project', 'pull-project', 'push-project'].includes(getJob(id).kind);
   const bind = (binding: CloudBinding) => assertCloudBinding(cloud, binding);
   function getJob(id: string) {
     const saved = store.getJob(id);
@@ -150,6 +168,17 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
     queue = work.catch(() => {});
     running.set(job.id, work);
   }
+  const entries = async (binding: CloudBinding) => {
+    await reconcileInstallations(binding, () => bind(binding));
+    return syncEntries({
+      cloud,
+      store,
+      resources: catalog.publicationInternals(),
+      roots,
+      binding,
+      check: () => bind(binding),
+    });
+  };
   const api = {
     store,
     attachProjectJobs(owner: NonNullable<typeof projectOwner>) {
@@ -230,12 +259,17 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
       store.put('publish-plan', plan.public.id, plan);
       return plan.public;
     },
-    async publishPlan(id: string, binding: CloudBinding): Promise<CloudJob> {
+    /** `skipBlocked`: save the reviewed items and leave the blocked ones (they are listed). */
+    async publishPlan(
+      id: string,
+      binding: CloudBinding,
+      options: { skipBlocked?: boolean } = {},
+    ): Promise<CloudJob> {
       bind(binding);
       const plan = store.get<PrivatePublication & { jobId?: string }>('publish-plan', id);
       if (!plan) throw new CloudError('not_found', 'Publication review was not found.', 404);
       bind(plan.binding);
-      if (!plan.items.length || plan.public.blocked.length)
+      if (!plan.items.length || (plan.public.blocked.length && !options.skipBlocked))
         throw new CloudError(
           'publication_blocked',
           'Resolve blocked resources and review publication again.',
@@ -282,9 +316,13 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
         const m = version.manifest;
         let review: ReviewedInstall | undefined, reason: string | undefined;
         try {
+          // Without an explicit folder, a project resource goes to the checkout this account
+          // mapped for its cloud project (a project saved or cloned in Projects).
           const mapping = input.localProjectId
             ? store.project(binding, input.localProjectId)
-            : null;
+            : m.scope === 'project'
+              ? (store.projectsFor(binding).find((p) => p.cloudProjectId === m.projectId) ?? null)
+              : null;
           if (m.scope === 'project' && (!mapping || mapping.cloudProjectId !== m.projectId))
             throw new CloudError(
               'project_mapping_required',
@@ -393,6 +431,250 @@ export async function createResourceJobs(options: ResourceJobsOptions) {
       plan.jobId = job.id;
       store.put('install-plan', id, plan);
       return job;
+    },
+    /** AASC-62: every saved resource's state on this device against the cloud. */
+    async syncStatus(binding: CloudBinding): Promise<SyncStatus> {
+      bind(binding);
+      const items = (await entries(binding)).map((e) => e.item);
+      return { items, waiting: syncWaiting(items) };
+    },
+    /**
+     * Sync now: upload this device's changes and download the cloud's, as one publish job and
+     * one install job on the queue. A conflict moves only with a choice, memory only with an OK
+     * for this run; everything else that can't move is listed in `skipped`, never guessed. A
+     * stopped, removed or (with `only`) unrequested resource never moves, not even as another
+     * resource's dependency. Both plans are made before either job is queued, so a refused plan
+     * leaves no job running unseen.
+     */
+    async syncNow(request: SyncRequest, binding: CloudBinding): Promise<SyncResult> {
+      bind(binding);
+      const input = SyncRequestSchema.parse(request);
+      const choices = input.choices ?? {},
+        okMemory = new Set(input.memory ?? []),
+        only = input.only ? new Set(input.only) : null;
+      const found = await entries(binding);
+      const uploads: string[] = [],
+        downloads: ResourceRef[] = [],
+        held = new Set<string>(),
+        kept = new Set<string>(),
+        skipped: SyncResult['skipped'] = [];
+      const skip = (item: SyncItem, reason: string) =>
+        skipped.push({ resourceId: item.resourceId, name: item.name, reason });
+      for (const { item, catalogId, head } of found) {
+        if (item.state === 'synced') continue;
+        // Stopped here or removed from the cloud: nothing of it moves, even as a dependency, and
+        // it is not "left out" either.
+        if (item.state === 'stopped' || item.state === 'removed') {
+          held.add(item.resourceId);
+          continue;
+        }
+        // Not asked for this time: a copy here stays as it is, even when one that was asked for
+        // needs another version of it (that one then waits).
+        if (only && !only.has(item.resourceId)) {
+          kept.add(item.resourceId);
+          continue;
+        }
+        if (item.state === 'blocked') {
+          skip(item, item.reason ?? "This resource can't sync.");
+          continue;
+        }
+        if (item.memory && !okMemory.has(item.resourceId)) {
+          held.add(item.resourceId);
+          skip(item, 'Memory syncs only with your OK for this sync.');
+          continue;
+        }
+        const choice =
+          item.state === 'conflict'
+            ? choices[item.resourceId]
+            : item.state === 'local-changed'
+              ? 'mine'
+              : 'cloud';
+        if (!choice) {
+          held.add(item.resourceId);
+          skip(item, "Changed in both places: choose Keep mine or Use cloud's.");
+        } else if (choice === 'mine') {
+          held.add(item.resourceId);
+          // A local copy that never synced uploads under the cloud resource it matched.
+          store.put(
+            'resource-id',
+            JSON.stringify([accountKey(binding), catalogId!]),
+            item.resourceId,
+          );
+          uploads.push(catalogId!);
+        } else downloads.push({ resourceId: item.resourceId, version: head!.version });
+      }
+      const byCatalog = new Map(found.map((e) => [e.catalogId, e.item]));
+      const requested = new Map(found.map((e) => [e.item.resourceId, e.item]));
+      let publication: PublicationPlan | null = null;
+      if (uploads.length) {
+        const rules = (ids: readonly string[]) =>
+          ids.map((resourceId) => ({ resourceId, include: true }));
+        publication = await api.buildPublicationPlan(rules(uploads), binding);
+        const waiting = uploadsWaitingOnDependencies(
+          publication.items,
+          new Set(uploads),
+          requested,
+        );
+        if (waiting.size) {
+          for (const [catalogId, reason] of waiting) {
+            const item = byCatalog.get(catalogId);
+            if (item) skip(item, reason);
+          }
+          const rest = uploads.filter((c) => !waiting.has(c));
+          publication = rest.length ? await api.buildPublicationPlan(rules(rest), binding) : null;
+        }
+        for (const b of publication?.blocked ?? []) {
+          const item = byCatalog.get(b.catalogId);
+          if (item) skip(item, b.reason);
+        }
+      }
+      let install: { id: string; decisions: InstallDecisions } | null = null;
+      if (downloads.length) {
+        const plan = await api.planInstallMany({ refs: downloads }, binding);
+        const reviewed = store.get<PrivateInstall>('install-plan', plan.id)!;
+        const { decisions, heldBack } = syncInstallDecisions(
+          plan.items.map((i, n) => ({
+            id: i.id,
+            resourceId: i.resourceId,
+            action: i.action,
+            memory: reviewed.items[n].version.manifest.kind === 'memory',
+          })),
+          held,
+          okMemory,
+          kept,
+        );
+        for (const [n, i] of plan.items.entries()) {
+          const item = requested.get(i.resourceId);
+          if (
+            i.action === 'blocked' &&
+            item &&
+            downloads.some((d) => d.resourceId === i.resourceId)
+          )
+            skip(item, i.reason ?? "This resource can't be installed here.");
+          else if (
+            heldBack.includes(i.resourceId) &&
+            !skipped.some((x) => x.resourceId === i.resourceId)
+          )
+            skipped.push({
+              resourceId: i.resourceId,
+              name: reviewed.items[n].version.manifest.name,
+              reason: 'Memory syncs only with your OK for this sync.',
+            });
+        }
+        if (plan.items.some((i) => decisions[i.id] !== 'skip' && i.action !== 'blocked'))
+          install = { id: plan.id, decisions };
+      }
+      const jobs: CloudJob[] = [];
+      if (publication?.items.length)
+        jobs.push(await api.publishPlan(publication.id, binding, { skipBlocked: true }));
+      if (install) {
+        try {
+          jobs.push(await api.runInstall(install.id, install.decisions, binding));
+        } catch (error) {
+          if (!jobs.length) throw error;
+          // The upload is already queued: report the downloads instead of losing that job.
+          for (const d of downloads) {
+            const item = requested.get(d.resourceId);
+            if (item)
+              skip(
+                item,
+                error instanceof CloudError ? error.message : 'The download could not start.',
+              );
+          }
+        }
+      }
+      return { jobs, skipped };
+    },
+    /**
+     * Oct 23 2026: Stop syncing on this device (a mark; files and the cloud copy stay), Sync again,
+     * or Remove from cloud: every version, oldest first, so a version another resource or project
+     * still pins stops the removal with the newest versions intact. This device then forgets the
+     * resource; another device reads it as `removed` and never uploads it again.
+     */
+    async syncControl(
+      request: SyncControlRequest,
+      binding: CloudBinding,
+    ): Promise<SyncControlResult> {
+      bind(binding);
+      const { resourceId, action } = SyncControlRequestSchema.parse(request);
+      const markKey = JSON.stringify([accountKey(binding), resourceId]);
+      if (action === 'resume') {
+        store.remove('sync-stopped', markKey);
+        return { resourceId, action };
+      }
+      let headVersion: number | null = null;
+      try {
+        const head = ResourceHeadSchema.parse(
+          await cloud.client.request('GET', `/v1/resources/${resourceId}/head`),
+        );
+        if (head.resourceId !== resourceId)
+          throw new CloudError('invalid_response', 'Cloud head is invalid.', 502);
+        // The cloud keeps a removed resource's row: its head says `deleted`, with the old version.
+        headVersion = head.deleted ? null : head.headVersion;
+      } catch (error) {
+        if (!(error instanceof CloudError) || error.code !== 'not_found') throw error;
+      }
+      bind(binding);
+      /** This device's links to the resource: the catalog ids that map to it, and their versions. */
+      const forget = () => {
+        for (const { key, value } of store.entriesFor<string>('resource-id', binding))
+          if (value === resourceId) {
+            store.remove('resource-id', key);
+            store.remove('published', key);
+          }
+        store.remove('sync-stopped', markKey);
+      };
+      if (action === 'stop') {
+        // Nothing left in the cloud to stop: just forget it here.
+        if (headVersion === null) forget();
+        else
+          store.put('sync-stopped', markKey, { resourceId, at: Date.now() } satisfies SyncStopMark);
+        return { resourceId, action };
+      }
+      // The backend allows a device about 60 writes a minute (404s included): each version is
+      // read first, so a second try spends no write on what an earlier one deleted, and a 429
+      // waits as long as the cloud asks (retryRateLimit) instead of failing the removal.
+      const stop = new AbortController();
+      const detach = cloud.onStop(() => stop.abort());
+      const check = () => bind(binding);
+      const call = (method: string, path: string, body?: unknown) =>
+        retryRateLimit(
+          () => cloud.client.request(method, path, body, stop.signal),
+          check,
+          stop.signal,
+          options.delay,
+        );
+      const gone = (error: unknown) => error instanceof CloudError && error.code === 'not_found';
+      let removedVersions = 0;
+      try {
+        for (let version = 1; headVersion !== null && version <= headVersion; version++) {
+          const path = `/v1/resources/${resourceId}/versions/${version}`;
+          try {
+            await call('GET', path);
+          } catch (error) {
+            if (gone(error)) continue;
+            throw error;
+          }
+          try {
+            await call('DELETE', path, { mutationId: randomUUID() });
+            removedVersions++;
+          } catch (error) {
+            if (gone(error)) continue;
+            if (error instanceof CloudError && error.code === 'version_in_use')
+              throw new CloudError(
+                'version_in_use',
+                `Version ${version} is still used by another cloud resource or a project, so it and newer versions stay in the cloud.`,
+                409,
+              );
+            throw error;
+          }
+        }
+      } finally {
+        detach();
+      }
+      bind(binding);
+      forget();
+      return { resourceId, action, removedVersions };
     },
     async download(ref: ResourceRef, binding: CloudBinding) {
       bind(binding);

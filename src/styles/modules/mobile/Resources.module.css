@@ -1,0 +1,158 @@
+/* More → Resources (plan 16): Library, Cloud sync, Projects, and one resource. The lists are the
+   kit's ListSection/ListRow; this only adds the search field, the filter chips, the state tags and
+   the preview. Pull to refresh, the nav action and the tab row reuse Cloud.module.css. */
+
+.searchRow {
+  margin: 0 var(--ph-gutter) var(--ph-space-2);
+}
+
+.search {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: max(16px, var(--ph-size-body));
+}
+
+.search::placeholder { color: var(--ph-text-tertiary); }
+
+.search:focus,
+.search:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 0;
+}
+
+/* One sideways row of chips: the types, then the filters. The next chip clipped at the edge is the cue. */
+.chips {
+  display: flex;
+  gap: var(--ph-space-2);
+  margin: 0 0 var(--ph-space-2);
+  padding: 0 var(--ph-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar { display: none; }
+
+/* The tab row: the nav bar's hairline above it needs air the AASC-51 status section used to give. */
+.tabs {
+  margin: var(--ph-space-3) var(--ph-gutter) var(--ph-space-4);
+}
+
+/* A row's lines under its name: each one line, cut with an ellipsis. */
+.line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uses {
+  font-size: var(--ph-size-caption);
+  color: var(--ph-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fav {
+  margin-right: var(--ph-space-1);
+  color: var(--ph-danger);
+}
+
+/* A state in words, toned like the desktop's chip: a quiet tag, not a button. It sits on its own
+   line under the name, so a long state ("3 commits to push · 2 behind") never squeezes the rest. */
+.tag {
+  display: inline-block;
+  max-width: 100%;
+  margin: 2px 0;
+  overflow: hidden;
+  padding: 0 var(--ph-space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--ph-radius-pill);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ph-text-secondary);
+}
+
+.tag[data-tone='success'] { color: var(--ph-status-finished); }
+.tag[data-tone='info'] { color: var(--ph-accent); }
+.tag[data-tone='warning'] { color: var(--ph-status-approval); }
+.tag[data-tone='danger'] { color: var(--ph-danger); }
+
+.note {
+  margin: 0 var(--ph-gutter) var(--ph-space-4);
+  padding: 0 var(--ph-space-4);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
+/* The preview: the resource's text, as the desktop's Preview shows it. */
+.preview {
+  margin: 0 var(--ph-gutter) var(--ph-space-4);
+  padding: var(--ph-space-3) var(--ph-space-4);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+  color: var(--ph-text);
+  overflow-wrap: anywhere;
+}
+
+.code {
+  margin: 0;
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Reads like the kit's section header (List.module.css), with the way back on the right. */
+.previewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+  margin: 0 var(--ph-gutter);
+  padding: var(--ph-space-2) var(--ph-space-4);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ph-text-secondary);
+}
+
+.previewName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fieldValue {
+  font-family: var(--ph-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* A state's hint ("Merge or rebase it yourself, then push."): wraps, as it's a sentence. */
+.hint {
+  display: block;
+  white-space: normal;
+}

@@ -8,12 +8,17 @@
  *   └────────────────────────────────────────────────┘
  *
  * - The draft is kept per session on this phone (composerDraftStore).
- * - ＋: photo library, camera, saved prompt, command, file. "/" typed at the
- *   start of a word opens this CLI's commands and skills; "@" a file of the
- *   session's project. /model and /effort open their choices as a sheet.
+ * - ＋: photo library, camera, saved prompt, command, file. A "/" word under
+ *   the caret (or "$" on Codex) lists the matching commands and skills above the
+ *   box (ComposerSuggestions, Oct 21 2026; the / button opens them all as a
+ *   sheet); "@" typed at a word start opens a file of the session's project.
+ *   /model and /effort open their choices as a sheet.
  * - The main button follows lib/chat/composerAction: Send (idle, waiting),
  *   Queue while it works (hold: Send now, confirmed), "Deny and tell Claude"
  *   while a card waits (hold: queue instead). Stop is the status strip's, above it.
+ * - P sends the quick reply ("proceed", or this phone's own; lib/chat/quickReply)
+ *   the way the main button would, leaving the draft alone; off while a card waits
+ *   (Send would deny it). Holding P edits the text (QuickReplySheet).
  * - Sending is the Mac's confirmed send, polled until it lands (usePromptSender).
  * - While another device drives, the box is off and says who, with Take control.
  */
@@ -47,9 +52,13 @@ import FilePickerSheet from './FilePickerSheet';
 import ModelEffortSheet from './ModelEffortSheet';
 import UsageSheet from './UsageSheet';
 import SavedPromptSheet from './SavedPromptSheet';
+import QuickReplySheet from './QuickReplySheet';
+import { useQuickReply } from '@/lib/chat/quickReply';
+import { owesProceed } from '@/lib/sessionStatusStyle';
+import ComposerSuggestions from './ComposerSuggestions';
 import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
 import { useDriverName } from './useDriverName';
-import { AtIcon, CameraIcon, CommandsIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
+import { AtIcon, CameraIcon, CommandsIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ComposerProps {
@@ -129,19 +138,36 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const photoInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const held = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
+  // The box as state too, for ComposerSuggestions (set once, on mount: never on a keystroke).
+  const [boxEl, setBoxEl] = useState<HTMLTextAreaElement | null>(null);
+  const boxRef = useCallback((el: HTMLTextAreaElement | null) => {
+    inputRef.current = el;
+    setBoxEl(el);
+  }, [inputRef]);
 
   const text = draft.replace(/\s+$/, '');
-  const decision = composerAction({
+  const actionInput = {
     status: session.status,
     cli,
-    hasContent: text.trim() !== '',
     spectator: baton.mode === 'spectator',
     driverLabel: driver,
     card: card ? { kind: card.kind } : null,
     macWindowOpen: windowOpen,
     queueWaiting: waiting,
-  });
+  };
+  const decision = composerAction({ ...actionInput, hasContent: text.trim() !== '' });
   const sending = sender.state.phase === 'sending';
+  // The quick reply always has text: it goes the way the main button would send it, but never as a
+  // card's answer ("Deny and tell Claude" would deny the tool call with a "proceed").
+  const quickReply = useQuickReply();
+  const quickDecision = composerAction({ ...actionInput, hasContent: true });
+  const quickBlocked = quickDecision.action === 'deny-and-tell'
+    ? 'Answer the card first'
+    : sending ? 'Still sending the last message' : quickDecision.fieldDisabledReason ?? (quickDecision.canSend ? null : quickDecision.blockedReason ?? 'Not now');
+  // The last answer asks "Reply proceed…" (Oct 23 2026): P lights up, the reply being one tap.
+  const quickPending = owesProceed(session) && !quickBlocked;
+  const [quickOpen, setQuickOpen] = useState(false);
+  const quickHeld = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
   const fieldOff = !!decision.fieldDisabledReason;
   const runtime = resolveRuntimeDisplay(session);
   // Context window + plan limits on their own chip (Oct 20 2026); the clock ticks by the minute.
@@ -255,8 +281,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     const ch = value[caret - 1];
     const wordStart = caret === 1 || /\s/.test(value[caret - 2]);
     if (!wordStart) return;
-    if (ch === '/' && cli) setSheet({ type: 'command', start: caret - 1 });
-    else if (ch === '@' && session.projectPath) setSheet({ type: 'file', start: caret - 1 });
+    // A typed "/" lists in place (ComposerSuggestions); only "@" opens its sheet.
+    if (ch === '@' && session.projectPath) setSheet({ type: 'file', start: caret - 1 });
   };
 
   // Return is a new line (a phone chat); Cmd/Ctrl+Return sends from a hardware keyboard.
@@ -271,12 +297,14 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
     if (files.length === 0) return;
-    void readQueueImages(files, images.length).then(({ images: read, message }) => {
+    // The photos already held count toward the size cap too (~6 MB together: a queued message syncs in the queue).
+    const heldChars = images.reduce((n, i) => n + i.dataUrl.length, 0);
+    void readQueueImages(files, images.length, undefined, heldChars).then(({ images: read, message }) => {
       if (read.length > 0) setImages((prev) => [...prev, ...read].slice(0, MAX_PROMPT_IMAGES));
       if (images.length + read.length > MAX_PROMPT_IMAGES) showToast(`Up to ${MAX_PROMPT_IMAGES} photos a message.`, 'warning');
       else if (message) showToast(message, 'warning');
     });
-  }, [images.length]);
+  }, [images]);
 
   // ---- Hold the main button for its other way to send ----
 
@@ -302,6 +330,34 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     }
     submit();
   };
+
+  // ---- The quick reply: a tap sends it, a hold edits it ----
+
+  const clearQuickHold = () => {
+    if (quickHeld.current.timer) clearTimeout(quickHeld.current.timer);
+    quickHeld.current.timer = null;
+  };
+  const onQuickHoldStart = (e: PointerEvent<HTMLButtonElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    quickHeld.current.fired = false;
+    clearQuickHold();
+    quickHeld.current.timer = setTimeout(() => {
+      quickHeld.current.fired = true;
+      navigator.vibrate?.(10);
+      setQuickOpen(true);
+    }, HOLD_MS);
+  };
+  const onQuickClick = () => {
+    clearQuickHold();
+    if (quickHeld.current.fired) {
+      quickHeld.current.fired = false;
+      return;
+    }
+    if (quickBlocked) return;
+    void deliver({ text: quickReply }, quickDecision.action);
+  };
+  const quickVerb = quickDecision.action === 'queue' ? 'Queue' : 'Send';
+  const quickShown = quickReply.length > 60 ? `${quickReply.slice(0, 59)}…` : quickReply;
 
   const openQueue = () => {
     const path = `/sessions/${sessionId}/info/queue`;
@@ -330,6 +386,12 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     closeSheet();
     insertToken(`@${path}`, triggerStart);
   }, [closeSheet, insertToken, triggerStart]);
+  const setBoxText = useCallback((next: string) => setDraft(sessionId, next), [sessionId, setDraft]);
+  // The picker sends the command itself: the typed fragment is already gone from `next`.
+  const openPicker = useCallback((focus: 'model' | 'effort', next: string) => {
+    setDraft(sessionId, next);
+    setSheet({ type: 'model', focus });
+  }, [sessionId, setDraft]);
   const pickSnippet = useCallback((snippet: string) => {
     appendToDraft(sessionId, snippet);
     focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
@@ -413,9 +475,20 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           ))}
         </ul>
       )}
+      {cli && (
+        <ComposerSuggestions
+          cli={cli}
+          projectPath={session.projectPath ?? null}
+          text={draft}
+          textarea={boxEl}
+          disabled={fieldOff}
+          onChange={setBoxText}
+          onPicker={openPicker}
+        />
+      )}
       <div className={styles.field} data-off={fieldOff ? '' : undefined}>
         <textarea
-          ref={inputRef}
+          ref={boxRef}
           className={styles.input}
           value={draft}
           onChange={onChange}
@@ -444,6 +517,30 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
               <AtIcon />
             </button>
           )}
+          <button
+            type="button"
+            className={`${styles.tool} ${styles.optional}`}
+            aria-label={`${quickVerb} “${quickShown}”`}
+            aria-describedby={`${sessionId}-quick-hint`}
+            aria-disabled={quickBlocked ? true : undefined}
+            onPointerDown={onQuickHoldStart}
+            onPointerUp={clearQuickHold}
+            onPointerLeave={clearQuickHold}
+            onPointerCancel={clearQuickHold}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              clearQuickHold();
+              setQuickOpen(true);
+            }}
+            onClick={onQuickClick}
+            data-pending={quickPending ? 'true' : undefined}
+            data-testid="composer-quick-reply"
+          >
+            <QuickReplyIcon />
+          </button>
+          <span id={`${sessionId}-quick-hint`} className={styles.srOnly}>
+            {quickBlocked ? `${quickBlocked}. ` : ''}{quickPending ? 'The last answer asks you to proceed. ' : ''}Hold to change what it sends.
+          </span>
           <span className={styles.spacer} />
           <button
             type="button"
@@ -515,6 +612,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         onClose={closeSheet}
         onPick={pickSnippet}
       />
+      <QuickReplySheet open={quickOpen} onClose={() => setQuickOpen(false)} current={quickReply} />
 
       <ConfirmSheet
         open={confirm?.type === 'send-now'}

@@ -197,6 +197,35 @@ describe('subagent count (what the queue\'s subagent hold reads)', () => {
     expect(getSession('sa-3')?.backgroundTaskCount).toBe(0);
   });
 
+  it('never counts agent-team teammates as background shells (an idle teammate still reports running)', () => {
+    runningTurn('sa-5', 'q5');
+    const file = transcript('sa-5', 'q5', false);
+    const teammates = Array.from({ length: 14 }, (_, i) => (
+      { id: `t${i}`, type: 'teammate', status: 'running', description: `Implement Task ${i}` }
+    ));
+    stop('sa-5', file, 'q5', { background_tasks: teammates });
+    expect(getSession('sa-5')?.backgroundTaskCount).toBe(0);
+    expect(getSession('sa-5')?.subagentCount).toBe(0);
+    stop('sa-5', file, 'q5', { background_tasks: [...teammates, { id: 'b1', type: 'shell', status: 'running' }] });
+    expect(getSession('sa-5')?.backgroundTaskCount).toBe(1);
+  });
+
+  it('keeps Claude Code’s Background list for the phone, and a new session clears it', () => {
+    runningTurn('sa-6', 'q6');
+    const file = transcript('sa-6', 'q6', false);
+    stop('sa-6', file, 'q6', { background_tasks: [
+      { id: 't1', type: 'teammate', status: 'running', description: 'FW-A' },
+      { id: 'b1', type: 'shell', status: 'running', description: 'Wait', command: 'until x; do sleep 5; done' },
+    ] });
+    const bg = getSession('sa-6')?.backgroundTasks;
+    expect(bg).toMatchObject({ agents: 1, shells: 1, activeShells: 1 });
+    expect(bg?.items.map((t) => t.id)).toEqual(['b1', 't1']);
+    stop('sa-6', file, 'q6', {}); // an older CLI's Stop with no list keeps it
+    expect(getSession('sa-6')?.backgroundTasks?.items).toHaveLength(2);
+    handleEvent({ session_id: 'sa-6', hook_event_name: EVENT_TYPES.SESSION_START });
+    expect(getSession('sa-6')?.backgroundTasks).toBeNull();
+  });
+
   it('SessionStart resets a background-shell count that never got its final Stop', () => {
     runningTurn('sa-4', 'q4');
     stop('sa-4', transcript('sa-4', 'q4', false), 'q4', { background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }] });

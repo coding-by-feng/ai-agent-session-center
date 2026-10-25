@@ -33,6 +33,8 @@ import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import type { ControlHolderView } from '@/types';
 import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
+import { listPairedPhones, type PairedPhone } from '@/lib/mobilePairingApi';
+import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/DevicePresence.module.css';
 
@@ -44,6 +46,8 @@ const SharingDefault = lazy(() => import('@/components/layout/SharingDefault'));
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
 const PANEL_WIDTH = 320;
+/** How often the Mac re-reads its paired phones for the chip's 📱 count. */
+const PHONES_POLL_MS = 30_000;
 
 /** How many sessions a device currently drives. Offline holders drive nothing. */
 function drivingCount(controllers: Map<string, ControlHolderView>, clientId: string): number {
@@ -112,6 +116,29 @@ export default function DevicePresenceChip() {
   // Defaults to TRUE so the "other devices are blocked" warning is never shown
   // on a guess — only once the server has actually said no password is set.
   const [passwordEnabled, setPasswordEnabled] = useState(true);
+  // The 📱 count (Oct 22 2026): live sockets alone missed every paired phone with
+  // its app closed. Mac only (the list is a local route). Re-read when presence
+  // changes, since a phone opening its app is a presence change, and on a slow
+  // poll for renames and revokes.
+  const [pairedPhones, setPairedPhones] = useState<PairedPhone[] | null>(null);
+  const isMac = isLocalDevice(devices, myId);
+  // Which devices are connected, not every presence update (a baton move is one too).
+  const deviceKey = devices.map((d) => d.clientId).join(',');
+  useEffect(() => {
+    if (!isMac) return undefined;
+    const controller = new AbortController();
+    const load = () => {
+      listPairedPhones(controller.signal)
+        .then((list) => { if (!controller.signal.aborted) setPairedPhones(list); })
+        .catch(() => { /* a background count: keep the last one */ });
+    };
+    load();
+    const timer = setInterval(load, PHONES_POLL_MS);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [isMac, deviceKey]);
   useEffect(() => {
     if (!open || networkUrl !== undefined) return;
     const controller = new AbortController();
@@ -208,6 +235,7 @@ export default function DevicePresenceChip() {
   // Pairing answers the AASC page on this machine only; a remote device would
   // get 404s, so the section isn't offered there.
   const canPairPhones = isLocalDevice(devices, myId);
+  const phoneSummary = summarizePhones(canPairPhones ? pairedPhones : null);
 
   return (
     <>
@@ -217,10 +245,19 @@ export default function DevicePresenceChip() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`${devices.length} device${devices.length === 1 ? '' : 's'} connected`}
+        title={deviceChipTitle(devices.length, phoneSummary)}
+        aria-label={deviceChipTitle(devices.length, phoneSummary)}
       >
         <span aria-hidden="true">🖥</span>
         <span className={styles.chipCount}>{devices.length}</span>
+        {phoneSummary && phoneSummary.paired > 0 && (
+          <>
+            <span className={styles.chipSep} aria-hidden="true">·</span>
+            <span aria-hidden="true">📱</span>
+            <span className={styles.chipCount}>{phoneSummary.paired}</span>
+            {phoneSummary.online > 0 && <span className={styles.chipOnlineDot} aria-hidden="true" />}
+          </>
+        )}
       </button>
 
       {open && pos &&

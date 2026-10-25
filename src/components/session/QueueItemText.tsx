@@ -1,11 +1,14 @@
 import { useRef, useState } from 'react';
 import UnfoldIcon from '@/components/ui/UnfoldIcon';
+import PromptTokens, { PromptSkillChips } from '@/components/ui/PromptTokens';
 import { useTextClipped } from '@/hooks/useTextClipped';
 import { useSettingsStore } from '@/stores/settingsStore';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface QueueItemTextProps {
   text: string;
+  /** The prompt's session: its CLI decides whether a `$name` is a skill token (PromptTokens). */
+  sessionId?: string;
   /** Show the whole prompt instead of the clipped preview. Owned by the caller. */
   expanded: boolean;
   onToggle: () => void;
@@ -29,8 +32,12 @@ interface QueueItemTextProps {
  * left, so a toggle at the end of the text slid out from under a tap (or a mouse
  * press) and the press landed on whichever action had arrived — DEL, on a plain
  * prompt. See `.queueList .queueExpandBtn`.
+ *
+ * A preview that is cut off may hide a skill at its end ("… /raab"): its skills and
+ * commands then show again as tokens on the line below it (`PromptSkillChips`, Oct 22
+ * 2026). Not while the prompt is whole or expanded, where they are already in the text.
  */
-export default function QueueItemText({ text, expanded, onToggle }: QueueItemTextProps) {
+export default function QueueItemText({ text, sessionId, expanded, onToggle }: QueueItemTextProps) {
   const textRef = useRef<HTMLSpanElement>(null);
   const themeName = useSettingsStore((s) => s.themeName);
   const clipped = useTextClipped(textRef, text, { paused: expanded, remeasureKey: themeName });
@@ -38,32 +45,40 @@ export default function QueueItemText({ text, expanded, onToggle }: QueueItemTex
   const label = expanded ? 'Collapse prompt' : 'Show full prompt';
 
   return (
-    <div className={styles.queueTextLine}>
-      <span
-        ref={textRef}
-        className={`${styles.queueText}${expanded ? ` ${styles.queueTextExpanded}` : ''}`}
-        data-expanded={expanded}
-      >
-        {text}
-      </span>
-      {(clipped || expanded || focused) && (
-        <button
-          type="button"
-          className={styles.queueExpandBtn}
-          // The row is draggable and the card selectable; a click here is only this toggle.
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggle();
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          aria-expanded={expanded}
-          aria-label={label}
-          title={label}
+    <>
+      <div className={styles.queueTextLine}>
+        <span
+          ref={textRef}
+          className={`${styles.queueText}${expanded ? ` ${styles.queueTextExpanded}` : ''}`}
+          data-expanded={expanded}
         >
-          <UnfoldIcon expanded={expanded} />
-        </button>
+          {/* Skills and commands stand out (Oct 21 2026). */}
+          <PromptTokens text={text} sessionId={sessionId} />
+        </span>
+        {(clipped || expanded || focused) && (
+          <button
+            type="button"
+            className={styles.queueExpandBtn}
+            // The row is draggable and the card selectable; a click here is only this toggle.
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            aria-expanded={expanded}
+            aria-label={label}
+            title={label}
+          >
+            <UnfoldIcon expanded={expanded} />
+          </button>
+        )}
+      </div>
+      {clipped && !expanded && (
+        <div className={styles.queueSkillLine}>
+          <PromptSkillChips text={text} sessionId={sessionId} />
+        </div>
       )}
-    </div>
+    </>
   );
 }

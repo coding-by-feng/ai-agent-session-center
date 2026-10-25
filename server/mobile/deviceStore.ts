@@ -46,6 +46,7 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
   },
   update(id, patch) {
     db.updateMobileDevice(id, {
+      ...(patch.label !== undefined && { label: patch.label }),
       ...(patch.status !== undefined && { status: patch.status }),
       ...(patch.approvedAt !== undefined && { approved_at: patch.approvedAt }),
       ...(patch.lastSeenAt !== undefined && { last_seen_at: patch.lastSeenAt }),

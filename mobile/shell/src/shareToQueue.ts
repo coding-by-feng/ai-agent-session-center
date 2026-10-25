@@ -27,8 +27,8 @@ export const SHARE_MESSAGES = {
   unpaired: 'This Mac removed this phone. Pair again to share to it.',
 } as const;
 
-/** What the Mac accepts in a shared item: images Claude and Codex read, at most 4, about 2 MB each, 6 MB together. */
-export const SHARE_MAX_IMAGES = 4;
+/** What the Mac accepts in a shared item: images Claude and Codex read, at most 10 (was 4 until Oct 21 2026), about 2 MB each, 6 MB together. */
+export const SHARE_MAX_IMAGES = 10;
 export const SHARE_IMAGE_MAX_CHARS = 2_900_000;
 export const SHARE_IMAGES_MAX_CHARS = 6_000_000;
 const SHARE_IMAGE_TYPES = new Set<StrippableType>(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);

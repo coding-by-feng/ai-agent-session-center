@@ -22,11 +22,20 @@ export interface ScreenProps {
   backLabel?: string;
   actions?: ReactNode;
   onTitlePress?: () => void;
+  /** A hold on the title (NavBar's `onTitleLongPress`), and what it is spoken as. */
+  onTitleLongPress?: () => void;
+  titleLongPressHint?: string;
   /** Under the nav bar, outside the scroller (a reconnecting banner). */
   banner?: ReactNode;
   footer?: ReactNode;
   /** false: the content area does not scroll; its child does. */
   scroll?: boolean;
+  /**
+   * false: no nav bar and no banner — the content takes the whole screen (the Chat's
+   * full-screen reading, Oct 21 2026). The screen is then named by `title` itself, and
+   * the content must pad the safe areas the bar used to.
+   */
+  chrome?: boolean;
   children: ReactNode;
   testId?: string;
 }
@@ -42,9 +51,12 @@ export default function Screen({
   backLabel,
   actions,
   onTitlePress,
+  onTitleLongPress,
+  titleLongPressHint,
   banner,
   footer,
   scroll = true,
+  chrome = true,
   children,
   testId,
 }: ScreenProps) {
@@ -66,19 +78,28 @@ export default function Screen({
   }, [large]);
 
   return (
-    <section className={styles.screen} aria-labelledby={titleId} data-testid={testId}>
-      <NavBar
-        title={title}
-        subtitle={subtitle}
-        large={large}
-        collapsed={collapsed}
-        onBack={onBack}
-        backLabel={backLabel}
-        actions={actions}
-        onTitlePress={onTitlePress}
-        titleId={large ? undefined : titleId}
-      />
-      {banner}
+    <section
+      className={styles.screen}
+      aria-labelledby={chrome ? titleId : undefined}
+      aria-label={chrome ? undefined : title}
+      data-testid={testId}
+    >
+      {chrome && (
+        <NavBar
+          title={title}
+          subtitle={subtitle}
+          large={large}
+          collapsed={collapsed}
+          onBack={onBack}
+          backLabel={backLabel}
+          actions={actions}
+          onTitlePress={onTitlePress}
+          onTitleLongPress={onTitleLongPress}
+          titleLongPressHint={titleLongPressHint}
+          titleId={large ? undefined : titleId}
+        />
+      )}
+      {chrome && banner}
       <div
         ref={scrollerRef}
         className={scroll ? styles.scroller : styles.fixed}

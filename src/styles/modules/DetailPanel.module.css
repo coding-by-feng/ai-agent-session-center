@@ -976,6 +976,16 @@
   width: 100%;
   max-width: none;
 }
+/* The peek tooltip's wrapper around each card (Oct 23 2026) is the flex item now:
+   it keeps the card's place (no shrinking in the top strip, full width in the rail). */
+.sessionTabTrigger {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.switcherBarVertical .sessionTabTrigger {
+  width: 100%;
+}
 
 /* ---- Collapsed (folded) left rail ----
    A thin strip that keeps just the expand affordance + an active-session count,
@@ -1139,6 +1149,13 @@
   gap: 7px;
   min-width: 0;
   cursor: text;
+}
+
+/* The peek tooltip's wrapper around the name: it must shrink, or the ellipsis
+   (top bar) and the two-line clamp (rail) never engage. */
+.switcherNameTrigger {
+  display: flex;
+  min-width: 0;
 }
 
 .switcherNameText {
@@ -1461,6 +1478,36 @@
 @keyframes attentionBadgePulse {
   0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.7); }
   50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.95); }
+}
+
+/* "Asks you to proceed" (Oct 23 2026): the session's last answer asks you to reply
+   "proceed". Same slot as the status badge, amber with a dark P and a slow halo, so a
+   session that owes a reply stands out from the idle ones. Outranks the green ✓. */
+.sessionTabProceedBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-yellow, #ffd700);
+  color: #1a1400;
+  border-radius: 50%;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-yellow, #ffd700) 70%, transparent);
+  z-index: 3;
+  pointer-events: none;
+  animation: proceedBadgeHalo 2.4s ease-in-out infinite;
+}
+
+@keyframes proceedBadgeHalo {
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--accent-yellow, #ffd700) 60%, transparent); }
+  50% { box-shadow: 0 0 11px color-mix(in srgb, var(--accent-yellow, #ffd700) 95%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sessionTabProceedBadge { animation: none; }
 }
 
 /* Per-status glyph badge (top-right). Shown for every status except the

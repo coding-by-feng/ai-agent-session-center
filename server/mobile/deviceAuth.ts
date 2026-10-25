@@ -67,7 +67,7 @@ export interface MobileDeviceStore {
   insert(rec: MobileDeviceRecord): void;
   get(id: string): MobileDeviceRecord | null;
   update(id: string, patch: Partial<Pick<MobileDeviceRecord,
-    'status' | 'approvedAt' | 'lastSeenAt' | 'revokedAt' | 'beCodeRef' | 'beCodeRefMacBound'>>): void;
+    'label' | 'status' | 'approvedAt' | 'lastSeenAt' | 'revokedAt' | 'beCodeRef' | 'beCodeRefMacBound'>>): void;
   /** Pending and active devices (revoked ones are kept but not listed). */
   listLive(): MobileDeviceRecord[];
   remove(id: string): void;
@@ -106,6 +106,8 @@ export interface DeviceAuthOptions {
   credentialEpoch?: () => string | null;
   /** Called once when a device stops being usable (deny, revoke, unpair, pending expiry). */
   onRevoked?: (device: MobileDeviceRecord) => void;
+  /** Called when the desktop signs an approved phone out: its sessions end, its pairing stays. */
+  onSignedOut?: (device: MobileDeviceRecord) => void;
 }
 
 export function hashSecret(secret: string): string {
@@ -126,6 +128,25 @@ export function proofForToken(deviceToken: string, nonce: string): string {
   return challengeProof(hashSecret(deviceToken), nonce);
 }
 
+/**
+ * The LAN rescan's two messages (macProof), each over a nonce the phone chose:
+ * the phone names itself with its key over WHO_TAG_PREFIX + nonce (never its
+ * id), and the Mac answers with the same key over MAC_PROOF_PREFIX + nonce +
+ * ':' + the address the phone reached it at. Sign-in nonces are this Mac's
+ * base64url (no ':'), so no proof can be traded for another.
+ */
+export const WHO_TAG_PREFIX = 'aasc-who:';
+export const MAC_PROOF_PREFIX = 'aasc-mac:';
+
+/**
+ * Remote access (pathsProof): this Mac tells a signed-in phone its Tailscale
+ * address, signed with the phone's key over PATHS_PROOF_PREFIX + a nonce the
+ * phone chose (64 hex) + ':' + the address ('-' when there is none) + ':' + the
+ * port, so the phone saves nothing that a box on the home network rewrote. A
+ * third prefix: no proof for one of these messages is ever one for another.
+ */
+export const PATHS_PROOF_PREFIX = 'aasc-paths:';
+
 export function normalizePairingCode(raw: string): string {
   return raw.toUpperCase().replace(/[\s-]/g, '');
 }
@@ -136,9 +157,13 @@ function newPairingCode(): string {
   return code;
 }
 
+/** Control characters out, whitespace collapsed, at most MAX_LABEL characters; '' when nothing is left. */
+function cleanLabel(raw: string): string {
+  return raw.replace(/[\x00-\x1F\x7F-\x9F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_LABEL);
+}
+
 export function sanitizeDeviceLabel(raw: string): string {
-  const cleaned = raw.replace(/[\x00-\x1F\x7F-\x9F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_LABEL);
-  return cleaned || 'Phone';
+  return cleanLabel(raw) || 'Phone';
 }
 
 function sameHash(a: string, b: string): boolean {
@@ -174,6 +199,8 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const codes = new Map<string, { expiresAt: number }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
+  /** Keys macProof's decoy: the same question gets the same wrong answer, as a real phone's would. */
+  const decoyKey = randomBytes(32);
 
   function pruneChallenges(): void {
     const t = now();
@@ -311,6 +338,30 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       return true;
     },
 
+    /**
+     * The desktop names a pending or approved phone. The label is only ever
+     * set here and at pairing (a sign-in never sends one), so a rename sticks.
+     * Null for an unknown or revoked phone, or a name with nothing left once cleaned.
+     */
+    rename(id: string, label: string): MobileDeviceView | null {
+      const rec = store.get(id);
+      const cleaned = cleanLabel(label);
+      if (!rec || rec.status === 'revoked' || !cleaned) return null;
+      store.update(id, { label: cleaned });
+      return toView({ ...rec, label: cleaned });
+    },
+
+    /**
+     * End an approved phone's sessions and live sockets (onSignedOut) without
+     * revoking it: the phone signs in again with its key. Null unless approved.
+     */
+    signOut(id: string): MobileDeviceView | null {
+      const rec = store.get(id);
+      if (!rec || rec.status !== 'active') return null;
+      opts.onSignedOut?.(rec);
+      return toView(rec);
+    },
+
     /** The phone removes itself, proving its token the same way as sign-in. */
     unpair(deviceId: string, nonce: string, proof: string): boolean {
       const rec = verifyProof(deviceId, nonce, proof);
@@ -322,6 +373,37 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     list(): MobileDeviceView[] {
       expirePending();
       return store.listLive().map(toView);
+    },
+
+    /**
+     * This Mac proves to a phone that it holds the phone's key, for a phone
+     * that lost track of the Mac's address and found an AASC at a new one (the
+     * phone's LAN rescan, POST /identify). `tag` names the phone without its id
+     * (WHO_TAG_PREFIX); the proof covers `reachedAt`, this Mac's own address
+     * and port on the request's socket, so a box that passes the question on
+     * gets a proof for the Mac's address, not for the one the phone dialled.
+     * Only an approved phone with a token from the current password is
+     * vouched for; any other tag gets a decoy of the same shape, stable per
+     * question, so the answer doesn't say which phones exist.
+     */
+    macProof(tag: string, phoneNonce: string, reachedAt: string): string {
+      const rec = store.listLive().find((r) => r.status === 'active' && r.credentialEpoch === currentEpoch()
+        && sameHash(challengeProof(r.tokenHash, `${WHO_TAG_PREFIX}${phoneNonce}`), tag));
+      if (!rec) return createHmac('sha256', decoyKey).update(`${tag}:${phoneNonce}:${reachedAt}`).digest('hex');
+      return challengeProof(rec.tokenHash, `${MAC_PROOF_PREFIX}${phoneNonce}:${reachedAt}`);
+    },
+
+    /**
+     * This Mac proves, with the phone's key, the Tailscale address (null: none,
+     * written '-') and port it tells that phone (POST /paths), over a nonce the
+     * phone chose. The phone saves the address only if the proof is the one it
+     * computes itself. Null unless the phone is approved and still paired with a
+     * token from the current password (the same test as macProof's).
+     */
+    pathsProof(deviceId: string, nonce: string, tailnet: string | null, port: number): string | null {
+      const rec = store.get(deviceId);
+      if (!rec || rec.status !== 'active' || rec.credentialEpoch !== currentEpoch()) return null;
+      return challengeProof(rec.tokenHash, `${PATHS_PROOF_PREFIX}${nonce}:${tailnet ?? '-'}:${port}`);
     },
 
     /**

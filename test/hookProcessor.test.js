@@ -207,3 +207,39 @@ describe('hookProcessor', () => {
     });
   });
 });
+
+describe('processHookEvent - Codex internal agents (Oct 22 2026)', () => {
+  it('drops a Codex Memory Writing Agent hook without creating or re-keying a card', async () => {
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { getSession } = await import('../server/sessionStore.js');
+    const result = processHookEvent({
+      session_id: 'codex-memory-agent-1',
+      hook_event_name: 'SessionStart',
+      cwd: join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'memories'),
+    });
+    expect(result).toBeNull();
+    expect(getSession('codex-memory-agent-1')).toBeFalsy();
+  });
+});
+
+describe('processHookEvent - Codex memory agent replay (valux, Oct 22 2026)', () => {
+  it("the user's Stop still lands on their card after the memory agent fires in the same terminal", async () => {
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { getSession } = await import('../server/sessionStore.js');
+    const shared = { claude_pid: 37087, tty_path: '/dev/ttys098', agent_terminal_id: 'term-replay-179' };
+    const user = { ...shared, session_id: 'codex-user-01a16021', cwd: '/Users/k/Documents/valux' };
+    const memory = { ...shared, session_id: 'codex-memory-01a16022', cwd: join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'memories') };
+    processHookEvent({ ...user, hook_event_name: 'SessionStart', source: 'startup' });
+    processHookEvent({ ...user, hook_event_name: 'UserPromptSubmit', prompt: 'check the previous website' });
+    processHookEvent({ ...memory, hook_event_name: 'SessionStart', source: 'startup' });
+    processHookEvent({ ...memory, hook_event_name: 'UserPromptSubmit', prompt: '## Memory Writing Agent: Phase 2 (Consolidation)' });
+    processHookEvent({ ...memory, hook_event_name: 'PreToolUse', tool_name: 'Bash' });
+    processHookEvent({ ...user, hook_event_name: 'Stop' });
+    const card = getSession('codex-user-01a16021');
+    expect(card?.status).toBe('waiting');
+    expect(card?.projectPath).not.toMatch(/memories/);
+    expect(getSession('codex-memory-01a16022')).toBeFalsy();
+  });
+});

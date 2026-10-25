@@ -145,6 +145,156 @@
   gap: 8px;
   margin: 8px 0;
 }
+/* Remote access → Phones: one row per paired phone, a hairline between rows. */
+.phoneList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.phoneList > li {
+  padding: 8px 0;
+}
+.phoneList > li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+.phoneList p {
+  margin: 0;
+  /* Never leave a lone "09:07" on the last line, with its "·" stranded at the end of the one above. */
+  text-wrap: pretty;
+}
+.phoneName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+/* The GitHub accounts block keeps a gap before the next section's header. */
+.accounts {
+  margin-bottom: 24px;
+}
+/* A resource name fits well under this; the select need not cross the whole page. */
+.panel .zipField {
+  max-width: 480px;
+}
+/* Projects (AASC-63): a project row is a sync row plus its hint, actions and running jobs. */
+.projectRow {
+  padding: 8px 0;
+}
+.projectRow + .projectRow {
+  border-top: 1px solid var(--border-subtle);
+}
+.projectRow > .syncRow {
+  padding: 0;
+}
+.projectRow > .hint {
+  margin: 4px 0 0;
+}
+.projectRow > .toolbar {
+  margin: 8px 0 0;
+}
+.repoLink {
+  width: fit-content;
+  color: var(--accent-text);
+  overflow-wrap: anywhere;
+}
+.repoLink:hover {
+  text-decoration: underline;
+}
+.repoLink:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+/* A project's state and its GitHub account, stacked at the row's end. Two classes: .syncSide
+   (below) centres its items and would win on order alone. */
+.syncSide.projectSide {
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* Field is a caption beside its control; here the select stays a sensible width. */
+.accountField select {
+  max-width: 220px;
+}
+/* Remove sits at the end of the row, away from Clone/Pull/Push. */
+.pushEnd {
+  margin-left: auto;
+}
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.accountList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0;
+  font-weight: 600;
+}
+.panel code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+/* Resources (AASC-62): one row per saved resource — name and facts, then its state and, when it
+   needs one, the choice or the memory OK. Hairlines between rows, no card per row. */
+.syncList,
+.reviewList {
+  margin: 8px 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.syncRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 0;
+}
+.syncRow + .syncRow,
+.reviewList > li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+.syncMain {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  min-width: 0;
+}
+.syncName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.syncSide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.syncSide .check {
+  margin: 0;
+}
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.reviewList > li {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+.skipped {
+  margin: 0;
+  padding-left: 16px;
+}
+.skipped li + li {
+  margin-top: 4px;
+}
 .files {
   max-height: 220px;
   margin: 8px 0;
@@ -167,6 +317,28 @@
 .card details > summary:focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
+}
+/* Connection's "Advanced" disclosure (AASC-61): summaries here are flex, which drops the browser's
+   own marker, so it draws its own chevron or it reads as plain text. */
+.advanced > summary {
+  gap: 8px;
+}
+.advanced > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+.advanced[open] > summary::before {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .advanced > summary::before {
+    transition: none;
+  }
 }
 .check {
   display: flex;
@@ -239,3 +411,6 @@
     padding: 16px;
   }
 }
+
+/* The Keep mine / Use cloud's explanation sits above the Needs you group: room before its rule. */
+.choiceHint { margin: 0 0 12px; }

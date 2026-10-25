@@ -1,9 +1,12 @@
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+// AASC-63: Cloud → Projects keeps only GitHub repositories. Save from a folder or a link; each
+// device clones, pulls, pushes and checks with the GitHub account chosen for the project.
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, it, expect, beforeEach, afterEach } from 'vitest';
 import CloudProjects from './CloudProjects';
 import { CloudContext } from './cloudSession';
-import { cloudApi, CloudApiError } from '@/lib/cloudApi';
-import { CATALOG } from '@/__tests__/fixtures/resourceCatalog';
+import { cloudApi } from '@/lib/cloudApi';
+import type { LocalProject } from '@/types/cloudProjects';
+
 const id = '00000000-0000-4000-8000-000000000001';
 const connection = {
   backendOrigin: 'https://fixture.invalid',
@@ -12,30 +15,54 @@ const connection = {
   deviceId: id,
   deviceName: 'fixture',
 };
+const repository = {
+  provider: 'github' as const,
+  owner: 'example',
+  name: 'project',
+  url: 'https://github.com/example/project',
+  branch: 'main',
+};
 const project = {
   id,
   version: 1,
-  name: 'Example project',
-  repository: {
-    provider: 'github' as const,
-    owner: 'example',
-    name: 'project',
-    url: 'https://github.com/example/project',
-    branch: 'main',
-  },
-  description: '',
+  name: 'project',
+  repository,
+  description: 'Old description, no longer shown',
   resources: [{ resourceId: id, version: 2 }],
   deleted: false,
 };
+const local = (fields: Partial<LocalProject>): LocalProject => ({
+  state: 'missing',
+  branch: null,
+  openUrl: null,
+  localProjectId: null,
+  path: null,
+  ahead: null,
+  behind: null,
+  account: null,
+  ...fields,
+});
+const linked = (fields: Partial<LocalProject>) =>
+  local({
+    state: 'ready',
+    branch: 'main',
+    openUrl: '/project-browser?path=%2FUsers%2Fme%2Fcode%2Fproject',
+    localProjectId: 'project-1',
+    path: '/Users/me/code/project',
+    ahead: 0,
+    behind: 0,
+    ...fields,
+  });
 beforeEach(() => {
   localStorage.clear();
   vi.spyOn(cloudApi, 'listProjects').mockResolvedValue({ items: [project], nextCursor: null });
-  vi.spyOn(cloudApi, 'listResources').mockResolvedValue({ items: [], nextCursor: null });
-  vi.spyOn(cloudApi, 'localProject').mockResolvedValue({
-    state: 'missing',
-    branch: null,
-    localProjectId: null,
-    openUrl: null,
+  vi.spyOn(cloudApi, 'localProject').mockResolvedValue(local({}));
+  vi.spyOn(cloudApi, 'githubAccounts').mockResolvedValue({
+    installed: true,
+    accounts: [
+      { login: 'octo', active: true, ok: true },
+      { login: 'work-me', active: false, ok: true },
+    ],
   });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -47,198 +74,182 @@ function show() {
         epoch: 1,
         current: () => 1,
         refresh: vi.fn(),
+        apply: vi.fn(),
+        loaded: true,
+        error: null,
         changed: false,
       }}
     >
-      <CloudProjects catalog={CATALOG} />
+      <CloudProjects />
     </CloudContext.Provider>,
   );
 }
-it('get_project_has_destination_and_versions', async () => {
+const row = () => screen.getByText('project', { selector: 'span' }).closest('li')!;
+
+it('shows each project as its GitHub repository and branch, and only Clone when it is not here', async () => {
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Get project' }));
-  expect(screen.getByLabelText('Parent folder on this device')).toBeInTheDocument();
-  expect(screen.getByLabelText('Git transport')).toBeInTheDocument();
-  expect(screen.getByText(new RegExp(id + ' · v2'))).toBeInTheDocument();
-});
-it('preserves metadata draft on 409 and requires explicit comparison', async () => {
-  vi.spyOn(cloudApi, 'saveProject').mockRejectedValue(
-    new CloudApiError('version_conflict', 'Cloud changed'),
+  await screen.findByText('Not on this device');
+  expect(within(row()).getByRole('link', { name: 'github.com/example/project' })).toHaveAttribute(
+    'href',
+    'https://github.com/example/project',
   );
-  show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit project' }));
-  fireEvent.change(screen.getByLabelText('Project name'), {
-    target: { value: 'My preserved draft' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Save project details' }));
-  await screen.findByText(/Your draft is preserved/);
-  expect(screen.getByLabelText('Project name')).toHaveValue('My preserved draft');
-  expect(screen.getByRole('button', { name: 'Load latest for comparison' })).toBeInTheDocument();
+  expect(within(row()).getByText('main')).toBeInTheDocument();
+  expect(screen.queryByText(/Old description/)).not.toBeInTheDocument();
+  expect(within(row()).getByRole('button', { name: 'Clone' })).toBeEnabled();
+  expect(within(row()).queryByRole('button', { name: 'Pull' })).not.toBeInTheDocument();
+  expect(within(row()).queryByRole('button', { name: 'Push' })).not.toBeInTheDocument();
+  expect(screen.getByText('octo (active)')).toBeInTheDocument();
+  expect(screen.getByText('work-me', { selector: 'span' })).toBeInTheDocument();
 });
-it('partial_clone_can_open and retry resources without another clone', async () => {
-  const job = {
-    id,
-    kind: 'get-project' as const,
-    state: 'partial' as const,
-    steps: [
-      { id: 'git', label: 'Git checkout', state: 'complete' as const },
+
+it('saves a project from a GitHub folder on this Mac: repository only, folder linked here', async () => {
+  vi.spyOn(cloudApi, 'projectCandidates').mockResolvedValue({
+    items: [
+      { path: '/Users/me/code/project', repository, projectId: id },
       {
-        id: 'resources',
-        label: 'Resource installation',
-        state: 'failed' as const,
-        error: 'Needs review',
+        path: '/Users/me/code/tool',
+        repository: { ...repository, name: 'tool', url: 'https://github.com/example/tool' },
+        projectId: null,
       },
     ],
-  };
-  localStorage.setItem(
-    'aasc.cloud.browse.' + JSON.stringify([connection.backendOrigin, id]),
-    JSON.stringify({
-      resources: [],
-      projects: [project],
-      jobs: [{ job, generation: 1, projectId: id }],
-      savedAt: 1,
-    }),
-  );
-  vi.mocked(cloudApi.localProject).mockResolvedValue({
-    state: 'ready',
-    branch: 'main',
-    localProjectId: 'local',
-    openUrl: '/project-browser?path=fixture',
   });
+  const save = vi.spyOn(cloudApi, 'saveProject').mockResolvedValue(project);
   show();
-  expect(await screen.findByRole('link', { name: 'Open project' })).toHaveAttribute(
-    'href',
-    '/project-browser?path=fixture',
-  );
-  expect(screen.getByRole('button', { name: 'Review resources for retry' })).toBeInTheDocument();
+  await screen.findByText('Not on this device');
+  fireEvent.click(screen.getByRole('button', { name: 'Save a project' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(await within(dialog).findByText('example/project · already saved')).toBeInTheDocument();
+  expect(within(dialog).getByRole('radio', { name: /example\/project/ })).toBeDisabled();
+  fireEvent.click(within(dialog).getByRole('radio', { name: /example\/tool/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save to cloud' }));
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const [mutation, , , localPath] = save.mock.calls[0];
+  expect(mutation.baseVersion).toBeNull();
+  expect(mutation.value).toMatchObject({
+    name: 'tool',
+    repository: { url: 'https://github.com/example/tool', branch: 'main' },
+    description: '',
+    resources: [],
+  });
+  expect(localPath).toBe('/Users/me/code/tool');
 });
 
-it('preserves edits typed while metadata save is in flight', async () => {
-  let finish!: (p: typeof project) => void;
-  vi.spyOn(cloudApi, 'saveProject').mockImplementation(() => new Promise<typeof project>((r) => (finish = r)));
+it('saves a pasted GitHub link without any folder', async () => {
+  vi.spyOn(cloudApi, 'projectCandidates').mockResolvedValue({ items: [] });
+  const save = vi.spyOn(cloudApi, 'saveProject').mockResolvedValue(project);
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit project' }));
-  fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'Saved first' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save project details' }));
-  fireEvent.change(screen.getByLabelText('Project name'), {
-    target: { value: 'Newer unsaved text' },
+  await screen.findByText('Not on this device');
+  fireEvent.click(screen.getByRole('button', { name: 'Save a project' }));
+  const dialog = await screen.findByRole('dialog');
+  const link = within(dialog).getByLabelText('GitHub repository link');
+  fireEvent.change(link, { target: { value: 'https://gitlab.com/a/b' } });
+  expect(within(dialog).getByRole('alert')).toHaveTextContent(/github.com\/owner\/repository/);
+  expect(within(dialog).getByRole('button', { name: 'Save to cloud' })).toBeDisabled();
+  fireEvent.change(link, { target: { value: 'https://github.com/Example/Other.git' } });
+  fireEvent.change(within(dialog).getByLabelText('Branch'), { target: { value: 'develop' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save to cloud' }));
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(save.mock.calls[0][0].value.repository).toEqual({
+    provider: 'github',
+    owner: 'example',
+    name: 'other',
+    url: 'https://github.com/example/other',
+    branch: 'develop',
   });
-  await act(async () => {
-    finish({ ...project, version: 2, name: 'Saved first' });
+  expect(save.mock.calls[0][3]).toBeUndefined();
+});
+
+it('clones into a chosen folder, with no transport or resource choice', async () => {
+  const get = vi
+    .spyOn(cloudApi, 'getProject')
+    .mockResolvedValue({ id, kind: 'get-project', state: 'complete', steps: [] });
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Clone' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByLabelText('Folder name')).toHaveValue('project');
+  expect(within(dialog).queryByText(/SSH|transport|resource/i)).not.toBeInTheDocument();
+  expect(within(dialog).getByText(/with this mac’s git sign-in/i)).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText('Into this folder'), {
+    target: { value: '/Users/me/code' },
   });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Clone' }));
   await waitFor(() =>
-    expect(screen.getByLabelText('Project name')).toHaveValue('Newer unsaved text'),
+    expect(get).toHaveBeenCalledWith(
+      id,
+      { parentPath: '/Users/me/code', directoryName: 'project' },
+      expect.anything(),
+      expect.any(AbortSignal),
+    ),
   );
-  expect(screen.getByRole('heading', { name: 'Latest revision 2' })).toBeInTheDocument();
-  expect(screen.getByText('Saved first')).toBeInTheDocument();
 });
 
-const otherProject = {
-  ...project,
-  id: '00000000-0000-4000-8000-000000000002',
-  name: 'Other project',
-};
-it.each([
-  ['latest', 'replace'],
-  ['save', 'replace'],
-  ['latest', 'return'],
-  ['save', 'return'],
-  ['latest', 'close'],
-  ['save', 'close'],
-] as const)('I1: %s completion cannot survive editor %s', async (path, transition) => {
-  let finish!: (p: typeof project) => void;
-  vi.mocked(cloudApi.listProjects).mockResolvedValue({
-    items: [project, otherProject],
-    nextCursor: null,
-  });
-  vi.spyOn(cloudApi, path === 'latest' ? 'project' : 'saveProject').mockImplementation(
-    () => new Promise<typeof project>((r) => (finish = r)),
-  );
+it('offers Push for commits to send and Pull when GitHub is ahead', async () => {
+  vi.mocked(cloudApi.localProject).mockResolvedValue(linked({ state: 'ahead', ahead: 2 }));
+  const push = vi
+    .spyOn(cloudApi, 'pushProject')
+    .mockResolvedValue({ id, kind: 'push-project', state: 'complete', steps: [] });
   show();
-  const edits = await screen.findAllByRole('button', { name: 'Edit project' });
-  fireEvent.click(edits[0]);
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: path === 'latest' ? 'Load latest for comparison' : 'Save project details',
-    }),
+  expect(await screen.findByText('2 commits to push')).toBeInTheDocument();
+  expect(within(row()).queryByRole('button', { name: 'Pull' })).not.toBeInTheDocument();
+  expect(within(row()).getByRole('link', { name: 'Open' })).toHaveAttribute(
+    'href',
+    '/project-browser?path=%2FUsers%2Fme%2Fcode%2Fproject',
   );
-  if (transition === 'close') {
-    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
-    fireEvent.click(edits[0]);
-  } else {
-    fireEvent.click(edits[1]);
-    if (transition === 'return') fireEvent.click(edits[0]);
-  }
-  await act(async () => {
-    finish({ ...project, version: 7, name: 'Old A response' });
-  });
-  expect(screen.getByLabelText('Project name')).toHaveValue(
-    transition === 'replace' ? 'Other project' : 'Example project',
+  fireEvent.click(within(row()).getByRole('button', { name: 'Push' }));
+  await waitFor(() =>
+    expect(push).toHaveBeenCalledWith(id, expect.anything(), expect.any(AbortSignal)),
   );
-  expect(
-    screen.queryByRole('button', { name: 'Keep my draft using this reviewed revision' }),
-  ).not.toBeInTheDocument();
 });
-it('I1: wrong-record latest cannot become the draft revision base', async () => {
-  vi.spyOn(cloudApi, 'project').mockResolvedValue({ ...otherProject, version: 9 });
+
+it('Check asks GitHub and shows what is behind; Pull then appears', async () => {
+  vi.mocked(cloudApi.localProject).mockResolvedValue(linked({}));
+  vi.spyOn(cloudApi, 'checkProject').mockResolvedValue(linked({ behind: 3 }));
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit project' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Load latest for comparison' }));
-  await act(async () => {});
-  expect(
-    screen.queryByRole('button', { name: 'Keep my draft using this reviewed revision' }),
-  ).not.toBeInTheDocument();
+  await screen.findByText('Up to date');
+  fireEvent.click(within(row()).getByRole('button', { name: 'Check' }));
+  expect(await screen.findByText('3 behind GitHub')).toBeInTheDocument();
+  expect(within(row()).getByRole('button', { name: 'Pull' })).toBeEnabled();
 });
-it('M1: same-editor comparison names latest and draft fields without requiring JSON', async () => {
-  vi.spyOn(cloudApi, 'project').mockResolvedValue({
+
+it('chooses the GitHub account for the project on this device', async () => {
+  vi.mocked(cloudApi.localProject).mockResolvedValue(linked({}));
+  const set = vi
+    .spyOn(cloudApi, 'setProjectAccount')
+    .mockResolvedValue(linked({ account: 'work-me' }));
+  show();
+  await screen.findByText('Up to date');
+  const select = within(row()).getByLabelText('GitHub account');
+  expect(select).toHaveValue('');
+  fireEvent.change(select, { target: { value: 'work-me' } });
+  await waitFor(() =>
+    expect(set).toHaveBeenCalledWith(id, 'work-me', expect.anything(), expect.any(AbortSignal)),
+  );
+  await waitFor(() =>
+    expect(within(row()).getByLabelText('GitHub account')).toHaveValue('work-me'),
+  );
+});
+
+it('Remove asks once, says folders stay, and drops only the cloud entry', async () => {
+  const remove = vi.spyOn(cloudApi, 'removeProject').mockResolvedValue({
     ...project,
-    version: 3,
-    name: 'Latest title',
-    description: 'Latest description',
-    repository: { ...project.repository, branch: 'release' },
+    version: 2,
+    deleted: true,
     resources: [],
   });
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit project' }));
-  fireEvent.change(screen.getByLabelText('Project name'), { target: { value: 'My draft title' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Load latest for comparison' }));
-  expect(await screen.findByRole('region', { name: 'Revision comparison' })).toBeInTheDocument();
-  expect(screen.getByText('Latest saved')).toBeInTheDocument();
-  expect(screen.getByText('Your draft')).toBeInTheDocument();
-  expect(screen.getByText('Latest title')).toBeInTheDocument();
-  expect(screen.getByText('My draft title')).toBeInTheDocument();
-  expect(screen.getByText('release')).toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Keep my draft using this reviewed revision' }),
+  await screen.findByText('Not on this device');
+  fireEvent.click(within(row()).getByRole('button', { name: 'Remove' }));
+  expect(screen.getByText('Remove from the cloud list? Folders stay.')).toBeInTheDocument();
+  expect(remove).not.toHaveBeenCalled();
+  fireEvent.click(within(row()).getAllByRole('button', { name: 'Remove' }).at(-1)!);
+  await waitFor(() => expect(remove).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(screen.getByText('No projects saved to cloud yet.')).toBeInTheDocument(),
   );
-  expect(screen.getByLabelText('Project name')).toHaveValue('My draft title');
-  expect(screen.getByRole('heading', { name: 'Edit project · revision 3' })).toBeInTheDocument();
 });
-it.each(['latest', 'save'] as const)(
-  'I1: delayed %s error does not label a replacement editor as conflicted',
-  async (path) => {
-    let fail!: (e: Error) => void;
-    vi.mocked(cloudApi.listProjects).mockResolvedValue({
-      items: [project, otherProject],
-      nextCursor: null,
-    });
-    vi.spyOn(cloudApi, path === 'latest' ? 'project' : 'saveProject').mockImplementation(
-      () => new Promise<typeof project>((_resolve, reject) => (fail = reject)),
-    );
-    show();
-    const edits = await screen.findAllByRole('button', { name: 'Edit project' });
-    fireEvent.click(edits[0]);
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: path === 'latest' ? 'Load latest for comparison' : 'Save project details',
-      }),
-    );
-    fireEvent.click(edits[1]);
-    await act(async () => {
-      fail(new CloudApiError('version_conflict', 'Old editor failed'));
-    });
-    expect(screen.queryByText(/Your draft is preserved/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Project name')).toHaveValue('Other project');
-    expect(screen.getByRole('button', { name: 'Save project details' })).toBeEnabled();
-  },
-);
+
+it('without the GitHub CLI, says how to install it', async () => {
+  vi.mocked(cloudApi.githubAccounts).mockResolvedValue({ installed: false, accounts: [] });
+  show();
+  expect(await screen.findByText(/brew install gh/)).toBeInTheDocument();
+});

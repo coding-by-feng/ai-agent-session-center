@@ -1,0 +1,18 @@
+/* A refusal's detail lines under its reason (RefusalReason, Oct 26 2026). `flex-basis: 100%`
+   puts them on their own line inside a flex alert (`.error`); `display: block` everywhere else. */
+.details {
+  display: block;
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.line {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}

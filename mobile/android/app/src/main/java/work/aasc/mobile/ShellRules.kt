@@ -45,10 +45,19 @@ internal object ShellRules {
         return page == originOf(shell)
     }
 
+    /**
+     * Four octets in canonical form: each `0`, or one to three ASCII digits with no leading zero, at most 255
+     * (= shell/src/pairingLink.ts ipv4). Chromium reads a leading-zero octet as octal, so `010.1.1.1` would pass
+     * here as private 10.x yet be dialled as 8.1.1.1: an address that passes is dialled exactly as written.
+     * ASCII only: `Char.isDigit()` and `String.toInt()` also take fullwidth and Arabic-Indic digits.
+     */
     private fun ipv4(host: String): IntArray? {
         val parts = host.split('.')
         if (parts.size != 4) return null
-        val nums = parts.map { p -> if (p.length in 1..3 && p.all(Char::isDigit)) p.toInt() else return null }
+        val nums = parts.map { p ->
+            val canonical = p.length in 1..3 && p.all { it in '0'..'9' } && (p.length == 1 || p[0] != '0')
+            if (canonical) p.toInt() else return null
+        }
         return if (nums.all { it in 0..255 }) nums.toIntArray() else null
     }
 

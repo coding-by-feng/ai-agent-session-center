@@ -468,7 +468,9 @@
 /* ---- Tables: config fields, projects, coverage ------------------------------- */
 
 .configPane { display: flex; flex-direction: column; gap: 8px; }
-.tableScroll { min-width: 0; overflow-x: auto; }
+/* Relative so a visually hidden header label (absolute) is clipped here too: otherwise it sits at
+   the table's far edge, outside the scroller, and widens the page at 390px. */
+.tableScroll { position: relative; min-width: 0; overflow-x: auto; }
 .fieldTable,
 .dataTable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .fieldTable th,

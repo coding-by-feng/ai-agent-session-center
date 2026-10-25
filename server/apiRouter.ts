@@ -49,9 +49,11 @@ import { stripCodexNoDaemon } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
+import { createCommandUsage, usageForEntries, usageScope } from './commandUsage.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
+import { planHistoryResume } from './historyResume.js';
 import { locateTranscript, transcriptCliOf } from './chat/transcriptLocator.js';
 import { markTranscriptSecrets } from './chat/transcriptMarks.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -958,8 +960,68 @@ router.post('/sessions/clear-all', async (req: Request, res: Response) => {
   }
 });
 
-// Resume a disconnected SSH session — tries `claude --resume <id>` first,
-// falls back to `claude --continue` if the conversation wasn't persisted.
+/**
+ * Resume a session that is only in the HISTORY (SQLite), not in the live store: a new card on a new
+ * terminal in its project folder, running the CLI's own resume command, launched the way the saved
+ * conversation last ran (`historyResume.ts`). The Mac only: `requireVisibleSession` already refused a
+ * remote device, to which a session the live store doesn't hold is unknown.
+ */
+async function resumeFromHistory(sessionId: string, req: Request, res: Response): Promise<void> {
+  const row = db.getSessionRow(sessionId);
+  if (!row) { res.status(404).json({ error: 'Session not found' }); return; }
+
+  const plan = await planHistoryResume(sessionId, row.project_path || '');
+  if (!plan) {
+    res.status(409).json({ error: 'No saved Claude or Codex conversation for this session, so there is nothing to resume.' });
+    return;
+  }
+  // Where it was launched (the folder `claude --resume` finds it from), else its last folder.
+  const workingDir = plan.workingDir || row.project_path || homedir();
+  if (!existsSync(workingDir)) {
+    res.status(409).json({ error: `Its project folder no longer exists: ${workingDir}` });
+    return;
+  }
+  const capacity = checkTerminalCapacity(getTerminals(), { sessions: 1 });
+  if (!capacity.ok) { res.status(429).json({ error: capacity.error }); return; }
+
+  const title = row.title || undefined;
+  const resumeCmd = buildResumeCommand({
+    sshCommand: plan.command,
+    sshConfig: { command: plan.command },
+    permissionMode: plan.permissionMode,
+    title,
+    model: plan.model,
+    effortLevel: plan.effortLevel,
+  }, sessionId);
+  const config: TerminalConfig = {
+    host: 'localhost', workingDir, command: plan.command, sessionTitle: title, model: plan.model, effortLevel: plan.effortLevel,
+  };
+
+  try {
+    // As workspace restore resumes (POST /terminals): a blank shell, since the resume line's `||` can't
+    // pass launch validation, with `deferredLaunch` so createTerminal still registers this terminal's
+    // pending link and another session's hooks in the same folder can't take the new card.
+    const terminalId = await createTerminal({ ...config, command: '', deferredLaunch: true }, null);
+    await createTerminalSession(terminalId, config);
+    // Until the CLI's SessionStart re-keys the card to this id, the id names the new card (as workspace
+    // restore aliases `originalSessionId`): a second click finds it running instead of opening a second
+    // copy of the same conversation.
+    registerSessionAlias(sessionId, terminalId);
+    const creator = clientIdFromRequest(req);
+    if (creator) presence.noteControlActivity(terminalId, creator);
+    writeWhenReady(terminalId, `${resumeCmd}\r`);
+    maybeInjectUltracode(terminalId, plan.effortLevel, resumeCmd);
+    log.info('api', `History resume: ${sessionId.slice(0, 8)} → terminal ${terminalId.slice(0, 16)} (${resumeCmd.slice(0, 120)}${resumeCmd.length > 120 ? '…' : ''})`);
+    res.json({ ok: true, terminalId, cli: plan.cli, newTerminal: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `History resume failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to create new terminal' });
+  }
+}
+
+// Resume an ended session — on its card, or from a HISTORY row (resumeFromHistory).
+// `<cli> --resume <id>` first, falling back to a FRESH CLI (see buildResumeCommand).
 router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
 
@@ -971,11 +1033,19 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
 
   if (refuseWhileRestarting(sessionId, res)) return;
   const session = getSession(sessionId);
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-
-  const resumeCmd = buildResumeCommand(session, sessionId);
+  if (!session) { await resumeFromHistory(sessionId, req, res); return; }
 
   const allTerminals = getTerminals();
+  // Still running in its terminal: nothing to resume, and the line below would be typed into the
+  // agent's own prompt and submitted (`codex resume '<id>' || codex` as a prompt). HISTORY offers
+  // Resume on every row, live ones too.
+  const liveTerminal = session.terminalId && allTerminals.some(t => t.terminalId === session.terminalId);
+  if (session.status !== SESSION_STATUS.ENDED && liveTerminal) {
+    res.json({ ok: true, alreadyRunning: true, sessionId: session.sessionId });
+    return;
+  }
+
+  const resumeCmd = buildResumeCommand(session, sessionId);
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
 
   if (terminalExists) {
@@ -1675,14 +1745,14 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
  */
 // ---- Shared from the Mac (AASC-20): appended items, sent-prompt records, saved prompts ----
 
-/** Images a shared item may carry: what Claude and Codex read, at most 4 of about 2 MB each. */
+/** Images a shared item may carry: what Claude and Codex read, at most 10 (was 4 until Oct 21 2026) of about 2 MB each, 6 MB together. */
 const SHARED_IMAGE_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const queueAppendSchema = z.object({
   text: z.string().max(64 * 1024).transform((s) => s.trim()).optional(),
   images: z.array(z.object({
     name: z.string().max(120).transform((s) => s.replace(/[\x00-\x1F\x7F/\\]/g, '').trim() || 'shared-image'),
     dataUrl: z.string().max(2_900_000).regex(SHARED_IMAGE_DATA_URL),
-  })).max(4).optional(),
+  })).max(10).optional(),
 })
   .refine((b) => Boolean(b.text) || Boolean(b.images?.length), { message: 'Share some text or an image' })
   // The whole queue syncs as one payload (MAX_QUEUE_PAYLOAD_BYTES): leave room for the rest of it.
@@ -3273,7 +3343,14 @@ router.post('/files/search/invalidate', (req: Request, res: Response) => {
  * Enumerate slash commands and skills for the given CLI, scoped to a project
  * root when provided. Results include project + global + plugin sources.
  * Cached server-side for 30 seconds per (cli, projectPath).
+ * → { entries, usage }: `usage` maps a typed token ("/raab", "$krt-work") to how
+ * many prompts in the last 90 days used it (commandUsage.ts).
  */
+/** How often each command or skill is used, counted from the prompt history (one minute's cache).
+ *  The reader is looked up per read, not at import: a test's `db.js` mock without it then
+ *  counts nothing instead of failing the whole router's import. */
+const commandUsage = createCommandUsage((sinceMs, sessionIds) => db.getPromptTextsSince(sinceMs, sessionIds));
+
 router.get('/commands', (req: Request, res: Response) => {
   const cliRaw = str(req.query.cli).toLowerCase();
   if (cliRaw !== 'claude' && cliRaw !== 'codex') {
@@ -3283,7 +3360,10 @@ router.get('/commands', (req: Request, res: Response) => {
   const projectPath = str(req.query.projectPath) || null;
   try {
     const entries = getCommandIndex(cliRaw, projectPath);
-    res.json({ entries });
+    // Token → prompts using it (Oct 21 2026), for the `/` lists' ranking; a
+    // device counts only the sessions it can see (see commandUsage.ts).
+    const usage = usageForEntries(commandUsage.counts(usageScope(requestIsLocal(req), getAllSessions())), entries);
+    res.json({ entries, usage });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `commands list failed: ${msg}`);

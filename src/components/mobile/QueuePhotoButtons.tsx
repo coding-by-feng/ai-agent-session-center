@@ -7,7 +7,7 @@
 import { useCallback, useRef, type ChangeEvent } from 'react';
 import { useQueueStore } from '@/stores/queueStore';
 import { showToast } from '@/components/ui/ToastContainer';
-import { MAX_QUEUE_IMAGES, readQueueImages } from '@/lib/queueImageAttach';
+import { addImagesToPrompt, MAX_QUEUE_IMAGES, readQueueImages } from '@/lib/queueImageAttach';
 import { CameraIcon, PhotoIcon } from './projectIcons';
 
 export interface QueuePhotoButtonsProps {
@@ -29,10 +29,11 @@ export default function QueuePhotoButtons({ sessionId, count, buttonClassName }:
     e.target.value = '';
     if (files.length === 0) return;
     const draftImages = () => useQueueStore.getState().composeDrafts.get(sessionId)?.images ?? [];
-    void readQueueImages(files, draftImages().length).then(({ images, message }) => {
+    const held = draftImages();
+    void readQueueImages(files, held.length, undefined, held.reduce((n, i) => n + i.dataUrl.length, 0)).then(({ images, message }) => {
       // Read the draft again: an image removed while these were being read stays removed.
       if (images.length > 0) {
-        setComposeDraftPatch(sessionId, { images: [...draftImages(), ...images].slice(0, MAX_QUEUE_IMAGES) });
+        setComposeDraftPatch(sessionId, { images: addImagesToPrompt(draftImages(), images).images });
       }
       if (message) showToast(message, 'warning');
     });

@@ -29,6 +29,8 @@ export interface CloudConnector {
     backendUrl: string;
     pairingCode: string;
     deviceName: string;
+    /** Google sign-in's verifier for the code it minted (AASC-61). */
+    verifier?: string;
   }): Promise<CloudConnection>;
   recheckCloud(): Promise<CloudStatus>;
   disconnectCloud(): Promise<void>;

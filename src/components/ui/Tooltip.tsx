@@ -55,6 +55,11 @@ interface TooltipProps {
   children: ReactNode;
   /** Disable the tooltip without removing the wrapper. */
   disabled?: boolean;
+  /** Extra class on the wrapper span: a trigger that is a flex or grid item
+   *  (a strip card) needs the wrapper to take its slot, not shrink to it. */
+  triggerClassName?: string;
+  /** 360px instead of 280px, for a `content` list (the strip's prompt peek). */
+  wide?: boolean;
 }
 
 const VIEWPORT_PAD = 8;
@@ -130,6 +135,8 @@ export default function Tooltip({
   delay = 350,
   children,
   disabled = false,
+  triggerClassName,
+  wide = false,
 }: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement | null>(null);
@@ -258,7 +265,7 @@ export default function Tooltip({
     <>
       <span
         ref={triggerRef}
-        className={styles.trigger}
+        className={triggerClassName ? `${styles.trigger} ${triggerClassName}` : styles.trigger}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
@@ -278,7 +285,7 @@ export default function Tooltip({
           ref={tooltipRef}
           id={id}
           role="tooltip"
-          className={`${styles.tooltip} ${styles[`placement_${pos.placement}`]}`}
+          className={`${styles.tooltip}${wide ? ` ${styles.tooltipWide}` : ''} ${styles[`placement_${pos.placement}`]}`}
           style={{ left: pos.left, top: pos.top }}
         >
           <div className={styles.label}>{label}</div>

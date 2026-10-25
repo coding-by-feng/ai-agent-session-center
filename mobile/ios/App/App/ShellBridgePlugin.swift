@@ -4,6 +4,7 @@
 //   scanQr                                 the pairing QR with VisionKit's live scanner (QrScanSession.swift)
 //   pushConfigured                         false until APNs is set up (Apple Developer Program, AASC-19)
 //   biometricStatus / authenticate / bootId  the biometric lock's native half (AASC-21, biometricLock.ts decides)
+//   discoverMacs                           Bonjour `_aasc._tcp` on this Wi-Fi, for the LAN rescan (LanDiscovery.swift)
 // The share extension and widget come with their iOS halves later. Serves the bundled
 // shell page only (ShellOnly.swift).
 import Capacitor
@@ -24,6 +25,7 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "biometricStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "bootId", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "discoverMacs", returnType: CAPPluginReturnPromise),
     ]
 
     /// The http origins of the paired Macs, as the shell last listed them. Main thread only.
@@ -142,6 +144,15 @@ public class ShellBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             var mib: [Int32] = [CTL_KERN, KERN_BOOTTIME]
             let ok = sysctl(&mib, 2, &boot, &size, nil, 0) == 0 && boot.tv_sec > 0
             call.resolve(ok ? ["bootId": String(boot.tv_sec)] : ["bootId": NSNull()])
+        }
+    }
+
+    /// The Macs advertising on this Wi-Fi, and the phone's own addresses; the shell checks every address before it uses one.
+    @objc func discoverMacs(_ call: CAPPluginCall) {
+        fromShellOnly(call) {
+            LanDiscovery().browse(seconds: DiscoveryRules.browseSeconds(call.getInt("timeoutMs"))) { services in
+                call.resolve(["services": services, "local": localIPv4()])
+            }
         }
     }
 

@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import QueueItemText from './QueueItemText';
 import { installClipHarness, CHAR_PX } from '@/__tests__/clipHarness';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import type { Session } from '@/types';
 
 // 200px wide → a text longer than 25 characters is clipped (see clipHarness).
 const SHORT = 'run the tests';
@@ -263,3 +265,33 @@ describe('QueueItemText — a sliver of overflow', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 });
+
+// Oct 22 2026: a skill at the end of a cut-off preview ("… /raab") showed nowhere.
+describe('QueueItemText — skills a cut-off preview hides', () => {
+  const RAAB = `${LONG} /raab`;
+  const chips = (el: HTMLElement) => [...el.querySelectorAll('[data-prompt-chip]')].map((n) => n.textContent);
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map([['c', { sessionId: 'c', cliSource: 'claude', status: 'idle', projectPath: '/chips' } as unknown as Session]]) });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ entries: [{ name: 'raab', kind: 'skill', source: 'global', cli: 'claude', description: '' }] }))));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows them as tokens under the preview while it is cut off', async () => {
+    const { container } = render(<QueueItemText text={RAAB} sessionId="c" expanded={false} onToggle={() => undefined} />);
+    await screen.findByRole('button', { name: SHOW });
+    await waitFor(() => expect(chips(container)).toEqual(['/raab']));
+  });
+
+  it('shows none when the prompt fits, or is expanded: the token is in the text', async () => {
+    const fits = render(<QueueItemText text="go /raab" sessionId="c" expanded={false} onToggle={() => undefined} />);
+    await harness.fireResize();
+    await waitFor(() => expect(fits.container.querySelector('[data-prompt-token]')).not.toBeNull());
+    expect(chips(fits.container)).toEqual([]);
+    fits.unmount();
+    const open = render(<QueueItemText text={RAAB} sessionId="c" expanded onToggle={() => undefined} />);
+    await waitFor(() => expect(open.container.querySelector('[data-prompt-token]')).not.toBeNull());
+    expect(chips(open.container)).toEqual([]);
+  });
+});
+

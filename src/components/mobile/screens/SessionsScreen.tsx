@@ -26,7 +26,7 @@ import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
 import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
-import { RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
+import { PinnedGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
 import { useCollapsedRooms } from './useCollapsedRooms';
 import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSessionRoomDrag';
 import { useIsHostDevice } from '../views/hostAccess';
@@ -125,9 +125,11 @@ function HostStatus() {
 interface RoomGrouping {
   collapsed: ReadonlySet<string>;
   onToggleRoom: (roomId: string) => void;
-  /** The built-in Recent group's fold: the desktop's own flag, on this device. */
+  /** The built-in Recent and Pinned groups' folds: the desktop's own flags, on this device. */
   recentCollapsed: boolean;
   onToggleRecent: () => void;
+  pinnedCollapsed: boolean;
+  onTogglePinned: () => void;
   onRoomMenu: (roomId: string) => void;
   onRoomGripDown: (e: PointerEvent, roomId: string) => void;
   /** The room being reordered, and how far each passed room slides aside. */
@@ -158,18 +160,22 @@ interface GroupProps {
 function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
-  // Recent (By room) lists sessions that are also in their rooms: never a drop
-  // target (its null room would read as "No room") and its copies have no grip.
-  const recent = group.kind === 'recent';
-  const roomFolded = recent ? !!rooms?.recentCollapsed : !!(rooms && roomId && rooms.collapsed.has(roomId));
+  // Pinned and Recent (By room) list sessions that are also in their rooms: never a
+  // drop target (their null room would read as "No room") and their copies have no grip.
+  const builtin = group.kind === 'recent' || group.kind === 'pinned';
+  const roomFolded = group.kind === 'recent' ? !!rooms?.recentCollapsed
+    : group.kind === 'pinned' ? !!rooms?.pinnedCollapsed
+    : !!(rooms && roomId && rooms.collapsed.has(roomId));
   const groupRef = useCallback((el: HTMLDivElement | null) => {
-    if (!rooms || recent) return;
+    if (!rooms || builtin) return;
     rooms.registerGroup(group.key, roomId, el);
     if (roomId) rooms.registerRoomEl(roomId, el);
-  }, [rooms, recent, group.key, roomId]);
+  }, [rooms, builtin, group.key, roomId]);
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
-  const header = rooms && recent ? (
+  const header = rooms && group.kind === 'pinned' ? (
+    <PinnedGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onTogglePinned} />
+  ) : rooms && group.kind === 'recent' ? (
     <RecentGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleRecent} />
   ) : rooms && group.room ? (
     <RoomGroupHeader
@@ -198,16 +204,16 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
       )}
     </div>
   );
-  const drag = recent ? null : rooms?.sessionDrag ?? null;
+  const drag = builtin ? null : rooms?.sessionDrag ?? null;
   const roomShift = roomId ? rooms?.roomShifts.get(roomId) : undefined;
   return (
     <div
       ref={groupRef}
-      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}${recent ? ` ${roomStyles.recentGroup}` : ''}`}
+      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}${builtin ? ` ${roomStyles.recentGroup}` : ''}`}
       data-room-lifted={roomId && rooms?.liftedRoomId === roomId ? '' : undefined}
       data-drop-target={drag && drag.overRoomId === roomId && drag.fromRoomId !== roomId ? '' : undefined}
       style={roomShift ? ({ '--room-shift': `${roomShift}px` } as CSSProperties) : undefined}
-      data-testid={rooms ? `room-group-${recent ? 'recent' : roomId ?? 'none'}` : undefined}
+      data-testid={rooms ? `room-group-${builtin ? group.kind : roomId ?? 'none'}` : undefined}
     >
       {header}
       {roomFolded ? null : (
@@ -225,10 +231,10 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
           key={s.sessionId}
           session={s}
           now={now}
-          hideRoom={groupBy === 'room' && !recent}
+          hideRoom={groupBy === 'room' && !builtin}
           hideProject={groupBy === 'project'}
           onOpen={onOpen}
-          grip={recent ? undefined : rooms?.gripFor(s.sessionId, roomId)}
+          grip={builtin ? undefined : rooms?.gripFor(s.sessionId, roomId)}
           dragY={drag?.sessionId === s.sessionId ? drag.dy : undefined}
           {...rowProps(s)}
         />
@@ -275,6 +281,8 @@ export default function SessionsScreen() {
   const { collapsed: collapsedRooms, toggle: toggleRoom } = useCollapsedRooms(rooms);
   const recentCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecent = useUiStore((s) => s.toggleRecentRoomCollapsed);
+  const pinnedCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
+  const togglePinned = useUiStore((s) => s.togglePinnedRoomCollapsed);
   const searchRef = useRef<HTMLInputElement>(null);
   const [chipsRef, moreChips] = useMoreToTheRight<HTMLDivElement>();
 
@@ -404,6 +412,8 @@ export default function SessionsScreen() {
     collapsed: collapsedRooms,
     recentCollapsed,
     onToggleRecent: toggleRecent,
+    pinnedCollapsed,
+    onTogglePinned: togglePinned,
     onToggleRoom: toggleRoom,
     onRoomMenu: setRoomMenuId,
     onRoomGripDown: roomDrag.onPointerDown,
@@ -413,7 +423,7 @@ export default function SessionsScreen() {
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, recentCollapsed, toggleRecent, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
+  } : undefined), [byRoom, collapsedRooms, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
     registerRoomEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const actions = (

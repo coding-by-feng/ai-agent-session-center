@@ -15,6 +15,12 @@
  * `fileIndex` is a file's index in `files` (newest edit first), so a client re-reads the list when
  * the session edits again.
  *
+ * And what its context window holds (Oct 22 2026), measured from the same transcript (contextBreakdown.ts):
+ *
+ *   GET /api/sessions/:id/context-breakdown  → { success: true, data: ContextBreakdown | null }
+ *
+ * null for a Codex session (its rollout carries no per-request window), no transcript, or no request yet.
+ *
  * Every page marks the tool calls that touched a secret file and their results (`secret`,
  * `callUnknown`; secretMarks.ts), judged on the calls' whole input and across pages. The content is
  * the same for everyone: the phone profile hides what a paired phone may not see by those marks, and
@@ -38,12 +44,15 @@ import { readCodexChatPage } from './codexTranscript.js';
 import { CursorError } from './transcriptPager.js';
 import { locateTranscript, transcriptCliOf, type LocatorSession } from './transcriptLocator.js';
 import { buildSessionChanges } from './sessionChanges.js';
+import { readContextBreakdown } from './contextBreakdown.js';
 import type { ChangesSnapshot } from './changeSet.js';
 
 export interface ChatRouterDeps {
   getSession(sessionId: string): Session | null | undefined;
   /** Is this request the Mac itself? Defaults to the server's one locality rule. */
   isLocal?(req: Request): boolean;
+  /** A chat read this transcript: tell its readers when it grows (`transcriptWatch.ts`). */
+  watchTranscript?(sessionId: string, path: string): void;
 }
 
 const cursor = z.string().min(1).max(64);
@@ -91,6 +100,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       }
       const read = location.cli === 'codex' ? readCodexChatPage : readClaudeChatPage;
       const page = await read(location.path, { ...query.data, markSecrets: true, projectRoot: session.projectPath || null });
+      deps.watchTranscript?.(session.sessionId, location.path);
       const data: ChatPage = { ...page, cli: location.cli };
       res.json({ success: true, data });
     } catch (err) {
@@ -134,6 +144,20 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
     } catch (err) {
       log.warn('api', `changes read failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read what this session changed' });
+    }
+  });
+
+  router.get('/sessions/:id/context-breakdown', visibleSession, async (_req: Request, res: Response) => {
+    const session = res.locals.session as Session;
+    try {
+      const location = await locateTranscript(session as LocatorSession);
+      const data = location?.cli === 'claude'
+        ? await readContextBreakdown(location.path, { projectRoot: session.projectPath || null })
+        : null;
+      res.json({ success: true, data });
+    } catch (err) {
+      log.warn('api', `context breakdown failed: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ success: false, error: 'Could not read what fills the context window' });
     }
   });
 

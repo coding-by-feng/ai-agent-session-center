@@ -10,6 +10,8 @@
  * last did something, the one line that matters now (the pending ask, the
  * running tool, the start of the last answer), and project · room. No label: labels are
  * each device's own (labelStore never syncs), so the phone shows none (Oct 20 2026).
+ * Before the age, a ≣ N pill when prompts wait in its queue (Oct 21 2026): the
+ * shared queueStore's count, as the desktop rail shows it; none when empty.
  *
  * With `swipeActions` the row swipes left to reveal them; with `menuItems` a
  * press-and-hold (or right click, Shift+F10) opens them as a menu. The swipe is
@@ -20,11 +22,13 @@ import type { CSSProperties } from 'react';
 import type { Session } from '@/types';
 import { ContextMenu, StatusRing, SwipeRow } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
-import { ChevronRightIcon } from '../kit/kitIcons';
+import { ChevronRightIcon, QueueTabIcon } from '../kit/kitIcons';
 import { ClaudeIcon, CodexIcon } from '@/components/layout/CliBrandIcons';
 import { useRoomStore } from '@/stores/roomStore';
+import { useQueueStore } from '@/stores/queueStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
+import { displayStatus } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
@@ -81,15 +85,18 @@ export default function SessionListRow({
   dragY,
 }: SessionListRowProps) {
   const room = useRoomStore((s) => (hideRoom ? undefined : s.rooms.find((r) => r.sessionIds.includes(session.sessionId))));
+  const queued = useQueueStore((s) => s.queues.get(session.sessionId)?.length ?? 0);
   const clock = useClock();
   const title = sessionDisplayTitle(session);
-  const status = phoneStatus(session.status, !!session.interruption, isCompacting(session)).label;
+  const shown = displayStatus(session); // the P while the last answer asks you to proceed
+  const status = phoneStatus(shown, !!session.interruption, isCompacting(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
   const cli = detectCli(session);
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
   const cliWord = cli === 'claude' ? 'Claude Code' : cli === 'codex' ? 'Codex' : null;
-  const spoken = [title, cliWord, status, line, project, room ? `room ${room.name}` : null, age === 'now' ? 'active now' : `${age} ago`]
+  const queuedWords = queued > 0 ? `${queued} queued prompt${queued === 1 ? '' : 's'}` : null;
+  const spoken = [title, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
     .filter(Boolean)
     .join(', ');
 
@@ -102,12 +109,18 @@ export default function SessionListRow({
       data-testid={`session-row-${session.sessionId}`}
     >
       <span className={styles.avatar}>
-        <StatusRing status={session.status} interrupted={!!session.interruption} />
+        <StatusRing status={shown} interrupted={!!session.interruption} />
         <CliMark cli={cli} />
       </span>
       <span className={styles.text}>
         <span className={styles.top}>
           <span className={styles.title}>{title}</span>
+          {queued > 0 && (
+            <span className={styles.queueCount} aria-hidden="true" data-testid={`session-queue-${session.sessionId}`}>
+              <QueueTabIcon size={12} strokeWidth={2.2} />
+              {queued}
+            </span>
+          )}
           <span className={styles.age}>{age}</span>
         </span>
         {line && <span className={styles.line}>{line}</span>}

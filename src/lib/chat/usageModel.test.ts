@@ -41,6 +41,28 @@ describe('describeUsage', () => {
     expect(v.ariaLabel).toMatch(/^Usage: context 59% used, 118k of 200k tokens\. Claude plan usage: 61% of the weekly limit used/);
   });
 
+  // Oct 21 2026: tapping the Context window card shows what the window holds.
+  it('details the window: free space, the last reply by kind, and how old the reading is', () => {
+    const v = describeUsage(session({
+      runtime: {
+        context: { pct: 25, size: 1_000_000, tokens: 247_000, parts: { cacheRead: 240_000, cacheWrite: 6_500, input: 500, output: 2_100 } },
+        contextAt: NOW - 3 * MIN,
+      } as Session['runtime'],
+    }), NOW);
+    expect(v.contextDetails).toEqual({
+      freeText: '753k free',
+      rows: [
+        { label: 'Read from cache', value: '240k' },
+        { label: 'Newly cached', value: '6.5k' },
+        { label: 'New input', value: '500' },
+        { label: 'Last reply’s output', value: '2.1k' },
+      ],
+      reportedText: 'Reported 3m ago',
+    });
+    // Nothing more than the % known: no details to open.
+    expect(describeUsage(session({ runtime: { context: { pct: 9 } } as Session['runtime'] }), NOW).contextDetails).toBeNull();
+  });
+
   it('a Codex session: its own context and its own plan', () => {
     const v = describeUsage(session({
       cliSource: 'codex', model: 'gpt-6-astra',

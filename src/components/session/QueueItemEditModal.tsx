@@ -48,9 +48,11 @@ import { detectCli } from '@/lib/cliDetect';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
+import dress from '@/styles/modules/PhoneDress.module.css';
 
 interface QueueItemEditModalProps {
   item: QueueItem;
@@ -245,12 +247,16 @@ export default function QueueItemEditModal({
     [],
   );
 
+  // As many as fit the prompt's caps (10 images, ~6 MB together; Oct 21 2026, was a silent 5).
   const addImages = useCallback((files: File[]) => {
     if (files.length === 0) return;
-    void filesToImages(files).then((imgs) =>
-      setImages((prev) => [...prev, ...imgs].slice(0, 5)),
-    );
-  }, []);
+    void filesToImages(files).then((imgs) => {
+      // The note reads the images on show; the state takes the latest (two quick adds both count).
+      const note = addImagesToPrompt(images, imgs).message;
+      setImages((prev) => addImagesToPrompt(prev, imgs).images);
+      if (note) showToast(note, 'warning');
+    });
+  }, [images]);
 
   const handlePasteImages = useCallback(
     (e: React.ClipboardEvent) => {
@@ -561,7 +567,9 @@ export default function QueueItemEditModal({
   const editor = (
     <div
       ref={overlayRef}
-      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone}` : ''}`}
+      // On a phone it also wears the phone's dress, like the session queue it opens from:
+      // portaled to <body>, it sits outside Info's dressed page.
+      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone} ${dress.dress}` : ''}`}
       onClick={handleOverlayClick}
       data-queue-edit={isMobile ? 'fullscreen' : 'dialog'}
     >
@@ -642,12 +650,12 @@ export default function QueueItemEditModal({
           {/* Before chain — available to every type. The scheduler's chain
               machinery (getActiveStep / advanceChain) is type-agnostic, so a
               'once' item runs before→main→after and is then removed. */}
-          {renderChainList('before', beforeChain, 'BEFORE chain', 'Runs first, in order')}
+          {renderChainList('before', beforeChain, 'Before chain', 'Runs first, in order')}
 
           {/* Main prompt */}
           <div className={styles.chainSection}>
             <div className={styles.chainSectionHeader}>
-              <span className={styles.chainSectionLabel}>MAIN prompt</span>
+              <span className={styles.chainSectionLabel}>Main prompt</span>
               <span className={styles.chainSectionHint}>Required</span>
             </div>
             <AutocompleteTextarea
@@ -728,7 +736,7 @@ export default function QueueItemEditModal({
           </div>
 
           {/* After chain — see the BEFORE-chain note above; not type-scoped. */}
-          {renderChainList('after', afterChain, 'AFTER chain', 'Runs last, in order')}
+          {renderChainList('after', afterChain, 'After chain', 'Runs last, in order')}
 
           {/* Exclude windows — loop only. Each row defines a time-of-day
               range where the loop is paused (in local time). Multiple rows
@@ -737,7 +745,7 @@ export default function QueueItemEditModal({
           {type === 'loop' && (
             <div className={styles.chainSection}>
               <div className={styles.chainSectionHeader}>
-                <span className={styles.chainSectionLabel}>EXCLUDE WINDOWS</span>
+                <span className={styles.chainSectionLabel}>Exclude windows</span>
                 <span className={styles.chainSectionHint}>
                   Don&apos;t fire during these time ranges (local time) — adds to the session&apos;s quiet hours.
                 </span>

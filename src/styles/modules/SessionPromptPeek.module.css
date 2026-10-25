@@ -1,0 +1,72 @@
+/* SessionPromptPeek — the body of the session hover tooltip (strip cards, panel
+ * header title). The tooltip bubble is the same dark navy in every theme
+ * (Tooltip.module.css), so these colours are fixed like PlanUsageChip's tip body:
+ * #e0e0ff text and #aab0d0 secondary text on #07071a measure about 15:1 and 9:1.
+ */
+
+.peek {
+  display: grid;
+  row-gap: 8px;
+  min-width: 240px;
+  margin-top: 4px;
+  color: #e0e0ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.meta,
+.remark,
+.empty {
+  margin: 0;
+}
+
+.meta {
+  color: #aab0d0;
+  font-size: 10px;
+}
+
+/* The user's own words for the session: set apart from the prompts by a rule and italics. */
+.remark {
+  padding-left: 8px;
+  border-left: 2px solid #aab0d0;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.list {
+  display: grid;
+  row-gap: 8px;
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(170, 176, 208, 0.25);
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+}
+
+.age {
+  color: #aab0d0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Two lines at most; the full prompt is in CONVERSATION / Prompt Trace. */
+.text {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.empty {
+  color: #aab0d0;
+}

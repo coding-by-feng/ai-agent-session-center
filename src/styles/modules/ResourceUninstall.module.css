@@ -84,3 +84,23 @@
   .confirmInput { min-height: 44px; }
   .confirmInput { height: 44px; }
 }
+
+/* "Also stop syncing it" (Oct 23 2026): a resource that syncs would come back at the next Sync now. */
+.syncStop {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.syncStop input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--accent-red);
+}
+@media (pointer: coarse) {
+  .syncStop { min-height: 44px; }
+}

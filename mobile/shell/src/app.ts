@@ -72,6 +72,8 @@ export interface ShellTiming {
   pollMaxMs: number;
   /** How long opening a Mac waits for its backend device (shellFlows LINK_BUDGET_MS). */
   linkMs?: number;
+  /** How long opening a Mac spends retiring older rows for it (shellFlows RETIRE_BUDGET_MS). */
+  retireMs?: number;
 }
 
 export function createShellApp(
@@ -215,10 +217,9 @@ export function createShellApp(
       pollTimer = null;
       const current = find(mac.id);
       if (my !== gen || !deps || !current) return;
-      const out = await serial(() => signInAndOpen(deps, macs, current, '/', undefined, timing.linkMs));
+      const out = await openMac(deps, current, '/', my);
       if (my !== gen) return;
       if (out.kind === 'revoked') {
-        macs = out.macs;
         update({ state: 'refused' });
         return;
       }
@@ -241,8 +242,33 @@ export function createShellApp(
 
   // ── Opening a Mac ────────────────────────────────────────────────────
 
+  /**
+   * signInAndOpen in its serial turn, leaving `macs` as the store has it whatever the screen does next: a sign-in
+   * may retire other rows for this Mac or forget this one, and the next turn (a cancel's unpair) reads `macs`.
+   * Once the user has moved on (`gen`), no other row is retired.
+   */
+  function openMac(
+    d: ShellDeps, mac: SavedMac, back: string, my: number, onTry?: (c: Candidate) => void, onSearch?: () => void,
+  ): Promise<OpenOutcome> {
+    return serial(async () => {
+      const out = await signInAndOpen(d, macs, mac, back, onTry, {
+        linkMs: timing.linkMs, retireMs: timing.retireMs, proceed: () => my === gen, onSearch,
+      });
+      if (out.kind === 'navigate' && out.retired && my !== gen) void extras?.backendLinked(); // drop the retired rows' push credentials
+      if (out.kind === 'navigate' || out.kind === 'revoked' || (out.kind === 'error' && out.macs)) {
+        macs = out.macs ?? macs;
+        // The user went back meanwhile: what they see must not keep a row this sign-in removed.
+        if (my !== gen && screen.name === 'settings' && !find(screen.macId)) show(homeScreen(null));
+        else if (my !== gen && screen.name === 'macs') {
+          if (macs.length) render(false);
+          else show(homeScreen(null));
+        }
+      }
+      return out;
+    });
+  }
+
   function leaveFor(out: Extract<OpenOutcome, { kind: 'navigate' }>): void {
-    macs = out.macs;
     show({ name: 'connecting', macId: out.mac.id, back: '/', reauth: false, status: `Loading ${out.mac.name}…` });
     deps?.navigator.go(out.url);
   }
@@ -255,20 +281,22 @@ export function createShellApp(
     }
     show({ name: 'connecting', macId: mac.id, back, reauth, status: `Looking for ${mac.name}…` });
     const my = gen;
-    const out = await serial(() => signInAndOpen(deps, macs, mac, back, (c) => {
+    const out = await openMac(deps, mac, back, my, (c) => {
       if (my === gen) update({ status: tryingText(mac, c) });
-    }, timing.linkMs));
+    }, () => {
+      if (my === gen) update({ status: `Looking for ${mac.name}…` });
+    });
     if (my !== gen) return; // the user cancelled
     switch (out.kind) {
       case 'navigate':
-        if (out.backendLinked) await extras?.backendLinked(); // push registers before the Mac's page loads
+        // Push registers (or drops a retired row's credential) before the Mac's page loads.
+        if (out.backendLinked || out.retired) await extras?.backendLinked();
         if (my === gen) leaveFor(out);
         return;
       case 'pending':
         showApprove(out.mac, false);
         return;
       case 'revoked':
-        macs = out.macs;
         show(homeScreen(out.why === 'revoked'
           ? `${mac.name} removed this phone. Pair again to use it.`
           : `This phone lost its key for ${mac.name}. Pair again to use it.`));
@@ -430,14 +458,18 @@ export function createShellApp(
     else show(pairScreen(null, BAD_LINK_MESSAGE));
   }
 
+  /** The Mac this phone opened last (signInAndOpen stamps it), else the only one paired. */
+  async function lastOrOnlyMac(d: ShellDeps): Promise<SavedMac | undefined> {
+    return find((await d.store.get(LAST_MAC_KEY)) ?? '') ?? (macs.length === 1 ? macs[0] : undefined);
+  }
+
   /** The rest of the start once the lock (if any) let it through. */
   async function boot(d: ShellDeps, search: string): Promise<void> {
     if (await extras?.takeShare()) return;
     const reauth = resumeBack(search) ?? parseReauthRequest(search);
     if (reauth) {
       // The Mac UI sent the WebView back: sign in again on the Mac it showed.
-      const lastId = await d.store.get(LAST_MAC_KEY);
-      const mac = find(lastId ?? '') ?? (macs.length === 1 ? macs[0] : undefined);
+      const mac = await lastOrOnlyMac(d);
       if (mac) await connect(mac, reauth.back, true);
       else show(homeScreen(null));
       return;
@@ -452,14 +484,18 @@ export function createShellApp(
       }
     }
     // The phone sent the app back for a notification tap (AASC-19, MainActivity): the tap, held
-    // until push starts listening, picks the session. Opening a Mac here would race it.
+    // until push starts listening, picks the session. Opening a Mac here would race it. The Mac's
+    // page sends it here too (More → Switch Mac, thisPhone.ts), to pick another Mac or pair one.
     if (new URLSearchParams(search).get('tap') === '1') {
       show(homeScreen(null));
       return;
     }
-    // One paired Mac: open it straight away. Several: the list, so the user picks.
-    if (macs.length === 1 && macs[0].status === 'active') {
-      await connect(macs[0], '/', false);
+    // The Mac used last (or the only one) opens straight away, even with several paired (Oct 21
+    // 2026: two saved rows stopped every launch at the list). Not while a pairing waits for approval:
+    // signing in would retire it when it re-pairs that Mac (releasedTwins); the list shows it waiting.
+    const mac = await lastOrOnlyMac(d);
+    if (mac?.status === 'active' && !macs.some((m) => m.status === 'pending')) {
+      await connect(mac, '/', false);
       return;
     }
     show(homeScreen(null));

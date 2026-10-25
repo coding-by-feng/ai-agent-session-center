@@ -6,7 +6,7 @@ import { forgetMac, reach } from './shellFlows.js';
 import type { RawShare, ShellDeps } from './native.js';
 import { readMacCredentials, type SavedMac } from './savedMacs.js';
 import { listSessions, type SessionLite } from './sessions.js';
-import { SHARE_MESSAGES, shareTargets, shareToQueue, type ShareResult, type ShareTarget } from './shareToQueue.js';
+import { SHARE_MAX_IMAGES, SHARE_MESSAGES, shareTargets, shareToQueue, type ShareResult, type ShareTarget } from './shareToQueue.js';
 import { buildWidgetModel, serializeWidgetModel } from './widgetModel.js';
 
 /** Preferences: the session shared to last (an id, nothing secret), offered first next time. */
@@ -14,7 +14,7 @@ export const LAST_SHARE_TARGET_KEY = 'aasc.share.lastTarget';
 
 /** What the native inbox refused before reading everything, in the shell's own words. */
 const NATIVE_PROBLEM: Readonly<Record<string, string>> = {
-  'too-many': 'At most 4 images. Nothing was added.',
+  'too-many': `At most ${SHARE_MAX_IMAGES} images. Nothing was added.`,
   'text-too-long': 'Too long for a queue (the limit is 64 KB). Nothing was added.',
   'too-large': 'An image is larger than about 2 MB. Nothing was added.',
   unsupported: 'Only PNG, JPEG, WebP and GIF images can be added. Nothing was added.',

@@ -5,9 +5,10 @@
  * Claude writes `~/.claude/projects/<encoded project>/<session id>.jsonl` (the hook reports it as
  * `transcriptPath`); Codex writes a rollout under `$CODEX_HOME/sessions` that only its session id
  * finds. A session reads its OWN file or nothing: never a neighbour's "newest .jsonl" in the same
- * project, and never the other CLI's folder. Callers already fall back to the in-memory logs.
+ * project, and never the other CLI's folder. A Claude file moved into a worktree's projects folder
+ * is still found by its id. Callers already fall back to the in-memory logs.
  */
-import { lstat, realpath, stat } from 'node:fs/promises';
+import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, sep } from 'node:path';
 import { findCodexRollout, codexHome } from '../codexRollout.js';
@@ -46,14 +47,20 @@ export interface LocateOptions {
   now?: () => number;
 }
 
-/** How long "this Codex session has no rollout yet" is believed: a miss walks every day folder. */
-const CODEX_MISS_TTL_MS = 10_000;
-const CODEX_CACHE_MAX = 256;
-const codexCache = new Map<string, { path: string | null; at: number }>();
+/**
+ * How long "no file yet" is believed: a Codex miss walks every day folder, a Claude miss every
+ * projects folder, and a new session's chat is read several times a second.
+ */
+const MISS_TTL_MS = 10_000;
+const CACHE_MAX = 256;
+type LookupCache = Map<string, { path: string | null; at: number }>;
+const codexCache: LookupCache = new Map();
+const claudeMovedCache: LookupCache = new Map();
 
-/** Forget remembered rollout lookups (tests, and nothing else). */
+/** Forget remembered lookups (tests, and nothing else). */
 export function resetTranscriptLocatorCache(): void {
   codexCache.clear();
+  claudeMovedCache.clear();
 }
 
 const LOCAL_HOSTS = new Set(['', 'localhost', '127.0.0.1', '::1']);
@@ -102,29 +109,66 @@ async function reportedTranscript(recorded: string | null | undefined): Promise<
   return null;
 }
 
-async function locateClaude(s: LocatorSession): Promise<string | null> {
+/** A lookup remembered by key: a hit while its file is still there, a miss for MISS_TTL_MS. */
+async function remembered(
+  cache: LookupCache,
+  key: string,
+  now: () => number,
+  find: () => Promise<string | null>,
+): Promise<string | null> {
+  const known = cache.get(key);
+  if (known?.path && (await isFile(known.path, false))) return known.path;
+  if (known && !known.path && now() - known.at < MISS_TTL_MS) return null;
+  const path = await find();
+  cache.delete(key);
+  cache.set(key, { path, at: now() });
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
+  return path;
+}
+
+/** A session id that can only name a file, never a path. */
+const SESSION_FILE_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * `<sessionId>.jsonl` in any projects folder: `EnterWorktree` moves a running session's file into
+ * the worktree's folder. Named by the session's own id, so it is still its own conversation; a link
+ * is never followed out of the root.
+ */
+async function findMovedClaude(sessionId: string): Promise<string | null> {
+  for (const root of claudeProjectRoots()) {
+    let folders: string[];
+    try {
+      folders = await readdir(root);
+    } catch {
+      continue;
+    }
+    for (const folder of folders) {
+      const file = join(root, folder, `${sessionId}.jsonl`);
+      if (await isFile(file, false)) return file;
+    }
+  }
+  return null;
+}
+
+async function locateClaude(s: LocatorSession, now: () => number): Promise<string | null> {
   const reported = await reportedTranscript(s.transcriptPath);
   if (reported) return reported;
-  return s.projectPath ? findTranscriptFile(s.sessionId, s.projectPath) : null;
+  const inLaunchFolder = s.projectPath ? findTranscriptFile(s.sessionId, s.projectPath) : null;
+  if (inLaunchFolder || !SESSION_FILE_ID_RE.test(s.sessionId)) return inLaunchFolder;
+  const key = `${claudeProjectRoots().join('\0')}\0${s.sessionId}`;
+  return remembered(claudeMovedCache, key, now, () => findMovedClaude(s.sessionId));
 }
 
 async function locateCodex(s: LocatorSession, now: () => number): Promise<string | null> {
   const root = codexHome();
-  const key = `${root}\0${s.sessionId}`;
-  const known = codexCache.get(key);
-  if (known?.path && (await isFile(known.path, false))) return known.path;
-  if (known && !known.path && now() - known.at < CODEX_MISS_TTL_MS) return null;
-  const path = await findCodexRollout(s.sessionId, root);
-  codexCache.delete(key);
-  codexCache.set(key, { path, at: now() });
-  if (codexCache.size > CODEX_CACHE_MAX) codexCache.delete(codexCache.keys().next().value as string);
-  return path;
+  return remembered(codexCache, `${root}\0${s.sessionId}`, now, () => findCodexRollout(s.sessionId, root));
 }
 
 /** The file holding this session's conversation, or null when AASC can't read one from this disk. */
 export async function locateTranscript(session: LocatorSession, opts: LocateOptions = {}): Promise<TranscriptLocation | null> {
   const cli = transcriptCliOf(session);
   if (!cli || !isLocalSession(session)) return null;
-  const path = cli === 'claude' ? await locateClaude(session) : await locateCodex(session, opts.now ?? Date.now);
+  const now = opts.now ?? Date.now;
+  const path = cli === 'claude' ? await locateClaude(session, now) : await locateCodex(session, now);
   return path ? { cli, path } : null;
 }

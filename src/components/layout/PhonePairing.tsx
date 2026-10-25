@@ -14,6 +14,10 @@
  * button, and no section at all unless phones were paired before, which still
  * list here with Allow / Revoke.
  *
+ * Each approved phone can be renamed in place (Enter saves, Esc cancels) and
+ * signed out: its sessions and sockets end, its pairing stays, and the phone
+ * signs in again from the app.
+ *
  * The QR carries the Mac's code only: an approved phone gets its backend code
  * for notifications over its own session (AASC-52). Backend phone devices this
  * Mac made that no paired phone holds any more get one line and a "Remove them"
@@ -22,11 +26,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
+import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { qrSvg } from '@/lib/qrSvg';
 import {
   approvePhone, formatConfirmCode, formatPairingCode, loadCloudPhones, loadPhonePairing, removePhone,
-  removeUnlinkedCloudPhones, startPhonePairing, type PairedPhone, type PhonePairing as Pairing,
+  removeUnlinkedCloudPhones, renamePhone, signOutPhone, startPhonePairing, type PairedPhone, type PhonePairing as Pairing,
 } from '@/lib/mobilePairingApi';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
@@ -71,6 +76,18 @@ function relative(at: number | null): string {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "12 Oct", with the year when it isn't this one. */
+function shortDate(at: number): string {
+  const d = new Date(at);
+  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return d.getFullYear() === new Date().getFullYear() ? day : `${day} ${d.getFullYear()}`;
+}
+
+/** The server's cap (deviceAuth MAX_LABEL). */
+const MAX_NAME = 80;
+
 function cloudLine(n: number): string {
   return n === 1
     ? '1 cloud phone device isn’t linked to a paired phone.'
@@ -102,6 +119,8 @@ export default function PhonePairing() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  /** The phone being renamed and the name typed so far; the 2-second refresh leaves it alone. */
+  const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   /** Backend phone devices no paired phone holds (AASC-52); 0 with no cloud or when the check fails. */
   const [cloudUnlinked, setCloudUnlinked] = useState(0);
   const [confirmCloud, setConfirmCloud] = useState(false);
@@ -196,6 +215,15 @@ export default function PhonePairing() {
     }
   };
 
+  const saveRename = (p: PairedPhone) => {
+    const name = editing?.draft.trim() ?? '';
+    if (!name || name === p.label) return;
+    void act(async () => {
+      await renamePhone(p.id, name);
+      setEditing(null);
+    }, `Renamed to ${name}`);
+  };
+
   const pending = phones.filter((p) => p.status === 'pending');
   const active = phones.filter((p) => p.status === 'active');
 
@@ -253,21 +281,76 @@ export default function PhonePairing() {
             <li key={p.id} className={styles.phone}>
               <span className={styles.phoneIcon} aria-hidden="true">📱</span>
               <span className={styles.phoneMain}>
-                <span className={styles.phoneName} title={p.label}>{p.label}</span>
+                {editing?.id === p.id ? (
+                  <span className={styles.rename}>
+                    <TextInput
+                      className={styles.renameInput}
+                      aria-label="Phone name"
+                      value={editing.draft}
+                      maxLength={MAX_NAME}
+                      autoFocus
+                      onChange={(e) => setEditing({ id: p.id, draft: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); saveRename(p); }
+                        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(null); }
+                      }}
+                    />
+                    <span className={styles.renameButtons}>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={!editing.draft.trim() || editing.draft.trim() === p.label}
+                        onClick={() => saveRename(p)}
+                      >
+                        Save
+                      </Button>
+                      <Button size="sm" variant="quiet" onClick={() => setEditing(null)}>Cancel</Button>
+                    </span>
+                  </span>
+                ) : (
+                  <span className={styles.phoneName} title={p.label}>{p.label}</span>
+                )}
                 <span className={styles.phoneMeta}>
-                  {[platformLabel(p), ACCESS_LABEL, `last seen ${relative(p.lastSeenAt)}`].filter(Boolean).join(' · ')}
+                  {[platformLabel(p), ACCESS_LABEL].filter(Boolean).join(' · ')}
                 </span>
+                <span className={styles.phoneMeta}>
+                  {[p.approvedAt ? `paired ${shortDate(p.approvedAt)}` : null, `last seen ${relative(p.lastSeenAt)}`]
+                    .filter(Boolean).join(' · ')}
+                </span>
+                {editing?.id !== p.id && (
+                  <span className={`${styles.actions} ${styles.phoneActions}`}>
+                    {confirmRevoke === p.id ? (
+                      <>
+                        <Button size="sm" variant="danger" onClick={() => act(() => removePhone(p.id), `${p.label} was revoked`)}>
+                          Revoke
+                        </Button>
+                        <Button size="sm" variant="quiet" onClick={() => setConfirmRevoke(null)}>Keep</Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          aria-label={`Rename ${p.label}`}
+                          onClick={() => { setConfirmRevoke(null); setEditing({ id: p.id, draft: p.label }); }}
+                        >
+                          Rename
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          aria-label={`Sign out ${p.label}`}
+                          title="End its sessions now. It stays paired and can sign in again from the app."
+                          onClick={() => act(() => signOutPhone(p.id), `${p.label} was signed out`)}
+                        >
+                          Sign out
+                        </Button>
+                        <Button size="sm" variant="quiet" onClick={() => setConfirmRevoke(p.id)}>Revoke…</Button>
+                      </>
+                    )}
+                  </span>
+                )}
               </span>
-              {confirmRevoke === p.id ? (
-                <span className={styles.actions}>
-                  <Button size="sm" variant="danger" onClick={() => act(() => removePhone(p.id), `${p.label} was revoked`)}>
-                    Revoke
-                  </Button>
-                  <Button size="sm" variant="quiet" onClick={() => setConfirmRevoke(null)}>Keep</Button>
-                </span>
-              ) : (
-                <Button size="sm" variant="quiet" onClick={() => setConfirmRevoke(p.id)}>Revoke…</Button>
-              )}
             </li>
           ))}
         </ul>

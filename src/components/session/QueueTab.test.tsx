@@ -17,7 +17,7 @@
  * whether or not the fix was real.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import QueueTab from './QueueTab';
@@ -207,7 +207,7 @@ describe('QueueTab — held queue notice', () => {
 /**
  * The header count: how many rows are active (enabled — the scheduler may
  * send them) and how many are inactive (switched off with their own toggle,
- * shown on the row as "— paused —").
+ * shown on the row as a "Paused" chip).
  */
 describe('QueueTab — header count', () => {
   const row = (id: number, over: Record<string, unknown> = {}) =>
@@ -224,6 +224,15 @@ describe('QueueTab — header count', () => {
     useQueueStore.setState({ queues: new Map([['s1', rows as never]]), automation: new Map(), composeDrafts: new Map() });
     render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
     expect(header()).toHaveTextContent('QUEUE (3 active · 2 inactive)');
+  });
+
+  // Oct 21 2026: a paused one-off said nothing (its meta line was empty); only a 0.55 fade marked it.
+  it('labels every paused row "Paused", a plain one-off too, and no row that is on', () => {
+    const rows = [row(1, { disabled: true }), row(2), row(3, { disabled: true, type: 'loop', intervalMs: 3_600_000, nextFireAt: 0 })];
+    useQueueStore.setState({ queues: new Map([['s1', rows as never]]), automation: new Map(), composeDrafts: new Map() });
+    const { container } = render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    const items = [...container.querySelectorAll('[data-queue-item]')];
+    expect(items.map((el) => el.querySelector('[data-paused-chip]')?.textContent ?? null)).toEqual(['Paused', null, 'Paused']);
   });
 
   it('still says "0 inactive" when every row is on — that is the answer, not noise', () => {
@@ -588,6 +597,65 @@ describe('QueueTab — expanding a long prompt', () => {
   }
 });
 
+/** Cards had no drag icon and only faded when held (Oct 22 2026): both layouts now
+ *  show the grip, and a held card is carried like a List row. */
+describe('QueueTab — drag to reorder', () => {
+  const GRIP = '[title="Drag to reorder (press and hold on touch)"]';
+  const items = [
+    { id: 1, sessionId: 's1', text: 'first prompt', position: 0, createdAt: 0, type: 'once' },
+    { id: 2, sessionId: 's1', text: 'second prompt', position: 1, createdAt: 0, type: 'once' },
+  ];
+
+  beforeEach(() => {
+    platform.isMobile = false;
+    useQueueStore.setState({ queues: new Map([['s1', items as never]]), automation: new Map(), composeDrafts: new Map() });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+  });
+  afterEach(() => {
+    cleanup();
+    useUiStore.setState({ queueViewMode: 'card' });
+  });
+
+  for (const layout of ['list', 'card'] as const) {
+    it(`shows the grip on every ${layout} item`, () => {
+      useUiStore.setState({ queueViewMode: layout });
+      const { container } = render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId={null} />);
+      const rows = [...container.querySelectorAll('[data-queue-item]')];
+      expect(rows).toHaveLength(2);
+      for (const row of rows) expect(row.querySelector(GRIP)).not.toBeNull();
+    });
+  }
+
+  it('carries a card picked up with the mouse, and lets go of it on release', () => {
+    useUiStore.setState({ queueViewMode: 'card' });
+    const { container } = render(<QueueTab sessionId="s1" sessionStatus="idle" terminalId={null} />);
+    const card = container.querySelector('[data-queue-item="1"]') as HTMLElement;
+    const grid = card.parentElement as HTMLElement;
+    // Side by side, 280 wide: jsdom lays nothing out, and one column is carried like List rows.
+    for (const [id, left] of [[1, 0], [2, 290]] as const) {
+      const el = container.querySelector(`[data-queue-item="${id}"]`) as HTMLElement;
+      el.getBoundingClientRect = () => ({
+        left, right: left + 280, top: 0, bottom: 100, width: 280, height: 100, x: left, y: 0,
+        toJSON() { return this; },
+      }) as DOMRect;
+    }
+
+    fireEvent.pointerDown(card, { clientX: 10, clientY: 10, button: 0, pointerType: 'mouse' });
+    act(() => {
+      fireEvent(window, new (window as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent(
+        'pointermove', { clientX: 40, clientY: 10, bubbles: true, cancelable: true },
+      ));
+    });
+    expect(grid.className).toMatch(/queueCardGridCarry/);
+    expect(card.className).toMatch(/dragging/);
+    expect(card.style.getPropertyValue('--queue-drag-dx')).not.toBe('');
+
+    act(() => { fireEvent(window, new Event('pointerup', { bubbles: true })); });
+    expect(grid.className).not.toMatch(/queueCardGridCarry/);
+    expect(card.style.getPropertyValue('--queue-drag-dx')).toBe('');
+  });
+});
+
 describe('QueueTab — manual SEND', () => {
   const IMG = '/tmp/claude-queue-images/queue-img-1-abc.png';
   const send = vi.mocked(sendPromptToTerminal);
@@ -630,5 +698,31 @@ describe('QueueTab — manual SEND', () => {
     await user.click(button);
     expect(send).toHaveBeenCalledTimes(1);
     finish(true);
+  });
+
+  // Oct 21 2026: nothing on screen changed for the seconds an image prompt takes to send.
+  it('SEND shows it is busy until the send finishes, then the row goes', async () => {
+    let finish: (ok: boolean) => void = () => {};
+    send.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'SEND' }));
+    const busy = await screen.findByRole('button', { name: 'Sending…' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy).toBeDisabled();
+    // The label keeps its place (hidden under the spinner), so the row's other buttons don't move.
+    expect(busy).toHaveTextContent('SEND');
+    finish(true);
+    await waitFor(() => expect(useQueueStore.getState().queues.get('s1') ?? []).toHaveLength(0));
+    expect(screen.queryByRole('button', { name: 'Sending…' })).toBeNull();
+  });
+
+  it('a failed send puts SEND back, ready for another try', async () => {
+    send.mockImplementationOnce(async () => false);
+    render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'SEND' }));
+    const again = await screen.findByRole('button', { name: 'SEND' });
+    expect(again).not.toHaveAttribute('aria-busy');
+    expect(again).toBeEnabled();
+    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
   });
 });

@@ -18,11 +18,19 @@
  * restore stamps it on every session), and never a prompt (a restore reloads
  * prompts with their old timestamps while the events start over, so a restored
  * card shows no age until it does something).
+ *
+ * The board can also be sorted by room or by project (`boardGroups`): the same
+ * cards in the same order, cut into one headed group per room or per project
+ * folder, the way the strip's Rooms and Projects views frame them.
  */
+import { groupSessionsByProject } from '@/lib/projectGroups';
 import { lastWorkEventAt } from '@/lib/recentSessions';
 import { roomColor } from '@/lib/roomColor';
+import { roomsInListOrder } from '@/lib/roomOrder';
 import { isListedSession, numberedSessions } from '@/lib/sessionSort';
+import { PROCEED, displayStatus } from '@/lib/sessionStatusStyle';
 import type { Room } from '@/stores/roomStore';
+import type { LiveBoardSort } from '@/stores/uiStore';
 import type { Session } from '@/types';
 
 export type BoardFilter = 'all' | 'working' | 'needs-you';
@@ -35,8 +43,12 @@ export const BOARD_FILTERS: ReadonlyArray<{ id: BoardFilter; label: string }> = 
 
 /** Busy: a tool is running, or a prompt was just submitted. */
 const WORKING = new Set(['working', 'prompting']);
-/** Blocked on the user: a tool approval, or a question to answer. */
-const NEEDS_YOU = new Set(['approval', 'input']);
+/**
+ * Blocked on the user: a tool approval, a question to answer, or (Oct 23 2026) an answer that asks
+ * you to reply "proceed" (`displayStatus` → `PROCEED`), so the reminder is counted and filtered
+ * where people look for what waits on them.
+ */
+const NEEDS_YOU = new Set(['approval', 'input', PROCEED]);
 
 export function matchesBoardFilter(status: string, filter: BoardFilter): boolean {
   if (filter === 'working') return WORKING.has(status);
@@ -57,8 +69,9 @@ export function boardCounts(list: readonly Session[]): Record<BoardFilter, numbe
   const counts: Record<BoardFilter, number> = { all: 0, working: 0, 'needs-you': 0 };
   for (const s of list) {
     counts.all += 1;
-    if (WORKING.has(s.status)) counts.working += 1;
-    if (NEEDS_YOU.has(s.status)) counts['needs-you'] += 1;
+    const shown = displayStatus(s);
+    if (WORKING.has(shown)) counts.working += 1;
+    if (NEEDS_YOU.has(shown)) counts['needs-you'] += 1;
   }
   return counts;
 }
@@ -182,6 +195,77 @@ export function quietFor(session: Session, now: number): string | null {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+export const BOARD_SORTS: ReadonlyArray<{ value: LiveBoardSort; label: string }> = [
+  { value: 'status', label: 'Status' },
+  { value: 'room', label: 'Room' },
+  { value: 'project', label: 'Project' },
+];
+
+/** The heading over sessions whose folder is unknown, in the Project sort. */
+export const NO_PROJECT = 'No project';
+
+export interface BoardGroup {
+  /** Unique among the groups: React's key. */
+  key: string;
+  /** 'all' is the Status sort's one group; 'room' and 'common' draw the room chips' dot. */
+  kind: 'all' | 'room' | 'common' | 'project' | 'no-project';
+  /** The heading; null for a group that has none (Status, or Room with no rooms at all). */
+  label: string | null;
+  /** A room's colour, as on its chips; null for every other kind. */
+  color: string | null;
+  /** In the order they were given: the board's order holds inside a group. */
+  sessions: Session[];
+}
+
+/**
+ * The cards on show, cut into groups for the board's sort. Status is today's
+ * board: one group, no heading. Room gives each room with a session on show a
+ * group, in the strip's list order (`roomsInListOrder`, so status changes never
+ * move a group), then Common Area; a session in two rooms sits in the first, as
+ * its chip says (`roomOf` is `roomBySession`). With no rooms at all there is
+ * nothing to group by, and the chips aren't drawn either, so it stays one
+ * group. Project is the strip's grouping by folder (`groupSessionsByProject`:
+ * A to Z by the folder's name, clashing names told apart), then the sessions
+ * with no folder. No group is ever empty.
+ */
+export function boardGroups(
+  shown: readonly Session[],
+  sort: LiveBoardSort,
+  rooms: readonly Room[],
+  roomOf: ReadonlyMap<string, Room>,
+): BoardGroup[] {
+  if (shown.length === 0) return [];
+
+  if (sort === 'project') {
+    const { groups, ungrouped } = groupSessionsByProject(shown);
+    const byFolder = groups.map((g): BoardGroup => ({
+      key: `project:${g.key}`,
+      kind: 'project',
+      label: g.label,
+      color: null,
+      sessions: g.sessions,
+    }));
+    return ungrouped.length > 0
+      ? [...byFolder, { key: 'no-project', kind: 'no-project', label: NO_PROJECT, color: null, sessions: ungrouped }]
+      : byFolder;
+  }
+
+  if (sort === 'room' && rooms.length > 0) {
+    const byRoom = roomsInListOrder(rooms).flatMap((room): BoardGroup[] => {
+      const sessions = shown.filter((s) => roomOf.get(s.sessionId)?.id === room.id);
+      if (sessions.length === 0) return [];
+      const chip = cardRoom(room, true);
+      return [{ key: `room:${room.id}`, kind: 'room', label: chip?.name ?? room.name, color: roomColor(room), sessions }];
+    });
+    const common = shown.filter((s) => !roomOf.has(s.sessionId));
+    return common.length > 0
+      ? [...byRoom, { key: 'common', kind: 'common', label: COMMON_AREA, color: null, sessions: common }]
+      : byRoom;
+  }
+
+  return [{ key: 'all', kind: 'all', label: null, color: null, sessions: [...shown] }];
 }
 
 export type FlatState = 'loading' | 'empty' | 'board';

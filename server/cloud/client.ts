@@ -36,6 +36,8 @@ export function normalizeBackendOrigin(input: string): string {
  * phone pairing codes, revocation), skill notes and push are whole namespaces.
  * Cloud resources and projects are not: only the exact routes their jobs call,
  * each with its one method, and nothing else under /v1/resources or /v1/projects.
+ * The other exact route is `PUT /v1/mac-paths/self`: this Mac telling its account where it is on
+ * Tailscale (Remote access, AASC-60). The phone's `GET /v1/mac-paths` is the phone's own call, never this Mac's.
  */
 const ALLOWED_NAMESPACE = /^\/v1\/(?:health|devices|skill-notes|push)(?:\/[A-Za-z0-9_-]+)*$/;
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
@@ -50,17 +52,26 @@ const RESOURCE_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', exact('/v1/resources/uploads')],
   ['PUT', exact(`/v1/resources/uploads/${UUID}/files/${SHA256}`)],
   ['POST', exact(`/v1/resources/uploads/${UUID}/commit`)],
+  // Oct 23 2026: "Remove from cloud" deletes a resource one exact version at a time.
+  ['DELETE', exact(`/v1/resources/${UUID}/versions/${VERSION}`)],
   ['GET', exact('/v1/projects')],
   ['POST', exact('/v1/projects')],
   ['PUT', exact(`/v1/projects/${UUID}`)],
+  // AASC-63: "Remove from the cloud list" (a soft delete of the record; no folder is touched).
+  ['DELETE', exact(`/v1/projects/${UUID}`)],
 ];
+/** The one write this Mac makes about itself: where phones can find it on Tailscale (Remote access). */
+const MAC_PATHS_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['PUT', exact('/v1/mac-paths/self')],
+];
+const EXACT_ROUTES = [...RESOURCE_ROUTES, ...MAC_PATHS_ROUTES];
 export function allowedCloudRoute(method: string, path: string): boolean {
   const [pathname] = path.split('?');
   return (
     !path.includes('#') &&
     !/[\\\u0000-\u0020]/u.test(path) &&
     (ALLOWED_NAMESPACE.test(pathname) ||
-      RESOURCE_ROUTES.some(([m, route]) => m === method && route.test(pathname))) &&
+      EXACT_ROUTES.some(([m, route]) => m === method && route.test(pathname))) &&
     !pathname.split('/').some((p) => p === '.' || p === '..')
   );
 }

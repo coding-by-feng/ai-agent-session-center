@@ -6,13 +6,16 @@
  * servers, plugins, settings — global and per project, compared with the
  * agent-skills repo copy. Everything arrives through `/api/resources`
  * (src/lib/resourcesApi.ts). Uninstall moves resources into the local trash.
- * The lazy CloudPanel holds the optional cloud connection, skill-notes sync and
- * the explicitly reviewed publication, installation and project records that
- * replaced SSH Transfers and Project Sync; it never uses ProjectTab or
- * `/api/files/*`.
+ *
+ * One tab row since Oct 23 2026: **Library** (browse; each row shows its cloud
+ * state, and a resource is saved, synced, stopped or removed from where it is
+ * shown), **Cloud sync**, **Projects**, **Health** (Checks + Sources) and
+ * **Connection**. The cloud session (CloudSessionProvider) wraps the whole tab,
+ * since the Library needs it too; the cloud views stay in the lazy CloudPanel,
+ * which never uses ProjectTab or `/api/files/*`.
  *
  * Catalog view state lives in the URL (`section`, `type`, `agent`, `scope`,
- * `project`, `q`, `id`, `plugins`), so every view is a link:
+ * `project`, `q`, `id`, `plugins`, `sort`), so every view is a link:
  * `/resources?project=<id>` opens a project's resources, and a Checks finding
  * opens the resource it is about.
  */
@@ -20,8 +23,8 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { useNavigationType, useSearchParams } from 'react-router';
 import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType, UninstallResult } from '@/types/resources';
 import {
-  RESOURCE_SECTIONS,
   catalogSummaryLine,
+  healthIssues,
   countByType,
   emptyStateMessage,
   filterResources,
@@ -29,11 +32,8 @@ import {
   needsRootsRescan,
   readResourceParams,
   withParams,
-  type AgentFilter,
   type ResourceFilters,
   type ResourceSection,
-  type ResourceViewParams,
-  type ScopeFilter,
 } from '@/lib/resourceFilters';
 import {
   ResourcesUnavailableError,
@@ -48,45 +48,45 @@ import {
 import { showToast } from '@/components/ui/ToastContainer';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
-import Field from '@/components/ui/Field';
-import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
-import TextInput from '@/components/ui/TextInput';
+import { RefreshListIcon } from '@/components/ui/icons';
 import { useUiStore } from '@/stores/uiStore';
+import { cloudApi } from '@/lib/cloudApi';
 import { buildResourceShortcuts } from '@/lib/commandShortcuts';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import { isNotable, readNoteParams, resourceNoteKey, tagsInUse } from '@/lib/skillNotes';
 import ResourceTypeRail from '@/components/resources/ResourceTypeRail';
-import ResourceList from '@/components/resources/ResourceList';
-import ResourceDetail from '@/components/resources/ResourceDetail';
-import SourcesPanel from '@/components/resources/SourcesPanel';
-import ChecksPanel from '@/components/resources/ChecksPanel';
+import ResourceList, { type RowCloudState } from '@/components/resources/ResourceList';
+import ResourceDetail, { type DetailTab } from '@/components/resources/ResourceDetail';
+import SectionTabs from '@/components/resources/SectionTabs';
+import FilterBar from '@/components/resources/FilterBar';
+import BulkBar from '@/components/resources/BulkBar';
+import CloudControl from '@/components/resources/CloudControl';
+import CloudSummaryLink from '@/components/resources/CloudSummaryLink';
+import HealthPanel from '@/components/resources/HealthPanel';
+import CloudSessionProvider from '@/components/resources/cloud/CloudSessionProvider';
+import CloudActionDialogs from '@/components/resources/cloud/CloudActionDialogs';
+import { useCloudSession } from '@/components/resources/cloud/cloudSession';
+import { cacheKey } from '@/components/resources/cloud/cloudCache';
+import { reloadSyncStatus, useSyncStatus } from '@/components/resources/cloud/syncStatusStore';
+import { useSyncAutoload } from '@/components/resources/cloud/useSyncAutoload';
+import { useResourceUsage } from '@/components/resources/useResourceUsage';
+import { isUsageCounted, readResourceSort, sortByUses } from '@/lib/resourceUsage';
+import type { CloudSection } from '@/components/resources/cloud/CloudPanel';
 import { RESTORE_WINDOW_MS, UNINSTALL_MODAL_ID, UninstallDialog } from '@/components/resources/UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
-import noteStyles from '@/styles/modules/SkillNotes.module.css';
-import selectionStyles from '@/styles/modules/ResourceSelection.module.css';
+import lib from '@/styles/modules/ResourceLibrary.module.css';
 import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceSelection';
 
 const CloudPanel = lazy(() => import('@/components/resources/cloud/CloudPanel'));
+const CLOUD_SECTIONS: readonly ResourceSection[] = ['sync', 'projects', 'connection'];
 const POLL_MS = 750;
 /** How often "scanned 2m ago" is re-derived; it has minute resolution. */
 const AGE_TICK_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'Resources are available only on this machine — open AASC on the Mac that runs it.';
-const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', cloud: 'Cloud' };
 const NO_RESOURCES: ResourceSummary[] = [];
 const NO_PROJECTS: ResourceProject[] = [];
 /** Most tag chips the filter bar shows; the rest stay reachable by search. */
 const MAX_TAG_CHOICES = 24;
-const AGENT_OPTIONS: readonly NativeSelectOption<AgentFilter>[] = [
-  { value: 'all', label: 'All' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'shared', label: 'Shared' },
-];
-const SCOPE_OPTIONS: readonly NativeSelectOption<ScopeFilter>[] = [
-  { value: 'all', label: 'All' },
-  { value: 'global', label: 'Global' },
-  { value: 'project', label: 'Project' },
-];
 
 /**
  * Loads the catalog and keeps it current while a scan runs.
@@ -181,105 +181,15 @@ function useResourceCatalog(extraRoots: readonly string[]) {
   return { catalog, error, unavailable, now, reload, rescan, rescanPending };
 }
 
-function SectionTabs({ baseId, section, onSelect }: {
-  baseId: string;
-  section: ResourceSection;
-  onSelect: (section: ResourceSection) => void;
-}) {
-  const listRef = useRef<HTMLDivElement>(null);
-  // The row scrolls sideways at narrow widths (scrollbar hidden): keep the open tab in view.
-  useEffect(() => {
-    const tab = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [section]);
-  return (
-    <div ref={listRef} className={styles.sectionTabs} role="tablist" aria-label="Resource sections">
-      {RESOURCE_SECTIONS.map((s) => (
-        <button
-          key={s}
-          type="button"
-          role="tab"
-          id={`${baseId}-tab-${s}`}
-          aria-selected={s === section}
-          aria-controls={`${baseId}-panel`}
-          className={s === section ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-          onClick={() => onSelect(s)}
-        >
-          {SECTION_LABELS[s]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-interface FilterBarProps {
-  params: ResourceViewParams;
-  queryDraft: string;
-  projects: readonly ResourceProject[];
-  onQuery: (query: string) => void;
-  onAgent: (agent: AgentFilter) => void;
-  onScope: (scope: ScopeFilter) => void;
-  onProject: (projectId: string) => void;
-  onTogglePlugins: () => void;
-  /** Favourites and tags (the user's own notes, src/lib/skillNotes.ts). */
-  favOnly: boolean;
-  tags: readonly string[];
-  tagChoices: readonly { tag: string; count: number }[];
-  onFav: () => void;
-  onTag: (tag: string) => void;
-}
-
-function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, onProject, onTogglePlugins, favOnly, tags, tagChoices, onFav, onTag }: FilterBarProps) {
-  const projectOptions = useMemo<NativeSelectOption[]>(
-    () => [
-      { value: '', label: 'All projects' },
-      ...[...projects]
-        .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
-        .map((p) => ({ value: p.id, label: p.duplicateName ? `${p.name} — ${p.path}` : p.name })),
-    ],
-    [projects],
-  );
-  return (
-    <div className={styles.filters}>
-      <TextInput
-        type="search"
-        className={styles.search}
-        aria-label="Search resources"
-        placeholder="Search name, description, path…"
-        value={queryDraft}
-        onChange={(e) => onQuery(e.target.value)}
-      />
-      <Field label="Agent" className={styles.filterField}>
-        <NativeSelect className={styles.filterSelect} value={params.agent} onChange={onAgent} options={AGENT_OPTIONS} />
-      </Field>
-      <Field label="Scope" className={styles.filterField}>
-        <NativeSelect className={styles.filterSelect} value={params.scope} onChange={onScope} options={SCOPE_OPTIONS} />
-      </Field>
-      {params.scope === 'project' && (
-        <Field label="Project" className={styles.filterField}>
-          <NativeSelect className={styles.filterSelect} value={params.projectId ?? ''} onChange={onProject} options={projectOptions} />
-        </Field>
-      )}
-      <Button pressed={params.showPluginSystem} onClick={onTogglePlugins}>
-        {'Show plugin & system'}
-      </Button>
-      <Button pressed={favOnly} onClick={onFav}>
-        <span aria-hidden="true">♥ </span>Favourites
-      </Button>
-      {tagChoices.length > 0 && (
-        <div className={noteStyles.tagFilter} role="group" aria-label="Filter by tag">
-          {tagChoices.map(({ tag, count }) => (
-            <Button key={tag} size="sm" pressed={tags.includes(tag)} onClick={() => onTag(tag)}>
-              {`${tag} ${count}`}
-            </Button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ResourcesView() {
+  return (
+    <CloudSessionProvider>
+      <ResourcesScreen />
+    </CloudSessionProvider>
+  );
+}
+
+function ResourcesScreen() {
   const baseId = useId();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigationType = useNavigationType();
@@ -288,8 +198,13 @@ export default function ResourcesView() {
   const [storageOk, setStorageOk] = useState(true);
   const [resourceSelection, setResourceSelection] = useState<ResourceSelection>([]);
   const [selectingResources, setSelectingResources] = useState(false);
+  // The cloud views stay mounted once opened (a running job or an open review survives a switch).
+  const cloudSection = CLOUD_SECTIONS.includes(params.section) ? (params.section as CloudSection) : null;
   const [cloudVisited, setCloudVisited] = useState(false);
-  if (params.section === 'cloud' && !cloudVisited) setCloudVisited(true);
+  const [lastCloud, setLastCloud] = useState<CloudSection>('sync');
+  if (cloudSection && !cloudVisited) setCloudVisited(true);
+  if (cloudSection && cloudSection !== lastCloud) setLastCloud(cloudSection);
+  const [detailTab, setDetailTab] = useState<DetailTab>('preview');
   const { catalog, error, unavailable, now, reload, rescan, rescanPending } = useResourceCatalog(extraRoots);
 
   // The search box keeps its own draft. Navigations run inside startTransition,
@@ -363,7 +278,13 @@ export default function ResourcesView() {
   const type: ResourceType = searchParams.has('type')
     ? params.type
     : (counts.find((c) => c.count > 0)?.type ?? params.type);
-  const list = useMemo(() => filterResources(resources, filters, type), [resources, filters, type]);
+  // Skill/command uses over the last 90 days (Oct 23 2026); `?sort=uses` lists the most used first.
+  const usage = useResourceUsage(catalog?.scannedAt ?? null);
+  const sort = readResourceSort(searchParams);
+  const list = useMemo(() => {
+    const named = filterResources(resources, filters, type);
+    return sort === 'uses' && usage && isUsageCounted(type) ? sortByUses(named, usage.byId) : named;
+  }, [resources, filters, type, sort, usage]);
 
   const selectResource = useCallback((id: string) => updateParams({ id }), [updateParams]);
   const closeDetail = useCallback(() => updateParams({ id: null }), [updateParams]);
@@ -420,6 +341,50 @@ export default function ResourcesView() {
     showToast(`Uninstalled ${result.name}`, 'success', RESTORE_WINDOW_MS, { label: 'Restore', onClick: restore });
   }, [closeDetail, rescan, extraRoots]);
 
+  // ---- Cloud (Oct 23 2026): every row shows its cloud state; the list is read once and shared ----
+  const session = useCloudSession();
+  const binding = session.status.connection;
+  const sync = useSyncStatus(cacheKey(binding));
+  const connected = session.status.state === 'connected' && !session.changed;
+  // Read on connect, on every connection change and after every scan (useSyncAutoload).
+  useSyncAutoload(catalog?.scannedAt ?? null);
+  const rowCloud = useMemo(() => {
+    const map = new Map<string, RowCloudState>();
+    for (const [catalogId, item] of sync.byCatalog)
+      map.set(catalogId, { state: item.state, moving: sync.moving.has(item.resourceId) || sync.moving.has(catalogId) });
+    // A first save in flight has no item yet: it shows as moving.
+    for (const id of sync.moving) if (!map.has(id) && byId.has(id)) map.set(id, { state: 'synced', moving: true });
+    return map;
+  }, [sync.byCatalog, sync.moving, byId]);
+  const badges = useMemo(
+    () => ({
+      sync: connected ? (sync.value?.waiting ?? 0) : 0,
+      health: catalog ? healthIssues(catalog.findings) : 0,
+    }),
+    [connected, sync.value, catalog],
+  );
+  const goSection = useCallback(
+    (section: ResourceSection) => updateParams({ section: section === 'library' ? null : section, cloudTab: null }),
+    [updateParams],
+  );
+  const openConnection = useCallback(() => goSection('connection'), [goSection]);
+  const showCatalogResource = useCallback((catalogId: string) => {
+    const r = byId.get(catalogId);
+    if (r) showResource(r);
+  }, [byId, showResource]);
+  const selected = useMemo(() => resources.filter((r) => selectionIds.has(r.id)), [resources, selectionIds]);
+  const toggleSelecting = useCallback(() => {
+    // Turning Select off drops the selection: nothing stays chosen out of sight.
+    if (selectingResources) setResourceSelection([]);
+    setSelectingResources(!selectingResources);
+  }, [selectingResources]);
+  const uninstallSync = uninstallTarget ? sync.byCatalog.get(uninstallTarget.summary.id) : undefined;
+  const stopSyncing = useCallback(async (resourceId: string) => {
+    if (!binding) throw new Error('Reconnect to the cloud first.');
+    await cloudApi.syncControl({ resourceId, action: 'stop' }, binding);
+    void reloadSyncStatus(binding);
+  }, [binding]);
+
   if (unavailable) {
     return (
       <div className={styles.view}>
@@ -442,13 +407,10 @@ export default function ResourcesView() {
       <header className={styles.header}>
         <div className={styles.titleRow}>
           <h1 className={styles.title}>Agent resources</h1>
-          <SectionTabs
-            baseId={baseId}
-            section={params.section}
-            onSelect={(s) => updateParams({ section: s === 'library' ? null : s })}
-          />
+          <SectionTabs baseId={baseId} section={params.section} badges={badges} onSelect={goSection} />
           <Button
             className={styles.rescanButton}
+            icon={<RefreshListIcon />}
             disabled={!catalog || busy}
             aria-busy={busy || undefined}
             onClick={() => rescan(extraRoots)}
@@ -474,18 +436,16 @@ export default function ResourcesView() {
             tagChoices={tagChoices}
             onFav={() => updateParams({ fav: favOnly ? null : '1' }, true)}
             onTag={toggleTag}
+            onClearMore={() => updateParams({ plugins: null, tags: null }, true)}
           />
         )}
-        {inLibrary && resources.length > 0 && <div className={selectionStyles.bulkBar}>
-          <Button pressed={selectingResources} onClick={() => setSelectingResources(v => !v)}>Select resources</Button>
-          {selectingResources && <>
-            <Button onClick={() => setResourceSelection(s => withResourceSelection(s, list.map(r => ({ resourceId: r.id, include: true }))))}>Select visible ({list.length})</Button>
-            <Button onClick={() => setResourceSelection([])}>Clear selection</Button>
-          </>}
-          {(selectingResources || selectionIds.size > 0) && <><Button variant="primary" onClick={() => updateParams({ section: 'cloud', cloudTab: 'resources' })}>Save selected to cloud ({selectionIds.size})</Button></>}
-          {selectingResources && <span className={selectionStyles.hint}>Checkboxes select resources; resource names open previews. Cloud supports whole scopes, projects and exclusions.</span>}
-        </div>}
-        {catalog && <p className={styles.countsLine}>{catalogSummaryLine(catalog, showPluginSystem, now)}</p>}
+        {catalog && (
+          <div className={lib.summaryRow}>
+            <p className={styles.countsLine}>{catalogSummaryLine(catalog, showPluginSystem, now)}</p>
+            {/* On Cloud sync itself the link would point at the tab you are on. */}
+            {params.section !== 'sync' && <CloudSummaryLink onSync={() => goSection('sync')} onConnect={openConnection} />}
+          </div>
+        )}
       </header>
 
       {catalog && error && (
@@ -513,23 +473,30 @@ export default function ResourcesView() {
         )}
         {catalog && cloudVisited && (
           // Kept mounted once opened (hidden, not unmounted) so a running job and its review survive a tab switch.
-          <div hidden={params.section !== 'cloud'} className={styles.cloudSection}>
+          <div hidden={!cloudSection} className={styles.cloudSection}>
             <Suspense fallback={<EmptyState busy title="Loading Cloud…" />}>
-              <CloudPanel catalog={catalog} selection={resourceSelection} onSelection={setResourceSelection} />
+              <CloudPanel
+                catalog={catalog}
+                section={cloudSection ?? lastCloud}
+                open={!!cloudSection}
+                onSection={goSection}
+                onLibrary={() => goSection('library')}
+                onShowResource={showCatalogResource}
+              />
             </Suspense>
           </div>
         )}
-        {catalog && params.section === 'sources' && (
-          <SourcesPanel
+        {catalog && params.section === 'health' && (
+          <HealthPanel
             catalog={catalog}
+            byId={byId}
+            projectsById={projectsById}
+            onSelect={showResource}
             extraRoots={extraRoots}
             storageOk={storageOk}
             onAddRoot={(path) => saveExtraRoots([...extraRoots, path])}
             onRemoveRoot={(path) => saveExtraRoots(extraRoots.filter((p) => p !== path))}
           />
-        )}
-        {catalog && params.section === 'checks' && (
-          <ChecksPanel findings={catalog.findings} byId={byId} projectsById={projectsById} onSelect={showResource} />
         )}
         {catalog && inLibrary && resources.length === 0 && (
           catalog.state === 'error' ? (
@@ -540,8 +507,8 @@ export default function ResourcesView() {
             <EmptyState
               fill
               title="No agent resources were found on this machine."
-              hint="Sources lists every root and what was scanned there."
-              action={<Button onClick={() => updateParams({ section: 'sources' })}>Open Sources</Button>}
+              hint="Health → Sources lists every root and what was scanned there."
+              action={<Button onClick={() => goSection('health')}>Open Health</Button>}
             />
           )
         )}
@@ -559,6 +526,15 @@ export default function ResourcesView() {
               onSelect={selectResource}
               selectionIds={selectingResources ? selectionIds : undefined}
               onResourceSelect={(id, include) => setResourceSelection(s => withResourceSelection(s, [{ resourceId: id, include }]))}
+              onToggleSelecting={toggleSelecting}
+              onSelectAll={(ids, include) => setResourceSelection((s) => withResourceSelection(s, ids.map((resourceId) => ({ resourceId, include }))))}
+              cloud={rowCloud}
+              usage={usage}
+              sort={sort}
+              onSort={(next) => updateParams({ sort: next === 'uses' ? 'uses' : null }, true)}
+              footer={selectingResources && selected.length > 0 ? (
+                <BulkBar selected={selected} onClear={() => setResourceSelection([])} onConnect={openConnection} />
+              ) : undefined}
             />
             {params.id ? (
               <ResourceDetail
@@ -574,6 +550,11 @@ export default function ResourcesView() {
                 onBack={closeDetail}
                 onRequestUninstall={requestUninstall}
                 realNames={realNames}
+                tab={detailTab}
+                onTab={setDetailTab}
+                cloudControl={(summary) => <CloudControl summary={summary} onConnect={openConnection} />}
+                usage={usage}
+                now={now}
               />
             ) : (
               <div className={styles.detailPlaceholder}>
@@ -591,8 +572,11 @@ export default function ResourcesView() {
           otherCopies={uninstallTarget.otherCopies}
           trashPath={catalog?.roots.trash}
           onUninstalled={afterUninstall}
+          syncing={uninstallSync && uninstallSync.state !== 'removed' && uninstallSync.state !== 'stopped' ? uninstallSync : undefined}
+          onStopSyncing={stopSyncing}
         />
       )}
+      {catalog && <CloudActionDialogs catalog={catalog} />}
     </div>
   );
 }

@@ -48,12 +48,16 @@ enum ShellRules {
         return page == originOf(shell)
     }
 
+    /// Four octets in canonical form: each `0`, or one to three ASCII digits with no leading zero, at most 255
+    /// (= shell/src/pairingLink.ts ipv4). WebKit reads a leading-zero octet as octal, so `010.1.1.1` would pass
+    /// here as private 10.x yet be dialled as 8.1.1.1: an address that passes is dialled exactly as written.
     private static func ipv4(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var nums: [Int] = []
         for part in parts {
             guard (1...3).contains(part.count), part.allSatisfy(\.isASCII), part.allSatisfy(\.isNumber),
+                  part.count == 1 || part.first != "0",
                   let n = Int(part), (0...255).contains(n) else { return nil }
             nums.append(n)
         }

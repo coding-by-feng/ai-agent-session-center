@@ -49,8 +49,14 @@ describe('QueueItemEditModal — full screen on phones only', () => {
     expect(container.querySelector('[data-queue-edit]')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Edit queue item' })).toBeInTheDocument();
     // The chains are all there: one editor, every type.
-    expect(screen.getByText('BEFORE chain')).toBeInTheDocument();
-    expect(screen.getByText('AFTER chain')).toBeInTheDocument();
+    expect(screen.getByText('Before chain')).toBeInTheDocument();
+    expect(screen.getByText('After chain')).toBeInTheDocument();
+  });
+
+  it('on a phone it wears the phone dress, like the session queue it opens from', () => {
+    // Portaled to <body>, it sits outside Info's dressed page: the class rides on its own root.
+    renderEditor();
+    expect(editor().className).toMatch(/dress/);
   });
 
   it('on a desktop: the centred dialog, in place', () => {
@@ -58,6 +64,7 @@ describe('QueueItemEditModal — full screen on phones only', () => {
     const { container } = renderEditor();
     expect(editor().dataset.queueEdit).toBe('dialog');
     expect(editor().className).not.toMatch(/chainModalPhone/);
+    expect(editor().className).not.toMatch(/dress/);
     expect(container.querySelector('[data-queue-edit]')).not.toBeNull();
   });
 

@@ -7,6 +7,7 @@
 // browser gets none of them and says it needs the app.
 import type { Haptic } from './haptics.js';
 import type { HttpRequester } from './http.js';
+import type { BrowseResult } from './lanRescan.js';
 import type { HttpClient } from './pairingClient.js';
 import type { AndroidChannel } from './pushChannels.js';
 import type { NotificationLike } from './pushPayload.js';
@@ -93,6 +94,15 @@ export interface WidgetStore {
   write(json: string): Promise<void>;
 }
 
+/** Bonjour on the Wi-Fi the phone is on, for the LAN rescan (lanRescan.ts). */
+export interface LanDiscovery {
+  /**
+   * The IPv4 address and port of each `_aasc._tcp` service found within
+   * `timeoutMs` (none when not allowed), and the phone's own IPv4 addresses.
+   */
+  browse(timeoutMs: number): Promise<BrowseResult>;
+}
+
 /** @capacitor/haptics Haptics.notification (AASC-21 M8). */
 export interface HapticsPlatform {
   notify(haptic: Haptic): Promise<void>;
@@ -120,4 +130,6 @@ export interface ShellDeps {
   lifecycle?: AppLifecycle;
   widget?: WidgetStore;
   haptics?: HapticsPlatform;
+  /** Absent in the browser build: the LAN rescan then only sweeps the saved address's network. */
+  discovery?: LanDiscovery;
 }

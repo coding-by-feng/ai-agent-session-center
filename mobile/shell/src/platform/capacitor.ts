@@ -4,7 +4,8 @@
 //   DeviceVault  Keystore-encrypted values; refuses any page but the bundled shell
 //   ShellBridge  the HttpOnly session cookie, the WebView's allowed Mac origins,
 //                the QR scanner, the share inbox, the biometric prompt, the widget,
-//                whether push is configured; refuses any page but the bundled shell too
+//                whether push is configured, the Bonjour browse for the LAN rescan;
+//                refuses any page but the bundled shell too
 // Push, haptics and pause/resume are Capacitor's own plugins.
 // iOS has neither yet (needs Xcode): every call rejects there, and pairing says
 // the phone couldn't store the key.
@@ -14,6 +15,7 @@ import { Haptics, NotificationType } from '@capacitor/haptics';
 import { Preferences } from '@capacitor/preferences';
 import { PushNotifications } from '@capacitor/push-notifications';
 import type { Haptic } from '../haptics.js';
+import type { BrowseResult } from '../lanRescan.js';
 import type { HttpRequester } from '../http.js';
 import type { PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { PushPermission } from '../pushRegistration.js';
@@ -36,6 +38,7 @@ interface ShellBridgePlugin {
   authenticate(options: { reason: string }): Promise<{ ok: boolean }>;
   bootId(): Promise<{ bootId?: string | null }>;
   writeWidget(options: { json: string }): Promise<void>;
+  discoverMacs(options: { timeoutMs: number }): Promise<BrowseResult>;
 }
 
 const DeviceVault = registerPlugin<DeviceVaultPlugin>('DeviceVault');
@@ -45,7 +48,7 @@ const ShellBridge = registerPlugin<ShellBridgePlugin>('ShellBridge');
 const TIMEOUTS = { connectTimeout: 15_000, readTimeout: 15_000 } as const;
 
 async function send(options: HttpOptions): Promise<HttpResponse> {
-  const res = await CapacitorHttp.request({ ...options, ...TIMEOUTS, disableRedirects: true });
+  const res = await CapacitorHttp.request({ ...TIMEOUTS, ...options, disableRedirects: true });
   return { status: res.status, data: res.data };
 }
 
@@ -97,6 +100,7 @@ export function capacitorDeps(): ShellDeps {
       url: req.url,
       headers: req.headers ?? {},
       ...(req.body === undefined ? {} : { data: req.body }),
+      ...(req.timeoutMs === undefined ? {} : { connectTimeout: req.timeoutMs, readTimeout: req.timeoutMs }),
     }),
   };
 
@@ -152,6 +156,8 @@ export function capacitorDeps(): ShellDeps {
             onResume: (cb: () => void) => remover(App.addListener('resume', cb)),
           },
           haptics: { notify: (h: Haptic) => Haptics.notification({ type: HAPTIC[h] }) },
+          // Bonjour `_aasc._tcp` (NsdManager / NWBrowser); lanRescan.ts checks every address it returns.
+          discovery: { browse: (timeoutMs: number) => ShellBridge.discoverMacs({ timeoutMs }) },
         }
       : {}),
     ...(os === 'android'

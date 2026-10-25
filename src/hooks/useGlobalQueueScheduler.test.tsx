@@ -591,6 +591,108 @@ describe('useGlobalQueueScheduler — a queued /effort step', () => {
   });
 });
 
+describe('useGlobalQueueScheduler — a swallowed Enter on a queued /effort', () => {
+  // Oct 20 2026, session "AASC Enhancement": the queue sent `/effort xhigh` (08:34:32), Claude
+  // did not take its Enter, and 3 s later the next queued prompt was typed onto the same line.
+  // Claude logged the `/effort` at 08:34:38.766 — 48 ms after that prompt's Enter — and the
+  // prompt itself never reached it. Nothing can tell a taken `/effort` from a swallowed one (no
+  // hook either way), so the queue presses Enter once more before it types the next prompt.
+  const queueOnces = (...texts: string[]) => useQueueStore.setState({
+    queues: new Map([['s1', texts.map((text, i): QueueItem => ({ id: i + 1, sessionId: 's1', text, position: i, createdAt: T0, type: 'once' }))]]),
+    automation: new Map(),
+  });
+  const typed = () => send.mock.calls.map((c) => c[1]);
+  /** Enters pressed before the second prompt was typed (later ones are that prompt's own retries). */
+  const entersBeforeSecondSend = () => {
+    const second = send.mock.invocationCallOrder[1] ?? Infinity;
+    return pressEnter.mock.invocationCallOrder.filter((order) => order < second).length;
+  };
+
+  it('REGRESSION: presses Enter again after `/effort xhigh`, then types the next prompt on an empty line', async () => {
+    setSession({ status: 'waiting' });
+    queueOnces('/effort xhigh', 'we can also group the sessions by rooms');
+    render(<Harness />);
+
+    await advance(2000);
+    expect(typed()).toEqual(['/effort xhigh']);
+    expect(pressEnter).not.toHaveBeenCalled();
+
+    await advance(10_000);
+    expect(typed()).toEqual(['/effort xhigh', 'we can also group the sessions by rooms']);
+    // One Enter, into the right terminal, before the prompt was typed.
+    expect(entersBeforeSecondSend()).toBe(1);
+    expect(pressEnter.mock.calls[0][0]).toBe('term-1');
+  });
+
+  it('waits a moment after the flush Enter before typing the next prompt', async () => {
+    setSession({ status: 'waiting' });
+    queueOnces('/effort xhigh', 'next');
+    render(<Harness />);
+
+    await advance(2000);
+    for (let i = 0; i < 100 && pressEnter.mock.calls.length === 0 && send.mock.calls.length < 2; i++) {
+      await advance(100);
+    }
+    // The flush came first; the prompt is not typed in the same breath.
+    expect(pressEnter).toHaveBeenCalledTimes(1);
+    expect(typed()).toEqual(['/effort xhigh']);
+    await advance(1000);
+    expect(typed()).toEqual(['/effort xhigh']);
+    await advance(3000);
+    expect(typed()).toEqual(['/effort xhigh', 'next']);
+  });
+
+  it('the same for a chain: a before-step `/effort` is flushed before the main prompt', async () => {
+    setSession({ status: 'waiting' });
+    useQueueStore.setState({
+      queues: new Map([['s1', [{ id: 1, sessionId: 's1', text: 'do the work', position: 0, createdAt: T0, type: 'once', beforeChain: [{ id: 10, text: '/effort max' }] } as QueueItem]]]),
+      automation: new Map(),
+    });
+    render(<Harness />);
+
+    await advance(12_000);
+    expect(typed()).toEqual(['/effort max', 'do the work']);
+    expect(entersBeforeSecondSend()).toBe(1);
+  });
+
+  it('the same for `/model <name>`', async () => {
+    setSession({ status: 'waiting' });
+    queueOnces('/model sonnet', 'next');
+    render(<Harness />);
+
+    await advance(12_000);
+    expect(typed()).toEqual(['/model sonnet', 'next']);
+    expect(entersBeforeSecondSend()).toBe(1);
+  });
+
+  it('never presses Enter into a question dialog: an `input` session is left alone', async () => {
+    setSession({ status: 'waiting' });
+    queueOnces('/effort xhigh', 'next');
+    render(<Harness />);
+    await advance(2000);
+    act(() => { setSession({ status: 'input' }); });
+
+    await advance(12_000);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('an ordinary prompt gets no flush Enter (its own hooks say whether it was taken)', async () => {
+    setSession({ status: 'waiting' });
+    queueOnces('first prompt', 'second prompt');
+    render(<Harness />);
+    await advance(2000);
+    expect(typed()).toEqual(['first prompt']);
+    // Taken: hooks move activity, it works, then Stop.
+    act(() => { setSession({ status: 'working', lastActivityAt: Date.now() }); });
+    await advance(1500);
+    act(() => { setSession({ status: 'waiting', lastActivityAt: Date.now() }); });
+    await advance(4000);
+
+    expect(typed()).toEqual(['first prompt', 'second prompt']);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+});
+
 describe('useGlobalQueueScheduler — a queued /model step', () => {
   // `/model <name>` is a local command like `/effort <level>`: the TUI answers it and no
   // turn runs, so the chain must not wait out the 5-minute no-op fallback behind it.

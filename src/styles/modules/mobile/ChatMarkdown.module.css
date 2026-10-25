@@ -114,28 +114,107 @@
 
 .md strong { font-weight: 650; }
 
-.tableWrap {
+/* Tables (ChatTable, Oct 22 2026): a card that scrolls sideways. The cells keep whole
+   words (the prose's `overflow-wrap: anywhere` squeezed a table into the screen one
+   letter per line); each cell's box is capped so long prose wraps and a wide table
+   scrolls. Fills are opaque mixes so the pinned first column hides what slides under it. */
+.tableCard {
+  --table-bg: var(--ph-surface);
+  --table-head: color-mix(in srgb, var(--ph-text) 7%, var(--ph-surface));
+  --table-stripe: color-mix(in srgb, var(--ph-text) 3%, var(--ph-surface));
+  --table-shade: color-mix(in srgb, var(--ph-text) 22%, transparent);
+  position: relative;
   max-width: 100%;
   margin: 0 0 var(--ph-space-3);
+  border: 0.5px solid var(--ph-separator);
+  border-radius: var(--ph-radius);
+  background: var(--table-bg);
+  overflow: hidden;
+}
+
+/* "There is more this way": a shade on the side that hides content. */
+.tableCard::before,
+.tableCard::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 14px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--ph-motion-fast, 150ms) ease;
+}
+.tableCard::before { left: 0; background: linear-gradient(to right, var(--table-shade), transparent); }
+.tableCard::after { right: 0; background: linear-gradient(to left, var(--table-shade), transparent); }
+.tableCard[data-more-end]::after { opacity: 1; }
+/* With a pinned first column the left shade sits on its edge (see below), not the card's. */
+.tableCard[data-more-start]:not(:has(tr > :nth-child(3)))::before { opacity: 1; }
+
+.tableWrap {
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
+}
+.tableWrap:focus-visible {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: -2px;
 }
 
 .md table {
-  border-collapse: collapse;
+  /* As wide as its cells want (each capped below), at least the card's width. */
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--ph-size-secondary);
   line-height: var(--ph-line-secondary);
 }
 
 .md th,
 .md td {
-  padding: 6px 10px;
-  border: 0.5px solid var(--ph-separator);
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--ph-separator);
+  background: var(--table-bg);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: normal;
+  /* CJK keeps its words together too ("单门 + 一侧玻璃" breaks at the spaces). */
+  word-break: keep-all;
+}
+.md th + th,
+.md td + td { border-left: 0.5px solid var(--ph-separator); }
+.md tbody tr:last-child > td { border-bottom: 0; }
+.md tbody tr:nth-child(even) > td { background: var(--table-stripe); }
+.md th {
+  background: var(--table-head);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.md th { font-weight: 600; background: var(--ph-fill); }
+.cell {
+  min-width: 3em;
+  max-width: 16em;
+  /* A single word longer than the cap (a URL, a path) still breaks rather than overflow it. */
+  overflow-wrap: break-word;
+}
+
+/* Three columns or more: the first (the row labels) stays put while the rest scroll. */
+.md table:has(tr > :nth-child(3)) tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-shadow: inset -0.5px 0 0 var(--ph-separator);
+}
+.tableCard[data-more-start] table:has(tr > :nth-child(3)) tr > :first-child {
+  box-shadow: inset -0.5px 0 0 var(--ph-separator), 6px 0 8px -6px var(--table-shade);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tableCard::before,
+  .tableCard::after { transition: none; }
+}
 
 /* Code blocks: one dark surface in both modes (the highlight theme is dark). */
 .codeBlock {

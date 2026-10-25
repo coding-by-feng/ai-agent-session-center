@@ -90,6 +90,28 @@ export async function createJobStore(directory: string) {
         value: string;
       }[]
     ).map((row) => JSON.parse(row.value) as T);
+  /** Every key and value of `kind` kept for this account (its keys are JSON `[accountKey, id]`). */
+  function entriesFor<T>(kind: string, binding: CloudBinding): { key: string; value: T }[] {
+    const account = accountKey(binding);
+    return (
+      db.prepare('SELECT id, value FROM cloud_local_values WHERE kind=?').all(kind) as {
+        id: string;
+        value: string;
+      }[]
+    )
+      .filter((row) => {
+        try {
+          return (JSON.parse(row.id) as unknown[])[0] === account;
+        } catch {
+          return false;
+        }
+      })
+      .map((row) => ({ key: row.id, value: JSON.parse(row.value) as T }));
+  }
+  /** Every value of `kind` kept for this account. */
+  function valuesFor<T>(kind: string, binding: CloudBinding): T[] {
+    return entriesFor<T>(kind, binding).map((e) => e.value);
+  }
   for (const saved of list<SavedJob>('job'))
     if (['queued', 'running'].includes(saved.job.state))
       put('job', saved.job.id, {
@@ -147,6 +169,12 @@ export async function createJobStore(directory: string) {
         'project',
         JSON.stringify([accountKey(binding), localProjectId]),
       );
+    },
+    valuesFor,
+    entriesFor,
+    /** Every checkout this account has mapped on this device. */
+    projectsFor(binding: CloudBinding): ProjectAssociation[] {
+      return valuesFor<ProjectAssociation>('project', binding);
     },
     associateProject(binding: CloudBinding, association: ProjectAssociation) {
       put(

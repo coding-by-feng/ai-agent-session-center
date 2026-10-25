@@ -2,6 +2,12 @@
  * ResourceDetail — the right pane: what a resource is, where it lives, and a
  * read-only look inside (Preview / Files / Compare), plus its findings. Its one
  * write is the header's Uninstall (UninstallControls.tsx), a move to the trash.
+ * Since Oct 23 2026 the title row also holds the favourite heart and the cloud
+ * control (CloudControl.tsx, passed in by the view), and the user's tags and
+ * abbreviation moved from a card above the preview into a **Notes** tab. The open
+ * tab is the view's, so a rescan (which remounts this pane) keeps it. Oct 23 2026: a skill or
+ * command shows its uses over the last 90 days under its facts (ResourceUsageFacts), and each
+ * "Also in" chip its twin's.
  *
  * Mounted with `key={id}` by the view, so every selection starts from a clean
  * "loading" state and a fresh Preview tab without resetting state in an effect.
@@ -10,7 +16,7 @@
  * last scan) — the device-level "only on this machine" 404 is handled by the
  * view before any detail can be opened.
  */
-import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type {
   ResourceDetail as DetailData,
   ResourceFile,
@@ -39,8 +45,15 @@ import {
 import ConfigDetail from './ConfigDetail';
 import ResourceCompare from './ResourceCompare';
 import { UninstallAction } from './UninstallControls';
-import SkillNotes from './SkillNotes';
+import SkillNotes, { FavToggle } from './SkillNotes';
+import ResourceUsageFacts from './ResourceUsageFacts';
+import type { LibraryUsage } from './useResourceUsage';
+import { totalUses, usesLabel } from '@/lib/resourceUsage';
+import CountBadge from '@/components/ui/CountBadge';
+import { useSkillNotesStore } from '@/stores/skillNotesStore';
+import { isNotable, resourceNoteKey } from '@/lib/skillNotes';
 import styles from '@/styles/modules/Resources.module.css';
+import lib from '@/styles/modules/ResourceLibrary.module.css';
 
 // See ResourceMarkdown's header: this boundary keeps react-markdown and
 // rehype-highlight out of the tab's first chunk.
@@ -52,9 +65,9 @@ type LoadState =
   | { status: 'missing' }
   | { status: 'error'; message: string };
 
-type DetailTab = 'preview' | 'files' | 'compare';
+export type DetailTab = 'preview' | 'files' | 'compare' | 'notes';
 
-const TAB_LABELS: Record<DetailTab, string> = { preview: 'Preview', files: 'Files', compare: 'Compare' };
+const TAB_LABELS: Record<DetailTab, string> = { preview: 'Preview', files: 'Files', compare: 'Compare', notes: 'Notes' };
 
 interface ResourceDetailProps {
   id: string;
@@ -73,6 +86,14 @@ interface ResourceDetailProps {
   onRequestUninstall: (summary: ResourceSummary, otherCopies: string[]) => void;
   /** `agent:name` of every real skill and command, for the abbreviation check in the notes card. */
   realNames?: ReadonlySet<string>;
+  /** The open tab (the view keeps it across remounts) and its setter. */
+  tab?: DetailTab;
+  onTab?: (tab: DetailTab) => void;
+  /** The cloud control for the title row (the view's CloudControl). */
+  cloudControl?: (summary: ResourceSummary) => ReactNode;
+  /** Skill/command uses, once read (useResourceUsage), and the time "last used" is measured from. */
+  usage?: LibraryUsage | null;
+  now?: number;
 }
 
 /**
@@ -117,7 +138,13 @@ function DetailHeader({
   shortcuts,
   onSelect,
   onRequestUninstall,
-}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'shortcuts' | 'onSelect' | 'onRequestUninstall'> & { summary: ResourceSummary }) {
+  cloudControl,
+  usage,
+  now,
+}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'shortcuts' | 'onSelect' | 'onRequestUninstall' | 'cloudControl' | 'usage'> & {
+  summary: ResourceSummary;
+  now: number;
+}) {
   const variants = compareTargets(summary, byId, projectsById).filter((o) => o.value !== 'repo');
   const files = summary.fileCount === 1 ? '1 file' : `${summary.fileCount} files`;
   return (
@@ -125,7 +152,11 @@ function DetailHeader({
       <div className={styles.detailTitleRow}>
         <h2 className={styles.detailTitle}>{summary.name}</h2>
         <span className={styles.detailType}>{RESOURCE_TYPE_SINGULAR[summary.type]}</span>
-        <UninstallAction summary={summary} onRequest={() => onRequestUninstall(summary, variants.map((v) => v.label))} />
+        <FavToggle resource={summary} />
+        <span className={lib.detailActions}>
+          {cloudControl?.(summary)}
+          <UninstallAction summary={summary} onRequest={() => onRequestUninstall(summary, variants.map((v) => v.label))} />
+        </span>
       </div>
       <p className={styles.detailMeta}>
         {[AGENT_LABELS[summary.agent], scopeName(summary, projectsById), summary.origin].join(' · ')}
@@ -144,12 +175,14 @@ function DetailHeader({
         {`${files} · ${formatBytes(summary.bytes)}`}
         {summary.repo.status !== 'not-tracked' && ` · repo: ${summary.repo.status.replace(/-/g, ' ')}`}
       </p>
+      <ResourceUsageFacts summary={summary} usage={usage} now={now} />
       {variants.length > 0 && (
         <div className={styles.variantRow}>
           <span className={styles.fieldLabel}>Also in</span>
           {variants.map((variant) => (
             <button key={variant.value} type="button" className={styles.chipButton} onClick={() => onSelect(variant.value)}>
               {variant.label}
+              {totalUses(usage?.byId.get(variant.value)) > 0 && ` · ${usesLabel(totalUses(usage?.byId.get(variant.value)))}`}
             </button>
           ))}
         </div>
@@ -283,20 +316,29 @@ function FindingsList({ findings }: { findings: readonly ResourceFinding[] }) {
   );
 }
 
-function DetailBody({ id, detail, summary, byId, projectsById }: {
+function DetailBody({ id, detail, summary, byId, projectsById, realNames, tab: wanted, onTab }: {
   id: string;
   detail: DetailData;
   summary: ResourceSummary;
   byId: ReadonlyMap<string, ResourceSummary>;
   projectsById: ReadonlyMap<string, ResourceProject>;
+  realNames?: ReadonlySet<string>;
+  tab?: DetailTab;
+  onTab?: (tab: DetailTab) => void;
 }) {
   const baseId = useId();
-  const [tab, setTab] = useState<DetailTab>('preview');
+  const [ownTab, setOwnTab] = useState<DetailTab>('preview');
+  const tab = wanted ?? ownTab;
+  const setTab = onTab ?? setOwnTab;
+  const note = useSkillNotesStore((s) => s.notes[resourceNoteKey(summary)]);
+  const notes = isNotable(summary) && !!realNames;
+  const noteCount = (note?.tags.length ?? 0) + (note?.abbr ? 1 : 0);
   const compareOptions = canCompare(summary) ? compareTargets(summary, byId, projectsById) : [];
   const tabs: DetailTab[] = [
     'preview',
     ...(detail.files && detail.files.length > 0 ? ['files' as const] : []),
     ...(compareOptions.length > 0 ? ['compare' as const] : []),
+    ...(notes ? ['notes' as const] : []),
   ];
   const active = tabs.includes(tab) ? tab : 'preview';
   return (
@@ -314,6 +356,9 @@ function DetailBody({ id, detail, summary, byId, projectsById }: {
             onClick={() => setTab(t)}
           >
             {TAB_LABELS[t]}
+            {t === 'notes' && noteCount > 0 && (
+              <>{' '}<CountBadge count={noteCount} label={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'}`} /></>
+            )}
           </button>
         ))}
       </div>
@@ -321,13 +366,14 @@ function DetailBody({ id, detail, summary, byId, projectsById }: {
         {active === 'preview' && <Preview detail={detail} />}
         {active === 'files' && <FilesView id={id} files={detail.files ?? []} />}
         {active === 'compare' && <ResourceCompare id={id} options={compareOptions} />}
+        {active === 'notes' && realNames && <SkillNotes resource={summary} realNames={realNames} />}
       </div>
       {detail.findings.length > 0 && <FindingsList findings={detail.findings} />}
     </>
   );
 }
 
-export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack, onRequestUninstall, realNames }: ResourceDetailProps) {
+export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack, onRequestUninstall, realNames, tab, onTab, cloudControl, usage, now = 0 }: ResourceDetailProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -364,9 +410,11 @@ export default function ResourceDetail({ id, summary: catalogSummary, byId, proj
           shortcuts={shortcuts}
           onSelect={onSelect}
           onRequestUninstall={onRequestUninstall}
+          cloudControl={cloudControl}
+          usage={usage}
+          now={now}
         />
       )}
-      {summary && realNames && <SkillNotes resource={summary} realNames={realNames} />}
       {load.status === 'loading' && <p className={styles.muted}>Loading…</p>}
       {load.status === 'missing' && (
         <p className={styles.emptyNote}>
@@ -380,7 +428,7 @@ export default function ResourceDetail({ id, summary: catalogSummary, byId, proj
         </div>
       )}
       {load.status === 'ready' && summary && (
-        <DetailBody id={id} detail={load.detail} summary={summary} byId={byId} projectsById={projectsById} />
+        <DetailBody id={id} detail={load.detail} summary={summary} byId={byId} projectsById={projectsById} realNames={realNames} tab={tab} onTab={onTab} />
       )}
     </section>
   );

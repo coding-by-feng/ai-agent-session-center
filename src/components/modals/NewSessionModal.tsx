@@ -340,6 +340,8 @@ export default function NewSessionModal() {
               items={workdirHistory}
               placeholder={phoneApp ? 'Choose a project folder' : '~'}
               className={styles.workdirCombo}
+              searchable
+              searchLabel="Search folders"
             />
             {phoneApp ? (
               <Button onClick={() => setBrowseOpen(true)}>Browse…</Button>

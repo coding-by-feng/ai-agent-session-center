@@ -47,7 +47,8 @@
 .roomGroup[data-drop-target] .toggle { color: var(--ph-accent); }
 
 /* The built-in Recent group (By room, Oct 20 2026), the desktop rail's RECENT
-   frame: a view, not a room. Dashed like the desktop's frame; the space where a
+   frame, and Pinned (Oct 22 2026, its PINNED frame), which wears the same class:
+   views, not rooms. Dashed like the desktop's frame; the space where a
    room's ≡ sits keeps its title in line with the rooms' titles. */
 .recentGroup > section > ul {
   border: 1px dashed var(--ph-text-tertiary);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import DetailPanel from './DetailPanel';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -196,6 +196,30 @@ describe('DetailPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Minimize session panel' }));
     expect(useUiStore.getState().detailPanelMinimized).toBe(true);
     expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
+  });
+
+  // A dialog opened over the board while the panel is minimized (a LIVE card's
+  // kill, Oct 23 2026): its Escape closes the dialog — the app's shortcut
+  // handler, registered first in App — and must not also bring the panel back.
+  it('an Escape that closes a dialog does not also restore the minimized panel', () => {
+    useSessionStore.setState({ sessions: new Map([['sess-1', makeSession()]]), selectedSessionId: 'sess-1' });
+    const closeOpenDialog = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && useUiStore.getState().activeModal) useUiStore.getState().closeModal();
+    };
+    window.addEventListener('keydown', closeOpenDialog);
+    try {
+      render(<DetailPanel />);
+      act(() => useUiStore.setState({ detailPanelMinimized: true, activeModal: 'session-kill-confirm' }));
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(useUiStore.getState().activeModal).toBeNull();
+      expect(useUiStore.getState().detailPanelMinimized).toBe(true);
+      // with no dialog open, Escape still restores it
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(useUiStore.getState().detailPanelMinimized).toBe(false);
+    } finally {
+      window.removeEventListener('keydown', closeOpenDialog);
+      useUiStore.setState({ detailPanelMinimized: false, activeModal: null });
+    }
   });
 
   it('does not deselect on Escape key (preserves scroll position)', () => {

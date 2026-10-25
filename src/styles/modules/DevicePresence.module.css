@@ -44,6 +44,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The 📱 part (Oct 22 2026): paired phones, with a dot while one has the app open. */
+.chipSep {
+  opacity: 0.6;
+}
+.chipOnlineDot {
+  width: 6px;
+  height: 6px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent-green, #00ff88);
+  box-shadow: 0 0 0 1px var(--bg-primary, #0a0a1a);
+}
+
 /* ------------------------------------------------------------------ panel */
 
 .panel {

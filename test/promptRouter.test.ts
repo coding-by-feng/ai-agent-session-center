@@ -136,6 +136,14 @@ describe('accepting a prompt', () => {
     expect(submit.mock.calls[0][0]).toMatchObject({ terminalId: 'term-2', mode: 'interrupt' });
   });
 
+  // Oct 21 2026: the phone sends up to 10 photos with a message (was 4).
+  it('takes ten images with one message', async () => {
+    const ten = 'abcdefghij'.split('').map((c) => `queue-img-1-${c}.png`);
+    for (const id of ten) images.add(id);
+    expect((await send('s1', { images: ten })).status).toBe(202);
+    expect(submit.mock.calls[0][0].imagePaths).toHaveLength(10);
+  });
+
   it('turns image ids into the paths it types, and refuses an image that is gone', async () => {
     expect((await send('s1', { images: ['queue-img-1-a.png', 'queue-img-2-b.jpg'] })).status).toBe(202);
     expect(submit.mock.calls[0][0].imagePaths).toEqual([
@@ -156,7 +164,7 @@ describe('accepting a prompt', () => {
     ['no text', { text: '' }],
     ['only control bytes and blanks', { text: '\x1b\x1b \r\n' }],
     ['text over 64 KB', { text: 'x'.repeat(65_537) }],
-    ['five images', { images: ['a', 'b', 'c', 'd', 'e'].map((c) => `queue-img-1-${c}.png`) }],
+    ['eleven images', { images: 'abcdefghijk'.split('').map((c) => `queue-img-1-${c}.png`) }],
     ['an unknown mode', { mode: 'later' }],
     ['a short key', { key: 'short' }],
     ['a key over 64 characters', { key: 'k'.repeat(65) }],

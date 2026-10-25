@@ -32,6 +32,26 @@ export interface PrivatePublication {
     upload?: { uploadId: string; missingHashes: string[]; phase: 'uploading' | 'committing' };
   }[];
 }
+/** The manifest files a publication of `r` carries: its packet at portable, root-relative paths. */
+export function portableFiles(
+  r: InternalResource,
+  packet: TransferPacket,
+  roots: AdapterRoots,
+  projectPath?: string,
+): PackageManifest['files'] {
+  const paths = publicationPaths(
+    r,
+    packet.files.map((f) => f.path),
+    roots,
+    projectPath,
+  );
+  return packet.files.map((f, i) => ({
+    path: paths[i],
+    sha256: f.hash,
+    bytes: Buffer.from(f.content, 'base64').length,
+    mode: f.mode as 420 | 493,
+  }));
+}
 export async function preparePublication(options: {
   selection: ResourceSelection;
   binding: CloudBinding;
@@ -111,12 +131,6 @@ export async function preparePublication(options: {
         if (!(e instanceof CloudError) || e.code !== 'not_found') throw e;
       }
       assertCloudBinding(cloud, binding);
-      const paths = publicationPaths(
-        r,
-        packet.files.map((f) => f.path),
-        roots,
-        project?.path,
-      );
       const manifest: PackageManifest = {
         resourceId,
         agent: r.summary.agent,
@@ -127,12 +141,7 @@ export async function preparePublication(options: {
         name: r.summary.name,
         scope: r.summary.scope,
         projectId: project?.cloudProjectId ?? null,
-        files: packet.files.map((f, i) => ({
-          path: paths[i],
-          sha256: f.hash,
-          bytes: Buffer.from(f.content, 'base64').length,
-          mode: f.mode as 420 | 493,
-        })),
+        files: portableFiles(r, packet, roots, project?.path),
         dependencies: dependencies.map((d) => ({
           resourceId: d.manifest.resourceId,
           version: (d.baseVersion ?? 0) + 1,

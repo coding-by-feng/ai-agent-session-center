@@ -2,9 +2,9 @@
 // AASC-17: Your Macs, a Mac's settings, unpairing, and Can't reach.
 import { afterEach, describe, expect, it } from 'vitest';
 import { LOCK_SETTINGS_KEY } from './lockGate';
-import { loadMacs, readMacCredentials } from './savedMacs';
+import { LAST_MAC_KEY, loadMacs, readBackendCredential, readMacCredentials, saveMacs, withMac, writeMacCredentials } from './savedMacs';
 import {
-  buttonNamed, click, createHarness, fieldLabelled, heading, KASON_MBP, LAN, seedMac, STUDIO, TAILNET, until,
+  buttonNamed, click, createHarness, fieldLabelled, heading, KASON_MBP, LAN, LINK, seedMac, STUDIO, TAILNET, until,
 } from './testing/shellHarness';
 
 afterEach(() => {
@@ -50,6 +50,63 @@ describe('Your Macs', () => {
     await t.app.start();
     await until(t.root, () => t.navigations.length > 0);
     expect(t.navigations).toEqual([`${TAILNET}/`]);
+  });
+
+  // Oct 21 2026: with two Macs saved (re-pairing leaves two rows for one Mac), every launch stopped at the list.
+  it('opens the Mac used last on launch when several are paired', async () => {
+    const t = createHarness({ mac: { reachable: [TAILNET, 'http://100.88.1.7:3333'] }, store: { [LAST_MAC_KEY]: STUDIO.id } });
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, STUDIO);
+    await t.app.start();
+    await until(t.root, () => t.navigations.length > 0);
+    expect(t.navigations).toEqual(['http://100.88.1.7:3333/']);
+  });
+
+  it('shows the list when the Mac used last is gone', async () => {
+    const t = createHarness({ store: { [LAST_MAC_KEY]: '6f1c2a10-0000-4000-8000-0000000000ff' } });
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, STUDIO);
+    await t.app.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.navigations).toEqual([]);
+    expect(heading(t.root)).toBe('Your Macs');
+  });
+
+  // Review, Oct 21 2026: opening the old row signs in, and releasedTwins then retires the waiting re-pair of the
+  // same Mac (its key proves "pending" there), so a launch after the app was killed mid-approval undid the re-pair.
+  it('shows the list while a pairing waits for approval, even with a Mac used last: the waiting one is kept', async () => {
+    for (const twinOnMac of ['pending', 'active'] as const) { // the Mac may have allowed it while the app was gone
+      document.body.replaceChildren();
+      const repair = { ...KASON_MBP, id: '6f1c2a10-0000-4000-8000-000000000003', status: 'pending' as const, confirmCode: '482913' };
+      const t = createHarness({ store: { [LAST_MAC_KEY]: KASON_MBP.id } });
+      await seedMac(t, KASON_MBP);
+      await seedMac(t, repair, twinOnMac);
+      await t.app.start();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(t.navigations).toEqual([]);
+      expect(heading(t.root)).toBe('Your Macs');
+      expect((await loadMacs(t.deps.store)).map((m) => m.id)).toEqual([KASON_MBP.id, repair.id]);
+    }
+  });
+
+  it('still opens the only paired Mac when the one used last was removed', async () => {
+    const t = createHarness({ store: { [LAST_MAC_KEY]: STUDIO.id } });
+    await seedMac(t, KASON_MBP);
+    await t.app.start();
+    await until(t.root, () => t.navigations.length > 0);
+    expect(t.navigations).toEqual([`${TAILNET}/`]);
+  });
+
+  it('stays on the list when the Mac’s page sent the app back to switch Macs (?tap=1)', async () => {
+    // More → Switch Mac opens nativeShellHomeUrl(): opening the Mac used last there would bounce straight back.
+    const t = createHarness({ search: '?tap=1', store: { [LAST_MAC_KEY]: STUDIO.id } });
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, STUDIO);
+    await t.app.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.navigations).toEqual([]);
+    expect(heading(t.root)).toBe('Your Macs');
+    expect(buttonNamed(t.root, 'Pair another Mac')).not.toBeNull();
   });
 
   it('does not open the Mac by itself when the phone sent the app back for a notification tap', async () => {
@@ -289,5 +346,277 @@ describe('Can’t reach', () => {
     click(t.root, /^Kason-MBP/);
     await until(t.root, () => heading(t.root) === 'Couldn’t open Kason-MBP');
     expect(t.root.querySelector('[role="alert"]')?.textContent).toContain('Sign-in failed (429)');
+  });
+});
+
+// Oct 20 2026: pairing the same Mac again added a second row (each pairing gets its own id).
+describe('one row per Mac', () => {
+  type T = ReturnType<typeof createHarness>;
+  const TWIN = { ...KASON_MBP, id: '6f1c2a10-0000-4000-8000-000000000003' };
+  const unpairCalls = (t: T) => t.mac.calls.filter((c) => c.url.endsWith('/api/mobile/unpair'));
+  const deviceOf = async (t: T, id: string) => (await readMacCredentials(t.deps.vault, id))!.deviceId;
+  const ids = async (t: T) => (await loadMacs(t.deps.store)).map((m) => m.id);
+  const withPush = (t: T, ...macIds: string[]) => macIds.forEach((id) => t.vault.set(`backend.${id}`, JSON.stringify(t.mac.seedBackendDevice())));
+  async function openFirstRow(t: T) {
+    await t.app.start();
+    await until(t.root, () => heading(t.root) === 'Your Macs');
+    t.root.querySelectorAll<HTMLButtonElement>('.mac-open')[0].click();
+  }
+
+  it('pairing the Mac again replaces its row once the Mac allows the new one, and the Mac drops the old key', async () => {
+    const t = await twoMacs();
+    const cookieLog: string[] = [];
+    const { set, clear } = t.deps.cookies;
+    t.deps.cookies.set = async (origin, token, maxAge) => {
+      cookieLog.push(`set ${origin}`);
+      return set(origin, token, maxAge);
+    };
+    t.deps.cookies.clear = async (origin) => {
+      cookieLog.push(`clear ${origin}`);
+      return clear(origin);
+    };
+    const oldDevice = await deviceOf(t, KASON_MBP.id);
+    t.openLink(LINK);
+    await until(t.root, () => t.root.dataset.screen === 'confirm');
+    click(t.root, 'Pair');
+    await until(t.root, () => heading(t.root) === 'Approve on your Mac');
+    t.mac.approve();
+    await until(t.root, () => t.navigations.length > 0);
+    expect(t.navigations).toEqual([`${TAILNET}/`]);
+    const saved = await loadMacs(t.deps.store);
+    expect(saved.map((m) => m.name)).toEqual(['Studio', 'Kason-MBP']);
+    expect(saved.find((m) => m.name === 'Kason-MBP')?.id).not.toBe(KASON_MBP.id);
+    expect(await readMacCredentials(t.deps.vault, KASON_MBP.id)).toBeNull();
+    expect(t.mac.devices.get(oldDevice)?.status).toBe('revoked');
+    // The old row's cookies (it shares this origin) are cleared before the new session's is set.
+    expect(cookieLog.lastIndexOf(`clear ${TAILNET}`)).toBeLessThan(cookieLog.indexOf(`set ${TAILNET}`));
+    expect(cookieLog.at(-1)).toBe(`set ${TAILNET}`);
+    expect(t.mac.strikes()).toBe(0);
+  });
+
+  it('keeps the old row while the new pairing waits: a re-pair never allowed leaves the one that works', async () => {
+    const t = await twoMacs();
+    const oldDevice = await deviceOf(t, KASON_MBP.id);
+    t.openLink(LINK);
+    await until(t.root, () => t.root.dataset.screen === 'confirm');
+    click(t.root, 'Pair');
+    await until(t.root, () => heading(t.root) === 'Approve on your Mac');
+    const pending = [...t.mac.devices.keys()].at(-1);
+    const checks = () => t.mac.calls.filter((c) => c.url.endsWith('/api/mobile/session') && (c.body as { deviceId: string }).deviceId === pending).length;
+    await until(t.root, () => checks() >= 3); // the approval checks ran
+    expect(await ids(t)).toContain(KASON_MBP.id);
+    expect(t.mac.devices.get(oldDevice)?.status).toBe('active');
+    expect(unpairCalls(t)).toEqual([]);
+  });
+
+  it('opening one of two rows for the same Mac removes the other: push first, then the Mac, then the phone', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    withPush(t, KASON_MBP.id, TWIN.id);
+    const twinDevice = await deviceOf(t, TWIN.id);
+    await openFirstRow(t);
+    await until(t.root, () => t.navigations.length > 0);
+    expect(await ids(t)).toEqual([KASON_MBP.id]);
+    expect(await readMacCredentials(t.deps.vault, TWIN.id)).toBeNull();
+    expect(await readBackendCredential(t.deps.vault, TWIN.id)).toBeNull();
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).not.toBeNull();
+    expect(t.mac.devices.get(twinDevice)?.status).toBe('revoked');
+    expect(t.mac.devices.get(await deviceOf(t, KASON_MBP.id))?.status).toBe('active');
+    expect(t.mac.pushTargetsRemoved()).toBe(1);
+    const urls = t.mac.calls.map((c) => `${c.method} ${c.url}`);
+    expect(urls.indexOf('DELETE https://api.aasc.work/v1/push/targets/self')).toBeLessThan(urls.indexOf(`POST ${TAILNET}/api/mobile/unpair`));
+  });
+
+  it('removes a row the Mac already revoked without asking it again (the usual reason to re-pair)', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN, 'revoked');
+    await openFirstRow(t);
+    await until(t.root, () => t.navigations.length > 0);
+    expect(await ids(t)).toEqual([KASON_MBP.id]);
+    expect(await readMacCredentials(t.deps.vault, TWIN.id)).toBeNull();
+    expect(unpairCalls(t)).toEqual([]);
+    expect(t.mac.strikes()).toBe(0);
+  });
+
+  it('cancels a pairing still waiting for approval when the old row of that Mac opens', async () => {
+    const t = createHarness();
+    const waiting = { ...TWIN, status: 'pending' as const, confirmCode: '482913' };
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, waiting, 'pending');
+    const waitingDevice = await deviceOf(t, waiting.id);
+    await openFirstRow(t);
+    await until(t.root, () => t.navigations.length > 0);
+    expect(await ids(t)).toEqual([KASON_MBP.id]);
+    expect(t.mac.devices.get(waitingDevice)?.status).toBe('revoked');
+  });
+
+  it('leaves a row whose key the Mac doesn’t know (it may be another Mac), and never proves it there again', async () => {
+    const t = createHarness();
+    const office = { ...KASON_MBP, id: '6f1c2a10-0000-4000-8000-000000000004', name: 'Office-Mac' };
+    await seedMac(t, KASON_MBP);
+    await writeMacCredentials(t.deps.vault, office.id, { deviceId: crypto.randomUUID(), deviceToken: 'f'.repeat(64) });
+    await saveMacs(t.deps.store, withMac(await loadMacs(t.deps.store), office));
+    await t.app.start();
+    await until(t.root, () => heading(t.root) === 'Your Macs');
+    click(t.root, /^Kason-MBP/);
+    await until(t.root, () => t.navigations.length > 0);
+    expect((await loadMacs(t.deps.store)).map((m) => m.name)).toEqual(['Kason-MBP', 'Office-Mac']);
+    expect(await readMacCredentials(t.deps.vault, office.id)).not.toBeNull();
+    expect(unpairCalls(t)).toEqual([]);
+    expect(t.mac.strikes()).toBe(1); // the Mac's login limiter allows 5 per 15 minutes
+    document.body.replaceChildren();
+    // The next launch (the shell reloads every time it comes back from a Mac's page) doesn't ask again.
+    const again = createHarness({ fakeMac: t.mac, store: Object.fromEntries(t.store), vault: Object.fromEntries(t.vault) });
+    await again.app.start(); // it opens Kason-MBP, the Mac used last, by itself
+    await until(again.root, () => again.navigations.length > 0);
+    expect(t.mac.strikes()).toBe(1);
+    expect((await loadMacs(again.deps.store)).map((m) => m.name)).toEqual(['Kason-MBP', 'Office-Mac']);
+  });
+
+  it('keeps the other row’s push while the opened one has none yet: its link failed', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    withPush(t, TWIN.id);
+    t.mac.setBackendDown(true); // Kason-MBP's backend link fails
+    await openFirstRow(t);
+    await until(t.root, () => t.navigations.length > 0);
+    expect(await ids(t)).toEqual([KASON_MBP.id, TWIN.id]);
+    expect(await readBackendCredential(t.deps.vault, TWIN.id)).not.toBeNull();
+    expect(t.mac.pushTargetsRemoved()).toBe(0);
+    expect(unpairCalls(t)).toEqual([]);
+  });
+
+  it('retires nothing more once the user cancels, and the list still matches what is saved', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    withPush(t, KASON_MBP.id, TWIN.id);
+    const twinDevice = await deviceOf(t, TWIN.id);
+    const release = t.mac.holdNextBackendRequest(); // the twin's push removal
+    await openFirstRow(t);
+    await until(t.root, () => t.mac.calls.some((c) => c.method === 'DELETE'));
+    click(t.root, 'Cancel');
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.navigations).toEqual([]);
+    expect(unpairCalls(t)).toEqual([]);
+    expect(t.mac.devices.get(twinDevice)?.status).toBe('active');
+    expect(await ids(t)).toEqual([KASON_MBP.id, TWIN.id]);
+    expect(t.root.querySelectorAll('.mac')).toHaveLength(2);
+  });
+
+  it('keeps the list right when the user cancels after the other row was already retired', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const { set } = t.deps.cookies;
+    t.deps.cookies.set = async (origin, token, maxAge) => {
+      await held; // the sign-in is past the retire, setting the cookie
+      return set(origin, token, maxAge);
+    };
+    await openFirstRow(t);
+    await until(t.root, () => unpairCalls(t).length === 1);
+    await new Promise((r) => setTimeout(r, 10));
+    click(t.root, 'Cancel');
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.navigations).toEqual([]);
+    expect(await ids(t)).toEqual([KASON_MBP.id]);
+    expect(heading(t.root)).toBe('Your Macs');
+    expect(t.root.querySelectorAll('.mac')).toHaveLength(1); // not the retired row as well
+  });
+
+  it('keeps the list right when the sign-in fails after the other row was retired', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    t.deps.cookies.set = async () => {
+      throw new Error('cookie store unavailable');
+    };
+    await openFirstRow(t);
+    await until(t.root, () => heading(t.root) === 'Couldn’t open Kason-MBP');
+    expect(await ids(t)).toEqual([KASON_MBP.id]);
+    click(t.root, 'Your Macs');
+    expect(t.root.querySelectorAll('.mac')).toHaveLength(1);
+  });
+
+  it('cancelling a re-pair while the old row is checked keeps the old row and drops the new one', async () => {
+    const t = await twoMacs();
+    const oldDevice = await deviceOf(t, KASON_MBP.id);
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let checkingOld = false;
+    const post = t.deps.http.post;
+    t.deps.http.post = async (url, body) => {
+      if (url.endsWith('/api/mobile/session') && (body as { deviceId?: string }).deviceId === oldDevice) {
+        checkingOld = true; // the new row signed in and the retire is proving the old row's key
+        await held;
+      }
+      return post(url, body);
+    };
+    t.openLink(LINK);
+    await until(t.root, () => t.root.dataset.screen === 'confirm');
+    click(t.root, 'Pair');
+    await until(t.root, () => heading(t.root) === 'Approve on your Mac');
+    const newDevice = [...t.mac.devices.keys()].at(-1)!;
+    t.mac.approve();
+    await until(t.root, () => checkingOld);
+    click(t.root, 'Cancel pairing');
+    release();
+    await until(t.root, () => t.mac.devices.get(newDevice)?.status === 'revoked');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.navigations).toEqual([]);
+    expect(unpairCalls(t).map((c) => (c.body as { deviceId: string }).deviceId)).toEqual([newDevice]);
+    expect(t.mac.devices.get(oldDevice)?.status).toBe('active');
+    expect((await loadMacs(t.deps.store)).map((m) => m.id)).toEqual([KASON_MBP.id, STUDIO.id]);
+    expect(await readMacCredentials(t.deps.vault, KASON_MBP.id)).not.toBeNull();
+  });
+
+  it('asks the Mac about at most one key it may not know per sign-in (each is a login-limit strike)', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    for (const n of [4, 5]) {
+      const other = { ...KASON_MBP, id: `6f1c2a10-0000-4000-8000-00000000000${n}`, name: `Office-${n}` };
+      await writeMacCredentials(t.deps.vault, other.id, { deviceId: crypto.randomUUID(), deviceToken: 'f'.repeat(64) });
+      await saveMacs(t.deps.store, withMac(await loadMacs(t.deps.store), other));
+    }
+    let h: T = t;
+    for (const strikes of [1, 2, 2]) {
+      await h.app.start();
+      // The first launch has no Mac used last, so it lists; the later ones open Kason-MBP by themselves.
+      if (h === t) {
+        await until(h.root, () => heading(h.root) === 'Your Macs');
+        click(h.root, /^Kason-MBP/);
+      }
+      await until(h.root, () => h.navigations.length > 0);
+      expect(t.mac.strikes()).toBe(strikes);
+      document.body.replaceChildren();
+      h = createHarness({ fakeMac: t.mac, store: Object.fromEntries(h.store), vault: Object.fromEntries(h.vault) });
+    }
+    expect((await loadMacs(h.deps.store)).map((m) => m.name)).toEqual(['Kason-MBP', 'Office-4', 'Office-5']);
+  });
+
+  it('opens the Mac anyway when retiring the other row takes too long, and keeps that row for next time', async () => {
+    const t = createHarness({ timing: { pollMs: 5, pollMaxMs: 60_000, retireMs: 40 } });
+    await seedMac(t, KASON_MBP);
+    await seedMac(t, TWIN);
+    withPush(t, KASON_MBP.id, TWIN.id);
+    const twinDevice = await deviceOf(t, TWIN.id);
+    t.mac.setBackendHang(true); // removing the twin's push target never answers
+    await openFirstRow(t);
+    await until(t.root, () => t.navigations.length > 0);
+    expect(await ids(t)).toEqual([KASON_MBP.id, TWIN.id]);
+    expect(await readMacCredentials(t.deps.vault, TWIN.id)).not.toBeNull();
+    expect(t.mac.devices.get(twinDevice)?.status).toBe('active');
+    expect(unpairCalls(t)).toEqual([]);
   });
 });

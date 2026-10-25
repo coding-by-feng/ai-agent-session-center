@@ -34,9 +34,12 @@ describe('SkillNotes card', () => {
     expect((input as HTMLInputElement).value).toBe('');
   });
 
-  it('toggles the favourite, reporting its state to assistive tech', async () => {
+  // Oct 23 2026: the heart is the detail title row's (FavToggle), not the card's.
+  it('the card holds tags and the abbreviation; the heart is the title row toggle', async () => {
     const user = userEvent.setup();
-    render(<SkillNotes resource={res()} realNames={REAL} />);
+    render(<><FavToggle resource={res()} /><SkillNotes resource={res()} realNames={REAL} /></>);
+    const card = screen.getByRole('region', { name: /My notes/ });
+    expect(within(card).queryByRole('button', { name: /Favourite/ })).toBeNull();
     const fav = screen.getByRole('button', { name: /Favourite/ });
     expect(fav.getAttribute('aria-pressed')).toBe('false');
     await user.click(fav);

@@ -6,6 +6,12 @@ import { LIVE_HINT_STORAGE_KEY } from '@/lib/liveHint';
  *  component import cycle; the modal and DetailPanel import it from the store. */
 export const ROOM_KILL_MODAL_ID = 'room-kill-confirm';
 
+/** Modal id for the kill confirm a LIVE board card opens. Its own id, not the
+ *  panel's `KILL_MODAL_ID`: the board names its session in
+ *  `sessionKillTargetId`, and it stays mounted under an open panel, so on one
+ *  id the panel's skull would draw the dialog twice (the panel's and the board's). */
+export const SESSION_KILL_MODAL_ID = 'session-kill-confirm';
+
 /** Where `queuePanelCollapsed` persists: the key QueueTab used while the flag was
  *  its own local state, so a stored choice survives the move. */
 export const QUEUE_PANEL_COLLAPSED_KEY = 'queue-panel-collapsed';
@@ -24,9 +30,9 @@ export interface PendingFileChooser {
 
 export type CardDisplayMode = 'detailed' | 'compact';
 
-/** Prompt Queue (QueueTab) layout: 'list' (default — the original row layout,
- *  drag-to-reorder) or 'card' (a wrapping grid; reorder via the row's existing
- *  ▲/▼ buttons instead of drag — a 2D grid has no unambiguous drop target). */
+/** Prompt Queue (QueueTab) layout: 'list' (the original row layout) or 'card'
+ *  (a wrapping grid, the default since Aug 2026). Both drag to reorder with the
+ *  same grip; a carried card moves both ways (Oct 22 2026) and ▲/▼ remain. */
 export type QueueViewMode = 'list' | 'card';
 
 /** Where the DetailPanel session-navigation bar sits: a horizontal strip on top
@@ -42,6 +48,12 @@ export type NavPosition = 'top' | 'left';
  *                           session there. Answers "what is running in X?". */
 export type SessionSortMode = 'room' | 'activity' | 'project';
 
+/** How the LIVE board orders its cards: 'status' (default; the rail's order),
+ *  or grouped under a heading per 'room' or per 'project'. The board's own
+ *  choice, apart from the strip's SessionSortMode, so changing one never moves
+ *  the other. */
+export type LiveBoardSort = 'status' | 'room' | 'project';
+
 export interface WorkspaceLoadState {
   active: boolean;
   total: number;
@@ -55,6 +67,9 @@ interface UiState {
    *  activeModal by openRoomKill; cleared by closeModal. `openModal` carries no
    *  payload, so the target rides here rather than in activeModal. */
   roomKillTargetId: string | null;
+  /** The session a LIVE board card's kill confirm targets. Set alongside
+   *  activeModal by openSessionKill; cleared by closeModal. */
+  sessionKillTargetId: string | null;
   /** The folder the new-session form opens with (the phone's folder browser, AASC-54).
    *  Set by openNewSession; cleared by closeModal. */
   newSessionDir: string | null;
@@ -93,6 +108,8 @@ interface UiState {
    *  'activity' flattens the room frames away, 'project' swaps them for project
    *  frames — see SessionSortMode. */
   sessionSortMode: SessionSortMode;
+  /** LIVE board card order. Persisted to localStorage['live-board-sort']. */
+  liveBoardSort: LiveBoardSort;
   /** Project frames the user has folded, by `projectKey` (host|path). Project
    *  frames are not Rooms, so there is no room.collapsed to keep this on.
    *  Persisted to localStorage['collapsed-projects'] as a JSON array. */
@@ -119,6 +136,8 @@ interface UiState {
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
   openRoomKill: (roomId: string) => void;
+  /** Open the kill confirm for one session, from its LIVE board card. */
+  openSessionKill: (sessionId: string) => void;
   /** Open the new-session form, with `workingDir` in its folder field when given. */
   openNewSession: (workingDir?: string | null) => void;
   closeModal: () => void;
@@ -147,6 +166,7 @@ interface UiState {
   openSessionJump: () => void;
   closeSessionJump: () => void;
   setSessionSortMode: (mode: SessionSortMode) => void;
+  setLiveBoardSort: (sort: LiveBoardSort) => void;
   toggleProjectCollapsed: (projectKey: string) => void;
   startWorkspaceLoad: (total: number) => void;
   advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
@@ -242,6 +262,15 @@ function loadSessionSortMode(): SessionSortMode {
   }
 }
 
+function loadLiveBoardSort(): LiveBoardSort {
+  try {
+    const stored = localStorage.getItem('live-board-sort');
+    return stored === 'room' || stored === 'project' ? stored : 'status';
+  } catch {
+    return 'status';
+  }
+}
+
 function loadCollapsedProjects(): Set<string> {
   try {
     const raw = localStorage.getItem('collapsed-projects');
@@ -305,6 +334,7 @@ function loadLiveHintDismissed(): boolean {
 export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   roomKillTargetId: null,
+  sessionKillTargetId: null,
   newSessionDir: null,
   detailPanelOpen: false,
   detailPanelMinimized: false,
@@ -320,6 +350,7 @@ export const useUiStore = create<UiState>((set) => ({
   pinnedRoomCollapsed: loadFlag('pinned-room-collapsed'),
   sessionJumpOpen: false,
   sessionSortMode: loadSessionSortMode(),
+  liveBoardSort: loadLiveBoardSort(),
   collapsedProjects: loadCollapsedProjects(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
@@ -329,10 +360,11 @@ export const useUiStore = create<UiState>((set) => ({
 
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
-  // Clear the room-kill target too, so a stale id can't leak into the next open.
+  openSessionKill: (sessionId) => set({ activeModal: SESSION_KILL_MODAL_ID, sessionKillTargetId: sessionId }),
+  // Clear both kill targets too, so a stale id can't leak into the next open.
   openNewSession: (workingDir) => set({ activeModal: 'new-session', newSessionDir: workingDir || null }),
   // Clear the new-session folder too: the next plain open keeps the form's own.
-  closeModal: () => set({ activeModal: null, roomKillTargetId: null, newSessionDir: null }),
+  closeModal: () => set({ activeModal: null, roomKillTargetId: null, sessionKillTargetId: null, newSessionDir: null }),
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
   minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),
@@ -429,6 +461,15 @@ export const useUiStore = create<UiState>((set) => ({
         /* ignore */
       }
       return { sessionSortMode: mode };
+    }),
+  setLiveBoardSort: (sort) =>
+    set(() => {
+      try {
+        localStorage.setItem('live-board-sort', sort);
+      } catch {
+        /* ignore */
+      }
+      return { liveBoardSort: sort };
     }),
   toggleProjectCollapsed: (projectKey) =>
     set((s) => {

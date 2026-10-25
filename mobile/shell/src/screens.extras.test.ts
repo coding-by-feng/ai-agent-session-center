@@ -64,7 +64,7 @@ describe('Share to AASC', () => {
 
   it('says what the phone refused before reading it all, and adds nothing', async () => {
     const t = await sharing({ share: { problem: 'too-many' } });
-    expect(t.root.querySelector('[role="alert"]')?.textContent).toContain('At most 4 images. Nothing was added.');
+    expect(t.root.querySelector('[role="alert"]')?.textContent).toContain('At most 10 images. Nothing was added.');
     expect(t.mac.calls).toHaveLength(0);
   });
 

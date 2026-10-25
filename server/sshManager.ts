@@ -25,6 +25,8 @@ import { fanOutToSockets, type SubscriberSocket } from './ptySubscribers.js';
 import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
 import type { FaultMatch } from './interruptionDetector.js';
+import { noteBtwChunk, clearBtwState, type BtwCaptureDeps } from './btwCapture.js';
+import type { BtwAnswer } from '../src/types/session.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
@@ -54,6 +56,27 @@ export function registerTerminalFaultCallback(cb: OnTerminalFaultCallback): void
   onTerminalFaultCallback = cb;
 }
 
+// Callback type for notifying the session store that a terminal showed a `/btw` answer.
+type OnTerminalBtwCallback = (terminalId: string, answer: BtwAnswer) => void;
+let onTerminalBtwCallback: OnTerminalBtwCallback | null = null;
+
+/** Register a callback invoked when a PTY's screen shows a new or grown `/btw` answer (btwCapture.ts). */
+export function registerTerminalBtwCallback(cb: OnTerminalBtwCallback): void {
+  onTerminalBtwCallback = cb;
+}
+
+const btwDeps: BtwCaptureDeps = {
+  snapshot(terminalId) {
+    const term = terminals.get(terminalId);
+    const geometry = getTerminalGeometry(terminalId);
+    if (!term || !geometry || ringLength(term) === 0) return null;
+    return { bytes: ringSnapshot(term), ...geometry };
+  },
+  onAnswer(terminalId, answer) {
+    onTerminalBtwCallback?.(terminalId, answer);
+  },
+};
+
 /**
  * Run one PTY chunk past the interruption detector and forward any fault.
  * Called from every `onData` handler that owns an agent terminal. Kept tiny and
@@ -68,6 +91,7 @@ function notePtyOutput(terminalId: string, data: string): void {
       const fault = scanChunk(terminalId, data);
       if (fault) onTerminalFaultCallback(terminalId, fault);
     }
+    if (onTerminalBtwCallback) noteBtwChunk(terminalId, data, btwDeps);
   } catch (e: unknown) {
     // Detection is best-effort — it must never break terminal streaming.
     log.debug('pty', `Output scan failed for ${terminalId}: ${(e as Error).message}`);
@@ -1354,6 +1378,7 @@ function cleanup(terminalId: string): void {
   // Terminal ids can be reused across a resume; a stale carry/dedupe entry
   // would make the new terminal's first banner look like a redraw of the old.
   clearFaultState(terminalId);
+  clearBtwState(terminalId);
   forgetTerminalOutput(terminalId);
   const term = terminals.get(terminalId);
   if (term) {

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import CloudReview from './CloudReview';
-import type { InstallPlan, PublicationPlan } from '@/types/cloudResources';
+import type { PublicationPlan } from '@/types/cloudResources';
 const publish: PublicationPlan = {
   id: 'plan',
   items: [],
@@ -10,8 +10,8 @@ const publish: PublicationPlan = {
 describe('Cloud review', () => {
   it('save_review_shows_blocked_count and never counts unsupported as publishable', () => {
     render(<CloudReview publication={publish} onConfirm={vi.fn()} onClose={vi.fn()} />);
-    expect(screen.getByText('0 ready · 1 blocked')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish reviewed resources' })).toBeDisabled();
+    expect(screen.getByText("0 resources ready to save · 1 can't be saved")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save 0 resources to cloud' })).toBeDisabled();
   });
   it('names a blocked item by its local resource name, not its catalog id', () => {
     render(
@@ -24,34 +24,9 @@ describe('Cloud review', () => {
     );
     expect(screen.getByText('Local settings: Unsupported settings')).toBeInTheDocument();
   });
-  it('requires explicit replacement decision and displays file comparison', () => {
-    const confirm = vi.fn();
-    const plan: InstallPlan = {
-      id: 'plan',
-      items: [
-        {
-          id: 'item',
-          resourceId: 'resource',
-          version: 2,
-          destinationLabel: '~/.claude/skills/example',
-          action: 'replace',
-          files: [{ path: 'example/SKILL.md', change: 'change' }],
-        },
-      ],
-    };
-    render(<CloudReview install={plan} onConfirm={confirm} onClose={vi.fn()} />);
-    const run = screen.getByRole('button', { name: 'Install reviewed resources' });
-    expect(run).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Decision for ~/.claude/skills/example'), {
-      target: { value: 'replace-with-backup' },
-    });
-    fireEvent.click(run);
-    expect(confirm).toHaveBeenCalledWith({ item: 'replace-with-backup' });
-    expect(screen.getByText(/example\/SKILL.md/)).toBeInTheDocument();
-  });
 });
 
-it('mixed ready and blocked publication remains disabled', () => {
+it('mixed ready and blocked: saves the ready one and lists what is left out', () => {
   const confirm = vi.fn();
   render(
     <CloudReview
@@ -79,8 +54,43 @@ it('mixed ready and blocked publication remains disabled', () => {
       onClose={vi.fn()}
     />,
   );
-  const button = screen.getByRole('button', { name: 'Publish reviewed resources' });
-  expect(button).toBeDisabled();
-  fireEvent.click(button);
-  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.getByText("1 resource ready to save · 1 can't be saved")).toBeInTheDocument();
+  expect(screen.getByText('settings: Unsupported settings')).toBeInTheDocument();
+  expect(screen.getByText(/Claude skill · new/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Save 1 resource to cloud' }));
+  expect(confirm).toHaveBeenCalled();
+});
+it('memory waits for its OK before it can be saved', () => {
+  const confirm = vi.fn();
+  render(
+    <CloudReview
+      publication={{
+        id: 'plan',
+        blocked: [],
+        items: [
+          {
+            catalogId: 'memory',
+            sourceDigest: 'a'.repeat(64),
+            baseVersion: 2,
+            manifest: {
+              resourceId: 'id',
+              agent: 'codex',
+              kind: 'memory',
+              name: 'notes',
+              scope: 'global',
+              projectId: null,
+              files: [],
+              dependencies: [],
+            },
+          },
+        ],
+      }}
+      onConfirm={confirm}
+      onClose={vi.fn()}
+    />,
+  );
+  const save = screen.getByRole('button', { name: 'Save 1 resource to cloud' });
+  expect(save).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('OK to save the memory files listed here to the cloud.'));
+  expect(save).toBeEnabled();
 });

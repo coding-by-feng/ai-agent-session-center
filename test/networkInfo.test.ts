@@ -1,4 +1,5 @@
-// test/networkInfo.test.ts — getLocalIP(), extracted from server/index.ts so
+// test/networkInfo.test.ts — getLocalIP() and isTailnetAddress() (the canonical 100.64.0.0/10 rule the
+// Remote access code shares with the phone, AASC-60). getLocalIP() was extracted from server/index.ts so
 // GET /api/config (apiRouter.ts) can expose the same LAN address the startup
 // log already computes, without duplicating the interface-walk logic. The
 // client's DevicePresenceChip panel uses this to show "connect a phone at
@@ -13,11 +14,12 @@ vi.mock('os', () => ({
 }));
 
 let getLocalIP: typeof import('../server/networkInfo.js').getLocalIP;
+let isTailnetAddress: typeof import('../server/networkInfo.js').isTailnetAddress;
 
 beforeEach(async () => {
   vi.resetModules();
   mockNetworkInterfaces.mockReset();
-  ({ getLocalIP } = await import('../server/networkInfo.js'));
+  ({ getLocalIP, isTailnetAddress } = await import('../server/networkInfo.js'));
 });
 
 /** Minimal realistic NetworkInterfaceInfo — real entries carry more fields
@@ -91,5 +93,25 @@ describe('getLocalIP', () => {
       en1: [ipv4('192.168.1.30')],
     });
     expect(getLocalIP()).toBe('192.168.1.30');
+  });
+});
+
+// Canonical dotted-quad only (AASC-60 task 5b): the URL layer reads a leading-zero octet as octal,
+// so '100.064.001.001' would pass as Tailscale here yet be dialled as 100.52.1.1. Same rule as the
+// phone's pairingLink.ts, kept in step here as defence in depth.
+describe('isTailnetAddress', () => {
+  it('isTailnetAddress refuses leading zeros and out-of-range octets', () => {
+    for (const s of ['100.064.001.001', '100.64.1.256', '100.64.01.1']) expect(isTailnetAddress(s)).toBe(false);
+    for (const s of ['100.64.0.0', '100.127.255.255', '100.101.102.103']) expect(isTailnetAddress(s)).toBe(true);
+  });
+
+  it('refuses malformed addresses', () => {
+    for (const s of ['100.64.1', '100.64.1.1.1', ' 100.64.1.1', '100.64.1.1 ', '100.64.1.1\n', '+100.64.1.1', '100.64.1.1/32', '100.64.1.', '100..1.1', '100.64.1.x', '::ffff:100.64.1.1', ''])
+      expect(isTailnetAddress(s)).toBe(false);
+  });
+
+  it('keeps the 100.64.0.0/10 range edges', () => {
+    for (const s of ['100.63.255.255', '100.128.0.0', '99.64.0.1', '101.64.0.1', '10.64.0.1']) expect(isTailnetAddress(s)).toBe(false);
+    for (const s of ['100.64.0.1', '100.127.0.1']) expect(isTailnetAddress(s)).toBe(true);
   });
 });

@@ -3,6 +3,7 @@
 import { createShellApp, type ShellApp, type ShellTiming } from '../app.js';
 import { createFakeMac, type FakeDeviceStatus, type FakeMac, type FakeMacOptions } from '../dev/fakeMac.js';
 import type { BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
+import type { BrowseResult } from '../lanRescan.js';
 import type { NotificationLike } from '../pushPayload.js';
 import { loadMacs, saveMacs, withMac, writeMacCredentials, type SavedMac } from '../savedMacs.js';
 
@@ -31,6 +32,8 @@ export interface HarnessOptions {
   share?: RawShare | null;
   biometric?: { available: boolean; pass: boolean; bootId?: string | null };
   widget?: boolean;
+  /** Bonjour on this Wi-Fi: what the native browse finds (absent: the phone has no browser, sweep only). */
+  discovery?: () => Promise<BrowseResult>;
 }
 
 export function createHarness(opts: HarnessOptions = {}) {
@@ -163,6 +166,7 @@ export function createHarness(opts: HarnessOptions = {}) {
       },
     } : undefined,
     widget: opts.widget ? { write: async (json) => { extras.widget.push(json); } } : undefined,
+    discovery: opts.discovery ? { browse: opts.discovery } : undefined,
   };
 
   const root = document.createElement('div');

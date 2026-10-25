@@ -22,6 +22,7 @@ let base = '';
 let transcript = '';
 const saved: Record<string, string | undefined> = {};
 const sessions = new Map<string, Record<string, unknown>>();
+const watchedReads: Array<[string, string]> = [];
 
 beforeAll(async () => {
   saved.HOME = process.env.HOME;
@@ -55,7 +56,7 @@ beforeAll(async () => {
   sessions.set(CODEX_ID, { sessionId: CODEX_ID, cliSource: 'codex', projectPath: project, remoteVisible: true });
 
   const app = express();
-  app.use('/api', createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null }));
+  app.use('/api', createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null, watchTranscript: (id, path) => watchedReads.push([id, path]) }));
   server = createServer(app);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
@@ -119,6 +120,13 @@ describe('GET /sessions/:id/chat', () => {
     appendJsonl(transcript, [claude.assistant('fresh')]);
     const newer = await get(`/sessions/shared/chat?after=${encodeURIComponent(last.body.data.after as string)}`);
     expect(texts(newer.body.data)).toEqual(['fresh']);
+  });
+
+  it('asks for the transcript it read to be watched, so the phone hears when it grows', async () => {
+    watchedReads.length = 0;
+    await get('/sessions/shared/chat');
+    await get('/sessions/empty/chat');
+    expect(watchedReads).toEqual([['shared', transcript]]);
   });
 
   it('reads a Codex session’s rollout', async () => {
@@ -198,5 +206,47 @@ describe('GET /sessions/:id/changes', () => {
       data: { files: [], total: { added: 0, removed: 0 }, cli: 'claude' },
     });
     expect((await getJson('/sessions/empty/changes/0')).status).toBe(404);
+  });
+});
+
+describe('GET /sessions/:id/context-breakdown', () => {
+  async function getJson(path: string, headers: Record<string, string> = {}) {
+    const res = await fetch(`${base}/api${path}`, { headers });
+    return { status: res.status, body: (await res.json()) as { success: boolean; data: unknown; error?: string } };
+  }
+  const reply = (id: string, window: number, text: string) => ({
+    type: 'assistant', timestamp: '2026-10-22T00:00:00.000Z',
+    message: { id, role: 'assistant', content: [{ type: 'text', text }], usage: { input_tokens: 1, cache_read_input_tokens: window - 1, cache_creation_input_tokens: 0, output_tokens: 9 } },
+  });
+
+  beforeAll(() => {
+    const dir = join(tmp, 'home', '.claude', 'projects', '-proj');
+    const path = writeJsonl(join(dir, 'window.jsonl'), [
+      { type: 'user', message: { role: 'user', content: 'go' } },
+      reply('m1', 30_000, 'first'),
+      { type: 'user', message: { role: 'user', content: 'and more' } },
+      reply('m2', 31_000, 'second'),
+    ]);
+    sessions.set('window', { sessionId: 'window', cliSource: 'claude', projectPath: join(tmp, 'home', 'proj'), transcriptPath: path, remoteVisible: true });
+    sessions.set('hidden-window', { sessionId: 'hidden-window', cliSource: 'claude', projectPath: join(tmp, 'home', 'proj'), transcriptPath: path });
+  });
+
+  it('measures a shared Claude session’s window for a remote device', async () => {
+    const res = await getJson('/sessions/window/context-breakdown', REMOTE);
+    expect(res.status).toBe(200);
+    const data = res.body.data as { tokens: number; kinds: Array<{ kind: string; tokens: number }>; requests: number };
+    expect(data.tokens).toBe(31_000);
+    expect(data.requests).toBe(2);
+    expect(data.kinds.reduce((n, k) => n + k.tokens, 0)).toBe(31_000);
+  });
+
+  it('answers a remote device 404 for a hidden session, like for an unknown one', async () => {
+    expect((await getJson('/sessions/hidden-window/context-breakdown', REMOTE)).status).toBe(404);
+    expect((await getJson('/sessions/nope/context-breakdown', REMOTE)).status).toBe(404);
+  });
+
+  it('is null for a Codex session and for one with no transcript', async () => {
+    expect((await getJson(`/sessions/${CODEX_ID}/context-breakdown`)).body).toEqual({ success: true, data: null });
+    expect((await getJson('/sessions/empty/context-breakdown')).body).toEqual({ success: true, data: null });
   });
 });

@@ -29,12 +29,34 @@ export const STATUS_LEGEND: ReadonlyArray<{ status: string; label: string }> = [
   { status: 'ended', label: 'Disconnected' },
 ];
 
+/**
+ * "Asks you to proceed" (Oct 23 2026): a finished session whose last answer asks the user to
+ * reply "proceed" (`Session.pendingProceedAt`, server/proceedRequest.ts). Not a status, so it is
+ * not in the legend or the sort: the rail, the LIVE board and the phone's rows show it in place of
+ * a finished or idle status, so the session reads as owing a review instead of one more idle
+ * card. Anything that blocks the session (approval, a question) or means it is busy or gone wins.
+ */
+export const PROCEED = 'proceed';
+const PROCEED_LABEL = 'Asks you to proceed';
+const PROCEED_COLOR = 'var(--accent-yellow)';
+
+export function owesProceed(session: { status: string; pendingProceedAt?: number | null }): boolean {
+  return !!session.pendingProceedAt && (session.status === 'waiting' || session.status === 'idle');
+}
+
+/** The status to draw: `PROCEED` while a reply is owed, else the session's own. */
+export function displayStatus(session: { status: string; pendingProceedAt?: number | null }): string {
+  return owesProceed(session) ? PROCEED : session.status;
+}
+
 /** The status in words; an unknown status is shown as it is. */
 export function statusLabel(status: string): string {
+  if (status === PROCEED) return PROCEED_LABEL;
   return STATUS_LEGEND.find((s) => s.status === status)?.label ?? status;
 }
 
 /** The status colour; an unknown status gets the dim text colour. */
 export function statusColor(status: string): string {
+  if (status === PROCEED) return PROCEED_COLOR;
   return STATUS_COLORS[status] ?? 'var(--text-dim)';
 }

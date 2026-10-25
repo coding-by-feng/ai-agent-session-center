@@ -6,10 +6,17 @@
  * which scope (or project), who produced it (plugin/system/synced/linked),
  * whether the agent-skills repo agrees (no chip when the repo doesn't collect
  * that category — "not tracked" on every memory row would be noise), and
- * whether its Claude/Codex twin has drifted.
+ * whether its Claude/Codex twin has drifted. Since Oct 23 2026 a row also ends in its cloud state
+ * (CloudStateGlyph; nothing when it does not sync), and the list header holds **Select**: on, each
+ * row gets a checkbox, the header a Select all, and the bulk bar slot shows under the rows.
+ * Oct 23 2026: a skill or command row's second line ends in its uses over the last 90 days
+ * ("17 uses", or "—"), and those two lists can be sorted by them (`sort`, `onSort`). The count
+ * sits on the description line, not the first: in the 336 px column the badges fill the first
+ * line, and a count wrapping there took a line of its own.
  */
-import { useEffect, useId, useLayoutEffect, useRef } from 'react';
-import type { RepoStatus, ResourceProject, ResourceSummary, ResourceType } from '@/types/resources';
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import type { RepoStatus, ResourceProject, ResourceSummary, ResourceType, ResourceUsage } from '@/types/resources';
+import type { SyncState } from '@/types/cloudResources';
 import { stripShortcutPrefix, type ResourceShortcuts } from '@/lib/commandShortcuts';
 import {
   AGENT_LABELS,
@@ -23,13 +30,39 @@ import {
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import { isNotable, noteForResource, type SkillNote } from '@/lib/skillNotes';
 import { FavToggle } from './SkillNotes';
+import CloudStateGlyph from './CloudStateGlyph';
+import type { LibraryUsage } from './useResourceUsage';
+import { isUsageCounted, sharedNote, totalUses, usesLabel, type ResourceSort } from '@/lib/resourceUsage';
+import Button from '@/components/ui/Button';
+import NativeSelect from '@/components/ui/NativeSelect';
 import noteStyles from '@/styles/modules/SkillNotes.module.css';
+import lib from '@/styles/modules/ResourceLibrary.module.css';
 import styles from '@/styles/modules/Resources.module.css';
 import selectionStyles from '@/styles/modules/ResourceSelection.module.css';
 
+/** A row's cloud state (only resources that sync have one). */
+export interface RowCloudState {
+  state: SyncState;
+  moving: boolean;
+}
+
 interface ResourceListProps {
+  /** Checked rows, while Select is on; absent while it is off. */
   selectionIds?: ReadonlySet<string>;
   onResourceSelect?: (id: string, include: boolean) => void;
+  /** The header's Select toggle; without it the list has no selection. */
+  onToggleSelecting?: () => void;
+  /** Check or uncheck every listed row. */
+  onSelectAll?: (ids: readonly string[], include: boolean) => void;
+  /** Library id → cloud state, for the rows that sync. */
+  cloud?: ReadonlyMap<string, RowCloudState>;
+  /** Shown pinned under the rows (the bulk bar). */
+  footer?: ReactNode;
+  /** Skill/command uses, once read; absent until then (no count shows). */
+  usage?: LibraryUsage | null;
+  /** The list's order; the Sort select shows only for skills and commands. */
+  sort?: ResourceSort;
+  onSort?: (sort: ResourceSort) => void;
   type: ResourceType;
   resources: ResourceSummary[];
   selectedId: string | null;
@@ -44,6 +77,30 @@ interface ResourceListProps {
   /** Shortcut commands ↔ their targets (src/lib/commandShortcuts.ts). */
   shortcuts: ResourceShortcuts;
   onSelect: (id: string) => void;
+}
+
+const SORT_OPTIONS = [
+  { value: 'name', label: 'By name' },
+  { value: 'uses', label: 'Most used' },
+] as const;
+
+/** "17 uses", or a dash when it was not used in the window. */
+function UsesCount({ usage, windowDays }: { usage: ResourceUsage | undefined; windowDays: number }) {
+  const n = totalUses(usage);
+  if (!usage || n === 0) {
+    return (
+      <span className={lib.rowUses} title={`Not used in the last ${windowDays} days`}>
+        <span aria-hidden="true">—</span>
+        <span className={styles.visuallyHidden}>not used</span>
+      </span>
+    );
+  }
+  const split = [usage.typed > 0 && `${usage.typed} typed by you`, usage.agent > 0 && `${usage.agent} by the agent`].filter(Boolean).join(', ');
+  return (
+    <span className={lib.rowUses} title={`${usesLabel(n)} in the last ${windowDays} days: ${split}${sharedNote(usage)}`}>
+      {usesLabel(n)}
+    </span>
+  );
 }
 
 const REPO_CHIP_CLASS: Record<RepoStatus, string> = {
@@ -63,6 +120,8 @@ function ResourceRow({
   projectsById,
   shortcuts,
   note,
+  cloud,
+  usage,
   onSelect,
 }: {
   resource: ResourceSummary;
@@ -71,12 +130,15 @@ function ResourceRow({
   shortcuts: ResourceShortcuts;
   /** The user's own marks on it (tags, abbreviation); the heart is separate. */
   note: SkillNote | null;
+  cloud?: RowCloudState;
+  usage?: LibraryUsage | null;
   onSelect: (id: string) => void;
 }) {
   const origin = originTag(r);
   const repo = repoChipLabel(r.repo.status);
   const target = shortcuts.targetOf.get(r.id);
   const aliases = shortcuts.aliasesOf.get(r.id);
+  const secondary = <span className={styles.rowSecondary}>{(target ? stripShortcutPrefix(r.description ?? '') : r.description) || r.path}</span>;
   return (
     <button
       type="button"
@@ -100,7 +162,13 @@ function ResourceRow({
         {note?.abbr && <>{' '}<Badge className={styles.chipOrigin}>{`abbr ${note.abbr}`}</Badge></>}
         {note?.tags.map((t) => <span key={t}>{' '}<Badge className={styles.chipMuted}>{`#${t}`}</Badge></span>)}
       </span>{' '}
-      <span className={styles.rowSecondary}>{(target ? stripShortcutPrefix(r.description ?? '') : r.description) || r.path}</span>
+      {cloud && <span className={lib.rowCloud}><CloudStateGlyph state={cloud.state} moving={cloud.moving} /></span>}{' '}
+      {usage && isUsageCounted(r.type) ? (
+        <span className={lib.rowFoot}>
+          {secondary}{' '}
+          <UsesCount usage={usage.byId.get(r.id)} windowDays={usage.windowDays} />
+        </span>
+      ) : secondary}
     </button>
   );
 }
@@ -108,6 +176,13 @@ function ResourceRow({
 export default function ResourceList({
   selectionIds,
   onResourceSelect,
+  onToggleSelecting,
+  onSelectAll,
+  cloud,
+  footer,
+  usage,
+  sort = 'name',
+  onSort,
   type,
   resources,
   selectedId,
@@ -142,9 +217,22 @@ export default function ResourceList({
 
   return (
     <section ref={paneRef} className={styles.listPane} aria-labelledby={headingId}>
-      <h2 id={headingId} className={styles.paneHeading}>
-        {RESOURCE_TYPE_LABELS[type]} · {resources.length}
-      </h2>
+      <div className={lib.listHeader}>
+        <h2 id={headingId} className={`${styles.paneHeading} ${lib.listHeading}`}>
+          {RESOURCE_TYPE_LABELS[type]} · {resources.length}
+        </h2>
+        {onSort && isUsageCounted(type) && resources.length > 1 && (
+          <NativeSelect aria-label="Sort" value={sort} onChange={onSort} options={SORT_OPTIONS} />
+        )}
+        {selectionIds && resources.length > 0 && onSelectAll && (
+          <SelectAll resources={resources} selectionIds={selectionIds} onSelectAll={onSelectAll} />
+        )}
+        {onToggleSelecting && (
+          <Button size="sm" pressed={!!selectionIds} onClick={onToggleSelecting}>
+            Select
+          </Button>
+        )}
+      </div>
       {resources.length === 0 ? (
         <p className={styles.emptyNote}>{emptyMessage}</p>
       ) : (
@@ -162,12 +250,45 @@ export default function ResourceList({
                 projectsById={projectsById}
                 shortcuts={shortcuts}
                 note={noteForResource(notes, r)}
+                cloud={cloud?.get(r.id)}
+                usage={usage}
                 onSelect={onSelect}
               />
             </li>
           ))}
         </ul>
       )}
+      {footer}
     </section>
+  );
+}
+
+/** "Select all 353": checked when every listed row is, mixed when some are. */
+function SelectAll({
+  resources,
+  selectionIds,
+  onSelectAll,
+}: {
+  resources: readonly ResourceSummary[];
+  selectionIds: ReadonlySet<string>;
+  onSelectAll: (ids: readonly string[], include: boolean) => void;
+}) {
+  const checked = resources.filter((r) => selectionIds.has(r.id)).length;
+  const all = checked === resources.length;
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = checked > 0 && !all;
+  }, [checked, all]);
+  return (
+    <label className={lib.selectAll}>
+      <input
+        ref={ref}
+        type="checkbox"
+        className={selectionStyles.bulkCheck}
+        checked={all}
+        onChange={() => onSelectAll(resources.map((r) => r.id), !all)}
+      />
+      Select all {resources.length}
+    </label>
   );
 }

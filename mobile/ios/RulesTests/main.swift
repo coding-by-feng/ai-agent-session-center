@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -43,6 +43,35 @@ expect(ShellRules.macOrigin("http://192.168.1.20:3333/api") == nil, "path")
 expect(ShellRules.macOrigin("http://192.168.1.20:3333/?x=1") == nil, "query")
 expect(ShellRules.macOrigin("http://example.com:3333") == nil, "hostname")
 expect(ShellRules.macOrigin(nil) == nil, "nil")
+
+// macOriginRefusesLeadingZeroOctets
+expect(ShellRules.macOrigin("http://010.1.1.1:3333") == nil, "010 is octal 8")
+expect(ShellRules.macOrigin("http://100.064.001.001:3333") == nil, "padded tailnet octets")
+expect(ShellRules.macOrigin("http://192.168.001.010:3333") == nil, "padded lan octets")
+expect(ShellRules.macOrigin("http://10.0.0.08:3333") == nil, "08")
+expect(ShellRules.macOrigin("http://00.0.0.0:3333") == nil, "00.0.0.0")
+// iOS only: java.net.URI refuses this host, so ShellRulesTest.kt cannot mirror it (URLComponents percent-decodes it to 010.1.1.1).
+expect(ShellRules.macOrigin("http://%30%31%30.1.1.1:3333") == nil, "percent-encoded 010 (iOS only)")
+
+// pairableHostsAreCanonical
+expect(!ShellRules.isPairableHost("010.1.1.1"), "010.1.1.1")
+expect(!ShellRules.isPairableHost("100.064.001.001"), "100.064.001.001")
+expect(!ShellRules.isPairableHost("100.64.01.1"), "100.64.01.1")
+expect(!ShellRules.isPairableHost("100.64.1.256"), "octet over 255")
+expect(!ShellRules.isPairableHost("100.64.1"), "three octets")
+expect(ShellRules.isPairableHost("10.0.0.1"), "10/8")
+expect(ShellRules.isPairableHost("172.16.0.1"), "172.16/12")
+expect(ShellRules.isPairableHost("192.168.7.231"), "192.168/16")
+expect(ShellRules.isPairableHost("169.254.1.1"), "link-local")
+expect(ShellRules.isPairableHost("100.64.0.0"), "tailnet low edge, single zeros")
+expect(ShellRules.isPairableHost("100.127.255.255"), "tailnet high edge")
+expect(ShellRules.isPairableHost("100.101.102.103"), "tailnet")
+
+// pairableHostsAreAsciiDigitsOnly
+expect(!ShellRules.isPairableHost("\u{FF11}\u{FF10}.0.0.1"), "fullwidth 10")
+expect(!ShellRules.isPairableHost("10.0.0.\u{FF11}"), "fullwidth last octet")
+expect(!ShellRules.isPairableHost("\u{0661}\u{0660}.0.0.1"), "arabic-indic 10")
+expect(!ShellRules.isPairableHost("192.168.\u{0661}.\u{0662}"), "arabic-indic octets")
 
 // originsCompareWithDefaultPortsWrittenOut
 expect(ShellRules.originOf("http://192.168.1.20:3333/queue?x=1") == "http://192.168.1.20:3333", "explicit port")

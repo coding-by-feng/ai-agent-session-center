@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchCommandIndex } from '@/lib/commandIndex';
-import { buildCommandMenu, type CommandMenuItem, type CommandMenuGroupSpan } from '@/lib/commandMenu';
+import { buildCommandMenu, terminalMenuKinds, type CommandMenuItem, type CommandMenuGroupSpan } from '@/lib/commandMenu';
 import {
   advanceToken,
   completionKeys,
@@ -90,7 +90,7 @@ export default function TerminalCommandMenu({
     // A later keystroke already moved the token on (or ended it).
     if (tokenRef.current !== token) return;
     const notes = useSkillNotesStore.getState().notes;
-    const { items, groupSpans } = buildCommandMenu(entries, token.query, 'command', c, notes);
+    const { items, groupSpans } = buildCommandMenu(entries, token.query, 'command', c, notes, terminalMenuKinds());
     const slash = slashRef.current;
     if (items.length === 0 || !slash) {
       show(null);

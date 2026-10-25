@@ -20,6 +20,7 @@ import type {
   ResourceCompare,
   ResourceDetail,
   ResourceFileContent,
+  ResourceUsageReport,
   RestoreResult,
   ScanProgress,
   ScanState,
@@ -88,6 +89,11 @@ function itemUrl(id: string, suffix = ''): string {
 
 export function fetchCatalog(signal?: AbortSignal): Promise<ResourceCatalog> {
   return request<ResourceCatalog>(BASE, { method: 'GET', signal });
+}
+
+/** Each skill's and command's uses in the last 90 days, by catalog id (Oct 23 2026). */
+export function fetchResourceUsage(signal?: AbortSignal): Promise<ResourceUsageReport> {
+  return request<ResourceUsageReport>(`${BASE}/usage`, { method: 'GET', signal });
 }
 
 export interface ScanStartResult {

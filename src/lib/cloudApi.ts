@@ -5,16 +5,21 @@ import {
   ProjectMutationSchema,
   ProjectListSchema,
   LocalProjectSchema,
-  type GetProjectInput,
+  GetProjectSchema,
+  GithubAccountsSchema,
+  ProjectCandidatesSchema,
 } from '@/types/cloudProjects';
-import type { CloudConnection, CloudStatus } from '@/types/cloud';
+import type { CloudConnection, CloudDefaults, CloudStatus } from '@/types/cloud';
+import type { RemoteAccessView } from '@/types/remoteAccess';
 import {
   CloudJobSchema,
   PublicationPlanSchema,
-  InstallPlanSchema,
-  ResourceVersionSchema,
+  SyncControlResultSchema,
+  SyncResultSchema,
+  SyncStatusSchema,
+  type SyncControlRequest,
   type ResourceRef,
-  type InstallDecisions,
+  type SyncRequest,
 } from '@/types/cloudResources';
 import type { ResourceSelection } from '@/types/resourceSelection';
 export type CloudReviewBinding = Pick<
@@ -89,6 +94,7 @@ const connection = z
     deviceId: z.uuid(),
     deviceName: z.string(),
     generation: z.number().int().nonnegative().safe(),
+    accountEmail: z.string().optional(),
   })
   .strict();
 const status: z.ZodType<CloudStatus> = z
@@ -96,6 +102,61 @@ const status: z.ZodType<CloudStatus> = z
     connection: connection.nullable(),
     state: z.enum(['disconnected', 'connected', 'offline', 'revoked']),
     lastError: z.string().nullable(),
+  })
+  .strict();
+const googleStartAnswer = z.object({ url: z.string().url() }).strict();
+const defaults: z.ZodType<CloudDefaults> = z
+  .object({ backendUrl: z.string().url(), deviceName: z.string() })
+  .strict();
+// Remote access (AASC-60) is this Mac's own Tailscale state, answered with no cloud connection and
+// so with no account binding. Like `status`, the view is strict: a field the server grows later
+// (an auth URL, a confirm code) is added here on purpose and never reaches the page by accident.
+const remoteTailscale = z
+  .object({
+    state: z.enum(['not-installed', 'not-running', 'signed-out', 'stopped', 'connected']),
+    address: z.string().nullable(),
+    account: z.string().nullable(),
+    tailnet: z.string().nullable(),
+    dnsName: z.string().nullable(),
+    canOpenApp: z.boolean(),
+  })
+  .strict();
+const remotePublish = z
+  .object({
+    state: z.enum([
+      'unavailable',
+      'no-cloud',
+      'not-needed',
+      'no-tailscale',
+      'pending',
+      'published',
+      'forbidden',
+      'unsupported',
+      'failed',
+    ]),
+    tailnet: z.string().nullable(),
+    port: z.number().int().positive(),
+    at: z.number().nullable(),
+  })
+  .strict();
+const remotePhone = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    platform: z.enum(['ios', 'android']),
+    status: z.enum(['pending', 'active']),
+    hasTailnet: z.boolean(),
+    tailnetSentAt: z.number().nullable(),
+    lastPath: z.enum(['lan', 'tailnet']).nullable(),
+    lastPathAt: z.number().nullable(),
+  })
+  .strict();
+export const RemoteAccessViewSchema: z.ZodType<RemoteAccessView> = z
+  .object({
+    tailscale: remoteTailscale,
+    publish: remotePublish,
+    phones: z.array(remotePhone),
+    port: z.number().int().positive(),
   })
   .strict();
 export const cloudApi = {
@@ -115,33 +176,45 @@ export const cloudApi = {
       signal,
     );
   },
-  project: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
-    request(`/projects/${uuid(id)}`, 'GET', binding, undefined, ProjectRecordSchema, signal),
+  /** `localPath`: a new project saved from this folder is linked to it here (the path stays local). */
   saveProject: (
     mutation: z.infer<typeof ProjectMutationSchema>,
     binding: CloudReviewBinding,
     signal?: AbortSignal,
+    localPath?: string,
   ) =>
     request(
       mutation.baseVersion === null ? '/projects' : `/projects/${uuid(mutation.value.id)}`,
       mutation.baseVersion === null ? 'POST' : 'PUT',
       binding,
-      ProjectMutationSchema.parse(mutation),
+      {
+        ...ProjectMutationSchema.parse(mutation),
+        ...(localPath && mutation.baseVersion === null ? { localPath } : {}),
+      },
       ProjectRecordSchema,
       signal,
     ),
-  associateProject: (id: string, path: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
-    request(
-      `/projects/${uuid(id)}/associate`,
-      'POST',
-      binding,
-      { path },
-      LocalProjectSchema,
-      signal,
-    ),
+  // AASC-63: GitHub accounts, this Mac's GitHub folders, Check, Push, Remove, account choice.
+  githubAccounts: (binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/projects/github-accounts', 'GET', binding, undefined, GithubAccountsSchema, signal),
+  projectCandidates: (binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/projects/candidates', 'GET', binding, undefined, ProjectCandidatesSchema, signal),
+  removeProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(`/projects/${uuid(id)}/remove`, 'POST', binding, {}, ProjectRecordSchema, signal),
+  checkProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(`/projects/${uuid(id)}/check`, 'POST', binding, {}, LocalProjectSchema, signal),
+  pushProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(`/projects/${uuid(id)}/push`, 'POST', binding, {}, CloudJobSchema, signal),
+  setProjectAccount: (
+    id: string,
+    login: string | null,
+    binding: CloudReviewBinding,
+    signal?: AbortSignal,
+  ) =>
+    request(`/projects/${uuid(id)}/account`, 'PUT', binding, { login }, LocalProjectSchema, signal),
   getProject: (
     id: string,
-    input: GetProjectInput,
+    input: z.input<typeof GetProjectSchema>,
     binding: CloudReviewBinding,
     signal?: AbortSignal,
   ) => request(`/projects/${uuid(id)}/get`, 'POST', binding, input, CloudJobSchema, signal),
@@ -149,35 +222,22 @@ export const cloudApi = {
     request(`/projects/${uuid(id)}/pull`, 'POST', binding, {}, CloudJobSchema, signal),
   localProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request(`/projects/${uuid(id)}/local`, 'GET', binding, undefined, LocalProjectSchema, signal),
-  projectResourcePlan: (
-    jobId: string,
-    binding: CloudReviewBinding,
-    resourceVersions?: ResourceRef[],
-    signal?: AbortSignal,
-  ) =>
-    request(
-      `/projects/jobs/${uuid(jobId)}/resources-plan`,
-      'POST',
-      binding,
-      { ...(resourceVersions ? { resourceVersions } : {}) },
-      InstallPlanSchema,
-      signal,
-    ),
-  retryProjectResources: (
-    jobId: string,
-    binding: CloudReviewBinding,
-    review?: { planId: string; decisions: InstallDecisions },
-    signal?: AbortSignal,
-  ) =>
-    request(
-      `/projects/jobs/${uuid(jobId)}/retry-resources`,
-      'POST',
-      binding,
-      { ...(review ? { review } : {}) },
-      CloudJobSchema,
-      signal,
-    ),
   status: (signal?: AbortSignal) => request('/status', 'GET', undefined, undefined, status, signal),
+  defaults: (signal?: AbortSignal) =>
+    request('/defaults', 'GET', undefined, undefined, defaults, signal),
+  /** Sign in with Google (AASC-61): the backend URL to open in the browser; the Mac then waits for its callback. */
+  googleStart: (input: { deviceName: string; backendUrl?: string }, signal?: AbortSignal) =>
+    request('/google/start', 'POST', undefined, input, googleStartAnswer, signal),
+  googleCancel: async (signal?: AbortSignal) => {
+    await request(
+      '/google/cancel',
+      'POST',
+      undefined,
+      {},
+      z.object({ pending: z.literal(false) }).strict(),
+      signal,
+    );
+  },
   recheck: (binding: CloudReviewBinding, signal?: AbortSignal) =>
     request('/recheck', 'POST', binding, {}, status, signal),
   connect: (
@@ -188,49 +248,50 @@ export const cloudApi = {
     request('/disconnect', 'POST', binding, {}, status, signal),
   revoke: (binding: CloudReviewBinding, signal?: AbortSignal) =>
     request('/revoke', 'POST', binding, {}, status, signal),
-  listResources: (
-    binding: CloudReviewBinding,
-    query: { cursor?: string; limit?: number; projectId?: string } = {},
-    signal?: AbortSignal,
-  ) => {
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(query))
-      if (value !== undefined) params.set(key, String(value));
-    return request(
-      '/resources' + (params.size ? '?' + params : ''),
-      'GET',
-      binding,
+  // Remote access carries no account binding: it is this Mac's Tailscale and works with no cloud
+  // connection. Its POSTs send `{}` because the server answers 415 to a write without a JSON body.
+  remoteAccess: (signal?: AbortSignal) =>
+    request('/remote-access', 'GET', undefined, undefined, RemoteAccessViewSchema, signal),
+  refreshRemoteAccess: (signal?: AbortSignal) =>
+    request('/remote-access/refresh', 'POST', undefined, {}, RemoteAccessViewSchema, signal),
+  // A bare `{ success: true }`: whatever else the answer carries is not read.
+  openTailscale: (signal?: AbortSignal) =>
+    request(
+      '/remote-access/open-tailscale',
+      'POST',
       undefined,
-      z.object({ items: z.array(ResourceVersionSchema), nextCursor: z.uuid().nullable() }).strict(),
+      {},
+      z.unknown().transform(() => undefined),
       signal,
-    );
-  },
+    ),
   buildPublicationPlan: (
     selection: ResourceSelection,
     binding: CloudReviewBinding,
     signal?: AbortSignal,
   ) => request('/publish-plans', 'POST', binding, { selection }, PublicationPlanSchema, signal),
-  publishPlan: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
-    request(`/publish-plans/${uuid(id)}/run`, 'POST', binding, {}, CloudJobSchema, signal),
-  planInstall: (
-    input: ResourceRef & { localProjectId?: string },
-    binding: CloudReviewBinding,
-    signal?: AbortSignal,
-  ) => request('/install-plans', 'POST', binding, input, InstallPlanSchema, signal),
-  runInstall: (
+  /** `skipBlocked`: save the reviewed items and leave out the ones the review blocked. */
+  publishPlan: (
     id: string,
-    decisions: InstallDecisions,
     binding: CloudReviewBinding,
     signal?: AbortSignal,
+    options: { skipBlocked?: boolean } = {},
   ) =>
     request(
-      `/install-plans/${uuid(id)}/run`,
+      `/publish-plans/${uuid(id)}/run`,
       'POST',
       binding,
-      { decisions },
+      options.skipBlocked ? { skipBlocked: true } : {},
       CloudJobSchema,
       signal,
     ),
+  // AASC-62: the sync list and Sync now.
+  syncStatus: (binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/sync-status', 'GET', binding, undefined, SyncStatusSchema, signal),
+  syncNow: (input: SyncRequest, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/sync-now', 'POST', binding, input, SyncResultSchema, signal),
+  /** Oct 23 2026: Stop syncing on this Mac, Sync again, or Remove from cloud (one resource). */
+  syncControl: (input: SyncControlRequest, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/sync-control', 'POST', binding, input, SyncControlResultSchema, signal),
   download: (ref: ResourceRef, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request('/downloads', 'POST', binding, ref, CloudJobSchema, signal),
   async downloadFile(id: string, binding: CloudReviewBinding, signal?: AbortSignal) {

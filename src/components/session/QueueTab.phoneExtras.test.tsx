@@ -63,7 +63,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('photos and the camera on a phone', () => {
   it('offers the photo library and the camera, images only, the camera facing out', async () => {
     renderTab();
-    expect(await screen.findByRole('button', { name: 'Attach photos (0 of 5)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Attach photos (0 of 10)' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Take a photo' })).toBeEnabled();
     const library = screen.getByTestId('queue-photo-input');
     const camera = screen.getByTestId('queue-camera-input');
@@ -83,13 +83,13 @@ describe('photos and the camera on a phone', () => {
     expect(draftImages().map((i) => i.name)).toEqual(['b.png']);
   });
 
-  it('stops at five images a prompt, says how many were left out, and then disables both buttons', async () => {
+  it('stops at ten images a prompt (Oct 21 2026, was five), says how many were left out, and then disables both buttons', async () => {
     renderTab();
-    const shots = Array.from({ length: 7 }, (_, i) => png(`p${i}.png`));
+    const shots = Array.from({ length: 12 }, (_, i) => png(`p${i}.png`));
     fireEvent.change(await screen.findByTestId('queue-camera-input'), { target: { files: shots } });
-    await waitFor(() => expect(draftImages()).toHaveLength(5));
-    expect(toast).toHaveBeenCalledWith('A prompt holds at most 5 images: 2 not added.', 'warning');
-    expect(screen.getByRole('button', { name: 'Attach photos (5 of 5)' })).toBeDisabled();
+    await waitFor(() => expect(draftImages()).toHaveLength(10));
+    expect(toast).toHaveBeenCalledWith('A prompt holds at most 10 images: 2 not added.', 'warning');
+    expect(screen.getByRole('button', { name: 'Attach photos (10 of 10)' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Take a photo' })).toBeDisabled();
   });
 });

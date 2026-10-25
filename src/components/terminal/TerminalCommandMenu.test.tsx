@@ -183,12 +183,20 @@ describe('TerminalCommandMenu', () => {
     expect(sendKeys).toHaveBeenCalledWith('rminal-setup ');
   });
 
-  it('on Codex lists prompts and built-ins, not `$` skills', async () => {
+  it('on Codex lists commands and its skills, skills as `$name` (Codex lists nothing mid-prompt)', async () => {
     const { type } = setup('codex');
     await type('/');
     await waitFor(() => expect(screen.getByText('/review')).toBeTruthy());
-    expect(screen.queryByText('$imagegen')).toBeNull();
+    expect(screen.getByText('$imagegen')).toBeTruthy();
     expect(screen.queryByText('/imagegen')).toBeNull();
+  });
+
+  it('on Codex a picked skill replaces the typed `/…` with `$name`', async () => {
+    const { type, tap, sendKeys } = setup('codex');
+    await type('/ima');
+    await screen.findByText('$imagegen');
+    act(() => { tap().onKey(key('Tab')); });
+    expect(sendKeys).toHaveBeenCalledWith('\x7f\x7f\x7f\x7f$imagegen ');
   });
 
   it('removes its tap on unmount', () => {

@@ -12,15 +12,17 @@
 //     "loopback" also covers curl, other accounts on this Mac and header-less
 //     proxies, none of which may mint a phone.
 //
-//   Public (challenge, pair, session, unpair) — the phone's own calls
+//   Public (challenge, pair, session, unpair, identify) — the phone's own calls
 //     They ARE the authentication, so authMiddleware can't sit in front of them.
 //     JSON only, no cross-site browser requests, the login rate limiter, and all
 //     refused when no dashboard password is set (remote access needs one).
 //
-//   Signed-in phone (backend-code, AASC-52) — the same gates, plus the phone's
+//   Signed-in phone (backend-code, paths) — the same gates, plus the phone's
 //     own session token from /session as a Bearer header (never the cookie, which
 //     the dashboard page in the shell's WebView can send too): its backend code
-//     for push goes to an approved phone over that session, never into the QR.
+//     for push goes to an approved phone over that session, never into the QR
+//     (AASC-52), and /paths tells it this Mac's Tailscale address, proved with
+//     its key (AASC-60).
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { z } from 'zod';
@@ -29,6 +31,7 @@ import { REMOTE_REQUIRES_PASSWORD } from '../authManager.js';
 import { TooManyPairingCodesError, toView, type DeviceAuth } from './deviceAuth.js';
 import type { BackendCodeOutcome, PhoneBackendCodes } from './phoneBackendCode.js';
 import type { CloudPhoneAudit } from './cloudPhoneAudit.js';
+import type { PhonePathLog } from './phonePathLog.js';
 import log from '../logger.js';
 
 /** Where the QR sends the phone. The code rides in the fragment, which browsers never send to a server. */
@@ -50,12 +53,18 @@ export interface MobileRouterDeps {
    * Omitted: offered.
    */
   pairingOffered?: () => boolean;
+  /** Does this phone have an open socket right now (`isPhoneDeviceOnline`)? Omitted: never online. */
+  isPhoneOnline?: (deviceId: string) => boolean;
   /** The dashboard's own sign-in check (authMiddleware), required on desktop routes. */
   requireSession: RequestHandler;
   /** Mint the normal one-hour session token, bound to the device. */
   createSessionToken: (deviceId: string) => string;
   sessionTtlSeconds: number;
-  pairingTarget: () => PairingTarget;
+  /**
+   * Where phones find this Mac: the QR's addresses and the one `/paths` signs. May need to ask Tailscale
+   * (pairingTarget.ts), so it can answer later.
+   */
+  pairingTarget: () => PairingTarget | Promise<PairingTarget>;
   rateLimit: {
     check(ip: string): number;
     record(ip: string): void;
@@ -73,6 +82,12 @@ export interface MobileRouterDeps {
   backendCodes?: Pick<PhoneBackendCodes, 'issue'>;
   /** Backend phone devices not linked to a paired phone (AASC-52). Omitted: no cloud. */
   cloudPhones?: CloudPhoneAudit;
+  /**
+   * How each phone last connected (AASC-60): a successful sign-in records whether
+   * it reached this Mac over the home network or Tailscale, and /paths records
+   * the Tailscale address it sent. Omitted: nothing is recorded.
+   */
+  pathLog?: PhonePathLog;
 }
 
 const PairBody = z.object({
@@ -94,6 +109,40 @@ const DeviceProof = z.object({
   deviceId: z.string().uuid(),
   nonce: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
   proof: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+/**
+ * A paired phone looking for this Mac at a new address (its LAN rescan): its
+ * key over a nonce it chose (deviceAuth WHO_TAG_PREFIX), never its id, and the
+ * nonce. Hex only, so neither looks like a sign-in nonce.
+ */
+const IdentifyBody = z.object({
+  tag: z.string().regex(/^[0-9a-f]{64}$/),
+  nonce: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+/**
+ * A signed-in phone asking for this Mac's Tailscale address (POST /paths): only the
+ * nonce it chose, hex like /identify's so it never looks like a sign-in nonce. Nothing
+ * else is accepted: the address and the port are this Mac's to name, never the phone's.
+ */
+const PathsBody = z.object({
+  nonce: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+/** This Mac's own address on the request's socket (IPv4-mapped IPv6 as plain IPv4). */
+function localAddressOf(req: Request): string {
+  return (req.socket.localAddress ?? '').replace(/^::ffff:/i, '');
+}
+
+/** This Mac's own `address:port` on the request's socket. */
+function reachedAt(req: Request): string {
+  return `${localAddressOf(req)}:${req.socket.localPort ?? ''}`;
+}
+
+/** The desktop's new name for a phone: the same 80-character cap as pairing (deviceAuth MAX_LABEL). */
+const RenameBody = z.object({
+  label: z.string().trim().min(1).max(80),
 }).strict();
 
 /** The session token says which phone asks; the body says nothing. */
@@ -214,7 +263,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     }
     // The Mac code only: the backend code goes to the phone once it is approved
     // and signed in (POST /backend-code, AASC-52).
-    const target = deps.pairingTarget();
+    const target = await deps.pairingTarget();
     res.json({
       success: true,
       data: {
@@ -227,7 +276,10 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   });
 
   router.get('/devices', (_req, res) => {
-    res.json({ success: true, data: { devices: deps.deviceAuth.list(), pairingOffered: pairingOffered() } });
+    // `online` feeds the header chip's 📱 count (Oct 22 2026): a paired phone with its app closed has no socket.
+    const isOnline = deps.isPhoneOnline ?? (() => false);
+    const devices = deps.deviceAuth.list().map((d) => ({ ...d, online: isOnline(d.id) }));
+    res.json({ success: true, data: { devices, pairingOffered: pairingOffered() } });
   });
 
   router.post('/devices/:id/approve', (req, res) => {
@@ -248,6 +300,31 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       return;
     }
     res.json({ success: true });
+  });
+
+  router.patch('/devices/:id', (req, res) => {
+    const parsed = RenameBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'A phone name is 1 to 80 characters' });
+      return;
+    }
+    const view = deps.deviceAuth.rename(String(req.params.id), parsed.data.label);
+    if (!view) {
+      res.status(404).json({ error: 'No paired phone with that id' });
+      return;
+    }
+    res.json({ success: true, data: { device: view } });
+  });
+
+  // End a phone's sessions without unpairing it: it signs in again with its key.
+  router.post('/devices/:id/sign-out', (req, res) => {
+    const view = deps.deviceAuth.signOut(String(req.params.id));
+    if (!view) {
+      res.status(404).json({ error: 'No approved phone with that id' });
+      return;
+    }
+    log.info('mobile', `Phone signed out: ${view.label} (${view.platform})`);
+    res.json({ success: true, data: { device: view } });
   });
 
   // Backend phone devices this Mac made that no paired phone holds any more
@@ -315,6 +392,34 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     res.json({ success: true, data: deps.deviceAuth.createChallenge(parsed.data.deviceId) });
   });
 
+  // The Mac proves it holds the phone's key (deviceAuth.macProof), over the address
+  // this request reached, so a phone that found an AASC at a new address knows it's
+  // this Mac, and not a box passing the question on, before it signs in there.
+  // Proving costs the phone nothing, so a failure records no login strike.
+  router.post('/identify', (req, res) => {
+    if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
+    const parsed = IdentifyBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid request' });
+      return;
+    }
+    const { tag, nonce } = parsed.data;
+    res.json({ success: true, data: { proof: deps.deviceAuth.macProof(tag, nonce, reachedAt(req)) } });
+  });
+
+  /**
+   * R27: /paths awaits the pairing target, which awaits the Tailscale probe, and its few-second cache is usually
+   * cold by the time a phone signs in. Ask as soon as the phone is in, so the /paths call a moment later joins a
+   * warm (or running) lookup instead of racing the phone's own 3 s budget. Never waited for, never throws.
+   */
+  function warmPairingTarget(): void {
+    try {
+      void Promise.resolve(deps.pairingTarget()).catch(() => undefined);
+    } catch {
+      // /paths asks again, and answers for itself.
+    }
+  }
+
   router.post('/session', (req, res) => {
     if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
     const parsed = DeviceProof.safeParse(req.body);
@@ -337,6 +442,9 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       return;
     }
     const token = deps.createSessionToken(result.device.id);
+    // How this phone reached the Mac, for Remote access: its home network or Tailscale (AASC-60).
+    deps.pathLog?.signedIn(result.device.id, localAddressOf(req));
+    warmPairingTarget();
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.setHeader('Set-Cookie',
       `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${deps.sessionTtlSeconds}${isSecure ? '; Secure' : ''}`);
@@ -371,6 +479,38 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       return;
     }
     res.json({ success: true, data: out.code });
+  });
+
+  // AASC-60: a signed-in phone asks for this Mac's Tailscale address. The answer crosses
+  // the home network's plain HTTP, so it carries a proof made with the phone's key over
+  // the phone's nonce, the address (or '-') and the port (deviceAuth.pathsProof): the
+  // phone saves the address only if it computes the same proof. Gates and session
+  // checks are /backend-code's.
+  router.post('/paths', async (req, res) => {
+    if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
+    const parsed = PathsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid request' });
+      return;
+    }
+    const session = deps.sessionOf?.(req) ?? null;
+    if (!session) {
+      deps.rateLimit.record(clientIp(req));
+      res.status(401).json({ error: 'Sign in first', code: 'NOT_SIGNED_IN' });
+      return;
+    }
+    if (!session.deviceId) {
+      res.status(403).json({ error: 'Only a paired phone gets this Mac’s Tailscale address', code: 'NOT_A_PHONE' });
+      return;
+    }
+    const { tailnet, port } = await deps.pairingTarget();
+    const proof = deps.deviceAuth.pathsProof(session.deviceId, parsed.data.nonce, tailnet, port);
+    if (!proof) {
+      res.status(401).json({ error: 'This phone is no longer paired', code: 'DEVICE_UNKNOWN' });
+      return;
+    }
+    if (tailnet) deps.pathLog?.sent(session.deviceId, tailnet);
+    res.json({ success: true, data: { tailnet, port, proof } });
   });
 
   router.post('/unpair', (req, res) => {

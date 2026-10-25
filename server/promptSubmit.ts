@@ -9,7 +9,7 @@
 // logic on the Mac, so it no longer depends on a browser window staying open.
 //
 // The rules are the queue's, taken from the same module so they can't drift:
-//   - the text, then a STANDALONE "\r" after 1 s (2.5 s with images): a single
+//   - the text, then a STANDALONE "\r" after 1 s (with images 2.5 s, +0.3 s each after the first: submitDelayFor): a single
 //     `text + "\r"` write reads as a paste and the Enter lands as a newline;
 //   - Enter again at 3 / 8 / 15 / 30 / 60 s after the first Enter, only while the
 //     session sits waiting/idle (an Enter in an empty input box is a no-op);

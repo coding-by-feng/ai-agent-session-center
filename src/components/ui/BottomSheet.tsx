@@ -30,6 +30,8 @@ export interface BottomSheetProps {
   headerAction?: ReactNode;
   /** The body runs edge to edge (a terminal's key bar needs the full width); the header keeps its gutter. */
   flush?: boolean;
+  /** Extra class on the panel: the sheet is portaled to <body>, so a host's scoped rules (the phone views' dress) reach it only this way. */
+  className?: string;
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -41,7 +43,7 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
  */
 const openSheets: HTMLElement[] = [];
 
-export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight, headerAction, flush }: BottomSheetProps) {
+export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight, headerAction, flush, className }: BottomSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   // In the phone app, Android's back closes the sheet, not the screen under it (AASC-48).
@@ -102,7 +104,7 @@ export default function BottomSheet({ open, onClose, title, children, hideTitle,
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`${styles.sheet}${fullHeight ? ` ${styles.full}` : ''}${flush ? ` ${styles.flush}` : ''}`}
+        className={`${styles.sheet}${fullHeight ? ` ${styles.full}` : ''}${flush ? ` ${styles.flush}` : ''}${className ? ` ${className}` : ''}`}
       >
         <div className={styles.grabber} aria-hidden="true" />
         <div className={`${styles.header}${hideTitle ? ` ${styles.srOnly}` : ''}`}>

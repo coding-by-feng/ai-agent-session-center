@@ -10,7 +10,7 @@
  * group it rendered as a sliver, and its autocomplete dropdown was clipped by
  * `.queueBody`'s 250px scroll box. One editor, one behaviour, everywhere.
  */
-import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense, type CSSProperties } from 'react';
 import {
   useQueueStore,
   DEFAULT_AUTOMATION,
@@ -41,6 +41,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import Tooltip from '@/components/ui/Tooltip';
 import DetachIcon from '@/components/ui/DetachIcon';
 import { tooltips } from '@/lib/tooltips';
@@ -62,6 +63,8 @@ import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
+import { AutoEnterIcon, AutoSendIcon, QueueGripIcon } from '@/components/ui/icons';
+import ImagePreview from '@/components/ui/ImagePreview';
 import styles from '@/styles/modules/Terminal.module.css';
 import phoneStyles from '@/styles/modules/QueuePhone.module.css';
 
@@ -96,6 +99,21 @@ function promptPreview(item: QueueItem): string {
   const text = item.text.trim();
   if (!text) return item.images?.length ? `${item.images.length} image${item.images.length === 1 ? '' : 's'}` : '(empty prompt)';
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
+}
+
+/** The drag grip. The whole row or card is the press target (useQueueDragReorder);
+ *  the grip only shows that it can be dragged. One copy for the List row and the
+ *  Card header (Oct 22 2026: cards had none), so the two never differ. */
+function QueueDragGrip() {
+  return (
+    <span
+      className={styles.queueDragHandle}
+      title="Drag to reorder (press and hold on touch)"
+      aria-hidden="true"
+    >
+      <QueueGripIcon />
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +281,9 @@ export default function QueueTab({
     },
     [sessionId, setComposeDraftPatch, composeDraft.text],
   );
+  // The compose thumbnail opened full size, if any.
+  const [previewImage, setPreviewImage] = useState<QueueImageAttachment | null>(null);
+  const closePreview = useCallback(() => setPreviewImage(null), []);
   const setComposeImages = useCallback(
     (updater: QueueImageAttachment[] | ((prev: QueueImageAttachment[]) => QueueImageAttachment[])) => {
       const prev = composeDraft.images;
@@ -455,15 +476,11 @@ export default function QueueTab({
   // both the compose row and every prompt textarea inside QueueItemEditModal
   // use the same component, so nothing autocomplete-related lives here anymore.
 
-  // ---- Image file picker ----
-  const handleImagePick = useCallback(() => {
-    imageInputRef.current?.click();
-  }, []);
-
-  const handleImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
-    const readers = files.slice(0, 5).map(
+  // ---- Images for the compose box: picked, pasted or dropped ----
+  // As many as fit the prompt's caps (addImagesToPrompt: 10 images, ~6 MB together, Oct 21
+  // 2026; it was a silent `.slice(0, 5)` in each of the three handlers), and a toast for the rest.
+  const addComposeFiles = useCallback((files: File[]) => {
+    const readers = files.map(
       (f) =>
         new Promise<QueueImageAttachment>((resolve, reject) => {
           const reader = new FileReader();
@@ -472,15 +489,32 @@ export default function QueueTab({
           reader.readAsDataURL(f);
         }),
     );
-    Promise.allSettled(readers).then((results) => {
+    void Promise.allSettled(readers).then((results) => {
       const imgs = results
         .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
         .map((r) => r.value);
-      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
+      const out = { note: null as string | null };
+      setComposeImages((prev) => {
+        const fit = addImagesToPrompt(prev, imgs);
+        out.note = fit.message;
+        return fit.images;
+      });
+      if (out.note) showToast(out.note, 'warning');
     });
+  }, [setComposeImages]);
+
+  // ---- Image file picker ----
+  const handleImagePick = useCallback(() => {
+    imageInputRef.current?.click();
+  }, []);
+
+  const handleImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    addComposeFiles(files);
     // Reset input so same file can be re-selected
     e.target.value = '';
-  }, [setComposeImages]);
+  }, [addComposeFiles]);
 
   const handleRemoveComposeImage = useCallback((idx: number) => {
     setComposeImages((prev) => prev.filter((_, i) => i !== idx));
@@ -501,22 +535,8 @@ export default function QueueTab({
     if (files.length === 0) return;
     // Prevent pasting binary as text
     e.preventDefault();
-    const readers = files.slice(0, 5).map(
-      (f) =>
-        new Promise<QueueImageAttachment>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
-          reader.onerror = reject;
-          reader.readAsDataURL(f);
-        }),
-    );
-    Promise.allSettled(readers).then((results) => {
-      const imgs = results
-        .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
-        .map((r) => r.value);
-      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
-    });
-  }, [setComposeImages]);
+    addComposeFiles(files);
+  }, [addComposeFiles]);
 
   // ---- Drag and drop files onto compose area ----
   const [dragOver, setDragOver] = useState(false);
@@ -526,22 +546,8 @@ export default function QueueTab({
     setDragOver(false);
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (files.length === 0) return;
-    const readers = files.slice(0, 5).map(
-      (f) =>
-        new Promise<QueueImageAttachment>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
-          reader.onerror = reject;
-          reader.readAsDataURL(f);
-        }),
-    );
-    Promise.allSettled(readers).then((results) => {
-      const imgs = results
-        .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
-        .map((r) => r.value);
-      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
-    });
-  }, [setComposeImages]);
+    addComposeFiles(files);
+  }, [addComposeFiles]);
 
   // ---- Press-and-hold drag reordering (List AND Card) ----
   // One mechanism for both layouts, on pointer events rather than native HTML5
@@ -568,7 +574,11 @@ export default function QueueTab({
   const handleDragReorder = useCallback((nextIds: number[]) => {
     reorder(sessionId, nextIds);
   }, [reorder, sessionId]);
-  const drag = useQueueDragReorder(itemIds, getDragRects, handleDragReorder);
+  // Both layouts carry a held prompt: a List row follows the finger up and down
+  // and the rows it passes slide aside; a card (Oct 22 2026) moves both ways and
+  // the cards it passes step one cell aside, wrapping across rows.
+  const getItemEl = useCallback((id: number) => itemElsRef.current.get(id), []);
+  const drag = useQueueDragReorder(itemIds, getDragRects, handleDragReorder, getItemEl, viewMode);
 
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
@@ -638,10 +648,14 @@ export default function QueueTab({
   // The row stays in the list until its Enter is written (2.5 s for an image
   // prompt), so a second click in that window must not type it again.
   const sendingIdsRef = useRef<Set<number>>(new Set());
+  // What the rows draw: SEND shows it is busy until its send resolves (Oct 21 2026: an image
+  // prompt took seconds with nothing on screen). The ref stays the synchronous double-tap guard.
+  const [sendingIds, setSendingIds] = useState<ReadonlySet<number>>(() => new Set());
   const handleSendNow = useCallback(
     async (item: QueueItem) => {
       if (sendingIdsRef.current.has(item.id)) return;
       sendingIdsRef.current.add(item.id);
+      setSendingIds((prev) => new Set([...prev, item.id]));
       try {
         const sent = await sendItemToTerminal(item);
         if (sent) {
@@ -649,6 +663,7 @@ export default function QueueTab({
         }
       } finally {
         sendingIdsRef.current.delete(item.id);
+        setSendingIds((prev) => new Set([...prev].filter((id) => id !== item.id)));
       }
     },
     [sendItemToTerminal, remove, sessionId],
@@ -796,10 +811,11 @@ export default function QueueTab({
     const beforeCount = item.beforeChain?.length ?? 0;
     const afterCount = item.afterChain?.length ?? 0;
     const chained = beforeCount + afterCount > 0;
-    // A plain 'once' row has nothing to report. A CHAINED 'once' does — it
-    // shows its chain badge / step progress, but no type chip and no
+    // A plain 'once' row has nothing to report — unless it is paused, which every
+    // row says (Oct 21 2026: a paused one-off said nothing). A CHAINED 'once' does —
+    // it shows its chain badge / step progress, but no type chip and no
     // next-fire (it has no cadence, it drains on demand).
-    if (t === 'once' && !chained) return null;
+    if (t === 'once' && !chained && !item.disabled) return null;
     const chipClass = t === 'loop' ? styles.queueTypeChipLoop : styles.queueTypeChipSchedule;
     const chipLabel =
       t === 'loop' ? `⟳ ${item.intervalMs ? formatInterval(item.intervalMs) : 'loop'}` : '🕐 sched';
@@ -817,9 +833,7 @@ export default function QueueTab({
           <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
         )}
         {item.disabled ? (
-          <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
-            — paused —
-          </span>
+          <span className={styles.queuePausedChip} data-paused-chip="">Paused</span>
         ) : isExecuting(item) ? (
           <span className={styles.queueNextFire}>
             step {cur}/{total}
@@ -905,12 +919,18 @@ export default function QueueTab({
             single item.text write and removes it, which would silently drop
             the configured chain. */}
         {itemType(item) === 'once' && !hasChain(item) ? (
+          // While it sends, a spinner sits over the label, which stays (hidden) so the button keeps
+          // its width: the row's other buttons must not move under a thumb (DEL is one of them).
           <button
-            className={`${styles.queueActionBtn} ${styles.queueSend}`}
+            className={`${styles.queueActionBtn} ${styles.queueSend}${sendingIds.has(item.id) ? ` ${styles.queueSendBusy}` : ''}`}
             onClick={() => handleSendNow(item)}
-            title="Send now (and remove)"
+            disabled={sendingIds.has(item.id)}
+            aria-busy={sendingIds.has(item.id) || undefined}
+            aria-label={sendingIds.has(item.id) ? 'Sending…' : undefined}
+            title={sendingIds.has(item.id) ? 'Sending…' : 'Send now (and remove)'}
           >
-            SEND
+            <span className={styles.queueSendLabel}>SEND</span>
+            {sendingIds.has(item.id) && <span className={styles.queueSendSpinner} aria-hidden="true" />}
           </button>
         ) : (
           <button
@@ -1179,19 +1199,7 @@ export default function QueueTab({
               : 'Auto-Enter OFF — prompt is typed only; press Enter yourself to submit'
           }
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="9 10 4 15 9 20" />
-            <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-          </svg>
+          <AutoEnterIcon />
           {isMobile && (
             <span className={styles.queuePhoneControlLabel}>
               Auto-Enter <span className={styles.queuePhoneControlState}>{autoEnter ? 'on' : 'off'}</span>
@@ -1213,19 +1221,7 @@ export default function QueueTab({
               : 'Auto-send OFF — prompts stay in queue'
           }
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
+          <AutoSendIcon />
           {isMobile && (
             <span className={styles.queuePhoneControlLabel}>
               Auto-send <span className={styles.queuePhoneControlState}>{autoSend ? 'on' : 'off'}</span>
@@ -1541,7 +1537,15 @@ export default function QueueTab({
           <div className={styles.queueComposeImages}>
             {composeImages.map((img, i) => (
               <div key={i} className={styles.queueImageThumb}>
-                <img src={img.dataUrl} alt={img.name} />
+                <button
+                  type="button"
+                  className={styles.queueImageView}
+                  onClick={() => setPreviewImage(img)}
+                  title={`View ${img.name}`}
+                  aria-label={`View ${img.name}`}
+                >
+                  <img src={img.dataUrl} alt={img.name} />
+                </button>
                 <button
                   className={styles.queueImageRemove}
                   onClick={() => handleRemoveComposeImage(i)}
@@ -1555,46 +1559,31 @@ export default function QueueTab({
           </div>
         )}
 
-        {/* Queue list — List (rows, drag-to-reorder) or Card (wrapping grid,
-            ▲/▼-to-reorder — see queueViewMode's doc comment in uiStore.ts for
-            why cards don't get a drag handle). Both share every per-item
-            handler and the extracted renderItemMeta/renderItemActions, so
-            they can never disagree about what a given item's state means. */}
+        {previewImage && (
+          <ImagePreview src={previewImage.dataUrl} name={previewImage.name} onClose={closePreview} />
+        )}
+
+        {/* Queue list — List (rows) or Card (wrapping grid); both drag to
+            reorder, with the same grip (QueueDragGrip). Both share every
+            per-item handler and the extracted renderItemMeta/renderItemActions,
+            so they can never disagree about what a given item's state means. */}
         {isMobile && items.length > 1 && (
           <p className={phoneStyles.hint}>Press and hold a prompt to drag it to a new place.</p>
         )}
         {viewMode === 'list' ? (
-          <div className={styles.queueList} ref={drag.scrollGuardRef}>
+          <div className={`${styles.queueList}${drag.draggingId !== null ? ` ${styles.queueListCarry}` : ''}`} ref={drag.scrollGuardRef}>
             {items.length === 0
               ? null
               : items.map((item, idx) => (
                   <div
                     key={item.id}
                     ref={(el) => registerItemEl(item.id, el)}
-                    className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}${expandedIds.has(item.id) ? ` ${styles.queueItemExpanded}` : ''}`}
+                    className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}${expandedIds.has(item.id) ? ` ${styles.queueItemExpanded}` : ''}`}
+                    style={drag.shifts.has(item.id) ? ({ '--queue-shift': `${drag.shifts.get(item.id)}px` } as CSSProperties) : undefined}
                     onPointerDown={(e) => drag.onPointerDown(e, item.id)}
                     data-queue-item={item.id}
                   >
-                    <span
-                      className={styles.queueDragHandle}
-                      title="Press and hold, then drag to reorder"
-                      aria-hidden="true"
-                    >
-                      <svg
-                        width="8"
-                        height="14"
-                        viewBox="0 0 8 14"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <circle cx="2" cy="2" r="1" />
-                        <circle cx="6" cy="2" r="1" />
-                        <circle cx="2" cy="7" r="1" />
-                        <circle cx="6" cy="7" r="1" />
-                        <circle cx="2" cy="12" r="1" />
-                        <circle cx="6" cy="12" r="1" />
-                      </svg>
-                    </span>
+                    <QueueDragGrip />
                     <button
                       className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
                       onClick={(e) => {
@@ -1626,6 +1615,7 @@ export default function QueueTab({
                       {item.text && (
                         <QueueItemText
                           text={item.text}
+                          sessionId={item.sessionId}
                           expanded={expandedIds.has(item.id)}
                           onToggle={() => toggleExpanded(item.id)}
                         />
@@ -1648,24 +1638,27 @@ export default function QueueTab({
                 ))}
           </div>
         ) : (
-          <div className={styles.queueCardGrid} ref={drag.scrollGuardRef}>
+          <div className={`${styles.queueCardGrid}${drag.draggingId !== null ? ` ${styles.queueCardGridCarry}` : ''}`} ref={drag.scrollGuardRef}>
             {items.length === 0
               ? null
-              : items.map((item, idx) => (
+              : items.map((item, idx) => {
+                const shift = drag.cardShifts.get(item.id);
+                return (
                   <div
                     key={item.id}
                     ref={(el) => registerItemEl(item.id, el)}
-                    className={`${styles.queueCard}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    className={`${styles.queueCard}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    style={shift ? ({ '--queue-shift-x': `${shift.x}px`, '--queue-shift-y': `${shift.y}px` } as CSSProperties) : undefined}
                     onPointerDown={(e) => drag.onPointerDown(e, item.id)}
                     data-queue-item={item.id}
                   >
-                    {/* Press-and-hold to drag (useQueueDragReorder). Cards used
-                      to have no drag at all on the grounds that a wrapping grid
-                      has no unambiguous drop target — that was an unmade
-                      decision, not an impossibility: queueDragReorder.ts picks
-                      before/after from the pointer's side of the nearest card.
-                      ▲/▼ remain for keyboard and precision. */}
+                    {/* Drag to reorder (useQueueDragReorder): cards had no drag at
+                      first (a wrapping grid was said to have no clear drop
+                      target), then a fade and a caret line; since Oct 22 2026 the
+                      held card is carried both ways and the cards it passes step
+                      aside, as List rows do. ▲/▼ remain for keyboard and precision. */}
                     <div className={styles.queueCardHeader}>
+                      <QueueDragGrip />
                       <button
                         className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
                         onClick={(e) => {
@@ -1698,6 +1691,7 @@ export default function QueueTab({
                       {item.text && (
                         <QueueItemText
                           text={item.text}
+                          sessionId={item.sessionId}
                           expanded={expandedIds.has(item.id)}
                           onToggle={() => toggleExpanded(item.id)}
                         />
@@ -1717,7 +1711,8 @@ export default function QueueTab({
 
                     {renderItemActions(item, idx)}
                   </div>
-                ))}
+                );
+              })}
           </div>
         )}
 

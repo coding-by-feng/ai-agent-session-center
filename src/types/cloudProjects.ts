@@ -95,9 +95,14 @@ export const ProjectListSchema = z
   })
   .strict();
 
+/**
+ * A checkout against its GitHub branch, as of the last fetch: `ready` has nothing of its own to
+ * push (it may be behind), `ahead` only has commits to push, `diverged` has both.
+ */
 export const CheckoutStateSchema = z.enum([
   'missing',
   'ready',
+  'ahead',
   'dirty',
   'diverged',
   'detached',
@@ -105,6 +110,10 @@ export const CheckoutStateSchema = z.enum([
   'busy',
 ]);
 export type CheckoutState = z.infer<typeof CheckoutStateSchema>;
+/** A GitHub login, as GitHub allows it: letters, digits and single inner hyphens, 1–39. */
+export const GithubLoginSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/);
 export const LocalProjectSchema = z
   .object({
     state: CheckoutStateSchema,
@@ -115,7 +124,38 @@ export const LocalProjectSchema = z
       .regex(/^\/project-browser\?path=[^\s]*$/)
       .nullable(),
     localProjectId: z.string().nullable(),
+    /** The checkout's folder on this device (AASC-63); null when it isn't here. */
+    path: z.string().max(4096).nullable(),
+    /** Commits here and not on GitHub, and the other way round, as of the last fetch. */
+    ahead: z.number().int().nonnegative().nullable(),
+    behind: z.number().int().nonnegative().nullable(),
+    /** The GitHub account this device uses for the project; null is this Mac's own Git sign-in. */
+    account: GithubLoginSchema.nullable(),
   })
+  .strict();
+export type LocalProject = z.infer<typeof LocalProjectSchema>;
+/** The GitHub CLI's accounts on this device (AASC-63). Tokens stay in its keychain, never here. */
+export const GithubAccountsSchema = z
+  .object({
+    installed: z.boolean(),
+    accounts: z
+      .array(z.object({ login: GithubLoginSchema, active: z.boolean(), ok: z.boolean() }).strict())
+      .max(50),
+  })
+  .strict();
+export type GithubAccounts = z.infer<typeof GithubAccountsSchema>;
+/** A git folder on this device whose origin is on GitHub: what "Save a project" offers. */
+export const ProjectCandidateSchema = z
+  .object({
+    path: z.string().min(1).max(4096),
+    repository: GithubRepositorySchema,
+    /** The saved cloud project with this repository, when there is one. */
+    projectId: CanonicalCloudIdSchema.nullable(),
+  })
+  .strict();
+export type ProjectCandidate = z.infer<typeof ProjectCandidateSchema>;
+export const ProjectCandidatesSchema = z
+  .object({ items: z.array(ProjectCandidateSchema).max(500) })
   .strict();
 export const GetProjectSchema = z
   .object({
@@ -124,8 +164,9 @@ export const GetProjectSchema = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/)
       .refine((s) => !s.endsWith('.') && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(s)),
-    transport: z.enum(['https', 'ssh']),
-    resourceVersions: z.array(ResourceDependencySchema).max(2000),
+    // AASC-63: Clone is HTTPS with the project's GitHub account; both stay optional for old callers.
+    transport: z.enum(['https', 'ssh']).default('https'),
+    resourceVersions: z.array(ResourceDependencySchema).max(2000).default([]),
   })
   .strict();
 export type GetProjectInput = z.infer<typeof GetProjectSchema>;

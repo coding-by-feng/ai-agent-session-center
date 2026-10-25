@@ -335,6 +335,42 @@ describe('SessionsScreen', () => {
       });
     });
 
+    describe('Pinned, the desktop rail\'s built-in frame (Oct 22 2026)', () => {
+      const pinS3 = () => {
+        const sessions = fixtures();
+        sessions.set('s3', { ...sessions.get('s3')!, pinned: true });
+        useSessionStore.setState({ sessions });
+      };
+      beforeEach(() => useUiStore.setState({ pinnedRoomCollapsed: false, recentRoomCollapsed: false }));
+
+      it('comes before Recent with the pinned sessions, each also in its own room', () => {
+        pinS3();
+        render(<SessionsScreen />);
+        expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Pinned · 1', 'Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
+        expect(names(screen.getByTestId('room-group-pinned'))).toEqual(['s3']);
+        expect(names(screen.getByTestId('room-group-r1'))).toContain('s3');
+      });
+
+      it('is not a room: no ⋯, no grips, each row says its room; folds with the desktop\'s flag on this device', async () => {
+        pinS3();
+        const user = userEvent.setup();
+        render(<SessionsScreen />);
+        const pinned = screen.getByTestId('room-group-pinned');
+        expect(within(pinned).queryByRole('button', { name: /^Actions for the room/ })).toBeNull();
+        expect(within(pinned).queryByTestId(/^session-grip-/)).toBeNull();
+        expect(within(within(pinned).getByTestId('session-row-s3')).getByText('Mobile')).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: /^Pinned, 1 session pinned, also in their rooms, open/ }));
+        expect(useUiStore.getState().pinnedRoomCollapsed).toBe(true);
+        expect(within(screen.getByTestId('room-group-pinned')).queryByTestId('session-row-s3')).toBeNull();
+        expect(within(screen.getByTestId('room-group-r1')).getByTestId('session-row-s3')).toBeTruthy();
+      });
+
+      it('is left out with nothing pinned', () => {
+        render(<SessionsScreen />);
+        expect(screen.queryByTestId('room-group-pinned')).toBeNull();
+      });
+    });
+
     it('folds a room on this phone only, and keeps it folded after a reload', async () => {
       const user = userEvent.setup();
       const { unmount } = render(<SessionsScreen />);

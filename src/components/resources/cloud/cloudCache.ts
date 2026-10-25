@@ -1,11 +1,22 @@
 import { z } from 'zod';
-import { ResourceVersionSchema, CloudJobSchema, type CloudJob } from '@/types/cloudResources';
+import {
+  ResourceVersionSchema,
+  CloudJobSchema,
+  SyncStatusSchema,
+  type CloudJob,
+} from '@/types/cloudResources';
 import { ProjectRecordSchema } from '@/types/cloudProjects';
 import type { CloudReviewBinding } from '@/lib/cloudApi';
 export const cacheKey = (b: CloudReviewBinding | null) =>
   b ? JSON.stringify([b.backendOrigin, b.accountId]) : '';
 const schema = z.object({
   resources: z.array(ResourceVersionSchema),
+  /**
+   * The last sync list this browser read (AASC-62), shown as stale until read again. A list saved
+   * in an older shape (before `catalogId`, Oct 23 2026) is dropped on its own, never the whole
+   * cache: the job history next to it must survive an upgrade.
+   */
+  sync: SyncStatusSchema.optional().catch(undefined),
   projects: z.array(ProjectRecordSchema),
   jobs: z.array(
     z.object({ job: CloudJobSchema, generation: z.number(), projectId: z.string().optional() }),

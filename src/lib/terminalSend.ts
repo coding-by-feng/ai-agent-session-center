@@ -21,10 +21,13 @@ export const SUBMIT_ENTER_DELAY_MS = 1000;
  * Anything slower still is caught by the queue's Enter retry (submitConfirm.ts).
  */
 export const IMAGE_SUBMIT_ENTER_DELAY_MS = 2500;
+/** And this much more for each image after the first (Oct 21 2026: up to 10 a prompt, so 10 wait 5.2 s). */
+export const EXTRA_IMAGE_ENTER_DELAY_MS = 300;
 
 /** The submit delay for a prompt carrying `imageCount` appended image paths. */
 export function submitDelayFor(imageCount: number): number {
-  return imageCount > 0 ? IMAGE_SUBMIT_ENTER_DELAY_MS : SUBMIT_ENTER_DELAY_MS;
+  if (imageCount <= 0) return SUBMIT_ENTER_DELAY_MS;
+  return IMAGE_SUBMIT_ENTER_DELAY_MS + (imageCount - 1) * EXTRA_IMAGE_ENTER_DELAY_MS;
 }
 
 const sleep = (ms: number): Promise<void> =>

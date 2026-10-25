@@ -35,8 +35,12 @@
 	<string>AASC uses the camera only to scan the pairing QR code your Mac shows.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>AASC uses Face ID to unlock the app and to confirm stopping or restarting a session.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_aasc._tcp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>AASC connects to your Mac on your home network or over Tailscale.</string>
+	<string>AASC connects to your Mac on your home network or over Tailscale, and finds it there again when its address changes.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

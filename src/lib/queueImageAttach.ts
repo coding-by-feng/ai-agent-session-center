@@ -2,10 +2,11 @@
  * queueImageAttach — photos and camera shots for the queue on a phone (AASC-20,
  * feature 61), held to the queue's existing limits.
  *
- * - At most {@link MAX_QUEUE_IMAGES} images per prompt: the compose box has
- *   always capped attachments at five (paste, drop and pick alike).
+ * - At most {@link MAX_QUEUE_IMAGES} images per prompt (paste, drop and pick
+ *   alike; 10 since Oct 21 2026, was 5), and at most {@link MAX_PROMPT_IMAGES_CHARS}
+ *   of them together: the whole queue syncs as one 8 MB payload.
  * - A phone photo is 3–12 MP. Stored as a data URL in the shared queue (which
- *   every device syncs), five of them would blow past what a queue can carry,
+ *   every device syncs), a few of them would blow past what a queue can carry,
  *   so a photo larger than {@link PHONE_IMAGE_MAX_EDGE} px on its long edge, or
  *   heavier than {@link PHONE_IMAGE_DIRECT_BYTES}, or in a format the agents
  *   can't read (HEIC), is re-encoded as JPEG inside that box. Each image then
@@ -17,9 +18,18 @@
  * are testable without one.
  */
 import type { QueueImageAttachment } from '@/stores/queueStore';
+import { MAX_PROMPT_IMAGES_CHARS, MAX_QUEUE_IMAGES, tooManyNote, togetherNote } from './queueImageLimits';
 
-export const MAX_QUEUE_IMAGES = 5;
-export const PHONE_IMAGE_MAX_EDGE = 2048;
+// The limits live in queueImageLimits (the desktop's queue uses them too; this module is phone-only).
+export { addImagesToPrompt, MAX_PROMPT_IMAGES_CHARS, MAX_QUEUE_IMAGES } from './queueImageLimits';
+
+/**
+ * 2000, not 2048 (Oct 21 2026): once one Claude request holds more than 20 images
+ * (earlier turns count, and Claude Code resends them) the API rejects any image over
+ * 2000 px on either side.
+ */
+export const PHONE_IMAGE_MAX_EDGE = 2000;
+
 export const PHONE_IMAGE_QUALITY = 0.85;
 /** A smaller file of a readable type and size goes in as it is (keeps a PNG screenshot's sharp text). */
 export const PHONE_IMAGE_DIRECT_BYTES = 1_500_000;
@@ -82,26 +92,35 @@ export async function readQueueImage(file: File, index: number, codec: ImageCode
   }
 }
 
+
 /**
- * Picked files for a prompt that already holds `current` images: as many as fit
- * under the cap, in order, with a sentence for whatever was left out.
+ * Picked files for a prompt that already holds `current` images (`currentChars` of
+ * data URL): as many as fit under the count and the size caps, in order, with a
+ * sentence for whatever was left out.
  */
 export async function readQueueImages(
   files: readonly File[],
   current: number,
   codec: ImageCodec = browserCodec,
+  currentChars = 0,
 ): Promise<{ images: QueueImageAttachment[]; message: string | null }> {
   const room = Math.max(0, MAX_QUEUE_IMAGES - current);
   const images: QueueImageAttachment[] = [];
-  const problems = { 'not-image': 0, unreadable: 0, 'too-large': 0 };
+  const problems = { 'not-image': 0, unreadable: 0, 'too-large': 0, together: 0 };
+  let chars = currentChars;
   for (const [i, file] of files.slice(0, room).entries()) {
     const result = await readQueueImage(file, current + i, codec);
-    if (result.ok) images.push(result.image);
-    else problems[result.reason]++;
+    if (!result.ok) problems[result.reason]++;
+    else if (chars + result.image.dataUrl.length > MAX_PROMPT_IMAGES_CHARS) problems.together++;
+    else {
+      chars += result.image.dataUrl.length;
+      images.push(result.image);
+    }
   }
   const over = Math.max(0, files.length - room);
   const notes = [
-    over > 0 ? `A prompt holds at most ${MAX_QUEUE_IMAGES} images: ${over} not added.` : '',
+    over > 0 ? tooManyNote(over) : '',
+    problems.together > 0 ? togetherNote(problems.together) : '',
     problems['not-image'] > 0 ? 'Only images can be attached here.' : '',
     problems.unreadable > 0 ? 'An image could not be read.' : '',
     problems['too-large'] > 0 ? 'An image is too large even after shrinking.' : '',

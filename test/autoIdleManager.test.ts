@@ -198,6 +198,26 @@ describe('onChange', () => {
     expect(onChange).toHaveBeenCalledTimes(2);
   });
 
+  it('approval with a dialog the CLI reported open never decays (the user is away, the dialog is up)', () => {
+    const s = makeSession({
+      status: 'approval',
+      pendingRequest: { id: 'toolu_1', kind: 'permission', cli: 'claude', tool: 'Bash', raisedAt: T0, source: 'permission_request' },
+    } as Partial<Session>);
+    startAutoIdle(new Map([['s1', s]]));
+    runFor(60 * MIN, null);
+    expect(s.status).toBe('approval');
+  });
+
+  it('approval that is only a guess still decays after 10 minutes (a lost hook)', () => {
+    const s = makeSession({
+      status: 'approval',
+      pendingRequest: { id: 'g1', kind: 'permission', cli: 'claude', tool: 'Bash', raisedAt: T0, source: 'timer' },
+    } as Partial<Session>);
+    startAutoIdle(new Map([['s1', s]]));
+    runFor(11 * MIN, null);
+    expect(s.status).toBe('idle');
+  });
+
   it('still works with no handler at all (the original signature)', () => {
     const s = makeSession({ status: 'waiting' } as Partial<Session>);
     startAutoIdle(new Map([['s1', s]]));

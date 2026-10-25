@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import Field from '@/components/ui/Field';
 import NativeSelect from '@/components/ui/NativeSelect';
@@ -9,6 +9,10 @@ import { useSkillNotesStore, refreshNotesConnection } from '@/stores/skillNotesS
 import CloudAliasControls from '../CloudAliasControls';
 import { useCloudAction, useCloudSession, bindingKey } from './cloudSession';
 import styles from '@/styles/modules/CloudResources.module.css';
+/** While the browser is signing in with Google (AASC-61), the card re-reads the connection this often. */
+const SIGN_IN_POLL_MS = 2_000;
+/** = the Mac's SIGN_IN_PENDING_MS: after this the Mac has dropped the sign-in anyway. */
+const SIGN_IN_WAIT_MS = 600_000;
 export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatus) => void }) {
   const session = useCloudSession(),
     action = useCloudAction();
@@ -16,6 +20,74 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
     [name, setName] = useState(''),
     [code, setCode] = useState(''),
     [aliasKey, setAliasKey] = useState('');
+  const saved = session.status.connection !== null;
+  // Signing in (or pairing) is offered while this Mac has no working connection: none at all, or one
+  // the backend revoked.
+  const offerSignIn = !saved || session.status.state === 'revoked';
+  // A Mac that isn't connected starts with the AASC backend and its own name; typing first wins.
+  useEffect(() => {
+    if (!offerSignIn) return;
+    const cut = new AbortController();
+    cloudApi
+      .defaults(cut.signal)
+      .then((d) => {
+        setUrl((u) => u || d.backendUrl);
+        setName((n) => n || d.deviceName);
+      })
+      .catch(() => {});
+    return () => cut.abort();
+  }, [offerSignIn]);
+  // Sign in with Google (AASC-61): the browser does the signing in; this card waits for the Mac's
+  // connection to change, or for the error the pairing left on it.
+  const [waiting, setWaiting] = useState(false),
+    [signInError, setSignInError] = useState<string | null>(null);
+  const errorAtStart = useRef<string | null>(null);
+  useEffect(() => {
+    if (!waiting) return;
+    const cut = new AbortController();
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (Date.now() - started >= SIGN_IN_WAIT_MS) {
+        setWaiting(false);
+        setSignInError('Sign-in timed out. Try again.');
+        return;
+      }
+      cloudApi
+        .status(cut.signal)
+        .then((s) => {
+          if (s.connection) {
+            setWaiting(false);
+            changed(s);
+          } else if (s.lastError && s.lastError !== errorAtStart.current) {
+            setWaiting(false);
+            setSignInError(s.lastError);
+          }
+        })
+        .catch(() => {});
+    }, SIGN_IN_POLL_MS);
+    return () => {
+      clearInterval(timer);
+      cut.abort();
+    };
+    // `changed` only forwards to onStatus; the poll restarts on `waiting` alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+  function signIn() {
+    setSignInError(null);
+    errorAtStart.current = session.status.lastError;
+    void cloudApi
+      .googleStart({ deviceName: name }, new AbortController().signal)
+      .then(({ url: start }) => {
+        // In the desktop app attachWindowOpenPolicy hands this to the system browser.
+        window.open(start, '_blank', 'noopener');
+        setWaiting(true);
+      })
+      .catch((e) => setSignInError(e instanceof Error ? e.message : 'Sign-in could not start.'));
+  }
+  function cancelSignIn() {
+    setWaiting(false);
+    void cloudApi.googleCancel().catch(() => {});
+  }
   const notes = useSkillNotesStore();
   const [noteError, setNoteError] = useState<string | null>(null),
     [noteBusy, setNoteBusy] = useState(false);
@@ -39,8 +111,9 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
       <section className={styles.card}>
         <h3>Device connection</h3>
         <p>
-          {session.status.state}{' '}
-          {session.status.connection ? `· ${session.status.connection.deviceName}` : ''}
+          {session.status.connection?.accountEmail
+            ? `Signed in as ${session.status.connection.accountEmail} · ${session.status.connection.deviceName}`
+            : `${session.status.state}${session.status.connection ? ` · ${session.status.connection.deviceName}` : ''}`}
         </p>
         {session.status.connection && (
           <p className={styles.hint}>
@@ -49,39 +122,61 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
             Account {session.status.connection.accountId}
           </p>
         )}
-        <div className={styles.form}>
-          <Field label="Backend URL">
-            <TextInput
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://cloud.example.com"
-            />
-          </Field>
-          <Field label="Device name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="One-use pairing code">
-            <TextInput
-              type="password"
-              autoComplete="off"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </Field>
-          <Button
-            disabled={action.busy || !url || !name || !code}
-            onClick={() =>
-              action.run(
-                (_b, s) =>
-                  cloudApi.connect({ backendUrl: url, pairingCode: code, deviceName: name }, s),
-                (connection) => changed({ connection, state: 'connected', lastError: null }),
-                true,
-              )
-            }
-          >
-            Connect device
-          </Button>
-        </div>
+        {offerSignIn && (
+          <div className={styles.form}>
+            <Field label="This Mac's name">
+              <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            {waiting ? (
+              <div className={styles.toolbar} role="status">
+                <span>Finish signing in in your browser…</span>
+                <Button onClick={cancelSignIn}>Cancel</Button>
+              </div>
+            ) : (
+              <Button variant="primary" disabled={action.busy || !name.trim()} onClick={signIn}>
+                Sign in with Google
+              </Button>
+            )}
+            {signInError && (
+              <p role="alert" className={styles.error}>
+                {signInError}
+              </p>
+            )}
+            <details className={styles.advanced}>
+              <summary>Advanced: another backend or a pairing code</summary>
+              <div className={styles.form}>
+                <Field label="Backend URL">
+                  <TextInput
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://api.aasc.work"
+                  />
+                </Field>
+                <Field label="One-use pairing code">
+                  <TextInput
+                    type="password"
+                    autoComplete="off"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </Field>
+                <Button
+                  disabled={action.busy || waiting || !url || !name || !code}
+                  onClick={() =>
+                    action.run(
+                      (_b, s) =>
+                        cloudApi.connect({ backendUrl: url, pairingCode: code, deviceName: name }, s),
+                      (connection) => changed({ connection, state: 'connected', lastError: null }),
+                      true,
+                    )
+                  }
+                >
+                  Connect device
+                </Button>
+              </div>
+            </details>
+          </div>
+        )}
         {session.status.connection && (
           <div className={styles.toolbar}>
             <Button

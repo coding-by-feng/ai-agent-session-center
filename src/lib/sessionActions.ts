@@ -62,15 +62,34 @@ export async function requestSessionKill(sessionId: string, terminalId?: string 
   }
 }
 
-/** Resume an ended session in its terminal. */
-export async function requestSessionResume(sessionId: string, signal?: AbortSignal): Promise<SessionActionResult> {
-  const resp = await fetch(`/api/sessions/${sessionId}/resume`, {
+interface ResumeReply {
+  ok?: boolean;
+  error?: string;
+  /** The session is still running: nothing was typed or opened. */
+  alreadyRunning?: boolean;
+  /** A HISTORY row came back as a new card, resumed with this CLI. */
+  cli?: 'claude' | 'codex';
+}
+
+const CLI_NAME: Record<NonNullable<ResumeReply['cli']>, string> = { claude: 'Claude', codex: 'Codex' };
+
+/**
+ * Resume an ended session: in its own terminal when it still has one, else (a HISTORY row the live
+ * store no longer holds) as a new card. `fetcher` lets the desktop send its sign-in token (`authFetch`).
+ */
+export async function requestSessionResume(
+  sessionId: string,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<SessionActionResult & { alreadyRunning?: boolean }> {
+  const resp = await fetcher(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal,
   });
-  const data: { ok?: boolean; error?: string } = await resp.json().catch(() => ({}));
-  return data.ok
-    ? { ok: true, message: 'Resuming Claude session in terminal' }
-    : { ok: false, message: data.error || 'Resume failed' };
+  const data: ResumeReply = await resp.json().catch(() => ({}));
+  if (!data.ok) return { ok: false, message: data.error || 'Resume failed' };
+  if (data.alreadyRunning) return { ok: true, alreadyRunning: true, message: 'Already running: open it from LIVE' };
+  if (data.cli && CLI_NAME[data.cli]) return { ok: true, message: `Resuming the ${CLI_NAME[data.cli]} conversation in a new terminal` };
+  return { ok: true, message: 'Resuming the session in its terminal' };
 }

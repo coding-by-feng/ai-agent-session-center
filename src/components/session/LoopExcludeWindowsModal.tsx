@@ -13,6 +13,7 @@ import type { ExcludeWindow } from '@/stores/queueStore';
 import TimePicker12 from '@/components/ui/TimePicker12';
 import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
+import dress from '@/styles/modules/PhoneDress.module.css';
 
 interface LoopExcludeWindowsModalProps {
   windows: ExcludeWindow[];
@@ -73,7 +74,7 @@ export default function LoopExcludeWindowsModal({
   return (
     <div
       ref={overlayRef}
-      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone}` : ''}`}
+      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone} ${dress.dress}` : ''}`}
       onClick={handleOverlayClick}
     >
       <div className={styles.chainModalPanel} role="dialog" aria-modal="true" aria-label="Session quiet hours">

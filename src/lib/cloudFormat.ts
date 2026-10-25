@@ -13,3 +13,16 @@ export function cloudPackageSize(bytes: number): string {
 export function cloudCount(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
+const AGENT_LABELS: Record<string, string> = { claude: 'Claude', codex: 'Codex', shared: 'Shared' };
+const KIND_LABELS: Record<string, string> = {
+  skill: 'skill',
+  command: 'command',
+  rule: 'rule',
+  agent: 'agent',
+  instruction: 'instructions',
+  memory: 'memory',
+};
+/** "Claude skill", "Codex memory" — a cloud resource's agent and kind in words. */
+export function resourceKindLabel(agent: string, kind: string): string {
+  return `${AGENT_LABELS[agent] ?? agent} ${KIND_LABELS[kind] ?? kind}`;
+}

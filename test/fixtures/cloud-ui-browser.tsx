@@ -21,7 +21,9 @@ function Fixture() {
     </div>
   );
 }
-document.body.dataset.theme = 'windows-xp';
+// `?theme=` picks the theme (empty = command-center, the default with no attribute).
+const theme = new URLSearchParams(location.search).get('theme') ?? 'windows-xp';
+if (theme) document.body.dataset.theme = theme;
 createRoot(document.getElementById('root')!).render(
   <BrowserRouter>
     <Fixture />

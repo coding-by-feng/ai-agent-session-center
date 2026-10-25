@@ -47,7 +47,8 @@ export type PushNotifyResult = z.infer<typeof PushNotifyResultSchema>;
 /**
  * Scope names are plain `area:action` strings, not a closed list: the backend
  * adds scopes within contract v1, and it — not this Mac — decides which a phone
- * may hold (it refuses anything outside its phone set with 403).
+ * may hold (it refuses anything outside its phone set with 403, and a backend
+ * from before a scope name rejects the whole body with 400).
  */
 const ScopeNameSchema = z.string().regex(/^[a-z][a-z-]{0,31}:[a-z][a-z-]{0,31}$/);
 export const PhonePairingCodeInputSchema = z
@@ -102,7 +103,9 @@ export async function notifyPush(
  * Mint a one-use backend pairing code for a phone, capped by the backend to its
  * phone scopes. Fails with CloudError: `pairing_codes_outstanding` (409),
  * `rate_limited` (429), `forbidden` (no `devices:pair` scope, or a scope a
- * phone may not hold), `disconnected`/`offline`/`backend_error` otherwise.
+ * phone may not hold), `invalid_request` (400: a backend from before a scope
+ * name, such as `mac-paths:read`, rejects the body), `disconnected`/`offline`/
+ * `backend_error` otherwise.
  */
 export async function createPhonePairingCode(
   client: CloudClient,

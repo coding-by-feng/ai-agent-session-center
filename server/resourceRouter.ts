@@ -17,6 +17,8 @@
  * resource packages (publish, install, download, restore) and cloud project
  * records. A remote device or a paired phone never reaches any of it. SSH
  * Resource Transfers and Project Sync were retired for the cloud (AASC-51).
+ * Remote access (`deps.remoteAccess`, AASC-60) mounts at `/cloud/remote-access`
+ * behind the same gate, but needs no cloud connector.
  *
  * Every input is Zod-validated; every answer is `{ success, data | error }`;
  * no route ever sends a stack trace. index.ts parses JSON globally BEFORE this
@@ -30,11 +32,11 @@ import { isAbsolute, resolve, join } from 'path';
 import { z } from 'zod';
 import { isLocalRequest } from './requestLocality.js';
 import { PathSafetyError } from './fsSafe.js';
-import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
+import { createResourceCatalog, ResourceLookupError, type ResourceCatalogService } from './resourceCatalog.js';
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
 import { ABBR_RE, TARGET_RE, AliasError, aliasCatalogRealNames, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
-import { createCloudRouter } from './cloud/router.js';
+import { createCloudRouter, type CloudGoogleRoutes } from './cloud/router.js';
 import { createNotesRouter, notesErrorHandler } from './cloud/notesRouter.js';
 import { createResourceJobs, type ResourceJobs } from './cloud/resourceJobs.js';
 import { createProjectJobs, type ProjectJobs } from './cloud/projectJobs.js';
@@ -43,11 +45,18 @@ import { createResourceJobsRouter } from './cloud/resourceRouter.js';
 import { globalRootPaths } from './resourceRoots.js';
 import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
 import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
+import { createRemoteAccessRouter } from './cloud/remoteAccessRouter.js';
+import { USAGE_WINDOW_DAYS, usageById, type TokenUse } from './resourceUsage.js';
+import type { RemoteAccess } from './cloud/remoteAccess.js';
 import type { CloudConnector } from './cloud/types.js';
 
 export interface ResourceRouterDeps {
   /** Optional server-owned cloud connector; the device token never reaches the renderer. */
   cloud?: CloudConnector;
+  /** Sign in with Google (AASC-61): POST /cloud/google/start and /cancel. The callback is mounted in index.ts. */
+  cloudGoogle?: CloudGoogleRoutes;
+  /** Remote access (AASC-60): this Mac's Tailscale state and how its paired phones reach it. Works without `cloud`. */
+  remoteAccess?: RemoteAccess;
   /** Private directory for cloud alias state. Required with `cloud`. */
   cloudAliasDirectory?: string;
   /** Private directory for cloud resource/project jobs, caches and install backups. Default `<cloudAliasDirectory>/resources`. */
@@ -68,6 +77,10 @@ export interface ResourceRouterDeps {
   home?: string;
   /** Where uninstalled resources go. Default `DEFAULT_TRASH_DIR` (resourceUninstall.ts). */
   trashDir?: string;
+  /** Skill/command uses in the last 90 days by typed token (resourceUsage.ts); null = unknown. Absent: nothing is counted. */
+  usageCounts?: () => ReadonlyMap<string, TokenUse> | null;
+  /** Hands the catalog to the phone's Library (server/mobile/phoneResources.ts): one scan for both. */
+  onCatalogReady?: (catalog: ResourceCatalogService) => void;
 }
 
 /**
@@ -207,6 +220,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     ...(deps.home ? { home: deps.home } : {}),
     ...(deps.trashDir ? { trashDir: deps.trashDir } : {}),
   });
+  deps.onCatalogReady?.(catalog);
   const isLocal = deps.isLocalRequest ?? isLocalResourceRequest;
 
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -216,6 +230,11 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     }
     fail(res, 404, 'Not found');
   });
+  // Remote access needs no cloud connection, so it is mounted before the cloud block: when a connector is
+  // mounted too, its generic /cloud router would otherwise answer these paths first.
+  if (deps.remoteAccess) {
+    router.use('/cloud/remote-access', createRemoteAccessRouter(deps.remoteAccess, isSameOriginWrite));
+  }
   if (deps.cloud) {
     const cloud = deps.cloud;
     const directory = deps.cloudAliasDirectory;
@@ -241,6 +260,12 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
           resources,
           activeProjectPaths: deps.cloudActiveProjectPaths ?? deps.sessionProjectPaths,
           home,
+          // "Save a project" offers the catalog's project folders (display paths: `~/…`).
+          candidatePaths: () =>
+            catalog
+              .getOrStartCatalog()
+              .projects.filter((p) => p.exists && !p.isHome)
+              .map((p) => (p.path.startsWith('~/') ? join(home, p.path.slice(2)) : p.path)),
         }),
       ));
     deps.onCloudProjectsReady?.(getProjects);
@@ -256,7 +281,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     router.use('/cloud/aliases', createCloudAliasesRouter(getCloudAliases, isSameOriginWrite));
     router.use('/cloud', createProjectRouter(getProjects, isSameOriginWrite));
     router.use('/cloud', createResourceJobsRouter(getOwnedJobs, isSameOriginWrite));
-    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite));
+    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite, deps.cloudGoogle));
   }
   router.use(json({ limit: '64kb' }));
   // SSH Resource Transfers and Project Sync were retired for the cloud (AASC-51):
@@ -270,6 +295,22 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
 
   router.get('/', (_req, res) => {
     res.json({ success: true, data: catalog.getOrStartCatalog() });
+  });
+
+  // Oct 23 2026: each skill's and command's uses in the last 90 days, by catalog id. Never
+  // starts a scan (one started here would leave out the folders added in Sources), and never
+  // answers an unknown count as zero: the client keeps what it shows on a 409 or 503.
+  router.get('/usage', (_req, res) => {
+    try {
+      const current = catalog.getCatalog();
+      if (!current.scannedAt) return fail(res, 409, 'The resources have not been scanned yet');
+      const counts = deps.usageCounts ? deps.usageCounts() : new Map<string, TokenUse>();
+      if (!counts) return fail(res, 503, 'Could not count resource uses');
+      res.json({ success: true, data: { windowDays: USAGE_WINDOW_DAYS, byId: usageById(counts, current.resources) } });
+    } catch (err) {
+      log.error('resources', `usage failed: ${err instanceof Error ? err.message : String(err)}`);
+      fail(res, 500, 'Could not count resource uses');
+    }
   });
 
   router.post('/scan', (req, res) => {

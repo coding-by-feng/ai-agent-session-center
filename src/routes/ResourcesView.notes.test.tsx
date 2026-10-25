@@ -42,19 +42,25 @@ describe('ResourcesView — favourites and tags', () => {
     expect(railButton('Rules')).toHaveTextContent(/0$/);
   });
 
-  it('offers every tag in use and filters by several at once (any of them)', async () => {
+  it('offers every tag in use under Filters and filters by several at once (any of them)', async () => {
     renderView();
     await ready();
-    const bar = screen.getByRole('group', { name: 'Filter by tag' });
-    expect(within(bar).getAllByRole('button').map((b) => b.textContent)).toEqual(
-      expect.arrayContaining(['workflow 2', 'review 1', 'ops 1']),
+    // The tags live in the Filters menu (Oct 23 2026); a tag that is on shows under the bar too.
+    const open = () => fireEvent.click(screen.getByRole('button', { name: /^More filters/ }));
+    const tag = (name: RegExp) => screen.findByRole('menuitemcheckbox', { name });
+    open();
+    const tags = await screen.findByRole('group', { name: 'Tags' });
+    expect(within(tags).getAllByRole('menuitemcheckbox').map((b) => b.textContent)).toEqual(
+      expect.arrayContaining(['#workflow · 2', '#review · 1', '#ops · 1']),
     );
-    fireEvent.click(within(bar).getByRole('button', { name: /^ops/ }));
+    fireEvent.click(await tag(/^#ops/));
     expect(names().map((n) => n.split(' ')[0])).toEqual(['tdd']);
-    fireEvent.click(within(bar).getByRole('button', { name: /^review/ }));
+    fireEvent.click(await tag(/^#review/)); // a checkbox item keeps the menu open
     expect(urlParams().get('tags')).toBe('ops,review');
     expect(names()).toHaveLength(2);
-    fireEvent.click(within(bar).getByRole('button', { name: /^ops/ }));
+    // Remove one from the chips under the bar.
+    const on = screen.getByRole('group', { name: 'Filters that are on' });
+    fireEvent.click(within(on).getByRole('button', { name: 'Remove the #ops filter' }));
     expect(urlParams().get('tags')).toBe('review');
     expect(names()).toHaveLength(1);
   });
@@ -81,25 +87,35 @@ describe('ResourcesView — favourites and tags', () => {
     expect(screen.getByText(/tagged nonexistent/)).toBeInTheDocument();
   });
 
-  it('shows the notes card in a skill\'s detail and nowhere else', async () => {
+  it('puts the heart in a skill\'s title row and its notes in a Notes tab, and nowhere else', async () => {
     renderView();
     await ready();
     fireEvent.click(row(/^tdd Claude/));
-    const pane = await within(detail()).findByRole('region', { name: /My notes/ }, LAZY);
-    expect(within(pane).getByRole('button', { name: 'Favourite tdd' })).toHaveAttribute('aria-pressed', 'true');
+    const notesTab = await within(detail()).findByRole('tab', { name: /^Notes/ }, LAZY);
+    // The heart is in the title row; the notes wait in their tab (2 tags + 1 abbreviation = 3).
+    expect(within(detail()).getByRole('button', { name: 'Favourite tdd' })).toHaveAttribute('aria-pressed', 'true');
+    expect(notesTab).toHaveAccessibleName(/^Notes 3 notes$/);
+    expect(within(detail()).queryByRole('region', { name: /My notes/ })).toBeNull();
+    fireEvent.click(notesTab);
+    const pane = within(detail()).getByRole('region', { name: /My notes/ });
     expect(within(pane).getByText('review')).toBeInTheDocument();
     expect((within(pane).getByLabelText('Abbreviation') as HTMLInputElement).value).toBe('td');
+    // The tab is the view's: the next skill opens on Notes too.
+    fireEvent.click(row(/^tdd Codex/));
+    expect(await within(detail()).findByRole('tab', { name: /^Notes/ }, LAZY)).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(railButton('Rules'));
     fireEvent.click(row(/^coding-style\.md/));
-    expect(within(detail()).queryByRole('region', { name: /My notes/ })).toBeNull();
+    expect(await within(detail()).findByRole('tab', { name: 'Preview' }, LAZY)).toHaveAttribute('aria-selected', 'true');
+    expect(within(detail()).queryByRole('tab', { name: /^Notes/ })).toBeNull();
   });
 
-  it('"Select visible" under a favourites filter selects only those, for the cloud', async () => {
+  it('Select all under a favourites filter selects only those, for the cloud', async () => {
     renderView();
     await ready();
     fireEvent.click(screen.getByRole('button', { name: /Favourites/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Select resources' }));
-    expect(screen.getByRole('button', { name: 'Select visible (2)' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Select all 2/ }));
+    expect(within(screen.getByRole('region', { name: 'Selected resources' })).getByText('2 selected')).toBeInTheDocument();
   });
 });
 void rail;

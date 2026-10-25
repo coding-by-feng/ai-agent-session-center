@@ -15,6 +15,12 @@
 // HTTP someone may have redeemed the code first, and the Mac revokes the device
 // that made before it issues the next one. Once only: the Mac caps the asks.
 //
+// A relink (AASC-60) replaces a token the cloud refused to read the Mac's address
+// with (it was made without mac-paths:read; savedMacs markBackendRelink). The Mac
+// revokes this phone's old backend device when it issues the next code, so the
+// held token is let go first, and only if the vault really let go: asking with the
+// old one still held would revoke it and have nowhere to keep the new one.
+//
 // Opening a Mac waits for the link only so long (shellFlows LINK_BUDGET_MS), then
 // aborts `signal`. Whatever comes back after that is dropped, and the token is
 // only written while the Mac is still saved here with its key and no newer
@@ -22,7 +28,7 @@
 import type { ShellDeps } from './native.js';
 import { pairWithBackend, requestBackendCode } from './pairingClient.js';
 import {
-  loadMacs, readBackendCredential, readMacCredentials, writeBackendCredential, type SavedMac,
+  forgetBackendCredential, loadMacs, readBackendCredential, readMacCredentials, writeBackendCredential, type SavedMac,
 } from './savedMacs.js';
 
 export type BackendLinkOutcome =
@@ -71,9 +77,20 @@ async function linkOnce(
   return { kind: 'linked', macDeviceId: issued.macDeviceId };
 }
 
+/** Let go of the token held for this Mac; false when the vault won't (the Mac must not be asked then). */
+async function letGo(deps: LinkDeps, macId: string): Promise<boolean> {
+  try {
+    await forgetBackendCredential(deps.vault, macId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function linkBackend(
-  deps: LinkDeps, mac: SavedMac, origin: string, sessionToken: string, signal?: AbortSignal,
+  deps: LinkDeps, mac: SavedMac, origin: string, sessionToken: string, signal?: AbortSignal, opts: { relink?: boolean } = {},
 ): Promise<BackendLinkOutcome> {
+  if (opts.relink && (signal?.aborted || !(await letGo(deps, mac.id)))) return { kind: 'failed' };
   if (await readBackendCredential(deps.vault, mac.id).catch(() => null)) return { kind: 'already' };
   const first = await linkOnce(deps, mac, origin, sessionToken, signal);
   if (first.kind !== 'redeem-failed') return first;

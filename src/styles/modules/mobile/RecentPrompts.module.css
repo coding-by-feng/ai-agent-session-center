@@ -1,0 +1,48 @@
+/* RecentPromptsSheet — a hold on a session's title (Oct 23 2026): where it runs,
+ * the user's remark and the last prompts the user typed, newest first. */
+
+.meta,
+.remark,
+.empty {
+  margin: 0 0 var(--ph-space-3);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+.meta {
+  color: var(--ph-text-secondary);
+}
+
+/* The user's own words for the session: set apart from the prompts by a rule and italics. */
+.remark {
+  padding-left: var(--ph-space-3);
+  border-left: 2px solid var(--ph-separator);
+  color: var(--ph-text);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  color: var(--ph-text-secondary);
+}
+
+/* A prompt: two lines at most, whole words where it can; the full text is one tap away.
+   `normal` undoes the kit row title's nowrap, which otherwise kept it to one line cut
+   mid-letter (its own ellipsis can't reach into this box). */
+.text {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.age {
+  color: var(--ph-text-secondary);
+  font-size: var(--ph-size-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

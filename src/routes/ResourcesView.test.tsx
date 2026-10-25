@@ -49,33 +49,59 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ResourcesView — shell', () => {
-  it('renders the title and the Library / Sources / Checks / Cloud sub-tabs', async () => {
+  it('renders the title and one tab row: Library · Cloud sync · Projects · Health · Connection', async () => {
     renderView();
     await ready();
     expect(screen.getByRole('heading', { name: /agent resources/i, level: 1 })).toBeInTheDocument();
     const tabs = within(screen.getByRole('tablist', { name: 'Resource sections' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Cloud']);
+    // Health carries its count of errors and warnings (four in the fixture), spoken as part of its name.
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      'Library', 'Cloud sync', 'Projects', expect.stringMatching(/^Health 4/), 'Connection',
+    ]);
+    expect(tabs[3]).toHaveAccessibleName(/^Health 4 issues to look at$/);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-    // SSH Transfers and Project Sync were replaced by Cloud; Data is Phase D — not even as a disabled tab.
-    expect(screen.queryByRole('tab', { name: /sync/i })).not.toBeInTheDocument();
+    // Data is Phase D: not even as a disabled tab. There is no second row of tabs.
     expect(screen.queryByRole('tab', { name: /data/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tablist')).toHaveLength(1);
   });
 
-  it.each(['transfers', 'projects', 'devices'])('old_section_urls_fall_back_to_library: %s', async section => {
+  it.each(['transfers', 'devices'])('old_section_urls_fall_back_to_library: %s', async section => {
     const mock = stubApi(); renderView(`/resources?section=${section}`); await ready();
     expect(screen.getByRole('tab', {name:'Library'})).toHaveAttribute('aria-selected','true');
     expect(listRows()).toHaveLength(7);
-    expect(urlsCalled(mock).some(url => /\/(transfers|sync)(?:[/?]|$)/.test(url))).toBe(false);
+    expect(urlsCalled(mock).some(url => /\/(transfers|sync-now)(?:[/?]|$)/.test(url))).toBe(false);
   });
 
-  it('bulk selection uses the cloud action and preserves selection on a preview click', async () => {
-    renderView(); await ready(); fireEvent.click(screen.getByRole('button',{name:'Select resources'}));
-    fireEvent.click(screen.getByRole('checkbox',{name:'Select tdd (codex)'}));
-    expect(screen.getByRole('button',{name:'Save selected to cloud (1)'})).toBeInTheDocument();
+  it.each([
+    ['section=sources', 'Health'],
+    ['section=checks', 'Health'],
+    ['section=cloud&cloudTab=resources', 'Cloud sync'],
+    ['section=cloud&cloudTab=projects', 'Projects'],
+    ['section=cloud&cloudTab=remote', 'Connection'],
+  ])('an old link (%s) opens %s', async (query, tab) => {
+    renderView(`/resources?${query}`);
+    await ready();
+    expect(screen.getByRole('tab', { name: new RegExp(`^${tab}`) })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Select in the list header checks rows, shows the bar under the list, and keeps the selection on a preview click', async () => {
+    renderView(); await ready();
+    expect(screen.queryByRole('checkbox', { name: 'Select tdd (codex)' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (codex)' }));
+    const bar = screen.getByRole('region', { name: 'Selected resources' });
+    expect(within(bar).getByText('1 selected')).toBeInTheDocument();
     fireEvent.click(row(/^tdd Codex/));
     await within(detail()).findByRole('heading', { name: 'TDD', level: 1 }, LAZY);
-    expect(screen.getByRole('checkbox',{name:'Select tdd (codex)'})).toBeChecked();
-    expect(screen.queryByRole('button',{name:/Create transfer/})).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select tdd (codex)' })).toBeChecked();
+    expect(screen.queryByRole('button', { name: /Create transfer/ })).not.toBeInTheDocument();
+    // Select all, then Select off: nothing stays chosen out of sight.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Select all 7/ }));
+    expect(within(bar).getByText('7 selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    expect(screen.queryByRole('region', { name: 'Selected resources' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    expect(screen.getByRole('checkbox', { name: 'Select tdd (codex)' })).not.toBeChecked();
   });
 
   it('shows per-agent totals, the project count and the scan age', async () => {
@@ -136,16 +162,27 @@ describe('ResourcesView — filters', () => {
     expect(screen.queryByRole('button', { name: /^github-review/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^imagegen/ })).not.toBeInTheDocument();
 
-    const toggle = screen.getByRole('button', { name: 'Show plugin & system' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // Under Filters since Oct 23 2026; once on, it shows under the bar as a removable chip.
+    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
+    const toggle = await screen.findByRole('menuitemcheckbox', { name: /Plugin & system resources/ });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(toggle);
 
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
     expect(urlParams().get('plugins')).toBe('1');
+    expect(screen.getByRole('button', { name: 'More filters, 1 on' })).toBeInTheDocument();
+    const chip = within(screen.getByRole('group', { name: 'Filters that are on' })).getByRole('button', {
+      name: 'Stop showing plugin and system resources',
+    });
     expect(railButton('Skills')).toHaveTextContent(/9$/);
     expect(row(/^github-review/)).toHaveTextContent('plugin');
     expect(row(/^imagegen/)).toHaveTextContent('system');
     expect(screen.getByText(/^17 claude · 6 codex · 1 shared/)).toBeInTheDocument();
+    // The chip turns it off again.
+    fireEvent.click(chip);
+    expect(urlParams().get('plugins')).toBeNull();
+    expect(railButton('Skills')).toHaveTextContent(/7$/);
+    expect(screen.queryByRole('group', { name: 'Filters that are on' })).not.toBeInTheDocument();
   });
 
   it('filters by agent', async () => {
@@ -288,7 +325,7 @@ describe('ResourcesView — detail', () => {
   it('jumps to a variant from the detail header', async () => {
     renderView('/resources?id=sk-claude-tdd');
     await ready();
-    fireEvent.click(within(detail()).getByRole('button', { name: 'Codex · Global' }));
+    fireEvent.click(within(detail()).getByRole('button', { name: /^Codex · Global/ }));
     expect(urlParams().get('id')).toBe('sk-codex-tdd');
     expect(within(detail()).getByText('Codex · Global · user')).toBeInTheDocument();
     await within(detail()).findByRole('tab', { name: 'Preview' });
@@ -533,13 +570,14 @@ describe('ResourcesView — URL state after outside navigation', () => {
   it('a filter change after the RESOURCES nav tab does not resurrect an earlier sub-tab', async () => {
     renderWithNav();
     await ready();
-    fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
-    await waitFor(() => expect(urlParams().get('section')).toBe('sources'));
+    fireEvent.click(screen.getByRole('tab', { name: /^Health/ }));
+    await waitFor(() => expect(urlParams().get('section')).toBe('health'));
 
     fireEvent.click(screen.getByRole('button', { name: 'nav: RESOURCES tab' }));
     await waitFor(() => expect(urlParams().toString()).toBe(''));
 
-    fireEvent.click(await screen.findByRole('button', { name: /Show plugin/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'More filters' }));
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: /Plugin & system resources/ }));
     await waitFor(() => expect(urlParams().get('plugins')).toBe('1'));
     expect(urlParams().get('section')).toBeNull();
   });
@@ -553,7 +591,8 @@ describe('ResourcesView — URL state after outside navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'nav: back' }));
     await waitFor(() => expect(urlParams().get('id')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: /Show plugin/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: /Plugin & system resources/ }));
     await waitFor(() => expect(urlParams().get('plugins')).toBe('1'));
     expect(urlParams().get('id')).toBeNull();
   });
@@ -597,32 +636,120 @@ describe('ResourcesView — shortcut commands', () => {
   });
 });
 
-it('the Cloud Connection view shows the connection status', async () => {
+it('the Connection tab shows the connection status', async () => {
   const { cloudApi } = await import('@/lib/cloudApi');
   const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: null, state: 'disconnected', lastError: null });
-  renderView('/resources?section=cloud&cloudTab=connection');
+  renderView('/resources?section=connection');
   await ready();
-  expect(screen.getByRole('tab', { name: 'Cloud' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: 'Connection' })).toHaveAttribute('aria-selected', 'true');
   expect(await screen.findByRole('heading', { name: 'Device connection' })).toBeInTheDocument();
   expect(await screen.findByText(/Cloud · disconnected/)).toBeInTheDocument();
   expect(status).toHaveBeenCalled();
   status.mockRestore();
 });
 
-it('Cloud navigation preserves Library filters and explicit selected leaves', async () => {
-  const {cloudApi}=await import('@/lib/cloudApi');
-  const status=vi.spyOn(cloudApi,'status').mockResolvedValue({connection:null,state:'disconnected',lastError:null});
+it('going to Cloud sync and back keeps the Library filters and the selection', async () => {
+  const { cloudApi } = await import('@/lib/cloudApi');
+  const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: null, state: 'disconnected', lastError: null });
   renderView('/resources?scope=global&agent=claude&type=skill&q=tdd');
   await ready();
-  fireEvent.click(screen.getByRole('button',{name:'Select resources'}));
-  fireEvent.click(screen.getByRole('button',{name:'Select visible (1)'}));
-  fireEvent.click(screen.getByRole('button',{name:'Save selected to cloud (1)'}));
-  await screen.findByRole('heading',{name:'Save from this device'});
+  fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /Select all 1/ }));
+  // Not connected: the bar says how to get there instead of offering a save that can't run.
+  const bar = screen.getByRole('region', { name: 'Selected resources' });
+  expect(within(bar).getByRole('button', { name: 'Connect to save to cloud' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Cloud sync' }));
+  await waitFor(() => expect(urlParams().get('section')).toBe('sync'));
   expect(urlParams().get('scope')).toBe('global');
   expect(urlParams().get('q')).toBe('tdd');
-  expect(urlParams().get('cloudTab')).toBe('resources');
-  fireEvent.click(screen.getByRole('tab',{name:'Library'}));
-  await screen.findByRole('button',{name:'Save selected to cloud (1)'});
+  fireEvent.click(screen.getByRole('tab', { name: 'Library' }));
+  expect(await screen.findByText('1 selected')).toBeInTheDocument();
   expect(screen.getByLabelText('Search resources')).toHaveValue('tdd');
   status.mockRestore();
+});
+
+// ---------------------------------------------------------------------------
+// Oct 23 2026: syncing from the Library
+// ---------------------------------------------------------------------------
+
+describe('ResourcesView — cloud state in the Library', () => {
+  const cloudBinding = {
+    backendOrigin: 'https://fixture.invalid',
+    accountId: '00000000-0000-4000-8000-000000000001',
+    deviceId: '00000000-0000-4000-8000-000000000002',
+    deviceName: 'Fixture',
+    generation: 1,
+  };
+  const cid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  async function connect() {
+    const { cloudApi } = await import('@/lib/cloudApi');
+    const { resetSyncStatus } = await import('@/components/resources/cloud/syncStatusStore');
+    resetSyncStatus();
+    localStorage.clear();
+    vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: cloudBinding, state: 'connected', lastError: null });
+    vi.spyOn(cloudApi, 'syncStatus').mockResolvedValue({
+      items: [
+        { resourceId: cid(10), catalogId: 'sk-claude-tdd', name: 'tdd', agent: 'claude', kind: 'skill', scope: 'global', state: 'synced', cloudVersion: 2, syncedVersion: 2, memory: false },
+        { resourceId: cid(11), catalogId: 'sk-codex-tdd', name: 'tdd', agent: 'codex', kind: 'skill', scope: 'global', state: 'local-changed', cloudVersion: 1, syncedVersion: 1, memory: false },
+      ],
+      waiting: 1,
+    });
+    return cloudApi;
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it('marks each row that syncs, sums it up, and counts what waits on the Cloud sync tab', async () => {
+    await connect();
+    renderView();
+    await ready();
+    expect(await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' })).toBeInTheDocument();
+    expect(within(row(/^tdd Codex/)).getByRole('img', { name: 'Cloud: Changed on this Mac' })).toBeInTheDocument();
+    expect(within(row(/^research/)).queryByRole('img', { name: /^Cloud:/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Cloud: 1 synced, 1 to sync/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Cloud sync/ })).toHaveAccessibleName(/1 waiting to sync/);
+  });
+
+  it('the bulk bar saves the selection in place and stops the ones that sync', async () => {
+    const cloudApi = await connect();
+    const plan = vi.spyOn(cloudApi, 'buildPublicationPlan').mockResolvedValue({ id: cid(70), items: [], blocked: [] });
+    const control = vi.spyOn(cloudApi, 'syncControl').mockResolvedValue({ resourceId: cid(10), action: 'stop' });
+    renderView();
+    await ready();
+    await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (claude)' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select research (claude)' }));
+    const bar = screen.getByRole('region', { name: 'Selected resources' });
+    // research is a link: it can't be saved, so the button says how many can.
+    fireEvent.click(within(bar).getByRole('button', { name: 'Save 1 to cloud' }));
+    await waitFor(() =>
+      expect(plan).toHaveBeenCalledWith([{ resourceId: 'sk-claude-tdd', include: true }], expect.anything(), expect.any(AbortSignal)),
+    );
+    expect(await screen.findByRole('dialog', { name: 'Save to cloud' })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'Stop syncing 1' }));
+    await waitFor(() =>
+      expect(control).toHaveBeenCalledWith({ resourceId: cid(10), action: 'stop' }, expect.anything(), expect.any(AbortSignal)),
+    );
+    expect(await within(bar).findByText(/Stopped syncing 1 resource on this Mac/)).toBeInTheDocument();
+  });
+
+  it('a stop that fails part-way says why and still reads the list, so the ones stopped show', async () => {
+    const cloudApi = await connect();
+    const { CloudApiError } = await import('@/lib/cloudApi');
+    vi.spyOn(cloudApi, 'syncControl')
+      .mockResolvedValueOnce({ resourceId: cid(10), action: 'stop' })
+      .mockRejectedValueOnce(new CloudApiError('offline', 'The cloud went away.'));
+    renderView();
+    await ready();
+    await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (claude)' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (codex)' }));
+    const bar = screen.getByRole('region', { name: 'Selected resources' });
+    const reads = vi.mocked(cloudApi.syncStatus).mock.calls.length;
+    fireEvent.click(within(bar).getByRole('button', { name: 'Stop syncing 2' }));
+    expect(await within(bar).findByRole('alert')).toHaveTextContent(/offline/i);
+    await waitFor(() => expect(vi.mocked(cloudApi.syncStatus).mock.calls.length).toBeGreaterThan(reads));
+  });
 });

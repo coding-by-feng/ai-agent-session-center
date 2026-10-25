@@ -17,6 +17,7 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { isNativeMobileApp, nativeAppPlatform } from '@/lib/platform';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
+import { resourcesPath } from '@/lib/chat/phoneRoutes';
 import { CLOUD_FETCH_SHORT, fetchCloudStatus, type CloudStatus } from '@/lib/chat/cloudBrowseApi';
 import { cloudStateWords, firstSentence, syncWords } from '@/lib/chat/cloudBrowseModel';
 import { useClock } from '@/lib/chat/clock';
@@ -24,7 +25,7 @@ import { useCloudRead } from './useCloudRead';
 
 const readStatus = ({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchCloudStatus(signal);
 
-/** The Cloud row: the Mac's connection to AASC Cloud as this phone sees it; opens More → Cloud. */
+/** The Cloud row: the Mac's connection to AASC Cloud as this phone sees it; opens Resources → Cloud sync. */
 function CloudRow() {
   const push = usePhoneNavStore((s) => s.push);
   const now = useClock();
@@ -34,7 +35,7 @@ function CloudRow() {
   const subtitle = data
     ? (data.problem ? firstSentence(data.problem) : syncWords(data, now))
     : status.error ? CLOUD_FETCH_SHORT[status.error.problem] : undefined;
-  return <ListRow title="Cloud" value={value} subtitle={subtitle} tall chevron onClick={() => push('/more/cloud')} testId="this-phone-cloud" />;
+  return <ListRow title="Cloud" value={value} subtitle={subtitle} tall chevron onClick={() => push(resourcesPath('cloud'))} testId="this-phone-cloud" />;
 }
 
 export default function ThisPhoneScreen() {

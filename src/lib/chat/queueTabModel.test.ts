@@ -59,10 +59,10 @@ describe('senderLine', () => {
 });
 
 describe('item words', () => {
-  it('describes loops, schedules, chains, photos and pauses', () => {
+  it('describes loops, schedules, chains and photos (a pause is the row\'s Paused pill, not a word here)', () => {
     expect(itemSummary(item(1))).toBe('');
     expect(itemSummary(item(1, { type: 'loop', intervalMs: 600_000 }))).toBe('Every 10 min');
-    expect(itemSummary(item(1, { type: 'loop', intervalMs: 7_200_000, disabled: true }))).toBe('Every 2 h · paused');
+    expect(itemSummary(item(1, { type: 'loop', intervalMs: 7_200_000, disabled: true }))).toBe('Every 2 h');
     expect(itemSummary(item(1, { beforeChain: [{ id: 1, text: '/clear' }], afterChain: [{ id: 2, text: '/compact' }] }))).toBe('3 steps');
     expect(itemSummary(item(1, { images: [{ name: 'a', dataUrl: '' }] }))).toBe('1 photo');
     expect(itemSummary(item(1, { type: 'schedule' }))).toBe('Scheduled');
@@ -75,9 +75,9 @@ describe('item words', () => {
     expect(promptLine(item(1, { text: '', images: [{ name: 'a', dataUrl: '' }] }))).toBe('Photos only');
   });
 
-  it('says the session\'s automation in words', () => {
-    expect(automationWords(DEFAULT_AUTOMATION)).toBe('Auto-send on · Auto-Enter on');
-    expect(automationWords({ ...DEFAULT_AUTOMATION, autoEnter: false })).toBe('Auto-send on · Auto-Enter off');
+  it('says the session\'s automation in words, Auto-Enter first like the session\'s own queue', () => {
+    expect(automationWords(DEFAULT_AUTOMATION)).toBe('Auto-Enter on · Auto-send on');
+    expect(automationWords({ ...DEFAULT_AUTOMATION, autoEnter: false })).toBe('Auto-Enter off · Auto-send on');
     expect(automationWords({ ...DEFAULT_AUTOMATION, paused: true })).toBe('Paused');
   });
 });

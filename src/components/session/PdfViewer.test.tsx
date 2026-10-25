@@ -11,7 +11,12 @@ const mock = vi.hoisted(() => ({
 vi.mock('@/lib/pdfAssets', () => ({ LocalCMapReader: class {}, LocalStandardFonts: class {} }));
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
-  getDocument: () => ({ promise: Promise.resolve({}), destroy: mock.destroy }),
+  getDocument: ({ url }: { url: string }) => ({
+    promise: url.startsWith('blob:gone')
+      ? Promise.reject(new Error(`Unexpected server response (0) while retrieving PDF "${url}".`))
+      : Promise.resolve({}),
+    destroy: mock.destroy,
+  }),
 }));
 vi.mock('pdfjs-dist/web/pdf_viewer.mjs', () => ({
   EventBus: class { on(name: string, cb: (data?: unknown) => void) { mock.listeners.set(name, cb); } dispatch() {} },
@@ -62,4 +67,12 @@ it('does not overwrite the stored PDF anchor with hidden-view updates', async ()
   act(() => { mock.listeners.get('updateviewarea')?.({ location: { pageNumber: 1, left: 0, top: 0, rotation: 0 } }); });
   view.unmount();
   expect(readPdfPosition('pdf-hidden-test')).toEqual(before);
+});
+
+it('drops a failed source\'s error once the viewer is given a new source', async () => {
+  const view = render(<PdfViewer src="blob:gone/1" name="r3.pdf" positionKey="pdf-error-test" />);
+  await waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Unexpected server response (0)'));
+  view.rerender(<PdfViewer src="/api/files/stream?root=%2Fp&path=r3.pdf" name="r3.pdf" positionKey="pdf-error-test" />);
+  expect(view.queryByRole('alert')).toBeNull();
+  await waitFor(() => expect(view.getByLabelText('PDF page')).toHaveValue(3));
 });

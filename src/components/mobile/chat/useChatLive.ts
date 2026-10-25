@@ -1,18 +1,22 @@
 /**
  * useChatLive — keeps a session's chat current while it is on screen (AASC-41).
  *
- * There is no WebSocket message for the transcript: every `session_update` already
- * carries the session, and its activity (status, last activity, tool calls,
- * prompts, replies) moving is the cue to read what was written since (`after=`).
+ * Two cues to read what was written since (`after=`): the session's activity
+ * (status, last activity, tool calls, prompts, replies) moving in a `session_update`,
+ * and `chat_grew`, which the Mac sends the moment the transcript grows while a chat
+ * reads it (`chatGrowth.ts`, Oct 22 2026) — prose and thinking between tool calls
+ * have no hook of their own.
  * The first change waits 250 ms; reads never come closer than 250 ms apart (at most
  * four a second), and changes arriving meanwhile ride on the read already planned.
- * While the agent works a slow poll covers anything no hook announced; when it stops,
+ * While the agent works a slow poll covers anything neither cue announced (it skips a
+ * tick when a cued read came in the last 8 s); when it stops,
  * one more read a moment later catches a last line written after the Stop hook; and
  * coming back to the app reads again. Only the screen on show reads (useScreenSlot).
  */
 import { useEffect, useRef } from 'react';
 import type { Session } from '@/types';
 import { retainChat, useChatStore } from '@/stores/chatStore';
+import { useChatGrowth } from '@/lib/chatGrowth';
 import { useScreenSlot } from '../kit';
 
 const FIRST_WAIT_MS = 250;
@@ -27,7 +31,8 @@ export function useChatLive(session: Session): void {
   const { sessionId } = session;
   const { isTop } = useScreenSlot();
   const working = session.status === 'working' || session.status === 'prompting';
-  const activity = activityOf(session);
+  const grew = useChatGrowth(sessionId);
+  const activity = `${activityOf(session)}|${grew}`;
 
   useEffect(() => {
     const release = retainChat(sessionId);
@@ -58,7 +63,12 @@ export function useChatLive(session: Session): void {
 
   useEffect(() => {
     if (!isTop || !working) return;
-    const id = setInterval(() => void useChatStore.getState().refresh(sessionId), WORKING_POLL_MS);
+    // Only a fallback: a tick right after a cued read would read the same lines again.
+    const id = setInterval(() => {
+      if (Date.now() - lastRead.current < WORKING_POLL_MS) return;
+      lastRead.current = Date.now();
+      void useChatStore.getState().refresh(sessionId);
+    }, WORKING_POLL_MS);
     return () => clearInterval(id);
   }, [isTop, working, sessionId]);
 

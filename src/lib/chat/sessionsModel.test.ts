@@ -56,6 +56,17 @@ describe('statusSection', () => {
     expect(statusSection(mk('a', { status: 'waiting', interruption: { kind: 'api', line: '529', at: 1 } as never }))).toBe('needs-you');
   });
 
+  // Oct 23 2026: a session whose last answer asks you to reply "proceed" owes you a review; under
+  // Idle it would fold away with the rest (IDLE_FOLD_AT), so it goes under Needs you.
+  it('puts a session that asks you to proceed under Needs you, and counts it there', () => {
+    const owes = mk('a', { status: 'idle', pendingProceedAt: T });
+    expect(statusSection(owes)).toBe('needs-you');
+    expect(statusSection(mk('b', { status: 'waiting', pendingProceedAt: T }), { b: T + 1 })).toBe('needs-you');
+    expect(matchesFilter(owes, 'needs-you')).toBe(true);
+    expect(matchesFilter(owes, 'working')).toBe(false);
+    expect(filterCount([owes, mk('c', { status: 'idle' })], 'needs-you')).toBe(1);
+  });
+
   it('puts working and starting sessions under Working', () => {
     expect(statusSection(mk('a', { status: 'working' }))).toBe('working');
     expect(statusSection(mk('a', { status: 'prompting' }))).toBe('working');
@@ -208,7 +219,7 @@ describe('groupSessions', () => {
     const byRoom = (over: Partial<GroupInput> = {}) => groupSessions(input(list, { groupBy: 'room', rooms, now: N, ...over }));
 
     it('lists the sessions with a running turn or work in the last 30 min: pinned first, then newest prompt', () => {
-      const [recent] = byRoom();
+      const recent = byRoom().find((g) => g.kind === 'recent')!;
       expect(recent).toMatchObject({ key: 'recent', kind: 'recent', title: 'Recent' });
       expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'loose']);
     });
@@ -216,6 +227,7 @@ describe('groupSessions', () => {
     it('keeps each of them in its own room as well', () => {
       const groups = byRoom();
       expect(groups.map((g) => [g.title, g.sessions.map((s) => s.sessionId)])).toEqual([
+        ['Pinned', ['pin']],
         ['Recent', ['pin', 'fresh', 'run', 'loose']],
         ['First', ['pin', 'run', 'fresh', 'quiet']], // the room's own order: pinned first
         ['No room', ['loose']],
@@ -224,7 +236,7 @@ describe('groupSessions', () => {
 
     it('lets a session go when it has been quiet for the whole window, pinned or not', () => {
       // 6 min on, pin's last prompt is 31 min old; a running turn stays however old.
-      expect(byRoom({ now: N + 6 * MIN })[0].sessions.map((s) => s.sessionId)).toEqual(['fresh', 'run', 'loose']);
+      expect(byRoom({ now: N + 6 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['fresh', 'run', 'loose']);
     });
 
     it('narrows with the filter and the search, and is left out when none is recent', () => {
@@ -237,6 +249,40 @@ describe('groupSessions', () => {
       for (const groupBy of ['status', 'project', 'activity'] as const) {
         expect(byRoom({ groupBy }).some((g) => g.kind === 'recent'), groupBy).toBe(false);
       }
+    });
+
+    // The desktop rail's built-in PINNED frame (Oct 22 2026): first, by the strip's own rule.
+    describe('Pinned, before Recent', () => {
+      const pinRooms = [room('r1', 'First', ['b', 'a'], 0)];
+      const pins = [
+        mk('a', { status: 'idle', pinned: true }),
+        mk('b', { status: 'waiting', pinned: true }),
+        mk('c', { status: 'idle' }),
+        mk('d', { status: 'idle', pinned: true }),
+        mk('e', { status: 'ended', pinned: true }),
+      ];
+      const pinned = (over: Partial<GroupInput> = {}) => groupSessions(input(pins, { groupBy: 'room', rooms: pinRooms, now: N, ...over }));
+
+      it('lists the live pinned sessions first, each also in its room or under No room', () => {
+        const groups = pinned();
+        expect(groups[0]).toMatchObject({ key: 'pinned', kind: 'pinned', title: 'Pinned' });
+        expect(groups[0].sessions.map((s) => s.sessionId).sort()).toEqual(['a', 'b', 'd']);
+        expect(groups.find((g) => g.kind === 'room')!.sessions.map((s) => s.sessionId)).toEqual(['b', 'a']);
+        expect(groups.find((g) => g.kind === 'none')!.sessions.map((s) => s.sessionId)).toEqual(['d', 'c']); // pinned first, as in a room
+      });
+
+      it('narrows with the filter and the search, and is left out with none pinned', () => {
+        expect(pinned({ query: 'c' }).some((g) => g.kind === 'pinned')).toBe(false);
+        expect(pinned({ query: 'd' })[0].sessions.map((s) => s.sessionId)).toEqual(['d']);
+        const unpinned = pins.map((s) => ({ ...s, pinned: false }));
+        expect(groupSessions(input(unpinned, { groupBy: 'room', rooms: pinRooms, now: N })).some((g) => g.kind === 'pinned')).toBe(false);
+      });
+
+      it('is only in the By room view', () => {
+        for (const groupBy of ['status', 'project', 'activity'] as const) {
+          expect(pinned({ groupBy }).some((g) => g.kind === 'pinned'), groupBy).toBe(false);
+        }
+      });
     });
   });
 

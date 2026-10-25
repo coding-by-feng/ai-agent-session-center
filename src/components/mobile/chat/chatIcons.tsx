@@ -48,6 +48,11 @@ export const CameraIcon = (p: IconProps) => (
 
 export const SnippetIcon = (p: IconProps) => <Svg {...p}><path d="M7 4h10v16l-5-3.5L7 20z" /></Svg>;
 
+/** The quick reply ("proceed"): a P in a small rounded square. */
+export const QuickReplyIcon = (p: IconProps) => (
+  <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="4" /><path d="M10 16.5V7.5h2.8a2.6 2.6 0 0 1 0 5.2H10" /></Svg>
+);
+
 export const FileIcon = (p: IconProps) => (
   <Svg {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></Svg>
 );

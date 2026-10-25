@@ -17,6 +17,11 @@ describe('BottomSheet', () => {
     expect(document.activeElement?.textContent).toBe('×');
   });
 
+  it('takes a host class on its panel: portaled to <body>, it is out of reach of the host’s scoped rules otherwise', () => {
+    render(<BottomSheet open onClose={() => {}} title="Filters" className="phone-dress">x</BottomSheet>);
+    expect(screen.getByRole('dialog', { name: 'Filters' }).className).toContain('phone-dress');
+  });
+
   it('closes on Escape, on the backdrop and on the close button, never on a tap inside', () => {
     const onClose = vi.fn();
     render(<BottomSheet open onClose={onClose} title="Actions"><p>inside</p></BottomSheet>);

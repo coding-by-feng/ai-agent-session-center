@@ -1,32 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { it, expect, vi } from 'vitest';
 import CloudJob from './CloudJob';
-import ResourceSelection from '../ResourceSelection';
 import { CloudContext } from './cloudSession';
 import { cloudApi } from '@/lib/cloudApi';
-import { res } from '@/__tests__/fixtures/resourceCatalog';
-import { cloudPublicationBlocker } from '@/types/resourceSelection';
-it('selected_global_with_one_exclusion keeps ordered leaf exception', () => {
-  const change = vi.fn();
-  render(
-    <ResourceSelection
-      resources={[res({ id: 'a', name: 'Alpha' }), res({ id: 'b', name: 'Bravo' })]}
-      projects={[]}
-      selection={[
-        { scope: 'global', include: true },
-        { resourceId: 'b', include: false },
-      ]}
-      onChange={change}
-      blocker={cloudPublicationBlocker}
-    />,
-  );
-  expect(screen.getByRole('checkbox', { name: 'Alpha · Claude' })).toBeChecked();
-  expect(screen.getByRole('checkbox', { name: 'Bravo · Claude' })).not.toBeChecked();
-  expect(screen.getByRole('checkbox', { name: /Select global resources/ })).toHaveAttribute(
-    'aria-checked',
-    'mixed',
-  );
-});
 it('complete install with alias attention remains retryable', async () => {
   const id = '00000000-0000-4000-8000-000000000001',
     job = {
@@ -61,6 +37,9 @@ it('complete install with alias attention remains retryable', async () => {
         current: () => 1,
         changed: false,
         refresh: vi.fn(),
+        apply: vi.fn(),
+        loaded: true,
+        error: null,
       }}
     >
       <CloudJob job={job} onChange={vi.fn()} />
@@ -98,6 +77,9 @@ function showRunning(
         current: () => 1,
         changed,
         refresh: vi.fn(),
+        apply: vi.fn(),
+        loaded: true,
+        error: null,
       }}
     >
       <CloudJob job={job} onChange={onChange} />
@@ -176,6 +158,9 @@ it('a prepared ZIP is saved once: the button goes and the hint says to start a n
         current: () => 1,
         changed: false,
         refresh: vi.fn(),
+        apply: vi.fn(),
+        loaded: true,
+        error: null,
       }}
     >
       <CloudJob job={{ id, kind: 'download', state: 'complete', steps: [] }} onChange={vi.fn()} />

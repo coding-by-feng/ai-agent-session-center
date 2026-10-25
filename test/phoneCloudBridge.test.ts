@@ -2,8 +2,11 @@
 // connected, and nothing breaks when it isn't.
 import { describe, it, expect, vi } from 'vitest';
 import {
-  BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, createPhoneCloudBridge, PHONE_BACKEND_SCOPES, MAX_BACKEND_CODE_LIFE_MS } from '../server/mobile/phoneCloudBridge.js';
-import { CloudError, type CloudConnector } from '../server/cloud/types.js';
+  BACKEND_CODE_EXPIRY_MARGIN_MS, BACKEND_CODE_TTL_SECONDS, createPhoneCloudBridge, PHONE_BACKEND_SCOPES, PUSH_ONLY_SCOPES,
+  MAX_BACKEND_CODE_LIFE_MS,
+} from '../server/mobile/phoneCloudBridge.js';
+import { createCloudClient, createCloudTransport } from '../server/cloud/client.js';
+import { CloudError, type ActiveCloudConnection, type CloudConnector } from '../server/cloud/types.js';
 
 type Call = { method: string; path: string; body?: unknown };
 
@@ -35,7 +38,7 @@ const MESSAGE = {
 };
 
 describe('mintBackendCode', () => {
-  it('asks the backend for a phone code with push only, and says which host and Mac it is for', async () => {
+  it('asks the backend for a phone code, and says which host and Mac it is for', async () => {
     const { cloud, calls } = fakeCloud('connected', () => CODE);
     const warn = vi.fn();
     const minted = Date.parse(CODE.expiresAt) - BACKEND_CODE_TTL_SECONDS * 1000;
@@ -44,7 +47,6 @@ describe('mintBackendCode', () => {
       host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac', expiresAt: Date.parse(CODE.expiresAt),
     });
     expect(calls).toEqual([{ method: 'POST', path: '/v1/devices/pairing-codes', body: { kind: 'phone', scopes: [...PHONE_BACKEND_SCOPES], ttlSeconds: BACKEND_CODE_TTL_SECONDS } }]);
-    expect(PHONE_BACKEND_SCOPES).toEqual(['push:register']);
     // Issued just in time to a signed-in phone that redeems it at once (AASC-52): the backend's shortest life.
     expect(BACKEND_CODE_TTL_SECONDS).toBe(60);
   });
@@ -95,6 +97,122 @@ describe('mintBackendCode', () => {
   it('tries a saved connection nobody has checked yet (offline right after the Mac restarts): the phone asked', async () => {
     const offline = fakeCloud('offline', () => CODE);
     expect(await createPhoneCloudBridge({ cloud: offline.cloud, warn: vi.fn() }).mintBackendCode()).toMatchObject({ code: CODE.code });
+  });
+});
+
+// AASC-60 (Remote access): a phone's code also asks for `mac-paths:read`, which is how the phone learns where this Mac
+// is on Tailscale. A backend that doesn't have it yet must not cost the phone its push link, so the Mac asks once more,
+// for push only. Scopes are fixed when the phone redeems its code, hence one try with the address and one without.
+describe('mintBackendCode: the Mac’s address scope (AASC-60)', () => {
+  const requestedScopes = (calls: Call[]) => calls.map((c) => (c.body as { scopes: string[] }).scopes);
+  /** A backend that answers its requests in order. One past them is a plain Error, which is never retried, so it can't loop. */
+  const inOrder = (...answers: unknown[]) => {
+    let next = 0;
+    return () => (next < answers.length ? answers[next++] : new Error('unexpected extra request'));
+  };
+  const refusal = (code: string, status: number) => new CloudError(code, 'Refused.', status);
+  const WITH_ADDRESS_THEN_PUSH_ONLY = [['push:register', 'mac-paths:read'], ['push:register']];
+
+  it('asks for push:register and mac-paths:read', async () => {
+    const warn = vi.fn();
+    const { cloud, calls } = fakeCloud('connected', () => CODE);
+    expect(await createPhoneCloudBridge({ cloud, warn }).mintBackendCode()).toMatchObject({ code: CODE.code });
+    expect(requestedScopes(calls)).toEqual([['push:register', 'mac-paths:read']]);
+    expect(PHONE_BACKEND_SCOPES).toEqual(['push:register', 'mac-paths:read']);
+    expect(PUSH_ONLY_SCOPES).toEqual(['push:register']);
+    // Nothing to say when the phone got everything it asked for.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to push only when the backend refuses mac-paths:read', async () => {
+    const warn = vi.fn();
+    const { cloud, calls } = fakeCloud('connected', inOrder(refusal('forbidden', 403), CODE));
+    const minted = Date.parse(CODE.expiresAt) - BACKEND_CODE_TTL_SECONDS * 1000;
+    const code = await createPhoneCloudBridge({ cloud, warn, now: () => minted }).mintBackendCode();
+    // The same code, host and expiry as without the fallback: nothing downstream (the ledger, the phone) can tell.
+    expect(code).toEqual({
+      host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac', expiresAt: Date.parse(CODE.expiresAt),
+    });
+    expect(requestedScopes(calls)).toEqual(WITH_ADDRESS_THEN_PUSH_ONLY);
+    // Only the scopes change between the two requests.
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /v1/devices/pairing-codes', 'POST /v1/devices/pairing-codes']);
+    expect(calls[1].body).toEqual({ kind: 'phone', scopes: ['push:register'], ttlSeconds: BACKEND_CODE_TTL_SECONDS });
+    // Said once, after the retry worked: the phone is linked for push but can't read this Mac's address.
+    expect(warn.mock.calls).toEqual([["The backend refused the Mac-address scope (forbidden): this phone's backend code is push only."]]);
+  });
+
+  // Review ruling R15: a backend from before mac-paths validates the body first and has never heard of the scope.
+  it('falls back to push only when an older backend rejects the scope name (400)', async () => {
+    const warn = vi.fn();
+    const { cloud, calls } = fakeCloud('connected', inOrder(refusal('invalid_request', 400), CODE));
+    const code = await createPhoneCloudBridge({ cloud, warn }).mintBackendCode();
+    expect(code).toMatchObject({ host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac' });
+    expect(requestedScopes(calls)).toEqual(WITH_ADDRESS_THEN_PUSH_ONLY);
+    expect(warn.mock.calls).toEqual([["The backend refused the Mac-address scope (invalid_request): this phone's backend code is push only."]]);
+  });
+
+  it('counts the code’s life from the answer that made it, not from the refusal before it', async () => {
+    let clock = 1_000_000;
+    const answer = inOrder(refusal('forbidden', 403), { ...CODE, expiresAt: new Date(0).toISOString() });
+    const { cloud } = fakeCloud('connected', () => {
+      clock += 45_000; // each round trip
+      return answer();
+    });
+    const code = await createPhoneCloudBridge({ cloud, warn: vi.fn(), now: () => clock }).mintBackendCode();
+    expect(code?.expiresAt).toBe(1_090_000 + BACKEND_CODE_TTL_SECONDS * 1000);
+  });
+
+  it.each([
+    ['a network error', new CloudError('offline', 'Cloud is offline.'), 'offline'],
+    ['a timeout', new CloudError('cancelled', 'Cloud request cancelled or timed out.'), 'cancelled'],
+    ['a 500', new CloudError('backend_error', 'Cloud request failed.'), 'backend_error'],
+    ['a revoked token (401)', refusal('revoked', 401), 'revoked'],
+    ['too many unused codes (409)', refusal('pairing_codes_outstanding', 409), 'pairing_codes_outstanding'],
+    ['a rate limit (429)', refusal('rate_limited', 429), 'rate_limited'],
+    // Not the backend's invalid_request: this Mac refusing to send a request it found invalid itself.
+    ['a request this Mac refused to send', refusal('invalid_input', 400), 'invalid_input'],
+    ['an answer it could not read', new CloudError('invalid_response', 'Cloud returned an invalid response.'), 'invalid_response'],
+    ['an unexpected error', new Error('boom'), 'boom'],
+  ])('does not retry on other failures: %s', async (_what, failure, logged) => {
+    const warn = vi.fn();
+    const { cloud, calls } = fakeCloud('connected', inOrder(failure, CODE));
+    expect(await createPhoneCloudBridge({ cloud, warn }).mintBackendCode()).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(warn.mock.calls).toEqual([[`No backend code for the phone: ${logged}`]]);
+  });
+
+  it('gives up (null) when both are refused, after two requests and no more', async () => {
+    const warn = vi.fn();
+    // The push-only retry is refused too (here: this Mac's device may not make phone codes at all), and so would a third be.
+    const { cloud, calls } = fakeCloud('connected', inOrder(refusal('invalid_request', 400), refusal('forbidden', 403)));
+    expect(await createPhoneCloudBridge({ cloud, warn }).mintBackendCode()).toBeNull();
+    expect(requestedScopes(calls)).toEqual(WITH_ADDRESS_THEN_PUSH_ONLY);
+    // Said once, with the answer that settled it. The push-only warning is for a retry that worked, so not here.
+    expect(warn.mock.calls).toEqual([['No backend code for the phone: forbidden']]);
+  });
+
+  // R15 hangs on how this Mac's own transport words a backend's refusal, so run the real transport against a fake fetch.
+  // What the log names is the transport's word for it (forbidden), not the backend's own code (pairing_scope_forbidden).
+  it.each([
+    ['an older backend answers 400 invalid_request', 400, 'invalid_request', 'invalid_request'],
+    ['a backend that knows the scope but not for phones answers 403 pairing_scope_forbidden', 403, 'pairing_scope_forbidden', 'forbidden'],
+  ] as const)('through the real transport: %s, and the phone still gets a push code', async (_backend, status, remote, logged) => {
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const { scopes } = JSON.parse(String(init?.body)) as { scopes: string[] };
+      return scopes.includes('mac-paths:read')
+        ? Response.json({ success: false, error: { code: remote, message: 'Refused.' } }, { status })
+        : Response.json({ success: true, data: CODE });
+    });
+    const active = { connection: { backendOrigin: 'https://api.example.test' }, token: 't'.repeat(43), secretRef: 'ref' } as unknown as ActiveCloudConnection;
+    const client = createCloudClient({
+      active: () => active, revision: () => 1, outcome: () => {},
+      transport: createCloudTransport({ fetch: fetcher as unknown as typeof fetch }),
+    });
+    const cloud = { ...fakeCloud('connected', () => ({})).cloud, client } as CloudConnector;
+    const warn = vi.fn();
+    expect(await createPhoneCloudBridge({ cloud, warn }).mintBackendCode()).toMatchObject({ code: CODE.code, codeRef: CODE.codeRef });
+    expect(fetcher.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { scopes: string[] }).scopes)).toEqual(WITH_ADDRESS_THEN_PUSH_ONLY);
+    expect(warn.mock.calls).toEqual([[`The backend refused the Mac-address scope (${logged}): this phone's backend code is push only.`]]);
   });
 });
 

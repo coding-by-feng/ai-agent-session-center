@@ -165,7 +165,7 @@ export default function PhoneReview() {
       <div className={styles.scroll}>{body()}</div>
 
       {openRow && (
-        <BottomSheet open onClose={closeEntry} title={entryName(openRow)} fullHeight>
+        <BottomSheet open onClose={closeEntry} title={entryName(openRow)} fullHeight className={styles.dress}>
           <div className={styles.detail} data-testid="review-detail">
             <div className={styles.detailScroll}>
               <div className={styles.detailMeta}>

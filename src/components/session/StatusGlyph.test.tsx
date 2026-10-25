@@ -5,7 +5,8 @@ import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import StatusGlyph from './StatusGlyph';
 
-const STATUSES = ['working', 'prompting', 'approval', 'input', 'waiting', 'idle', 'connecting', 'ended'];
+// 'proceed' is not a status but the P reminder (sessionStatusStyle.displayStatus), drawn in the same slots.
+const STATUSES = ['working', 'prompting', 'approval', 'input', 'waiting', 'idle', 'connecting', 'ended', 'proceed'];
 
 function markup(status: string): string {
   const { container, unmount } = render(<StatusGlyph status={status} />);

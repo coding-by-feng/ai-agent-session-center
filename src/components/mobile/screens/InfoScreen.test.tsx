@@ -163,10 +163,10 @@ describe('InfoScreen', () => {
     expect(screen.queryByRole('button', { name: /Take control|Ask for control|Release control/ })).toBeNull();
   });
 
-  it('opens Notes, Queue, Agents and AI popups as screens', async () => {
+  it('opens Notes, Queue and AI popups as screens', async () => {
     const user = userEvent.setup();
     setup();
-    for (const [name, page] of [['Notes', 'notes'], ['Queue', 'queue'], ['Agents', 'agents'], ['AI popups', 'popups']] as const) {
+    for (const [name, page] of [['Notes', 'notes'], ['Queue', 'queue'], ['AI popups', 'popups']] as const) {
       await user.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
       const stack = usePhoneNavStore.getState().stacks.sessions;
       expect(stack[stack.length - 1]).toBe(`/sessions/s1/info/${page}`);
@@ -178,6 +178,13 @@ describe('InfoScreen', () => {
     setup();
     await user.click(screen.getByRole('button', { name: /^Files/ }));
     expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/project']);
+  });
+
+  it('opens Agents as the session’s Agents tab, closing Info (Oct 22 2026)', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('button', { name: /^Agents/ }));
+    expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s1/agents']);
   });
 
   it('opens the Project tab from the Project row too', async () => {

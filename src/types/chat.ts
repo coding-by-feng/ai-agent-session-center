@@ -222,3 +222,50 @@ export interface FileChanges extends ChangedFile {
   /** The hunks passed 512 KB and the rest were left out (the counts still include them). */
   truncated?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// What a session's context window holds (Oct 22 2026), measured from its own transcript.
+// ---------------------------------------------------------------------------
+
+/**
+ * A kind of content in the window. `system` + `tools` when the CLI logged its request shape,
+ * else the one `fixed` (system prompt and tool definitions together). `memory` (CLAUDE.md and
+ * rules), `skills` and the tool lists arrive as attachments Claude Code records, when it does.
+ */
+export type ContextKind =
+  | 'system' | 'tools' | 'fixed' | 'memory' | 'skills' | 'summary' | 'prompts' | 'replies' | 'toolCalls'
+  | 'read' | 'bash' | 'search' | 'edits' | 'subagents' | 'web' | 'mcp' | 'otherTools' | 'reminders';
+
+export interface ContextKindTokens {
+  kind: ContextKind;
+  tokens: number;
+}
+
+/** One large thing in the window: a tool result, a prompt, the compaction summary. */
+export interface ContextItem {
+  kind: ContextKind;
+  /** "Read · server/index.ts"; a secret file is never named. */
+  label: string;
+  tokens: number;
+}
+
+/**
+ * `GET /api/sessions/:id/context-breakdown` → `{ success: true, data: ContextBreakdown | null }`
+ * (null: a Codex session, no transcript, or no request yet). Claude reports how full the window
+ * is at every request; what each turn added is split across that turn's content by its size, so
+ * the totals are measured and the split within a turn is an estimate.
+ */
+export interface ContextBreakdown {
+  /** Tokens in the window at the transcript's last request. */
+  tokens: number;
+  /** Largest first; kinds with no tokens are left out. */
+  kinds: ContextKindTokens[];
+  /** The largest single items, at most 5. */
+  items: ContextItem[];
+  /** Requests read since the window began (the last compaction, or the session's start). */
+  requests: number;
+  /** The window began at a compaction. */
+  sinceCompaction: boolean;
+  /** Epoch ms of the last request read. */
+  measuredAt: number;
+}

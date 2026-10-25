@@ -137,3 +137,88 @@ sqliteIt('job read and cancel answer only the reviewed account; a missing bindin
   expect(stale.status).toBe(409);
   expect(JSON.stringify(await stale.json())).not.toContain(job.id);
 });
+
+// AASC-62: the sync list and Sync now go through the same gate, binding and envelope.
+sqliteIt('serves the sync status and Sync now, refusing a stale binding and unknown fields first', async () => {
+  const f = await fixture();
+  const plan = await f.jobs.buildPublicationPlan(
+    [{ resourceId: f.resource.summary.id, include: true }],
+    f.binding,
+  );
+  await f.jobs.wait((await f.jobs.publishPlan(plan.id, f.binding)).id);
+  const status = await fetch(f.url + '/sync-status', { headers: f.headers });
+  expect(status.status).toBe(200);
+  const body = await status.json();
+  expect(body).toMatchObject({
+    success: true,
+    data: { waiting: 0, items: [{ name: 'demo', state: 'synced', cloudVersion: 1 }] },
+  });
+  expect(JSON.stringify(body)).not.toContain(f.home);
+  const unknown = await fetch(f.url + '/sync-now', {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ choices: {}, everything: true }),
+  });
+  expect(unknown.status).toBe(400);
+  const nothing = await fetch(f.url + '/sync-now', {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({}),
+  });
+  expect(await nothing.json()).toEqual({ success: true, data: { jobs: [], skipped: [] } });
+  // Oct 23 2026: Stop syncing / Sync again / Remove from cloud, one resource at a time.
+  const id = (body as { data: { items: { resourceId: string }[] } }).data.items[0].resourceId;
+  const bad = await fetch(f.url + '/sync-control', {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ resourceId: id, action: 'delete' }),
+  });
+  expect(bad.status).toBe(400);
+  const stop = await fetch(f.url + '/sync-control', {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ resourceId: id, action: 'stop' }),
+  });
+  expect(await stop.json()).toEqual({ success: true, data: { resourceId: id, action: 'stop' } });
+  expect(
+    await (await fetch(f.url + '/sync-status', { headers: f.headers })).json(),
+  ).toMatchObject({ data: { waiting: 0, items: [{ name: 'demo', state: 'stopped' }] } });
+  const calls = f.calls.length;
+  f.switchAccount();
+  for (const [path, init] of [
+    ['/sync-status', {}],
+    ['/sync-now', { method: 'POST', body: '{}' }],
+    ['/sync-control', { method: 'POST', body: JSON.stringify({ resourceId: id, action: 'resume' }) }],
+  ] as const) {
+    const stale = await fetch(f.url + path, { ...init, headers: f.headers });
+    expect(stale.status).toBe(409);
+  }
+  expect(f.calls.length).toBe(calls);
+});
+sqliteIt('saves the reviewed resources and leaves blocked ones only when asked to', async () => {
+  const f = await fixture();
+  const plan = await f.jobs.buildPublicationPlan(
+    [
+      { resourceId: f.resource.summary.id, include: true },
+      { resourceId: 'missing-catalog-id', include: true },
+    ],
+    f.binding,
+  );
+  // A selected id that isn't in the catalog is simply not visited; make one blocked instead.
+  const stored = f.jobs.store.get<{ public: { blocked: unknown[] } }>('publish-plan', plan.id)!;
+  stored.public.blocked.push({ catalogId: 'x', reason: 'Blocked for the test.' });
+  f.jobs.store.put('publish-plan', plan.id, stored);
+  const strict = await fetch(f.url + `/publish-plans/${plan.id}/run`, {
+    method: 'POST',
+    headers: f.headers,
+    body: '{}',
+  });
+  expect(strict.status).toBe(409);
+  const skipping = await fetch(f.url + `/publish-plans/${plan.id}/run`, {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ skipBlocked: true }),
+  });
+  expect(skipping.status).toBe(200);
+  expect((await skipping.json()).data.kind).toBe('publish');
+});

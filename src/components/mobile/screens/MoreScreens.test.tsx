@@ -77,6 +77,26 @@ describe('MoreScreen', () => {
     expect(library.some((l) => l.startsWith('Prompt Trace'))).toBe(true);
   });
 
+  // Oct 21 2026: the shell now reopens the Mac used last, so its list of Macs needs a way in from here.
+  it('offers Switch Mac in the phone app: back to the app’s Your Macs, to open another Mac or pair one', async () => {
+    const user = userEvent.setup();
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1 (ios)');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, hostname: window.location.hostname, assign });
+    try {
+      render(<MoreScreen />);
+      await user.click(within(screen.getByRole('region', { name: 'This phone' })).getByRole('button', { name: /Switch Mac/ }));
+      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1');
+    } finally {
+      ua.mockRestore();
+    }
+  });
+
+  it('has no Switch Mac in a phone browser: there is no app list of Macs to go back to', () => {
+    render(<MoreScreen />);
+    expect(screen.queryByRole('button', { name: /Switch Mac/ })).toBeNull();
+  });
+
   it('has no layout switch: every phone has this design (AASC-48)', () => {
     render(<MoreScreen />);
     expect(screen.queryByRole('switch', { name: /New design/ })).toBeNull();

@@ -25,8 +25,8 @@
 #   nothing printed (an error message here would land in the user's footer).
 # - It never loops. The chained command runs with AASC_STATUSLINE_TAP=1 and a tap that
 #   finds that marker (or a command that names this script) does not chain again.
-# - It stores only session_id, a timestamp, rate_limits, the model/effort and three context
-#   numbers (used %, window size, tokens in it) — not the cwd or
+# - It stores only session_id, a timestamp, rate_limits, the model/effort and the context
+#   numbers (used %, window size, tokens in it, and the last reply's counts by kind) — not the cwd or
 #   transcript path — and only when the dashboard's queue directory exists.
 # - It writes only into a usage/runtime directory that is a real directory owned by the current user:
 #   never through a symlink, never into someone else's directory.
@@ -78,14 +78,22 @@ case "$INPUT" in
            # Only a CLI that reports context_window gets the key: its absence means "not reported".
            + (if (.context_window | type) == "object" then
                 (.context_window as $c
-                 | {context: {
+                 | {context: ({
                      used_percentage: ($c.used_percentage | if type == "number" then . else null end),
                      size: ($c.context_window_size | if type == "number" then . else null end),
                      # The tokens IN the window: what used_percentage is computed from (output excluded).
                      tokens: (if ($c.current_usage | type) == "object" then
                                 [$c.current_usage | .input_tokens, .cache_creation_input_tokens, .cache_read_input_tokens
                                  | select(type == "number")] | if length == 0 then null else add end
-                              else null end)}})
+                              else null end)}
+                     # The last reply, counted by kind: the phone shows it as the context details
+                     # (Oct 21 2026). No apostrophes in here: this program sits inside single quotes.
+                     + (if ($c.current_usage | type) == "object" then
+                          {parts: ($c.current_usage
+                                   | {input: .input_tokens, cacheWrite: .cache_creation_input_tokens,
+                                      cacheRead: .cache_read_input_tokens, output: .output_tokens}
+                                   | with_entries(select(.value | type == "number")))}
+                        else {} end))})
               else {} end)
            | tojson)
       ' 2>/dev/null)

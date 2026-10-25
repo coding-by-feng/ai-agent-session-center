@@ -9,6 +9,7 @@ import type { HookPayload } from '../src/types/hook.js';
 import type { HandleEventResult, Session } from '../src/types/session.js';
 import { coalesceSessionUpdate } from './sessionUpdateCoalescer.js';
 import { emitTerminalHook } from './hookSignals.js';
+import { isCodexInternalAgentHook } from './codexInternalAgent.js';
 
 // #80: Throttle session_update broadcasts to max 4/sec per session (250ms)
 const SESSION_UPDATE_THROTTLE_MS = 250;
@@ -106,6 +107,13 @@ export function processHookEvent(
   if (validationError) {
     log.warn('hook', `Rejected hook payload (via ${source}): ${validationError}`);
     return { error: validationError };
+  }
+
+  // Codex's background memory agent shares the user's Codex process and terminal;
+  // matched, it steals the card (see codexInternalAgent.ts).
+  if (isCodexInternalAgentHook(hookData)) {
+    log.debug('hook', `Ignored Codex internal agent ${hookData.hook_event_name} session=${hookData.session_id}`);
+    return null;
   }
 
   log.debug('hook', `Event: ${hookData.hook_event_name || 'unknown'} session=${hookData.session_id} via=${source}`);

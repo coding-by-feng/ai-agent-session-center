@@ -212,6 +212,64 @@ describe('pendingRequest is cleared', () => {
   });
 });
 
+// Oct 21, replayed: a background subagent asked at 01:55, the main agent kept working,
+// stopped, took a prompt and stopped again. The session read "waiting" all night and the
+// phone had nothing to answer, though the dialog was up until 08:58.
+describe('a background subagent’s dialog outlives the main agent’s turn', () => {
+  const SUB = { claude_agent_id: 'agent-ae88', claude_agent_type: 'general-purpose' };
+  const MAIN = { claude_agent_id: null };
+  const RM = { tool_name: 'Bash', tool_input: { command: 'rm -f "$d"/*.class' }, tool_use_id: 'toolu_rm' };
+
+  function asked(): string {
+    const id = newSession();
+    hook(id, 'SubagentStart', SUB);
+    hook(id, 'PreToolUse', { ...RM, ...SUB });
+    hook(id, 'PermissionRequest', { ...RM, ...SUB });
+    return id;
+  }
+
+  it('stays approval, with its card, through the main agent’s work, Stop and next prompt', () => {
+    const id = asked();
+    hook(id, 'PreToolUse', { tool_name: 'Read', tool_use_id: 'toolu_main1', ...MAIN });
+    expect(getSession(id)?.status).toBe('approval');
+    hook(id, 'PostToolUse', { tool_name: 'Read', tool_use_id: 'toolu_main1', ...MAIN });
+    hook(id, 'Stop', MAIN);
+    hook(id, 'UserPromptSubmit', { prompt: 'continue', ...MAIN });
+    hook(id, 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_main2', ...MAIN });
+    hook(id, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_main2', ...MAIN });
+    const result = hook(id, 'Stop', MAIN);
+    expect(result?.session.status).toBe('approval');
+    expect(result?.session.approvalSource).toBe('permission_request');
+    expect(result?.session.pendingRequest).toMatchObject({ id: 'toolu_rm', tool: 'Bash', agentId: 'agent-ae88' });
+    expect(result?.session.waitingDetail).toContain('Approve Bash');
+  });
+
+  it('lets go when its own call finishes', () => {
+    const id = asked();
+    hook(id, 'Stop', MAIN);
+    const result = hook(id, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_rm', ...SUB });
+    expect(result?.session.pendingRequest).toBeNull();
+    expect(result?.session.status).toBe('working');
+  });
+
+  it('lets go when its subagent stops', () => {
+    const id = asked();
+    hook(id, 'Stop', MAIN);
+    const result = hook(id, 'SubagentStop', SUB);
+    expect(result?.session.pendingRequest).toBeNull();
+    expect(result?.session.status).toBe('waiting'); // the main agent had stopped meanwhile
+    expect(result?.session.waitingDetail).toBeNull();
+  });
+
+  it('a main-agent dialog still ends with the main Stop, as before', () => {
+    const id = newSession();
+    hook(id, 'PermissionRequest', { ...BASH, ...MAIN });
+    const result = hook(id, 'Stop', MAIN);
+    expect(result?.session.pendingRequest).toBeNull();
+    expect(result?.session.status).toBe('waiting');
+  });
+});
+
 describe('pendingRequest stays live-only', () => {
   it('is never archived', () => {
     const id = newSession();

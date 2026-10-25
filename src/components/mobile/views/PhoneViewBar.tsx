@@ -103,7 +103,7 @@ export default function PhoneViewBar({
       {children}
 
       {filters && (
-        <BottomSheet open={open} onClose={close} title="Filters">
+        <BottomSheet open={open} onClose={close} title="Filters" className={styles.dress}>
           <div className={styles.filterSheet}>{filters}</div>
           <div className={styles.sheetButtons}>
             <Button variant="quiet" onClick={onClearFilters} disabled={activeFilters === 0 || !onClearFilters}>

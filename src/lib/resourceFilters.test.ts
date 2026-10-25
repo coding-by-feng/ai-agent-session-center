@@ -19,6 +19,7 @@ import {
   RESOURCE_TYPE_LABELS,
   DEFAULT_FILTERS,
   readResourceParams,
+  RESOURCE_SECTIONS,
   withParams,
   isPluginOrSystem,
   matchesFilters,
@@ -118,16 +119,16 @@ describe('readResourceParams', () => {
 
   it('reads every known key', () => {
     const p = readResourceParams(new URLSearchParams(
-      'section=checks&type=rule&agent=codex&scope=global&q=style&id=r1&plugins=1',
+      'section=health&type=rule&agent=codex&scope=global&q=style&id=r1&plugins=1',
     ));
     expect(p).toEqual({
-      section: 'checks', type: 'rule', agent: 'codex', scope: 'global',
+      section: 'health', type: 'rule', agent: 'codex', scope: 'global',
       projectId: null, query: 'style', id: 'r1', showPluginSystem: true,
     });
   });
 
   it('rejects unknown values rather than trusting the URL', () => {
-    const p = readResourceParams(new URLSearchParams('section=sync&type=widget&agent=gemini&scope=planet&plugins=yes'));
+    const p = readResourceParams(new URLSearchParams('section=widgets&type=widget&agent=gemini&scope=planet&plugins=yes'));
     expect(p.section).toBe('library');
     expect(p.type).toBe('skill');
     expect(p.agent).toBe('all');
@@ -649,7 +650,29 @@ describe('matchesFilters with skill notes', () => {
 
 // Stale SSH-tool bookmarks must open a usable Library without mounting old panels.
 describe('retired section URLs', () => {
-  it.each(['transfers','projects','devices'])('falls back from %s to Library', section => {
+  it.each(['transfers','devices'])('falls back from %s to Library', section => {
     expect(readResourceParams(new URLSearchParams({section,agent:'codex',q:'test'}))).toMatchObject({section:'library',agent:'codex',query:'test'});
+  });
+});
+
+// Oct 23 2026: one tab row (Library · Cloud sync · Projects · Health · Connection). Every link to
+// the old tabs and Cloud views opens where that content lives now.
+describe('links to the tabs before Oct 23 2026', () => {
+  it.each([
+    ['section=sources', 'health'],
+    ['section=checks', 'health'],
+    ['section=cloud', 'sync'],
+    ['section=cloud&cloudTab=resources', 'sync'],
+    ['section=cloud&cloudTab=projects', 'projects'],
+    ['section=cloud&cloudTab=connection', 'connection'],
+    ['section=cloud&cloudTab=remote', 'connection'],
+    ['section=cloud&cloudTab=bogus', 'sync'],
+    ['section=projects', 'projects'],
+  ])('%s opens %s', (query, section) => {
+    expect(readResourceParams(new URLSearchParams(query)).section).toBe(section);
+  });
+
+  it('the five sections are the tab row, in order', () => {
+    expect(RESOURCE_SECTIONS).toEqual(['library', 'sync', 'projects', 'health', 'connection']);
   });
 });

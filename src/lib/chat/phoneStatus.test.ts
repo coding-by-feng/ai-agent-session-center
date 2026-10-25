@@ -18,6 +18,10 @@ describe('phoneStatus', () => {
     expect(phoneStatus('ended', true)).toMatchObject({ label: 'Ended' });
   });
 
+  it('names the proceed reminder in amber with its own P (sessionStatusStyle.displayStatus)', () => {
+    expect(phoneStatus('proceed')).toEqual({ tone: 'approval', label: 'Asks you to proceed', glyph: 'proceed' });
+  });
+
   it('shows an unknown status as it is, in grey', () => {
     expect(phoneStatus('mystery')).toEqual({ tone: 'idle', label: 'mystery', glyph: 'idle' });
   });

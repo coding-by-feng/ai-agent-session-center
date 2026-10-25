@@ -1,7 +1,7 @@
 /**
- * ChatSearchBar — search the chat (AASC-41, feature 54): a field that pulls down
- * over the top of the list when you scroll up into the conversation (or open it
- * from the keyboard), with "3 of 12" and previous / next. Return goes to the next
+ * ChatSearchBar — search the chat (AASC-41, feature 54): a field over the top of
+ * the list, opened from the session's ⋯ menu ("Search this chat") or the keyboard
+ * button (never by scrolling, since Oct 21 2026), with "3 of 12" and previous / next. Return goes to the next
  * match, Escape closes. It searches the rows loaded so far, and says so while
  * earlier ones exist.
  */

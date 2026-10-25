@@ -1,7 +1,7 @@
 // phoneCloud.ts — a phone's read-only view of AASC Cloud, through the Mac (AASC-51).
 //
 // A phone holds no cloud credential that reads resources or projects (its own
-// backend token is push only: PHONE_BACKEND_SCOPES), and every desktop cloud
+// backend token is push:register and mac-paths:read only: PHONE_BACKEND_SCOPES), and every desktop cloud
 // route sits behind the RESOURCES local gate. So the Mac reads the account's
 // cloud for it, with its own connection, and answers three GETs:
 //

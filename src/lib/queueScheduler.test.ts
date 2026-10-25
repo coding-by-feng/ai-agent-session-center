@@ -11,6 +11,8 @@ import {
   NO_WORK_FALLBACK_MS,
   NO_WORK_FALLBACK_NO_AUTOENTER_MS,
   LOCAL_COMMAND_RELEASE_MS,
+  LOCAL_COMMAND_FLUSH_SETTLE_MS,
+  localCommandFlush,
   resolveNoWorkFallbackMs,
   applyTypeDefaults,
   itemType,
@@ -324,6 +326,61 @@ describe('queueScheduler', () => {
     // launch SessionStart and the closing SessionEnd). So neither acceptance
     // signal can ever fire for such a step and the gate looked exactly like an
     // unacknowledged no-op — holding the next step for the full 5 minutes.
+    // --- The flush Enter before a silent local command's gate releases --------
+    // Oct 20 2026: the queue typed `/effort xhigh` + Enter ~3 s after a Stop; Claude did not
+    // take that Enter, and nothing could tell (no hook either way). The gate released blind
+    // 3 s later and typed the next prompt onto the same line; Claude ran the `/effort` and
+    // the prompt was lost. So before releasing, the scheduler presses Enter once more: an
+    // empty input box ignores it, a command still sitting there is submitted.
+    describe('localCommandFlush', () => {
+      const gate = (over: Record<string, unknown> = {}) => ({
+        localCommand: true, sawWork: false, openedAt: 0, activityAtOpen: 100, ...over,
+      });
+      const seen = (over: Record<string, unknown> = {}) => ({
+        status: 'waiting', autoEnter: true, now: LOCAL_COMMAND_RELEASE_MS, activityAt: 100, ...over,
+      });
+
+      it('presses Enter once when the release window is reached, before anything else is typed', () => {
+        expect(localCommandFlush(gate(), seen())).toBe('flush');
+        expect(localCommandFlush(gate(), seen({ status: 'idle' }))).toBe('flush');
+      });
+
+      it('not before the release window', () => {
+        expect(localCommandFlush(gate(), seen({ now: LOCAL_COMMAND_RELEASE_MS - 1 }))).toBe('none');
+      });
+
+      it('then holds while the CLI takes it in, and lets the gate release after that', () => {
+        const flushed = gate({ flushedAt: 5_000 });
+        expect(localCommandFlush(flushed, seen({ now: 5_000 + LOCAL_COMMAND_FLUSH_SETTLE_MS - 1 }))).toBe('settling');
+        expect(localCommandFlush(flushed, seen({ now: 5_000 + LOCAL_COMMAND_FLUSH_SETTLE_MS }))).toBe('none');
+      });
+
+      it('never with Auto-Enter off: the human submits, an Enter of ours would send their draft', () => {
+        expect(localCommandFlush(gate(), seen({ autoEnter: false }))).toBe('none');
+      });
+
+      it('never into a question or approval dialog, where Enter picks an option', () => {
+        for (const status of ['input', 'approval', 'working', 'prompting']) {
+          expect(localCommandFlush(gate(), seen({ status }))).toBe('none');
+        }
+      });
+
+      it('not when a hook acknowledged the step (it was taken; the gate waits for its Stop as usual)', () => {
+        expect(localCommandFlush(gate(), seen({ activityAt: 101 }))).toBe('none');
+        expect(localCommandFlush(gate({ sawWork: true }), seen())).toBe('none');
+      });
+
+      it('only for a silent local command gate, and only with a gate', () => {
+        expect(localCommandFlush(gate({ localCommand: false }), seen())).toBe('none');
+        expect(localCommandFlush(undefined, seen())).toBe('none');
+      });
+
+      it('settles long enough for the TUI to answer, briefly enough not to stall the queue', () => {
+        expect(LOCAL_COMMAND_FLUSH_SETTLE_MS).toBeGreaterThanOrEqual(1_000);
+        expect(LOCAL_COMMAND_FLUSH_SETTLE_MS).toBeLessThanOrEqual(3_000);
+      });
+    });
+
     describe('a silent local command', () => {
       it('gets the short release when autoEnter is on', () => {
         expect(resolveNoWorkFallbackMs(true, true)).toBe(LOCAL_COMMAND_RELEASE_MS);

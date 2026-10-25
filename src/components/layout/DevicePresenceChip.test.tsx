@@ -154,7 +154,8 @@ describe('DevicePresenceChip — network URL for phone usage', () => {
     render(<DevicePresenceChip />);
 
     // Mounted (always-visible chip, per the Aug 2026 change), but not opened.
-    expect(fetchMock).not.toHaveBeenCalled();
+    // (The Mac does read its paired phones on mount, for the 📱 count.)
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/config', expect.anything());
 
     fireEvent.click(screen.getByRole('button'));
     expect(fetchMock).toHaveBeenCalledWith('/api/config', expect.anything());
@@ -226,5 +227,44 @@ describe('DevicePresenceChip — network URL for phone usage', () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/^http:\/\/192\.168\.6\.42:/));
     });
+  });
+});
+
+describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
+  function stubPhones(devices: unknown[]) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      url === '/api/mobile/devices'
+        ? new Response(JSON.stringify({ success: true, data: { devices, pairingOffered: true } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : new Response(JSON.stringify({ localIP: null }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    )));
+  }
+  const phone = (id: string, online: boolean, status = 'active') => ({
+    id, label: id, platform: 'ios', status, confirmCode: null, createdAt: 0, approvedAt: 1, lastSeenAt: 1, online,
+  });
+
+  it('counts paired phones next to the live devices, with the online ones in the title', async () => {
+    stubPhones([phone('iPhone 13', true), phone('Android', false), phone('new', false, 'pending')]);
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    const chip = screen.getByRole('button');
+    await waitFor(() => expect(chip).toHaveAttribute('title', '1 device connected · 2 paired phones (1 online)'));
+    expect(chip).toHaveTextContent('🖥1·📱2');
+  });
+
+  it('shows no 📱 part when no phone is paired', async () => {
+    stubPhones([]);
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(screen.getByRole('button')).toHaveAttribute('title', '1 device connected');
+    expect(screen.getByRole('button')).not.toHaveTextContent('📱');
+  });
+
+  it('a remote device never asks for the Mac’s phones', () => {
+    stubPhones([phone('iPhone 13', true)]);
+    seed([device({ clientId: 'me', isLocal: false })]);
+    render(<DevicePresenceChip />);
+    expect(globalThis.fetch).not.toHaveBeenCalledWith('/api/mobile/devices', expect.anything());
+    expect(screen.getByRole('button')).not.toHaveTextContent('📱');
   });
 });

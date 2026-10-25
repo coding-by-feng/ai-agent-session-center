@@ -58,7 +58,8 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       // projectPath and sshHost are what the Projects view groups by; a session
       // whose directory changes (an SSH session follows its hook's cwd) has to
       // move frames without waiting for some other field to change.
-      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
+      // pendingProceedAt: the card's P (its answer asks you to proceed) comes and goes with no other change.
+      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');

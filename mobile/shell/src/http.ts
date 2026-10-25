@@ -13,6 +13,8 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   /** JSON body; omitted means no body at all (the backend's DELETE refuses one). */
   body?: unknown;
+  /** Native connect and read timeouts for this request; omitted: 15 s (the LAN rescan's probes are short). */
+  timeoutMs?: number;
 }
 
 export interface HttpRequester {

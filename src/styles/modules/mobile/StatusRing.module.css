@@ -27,6 +27,12 @@
 .ring[data-tone='finished'] { --ring: var(--ph-status-finished); }
 .ring[data-tone='error'] { --ring: var(--ph-status-error); }
 
+/* Asks you to proceed (Oct 23 2026): filled, so it stands out from an approval's tinted ring. */
+.ring[data-proceed] {
+  background: var(--ring);
+  color: var(--ph-bg);
+}
+
 /* Working: a gap in the ring travels round it. */
 .ring[data-spin] {
   border-color: color-mix(in srgb, var(--ring) 35%, transparent);

@@ -29,9 +29,14 @@ export function isBackendHost(host: string | null | undefined): boolean {
   return typeof host === 'string' && BACKEND_HOST.test(host);
 }
 
+/**
+ * Four octets in canonical form: each `0`, or digits with no leading zero. The URL parser the phone dials
+ * through reads a leading-zero octet as octal, so `010.1.1.1` would pass as private 10.x here yet be dialled
+ * as 8.1.1.1. An address that passes is therefore dialled exactly as written.
+ */
 function ipv4(raw: string | null): number[] | null {
   if (!raw) return null;
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(raw);
+  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(raw);
   if (!m) return null;
   const parts = m.slice(1).map(Number);
   return parts.every((n) => n <= 255) ? parts : null;

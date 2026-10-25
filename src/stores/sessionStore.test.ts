@@ -333,3 +333,93 @@ describe('sessionStore — lastSelectedSessionId', () => {
     expect(useSessionStore.getState().lastSelectedSessionId).toBeNull();
   });
 });
+
+/**
+ * Killing the open session from its panel steps back to the one opened before
+ * it, every time (Oct 23 2026). One `previousSessionId` slot can't do that: it
+ * would point at the session just killed, which stays in the map as `ended`.
+ */
+describe('sessionStore — recentSelectedIds and leaveSession', () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: new Map(),
+      selectedSessionId: null,
+      previousSessionId: null,
+      lastSelectedSessionId: null,
+      recentSelectedIds: [],
+    });
+  });
+
+  const open = (...ids: string[]) => {
+    for (const id of ids) {
+      if (!useSessionStore.getState().sessions.has(id)) useSessionStore.getState().addSession(makeSession(id));
+      useSessionStore.getState().selectSession(id);
+    }
+  };
+  const end = (id: string) =>
+    useSessionStore.getState().updateSession({ ...useSessionStore.getState().sessions.get(id)!, status: 'ended' });
+
+  it('remembers the sessions opened, newest first, each once', () => {
+    open('c', 'b', 'a', 'b');
+    expect(useSessionStore.getState().recentSelectedIds).toEqual(['b', 'a', 'c']);
+  });
+
+  it('keeps only the last 20', () => {
+    open(...Array.from({ length: 25 }, (_, i) => `s${i}`));
+    const recent = useSessionStore.getState().recentSelectedIds;
+    expect(recent).toHaveLength(20);
+    expect(recent[0]).toBe('s24');
+    expect(recent.at(-1)).toBe('s5');
+  });
+
+  it('follows a re-key and forgets a removed session', () => {
+    open('c', 'b', 'a');
+    useSessionStore.getState().updateSession(makeSession('b2', { replacesId: 'b' }));
+    expect(useSessionStore.getState().recentSelectedIds).toEqual(['a', 'b2', 'c']);
+    useSessionStore.getState().removeSession('c');
+    expect(useSessionStore.getState().recentSelectedIds).toEqual(['a', 'b2']);
+  });
+
+  it('leaveSession opens the session opened before the one that went', () => {
+    open('c', 'b', 'a');
+    end('a');
+    expect(useSessionStore.getState().leaveSession('a')).toBe('b');
+    const st = useSessionStore.getState();
+    expect(st.selectedSessionId).toBe('b');
+    expect(st.lastSelectedSessionId).toBe('b');
+    // "previous" (the [ shortcut) is the one before b, never the session just killed
+    expect(st.previousSessionId).toBe('c');
+    expect(st.recentSelectedIds).toEqual(['b', 'c']);
+  });
+
+  it('steps back again on the next kill, skipping what has ended', () => {
+    open('d', 'c', 'b', 'a');
+    end('c');
+    end('a');
+    expect(useSessionStore.getState().leaveSession('a')).toBe('b');
+    end('b');
+    expect(useSessionStore.getState().leaveSession('b')).toBe('d');
+    expect(useSessionStore.getState().previousSessionId).toBeNull();
+  });
+
+  it('skips a floating popup and a session that is gone', () => {
+    open('c', 'pop', 'gone', 'a');
+    useSessionStore.getState().updateSession({ ...useSessionStore.getState().sessions.get('pop')!, isFloating: true });
+    useSessionStore.setState((s) => {
+      const sessions = new Map(s.sessions);
+      sessions.delete('gone');
+      return { sessions };
+    });
+    expect(useSessionStore.getState().leaveSession('a')).toBe('c');
+  });
+
+  it('closes the panel when nothing opened before is still listed', () => {
+    open('b', 'a');
+    end('b');
+    expect(useSessionStore.getState().leaveSession('a')).toBeNull();
+    const st = useSessionStore.getState();
+    expect(st.selectedSessionId).toBeNull();
+    expect(st.previousSessionId).toBeNull();
+    expect(st.recentSelectedIds).toEqual(['b']);
+  });
+});

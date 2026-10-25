@@ -3,7 +3,8 @@
  * this session (in-process subagents and agent-team teammates) and a log of
  * what each one did, newest first. Read-only. A subagent card opens that
  * agent's own messages in place of the diagram (SubagentDetail); a teammate
- * card switches to the teammate's session.
+ * card switches to the teammate's session (`onOpenTeammate`: the phone's Agents
+ * tab opens its screen instead of selecting it).
  *
  * All shaping lives in `lib/agentFlow.ts`; this file only lays it out. The
  * connectors are CSS: a spine from the leader, a bus per row of cards and a
@@ -236,7 +237,15 @@ function LogTable({ rows }: { rows: FlowLogRow[] }) {
   );
 }
 
-export default function AgentsTab({ sessionId }: { sessionId: string }) {
+export interface AgentsTabProps {
+  sessionId: string;
+  /** A teammate card was opened. Default: select that session (the desktop panel follows). */
+  onOpenTeammate?: (sessionId: string) => void;
+  /** While a subagent is open, hand its close to the host's Back (the phone's back layers); returns the undo. */
+  backLayer?: (close: () => void) => () => void;
+}
+
+export default function AgentsTab({ sessionId, onOpenTeammate, backLayer }: AgentsTabProps) {
   const leader = useSessionStore((s) => s.sessions.get(sessionId));
   // Shallow-compared, so another session's update doesn't rebuild the flow.
   const teammates = useSessionStore(useShallow((s) => {
@@ -266,13 +275,17 @@ export default function AgentsTab({ sessionId }: { sessionId: string }) {
   useEffect(() => { returnFocusTo.current = null; }, [openId]);
 
   const openCard = useCallback((node: AgentNode) => {
-    if (node.kind === 'teammate') useSessionStore.getState().selectSession(node.id);
-    else if (node.kind === 'subagent') setOpened({ sessionId, agentId: node.id });
-  }, [sessionId]);
+    if (node.kind === 'teammate') {
+      if (onOpenTeammate) onOpenTeammate(node.id);
+      else useSessionStore.getState().selectSession(node.id);
+    } else if (node.kind === 'subagent') setOpened({ sessionId, agentId: node.id });
+  }, [sessionId, onOpenTeammate]);
   const closeDetail = useCallback(() => {
     returnFocusTo.current = openId;
     setOpened(null);
   }, [openId]);
+  const detailOpen = !!openNode;
+  useEffect(() => (detailOpen && backLayer ? backLayer(closeDetail) : undefined), [detailOpen, backLayer, closeDetail]);
   const cardRef = (id: string) => (el: HTMLButtonElement | null) => {
     if (el && returnFocusTo.current === id) {
       returnFocusTo.current = null;

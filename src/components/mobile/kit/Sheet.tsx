@@ -36,6 +36,10 @@ export interface SheetProps {
   footer?: ReactNode;
   /** Keep the title for screen readers only. */
   hideTitle?: boolean;
+  /** Opened by a finger still held down (a long press, Oct 23 2026): iOS sends the click
+   *  that ends the hold where the finger lifts — on the backdrop — so the backdrop closes
+   *  only after a fresh press on it (as ContextMenu arms its items). */
+  heldOpen?: boolean;
   testId?: string;
 }
 
@@ -53,10 +57,16 @@ export default function Sheet({
   initialDetent,
   footer,
   hideTitle,
+  heldOpen = false,
   testId,
 }: SheetProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Whether a backdrop click may close: not until a press on the backdrop when a hold opened it.
+  const backdropArmed = useRef(!heldOpen);
+  useEffect(() => {
+    if (open) backdropArmed.current = !heldOpen;
+  }, [open, heldOpen]);
   const [detent, setDetent] = useState<SheetDetent>(initialDetent ?? detents[0]);
   // Each opening starts at the initial detent (state adjusted during render, not in an effect).
   const [wasOpen, setWasOpen] = useState(open);
@@ -160,7 +170,8 @@ export default function Sheet({
     <div
       className={styles.backdrop}
       data-testid={testId ? `${testId}-backdrop` : 'kit-sheet-backdrop'}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onPointerDown={(e) => { if (e.target === e.currentTarget) backdropArmed.current = true; }}
+      onClick={(e) => { if (e.target === e.currentTarget && backdropArmed.current) onClose(); }}
     >
       <div
         ref={panelRef}

@@ -1,7 +1,7 @@
 // nativeApp.test.ts — AASC-17: how the server's UI behaves inside the AASC phone app.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  nativeAppPlatform, isNativeMobileApp, nativeShellReauthUrl, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
+  nativeAppPlatform, isNativeMobileApp, nativeShellReauthUrl, nativeAppViewport, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
 } from './platform';
 import { mayDrivePtyGeometry, defaultWidthMode } from './terminalGeometry';
 import { parseSessionDeepLink, stripSessionDeepLink } from './deepLink';
@@ -46,6 +46,24 @@ describe('native app detection', () => {
 
   it('gives a landscape phone the phone layout, but not a short desktop window', () => {
     expect(MOBILE_MEDIA_QUERY).toBe('(max-width: 480px), (max-height: 480px) and (pointer: coarse)');
+  });
+});
+
+// Tapping the Chat composer (17px × 0.8 = 13.6px text) zoomed the whole page in on an
+// iPhone, cutting off the header and the right edge, and Capacitor's pinch-off left no
+// way back out. The app's page never zooms; its fields keep the chosen text size.
+describe('the app’s viewport', () => {
+  it('runs edge to edge and never zooms into a focused field', () => {
+    expect(nativeAppViewport('width=device-width, initial-scale=1.0'))
+      .toBe('width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1');
+  });
+
+  it('adds nothing twice and keeps what the page already set', () => {
+    const once = nativeAppViewport('width=device-width, initial-scale=1.0');
+    expect(nativeAppViewport(once)).toBe(once);
+    expect(nativeAppViewport('width=device-width, viewport-fit=contain, maximum-scale=2'))
+      .toBe('width=device-width, viewport-fit=contain, maximum-scale=2');
+    expect(nativeAppViewport('')).toBe('viewport-fit=cover, maximum-scale=1');
   });
 });
 

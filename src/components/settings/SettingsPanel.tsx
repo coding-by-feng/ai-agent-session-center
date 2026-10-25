@@ -13,6 +13,7 @@ import ApiKeySettings from './ApiKeySettings';
 import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
+import AgentCliSettings from './AgentCliSettings';
 import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
@@ -213,6 +214,20 @@ function TerminalBufferControl() {
     setBytes(mb * BYTES_PER_MB); // store clamps; effect re-syncs the draft
   };
 
+  // Both boxes commit on blur, but Esc closes the modal by unmounting it, and an
+  // unmounted input never blurs: a typed value was silently dropped. Commit what
+  // is still pending on the way out.
+  const pendingRef = useRef({ draft, scrollbackDraft, commitDraft, commitScrollback });
+  useEffect(() => {
+    pendingRef.current = { draft, scrollbackDraft, commitDraft, commitScrollback };
+  });
+  useEffect(() => () => {
+    const p = pendingRef.current;
+    const s = useSettingsStore.getState();
+    if (p.draft !== formatMb(s.terminalReplayBufferBytes / BYTES_PER_MB)) p.commitDraft(p.draft);
+    if (p.scrollbackDraft !== String(s.terminalScrollbackLines)) p.commitScrollback(p.scrollbackDraft);
+  }, []);
+
   return (
     <div className={styles.section}>
       <h4>Terminal</h4>
@@ -337,6 +352,7 @@ function AdvancedSettings({
     <div>
       <TerminalBufferControl />
       <KeepAwakeControl />
+      <AgentCliSettings />
 
       <div className={styles.section}>
         <h4>Import / Export</h4>

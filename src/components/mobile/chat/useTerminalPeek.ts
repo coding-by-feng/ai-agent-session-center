@@ -23,7 +23,8 @@ import { useWsStore } from '@/stores/wsStore';
 import { PeekScreen } from '@/lib/chat/peekScreen';
 
 const FLUSH_MS = 250;
-const KEEP_LINES = 12;
+/** The empty chat's terminal shows up to 40 lines; the working strip's peek, its last 3 or 12. */
+const KEEP_LINES = 40;
 
 function base64Bytes(data: string): Uint8Array {
   const binary = atob(data);

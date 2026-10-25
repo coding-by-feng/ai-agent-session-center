@@ -1,6 +1,6 @@
 // shareToQueue.test.ts — AASC-21 M5: shared text lands in a session's queue, paused.
 import { describe, it, expect, vi } from 'vitest';
-import { prepareSharedText, prepareSharedImages, shareTargets, postSharedText, shareToQueue, SHARE_MAX_BYTES, SHARE_MESSAGES, SHARE_IMAGE_MAX_CHARS } from './shareToQueue';
+import { prepareSharedText, prepareSharedImages, shareTargets, postSharedText, shareToQueue, SHARE_MAX_BYTES, SHARE_MAX_IMAGES, SHARE_MESSAGES, SHARE_IMAGE_MAX_CHARS } from './shareToQueue';
 import type { HttpRequest, HttpRequester } from './http';
 import type { SessionLite } from './sessions';
 import type { SessionResult } from './pairingClient';
@@ -135,13 +135,19 @@ describe('shared images (AASC-21 M5)', () => {
     expect(http.calls[1].body).toMatchObject({ text: 'look at this', images: [{ name: 'shot.png' }] });
   });
 
+  // Oct 21 2026: ten photos a share (was 4), still at most 6 MB together.
+  it('shares up to ten photos at once', () => {
+    expect(SHARE_MAX_IMAGES).toBe(10);
+    expect(prepareSharedImages(Array.from({ length: 10 }, () => PNG)).ok).toBe(true);
+  });
+
   it('refuses what the Mac would refuse, before the network', async () => {
     const http = fakeHttp();
     for (const images of [
       [{ ...PNG, mimeType: 'image/svg+xml' }],
       [{ ...PNG, mimeType: 'image/heic' }],
       [{ ...PNG, base64: 'not base64!' }],
-      Array.from({ length: 5 }, () => PNG),
+      Array.from({ length: SHARE_MAX_IMAGES + 1 }, () => PNG),
       [{ ...PNG, base64: 'A'.repeat(SHARE_IMAGE_MAX_CHARS) }],
     ]) {
       const out = await shareToQueue('hi', 'abc', { http, origin: ORIGIN, signIn: ok }, images);

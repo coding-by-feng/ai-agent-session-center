@@ -1,6 +1,6 @@
 // test/phoneCloud.test.ts — AASC-51: a phone browses AASC Cloud read-only, through the Mac's own connection.
 //
-// The phone holds no cloud credential that reads resources or projects (PHONE_BACKEND_SCOPES is push only),
+// The phone holds no cloud credential that reads resources or projects (PHONE_BACKEND_SCOPES is push:register and mac-paths:read),
 // and every desktop cloud route sits behind the RESOURCES local gate. So the Mac reads the account's resources
 // and projects for it, keeps the answer a minute, and hands over names, kinds, versions, dates and sizes:
 // never a path, a hash, a description, the backend origin, the account, a device id or a token.

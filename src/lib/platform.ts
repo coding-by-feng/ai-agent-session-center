@@ -115,6 +115,22 @@ export function useIsNativeMobileApp(): boolean {
   return isNativeMobileApp();
 }
 
+/**
+ * The viewport meta's content inside the app: edge to edge (`viewport-fit=cover`;
+ * base.css pads the UI back inside the safe area under body.native-app) and never
+ * zoomed (`maximum-scale=1`). iOS zooms the page into a focused field whose text is
+ * under 16px, the phone's text sizes go below that (the composer is 17px × 0.8 at
+ * the default size), and Capacitor turns off the pinch that would zoom back out.
+ * Adds each only when the page hasn't set it. Browsers keep their viewport untouched.
+ */
+export function nativeAppViewport(content: string): string {
+  const added = [
+    content.includes('viewport-fit') ? null : 'viewport-fit=cover',
+    content.includes('maximum-scale') ? null : 'maximum-scale=1',
+  ];
+  return [content, ...added].filter(Boolean).join(', ');
+}
+
 /** Where the bundled shell lives inside the app (Capacitor's default origins). */
 const SHELL_ORIGINS: Record<NativePlatform, string> = {
   ios: 'capacitor://localhost',

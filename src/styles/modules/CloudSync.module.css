@@ -1,0 +1,126 @@
+/* CloudSync — the Library's cloud pieces (Oct 23 2026): the row glyph, the detail pane's cloud
+   control, the summary link and the cloud dialogs. Tones follow Chip.module.css: each accent mixed
+   with --text-primary, which keeps a glyph at ≥3:1 on the light and windows-xp whites and bright on
+   the dark themes. */
+
+.glyph {
+  --glyph-tone: color-mix(in srgb, var(--text-primary) 55%, var(--text-secondary));
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--glyph-tone);
+  vertical-align: middle;
+}
+.glyph[data-tone='success'] { --glyph-tone: color-mix(in srgb, var(--accent-green) 55%, var(--text-primary)); }
+.glyph[data-tone='info'] { --glyph-tone: color-mix(in srgb, var(--accent-cyan) 60%, var(--text-primary)); }
+.glyph[data-tone='warning'] { --glyph-tone: color-mix(in srgb, var(--accent-orange) 55%, var(--text-primary)); }
+.glyph[data-tone='danger'] { --glyph-tone: color-mix(in srgb, var(--accent-red) 55%, var(--text-primary)); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .glyph[data-moving] svg { animation: glyphSpin 1s linear infinite; }
+}
+@keyframes glyphSpin { to { transform: rotate(360deg); } }
+
+/* ---- Detail pane: the cloud control in the title row ---- */
+
+.control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.controlNote {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 32ch;
+}
+.controlError {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--accent-red) 55%, var(--text-primary));
+}
+
+/* ---- Library summary row: "☁ 214 synced · 3 to sync ›" ---- */
+
+.summaryLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.summaryLink:hover { background: var(--bg-subtle); color: var(--text-primary); }
+.summaryLink:active { background: var(--bg-subtle-strong); }
+.summaryLink:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+.summaryWaiting { color: color-mix(in srgb, var(--accent-cyan) 60%, var(--text-primary)); font-weight: 600; }
+
+@media (pointer: coarse) {
+  .summaryLink { min-height: 44px; }
+}
+
+/* ---- Dialogs ---- */
+
+.dialogBody {
+  display: grid;
+  gap: 12px;
+}
+.dialogBody p { margin: 0; }
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.confirmLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.confirmName {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.confirmInput {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.confirmInput:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+@media (pointer: coarse) {
+  .confirmInput { min-height: 44px; }
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.error {
+  margin: 0;
+  color: color-mix(in srgb, var(--accent-red) 55%, var(--text-primary));
+  font-size: 13px;
+}
+.muted { color: var(--text-secondary); font-size: 12px; }

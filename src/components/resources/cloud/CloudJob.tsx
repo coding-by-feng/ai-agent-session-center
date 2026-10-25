@@ -13,8 +13,9 @@ const KIND_LABELS: Record<Job['kind'], string> = {
   publish: 'Save to cloud',
   download: 'Download',
   install: 'Install',
-  'get-project': 'Get project',
-  'pull-project': 'Pull updates',
+  'get-project': 'Clone',
+  'pull-project': 'Pull',
+  'push-project': 'Push',
 };
 const JOB_TONES: Record<Job['state'], ChipTone> = {
   queued: 'info',
@@ -36,14 +37,12 @@ const STEP_TONES: Record<Job['steps'][number]['state'], ChipTone> = {
 export default function CloudJob({
   job,
   onChange,
-  onResourcesReview,
   openUrl,
   owned = true,
 }: {
   job: Job;
   owned?: boolean;
   onChange: (job: Job) => void;
-  onResourcesReview?: () => void;
   openUrl?: string | null;
 }) {
   const action = useCloudAction(),
@@ -176,11 +175,6 @@ export default function CloudJob({
             onClick={() => action.run((b, s) => cloudApi.retry(job.id, b, s), onChange)}
           >
             Retry job
-          </Button>
-        )}
-        {onResourcesReview && !active && (
-          <Button disabled={!action.enabled || !owned || action.busy} onClick={onResourcesReview}>
-            Review resources for retry
           </Button>
         )}
         {openUrl && (

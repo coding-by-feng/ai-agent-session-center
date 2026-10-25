@@ -1,7 +1,7 @@
 /**
  * ChatView — a session as a conversation on the phone (AASC-41), the Chat segment.
  *
- *   [ search, pulled down over the top when you scroll up ]
+ *   [ search: opened from the session's ⋯ menu ("Search this chat"), ✕ closes it ]
  *   Load earlier · Start of the conversation
  *   your prompts (bubbles) · the agent's text (Markdown, whole) · tool rows that
  *   fold and open · edit diffs · thinking · the plan · subagents · dividers
@@ -15,15 +15,17 @@
  *
  * Data: chatStore pages (the newest first, earlier ones on demand), kept current by
  * useChatLive; rows from buildChatItems; the window and following from
- * useChatScroll. A session with no transcript says so and offers the Terminal.
+ * useChatScroll. Until there is a conversation to show (a new session, a transcript not found
+ * yet, a shell) the chat shows the session's terminal, live (ChatTerminalStart, Oct 23 2026).
  * Selecting text offers Ask AI (PhoneConversationAi) and Read aloud.
  */
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@/types';
 import { useChatStore, type ChatViewMemory } from '@/stores/chatStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { buildChatItems, findMatches, type ChatItem, type QueuedItem } from '@/lib/chat/buildChatItems';
+import { withBtwEntries } from '@/lib/chat/btwEntries';
 import { plural } from '@/lib/chat/chatFormat';
 import { isCompacting } from '@/lib/chat/phoneStatus';
 import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
@@ -32,6 +34,7 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { Button, EmptyState, useScreenSlot } from '../kit';
 import ChatItemView from './items/ChatItemView';
 import ChatSearchBar from './ChatSearchBar';
+import ChatTerminalStart from './ChatTerminalStart';
 import StatusStrip from './StatusStrip';
 import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
 import SelectionReadAloud from './SelectionReadAloud';
@@ -109,10 +112,22 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
     [onOpenFile, projectPath],
   );
 
+  // /btw side answers never reach the transcript: the server reads them off the terminal.
+  const btwAnswers = session.btwAnswers;
   const items = useMemo(
-    () => (data ? buildChatItems(data.entries, { live: working || awaiting, awaiting, queue }) : []),
-    [data, working, awaiting, queue],
+    () => (data
+      ? buildChatItems(withBtwEntries(data.entries, btwAnswers, data.hasOlder), { live: working || awaiting, awaiting, queue })
+      : []),
+    [data, btwAnswers, working, awaiting, queue],
   );
+  // Nothing to show yet: no entries, and no transcript (or no cursor into one) behind them.
+  const nothingYet = !!data && data.status === 'ready' && data.entries.length === 0
+    && (data.cli === null || data.after === null);
+  // One subscription for the whole chat, held while it is the screen on show: the empty chat's
+  // terminal and the working strip's peek read the same lines, so the conversation replacing the
+  // panel (or the strip coming and going) never makes the server resend the scrollback.
+  const { isTop } = useScreenSlot();
+  const peek = useTerminalPeek(session.terminalId, isTop, busy || nothingYet);
 
   if (!data || data.status === 'loading') {
     return (
@@ -139,8 +154,18 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
     );
   }
 
-  if (data.entries.length === 0 && (data.cli === null || data.after === null)) {
+  if (nothingYet) {
     const fresh = data.cli !== null && (session.promptHistory?.length ?? 0) === 0;
+    if (session.terminalId) {
+      const [title, message] = popup
+        ? ['Writing the answer…', 'It shows up here as the agent writes it. Until then, this is its terminal.']
+        : fresh
+          ? ['No messages yet', 'Send a prompt: the conversation shows up here. Until then, this is the terminal.']
+          : data.cli !== null
+            ? ['Waiting for the conversation', 'It shows up here once its transcript is found. Until then, this is the terminal.']
+            : ['Terminal', 'This session keeps no conversation (a shell or another tool), so here is its terminal.'];
+      return <ChatTerminalStart title={title} message={message} lines={peek} onTerminal={onTerminal} />;
+    }
     return (
       <div className={styles.loading} data-testid="chat-no-transcript">
         <EmptyState
@@ -170,6 +195,7 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
       loadOlder={loadOlderAction}
       rememberView={rememberView}
       working={busy}
+      peek={peek}
       onPullBack={onPullBack}
       onTerminal={onTerminal}
       popup={popup}
@@ -189,8 +215,10 @@ interface ChatBodyProps {
   initialView?: ChatViewMemory;
   loadOlder: (sessionId: string) => Promise<void>;
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
-  /** Working or compacting: shows the status strip and keeps the terminal peek live. */
+  /** Working or compacting: shows the status strip and its terminal peek. */
   working: boolean;
+  /** The terminal's last lines, from ChatView's one subscription. */
+  peek: string[];
   onPullBack?: (item: QueuedItem) => void;
   onTerminal: () => void;
   popup?: { rootSessionId: string; terminalId: string };
@@ -208,6 +236,7 @@ function ChatBody({
   loadOlder,
   rememberView,
   working,
+  peek,
   onPullBack,
   onTerminal,
   popup,
@@ -220,12 +249,6 @@ function ChatBody({
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(-1);
   const [focusToken, setFocusToken] = useState(0);
-  const [searchDismissed, setSearchDismissed] = useState(false);
-  // Subscribed for as long as this chat is the screen on show, whatever the session's
-  // status: the strip comes and goes every turn, and each new subscription would make
-  // the server resend its whole scrollback. Only the strip's display follows `working`.
-  const { isTop } = useScreenSlot();
-  const peek = useTerminalPeek(session.terminalId, isTop, working);
 
   const loadOlderHere = useCallback(() => loadOlder(sessionId), [loadOlder, sessionId]);
   const remember = useCallback((view: ChatViewMemory) => rememberView(sessionId, view), [rememberView, sessionId]);
@@ -273,7 +296,6 @@ function ChatBody({
   }, []);
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
-    setSearchDismissed(true);
     setQuery('');
     setMatchIndex(-1);
   }, []);
@@ -281,18 +303,30 @@ function ChatBody({
     setSearchOpen(true);
     setFocusToken((t) => t + 1);
   }, []);
+  // The session menu's "Search this chat" (chatStore.requestSearch): one asked for before this
+  // chat mounted (the menu switched to Chat first), then any later one, for this session only.
+  useEffect(() => {
+    const take = (request: { sessionId: string } | null) => {
+      if (request?.sessionId !== sessionId) return;
+      useChatStore.getState().clearSearchRequest();
+      openSearch();
+    };
+    const first = setTimeout(() => take(useChatStore.getState().searchRequest), 0);
+    const unsubscribe = useChatStore.subscribe((s, prev) => {
+      if (s.searchRequest !== prev.searchRequest) take(s.searchRequest);
+    });
+    return () => {
+      clearTimeout(first);
+      unsubscribe();
+    };
+  }, [sessionId, openSearch]);
 
   const shown = items.slice(scroll.start);
   const rendered = useMemo(() => ({ start: scroll.start, items, opened }), [scroll.start, items, opened]);
   useSearchHighlight(listRef, query, currentKey, rendered);
 
-  // Pulled down while you read back; closing it keeps it away until you are at the newest again.
-  const [wasFollowing, setWasFollowing] = useState(scroll.following);
-  if (wasFollowing !== scroll.following) {
-    setWasFollowing(scroll.following);
-    if (scroll.following) setSearchDismissed(false);
-  }
-  const searchShown = searchOpen || !!query || (!scroll.following && !searchDismissed);
+  // Shown only when asked for (Oct 21 2026: it used to pull itself down whenever you scrolled up).
+  const searchShown = searchOpen || !!query;
   const atStart = scroll.start === 0 && !hasOlder;
 
   return (

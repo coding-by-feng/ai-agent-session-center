@@ -7,7 +7,9 @@
 //
 //   mintBackendCode     a one-use code an approved, signed-in phone redeems for
 //                       its own phone-scoped backend token (AASC-52: asked for
-//                       over the phone's Mac session, never put in the QR)
+//                       over the phone's Mac session, never put in the QR). It
+//                       asks for push and the Mac's address (AASC-60), or for
+//                       push alone from a backend that doesn't know the latter
 //   retireBackendCode   before a phone gets a new code: revoke the backend device
 //                       its last one made, so one phone never holds two
 //   revokeBackendPhone  revoking a phone on the Mac also revokes the backend
@@ -23,12 +25,27 @@ import {
   notifyPush,
   revokeBackendDevice,
   type BackendDevice,
+  type PhonePairingCode,
 } from '../cloud/devices.js';
-import { CloudError, type CloudConnector } from '../cloud/types.js';
+import { CloudError, type CloudClient, type CloudConnector } from '../cloud/types.js';
 import type { PushSink } from '../push/pushNotifier.js';
 
-/** All a phone may hold on the backend: register for notifications. (The relay scope comes with the relay.) */
-export const PHONE_BACKEND_SCOPES = ['push:register'] as const;
+/**
+ * All a phone may hold on the backend: register for notifications, and read where this Mac can be reached on
+ * Tailscale (AASC-60, Remote access). (The relay scope comes with the relay.)
+ */
+export const PHONE_BACKEND_SCOPES = ['push:register', 'mac-paths:read'] as const;
+/** What a backend without the mac-paths module still accepts. */
+export const PUSH_ONLY_SCOPES = ['push:register'] as const;
+/**
+ * How a backend that doesn't know `mac-paths:read` says so, as this Mac's transport words it. One from before
+ * mac-paths checks the request body first and answers 400 `invalid_request`; one that knows the name but doesn't
+ * let a phone hold it answers 403 `forbidden`. Nothing else says "ask for less": a network error, a 5xx or a rate
+ * limit would fail a push-only request just the same. A Mac whose cloud device lacks `devices:pair` is also told 403
+ * `forbidden`, by the route middleware, so both asks fail (two POSTs, then null); the per-phone attempt cap in
+ * phoneBackendCode.ts (MAX_BACKEND_CODE_ATTEMPTS_PER_HOUR) bounds that.
+ */
+const SCOPE_REFUSALS: ReadonlySet<string> = new Set(['invalid_request', 'forbidden']);
 
 /**
  * A backend phone code's life: the backend's shortest. The Mac issues it to a
@@ -98,6 +115,24 @@ const reason = (err: unknown): string => {
   return typeof code === 'string' ? code : err instanceof Error ? err.message : String(err);
 };
 
+/**
+ * A phone code for `PHONE_BACKEND_SCOPES`. When the backend refuses those scopes, once more for `PUSH_ONLY_SCOPES`: the
+ * Mac may be updated before its backend, and the phone must still be linked for notifications. `onPushOnly` is told which
+ * refusal it was, only once that retry has worked. Any other failure, and a refusal of the retry, goes to the caller.
+ */
+async function requestPhoneCode(client: CloudClient, onPushOnly: (refusal: string) => void): Promise<PhonePairingCode> {
+  const request = (scopes: readonly string[]) =>
+    createPhonePairingCode(client, { scopes: [...scopes], ttlSeconds: BACKEND_CODE_TTL_SECONDS });
+  try {
+    return await request(PHONE_BACKEND_SCOPES);
+  } catch (err) {
+    if (!(err instanceof CloudError) || !SCOPE_REFUSALS.has(err.code)) throw err;
+    const pushOnly = await request(PUSH_ONLY_SCOPES);
+    onPushOnly(err.code);
+    return pushOnly;
+  }
+}
+
 export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBridge {
   const { cloud } = deps;
   const now = deps.now ?? Date.now;
@@ -163,10 +198,8 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
       const host = backendHost();
       if (!available() || !cloud || !host) return null;
       try {
-        const code = await createPhonePairingCode(cloud.client, {
-          scopes: [...PHONE_BACKEND_SCOPES],
-          ttlSeconds: BACKEND_CODE_TTL_SECONDS,
-        });
+        const code = await requestPhoneCode(cloud.client, (refusal) =>
+          deps.warn(`The backend refused the Mac-address scope (${refusal}): this phone's backend code is push only.`));
         const mac = macDeviceId();
         const backendExpiry = Date.parse(code.expiresAt);
         const answeredAt = now();

@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { Session } from '@/types';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
+import { isListedSession } from '@/lib/sessionSort';
+
+/** How many sessions `recentSelectedIds` remembers. */
+const RECENT_SELECTED_MAX = 20;
 
 interface SessionState {
   sessions: Map<string, Session>;
@@ -13,12 +17,26 @@ interface SessionState {
    * the session is removed.
    */
   lastSelectedSessionId: string | null;
+  /**
+   * The sessions opened in the panel, newest first, each once (capped at 20,
+   * in memory only). What a kill from the panel steps back through
+   * (`leaveSession`); one `previousSessionId` slot would point at the session
+   * just killed. Follows re-keys; drops removed sessions.
+   */
+  recentSelectedIds: string[];
 
   addSession: (session: Session) => void;
   removeSession: (sessionId: string) => void;
   updateSession: (session: Session) => void;
   selectSession: (sessionId: string) => void;
   deselectSession: () => void;
+  /**
+   * The open session is going away (killed from its panel): open the one
+   * opened before it that is still listed, and return its id; with none left,
+   * deselect and return null. `previousSessionId` then names the one before
+   * that, never `goneId`.
+   */
+  leaveSession: (goneId: string) => string | null;
   setSessions: (sessions: Map<string, Session>) => void;
   togglePin: (sessionId: string) => void;
   toggleMute: (sessionId: string) => void;
@@ -30,11 +48,12 @@ interface SessionState {
   setSessionRemark: (sessionId: string, remark: string) => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   selectedSessionId: null,
   previousSessionId: null,
   lastSelectedSessionId: null,
+  recentSelectedIds: [],
 
   addSession: (session) =>
     set((state) => {
@@ -51,7 +70,10 @@ export const useSessionStore = create<SessionState>((set) => ({
         state.selectedSessionId === sessionId ? null : state.selectedSessionId;
       const lastSelectedSessionId =
         state.lastSelectedSessionId === sessionId ? null : state.lastSelectedSessionId;
-      return { sessions: next, selectedSessionId, lastSelectedSessionId };
+      const recentSelectedIds = state.recentSelectedIds.includes(sessionId)
+        ? state.recentSelectedIds.filter((id) => id !== sessionId)
+        : state.recentSelectedIds;
+      return { sessions: next, selectedSessionId, lastSelectedSessionId, recentSelectedIds };
     }),
 
   updateSession: (session) =>
@@ -74,17 +96,44 @@ export const useSessionStore = create<SessionState>((set) => ({
       if (session.replacesId && state.lastSelectedSessionId === session.replacesId) {
         lastSelectedSessionId = session.sessionId;
       }
+      let recentSelectedIds = state.recentSelectedIds;
+      if (session.replacesId && recentSelectedIds.includes(session.replacesId)) {
+        const renamed = recentSelectedIds.map((id) => (id === session.replacesId ? session.sessionId : id));
+        recentSelectedIds = renamed.filter((id, i) => renamed.indexOf(id) === i);
+      }
 
-      return { sessions: next, selectedSessionId, lastSelectedSessionId };
+      return { sessions: next, selectedSessionId, lastSelectedSessionId, recentSelectedIds };
     }),
 
   selectSession: (sessionId) => set((state) => ({
     previousSessionId: state.selectedSessionId,
     selectedSessionId: sessionId,
     lastSelectedSessionId: sessionId,
+    recentSelectedIds: [sessionId, ...state.recentSelectedIds.filter((id) => id !== sessionId)]
+      .slice(0, RECENT_SELECTED_MAX),
   })),
 
   deselectSession: () => set({ selectedSessionId: null }),
+
+  leaveSession: (goneId) => {
+    const { sessions, recentSelectedIds } = get();
+    const kept = recentSelectedIds.filter((id) => id !== goneId);
+    const [nextId = null, afterId = null] = kept.filter((id) => {
+      const s = sessions.get(id);
+      return s !== undefined && isListedSession(s);
+    });
+    if (nextId === null) {
+      set({ selectedSessionId: null, previousSessionId: null, recentSelectedIds: kept });
+      return null;
+    }
+    set({
+      selectedSessionId: nextId,
+      previousSessionId: afterId,
+      lastSelectedSessionId: nextId,
+      recentSelectedIds: [nextId, ...kept.filter((id) => id !== nextId)],
+    });
+    return nextId;
+  },
 
   setSessions: (sessions) => set({ sessions }),
 

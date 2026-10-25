@@ -22,6 +22,7 @@
 		8F6A8E620C447A088CECCD7C /* ShellOnly.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAE415F8D1CEEF39A299D42 /* ShellOnly.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A051517B415910537BB5FF44 /* ShellBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */; };
+		E3A1D0C25B7F4A9E8C61D2F4 /* LanDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */; };
 		B4DD0BD919916BCCB27BB8AF /* ShellRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E781329F762876B66C2A9B /* ShellRules.swift */; };
 /* End PBXBuildFile section */
 
@@ -39,6 +40,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellBridgePlugin.swift; sourceTree = "<group>"; };
+		9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanDiscovery.swift; sourceTree = "<group>"; };
 		88442D22271466949471B8E3 /* DeviceVaultPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceVaultPlugin.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
@@ -87,6 +89,7 @@
 				3BAE415F8D1CEEF39A299D42 /* ShellOnly.swift */,
 				88442D22271466949471B8E3 /* DeviceVaultPlugin.swift */,
 				7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */,
+				9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */,
 				F0AE731E880DE64408C3F995 /* AppViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -186,6 +189,7 @@
 				8F6A8E620C447A088CECCD7C /* ShellOnly.swift in Sources */,
 				2A49AAFC621845B109DA7808 /* DeviceVaultPlugin.swift in Sources */,
 				A051517B415910537BB5FF44 /* ShellBridgePlugin.swift in Sources */,
+				E3A1D0C25B7F4A9E8C61D2F4 /* LanDiscovery.swift in Sources */,
 				5ACB400F761243BDCFA6E8B7 /* AppViewController.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);

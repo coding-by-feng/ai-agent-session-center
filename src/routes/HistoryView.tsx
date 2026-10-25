@@ -14,6 +14,7 @@ import { authFetch } from '@/hooks/useAuth';
 import { canRetry, readJson } from '@/lib/requestJson';
 import { uniqueProjectOptions } from '@/lib/projectOptions';
 import { focusSiblingAfterRemoval } from '@/lib/focusAfterRemoval';
+import { requestSessionResume } from '@/lib/sessionActions';
 import { formatDate, plural, sessionDuration, sessionName, statusChip } from '@/lib/historyFormat';
 import { useUiStore } from '@/stores/uiStore';
 import SessionDetailDialog from '@/components/history/SessionDetailDialog';
@@ -141,19 +142,13 @@ export default function HistoryView() {
     [queryClient],
   );
 
+  // Most rows are only in the history; the server resumes those as a new card, and leaves a session
+  // that is still running alone (see `resumeFromHistory` in server/apiRouter.ts).
   const handleResume = useCallback(
     async (sessionId: string) => {
       try {
-        const resp = await authFetch(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        const data = await resp.json();
-        if (data.ok) {
-          showToast('Resuming Claude session in terminal', 'success');
-        } else {
-          showToast(data.error || 'Resume failed', 'error');
-        }
+        const result = await requestSessionResume(sessionId, undefined, authFetch);
+        showToast(result.message, !result.ok ? 'error' : result.alreadyRunning ? 'info' : 'success');
       } catch (err) {
         showToast((err as Error).message, 'error');
       }

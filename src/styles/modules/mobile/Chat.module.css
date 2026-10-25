@@ -45,7 +45,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding-bottom: var(--ph-space-4);
+  /* --chat-float-clear: room for a button floating over the list's end (the full screen's ⤡). */
+  padding-bottom: calc(var(--ph-space-4) + var(--chat-float-clear, 0px));
 }
 
 .list ::highlight(chat-search) {
@@ -485,6 +486,77 @@
 .peekEmpty {
   font-family: var(--ph-font);
   color: var(--ph-text-secondary);
+}
+
+/* ---- The empty chat's terminal (ChatTerminalStart, Oct 23 2026) ---- */
+
+/* Fills the segment like the conversation does: a heading, the terminal, its button. */
+.terminalStart {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-2);
+  min-height: 0;
+  padding: var(--ph-space-3) var(--ph-space-3) var(--ph-space-2);
+  font-family: var(--ph-font);
+}
+
+.terminalStartHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-1);
+}
+
+.terminalStartTitle {
+  margin: 0;
+  font-size: calc(17px * var(--ph-text-scale));
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--ph-text);
+}
+
+.terminalStartMessage {
+  margin: 0;
+  font-size: calc(14px * var(--ph-text-scale));
+  line-height: 1.45;
+  color: var(--ph-text-secondary);
+}
+
+/* As tall as its lines, up to the space there is; then it scrolls. column-reverse pins the
+   newest line to the bottom and keeps a reader's place above it. */
+.terminalStartScreen {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--ph-space-2);
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-fill);
+}
+
+/* A terminal line, wrapped rather than cut: on a phone the whole line beats the columns. */
+.terminalStartLine {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--ph-font-mono);
+  font-size: calc(12px * var(--ph-text-scale));
+  line-height: calc(17px * var(--ph-text-scale));
+  color: var(--ph-text);
+}
+
+/* Before the first byte: words, not terminal text. */
+.terminalStartEmpty {
+  font-family: var(--ph-font);
+  font-size: calc(14px * var(--ph-text-scale));
+  color: var(--ph-text-secondary);
+}
+
+.terminalStartActions {
+  display: flex;
+  justify-content: center;
 }
 
 /* ---- Read a selection aloud (beside the Ask AI bar) ---- */

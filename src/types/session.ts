@@ -209,6 +209,42 @@ export interface SessionInterruption {
 }
 
 /**
+ * A Claude Code `/btw` side question and its answer, read off the terminal screen
+ * (`server/btwCapture.ts`): the CLI never writes them to the transcript. Live-only.
+ */
+/** One entry of Claude Code's Background list as the session keeps it: checked and capped. */
+export interface BackgroundItem {
+  id: string;
+  /** `shell`, `teammate`, `subagent`, … as Claude Code names it. */
+  type: string;
+  /** `running`, `completed`, `failed`, … as Claude Code reports it ('' when absent). */
+  status: string;
+  description: string | null;
+  /** A shell's command line. */
+  command: string | null;
+  /** The first Stop that listed this id: Claude Code sends no start time. */
+  firstSeenAt: number;
+}
+
+export interface BackgroundTasks {
+  /** Shells first, then everything else; at most BACKGROUND_TASKS_KEEP. */
+  items: BackgroundItem[];
+  /** Totals over the whole list Claude sent, not just `items`. */
+  agents: number;
+  shells: number;
+  activeShells: number;
+  /** When the Stop that carried the list arrived. */
+  at: number;
+}
+
+export interface BtwAnswer {
+  question: string;
+  answer: string;
+  /** Epoch ms of the capture (a growing answer keeps its first capture's time). */
+  at: number;
+}
+
+/**
  * A context compaction in progress: set by a PreCompact hook, cleared when it ends
  * (PostCompact, or Claude's SessionStart with source `compact`) or by the next turn
  * event. Live-only; the phone ignores one older than `COMPACTING_STALE_MS`.
@@ -233,7 +269,7 @@ export interface PendingRequestOption {
  * What the CLI is waiting on, structured (`server/pendingRequests.ts`): set by the
  * PermissionRequest hook and by PreToolUse of AskUserQuestion / ExitPlanMode, cleared by
  * the call's PostToolUse(Failure), UserPromptSubmit, Stop, SessionStart/End, a newer
- * request, or an answer the server wrote. Answered by
+ * request, or an answer the server wrote (a subagent's: by its own events, see `agentId`). Answered by
  * `POST /api/sessions/:id/requests/:requestId/answer`. Live-only: never archived or
  * written to the restart snapshot.
  */
@@ -259,6 +295,9 @@ export interface PendingRequest {
   canAlwaysAllow?: true;
   /** The hook's tool_use_id, when it sent one: matches the call's PostToolUse. */
   toolUseId?: string;
+  /** The subagent that raised it (Claude's `agent_id`); absent for the main agent. Its dialog
+   *  stays up while the main agent works on, so only that subagent's events clear it. */
+  agentId?: string;
   /** Raised while another request was still open (parallel tools or subagents): the CLI
    *  may be showing either dialog, so no card can answer it. Lasts until it is cleared. */
   ambiguous?: boolean;
@@ -341,6 +380,19 @@ export interface SessionContextUsage {
   size?: number;
   /** Tokens in the window: input + cache creation + cache read of the last reply. */
   tokens?: number;
+  /** The last reply's tokens by kind (Oct 21 2026: the phone's context details); a kind the CLI did not report is absent. */
+  parts?: SessionContextParts;
+}
+
+export interface SessionContextParts {
+  /** New input: not read from or written to the cache. */
+  input?: number;
+  /** Input written to the cache by that reply (Claude's cache_creation_input_tokens). */
+  cacheWrite?: number;
+  /** Input read from the cache. */
+  cacheRead?: number;
+  /** That reply's output; it joins the window with the next turn. */
+  output?: number;
 }
 
 export interface Session {
@@ -407,6 +459,8 @@ export interface Session {
    * auto-resume watchdog reads as "recovered". Absent on a healthy session.
    */
   interruption?: SessionInterruption | null;
+  /** The newest `/btw` exchanges seen in this session's terminal, oldest first (phone Chat). */
+  btwAnswers?: BtwAnswer[];
   /** A context compaction in progress (see `SessionCompacting`); absent or null otherwise. */
   compacting?: SessionCompacting | null;
   /**
@@ -438,10 +492,25 @@ export interface Session {
    */
   userCancelledAt?: number | null;
 
+  /**
+   * When the session's last answer ended by asking the user to reply "proceed" (a review-first
+   * turn: "Reply **proceed** to build…"), see `server/proceedRequest.ts`. The rail, the LIVE
+   * board and the phone show a P while it is set. Kept through auto-idle; cleared by the next
+   * prompt from any device, a later answer that asks nothing, a user cancel, a new or ended
+   * session. A resumed session re-reads it from its transcript. Live-only.
+   */
+  pendingProceedAt?: number | null;
+
   // Subagents
   subagentCount: number;
   /** Running background work that is not a subagent (shells, monitors) as of the last Stop. */
   backgroundTaskCount?: number;
+  /**
+   * Claude Code's own Background list (agents, teammates, shells) as of the last Stop, capped
+   * (server/backgroundTasks.ts). The phone's Agents tab shows it. Live-only; cleared on a new
+   * or ended session.
+   */
+  backgroundTasks?: BackgroundTasks | null;
   lastSubagentName?: string;
   /** In-process subagent runs, oldest first, capped (see subagentTracker.ts). */
   subagents?: SubagentRun[];

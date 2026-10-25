@@ -55,6 +55,51 @@ function release() {
   fireEvent(window, new Event('pointerup', { bubbles: true }));
 }
 
+describe('useQueueDragReorder — a mouse lifts on move (Oct 22 2026)', () => {
+  function mousePress(el: Element, x: number, y: number) {
+    fireEvent.pointerDown(el, { clientX: x, clientY: y, button: 0, pointerType: 'mouse' });
+  }
+
+  it('a mouse that moves past the threshold lifts the row without waiting out the hold', () => {
+    const onReorder = vi.fn();
+    render(<Harness onReorder={onReorder} />);
+    mousePress(screen.getByTestId('card-1'), 50, 25);
+    act(() => { movePointer(50 + MOVE_CANCEL_PX + 5, 25); });
+    expect(screen.getByTestId('card-1').dataset.dragging).toBe('true');
+    act(() => { movePointer(300, 25); });
+    act(() => { release(); });
+    expect(onReorder).toHaveBeenCalledWith([2, 3, 1]);
+  });
+
+  it('a mouse jitter inside the threshold stays a click', () => {
+    const onReorder = vi.fn();
+    render(<Harness onReorder={onReorder} />);
+    mousePress(screen.getByTestId('card-1'), 50, 25);
+    act(() => { movePointer(50 + MOVE_CANCEL_PX - 2, 25); });
+    expect(screen.getByTestId('card-1').dataset.dragging).toBe('false');
+    act(() => { release(); });
+    act(() => { vi.advanceTimersByTime(HOLD_MS * 2); });
+    expect(screen.getByTestId('card-1').dataset.dragging).toBe('false');
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it('a mouse press on a BUTTON still never drags, however far it moves', () => {
+    const onReorder = vi.fn();
+    render(<Harness onReorder={onReorder} />);
+    mousePress(screen.getAllByRole('button', { name: 'SEND' })[0], 50, 25);
+    act(() => { movePointer(300, 25); });
+    expect(screen.getByTestId('card-1').dataset.dragging).toBe('false');
+  });
+
+  it('a pen keeps the hold: moving first is a scroll, as with a finger', () => {
+    render(<Harness onReorder={vi.fn()} />);
+    fireEvent.pointerDown(screen.getByTestId('card-1'), { clientX: 50, clientY: 25, button: 0, pointerType: 'pen' });
+    act(() => { movePointer(50 + MOVE_CANCEL_PX + 5, 25); });
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    expect(screen.getByTestId('card-1').dataset.dragging).toBe('false');
+  });
+});
+
 describe('useQueueDragReorder', () => {
   it('does NOT start a drag before the hold elapses', () => {
     const onReorder = vi.fn();

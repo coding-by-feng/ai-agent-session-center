@@ -934,6 +934,36 @@ describe('SessionSwitcher — the current session is listed too', () => {
     expect(attentionOf(container)).toBeTruthy();
   });
 
+  // Oct 23 2026: an answer that ends "Reply proceed…" leaves the session idle-looking; a P says a reply is owed.
+  const proceedOf = (container: HTMLElement, title = 'Exmouth') =>
+    cardOf(container, title).querySelector('[class*="sessionTabProceedBadge"]');
+
+  it('a finished session whose answer asks you to proceed shows P instead of the ✓ — until someone replies', () => {
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur, { ...b, status: 'waiting', pendingProceedAt: 1_800_000_000_000 } as Session], 'cur');
+    expect(proceedOf(container)?.getAttribute('aria-label')).toMatch(/^Asks you to proceed/);
+    expect(attentionOf(container)).toBeNull();
+    switchTo(rerender, [cur, { ...b, status: 'idle', pendingProceedAt: 1_800_000_000_000 } as Session], 'cur');
+    expect(proceedOf(container)).toBeTruthy(); // auto-idle keeps it
+    switchTo(rerender, [cur, { ...b, status: 'prompting', pendingProceedAt: null } as Session], 'cur');
+    expect(proceedOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Prompting');
+  });
+
+  it('the current card shows P too: looking at it is not the reply', () => {
+    const b = makeSession({ sessionId: 'x', title: 'Exmouth', status: 'idle', pendingProceedAt: 1_800_000_000_000 });
+    const { container } = renderSwitcher([sms, exm], [b, cur]); // the first session is the current one
+    expect(cardOf(container, 'Exmouth').getAttribute('aria-current')).toBe('true');
+    expect(proceedOf(container)).toBeTruthy();
+  });
+
+  it('an approval outranks P', () => {
+    const b = makeSession({ sessionId: 'x', title: 'Exmouth', status: 'approval', pendingProceedAt: 1_800_000_000_000 });
+    const { container } = renderSwitcher([sms, exm], [cur, b]);
+    expect(proceedOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Approval needed');
+  });
+
   it('a second completion raises the ✓ again', () => {
     const { container, rerender, b } = finishedWhileAway();
     switchTo(rerender, [cur, { ...b, status: 'working' } as Session], 'cur');
@@ -1602,7 +1632,9 @@ describe('SessionSwitcher — project view', () => {
       const strip = container.querySelector('[class*="sessionTabStrip"]')!;
       const last = strip.lastElementChild as HTMLElement;
       expect(projectFrames(container)).toHaveLength(1);
-      expect(last.matches('[class*="sessionTabCard"]')).toBe(true);
+      // The card's peek tooltip wraps it (Oct 23 2026): the strip's last item is that wrapper.
+      expect(last.matches('[class*="sessionTabTrigger"]')).toBe(true);
+      expect(last.firstElementChild?.matches('[class*="sessionTabCard"]')).toBe(true);
       expect(last.textContent).toContain('Loose end');
     });
 
@@ -2063,6 +2095,8 @@ describe('SessionSwitcher — title actions row', () => {
       />,
     );
   const text = (c: HTMLElement) => c.querySelector('[class*="switcherNameText"]') as HTMLElement;
+  // The name element (the text sits in the peek tooltip's wrapper inside it, Oct 23 2026).
+  const nameOf = (c: HTMLElement) => text(c).closest('[class*="_switcherName_"]') as HTMLElement;
   const actions = (c: HTMLElement) => c.querySelector('[class*="switcherTitleActions"]') as HTMLElement | null;
 
   beforeEach(() => {
@@ -2082,7 +2116,7 @@ describe('SessionSwitcher — title actions row', () => {
 
   it('keeps the actions out of the title element, in an element of their own right after it', () => {
     const { container } = renderSwitcher();
-    const name = text(container).parentElement as HTMLElement;
+    const name = nameOf(container);
     const row = actions(container) as HTMLElement;
     expect(row).not.toBeNull();
     expect(name.contains(row)).toBe(false);
@@ -2103,13 +2137,25 @@ describe('SessionSwitcher — title actions row', () => {
     useUiStore.setState({ navPosition: 'left' });
     const { container } = renderSwitcher();
     expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
-    const name = text(container).parentElement as HTMLElement;
+    const name = nameOf(container);
     expect(name.nextElementSibling).toBe(actions(container));
   });
 
-  it('puts the whole title in a tooltip, since the rail may still clip a long one', () => {
-    const { container } = renderSwitcher();
-    expect(text(container).getAttribute('title')).toBe('Exmouth Development');
+  // Oct 23 2026: the native title gave way to the session peek, whose first line is
+  // the whole name (the rail may still clip a long one) and which adds the last prompts.
+  it('puts the whole title in the hover peek, since the rail may still clip a long one', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { container } = renderSwitcher();
+      expect(text(container).getAttribute('title')).toBeNull();
+      fireEvent.mouseEnter(text(container).parentElement as HTMLElement);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(within(screen.getByRole('tooltip')).getByText('Exmouth Development')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('still renames on a double-click of the title, and the actions step aside while it is open', () => {
@@ -2261,5 +2307,108 @@ describe('SessionSwitcher — AASC-11 header', () => {
     renderHeader();
     expect(screen.getByRole('button', { name: 'Collapse session panel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Minimize session panel' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The session peek (Oct 23 2026): hovering a strip card, or the panel header's
+ * title, shows where the session runs, the user's remark and the last prompts the
+ * user typed into it, newest first — so sessions can be told apart and reviewed
+ * without opening them. It replaces the card's native "title · project · status".
+ */
+describe('SessionSwitcher — the session peek', () => {
+  const now = Date.now();
+  const mk = (id: string, title: string, prompts: string[], over: Partial<Session> = {}): Session => ({
+    sessionId: id,
+    title,
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'idle',
+    startedAt: now - 3_600_000,
+    lastActivityAt: now,
+    promptHistory: prompts.map((text, i) => ({ text, timestamp: now - (prompts.length - i) * 60_000 })),
+    ...over,
+  } as Session);
+  const current = mk('cur', 'AASC Enhancement', ['/electron-build']);
+  const other = mk('oth', 'Exmouth 3D', [
+    'how can we start the 3D preview',
+    '<task-notification><status>completed</status></task-notification>',
+    '/krt-ship',
+  ], { remark: 'TEE renders' });
+
+  const renderStrip = () =>
+    render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[current.sessionId, current], [other.sessionId, other]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  const cardOf = (c: HTMLElement, title: string) =>
+    [...c.querySelectorAll('button[class*="sessionTabCard"]')].find((b) => b.textContent?.includes(title)) as HTMLElement;
+  const hover = (el: HTMLElement) => {
+    fireEvent.mouseEnter(el.parentElement as HTMLElement);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    return screen.getByRole('tooltip');
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'left', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(),
+    });
+    useRoomStore.setState({ rooms: [] });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    useUiStore.setState({ navPosition: 'top' });
+    vi.unstubAllGlobals();
+  });
+
+  // Empty, not absent: with no title of its own a card showed its room's, project's or
+  // frame's native title (the nearest ancestor's) on top of the peek.
+  it("a strip card's native title is empty, so no frame's title shows through", () => {
+    const { container } = renderStrip();
+    expect(cardOf(container, 'Exmouth 3D').getAttribute('title')).toBe('');
+  });
+
+  it('hovering a card shows its name, where it runs, the remark and the typed prompts, newest first', () => {
+    const { container } = renderStrip();
+    const tip = hover(cardOf(container, 'Exmouth 3D'));
+    expect(within(tip).getByText('Exmouth 3D')).toBeInTheDocument();
+    expect(within(tip).getByText(/agent-manager · Idle/)).toBeInTheDocument();
+    expect(within(tip).getByText('TEE renders')).toBeInTheDocument();
+    const prompts = within(within(tip).getByRole('list', { name: 'Recent prompts' })).getAllByRole('listitem');
+    expect(prompts.map((li) => li.textContent)).toEqual(['1m/krt-ship', '3mhow can we start the 3D preview']);
+  });
+
+  it('waits half a second, so running the pointer down the rail opens nothing', () => {
+    const { container } = renderStrip();
+    fireEvent.mouseEnter(cardOf(container, 'Exmouth 3D').parentElement as HTMLElement);
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('says so when a session has no typed prompt yet', () => {
+    const quiet = mk('q', 'Fresh one', ['<command-name>/clear</command-name>']);
+    const { container } = render(
+      <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current], [quiet.sessionId, quiet]])} onSwitch={vi.fn()} />,
+    );
+    expect(within(hover(cardOf(container, 'Fresh one'))).getByText('No prompts typed yet.')).toBeInTheDocument();
+  });
+
+  it("the panel header's title peeks at the open session", () => {
+    const { container } = renderStrip();
+    const title = container.querySelector('[class*="switcherNameText"]') as HTMLElement;
+    const tip = hover(title);
+    expect(within(tip).getByText('AASC Enhancement')).toBeInTheDocument();
+    expect(within(tip).getByText('/electron-build')).toBeInTheDocument();
   });
 });

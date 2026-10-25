@@ -50,6 +50,7 @@ import {
   isCompactCommand,
   latestSessionStartAt,
   resolveNoWorkFallbackMs,
+  localCommandFlush,
   itemType,
   getActiveStep,
   isExecuting,
@@ -269,6 +270,38 @@ export function useGlobalQueueScheduler(): void {
       return true;
     };
 
+    /**
+     * The extra Enter before a silent local command's gate releases (`/effort <level>`,
+     * `/model <name>`; see localCommandFlush). Returns true when this tick must not type
+     * the next item: the Enter was just pressed, or the CLI is still answering it.
+     */
+    const holdForLocalCommandFlush = async <G extends ChainGate | OnceGate>(
+      gates: Map<string, G>,
+      sessionId: string,
+      session: Session,
+      terminalId: string,
+      autoEnter: boolean,
+      now: number,
+    ): Promise<boolean> => {
+      const gate = gates.get(sessionId);
+      const step = localCommandFlush(gate, {
+        status: session.status,
+        autoEnter,
+        now,
+        activityAt: session.lastActivityAt,
+      });
+      if (step === 'none' || !gate) return false;
+      if (step === 'settling') return true;
+      gates.set(sessionId, { ...gate, flushedAt: now });
+      firingRefs.current.set(sessionId, true);
+      try {
+        await pressEnterInTerminal(terminalId);
+      } finally {
+        firingRefs.current.set(sessionId, false);
+      }
+      return true;
+    };
+
     const evaluateSession = async (sessionId: string): Promise<void> => {
       const firing = firingRefs.current.get(sessionId);
       if (firing) return;
@@ -462,6 +495,14 @@ export function useGlobalQueueScheduler(): void {
         // reliable "prior step finished" marker. Decayed `idle` must not count; a
         // finished `/compact` (ends in SessionStart, no Stop) does.
         const chainGate = chainGateRefs.current.get(sessionId);
+        // A silent command's Enter may have been swallowed: press it again before the next
+        // step is typed onto the same line (gate for this item only).
+        if (
+          chainGate?.itemId === pick.id &&
+          (await holdForLocalCommandFlush(chainGateRefs.current, sessionId, session, terminalId, autoEnter, now))
+        ) {
+          return;
+        }
         const atRest = isGateAtRest(sessionStatus, settled, session.events, chainGate);
         const decision = chainGateDecision(
           chainGate,
@@ -485,6 +526,10 @@ export function useGlobalQueueScheduler(): void {
         // until the PREVIOUS once's task has finished (observed busy → back to
         // 'waiting'). Other item types keep their existing pacing.
         if (itemType(pick) === 'once') {
+          // As the chain gate above: a silent command before this prompt gets its Enter again.
+          if (await holdForLocalCommandFlush(onceGateRefs.current, sessionId, session, terminalId, autoEnter, now)) {
+            return;
+          }
           const onceDecision = onceGateDecision(
             onceGateRefs.current.get(sessionId),
             isGateAtRest(sessionStatus, settled, session.events, onceGateRefs.current.get(sessionId)),

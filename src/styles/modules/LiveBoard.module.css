@@ -91,7 +91,48 @@
   opacity: 0.85;
 }
 
+/* The board's sort (Status / Room / Project): the shared Field + NativeSelect. */
+.sort {
+  flex-shrink: 0;
+}
+
 /* ---- Cards ---- */
+
+/* Every group's list, one under the other. Status sort has one list and no heading. */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* A room's or folder's name over its cards: the board heading's voice, one size up
+   from its letters, with the room chips' dot for a room. */
+.groupHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+}
+
+.groupName {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .grid {
   list-style: none;
@@ -104,8 +145,20 @@
 }
 
 .cell {
+  position: relative;
   display: flex;
   min-width: 0;
+}
+
+/* The card's kill button, over its top-right corner and outside the card's
+   <button>. The 24px chip sits on the status line's centre (12px padding + half
+   its 16px line = 20px down), 8px in from the edge; .cardTop leaves it room. At
+   rest it is --text-secondary like every icon button, red on hover and focus. */
+.cardKill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
 }
 
 .card {
@@ -149,18 +202,21 @@
   outline-offset: 2px;
 }
 
-/* Blocked on the user (approval / input): the whole frame takes the status colour.
-   Its own hover/active rules follow: this selector is as specific as .card:hover,
-   and coming later it would otherwise swallow both. */
-.card[data-needs-you='true'] {
+/* Blocked on the user (approval / input), or its answer asks you to proceed (Oct 23 2026):
+   the whole frame takes the status colour. Its own hover/active rules follow: this selector
+   is as specific as .card:hover, and coming later it would otherwise swallow both. */
+.card[data-needs-you='true'],
+.card[data-proceed='true'] {
   border-color: var(--status-color);
   background: color-mix(in srgb, var(--status-color) 8%, var(--bg-card));
 }
-.card[data-needs-you='true']:hover {
+.card[data-needs-you='true']:hover,
+.card[data-proceed='true']:hover {
   background: color-mix(in srgb, var(--status-color) 14%, var(--bg-card-hover));
   box-shadow: 0 2px 12px color-mix(in srgb, var(--status-color) 24%, transparent);
 }
-.card[data-needs-you='true']:active {
+.card[data-needs-you='true']:active,
+.card[data-proceed='true']:active {
   background: color-mix(in srgb, var(--status-color) 20%, var(--bg-card));
   box-shadow: none;
 }
@@ -170,6 +226,8 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* clear of .cardKill: its 24px chip reaches 16px past the card's 16px padding, plus a gap */
+  padding-right: 24px;
   font-size: 11px;
   letter-spacing: 0.5px;
 }
@@ -301,6 +359,16 @@
 @media (pointer: coarse) {
   .filter {
     min-height: 44px;
+  }
+  /* The kill button grows to a 44px target around the same 24px chip: keep the
+     chip where it was (its centre 20px from the top and right edges). The target
+     then reaches 42px in from the right edge, so the top line clears 44 (16 + 28). */
+  .cardKill {
+    top: -2px;
+    right: -2px;
+  }
+  .cardTop {
+    padding-right: 28px;
   }
 }
 

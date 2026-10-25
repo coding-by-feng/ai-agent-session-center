@@ -2,9 +2,11 @@
  * ProjectBrowserView — standalone full-page project file browser.
  * Opens via /project-browser?path=<projectPath> (e.g. from the "open in new tab" button).
  */
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import ProjectTab from '@/components/session/ProjectTab';
 import { useSessionStore } from '@/stores/sessionStore';
+import { onOpenFile } from '@/lib/projectPopoutFile';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 export default function ProjectBrowserView() {
@@ -24,6 +26,21 @@ export default function ProjectBrowserView() {
     }
     return live ?? any;
   });
+
+  // An already-open window gets "show this file" from the docked tab's Detach
+  // button. ProjectTab reacts to a change of navigateToFile, so it resets
+  // after a tick to let the same file be sent again.
+  const [navigateToFile, setNavigateToFile] = useState<string | null>(null);
+  useEffect(() => {
+    if (!projectPath) return;
+    let resetId: ReturnType<typeof setTimeout> | undefined;
+    const off = onOpenFile(projectPath, (file) => {
+      setNavigateToFile(file);
+      clearTimeout(resetId);
+      resetId = setTimeout(() => setNavigateToFile(null), 100);
+    });
+    return () => { off(); clearTimeout(resetId); };
+  }, [projectPath]);
 
   if (!projectPath) {
     return (
@@ -50,6 +67,8 @@ export default function ProjectBrowserView() {
           projectPath={projectPath}
           initialPath={initialFile}
           initialIsFile={!!initialFile}
+          preferInitialFile
+          navigateToFile={navigateToFile}
           persistId={`browser-${projectPath}`}
           originSessionId={originSessionId}
         />

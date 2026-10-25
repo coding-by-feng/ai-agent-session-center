@@ -75,9 +75,48 @@ describe('QueueScreen', () => {
     const headers = screen.getAllByRole('button', { name: /Open its queue/ }).map((b) => b.getAttribute('aria-label'));
     expect(headers).toEqual([
       'api, 1 queued, Waiting for you: answer the waiting approval first. Open its queue',
-      'web, 3 queued, Auto-send on · Auto-Enter on. Open its queue',
+      'web, 3 queued, Auto-Enter on · Auto-send on. Open its queue',
     ]);
     expect(screen.getByTestId('queue-row-3').textContent).toContain('Every 1 h');
+  });
+
+  it('shows the automation as the session queue does: Auto-Enter, then Auto-send, each with its glyph', () => {
+    render(<QueueScreen />);
+    const header = screen.getByRole('button', { name: /^web, 3 queued/ });
+    expect(header.textContent).toMatch(/Auto-Enter on.*Auto-send on/);
+    // Words with glyphs, not switches: the header opens the session's queue, where they live.
+    expect(header.querySelectorAll('svg[aria-hidden="true"]').length).toBeGreaterThanOrEqual(2);
+    expect(within(header).queryByRole('switch')).toBeNull();
+  });
+
+  it('marks a paused prompt with the session queue\'s Paused pill, and keeps "paused" in its name', () => {
+    useQueueStore.setState({
+      queues: new Map([['s1', [qi(1, 's1', 'first prompt', 0, { disabled: true, beforeChain: [{ id: 9, text: '/clear' }] }), qi(2, 's1', 'second prompt', 1)]]]),
+      automation: new Map(),
+    });
+    render(<QueueScreen />);
+    const paused = screen.getByTestId('queue-row-1');
+    expect(within(paused).getByText('Paused')).toBeTruthy();
+    expect(within(paused).getByText('2 steps')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Prompt 1 for web: first prompt, 2 steps, paused. Edit' })).toBeTruthy();
+    expect(within(screen.getByTestId('queue-row-2')).queryByText('Paused')).toBeNull();
+  });
+
+  it('shows a skill the preview hides (on a later line) as a token under it, and none for a one-line prompt', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(
+      String(url).includes('/api/commands')
+        ? JSON.stringify({ entries: [{ name: 'raab', kind: 'skill', source: 'global', cli: 'claude', description: '' }] })
+        : '{}',
+    )));
+    useQueueStore.setState({
+      queues: new Map([['s1', [qi(1, 's1', 'fix the zoom\nkeep it fixed /raab', 0), qi(2, 's1', 'one line /raab', 1)]]]),
+      automation: new Map(),
+    });
+    render(<QueueScreen />);
+    const chips = (id: number) => [...screen.getByTestId(`queue-row-${id}`).querySelectorAll('[data-prompt-chip]')].map((n) => n.textContent);
+    await waitFor(() => expect(chips(1)).toEqual(['/raab']));
+    expect(chips(2)).toEqual([]);
+    expect(screen.getByTestId('queue-row-2').querySelector('[data-prompt-token]')?.textContent).toBe('/raab');
   });
 
   it('opens a session\'s own queue from its header', async () => {

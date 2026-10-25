@@ -12,6 +12,7 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import DetachIcon from '@/components/ui/DetachIcon';
 import { tooltips } from '@/lib/tooltips';
+import { activeProjectFile, postOpenFile } from '@/lib/projectPopoutFile';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useNotesStore } from '@/stores/notesStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -472,9 +473,13 @@ export default function DetailTabs({
   // path (a second click focuses the existing window).
   const openProjectWindow = useCallback(() => {
     if (!projectPath) return;
+    // The file open in the docked tab goes with it: a new window gets it as
+    // ?file=, one already open (Electron only focuses it) over the channel.
+    const file = activeProjectFile(sessionId, projectPath);
+    if (file) postOpenFile({ projectPath, file });
     const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
     if (api?.openProjectWindow) {
-      void api.openProjectWindow({ path: projectPath, label: 'Project' });
+      void api.openProjectWindow({ path: projectPath, file, label: 'Project' });
       return;
     }
     // Under Electron the window.open fallback below is NOT a fallback: the
@@ -492,8 +497,9 @@ export default function DetailTabs({
     const left = Math.round((window.screen.availWidth - w) / 2);
     const top = Math.round((window.screen.availHeight - h) / 2);
     const features = `popup,noopener=no,width=${w},height=${h},left=${left},top=${top}`;
-    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, name, features);
-  }, [projectPath]);
+    const fileQs = file ? `&file=${encodeURIComponent(file)}` : '';
+    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}${fileQs}`, name, features);
+  }, [projectPath, sessionId]);
 
   const isSplit = splitView && panelWideEnough && !stackedView;
   const isStacked = stackedView && panelWideEnough && !splitView;

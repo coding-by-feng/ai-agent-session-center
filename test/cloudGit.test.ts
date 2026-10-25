@@ -135,7 +135,7 @@ it('nested live agent makes checkout busy', async () => {
     code: 'busy',
   });
 });
-it('diverged pull preserves local commit and remote rewrite is refused', async () => {
+it('pull with local commits preserves them (ahead: push first) and remote rewrite is refused', async () => {
   const f = await gitFixture();
   const dest = join(f.root, 'checkout');
   await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
@@ -145,8 +145,9 @@ it('diverged pull preserves local commit and remote rewrite is refused', async (
   f.git(dest, 'add', '.');
   f.git(dest, 'commit', '-m', 'local');
   const head = f.git(dest, 'rev-parse', 'HEAD');
+  // AASC-63: a checkout with only its own commits reads `ahead` (Push), not `diverged`.
   await expect(f.ops.pull(dest, f.project, new AbortController().signal)).rejects.toMatchObject({
-    code: 'diverged',
+    code: 'ahead',
   });
   expect(f.git(dest, 'rev-parse', 'HEAD')).toBe(head);
   f.git(dest, 'config', 'url.https://evil.example/.insteadOf', 'https://github.com/');

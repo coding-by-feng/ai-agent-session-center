@@ -114,7 +114,9 @@ beforeAll(async () => {
   put('.claude/settings.json', JSON.stringify({ model: 'opus', env: { API_TOKEN: 'ROUTER-SETTINGS-SECRET' } }));
   put('Documents/agent-skills/claude/skills/demo/SKILL.md', '---\nname: demo\ndescription: Demo skill\n---\nrepo line\n');
 
-  const deps = { sessionProjectPaths: () => [], env: {}, home };
+  // Skill/command uses (Oct 23 2026): a fixed count in place of the prompt history.
+  const usageCounts = () => new Map([['/demo', { typed: 4, agent: 1, lastAt: 99 }], ['/solo.md', { typed: 7, agent: 0, lastAt: 5 }]]);
+  const deps = { sessionProjectPaths: () => [], env: {}, home, usageCounts };
   localUrl = await listen(createResourceRouter(deps));
   remoteUrl = await listen(createResourceRouter({ ...deps, isLocalRequest: () => false }));
 
@@ -136,6 +138,7 @@ describe('local-only gate', () => {
       call(`${remoteUrl}/item/${id}`),
       call(`${remoteUrl}/item/${id}/file?path=SKILL.md`),
       call(`${remoteUrl}/item/${id}/compare?against=repo`),
+      call(`${remoteUrl}/usage`),
     ]);
     for (const r of responses) {
       expect(r.status).toBe(404);
@@ -204,6 +207,41 @@ describe('GET / and POST /scan', () => {
     });
     expect(r.status).toBe(415);
     expect(r.json).toMatchObject({ success: false });
+  });
+});
+
+describe('GET /usage', () => {
+  it("puts each skill's uses in the last 90 days on its catalog id, and never counts a rule", async () => {
+    const { status, json } = await call(`${localUrl}/usage`);
+    expect(status).toBe(200);
+    expect(json.data).toEqual({
+      windowDays: 90,
+      byId: { [byName('skill', 'demo').id]: { typed: 4, agent: 1, lastAt: 99, tokens: ['/demo'] } },
+    });
+  });
+
+  it('answers 409 before the first scan, without starting one, then an empty count with no reader', async () => {
+    const url = await listen(createResourceRouter({ sessionProjectPaths: () => [], env: {}, home }));
+    expect((await call(`${url}/usage`)).status).toBe(409);
+    // No scan was started by /usage: the catalog is still idle.
+    expect(((await call(`${url}/`)).json.data as ResourceCatalog).state).toBe('scanning');
+    for (let i = 0; i < 400 && ((await call(`${url}/`)).json.data as ResourceCatalog).state === 'scanning'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const { status, json } = await call(`${url}/usage`);
+    expect(status).toBe(200);
+    expect(json.data).toEqual({ windowDays: 90, byId: {} });
+  });
+
+  it('answers 503, not zero, when the counts are unknown', async () => {
+    const url = await listen(createResourceRouter({ sessionProjectPaths: () => [], env: {}, home, usageCounts: () => null }));
+    await call(`${url}/`);
+    for (let i = 0; i < 400 && ((await call(`${url}/`)).json.data as ResourceCatalog).state === 'scanning'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const { status, json } = await call(`${url}/usage`);
+    expect(status).toBe(503);
+    expect(json).toEqual({ success: false, error: 'Could not count resource uses' });
   });
 });
 

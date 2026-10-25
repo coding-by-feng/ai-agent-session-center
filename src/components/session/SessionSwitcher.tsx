@@ -48,8 +48,10 @@ import { keyComboToString } from '@/lib/shortcutKeys';
 import buttonStyles from '@/styles/modules/Button.module.css';
 import chipStyles from '@/styles/modules/Chip.module.css';
 import Tooltip from '@/components/ui/Tooltip';
+import SessionPromptPeek from './SessionPromptPeek';
+import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
-import { STATUS_COLORS, STATUS_LEGEND } from '@/lib/sessionStatusStyle';
+import { PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
@@ -436,8 +438,19 @@ export default function SessionSwitcher({
                 className={styles.switcherName}
                 onDoubleClick={beginHeaderEdit}
               >
-                {/* title: the rail clamps a long name to two lines, so hover reads the rest. */}
-                <span className={styles.switcherNameText} title={primaryName}>{primaryName}</span>
+                {/* Hover peeks at the session (Oct 23 2026): where it runs, your remark and
+                    the last prompts you typed. Its first line is the full name, which the
+                    native title used to give when the rail clamps a long one. */}
+                <Tooltip
+                  label={primaryName}
+                  content={<SessionPromptPeek session={currentSession} />}
+                  wide
+                  delay={PEEK_HOVER_DELAY_MS}
+                  placement={isVertical ? 'right' : 'bottom'}
+                  triggerClassName={styles.switcherNameTrigger}
+                >
+                  <span className={styles.switcherNameText}>{primaryName}</span>
+                </Tooltip>
               </span>
               {/* The title's actions. A sibling of the name, not inside it: in the 213px
                   left rail five buttons beside the name squeezed it to "Exmouth …", so
@@ -878,6 +891,12 @@ export default function SessionSwitcher({
   );
 }
 
+/** The rail P's name (Oct 23 2026): what is owed, and since when. */
+function proceedTitle(at: number | null | undefined): string {
+  const since = at ? ` (since ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})` : '';
+  return `Asks you to proceed${since}: review it, then reply`;
+}
+
 function SessionTabCard({
   session,
   isCurrent = false,
@@ -955,7 +974,20 @@ function SessionTabCard({
     }
   }, [editing]);
 
+  // The rail runs down the left, so the peek opens beside it; the top strip's opens below.
+  const peekPlacement = useUiStore((s) => (s.navPosition === 'left' && !s.maximized ? 'right' : 'bottom'));
+
+  // Hover peeks at the session (Oct 23 2026): its name, where it runs, your remark and
+  // the last prompts you typed, in place of the native "title · project · status" title.
   return (
+    <Tooltip
+      label={title}
+      content={<SessionPromptPeek session={session} />}
+      wide
+      delay={PEEK_HOVER_DELAY_MS}
+      placement={peekPlacement}
+      triggerClassName={styles.sessionTabTrigger}
+    >
     <button
       className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${isCurrent ? ` ${styles.sessionTabCardCurrent}` : ''}`}
       aria-current={isCurrent && !isCopy ? 'true' : undefined}
@@ -965,7 +997,9 @@ function SessionTabCard({
       }}
       style={{ '--robot-color': color } as React.CSSProperties}
       onClick={() => onSwitch(session.sessionId)}
-      title={[title, session.projectName, session.status].filter(Boolean).join(' · ')}
+      // Empty, not absent: without a title of its own the card shows its room's, project's or
+      // frame's native title (the nearest ancestor's) over the peek.
+      title=""
       type="button"
     >
       {/* Pin toggle — sits beside the status badge (top-right). See
@@ -984,7 +1018,18 @@ function SessionTabCard({
           shows the green ✓ "completed" badge; otherwise it shows a distinct
           per-status glyph (approval "!", input "?", working spinner, etc.) so
           statuses are tellable apart by icon, not colour alone. */}
-      {needsAttention ? (
+      {owesProceed(session) ? (
+        // Its last answer asks you to reply "proceed" (Oct 23 2026): outranks the ✓, and shows on
+        // the current card too, since looking at it is not the reply.
+        <span
+          className={styles.sessionTabProceedBadge}
+          role="img"
+          aria-label={proceedTitle(session.pendingProceedAt)}
+          title={proceedTitle(session.pendingProceedAt)}
+        >
+          <StatusGlyph status={PROCEED} />
+        </span>
+      ) : needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
           role="img"
@@ -1091,5 +1136,6 @@ function SessionTabCard({
         <div className={styles.sessionTabBadge}>{badge}</div>
       )}
     </button>
+    </Tooltip>
   );
 }

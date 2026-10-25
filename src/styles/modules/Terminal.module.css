@@ -557,8 +557,9 @@
   border-radius: 0;
 }
 
-/* Drag-to-reorder affordance. The whole row is draggable (cursor: grab), but the
-   grip makes that discoverable. Brightens on row hover; grabbing cursor on press. */
+/* Drag-to-reorder affordance. The whole row (or card) is draggable, but the grip
+   makes that discoverable. Brightens on row or card hover; grabbing cursor while
+   carried. A card shows it first in its header (Oct 22 2026). */
 .queueDragHandle {
   display: inline-flex;
   align-items: center;
@@ -571,12 +572,22 @@
     opacity 0.12s ease,
     color 0.12s ease;
 }
-.queueItem.dragging .queueDragHandle {
+.queueItem.dragging .queueDragHandle,
+.queueCard.dragging .queueDragHandle {
   cursor: grabbing;
 }
-.queueItem:hover .queueDragHandle {
+.queueItem:hover .queueDragHandle,
+.queueCard:hover .queueDragHandle {
   opacity: 0.9;
   color: var(--accent-text, var(--accent-cyan));
+}
+/* A card shows its controls at rest (`.queueCard .queueActions`), so its grip is at
+   full strength too: at the List's 0.45 it measured 2.06–2.84:1 against the card in
+   all ten themes, under the 3:1 a graphic needs. Full strength is the colour of the
+   position number beside it (5.56–7.94:1). Hover still turns it the accent. */
+.queueCard .queueDragHandle,
+.queueCard:hover .queueDragHandle {
+  opacity: 1;
 }
 .queueText {
   flex: 1;
@@ -664,6 +675,16 @@
       the toggle is the line's one focusable element, so tab order cannot differ. */
 .queueItem .queueTextLine .queueExpandBtn {
   order: -1;
+}
+/* The skills a cut-off preview hides, on a line under it (QueueItemText, Oct 22 2026).
+   In a list row the toggle comes first, so the line starts where the text does: past
+   the toggle (18px, 44px on a phone) and the line's 4px gap. A card's toggle ends the
+   text, so there the line starts at the text's left edge. */
+.queueItem .queueSkillLine {
+  padding-left: 22px;
+}
+.queuePanelPhone .queueItem .queueSkillLine {
+  padding-left: 48px;
 }
 /* 2. Never squeezed out. A loop row's chips plus the seven revealed buttons (205px
       at 390px wide) left the text column ~0px wide, and its `overflow: hidden`
@@ -847,6 +868,42 @@
 .queueSend:hover {
   background: rgba(80, 250, 123, 0.15) !important;
 }
+/* SEND while its prompt is on the way (Oct 21 2026): the label stays, hidden, so the
+   button keeps its width (the row's other buttons must not move under a thumb), and a
+   spinner sits on top. Busy reads as working, not off: no :disabled dimming. */
+.queueSendBusy {
+  position: relative;
+}
+.queueActionBtn.queueSendBusy:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.queueSendBusy .queueSendLabel {
+  visibility: hidden;
+}
+.queueSendSpinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.1em;
+  height: 1.1em;
+  margin: -0.55em 0 0 -0.55em;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: queue-send-spin 0.8s linear infinite;
+}
+@keyframes queue-send-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queueSendSpinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+}
 .queueTriggerNow {
   color: var(--accent-yellow, #ffd866) !important;
   border-color: rgba(255, 216, 102, 0.4) !important;
@@ -908,15 +965,16 @@
 .queueToggleBtnOff {
   color: var(--text-secondary);
 }
-.queueToggleBtnOff:hover {
-  color: var(--accent-green, #50fa7b);
-  background: rgba(80, 250, 123, 0.08);
-  border-color: rgba(80, 250, 123, 0.3);
-}
 
+/* A paused row (Oct 21 2026: was 0.55 and nothing else): faded, its photos grey and a
+   "Paused" chip in its meta line. No `filter` on the row itself — it would make the
+   row a containing block for the MOVE picker. */
 .queueItemDisabled {
-  opacity: 0.55;
+  opacity: 0.4;
   position: relative;
+}
+.queueItemDisabled .queueItemThumb img {
+  filter: grayscale(1);
 }
 .queueItemDisabled::before {
   content: '';
@@ -928,8 +986,30 @@
   background: var(--text-dim, #555);
   border-radius: 1px;
 }
-.queueItemDisabled:hover {
-  opacity: 0.85;
+/* Pointer-only: a tap leaves :hover on a touch screen, so a just-paused row brightened
+   back and its power button turned green — it looked enabled (Oct 21 2026). */
+@media (hover: hover) {
+  .queueItemDisabled:hover {
+    opacity: 0.85;
+  }
+  .queueToggleBtnOff:hover {
+    color: var(--accent-green, #50fa7b);
+    background: rgba(80, 250, 123, 0.08);
+    border-color: rgba(80, 250, 123, 0.3);
+  }
+}
+.queuePausedChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--text-secondary);
+  border-radius: 8px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 .queueNextFirePaused {
   color: var(--text-dim, #555) !important;
@@ -1149,24 +1229,71 @@
   transform: scale(0.97);
 }
 
-/* Insertion caret. Drawn as a box-shadow rather than a border so it costs no
-   layout — a border would resize the card mid-drag and shift every rect the
-   drag was measured against. */
-.queueItem.dropBefore,
-.queueCard.dropBefore {
-  box-shadow: inset 3px 0 0 0 var(--accent-cyan, #00e5ff);
+/* No insertion caret: since Oct 22 2026 both layouts carry the held prompt and the
+   ones it passes step aside, which shows the slot (the List dropped its caret on
+   Oct 21, the Card grid on Oct 22). */
+
+/* The List layout's carry (Oct 21 2026; useQueueDragReorder "The carry"): while a
+   row is in hand every row gets a translate (0 for the ones that stay); the passed
+   ones slide aside by --queue-shift (from the hook's shifts) to open the slot it
+   will land in, so no caret line is drawn. On drop the class and the shifts go in
+   the render that commits the order, and the hook's settle glides the rows in. */
+.queueList.queueListCarry .queueItem {
+  translate: 0 var(--queue-shift, 0px);
+  transition: translate 180ms ease-out;
 }
-.queueItem.dropAfter,
-.queueCard.dropAfter {
-  box-shadow: inset -3px 0 0 0 var(--accent-cyan, #00e5ff);
+/* The carried row follows the finger by --queue-drag-dy (written by the hook on
+   every move; no translate transition, so it never lags), fully opaque above its
+   neighbours, on an opaque surface: the resting row is 2% white over transparent,
+   which would show the text of the rows it crosses. `scale` must equal LIFT_SCALE
+   in useQueueDragReorder.ts: the settle starts from it, and a test pins the two. */
+.queueList.queueListCarry .queueItem.dragging {
+  z-index: 1;
+  opacity: 1;
+  transform: none;
+  translate: 0 var(--queue-drag-dy, 0px);
+  scale: 1.02;
+  background: var(--bg-card, var(--bg-primary));
+  /* The accent ring is what reads on dark themes, where a black shadow over a
+     near-black panel vanishes (Oct 22 2026). */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-cyan, #00e5ff) 55%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.18),
+    0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: scale 150ms ease-out, box-shadow 150ms ease-out;
 }
-/* In List mode items stack vertically, so the caret reads as a top/bottom
-   edge rather than a left/right one. */
-.queueList .queueItem.dropBefore {
-  box-shadow: inset 0 3px 0 0 var(--accent-cyan, #00e5ff);
+/* The Card grid's carry (Oct 22 2026): the same, both ways. The passed cards step one
+   cell aside by --queue-shift-x / --queue-shift-y (the hook's cardShifts), the last
+   card of a row wrapping to the next; the carried card follows by --queue-drag-dx /
+   --queue-drag-dy, drawn within the cards. `scale` must equal LIFT_SCALE here too
+   (useQueueDragReorder.cardCarry.test.tsx pins it). `position` lets z-index lift it
+   above the cards it crosses. */
+.queueCardGrid.queueCardGridCarry .queueCard {
+  translate: var(--queue-shift-x, 0px) var(--queue-shift-y, 0px);
+  transition: translate 180ms ease-out;
 }
-.queueList .queueItem.dropAfter {
-  box-shadow: inset 0 -3px 0 0 var(--accent-cyan, #00e5ff);
+.queueCardGrid.queueCardGridCarry .queueCard.dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  transform: none;
+  translate: var(--queue-drag-dx, 0px) var(--queue-drag-dy, 0px);
+  scale: 1.02;
+  background: var(--bg-card, var(--bg-primary));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-cyan, #00e5ff) 55%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.18),
+    0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: scale 150ms ease-out, box-shadow 150ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .queueList.queueListCarry .queueItem,
+  .queueList.queueListCarry .queueItem.dragging,
+  .queueCardGrid.queueCardGridCarry .queueCard,
+  .queueCardGrid.queueCardGridCarry .queueCard.dragging {
+    transition: none;
+    scale: none;
+  }
 }
 
 @keyframes queue-item-enter {
@@ -1264,6 +1391,19 @@
   object-fit: cover;
   display: block;
 }
+
+/* The thumbnail itself opens the image full size (ImagePreview); ✕ sits on top of it. */
+.queueImageView {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+.queueImageView:hover img { opacity: 0.85; }
+.queueImageView:focus-visible { outline: 2px solid var(--accent-cyan, #00e5ff); outline-offset: -2px; }
 
 .queueImageRemove {
   position: absolute;
@@ -1672,12 +1812,20 @@
   padding: 8px 12px;
   font-size: 16px;
   line-height: 1.4;
-  transition: min-height 150ms ease;
+  /* The shrink back to one line waits 350 ms (= useTextareaCaret's BLUR_SETTLE_MS): a tap on
+     a button under the box blurs it first, and an instant 88 → 44 px moved the button out
+     from under the finger before the click landed (Oct 21 2026). */
+  transition: min-height 150ms ease 350ms;
 }
 /* One line at rest so the list starts higher up the screen; room to write once focused. */
 .queuePanelPhone .queueTextarea:focus,
 .queuePanelPhone .queueTextarea:not(:placeholder-shown) {
   min-height: 88px;
+  transition-delay: 0s;
+}
+/* No animation, but the wait stays: it is what keeps a tap from missing. */
+@media (prefers-reduced-motion: reduce) {
+  .queuePanelPhone .queueTextarea { transition-duration: 0s; }
 }
 .queuePanelPhone .queueComposeActions {
   flex: 1 1 100%;
@@ -1813,7 +1961,8 @@
   font-size: 11px;
 }
 .queuePanelPhone .queueItemMeta .queueNextFire,
-.queuePanelPhone .queueItemMeta .queueTypeChip {
+.queuePanelPhone .queueItemMeta .queueTypeChip,
+.queuePanelPhone .queueItemMeta .queuePausedChip {
   font-size: 11px;
 }
 .queuePanelPhone .queueItemThumb {
@@ -2008,6 +2157,139 @@
 }
 .chainModalPhone .excludeWindowRow .chainStepBtn {
   margin-left: auto;
+}
+
+/* The session queue's look (Oct 23 2026, from the user's phone screenshots): the editor
+   matches Info → Queue, where it is opened from. The page's background with white fields
+   (it was a white panel, so the fields and type chips read differently there), the phone
+   dress on its root (PhoneDress: no forced capitals or tracking), the four chain actions in
+   that page's one bordered button style, a step's controls just under its field, and a quiet
+   footer instead of the desktop's grey band. Two classes outrank the desktop rules below,
+   hover included; hover itself only where there is a pointer (a tap leaves :hover). */
+.chainModalOverlay.chainModalPhone .chainModalPanel {
+  background: var(--bg-primary);
+}
+.chainModalOverlay.chainModalPhone .chainModalHeader {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.chainModalOverlay.chainModalPhone .chainModalHeader h3 {
+  font-size: var(--ph-size-body, 14px);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+/* Labels in sentence case read as headings at the session queue's 12px. */
+.chainModalOverlay.chainModalPhone .chainTypeLabel,
+.chainModalOverlay.chainModalPhone .chainSectionLabel,
+.chainModalOverlay.chainModalPhone .chainSectionHint {
+  font-size: 12px;
+}
+.chainModalOverlay.chainModalPhone .chainSectionLabel {
+  color: var(--text-primary);
+}
+/* Fields as the session queue's compose box (.queueTextarea), at that rule's strength, so a
+   theme's own field rule dresses both alike (Windows XP: white, 8px). */
+.chainModalPhone .chainStepTextarea,
+.chainModalPhone .chainMainTextarea {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+}
+/* A step's ↑ ↓ 🔖 ✕ sit just under its field: 44px targets on a 32px line, reaching only
+   into the gaps around it (the field above, the next step's top padding below). */
+.chainModalOverlay.chainModalPhone .chainStepRow {
+  gap: 4px 8px;
+  padding: 4px 0 0;
+}
+.chainModalOverlay.chainModalPhone .chainStepRow .chainStepBtn {
+  margin-top: -4px;
+  margin-bottom: -8px;
+  /* Bare glyphs, as the user's screenshot drew them: the desktop's white 8% border read as
+     ghost boxes on a light page and as a boxed group on a dark one. */
+  border-color: transparent;
+}
+.chainModalOverlay.chainModalPhone .chainStepRow .chainStepBtn:active:not(:disabled) {
+  background: var(--bg-subtle);
+}
+.chainModalOverlay.chainModalPhone .chainStepRow .chainStepBtn:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: -2px;
+}
+/* + Add step, From saved…, Set effort…, Set model…: one bordered style; each keeps its glyph
+   and the glyph's colour, the words are the text colour (orange or purple words failed 4.5:1). */
+.chainModalOverlay.chainModalPhone .chainAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.chainModalOverlay.chainModalPhone .chainFromSavedBtn svg {
+  color: var(--accent-purple);
+}
+.chainModalOverlay.chainModalPhone .chainAddBtn:active,
+.chainModalOverlay.chainModalPhone .chainAddBtn[aria-expanded='true'] {
+  background: var(--bg-subtle);
+}
+.chainModalOverlay.chainModalPhone .chainAddBtn:active {
+  transform: scale(0.97);
+}
+.chainModalOverlay.chainModalPhone .chainAddBtn:focus-visible,
+.chainModalOverlay.chainModalPhone .chainBtn:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 2px;
+}
+/* The footer: the page's colour under a hairline. Cancel is the bordered button, Save the
+   accent of the session queue's switches when on, Delete the danger. */
+.chainModalOverlay.chainModalPhone .chainModalFooter {
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+}
+.chainModalOverlay.chainModalPhone .chainBtn {
+  min-height: 44px;
+  border-color: var(--border-subtle);
+  background: transparent;
+  font-size: 12px;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.chainModalOverlay.chainModalPhone .chainBtnPrimary {
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 12%, transparent);
+  color: var(--accent-text, var(--accent-cyan));
+}
+.chainModalOverlay.chainModalPhone .chainBtnDanger {
+  border-color: color-mix(in srgb, var(--accent-red, #ff5555) 45%, transparent);
+  color: var(--accent-red, #ff5555);
+}
+.chainModalOverlay.chainModalPhone .chainBtn:active:not(:disabled) {
+  background: var(--bg-subtle);
+  transform: scale(0.97);
+}
+.chainModalOverlay.chainModalPhone .chainBtnPrimary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 22%, transparent);
+}
+@media (hover: hover) {
+  .chainModalOverlay.chainModalPhone .chainAddBtn:hover,
+  .chainModalOverlay.chainModalPhone .chainBtn:hover:not(:disabled) {
+    background: var(--bg-subtle);
+  }
+  .chainModalOverlay.chainModalPhone .chainBtnPrimary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 18%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chainModalOverlay.chainModalPhone .chainAddBtn,
+  .chainModalOverlay.chainModalPhone .chainBtn {
+    transition: none;
+  }
+  .chainModalOverlay.chainModalPhone .chainAddBtn:active,
+  .chainModalOverlay.chainModalPhone .chainBtn:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 /* ---- Item edit inline type controls ---- */

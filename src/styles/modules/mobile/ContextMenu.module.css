@@ -18,8 +18,10 @@
   left: var(--menu-left, 0);
   top: var(--menu-top, 0);
   min-width: 220px;
-  max-width: min(320px, calc(100vw - 16px));
-  max-height: calc(100dvh - 16px);
+  max-width: min(320px, calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  /* placeMenuAtPoint's room inside the safe area (Oct 24 2026); the list scrolls past it. */
+  max-height: var(--menu-max-height, calc(100dvh - 16px));
+  overscroll-behavior: contain;
   overflow-y: auto;
   padding: var(--ph-space-1) 0;
   border-radius: var(--ph-radius-card);
@@ -30,6 +32,9 @@
      visibility) so focus can land on it. */
   opacity: 0;
 }
+
+/* Focused itself when a touch opened it: the ring is for a keyboard, which focuses an item. */
+.menu:focus { outline: none; }
 
 .menu[data-placed] {
   opacity: 1;
@@ -98,4 +103,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .menu[data-placed] { animation: none; }
+}
+
+/* Measures the safe-area insets for placeMenuAtPoint: env() can't be read through a custom property. */
+.safeProbe {
+  position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }

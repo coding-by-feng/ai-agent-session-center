@@ -259,6 +259,61 @@ describe('nextPendingRequest: cleared', () => {
   });
 });
 
+// A background subagent's dialog stays up while the main agent works, stops and takes the
+// next prompt (Oct 21: one sat open for seven hours, wiped from the phone by the main Stop).
+describe('nextPendingRequest: a subagent’s request', () => {
+  const AGENT = { claude_agent_id: 'agent-a', claude_agent_type: 'general-purpose' };
+  const MAIN = { claude_agent_id: null };
+  const BASH = { tool_name: 'Bash', tool_input: { command: 'rm -f "$d"/*.class' }, tool_use_id: 'toolu_sub' };
+  const raised = (): PendingRequest => next(null, 'PermissionRequest', { ...BASH, ...AGENT }) as PendingRequest;
+
+  it('records which subagent raised it; the main agent’s own request carries none', () => {
+    expect(raised().agentId).toBe('agent-a');
+    expect(next(null, 'PermissionRequest', { ...BASH, ...MAIN })?.agentId).toBeUndefined();
+  });
+
+  it.each(['Stop', 'UserPromptSubmit'])('survives the main agent’s %s', (event) => {
+    const req = raised();
+    expect(next(req, event, MAIN)).toBe(req);
+  });
+
+  it('survives the main agent’s tool calls, and another subagent’s', () => {
+    const req = raised();
+    expect(next(req, 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_main', ...MAIN })).toBe(req);
+    expect(next(req, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_main', ...MAIN })).toBe(req);
+    expect(next(req, 'PostToolUse', { tool_name: 'Bash', ...MAIN })).toBe(req);
+    expect(next(req, 'PreToolUse', { tool_name: 'Read', claude_agent_id: 'agent-b' })).toBe(req);
+    expect(next(req, 'SubagentStop', { claude_agent_id: 'agent-b' })).toBe(req);
+  });
+
+  it.each(['PostToolUse', 'PostToolUseFailure'])('ends with its own call’s %s', (event) => {
+    expect(next(raised(), event, { tool_name: 'Bash', tool_use_id: 'toolu_sub', ...AGENT })).toBeNull();
+  });
+
+  it('ends when its subagent stops', () => {
+    expect(next(raised(), 'SubagentStop', AGENT)).toBeNull();
+  });
+
+  it('ends when its subagent starts another call (the dialog was answered or denied)', () => {
+    expect(next(raised(), 'PreToolUse', { tool_name: 'Read', tool_use_id: 'toolu_next', ...AGENT })).toBeNull();
+  });
+
+  it('keeps its own PreToolUse that lands late', () => {
+    const req = raised();
+    expect(next(req, 'PreToolUse', { ...BASH, ...AGENT })).toBe(req);
+  });
+
+  it.each(['SessionStart', 'SessionEnd'])('ends with %s', (event) => {
+    expect(next(raised(), event, MAIN)).toBeNull();
+  });
+
+  it('the main agent’s own dialog meanwhile is raised as ambiguous (the CLI queues the two)', () => {
+    const main = next(raised(), 'PermissionRequest', { tool_name: 'Edit', tool_input: { file_path: 'a' }, tool_use_id: 'toolu_edit', ...MAIN });
+    expect(main).toMatchObject({ id: 'toolu_edit', ambiguous: true });
+    expect(main?.agentId).toBeUndefined();
+  });
+});
+
 describe('guessPendingRequest', () => {
   it('a timer guess carries the tool but no input, and is kind by tool', () => {
     expect(guessPendingRequest(null, 'Bash', 'timer', 'claude', NOW)).toMatchObject({ kind: 'permission', tool: 'Bash', source: 'timer', cli: 'claude' });

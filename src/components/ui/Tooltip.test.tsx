@@ -168,3 +168,69 @@ describe('Tooltip — long press on touch', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Two layout hooks (Oct 23 2026, the session strip's prompt peek): the wrapper
+ * span can take a class, so a trigger that is a flex item (a strip card) keeps
+ * its slot, and a tooltip with a list in it can be wider than the 280px a hint gets.
+ */
+describe('Tooltip — layout hooks', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const openIt = () => {
+    act(() => screen.getByRole('button', { name: 'trigger' }).focus());
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    return screen.getByRole('tooltip');
+  };
+
+  it('puts triggerClassName on the wrapper around the trigger', () => {
+    render(
+      <Tooltip label="Peek" triggerClassName="fillSlot">
+        <button>trigger</button>
+      </Tooltip>,
+    );
+    const wrapper = screen.getByRole('button', { name: 'trigger' }).parentElement as HTMLElement;
+    expect(wrapper.className).toMatch(/trigger/);
+    expect(wrapper.className).toMatch(/fillSlot/);
+  });
+
+  it('marks a wide tooltip, and leaves a plain one as it was', () => {
+    const { unmount } = render(
+      <Tooltip label="Peek" wide>
+        <button>trigger</button>
+      </Tooltip>,
+    );
+    expect(openIt().className).toMatch(/tooltipWide/);
+    unmount();
+    render(
+      <Tooltip label="Hint">
+        <button>trigger</button>
+      </Tooltip>,
+    );
+    expect(openIt().className).not.toMatch(/tooltipWide/);
+  });
+
+  it('honours its delay', () => {
+    render(
+      <Tooltip label="Peek" delay={500}>
+        <button>trigger</button>
+      </Tooltip>,
+    );
+    act(() => screen.getByRole('button', { name: 'trigger' }).focus());
+    act(() => {
+      vi.advanceTimersByTime(450);
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByRole('tooltip')).toBeTruthy();
+  });
+});

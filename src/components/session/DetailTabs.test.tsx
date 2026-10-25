@@ -143,6 +143,41 @@ describe('DetailTabs — open Project in a native window', () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
+  const seedDockedFile = () => localStorage.setItem(
+    'agent-manager:file-tabs:s1:default',
+    JSON.stringify({ tabs: [{ path: 'src/app.ts', name: 'app.ts' }], active: 'src/app.ts' }),
+  );
+
+  it('takes the file open in the docked tab to the new window and to an open one', () => {
+    seedSession('/Users/me/proj');
+    seedDockedFile();
+    const openProjectWindow = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('electronAPI', { openProjectWindow });
+    const posted: unknown[] = [];
+    const listener = new BroadcastChannel('aasc-project-popout');
+    listener.onmessage = (e) => posted.push(e.data);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
+
+    expect(openProjectWindow).toHaveBeenCalledWith({ path: '/Users/me/proj', file: 'src/app.ts', label: 'Project' });
+    return vi.waitFor(() => {
+      expect(posted).toEqual([{ projectPath: '/Users/me/proj', file: 'src/app.ts' }]);
+    }).finally(() => listener.close());
+  });
+
+  it('puts the docked file in the browser fallback URL', () => {
+    seedSession('/Users/me/proj');
+    seedDockedFile();
+    vi.stubGlobal('electronAPI', undefined);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
+
+    expect(openSpy.mock.calls[0][0]).toBe('/project-browser?path=%2FUsers%2Fme%2Fproj&file=src%2Fapp.ts');
+  });
+
   it('is a no-op when the session has no project path', () => {
     seedSession(undefined);
     const openProjectWindow = vi.fn();

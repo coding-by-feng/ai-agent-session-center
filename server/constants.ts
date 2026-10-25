@@ -173,6 +173,9 @@ export const WS_TYPES = {
   QUEUE_UPDATE: 'queue_update',
   /** The prompt queue sent a prompt (AASC-20): the CONVERSATION badge record, per session. */
   QUEUE_SENT: 'queue_sent',
+  /** Server -> clients: a session's transcript grew while a phone reads its chat (Oct 22 2026).
+   *  Carries only the `sessionId`: the cue to re-read, gated like queue_update. */
+  CHAT_GREW: 'chat_grew',
   /** The saved-prompt library changed (AASC-20): the whole list with its revision. */
   SNIPPETS_UPDATE: 'snippets_update',
   /** The Mac's room list changed (AASC-20): the whole list, cut per device for
@@ -181,6 +184,9 @@ export const WS_TYPES = {
   /** Server -> the workspace writer only: a room change another device asked
    *  for (POST /api/rooms/ops), for the writer to apply with its room store. */
   ROOM_OP: 'room_op',
+  /** Server -> clients: an agent CLI's update moved on (Settings ▸ ADVANCED ▸ Agent CLIs, Oct 25 2026).
+   *  Carries that CLI's whole version info; not about a session, so every device gets it. */
+  CLI_UPDATE: 'cli_update',
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',

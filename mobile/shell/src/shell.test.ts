@@ -31,6 +31,8 @@ describe('parsePairingLink', () => {
     ['old version', GOOD.replace('v=2', 'v=1')],
     ['public LAN address', GOOD.replace('192.168.1.20', '8.8.8.8')],
     ['non-tailnet ts', GOOD.replace('100.101.102.103', '100.200.1.1')],
+    ['a leading-zero LAN address (octal to the URL parser)', GOOD.replace('192.168.1.20', '010.1.1.1')],
+    ['a leading-zero tailnet address (octal to the URL parser)', GOOD.replace('100.101.102.103', '100.064.001.001')],
     ['bad port', GOOD.replace('p=3333', 'p=99999')],
     ['bad code', GOOD.replace('mc=K7Q2M9XPZT', 'mc=K7Q2M9XPZ0')],
     ['no address at all', 'https://aasc.work/pair#v=2&name=X&p=3333&mc=K7Q2M9XPZT'],
@@ -49,6 +51,23 @@ describe('parsePairingLink', () => {
     expect(isPrivateLanAddress('172.32.0.1')).toBe(false);
     expect(isTailnetAddress('100.64.0.1')).toBe(true);
     expect(isTailnetAddress('100.128.0.1')).toBe(false);
+  });
+
+  it('refuses addresses the URL parser would read as octal or another address', () => {
+    for (const s of ['010.1.1.1', '0172.16.1.1', '192.168.001.010', '10.0.0.08', '00.0.0.0'])
+      expect(isPrivateLanAddress(s)).toBe(false);
+    for (const s of ['100.064.001.001', '100.64.01.1', '0100.64.1.1'])
+      expect(isTailnetAddress(s)).toBe(false);
+  });
+  it('refuses malformed addresses', () => {
+    for (const s of ['100.64.1.256', '100.64.1', '100.64.1.1.1', ' 100.64.1.1', '100.64.1.1 ', '+100.64.1.1', '100.64.1.1/32', ''])
+      expect(isTailnetAddress(s)).toBe(false);
+  });
+  it('every address that passes is dialled exactly as written', () => {
+    for (const s of ['10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.7.231', '169.254.1.1', '100.64.0.0', '100.127.255.255', '100.101.102.103']) {
+      expect(isPrivateLanAddress(s) || isTailnetAddress(s)).toBe(true);
+      expect(new URL(`http://${s}:1`).hostname).toBe(s);
+    }
   });
 });
 
@@ -178,7 +197,8 @@ describe('pairing client', () => {
     const url = `${origin}/api/mobile/session`;
     expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 200, data: { data: { token: 'sess' } } } }), origin, creds)).toEqual({ status: 'ok', token: 'sess' });
     expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 403, data: { code: 'DEVICE_PENDING' } } }), origin, creds)).toEqual({ status: 'pending' });
-    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 401, data: { code: 'DEVICE_REVOKED' } } }), origin, creds)).toEqual({ status: 'revoked' });
+    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 401, data: { code: 'DEVICE_REVOKED' } } }), origin, creds)).toEqual({ status: 'revoked', verified: true });
+    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 401, data: { code: 'DEVICE_UNKNOWN' } } }), origin, creds)).toEqual({ status: 'revoked', verified: false });
     expect(await openSession(fakeHttp({}), origin, creds)).toEqual({ status: 'unreachable' });
   });
 

@@ -6,7 +6,7 @@
  *   Notifications  which sessions may notify this phone (mute = no pushes, no sounds)
  *   Voice          read aloud: the Google key, voices and speed (VoiceSettings)
  *   Translation    today's phone section
- *   Advanced       Reset to defaults (confirms)
+ *   Advanced       your Mac's agent CLIs and their update (confirms), Reset to defaults (confirms)
  *
  * Every setting here is this phone's own (settingsStore keeps them in this
  * phone's storage), except a session's notifications, which are the session's.
@@ -27,6 +27,7 @@ import { isNativeMobileApp } from '@/lib/platform';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
 import { useSessionActions } from './info/useSessionActions';
 import VoiceSettings from './VoiceSettings';
+import AgentClisSection from './AgentClisSection';
 import styles from '@/styles/modules/mobile/MoreScreens.module.css';
 
 const TranslationSettings = lazy(() => import('@/components/settings/TranslationSettings'));
@@ -79,7 +80,7 @@ function AppearancePage() {
           );
         })}
       </ListSection>
-      <ListSection header="Text size" footer="The size of the app’s text on this phone. The terminal has its own A− / A+ above it.">
+      <ListSection header="Text size" footer="The size of the app’s text on this phone. The terminal sizes its own text: pinch it to zoom.">
         <li className={styles.stepperRow}>
           <span className={styles.stepperValue}>{phoneTextScaleLabel(scale)}</span>
           <span className={styles.stepperButtons}>
@@ -144,6 +145,7 @@ function AdvancedPage() {
   const cancel = useCallback(() => setConfirming(false), []);
   return (
     <>
+      <AgentClisSection />
       <ListSection header="Reset" footer="Every setting on this phone goes back to its default: theme, voice, translation and the voice key saved here. Your Mac’s settings are not touched.">
         <ListRow title="Reset to defaults" destructive onClick={() => setConfirming(true)} />
       </ListSection>

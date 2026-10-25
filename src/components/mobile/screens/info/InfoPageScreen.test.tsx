@@ -11,7 +11,6 @@ vi.mock('@/components/session/QueueTab', () => ({
     <div data-testid="queue">{sessionId}:{terminalId}:{String(fullHeight)}</div>
   ),
 }));
-vi.mock('@/components/session/AgentsTab', () => ({ default: ({ sessionId }: { sessionId: string }) => <div data-testid="agents">{sessionId}</div> }));
 vi.mock('@/components/session/AiPopupHistory', () => ({ default: ({ sessionId }: { sessionId: string }) => <div data-testid="popups">{sessionId}</div> }));
 
 import InfoPageScreen from './InfoPageScreen';
@@ -29,7 +28,6 @@ describe('InfoPageScreen', () => {
   it.each([
     ['notes', 'Notes', 's1'],
     ['queue', 'Queue', 's1:term-1:true'],
-    ['agents', 'Agents', 's1'],
     ['popups', 'AI popups', 's1'],
   ] as const)('shows %s for the session', async (page, title, shows) => {
     render(<InfoPageScreen sessionId="s1" page={page} />);

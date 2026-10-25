@@ -1,5 +1,5 @@
 // test/promptSubmit.test.ts — AASC-42: the Mac types a phone's prompt and makes sure the CLI
-// took it. The text, a standalone Enter 1 s later (2.5 s with images), then Enter again at
+// took it. The text, a standalone Enter 1 s later (with images 2.5 s, +0.3 s each after the first), then Enter again at
 // 3 / 8 / 15 / 30 / 60 s until the UserPromptSubmit hook for that terminal arrives, the same
 // rules as the desktop queue (src/lib/submitConfirm.ts). The PTY writer is a fake and every
 // timer is faked: nothing here reaches a real terminal or process.
@@ -110,13 +110,15 @@ describe('a prompt sent now', () => {
     expect(enters()).toEqual([1_000]);
   });
 
-  it('waits 2.5 s before Enter when images are attached, and lists their paths under the text', async () => {
+  it('waits 2.5 s (+0.3 s per further image) before Enter when images are attached, and lists their paths under the text', async () => {
     track(makeSubmitter().submit(req({ text: 'what is this?', imagePaths: ['/tmp/q/a.png', '/tmp/q/b.jpg'], mode: 'now' })));
     expect(writes[0]).toEqual({ at: 0, data: 'what is this?\n/tmp/q/a.png\n/tmp/q/b.jpg' });
     await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
     expect(enters()).toEqual([]);
     await vi.advanceTimersByTimeAsync(IMAGE_SUBMIT_ENTER_DELAY_MS - SUBMIT_ENTER_DELAY_MS);
-    expect(enters()).toEqual([2_500]);
+    expect(enters()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(enters()).toEqual([2_800]);
   });
 
   it('presses Enter again at 3, 8, 15, 30 and 60 s while nothing acknowledges it, then gives up', async () => {

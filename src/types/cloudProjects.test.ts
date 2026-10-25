@@ -3,7 +3,15 @@ import { LocalProjectSchema } from './cloudProjects.js';
 
 // The client renders `openUrl` as a link href, so only the local project browser may come through.
 describe('LocalProjectSchema.openUrl', () => {
-  const base = { state: 'ready', branch: 'main', localProjectId: 'local' } as const;
+  const base = {
+    state: 'ready',
+    branch: 'main',
+    localProjectId: 'local',
+    path: '/Users/me/repo',
+    ahead: 0,
+    behind: 0,
+    account: null,
+  } as const;
   it('accepts the project browser link the server builds', () => {
     expect(
       LocalProjectSchema.parse({ ...base, openUrl: '/project-browser?path=%2FUsers%2Fme%2Frepo' })

@@ -315,3 +315,58 @@ describe('sanitizeDeviceLabel', () => {
     expect(sanitizeDeviceLabel('\u0007')).toBe('Phone');
   });
 });
+
+describe('rename and sign out from the desktop', () => {
+  it('rename changes the label, cleaned the same way as at pairing', () => {
+    const phone = approvedPhone();
+    const view = auth.rename(phone.device.id, '  Work\u0007  iPhone ');
+    expect(view?.label).toBe('Work iPhone');
+    expect(store.rows.get(phone.device.id)?.label).toBe('Work iPhone');
+    expect(auth.list()[0].label).toBe('Work iPhone');
+  });
+
+  it('rename caps the label at 80 characters and refuses an empty one', () => {
+    const phone = approvedPhone();
+    expect(auth.rename(phone.device.id, 'x'.repeat(200))?.label).toHaveLength(80);
+    expect(auth.rename(phone.device.id, '  \u0001 ')).toBeNull();
+    expect(store.rows.get(phone.device.id)?.label).toHaveLength(80);
+  });
+
+  it('rename works on a pending phone but not on an unknown or revoked one', () => {
+    const pending = pairPhone();
+    expect(auth.rename(pending.device.id, 'Spare')?.label).toBe('Spare');
+    expect(auth.rename('nope', 'Spare')).toBeNull();
+    const gone = approvedPhone();
+    auth.revoke(gone.device.id);
+    expect(auth.rename(gone.device.id, 'Spare')).toBeNull();
+  });
+
+  it('a later sign-in never overwrites the new name', () => {
+    const phone = approvedPhone();
+    auth.rename(phone.device.id, 'Work iPhone');
+    expect(signIn(phone.device.id, phone.deviceToken).ok).toBe(true);
+    expect(auth.list()[0].label).toBe('Work iPhone');
+  });
+
+  it('sign out ends the sessions of an approved phone and keeps it paired', () => {
+    const onSignedOut = vi.fn();
+    auth = createDeviceAuth({ store, now: () => clock, onRevoked, onSignedOut, credentialEpoch: () => epoch });
+    const phone = approvedPhone();
+    expect(auth.signOut(phone.device.id)?.status).toBe('active');
+    expect(onSignedOut).toHaveBeenCalledWith(expect.objectContaining({ id: phone.device.id }));
+    expect(onRevoked).not.toHaveBeenCalled();
+    // Still paired: the phone can sign in again with its key.
+    expect(signIn(phone.device.id, phone.deviceToken).ok).toBe(true);
+  });
+
+  it('sign out refuses a pending, revoked or unknown phone', () => {
+    const onSignedOut = vi.fn();
+    auth = createDeviceAuth({ store, now: () => clock, onRevoked, onSignedOut, credentialEpoch: () => epoch });
+    expect(auth.signOut(pairPhone().device.id)).toBeNull();
+    const gone = approvedPhone();
+    auth.revoke(gone.device.id);
+    expect(auth.signOut(gone.device.id)).toBeNull();
+    expect(auth.signOut('nope')).toBeNull();
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+});

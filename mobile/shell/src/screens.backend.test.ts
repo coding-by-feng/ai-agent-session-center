@@ -33,7 +33,7 @@ async function open(t: Harness, name: RegExp): Promise<void> {
   await until(t.root, () => t.navigations.length > before);
 }
 
-/** The same phone launching again later: same Preferences, vault and Mac. */
+/** The same phone launching again later: same Preferences, vault and Mac. It opens the Mac used last by itself. */
 async function relaunch(t: Harness, opts: HarnessOptions = {}): Promise<Harness> {
   t.app.dispose();
   document.body.replaceChildren();
@@ -57,7 +57,7 @@ describe('the backend device for push (AASC-52)', () => {
     await open(first, /^Kason-MBP/);
     first.mac.setCloud(true);
     const t = await relaunch(first);
-    await open(t, /^Kason-MBP/);
+    await until(t.root, () => t.navigations.length > 0); // the launch opens the Mac used last: the next sign-in
     expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toMatchObject({ host: 'api.aasc.work' });
     expect((await loadMacs(t.deps.store)).find((m) => m.id === KASON_MBP.id)?.backendDeviceId).toBe('mac-dev-1');
   });
@@ -70,7 +70,7 @@ describe('the backend device for push (AASC-52)', () => {
     expect(asks(first)).toBe(2); // asked once more at once (below), then no more until the next sign-in
     first.mac.setBackendDown(false);
     const t = await relaunch(first);
-    await open(t, /^Kason-MBP/);
+    await until(t.root, () => t.navigations.length > 0); // the launch opens the Mac used last: the next sign-in
     expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).not.toBeNull();
   });
 
@@ -88,14 +88,14 @@ describe('the backend device for push (AASC-52)', () => {
     const first = await openSaved();
     await open(first, /^Kason-MBP/);
     const t = await relaunch(first);
-    await open(t, /^Kason-MBP/);
+    await until(t.root, () => t.navigations.length > 0); // the launch opens the Mac used last: the next sign-in
     expect(asks(t)).toBe(1); // the fake Mac's log spans both launches: only the first asked
   });
 
   it('keeps one backend device per Mac: each Mac issues its own', async () => {
     const first = await openSaved();
     await open(first, /^Kason-MBP/);
-    const t = await relaunch(first);
+    const t = await relaunch(first, { search: '?tap=1' }); // back on Your Macs (More → Switch Mac)
     await open(t, /^Studio/);
     const a = await readBackendCredential(t.deps.vault, KASON_MBP.id);
     const b = await readBackendCredential(t.deps.vault, STUDIO.id);
@@ -110,7 +110,8 @@ describe('the backend device for push (AASC-52)', () => {
     await open(first, /^Kason-MBP/);
     const old = await readBackendCredential(first.deps.vault, KASON_MBP.id);
     first.mac.revokeBackendDevice(old!.deviceId); // e.g. "Remove them" on the Mac, or the owner CLI
-    const t = await relaunch(first, { push: { configured: true, permission: 'granted' } });
+    // Back on Your Macs (More → Switch Mac), so the sign-in below comes after push dropped the device.
+    const t = await relaunch(first, { push: { configured: true, permission: 'granted' }, search: '?tap=1' });
     await until(t.root, () => t.extras.token !== null);
     t.extras.token!('fcm-token-1');
     await until(t.root, () => !t.vault.has(`backend.${KASON_MBP.id}`));
@@ -163,10 +164,10 @@ describe('a backend link that outlives its sign-in (AASC-52 review)', () => {
   it('a second sign-in’s newer credential is never overwritten by the first one’s late answer', async () => {
     const t = await seeded();
     const release = t.mac.holdNextBackendRequest();
-    const first = await signInAndOpen(t.deps, [KASON_MBP], KASON_MBP, '/', undefined, 40);
+    const first = await signInAndOpen(t.deps, [KASON_MBP], KASON_MBP, '/', undefined, { linkMs: 40 });
     expect(first).toMatchObject({ kind: 'navigate', backendLinked: false });
     if (first.kind !== 'navigate') return;
-    const second = await signInAndOpen(t.deps, first.macs, first.mac, '/', undefined, 2_000);
+    const second = await signInAndOpen(t.deps, first.macs, first.mac, '/', undefined, { linkMs: 2_000 });
     expect(second).toMatchObject({ kind: 'navigate', backendLinked: true });
     const newer = await readBackendCredential(t.deps.vault, KASON_MBP.id);
     expect(newer).not.toBeNull();
@@ -177,7 +178,7 @@ describe('a backend link that outlives its sign-in (AASC-52 review)', () => {
   it('a link that comes back after the Mac was removed from this phone writes nothing', async () => {
     const t = await seeded();
     const release = t.mac.holdNextBackendRequest();
-    const first = await signInAndOpen(t.deps, [KASON_MBP], KASON_MBP, '/', undefined, 40);
+    const first = await signInAndOpen(t.deps, [KASON_MBP], KASON_MBP, '/', undefined, { linkMs: 40 });
     if (first.kind !== 'navigate') throw new Error(`expected navigate, got ${first.kind}`);
     expect(await unpairMac(t.deps, first.macs, first.mac, { force: true })).toMatchObject({ done: true, macs: [] });
     await answerHeld(t, release);
@@ -229,5 +230,96 @@ describe('a backend link that outlives its sign-in (AASC-52 review)', () => {
     expect(await link).toEqual({ kind: 'failed' });
     expect(t.vault.has(`backend.${KASON_MBP.id}`)).toBe(false);
     expect(asks(t)).toBe(1);
+  });
+});
+
+// AASC-60: a backend token made without mac-paths:read is replaced at the next sign-in (savedMacs relink flag). The Mac
+// revokes this phone's old backend device when it issues the next code, so the phone lets go of the old token first.
+describe('replacing the backend device (AASC-60 relink)', () => {
+  async function withToken(opts: HarnessOptions = {}): Promise<{ t: Harness; old: { host: string; deviceId: string; token: string }; session: string }> {
+    const t = createHarness({ mac: { reachable: [TAILNET], ...opts.mac } });
+    await seedMac(t, KASON_MBP);
+    const old = t.mac.seedBackendDevice();
+    await writeBackendCredential(t.deps.vault, KASON_MBP.id, old);
+    const creds = await readMacCredentials(t.deps.vault, KASON_MBP.id);
+    const session = await openSession(t.deps.http, TAILNET, creds!);
+    if (session.status !== 'ok') throw new Error(`sign-in failed: ${session.status}`);
+    return { t, old, session: session.token };
+  }
+
+  it('a held token is kept, and nothing is asked, when no relink is wanted', async () => {
+    const { t, old, session } = await withToken();
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session)).toEqual({ kind: 'already' });
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session, undefined, { relink: false })).toEqual({ kind: 'already' });
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toEqual(old);
+    expect(asks(t)).toBe(0);
+  });
+
+  it('a relink lets go of the held token, asks the Mac for a new code and keeps the new device', async () => {
+    const { t, old, session } = await withToken();
+    const outcome = await linkBackend(t.deps, KASON_MBP, TAILNET, session, undefined, { relink: true });
+    expect(outcome).toMatchObject({ kind: 'linked' });
+    const fresh = await readBackendCredential(t.deps.vault, KASON_MBP.id);
+    expect(fresh).not.toBeNull();
+    expect(fresh?.deviceId).not.toBe(old.deviceId);
+    expect(fresh?.token).not.toBe(old.token);
+    expect(asks(t)).toBe(1);
+    expect(redeems(t)).toBe(1);
+  });
+
+  it('a relink for a Mac holding no token is just a link', async () => {
+    const t = createHarness({ mac: { reachable: [TAILNET] } });
+    await seedMac(t, KASON_MBP);
+    const creds = await readMacCredentials(t.deps.vault, KASON_MBP.id);
+    const session = await openSession(t.deps.http, TAILNET, creds!);
+    if (session.status !== 'ok') throw new Error(`sign-in failed: ${session.status}`);
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session.token, undefined, { relink: true })).toMatchObject({ kind: 'linked' });
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).not.toBeNull();
+  });
+
+  it('a Mac that has lost its cloud leaves no token, and the next sign-in asks again', async () => {
+    const { t, session } = await withToken({ mac: { cloud: false } });
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session, undefined, { relink: true })).toEqual({ kind: 'no-cloud' });
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toBeNull();
+    t.mac.setCloud(true);
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session)).toMatchObject({ kind: 'linked' });
+  });
+
+  it('a vault that won’t let go of the old token stops the relink before the Mac is asked', async () => {
+    const { t, old, session } = await withToken();
+    const stuck = { ...t.deps, vault: { ...t.deps.vault, delete: async () => { throw new Error('keystore unavailable'); } } };
+    expect(await linkBackend(stuck, KASON_MBP, TAILNET, session, undefined, { relink: true })).toEqual({ kind: 'failed' });
+    expect(asks(t)).toBe(0); // asking would have the Mac revoke the old device with no way to keep the new one
+    expect(redeems(t)).toBe(0);
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toEqual(old);
+  });
+
+  it('a vault that says it let go but didn’t is not a reason to ask the Mac either', async () => {
+    const { t, old, session } = await withToken();
+    const keeping = { ...t.deps, vault: { ...t.deps.vault, delete: async () => undefined } };
+    expect(await linkBackend(keeping, KASON_MBP, TAILNET, session, undefined, { relink: true })).toEqual({ kind: 'already' });
+    expect(asks(t)).toBe(0);
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toEqual(old);
+  });
+
+  it('a relink that is already cut off lets go of nothing and asks nobody', async () => {
+    const { t, old, session } = await withToken();
+    const cut = new AbortController();
+    cut.abort();
+    expect(await linkBackend(t.deps, KASON_MBP, TAILNET, session, cut.signal, { relink: true })).toEqual({ kind: 'failed' });
+    expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toEqual(old);
+    expect(asks(t)).toBe(0);
+  });
+
+  it('a relink cut off by its budget drops what comes back, like any link', async () => {
+    const { t, session } = await withToken();
+    const release = t.mac.holdNextBackendRequest();
+    const cut = new AbortController();
+    const link = linkBackend(t.deps, KASON_MBP, TAILNET, session, cut.signal, { relink: true });
+    await until(t.root, () => redeems(t) === 1);
+    cut.abort();
+    release();
+    expect(await link).toEqual({ kind: 'failed' });
+    expect(t.vault.has(`backend.${KASON_MBP.id}`)).toBe(false); // the old one was let go; nothing new was kept
   });
 });

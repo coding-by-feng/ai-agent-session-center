@@ -220,7 +220,7 @@ describe('through the API router', () => {
     for (const images of [
       [{ name: 'x', dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=' }],
       [{ name: 'x', dataUrl: 'data:text/html;base64,PGI+' }],
-      Array.from({ length: 5 }, () => ({ name: 'x', dataUrl: png })),
+      Array.from({ length: 11 }, () => ({ name: 'x', dataUrl: png })), // 10 since Oct 21 2026 (was 4)
     ]) {
       expect((await call(base, 'POST', '/sessions/sh-shared/queue/items', { images }, REMOTE)).status).toBe(400);
     }

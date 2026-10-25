@@ -136,6 +136,8 @@ export interface GateRestMemo {
   localCommand?: boolean;
   /** Timestamp of the session's `SessionStart` when the gate opened (0 = none). */
   sessionStartAtOpen?: number;
+  /** When the scheduler pressed the extra Enter of {@link localCommandFlush} (unset = not yet). */
+  flushedAt?: number;
 }
 
 /**
@@ -685,6 +687,58 @@ export function resolveNoWorkFallbackMs(autoEnter: boolean, localCommand = false
  * session must still read as sendable for it to release.
  */
 export const LOCAL_COMMAND_RELEASE_MS = 3_000;
+
+/**
+ * How long after {@link localCommandFlush}'s extra Enter the gate waits before it releases,
+ * so the TUI has answered a command that Enter submitted before the next prompt is typed.
+ */
+export const LOCAL_COMMAND_FLUSH_SETTLE_MS = 1_500;
+
+/** Statuses in which an extra Enter can only submit what is in the input box (as `submitConfirm.ts`). */
+const FLUSHABLE_STATUSES: ReadonlySet<string> = new Set(['waiting', 'idle']);
+
+/** What a tick sees of the session, for {@link localCommandFlush}. */
+export interface LocalCommandFlushSeen {
+  status: string;
+  /** The session's Auto-Enter toggle now. */
+  autoEnter: boolean;
+  now: number;
+  /** `session.lastActivityAt` this tick. */
+  activityAt?: number;
+}
+
+/**
+ * Before a silent local command's gate releases, press Enter once more.
+ *
+ * A silent command fires no hook whether the CLI took it or not, so its gate releases on
+ * {@link LOCAL_COMMAND_RELEASE_MS} blind. On Oct 20 2026 Claude did not take the Enter of a
+ * queued `/effort xhigh` (sent ~3 s after a Stop); the gate released and the next queued
+ * prompt was typed onto the same line, and the Enter after it ran only the `/effort`: the
+ * prompt was lost, and the one after it waited out the 5-minute fallback. An Enter in an
+ * empty input box is a no-op (the Enter-retry in `submitConfirm.ts` relies on the same), so
+ * pressing it again before releasing submits a command still sitting there and costs nothing
+ * otherwise. `/effort <level>` and `/model <name>` set their value directly, with no picker
+ * for that Enter to choose in.
+ *
+ * - `flush`: the release window has passed and Enter was not pressed again yet. The caller
+ *   presses it, records `flushedAt`, and skips the tick.
+ * - `settling`: pressed less than {@link LOCAL_COMMAND_FLUSH_SETTLE_MS} ago. Hold.
+ * - `none`: nothing to do; the gate decision applies as before. Always for any other gate, with
+ *   Auto-Enter off (the human submits), outside `waiting`/`idle` (Enter answers a question or
+ *   an approval there), and once a hook acknowledged the step (it was taken).
+ */
+export function localCommandFlush(
+  gate: (GateRestMemo & { sawWork: boolean; openedAt: number; activityAtOpen?: number }) | undefined,
+  seen: LocalCommandFlushSeen,
+): 'flush' | 'settling' | 'none' {
+  if (!gate?.localCommand || !seen.autoEnter) return 'none';
+  if (gate.flushedAt !== undefined) {
+    return seen.now - gate.flushedAt < LOCAL_COMMAND_FLUSH_SETTLE_MS ? 'settling' : 'none';
+  }
+  if (!FLUSHABLE_STATUSES.has(seen.status)) return 'none';
+  if (gateAccepted(gate.sawWork, gate.activityAtOpen, seen.activityAt)) return 'none';
+  return seen.now - gate.openedAt >= LOCAL_COMMAND_RELEASE_MS ? 'flush' : 'none';
+}
 
 export interface ChainGate extends GateRestMemo {
   /** The in-flight item this gate guards. Cleared/reset when the item id changes. */

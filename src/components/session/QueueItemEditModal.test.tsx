@@ -34,8 +34,8 @@ describe('QueueItemEditModal — chains are not type-scoped', () => {
   it('offers before/after chain editors for a once item', () => {
     renderModal(mkItem({ type: 'once' }));
 
-    expect(screen.getByText('BEFORE chain')).toBeTruthy();
-    expect(screen.getByText('AFTER chain')).toBeTruthy();
+    expect(screen.getByText('Before chain')).toBeTruthy();
+    expect(screen.getByText('After chain')).toBeTruthy();
   });
 
   it('offers them for loop and schedule items too', () => {
@@ -50,8 +50,8 @@ describe('QueueItemEditModal — chains are not type-scoped', () => {
           onDelete={vi.fn()}
         />,
       );
-      expect(screen.getByText('BEFORE chain')).toBeTruthy();
-      expect(screen.getByText('AFTER chain')).toBeTruthy();
+      expect(screen.getByText('Before chain')).toBeTruthy();
+      expect(screen.getByText('After chain')).toBeTruthy();
       unmount();
     }
   });

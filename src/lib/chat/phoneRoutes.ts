@@ -2,7 +2,7 @@
  * phoneRoutes.ts — the screens of the new phone frame (AASC-39), as paths.
  *
  *   /sessions                     Sessions tab root
- *   /sessions/<id>/chat|changes|project   a session, on one segment (AASC-56)
+ *   /sessions/<id>/chat|changes|project|prompts|agents   a session, on one segment (AASC-56)
  *   /sessions/<id>/terminal       a Claude / Codex session's terminal: a screen pushed
  *                                 over its Chat (Back returns to Chat); a plain
  *                                 shell's Terminal segment (Terminal · Project)
@@ -12,9 +12,12 @@
  *   /sessions/<id>/info/files     an old link: the Project segment now
  *   /inbox   /queue   /more        the other tab roots
  *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings,
- *                                 Cloud, This phone, About, UI kit
+ *                                 This phone, About, UI kit
  *   /more/settings/<section>      a Settings page: back returns to the Settings list
- *   /more/cloud/<resourceId>      one cloud resource's versions (AASC-51): back returns to Cloud
+ *   /more/resources[/cloud|/projects]  More → Resources (plan 16): Library, Cloud sync, Projects;
+ *                                 /more/cloud (AASC-51's Cloud) is an old link to Cloud sync
+ *   /more/resources/item/<id>     one Library resource: back returns to the Library
+ *   /more/cloud/<resourceId>      one cloud resource's versions (AASC-51): back returns to Cloud sync
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -28,22 +31,26 @@ export const PHONE_TABS = ['sessions', 'inbox', 'queue', 'more'] as const;
 export type PhoneTab = (typeof PHONE_TABS)[number];
 
 /** Every session path's last part. Which ones a session shows as tabs: `segmentsFor`. */
-export const SESSION_SEGMENTS = ['chat', 'changes', 'project', 'prompts', 'terminal'] as const;
+export const SESSION_SEGMENTS = ['chat', 'changes', 'project', 'prompts', 'agents', 'terminal'] as const;
 export type SessionSegment = (typeof SESSION_SEGMENTS)[number];
 
 export const MORE_PAGES = [
   'history', 'prompts', 'saved-prompts', 'review', 'agenda',
   'settings', 'appearance', 'notifications', 'voice', 'translation', 'advanced',
-  'cloud', 'phone', 'about', 'gallery',
+  'phone', 'about', 'gallery',
 ] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
+
+/** More → Resources' tabs (plan 16): the desktop RESOURCES tab's Library, Cloud sync and Projects. */
+export const RESOURCES_TABS = ['library', 'cloud', 'projects'] as const;
+export type ResourcesTab = (typeof RESOURCES_TABS)[number];
 
 /** The Settings pages: pushed over the Settings list, at /more/settings/<section>. */
 export const SETTINGS_SECTIONS = ['appearance', 'notifications', 'voice', 'translation', 'advanced'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-/** What a session's Info screen opens (AASC-46). Files moved to the Project segment (AASC-56). */
-export const INFO_PAGES = ['notes', 'queue', 'agents', 'popups'] as const;
+/** What a session's Info screen opens (AASC-46). Files moved to the Project segment (AASC-56), Agents to the Agents segment (Oct 22 2026). */
+export const INFO_PAGES = ['notes', 'queue', 'popups'] as const;
 export type InfoPage = (typeof INFO_PAGES)[number];
 
 export type PhoneRoute =
@@ -53,7 +60,11 @@ export type PhoneRoute =
   /** `page` null: Info itself. */
   | { kind: 'session-info'; sessionId: string; page: InfoPage | null }
   | { kind: 'more'; page: MorePage }
-  /** One AASC Cloud resource's versions, under More → Cloud (AASC-51). */
+  /** More → Resources on one of its tabs (plan 16). */
+  | { kind: 'resources'; tab: ResourcesTab }
+  /** One Library resource, by its catalog id (plan 16). */
+  | { kind: 'resource-item'; id: string }
+  /** One AASC Cloud resource's versions, under Resources → Cloud sync (AASC-51). */
   | { kind: 'cloud-resource'; resourceId: string };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
@@ -61,6 +72,9 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A file's index in a session's changes list (the server's own bound: 4 digits). */
 const FILE_INDEX = /^\d{1,4}$/;
+
+/** A Library resource's catalog id, as the Mac's phone-resources route takes it. */
+const CATALOG_ID = /^[a-f0-9]{16}$/;
 
 /** A cloud resource id: a canonical (lower-case) UUID, as the Mac's phone-cloud route takes it. */
 const CLOUD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -101,12 +115,24 @@ export function cloudResourcePath(resourceId: string): string {
   return `/more/cloud/${resourceId}`;
 }
 
+/** More → Resources on a tab (plan 16); the Library is the bare path. */
+export function resourcesPath(tab: ResourcesTab = 'library'): string {
+  return tab === 'library' ? '/more/resources' : `/more/resources/${tab}`;
+}
+
+/** One Library resource (plan 16). */
+export function resourceItemPath(id: string): string {
+  return `/more/resources/item/${id}`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
   if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
   if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
   if (route.kind === 'cloud-resource') return cloudResourcePath(route.resourceId);
+  if (route.kind === 'resources') return resourcesPath(route.tab);
+  if (route.kind === 'resource-item') return resourceItemPath(route.id);
   return morePath(route.page);
 }
 
@@ -150,6 +176,8 @@ export function parsePhonePath(path: string): PhoneRoute | null {
     if (!SESSION_ID.test(sessionId)) return null;
     // Info → Files before AASC-56 (a saved stack, an old link): the Project segment.
     if (page === 'files') return { kind: 'session', sessionId, segment: 'project' };
+    // Info → Agents before the Agents tab (Oct 22 2026): the Agents segment.
+    if (page === 'agents') return { kind: 'session', sessionId, segment: 'agents' };
     if (!isOneOf(INFO_PAGES, page)) return null;
     return { kind: 'session-info', sessionId, page };
   }
@@ -166,6 +194,17 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   if (head === 'more' && parts.length === 3 && parts[1] === 'cloud' && CLOUD_ID.test(parts[2])) {
     return { kind: 'cloud-resource', resourceId: parts[2] };
   }
+  return parseResourcesPath(parts);
+}
+
+/** More → Resources' paths, and AASC-51's More → Cloud (now its Cloud sync tab). */
+function parseResourcesPath(parts: string[]): PhoneRoute | null {
+  if (parts[0] !== 'more') return null;
+  if (parts.length === 2 && parts[1] === 'cloud') return { kind: 'resources', tab: 'cloud' };
+  if (parts[1] !== 'resources') return null;
+  if (parts.length === 2) return { kind: 'resources', tab: 'library' };
+  if (parts.length === 3 && parts[2] !== 'library' && isOneOf(RESOURCES_TABS, parts[2])) return { kind: 'resources', tab: parts[2] };
+  if (parts.length === 4 && parts[2] === 'item' && CATALOG_ID.test(parts[3])) return { kind: 'resource-item', id: parts[3] };
   return null;
 }
 
@@ -174,7 +213,9 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'more' || route.kind === 'cloud-resource' ? 'more' : 'sessions';
+  return route.kind === 'more' || route.kind === 'cloud-resource' || route.kind === 'resources' || route.kind === 'resource-item'
+    ? 'more'
+    : 'sessions';
 }
 
 /** The stack a link to `path` restores: its tab's root, any parent screens, then the path. */
@@ -195,7 +236,9 @@ export function pathChain(path: string): string[] {
     const base = [tabRootPath('sessions'), sessionPath(route.sessionId), info];
     return route.page ? [...base, path] : base;
   }
-  if (route.kind === 'cloud-resource') return [tabRootPath('more'), morePath('cloud'), path];
+  if (route.kind === 'cloud-resource') return [tabRootPath('more'), resourcesPath('cloud'), path];
+  if (route.kind === 'resources') return [tabRootPath('more'), resourcesPath(route.tab)];
+  if (route.kind === 'resource-item') return [tabRootPath('more'), resourcesPath('library'), path];
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(morePath(page));
@@ -269,19 +312,19 @@ export function sessionHasChat(cli: string | null): boolean {
   return defaultSegment(cli) === 'chat';
 }
 
-/** The tabs a session shows: Chat · Changes · Project · Prompts, or Terminal · Project for a shell. */
+/** The tabs a session shows: Chat · Changes · Project · Prompts · Agents, or Terminal · Project for a shell. */
 export function segmentsFor(hasChat: boolean): readonly SessionSegment[] {
-  return hasChat ? ['chat', 'changes', 'project', 'prompts'] : ['terminal', 'project'];
+  return hasChat ? ['chat', 'changes', 'project', 'prompts', 'agents'] : ['terminal', 'project'];
 }
 
 /**
- * What a session screen at `segment` shows. A shell has no Chat, Changes or Prompts, so a
+ * What a session screen at `segment` shows. A shell has no Chat, Changes, Prompts or Agents, so a
  * path to one (a selection that opened Chat, a link) shows its Terminal; a
  * chat session's `terminal` is its pushed terminal screen, not a tab.
  */
 export function shownSegment(segment: SessionSegment, hasChat: boolean): SessionSegment {
   if (hasChat) return segment;
-  return segment === 'chat' || segment === 'changes' || segment === 'prompts' ? 'terminal' : segment;
+  return segment === 'chat' || segment === 'changes' || segment === 'prompts' || segment === 'agents' ? 'terminal' : segment;
 }
 
 /** The screens that open a session on `segment`, above whatever is under them. */

@@ -28,6 +28,14 @@ vi.mock('../views/PhonePrompts', () => ({
     <button type="button" data-testid="prompts" onClick={() => onUseAgain?.('run it again')}>{sessionId}</button>
   ),
 }));
+vi.mock('@/components/session/AgentsTab', () => ({
+  default: ({ sessionId, onOpenTeammate, backLayer }: { sessionId: string; onOpenTeammate?: (id: string) => void; backLayer?: (close: () => void) => () => void }) => (
+    <>
+      <button type="button" data-testid="agents" onClick={() => onOpenTeammate?.('mate')}>{sessionId}</button>
+      <button type="button" data-testid="agents-open-subagent" onClick={() => backLayer?.(() => { (globalThis as { closedSubagent?: boolean }).closedSubagent = true; })}>open</button>
+    </>
+  ),
+}));
 vi.mock('../PhoneProjectBrowser', () => ({
   default: ({ projectPath, sessionId }: { projectPath: string; sessionId: string }) => <div data-testid="project">{sessionId}:{projectPath}</div>,
 }));
@@ -39,6 +47,7 @@ import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import type { SessionSegment } from '@/lib/chat/phoneRoutes';
+import { closeTopBackLayer } from '@/lib/backLayers';
 
 const base = {
   title: 'web', projectName: 'web', projectPath: '/w/web', status: 'idle', source: 'ssh', terminalId: 'term-1',
@@ -67,7 +76,7 @@ beforeEach(() => {
 describe('a Claude / Codex session', () => {
   it('shows Chat · Changes · Project, and no Terminal tab', () => {
     show(claude, 'chat');
-    expect(tabNames()).toEqual(['Chat', 'Changes', 'Project', 'Prompts']);
+    expect(tabNames()).toEqual(['Chat', 'Changes', 'Project', 'Prompts', 'Agents']);
     expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -86,6 +95,32 @@ describe('a Claude / Codex session', () => {
     show(claude, 'prompts');
     expect(screen.getByRole('tab', { name: 'Prompts' })).toHaveAttribute('aria-selected', 'true');
     expect((await screen.findByTestId('prompts')).textContent).toBe('s1');
+  });
+
+  it('shows the desktop AGENTS tab in the Agents tab; a teammate opens its own session over this one', async () => {
+    const user = userEvent.setup();
+    show(claude, 'agents');
+    expect(screen.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
+    const agents = await screen.findByTestId('agents');
+    expect(agents.textContent).toBe('s1');
+    await user.click(agents);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/agents', '/sessions/mate/chat']);
+  });
+
+  it('the phone’s Back closes an open subagent before it leaves the session', async () => {
+    const user = userEvent.setup();
+    show(claude, 'agents');
+    await user.click(await screen.findByTestId('agents-open-subagent'));
+    act(() => { closeTopBackLayer(); });
+    expect((globalThis as { closedSubagent?: boolean }).closedSubagent).toBe(true);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/agents']);
+  });
+
+  it('counts the agents at work on the Agents tab, as the desktop tab does', () => {
+    const busy = { ...claude, status: 'working', subagents: [{ agentId: 'a1', agentType: 'Explore', status: 'working', startedAt: 0, lastActivityAt: 0, toolCount: 1 }] } as unknown as Session;
+    useSessionStore.setState({ sessions: new Map([['s1', busy]]) });
+    show(busy, 'chat');
+    expect(screen.getByRole('tab', { name: /^Agents/ }).textContent).toBe('Agents1, 1 agent working');
   });
 
   it('"Use again" puts a prompt in the composer and goes back to Chat (never sends it)', async () => {
@@ -220,5 +255,44 @@ describe('a plain shell session (no chat)', () => {
     show(shell, 'terminal');
     await user.click(screen.getByRole('tab', { name: 'Project' }));
     expect(stack()).toEqual(['/sessions', '/sessions/sh/project']);
+  });
+});
+
+// Oct 21 2026: in landscape the conversation got a thin strip between the bar, the tabs and the box.
+describe('reading the chat full screen', () => {
+  const chrome = () => ({
+    tabs: screen.queryByRole('tablist', { name: 'Session view' }) !== null,
+    back: screen.queryByRole('button', { name: 'Back to the list' }) !== null,
+    footer: screen.queryByTestId('chat-footer') !== null,
+  });
+
+  it('hides the bar, the tabs and the reply box; ⤡ or Back brings them back', async () => {
+    const user = userEvent.setup();
+    show(claude, 'chat');
+    expect(chrome()).toEqual({ tabs: true, back: true, footer: true });
+    await user.click(screen.getByRole('button', { name: 'Read the chat full screen' }));
+    expect(chrome()).toEqual({ tabs: false, back: false, footer: false });
+    expect(screen.getByRole('button', { name: 'chat: open terminal' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'web' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Leave full screen' }));
+    expect(chrome()).toEqual({ tabs: true, back: true, footer: true });
+
+    await user.click(screen.getByRole('button', { name: 'Read the chat full screen' }));
+    act(() => { closeTopBackLayer(); }); // Android's Back
+    expect(chrome()).toEqual({ tabs: true, back: true, footer: true });
+  });
+
+  it('is for Chat only', () => {
+    show(claude, 'changes');
+    expect(screen.queryByRole('button', { name: 'Read the chat full screen' })).toBeNull();
+  });
+
+  it('says so on the way out when the session needs you (its card is hidden)', async () => {
+    const user = userEvent.setup();
+    useSessionStore.setState({ sessions: new Map([['s1', { ...claude, status: 'approval' } as Session]]) });
+    show(claude, 'chat');
+    await user.click(screen.getByRole('button', { name: 'Read the chat full screen' }));
+    expect(screen.getByRole('button', { name: 'Leave full screen: web needs you' })).toHaveTextContent('Needs you');
   });
 });

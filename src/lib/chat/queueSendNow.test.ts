@@ -106,7 +106,8 @@ describe('sendQueueItemNow', () => {
     expect(sendPrompt).toHaveBeenCalledWith('s1', { text: 'run it\nplease', images: withPhotos.images, mode: 'now' });
 
     vi.mocked(sendPrompt).mockClear();
-    const tooMany = item({ images: ['1', '2', '3', '4', '5'].map((n) => photo(`${n}.png`)) });
+    // The route takes 10 since Oct 21 2026 (was 4).
+    const tooMany = item({ images: Array.from({ length: 11 }, (_, n) => photo(`${n}.png`)) });
     await expect(sendQueueItemNow(session(), tooMany)).resolves.toBe(false);
     expect(sendPrompt).not.toHaveBeenCalled();
   });

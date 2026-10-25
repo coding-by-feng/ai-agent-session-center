@@ -154,11 +154,27 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, Replacement]> = [
   // A cookie header's value runs to the end of the quoted string: every pair in it is session state.
   [/\b((?:set-)?cookie[ \t]*:[ \t]*)[^"'\n]+/gi, `$1${MASK}`],
   [/\b(Bearer)[ \t]+[A-Za-z0-9._~+/=-]+/gi, `$1 ${MASK}`],
-  // curl -u user:pass / --user user:pass
-  [/([ \t]-u[ \t]+|[ \t]--user[= \t]+)[^\s"']+/g, `$1${MASK}`],
   // URL userinfo: //user:pass@host and //token@host
   [/(\/\/)[^\s/?#@]+@/g, `$1${MASK}@`],
 ];
+
+/**
+ * `curl -u user:pass`, `wget --user=name`: the value of `-u` / `--user`. Judged in `maskUserFlag`, since
+ * `-u` is also `sort -u`, `date -u`, `git push -u` — only a `user:pass` value or a curl/wget line counts.
+ */
+const USER_FLAG_RE = /([ \t]-u[ \t]+|[ \t]--user[= \t]+)([^\s"']+)/g;
+const USER_FLAG_TOOL_RE = /\b(?:curl|wget)\b/;
+
+function maskUserFlag(text: string): string {
+  return text.replace(USER_FLAG_RE, (match, flag: string, value: string, offset: number) => {
+    const lineStart = text.lastIndexOf('\n', offset) + 1;
+    const credential = value.includes(':') || USER_FLAG_TOOL_RE.test(text.slice(lineStart, offset));
+    return credential ? `${flag}${MASK}` : match;
+  });
+}
+
+/** An ISO timestamp, also in its filename form (`2026-04-21T14-23-00Z`): mixed case and digits, never a secret. */
+const ISO_STAMP_RE = /\d{4}-\d{2}-\d{2}T\d{2}[-:]\d{2}(?:[-:]\d{2}(?:\.\d+)?)?Z?/g;
 
 /** NAME=value where NAME mentions a key/token/secret/password (env assignments, --flags). */
 const NAME_VALUE_RE = /(?<![A-Za-z0-9_-])(-{0,2}[A-Za-z_][A-Za-z0-9_-]*)=("[^"\n]*"|'[^'\n]*'|[^\s&"']+)/g;
@@ -195,7 +211,9 @@ const TOKEN_RUN_RE = /(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{20,}/g;
  * secret access key), or 64+ characters with at most one `/` per 16 — base64
  * averages one per 64, a path one every ten or so.
  */
-function looksLikeSecret(run: string): boolean {
+function looksLikeSecret(raw: string): boolean {
+  // A timestamp is what gives `feature-docs-2026-04-21T14-23-00Z` its digits and capitals: judge the rest.
+  const run = raw.replace(ISO_STAMP_RE, '');
   if (!/\d/.test(run) || !/[A-Z]/.test(run) || !/[a-z]/.test(run)) return false;
   const slashes = run.length - run.replace(/\//g, '').length;
   if (slashes <= 2) return true;
@@ -234,7 +252,7 @@ function scrub(text: string): string {
     // Two identical-looking branches: String#replace has no overload for the union, each narrows it.
     out = typeof replacement === 'string' ? out.replace(re, replacement) : out.replace(re, replacement);
   }
-  return out
+  return maskUserFlag(out)
     .replace(NAME_VALUE_RE, (match, name: string) => (SECRET_NAME_RE.test(name) ? `${name}=${MASK}` : match))
     .replace(ASSIGN_RE, (match, q: string, name: string, sep: string, value: string) => {
       if (!isSecretName(name)) return match;

@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CommandEntry } from './commandIndex';
 import {
+  chatSuggestionKinds,
   favoriteSuggestions,
   fetchPhoneSkillNotes,
   insertSigil,
@@ -83,6 +84,22 @@ describe('rankSuggestions', () => {
     expect(rankSuggestions(ENTRIES, 're', ['command', 'skill'], {}).every((s) => !s.fav)).toBe(true);
   });
 
+  it('ranks by how often each is used where it used to go A–Z (Oct 21 2026)', () => {
+    const used = (name: string, uses: number) => ({ ...ENTRIES.find((e) => e.name === name)!, uses });
+    const withUses = [
+      ...ENTRIES.filter((e) => !['review', 'clear', 'explore-solutions'].includes(e.name)),
+      used('review', 40), used('clear', 3), used('explore-solutions', 90),
+    ];
+    // Nothing typed: no favourites, so most-used first, then A–Z among the unused.
+    expect(rankSuggestions(withUses, '', ['command', 'skill'], {}).map((s) => s.token))
+      .toEqual(['/explore-solutions', '/review', '/clear', '/krt-work', '/resume', '/retouch-current-prompt']);
+    // Typed "re": the names starting with it still come first, most-used first among them.
+    expect(rankSuggestions(withUses, 're', ['command', 'skill'], {}).map((s) => s.token))
+      .toEqual(['/review', '/resume', '/retouch-current-prompt', '/explore-solutions']);
+    // A favourite still outranks a more-used name.
+    expect(rankSuggestions(withUses, 're', ['command', 'skill'], NOTES)[0].token).toBe('/retouch-current-prompt');
+  });
+
   it('keeps the Codex sigil for Codex skills', () => {
     const codex = [entry('fix', 'skill', 'global', 'codex'), entry('init', 'command', 'builtin', 'codex')];
     expect(rankSuggestions(codex, '', ['skill'], {}).map((s) => s.token)).toEqual(['$fix']);
@@ -105,6 +122,16 @@ describe('insertSuggestion', () => {
   it('inserts a favourite as its own word when nothing is being typed', () => {
     expect(insertSuggestion('run', 3, '/krt-work', null)).toEqual({ text: 'run /krt-work ', caret: 14 });
     expect(insertSuggestion('', 0, '/krt-work', null)).toEqual({ text: '/krt-work ', caret: 10 });
+  });
+});
+
+describe('chatSuggestionKinds', () => {
+  it('lists commands and skills under / on both CLIs, Codex skills under $, and nothing for @ or a Claude $', () => {
+    expect(chatSuggestionKinds('command', 'claude')).toEqual(['command', 'skill']);
+    expect(chatSuggestionKinds('command', 'codex')).toEqual(['command', 'skill']);
+    expect(chatSuggestionKinds('skill', 'codex')).toEqual(['skill']);
+    expect(chatSuggestionKinds('skill', 'claude')).toBeNull();
+    expect(chatSuggestionKinds('file', 'claude')).toBeNull();
   });
 });
 

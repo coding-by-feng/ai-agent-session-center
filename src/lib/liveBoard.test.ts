@@ -7,8 +7,11 @@ import type { Room } from '@/stores/roomStore';
 import {
   BOARD_FILTERS,
   BOARD_NOTE_MAX_CHARS,
+  BOARD_SORTS,
   COMMON_AREA,
+  NO_PROJECT,
   boardCounts,
+  boardGroups,
   boardNote,
   boardSessions,
   cardRoom,
@@ -81,6 +84,12 @@ describe('the board filters', () => {
     ];
     expect(boardCounts(list)).toEqual({ all: 5, working: 2, 'needs-you': 2 });
     expect(boardCounts([])).toEqual({ all: 0, working: 0, 'needs-you': 0 });
+  });
+
+  it('counts a session that asks you to proceed under Needs you, as the phone does', () => {
+    const list = [s('a', { status: 'idle', pendingProceedAt: 5 }), s('b', { status: 'waiting' }), s('c', { status: 'approval', pendingProceedAt: 5 })];
+    expect(boardCounts(list)).toEqual({ all: 3, working: 0, 'needs-you': 2 });
+    expect(matchesBoardFilter('proceed', 'needs-you')).toBe(true);
   });
 });
 
@@ -329,5 +338,109 @@ describe('quietFor — how long a quiet session has been quiet', () => {
 
   it('never reads negative when the server clock is ahead of this one', () => {
     expect(quietFor(stoppedAgo(-30_000), NOW)).toBe('<1m');
+  });
+});
+
+describe('boardGroups — the board sorted by room or by project', () => {
+  const ids = (groups: ReturnType<typeof boardGroups>) =>
+    groups.map((g) => [g.label, g.sessions.map((x) => x.sessionId)]);
+  const at = (path: string) => ({ projectPath: path });
+
+  it('offers Status (today\'s order, first), Room and Project', () => {
+    expect(BOARD_SORTS.map((o) => [o.value, o.label])).toEqual([
+      ['status', 'Status'],
+      ['room', 'Room'],
+      ['project', 'Project'],
+    ]);
+  });
+
+  it('Status is one group with no heading, in the order it was given', () => {
+    const list = [s('b'), s('a'), s('c')];
+    const groups = boardGroups(list, 'status', [], new Map());
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ kind: 'all', label: null, color: null });
+    expect(groups[0].sessions.map((x) => x.sessionId)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('nothing shown is no groups at all, in every sort', () => {
+    for (const sort of ['status', 'room', 'project'] as const) {
+      expect(boardGroups([], sort, [room('r', 'R', ['a'], 0)], new Map())).toEqual([]);
+    }
+  });
+
+  it('Room puts rooms in the strip\'s list order and Common Area last, keeping the board order inside each', () => {
+    const rooms = [
+      { ...room('r1', 'Build', ['a', 'd'], 0), listOrder: 1 },
+      { ...room('r2', 'Research', ['b'], 1), listOrder: 0 },
+    ];
+    const list = [s('d', { status: 'working' }), s('c'), s('b'), s('a')];
+    const groups = boardGroups(list, 'room', rooms, roomBySession(rooms));
+    expect(ids(groups)).toEqual([
+      ['Research', ['b']],
+      ['Build', ['d', 'a']],
+      [COMMON_AREA, ['c']],
+    ]);
+    expect(groups.map((g) => g.kind)).toEqual(['room', 'room', 'common']);
+  });
+
+  it('a room group carries the colour its chips and strip frame have; Common Area has none', () => {
+    const rooms = [room('r1', 'Build', ['a'], 2)];
+    const groups = boardGroups([s('a'), s('b')], 'room', rooms, roomBySession(rooms));
+    expect(groups.map((g) => g.color)).toEqual([ROOM_COLOR_PALETTE[2], null]);
+  });
+
+  it('leaves out a room with nothing shown, and lists a session once even when two rooms claim it', () => {
+    const rooms = [room('r1', 'First', ['a'], 0), room('r2', 'Second', ['a'], 1), room('r3', 'Empty', [], 2)];
+    const groups = boardGroups([s('a')], 'room', rooms, roomBySession(rooms));
+    expect(ids(groups)).toEqual([['First', ['a']]]);
+  });
+
+  it('names a room left blank the way its chip does', () => {
+    const rooms = [room('r1', '  ', ['a'], 0)];
+    expect(boardGroups([s('a')], 'room', rooms, roomBySession(rooms))[0].label).toBe('Unnamed room');
+  });
+
+  it('Room with no rooms at all stays one group with no heading, like the chips that are not drawn', () => {
+    const groups = boardGroups([s('a'), s('b')], 'room', [], new Map());
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ label: null });
+  });
+
+  it('Project groups by folder, A to Z by its name, keeping the board order inside each', () => {
+    const list = [
+      s('w', { ...at('/Users/me/zeta'), status: 'working' }),
+      s('x', at('/Users/me/alpha')),
+      s('y', at('/Users/me/zeta/')),
+      s('z', at('/Users/me/alpha')),
+    ];
+    const groups = boardGroups(list, 'project', [], new Map());
+    expect(ids(groups)).toEqual([
+      ['alpha', ['x', 'z']],
+      ['zeta', ['w', 'y']],
+    ]);
+    expect(groups.every((g) => g.kind === 'project' && g.color === null)).toBe(true);
+  });
+
+  it('Project tells two folders with the same name apart, as the strip does', () => {
+    const groups = boardGroups([s('a', at('/w/app')), s('b', at('/play/app'))], 'project', [], new Map());
+    expect(groups.map((g) => g.label).sort()).toEqual(['play/app', 'w/app']);
+  });
+
+  it('Project puts sessions with no folder last, under their own heading', () => {
+    const groups = boardGroups([s('a'), s('b', at('/w/app'))], 'project', [], new Map());
+    expect(ids(groups)).toEqual([
+      ['app', ['b']],
+      [NO_PROJECT, ['a']],
+    ]);
+    expect(groups[1].kind).toBe('no-project');
+  });
+
+  it('gives every group a distinct key', () => {
+    const rooms = [room('r1', 'Build', ['a'], 0)];
+    for (const sort of ['status', 'room', 'project'] as const) {
+      const list = [s('a', at('/w/app')), s('b'), s('c', at('/w/lib'))];
+      const keys = boardGroups(list, sort, rooms, roomBySession(rooms)).map((g) => g.key);
+      expect(new Set(keys).size).toBe(keys.length);
+    }
   });
 });

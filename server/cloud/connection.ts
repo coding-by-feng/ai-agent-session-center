@@ -5,13 +5,14 @@ import { createCloudClient, createCloudTransport, normalizeBackendOrigin, isReac
 import { readPrivateFile, writePrivateFile } from './secretStore.js';
 import { CloudError, type ActiveCloudConnection, type CloudConnector, type CloudConnection, type CloudStatus, type SecretStore } from './types.js';
 const nameSchema = z.string().max(128).refine(name => !/[\u0000-\u001f\u007f-\u009f]/u.test(name)).transform(name => name.trim()).pipe(z.string().min(1));
-const connectionSchema = z.object({ backendOrigin: z.string(), accountId: z.uuid(), deviceId: z.uuid(), deviceName: nameSchema, generation: z.number().int().positive().safe() }).strict();
+// accountEmail: the Google address of an account this Mac joined by Google sign-in (AASC-61).
+const connectionSchema = z.object({ backendOrigin: z.string(), accountId: z.uuid(), deviceId: z.uuid(), deviceName: nameSchema, generation: z.number().int().positive().safe(), accountEmail: z.string().min(3).max(320).optional() }).strict();
 const configSchema = z.object({ version: z.literal(1), generation: z.number().int().nonnegative().safe(), connection: connectionSchema.nullable(), secretRef: z.uuid().nullable() }).strict();
 const secretSchema = z.object({ version: z.literal(1), secretRef: z.uuid(), connection: connectionSchema, token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
 // Contract v1 is additive: the backend may add fields (device kind, granted scopes) and new
 // scope or service names this build does not know yet. Unknown keys are dropped, never fatal.
 const scopeNamesSchema = z.array(z.string().max(64)).max(64);
-const pairSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), ownerId: z.uuid(), deviceId: z.uuid(), scopes: scopeNamesSchema.optional() });
+const pairSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), ownerId: z.uuid(), deviceId: z.uuid(), scopes: scopeNamesSchema.optional(), account: z.object({ email: z.string().min(3).max(320) }).optional() });
 const healthSchema = z.object({ status: z.literal('ok'), contractVersion: z.literal(1), ownerId: z.uuid(), deviceId: z.uuid(), services: z.array(z.string().max(64)).max(64).optional(), scopes: scopeNamesSchema.optional() });
 const safeError = (error: unknown) => error instanceof CloudError ? error : new CloudError('connection_storage', 'Cloud connection could not be saved. Check private local storage and reconnect.', 503);
 export interface CloudConnectionOptions {
@@ -78,7 +79,8 @@ export async function createCloudConnection(options: CloudConnectionOptions): Pr
     client,
     status() { return { connection: active ? { ...active.connection } : null, state: transitionEpoch !== null && active ? 'offline' : state, lastError }; },
     async connectCloud(input) {
-      const parsed = z.object({ backendUrl: z.string().max(2048), pairingCode: z.string().regex(/^[A-Za-z0-9_-]{22}$/), deviceName: nameSchema }).strict().safeParse(input);
+      // `verifier`: only for a code minted by Google sign-in (googleSignIn.ts), which the backend binds to it.
+      const parsed = z.object({ backendUrl: z.string().max(2048), pairingCode: z.string().regex(/^[A-Za-z0-9_-]{22}$/), deviceName: nameSchema, verifier: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional() }).strict().safeParse(input);
       if (!parsed.success) throw new CloudError('invalid_input', 'Provide a valid backend URL, pairing code and device name.', 400);
       const origin = normalizeBackendOrigin(parsed.data.backendUrl);
       if (stopped) throw cancelled();
@@ -91,13 +93,13 @@ export async function createCloudConnection(options: CloudConnectionOptions): Pr
         // Refuse unavailable Electron encryption before consuming a pairing code.
         await options.secrets.get('availability-check');
         if (currentEpoch !== epoch || stopped) throw cancelled();
-        const data = await transport.send<unknown>(origin, 'POST', '/v1/devices/pair', { code: parsed.data.pairingCode, name: parsed.data.deviceName });
+        const data = await transport.send<unknown>(origin, 'POST', '/v1/devices/pair', { code: parsed.data.pairingCode, name: parsed.data.deviceName, ...(parsed.data.verifier ? { verifier: parsed.data.verifier } : {}) });
         const paired = pairSchema.safeParse(data);
         if (!paired.success) throw new CloudError('invalid_response', 'Cloud returned an invalid pairing response.');
         return await serialize(async () => {
           if (currentEpoch !== epoch || stopped) throw cancelled();
           const previousRef = active?.secretRef ?? publishedRef;
-          const connection: CloudConnection = { backendOrigin: origin, accountId: paired.data.ownerId, deviceId: paired.data.deviceId, deviceName: parsed.data.deviceName, generation: generation + 1 };
+          const connection: CloudConnection = { backendOrigin: origin, accountId: paired.data.ownerId, deviceId: paired.data.deviceId, deviceName: parsed.data.deviceName, generation: generation + 1, ...(paired.data.account ? { accountEmail: paired.data.account.email } : {}) };
           newRef = randomUUID();
           await options.secrets.set(newRef, JSON.stringify({ version: 1, secretRef: newRef, connection, token: paired.data.token }));
           if (currentEpoch !== epoch || stopped) throw cancelled();

@@ -41,11 +41,6 @@
 
 .stateText > span:first-child { color: var(--ph-text); font-weight: 600; }
 
-.size {
-  font-family: var(--ph-font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
 .dot {
   flex: none;
   width: 8px;
@@ -57,41 +52,6 @@
 .dot[data-tone='live'] { background: var(--ph-status-finished); }
 .dot[data-tone='wait'] { background: var(--ph-status-approval); }
 .dot[data-tone='error'] { background: var(--ph-danger); }
-
-.modeGroup {
-  display: inline-flex;
-  flex: none;
-  padding: 2px;
-  border-radius: var(--ph-radius);
-  background: var(--ph-fill);
-}
-
-.modeButton {
-  appearance: none;
-  min-width: var(--ph-target);
-  min-height: var(--ph-target);
-  margin: 0;
-  padding: 0 var(--ph-space-2);
-  border: 0;
-  border-radius: calc(var(--ph-radius) - 2px);
-  background: transparent;
-  color: var(--ph-text);
-  font: inherit;
-  font-family: var(--ph-font);
-  font-size: var(--ph-size-secondary);
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-.modeButton[aria-pressed='true'] {
-  background: var(--ph-segment-selected);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
-}
-
-.modeButton:active:not([aria-pressed='true']) { background: var(--ph-fill-strong); }
-.modeButton:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 
 .iconButton {
   appearance: none;
@@ -143,6 +103,9 @@
 
 .zoomViewport {
   position: relative;
+  /* xterm stacks its canvas layers with z-indexes of their own: keep them inside the viewer, or
+     they cover the controls floating over it (↓ Latest, the zoom chip) and take their taps. */
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -223,6 +186,43 @@
   font-size: var(--ph-size-caption);
   font-weight: 600;
   cursor: pointer;
+}
+
+/* ↓ Latest (Oct 23 2026): back to the newest line, only while scrolled up. Bottom-right, clear
+   of the zoom chip (top-right); a 44px target, drawn like the chip so it reads as a control. */
+.latest {
+  appearance: none;
+  position: absolute;
+  right: var(--ph-space-2);
+  bottom: var(--ph-space-2);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: 0 var(--ph-space-3);
+  border: 0;
+  border-radius: var(--ph-radius-pill);
+  background: var(--ph-accent);
+  box-shadow: var(--ph-shadow);
+  color: var(--ph-on-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+@media (hover: hover) {
+  .latest:hover { filter: brightness(1.08); }
+}
+.latest:active { transform: scale(0.96); }
+.latest:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .latest { transition: none; }
+  .latest:active { transform: none; }
 }
 
 .zoomChip:active { background: var(--ph-fill-strong); }

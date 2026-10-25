@@ -36,6 +36,7 @@ import TextInput from '@/components/ui/TextInput';
 import { NewSessionIcon } from '@/components/ui/icons';
 import type { AgendaPriority, AgendaTask } from '@/types';
 import PhoneViewBar from './PhoneViewBar';
+import PhoneDateInput from './PhoneDateInput';
 import styles from '@/styles/modules/PhoneViews.module.css';
 
 const PRIORITY_ACCENT: Record<AgendaPriority, string> = {
@@ -261,7 +262,7 @@ function TaskSheet({ task, onClose }: { task?: AgendaTask; onClose: () => void }
 
   return (
     <>
-      <BottomSheet open onClose={onClose} title={task ? 'Task' : 'New task'} fullHeight>
+      <BottomSheet open onClose={onClose} title={task ? 'Task' : 'New task'} fullHeight className={styles.dress}>
         <form className={styles.detail} onSubmit={save} aria-label={task ? `Edit "${task.title}"` : 'Add a task'}>
           <div className={`${styles.detailScroll} ${styles.form}`}>
             <Field label="Title" className={styles.sheetField}>
@@ -272,7 +273,7 @@ function TaskSheet({ task, onClose }: { task?: AgendaTask; onClose: () => void }
                 <NativeSelect value={priority} onChange={setPriority} options={AGENDA_PRIORITY_OPTIONS} />
               </Field>
               <Field label="Due" className={styles.sheetField}>
-                <TextInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                <PhoneDateInput value={dueDate} onChange={setDueDate} emptyLabel="No date" />
               </Field>
             </div>
             <Field label="Tags, comma-separated" className={styles.sheetField}>

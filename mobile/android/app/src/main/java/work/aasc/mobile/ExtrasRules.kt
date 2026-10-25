@@ -5,8 +5,8 @@ package work.aasc.mobile
 import org.json.JSONObject
 
 internal object ShareRules {
-    /** = shell/src/shareToQueue.ts SHARE_MAX_IMAGES. */
-    const val MAX_IMAGES = 4
+    /** = shell/src/shareToQueue.ts SHARE_MAX_IMAGES (10 since Oct 21 2026, was 4). */
+    const val MAX_IMAGES = 10
 
     /**
      * Raw bytes per image. Its data URL (prefix + base64) stays under the shell's

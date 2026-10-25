@@ -1,0 +1,30 @@
+/* A skill or command inside a queued prompt (PromptTokens, Oct 21 2026), in every queue
+   list. `--accent-text` is each theme's contrast-tuned accent for text (base.css, mixed
+   again by light / solarized; the phone maps it to --ph-accent). It is pulled 22% toward
+   the theme's text colour and sits on a 10% tint of itself: measured in a render, the
+   plain accent on a 14% tint fell to 4.29–4.42:1 on the phone in warm, light, blonde and
+   windows-xp; this keeps every theme above 4.5:1 while the token stays coloured.
+   `line-height: 1` keeps a bigger token from growing its line, so one-line and clamped
+   previews keep their height. */
+.token {
+  padding: 0 0.22em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-text, var(--accent-cyan)) 10%, transparent);
+  color: color-mix(in srgb, var(--accent-text, var(--accent-cyan)) 78%, var(--text-primary, currentColor));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.15em;
+  font-weight: 700;
+  line-height: 1;
+  /* A command never splits at its hyphen ("/krt-" + "work" on the next line, seen in a render). */
+  white-space: nowrap;
+}
+
+/* The tokens a cut-off preview hides, on their own line under it (PromptSkillChips,
+   Oct 22 2026). Display only: a tap goes to the row beneath, as on the text. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  pointer-events: none;
+}

@@ -18,8 +18,22 @@
 }
 
 /* The shared view-tab kit's buttons (Filters, Add a task…) in the phone's dress (Oct 20
-   2026): sentence case at normal tracking, as the rest of the phone app writes them. */
-.view.view :global(button) {
+   2026): sentence case at normal tracking, as the rest of the phone app writes them. The
+   views' sheets are portaled out of .view, so they carry .dress (Oct 22 2026: the Filters
+   sheet still said MINE · /CMD · CLEAR ALL · DONE). */
+/* The sheet's words in the phone's font, as Info's pages wear it (SessionInfo .tab): outside the
+   phone frame it fell back to the desktop's monospace. Code and prompt text keep a monospace. */
+.dress {
+  --font-mono: var(--ph-font);
+  font-family: var(--ph-font);
+}
+.dress :global(:is(code, pre, kbd, samp)) {
+  --font-mono: var(--ph-font-mono);
+  font-family: var(--ph-font-mono);
+}
+
+.view.view :global(button),
+.dress.dress :global(button) {
   font-size: max(var(--ph-size-caption), 1em);
   letter-spacing: normal;
   text-transform: none;
@@ -274,6 +288,38 @@
   gap: 8px;
 }
 
+/* A date field (PhoneDateInput): fills its column, never wider (iOS draws a date input at
+   its own width unless told otherwise), and says "Any date" when empty on iOS. */
+.dateBox {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.dateBox > input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.datePlaceholder { display: none; }
+@supports (-webkit-touch-callout: none) {
+  .dateBox > input {
+    -webkit-appearance: none;
+    appearance: none;
+    text-align: left;
+  }
+  .dateBox > input::-webkit-date-and-time-value { text-align: left; }
+  .datePlaceholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding-inline: 12px;
+    color: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+    font-size: 16px;
+    pointer-events: none;
+  }
+}
+
 /* The source facet and other one-of-n choices: buttons that wrap. */
 .choiceRow {
   display: flex;
@@ -342,7 +388,8 @@
   border-radius: 8px;
   background: var(--bg-card);
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  /* A prompt or a log reads in monospace even in the dressed sheet (where --font-mono is the phone's font). */
+  font-family: var(--ph-font-mono, var(--font-mono));
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;

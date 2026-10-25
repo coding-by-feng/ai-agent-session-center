@@ -127,9 +127,11 @@ describe('phoneRuleFor', () => {
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
     ['GET', '/rooms'], ['POST', '/rooms/ops'],
     // The phone chat (AASC-41) and what a session edited (AASC-44), behind the /sessions/:id gate.
-    ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'],
+    ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'], ['GET', '/sessions/abc/context-breakdown'],
     // AASC Cloud, read-only, through the Mac's connection (AASC-51).
     ['GET', '/phone-cloud/status'], ['GET', '/phone-cloud/browse'], ['GET', '/phone-cloud/resources/abc/versions'],
+    // The Mac's agent CLIs (Oct 25 2026): versions, and the fixed `update` command (the router rate-limits).
+    ['GET', '/cli-versions'], ['POST', '/cli-versions/claude/update'], ['POST', '/cli-versions/codex/update'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -171,9 +173,14 @@ describe('phoneRuleFor', () => {
     ['POST', '/phone-cloud/browse'], ['DELETE', '/phone-cloud/status'], ['PUT', '/phone-cloud/resources/abc/versions'],
     ['GET', '/phone-cloud'], ['GET', '/phone-cloud/resources'], ['GET', '/phone-cloud/resources/abc'],
     ['GET', '/phone-cloud/resources/abc/versions/2'], ['GET', '/phone-cloud/projects'],
+    ['POST', '/cli-versions/gemini/update'], ['POST', '/cli-versions'], ['DELETE', '/cli-versions'], ['GET', '/cli-versions/codex/update'],
     // /api/mobile is the mobile router's own (mounted ahead of the profile): the phone's backend code
     // checks its session itself, and the desktop's cloud phone list is never a phone's (AASC-52).
-    ['POST', '/mobile/backend-code'], ['GET', '/mobile/cloud-phones'], ['POST', '/mobile/cloud-phones/remove-unlinked'],
+    // /paths is the same kind of call (AASC-60): the signed-in phone asks for the Mac's Tailscale address, checking its own session.
+    ['POST', '/mobile/backend-code'], ['POST', '/mobile/paths'], ['GET', '/mobile/cloud-phones'], ['POST', '/mobile/cloud-phones/remove-unlinked'],
+    // Google sign-in (AASC-61) belongs to the Mac alone: start/cancel sit behind the RESOURCES gate and
+    // the callback answers loopback navigations only.
+    ['POST', '/resources/cloud/google/start'], ['POST', '/resources/cloud/google/cancel'], ['GET', '/resources/cloud/google/callback'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
@@ -1018,6 +1025,9 @@ const DESKTOP_CLOUD_ROUTES: Array<[string, string]> = [
   ['GET', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/local'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/resources-plan'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/retry-resources'],
+  // Remote access (AASC-60): this Mac's Tailscale state, its refresh, and launching the Tailscale app.
+  ['GET', '/resources/cloud/remote-access'], ['POST', '/resources/cloud/remote-access/refresh'],
+  ['POST', '/resources/cloud/remote-access/open-tailscale'],
 ];
 
 describe('AASC Cloud from a paired phone (AASC-51)', () => {
@@ -1047,6 +1057,13 @@ describe('AASC Cloud from a paired phone (AASC-51)', () => {
       }),
       onStop: () => () => {},
     } as unknown as import('../server/cloud/types.js').CloudConnector;
+    // Mounted too, so the three remote-access routes are refused by the gate and not by their absence (AASC-60).
+    const remoteCalls: string[] = [];
+    const remoteAccess = {
+      view: async () => { remoteCalls.push('view'); return {} as never; },
+      refresh: async () => { remoteCalls.push('refresh'); return {} as never; },
+      openTailscale: async () => { remoteCalls.push('openTailscale'); return 'opened' as const; },
+    };
     const cloudHome = join(tmp, 'cloud-home');
     mkdirSync(cloudHome, { recursive: true });
     const phoneToken = `Bearer ${auth.createToken('dev-phone-cloud')}`;
@@ -1057,6 +1074,7 @@ describe('AASC Cloud from a paired phone (AASC-51)', () => {
       sessionProjectPaths: () => [],
       home: cloudHome,
       cloud,
+      remoteAccess,
       cloudAliasDirectory: join(cloudHome, 'cloud'),
       // A phone is never this Mac (requestLocality.ts).
       isLocalRequest: () => false,
@@ -1084,6 +1102,7 @@ describe('AASC Cloud from a paired phone (AASC-51)', () => {
         expect(res.status, `${method} ${path}`).toBe(404);
       }
       expect(cloudCalls).toEqual([]);
+      expect(remoteCalls).toEqual([]);
       const own = await fetch(`${cloudBase}/api/phone-cloud/browse`, { headers: { Authorization: phoneToken } });
       expect(own.status).toBe(200);
       expect(await own.json()).toMatchObject({ connected: true, state: 'connected', resources: [], projects: [] });

@@ -102,7 +102,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/sessions/:id/subagents/[^/]+/transcript', 'allow'),
   // The phone chat (AASC-41) and what a session edited (AASC-44): the chat router's own
   // /sessions/:id gate answers 404 for a session that isn't shared.
-  route('GET', '/sessions/:id/(chat|changes)', 'allow'),
+  route('GET', '/sessions/:id/(chat|changes|context-breakdown)', 'allow'),
   route('GET', '/sessions/:id/changes/\\d+', 'allow'),
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
@@ -153,6 +153,15 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // every desktop cloud route stays under /resources (the RESOURCES local gate).
   route('GET', '/phone-cloud/(status|browse)', 'allow'),
   route('GET', '/phone-cloud/resources/:id/versions', 'allow'),
+  // More → Resources (Oct 24 2026, plan 16): the desktop's Library, Cloud sync and Projects, read
+  // through the Mac. The router hides project resources outside shared projects itself and counts
+  // uses over shared sessions only; /resources stays Mac-only.
+  route('GET', '/phone-resources/(library|sync|projects)', 'allow'),
+  route('GET', '/phone-resources/item/[a-f0-9]{16}(/file)?', 'allow'),
+  // The Mac's agent CLIs (Oct 25 2026): their versions, and starting `claude update` / `codex update`.
+  // The command lines are fixed; the router limits a phone to one update per CLI per 10 minutes.
+  route('GET', '/cli-versions', 'allow'),
+  route('POST', '/cli-versions/(claude|codex)/update', 'allow'),
 ];
 
 /** The rule for a phone request, or null when phones may not call it at all. */

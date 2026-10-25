@@ -49,11 +49,11 @@ import IconButton from '@/components/ui/IconButton';
 import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
 import Pagination from '@/components/ui/Pagination';
 import StaleNote from '@/components/ui/StaleNote';
-import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { RefreshListIcon } from '@/components/ui/icons';
 import type { DistinctProject, PromptSearchResponse, PromptTraceRow } from '@/types';
 import { useIsHostDevice } from './hostAccess';
+import PhoneDateInput from './PhoneDateInput';
 import PhoneViewBar, { HostOnlyNote } from './PhoneViewBar';
 import styles from '@/styles/modules/PhoneViews.module.css';
 
@@ -79,16 +79,23 @@ export interface PhonePromptsProps {
   sessionId?: string;
   /** "Use again" on a prompt (the tab only): put its text back in the composer. */
   onUseAgain?: (text: string) => void;
+  /** Open this prompt once its row is on the page (the tab only; from the session title's
+   *  recent list, Oct 23 2026). Matched by time: the full row and the session's history
+   *  entry are written with the same timestamp. A new object opens it again. */
+  openAt?: { at: number } | null;
+  /** The `openAt` prompt was shown and closed, so its owner can drop the request (this view
+   *  remounts with each visit to the tab; without it the prompt would open again). */
+  onOpenAtDone?: () => void;
 }
 
-export default function PhonePrompts({ sessionId, onUseAgain }: PhonePromptsProps = {}) {
+export default function PhonePrompts({ sessionId, onUseAgain, openAt, onOpenAtDone }: PhonePromptsProps = {}) {
   const host = useIsHostDevice();
-  if (sessionId) return <PromptTrace key={`session:${sessionId}`} host={false} fixedSession={sessionId} onUseAgain={onUseAgain} />;
+  if (sessionId) return <PromptTrace key={`session:${sessionId}`} host={false} fixedSession={sessionId} onUseAgain={onUseAgain} openAt={openAt} onOpenAtDone={onOpenAtDone} />;
   // Keyed: crossing from remote to host (presence landing) starts clean.
   return <PromptTrace key={host ? 'host' : 'shared'} host={host} />;
 }
 
-function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedSession?: string; onUseAgain?: (text: string) => void }) {
+function PromptTrace({ host, fixedSession, onUseAgain, openAt, onOpenAtDone }: { host: boolean; fixedSession?: string; onUseAgain?: (text: string) => void; openAt?: { at: number } | null; onOpenAtDone?: () => void }) {
   const navigate = useNavigate();
   const sessions = useSessionStore((s) => s.sessions);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
@@ -96,6 +103,8 @@ function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedS
   const [filters, setFilters] = useState<PromptFilters>(INITIAL_PROMPT_FILTERS);
   const [picked, setPicked] = useState('');
   const [openRow, setOpenRow] = useState<PromptTraceRow | null>(null);
+  // The `openAt` request already shown and closed: it is not opened again.
+  const [doneWith, setDoneWith] = useState<{ at: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // A remote device reads one shared session's trace: the one picked, else the
@@ -158,12 +167,21 @@ function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedS
     ? ''
     : `${total.toLocaleString()} prompt${total === 1 ? '' : 's'} · ${first}–${last}`;
 
+  // A requested prompt shows once its row is on the page (worked out here, not set by an effect).
+  const asked = openAt && openAt !== doneWith ? prompts.find((r) => r.timestamp === openAt.at) ?? null : null;
+  const shownRow = openRow ?? asked;
+  const closeRow = useCallback(() => {
+    setOpenRow(null);
+    if (openAt) {
+      setDoneWith(openAt);
+      onOpenAtDone?.();
+    }
+  }, [openAt, onOpenAtDone]);
   const openSession = useCallback((id: string) => {
     selectSession(id);
-    setOpenRow(null);
+    closeRow();
     navigate('/');
-  }, [selectSession, navigate]);
-  const closeRow = useCallback(() => setOpenRow(null), []);
+  }, [selectSession, navigate, closeRow]);
 
   const body = () => {
     if (!host && !session) {
@@ -249,10 +267,10 @@ function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedS
             </fieldset>
             <div className={styles.sheetPair}>
               <Field label="From" className={styles.sheetField}>
-                <TextInput type="date" value={filters.dateFrom} onChange={(e) => update('dateFrom', e.target.value)} />
+                <PhoneDateInput value={filters.dateFrom} onChange={(v) => update('dateFrom', v)} />
               </Field>
               <Field label="To" className={styles.sheetField}>
-                <TextInput type="date" value={filters.dateTo} onChange={(e) => update('dateTo', e.target.value)} />
+                <PhoneDateInput value={filters.dateTo} onChange={(v) => update('dateTo', v)} />
               </Field>
             </div>
           </>
@@ -279,13 +297,13 @@ function PromptTrace({ host, fixedSession, onUseAgain }: { host: boolean; fixedS
           className={styles.pager}
         />
       </div>
-      {openRow && (
+      {shownRow && (
         <PromptSheet
-          row={openRow}
+          row={shownRow}
           query={query}
-          live={!fixedSession && sessions.has(openRow.session_id)}
+          live={!fixedSession && sessions.has(shownRow.session_id)}
           onOpenSession={openSession}
-          onUseAgain={onUseAgain ? (text) => { setOpenRow(null); onUseAgain(text); } : undefined}
+          onUseAgain={onUseAgain ? (text) => { closeRow(); onUseAgain(text); } : undefined}
           onClose={closeRow}
         />
       )}
@@ -351,7 +369,7 @@ function PromptSheet({ row, query, live, onOpenSession, onUseAgain, onClose }: {
   };
 
   return (
-    <BottomSheet open onClose={onClose} title={`Prompt · ${formatPromptClock(row.timestamp)}`} fullHeight>
+    <BottomSheet open onClose={onClose} title={`Prompt · ${formatPromptClock(row.timestamp)}`} fullHeight className={styles.dress}>
       <div className={styles.detail} data-testid="prompt-detail">
         <div className={styles.detailScroll}>
           <p className={styles.detailMeta}>

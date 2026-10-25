@@ -50,6 +50,9 @@ interface TextClippedOptions {
  * initial reading arrives through the same path as every later one, and the
  * effect itself sets no state (`react-hooks/set-state-in-effect` fires on that).
  *
+ * Content that changes without resizing the box (tokens drawn after the text, Oct 26 2026) is
+ * measured again through a MutationObserver.
+ *
  * `text`, `paused` and `remeasureKey` re-subscribe when they change, which
  * re-measures even where no resize is reported (a prompt edited, a fold, a new
  * font). Where there is no ResizeObserver (old WebViews, jsdom) the answer stays
@@ -65,9 +68,17 @@ export function useTextClipped(
   useEffect(() => {
     const element = ref.current;
     if (paused || !element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => setClipped(isTextClipped(measure(element))));
+    const check = () => setClipped(isTextClipped(measure(element)));
+    const observer = new ResizeObserver(check);
     observer.observe(element);
-    return () => observer.disconnect();
+    // New content in the same box (a queue prompt's skill tokens, drawn once the command list
+    // arrives, are wider than the plain words): no resize is reported, so watch the content too.
+    const content = typeof MutationObserver === 'undefined' ? null : new MutationObserver(check);
+    content?.observe(element, { childList: true, subtree: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      content?.disconnect();
+    };
   }, [ref, text, paused, remeasureKey]);
 
   return clipped;

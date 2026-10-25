@@ -24,6 +24,7 @@ export default function StatusRing({ status, interrupted, size = 'regular', with
       className={`${styles.ring} ${size === 'small' ? styles.small : ''}`}
       data-tone={tone}
       data-spin={glyph === 'working' ? '' : undefined}
+      data-proceed={glyph === 'proceed' ? '' : undefined}
       role={withLabel ? undefined : 'img'}
       aria-label={withLabel ? undefined : label}
       aria-hidden={withLabel ? true : undefined}

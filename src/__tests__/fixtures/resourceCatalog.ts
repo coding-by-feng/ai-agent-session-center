@@ -20,6 +20,7 @@ import type {
   ResourceFileContent,
   ResourceSummary,
   ResourceProject,
+  ResourceUsageReport,
 } from '@/types/resources';
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,17 @@ export const PROJECTS: ResourceProject[] = [
 ];
 
 export const REPO_ONLY_PATH = '~/Documents/agent-skills/claude/skills/retired';
+
+/** GET /api/resources/usage (Oct 23 2026): uses over the last 90 days of three skills and a command. */
+export const USAGE: ResourceUsageReport = {
+  windowDays: 90,
+  byId: {
+    'sk-claude-tdd': { typed: 12, agent: 5, lastAt: NOW - 2 * 3_600_000, tokens: ['/tdd'] },
+    'sk-codex-tdd': { typed: 3, agent: 0, lastAt: NOW - 2 * 86_400_000, tokens: ['$tdd'] },
+    'sk-research': { typed: 0, agent: 40, lastAt: NOW - 60_000, tokens: ['/research'] },
+    'cmd-review': { typed: 1, agent: 0, lastAt: NOW - 3 * 86_400_000, tokens: ['/review:pr'] },
+  },
+};
 
 export const CATALOG: ResourceCatalog = {
   state: 'ready',
@@ -301,6 +313,8 @@ type CatalogReply =
 interface ApiOptions {
   /** Consumed in order by GET /api/resources; the last one repeats. */
   catalogs?: CatalogReply[];
+  /** GET /api/resources/usage: the report, or an HTTP status to fail with. */
+  usage?: ResourceUsageReport | number;
 }
 
 function reply(status: number, body: unknown): Response {
@@ -313,7 +327,7 @@ function reply(status: number, body: unknown): Response {
 
 const notFound = () => reply(404, { success: false, error: 'Not found' });
 
-export function stubApi({ catalogs = [CATALOG] }: ApiOptions = {}) {
+export function stubApi({ catalogs = [CATALOG], usage = USAGE }: ApiOptions = {}) {
   const queue = [...catalogs];
   const mock = vi.fn(async (input: string, init?: RequestInit): Promise<Response> => {
     const url = new URL(input, 'http://localhost');
@@ -330,6 +344,11 @@ export function stubApi({ catalogs = [CATALOG] }: ApiOptions = {}) {
         return reply(next.status, { success: false, error: next.error });
       }
       return reply(200, { success: true, data: next });
+    }
+    if (url.pathname === '/api/resources/usage' && method === 'GET') {
+      return typeof usage === 'number'
+        ? reply(usage, { success: false, error: 'Could not count resource uses' })
+        : reply(200, { success: true, data: usage });
     }
     if (url.pathname === '/api/resources/scan' && method === 'POST') {
       return reply(200, { success: true, data: { state: 'scanning', progress: { phase: 'roots', done: 0, total: 0 } } });

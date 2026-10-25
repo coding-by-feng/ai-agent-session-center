@@ -71,6 +71,7 @@ function InfoBody({ session }: { session: Session }) {
   const openPage = (page: InfoPage) => () => push(infoPath(sessionId, page));
   // Files is the session's own Project tab (AASC-56), not a second browser: back to it.
   const openProject = () => showSegment(sessionId, 'project', sessionHasChat(detectCli(session)));
+  const openAgents = () => showSegment(sessionId, 'agents', sessionHasChat(detectCli(session)));
   // Model is the composer's model sheet (Oct 20 2026): one sheet, and the change goes out as
   // the composer sends it (queued behind a turn, /model before /effort). Only Claude Code and
   // Codex have a model (modelBlocker), and both have a Chat.
@@ -138,7 +139,7 @@ function InfoBody({ session }: { session: Session }) {
         <ListRow title="Files" subtitle="The project, read-only: its Project tab" chevron onClick={openProject} />
         <ListRow title="Notes" value={notes > 0 ? String(notes) : undefined} chevron onClick={openPage('notes')} />
         <ListRow title="Queue" value={queued > 0 ? String(queued) : undefined} chevron onClick={openPage('queue')} />
-        <ListRow title="Agents" value={subagents > 0 ? `${subagents} running` : undefined} chevron onClick={openPage('agents')} />
+        <ListRow title="Agents" subtitle="Who works for this session: its Agents tab" value={subagents > 0 ? `${subagents} running` : undefined} chevron onClick={openAgents} />
         <ListRow title="AI popups" value={popups > 0 ? `${popups} open` : undefined} chevron onClick={openPage('popups')} />
       </ListSection>
 

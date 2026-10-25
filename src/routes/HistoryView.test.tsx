@@ -283,9 +283,45 @@ describe('HistoryView — rows', () => {
 
     await user.click(screen.getByRole('button', { name: 'Resume session' }));
 
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Resuming Claude session in terminal', 'success'));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Resuming the session in its terminal', 'success'));
     expect(callsWith('POST').map(([url]) => String(url))).toEqual(['/api/sessions/s1/resume']);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // Most rows are only in the history: the server opens a new card and names the CLI it resumed with.
+  it('Resume on a history-only row says which conversation is coming back', async () => {
+    stubApi({ resume: () => ok({ ok: true, terminalId: 'term-9', cli: 'codex', newTerminal: true }) });
+    const user = userEvent.setup();
+    renderView();
+    await openButton();
+
+    await user.click(screen.getByRole('button', { name: 'Resume session' }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Resuming the Codex conversation in a new terminal', 'success'));
+  });
+
+  it('Resume on a session that is still running says so, as information rather than an error', async () => {
+    stubApi({ resume: () => ok({ ok: true, alreadyRunning: true, sessionId: 's1' }) });
+    const user = userEvent.setup();
+    renderView();
+    await openButton();
+
+    await user.click(screen.getByRole('button', { name: 'Resume session' }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('Already running: open it from LIVE', 'info'));
+  });
+
+  it('Resume shows the server reason when there is nothing to resume', async () => {
+    stubApi({ resume: () => fail(409, { error: 'No saved Claude or Codex conversation for this session, so there is nothing to resume.' }) });
+    const user = userEvent.setup();
+    renderView();
+    await openButton();
+
+    await user.click(screen.getByRole('button', { name: 'Resume session' }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'No saved Claude or Codex conversation for this session, so there is nothing to resume.', 'error',
+    ));
   });
 
   it('Delete asks first; Cancel deletes nothing, OK deletes and reloads the list', async () => {

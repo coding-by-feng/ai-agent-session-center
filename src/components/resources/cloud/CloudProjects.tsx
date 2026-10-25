@@ -1,144 +1,95 @@
-import { useEffect, useRef, useState } from 'react';
-import { canonicalGithub, ProjectRecordSchema, type ProjectRecord } from '@/types/cloudProjects';
-import type { ResourceCatalog } from '@/types/resources';
+/**
+ * CloudProjects — RESOURCES → Cloud → Projects (AASC-63). The cloud keeps only each project's
+ * GitHub repository (name, link, branch); its files move through GitHub. Every device lists the
+ * saved projects and clones, pulls or pushes them with the GitHub account chosen for each here
+ * (the GitHub CLI's accounts: AASC never sees a token). A checkout already on a device links
+ * itself; nobody picks a folder by hand.
+ */
+import { useEffect, useId, useRef, useState } from 'react';
 import type {
-  CloudJob as Job,
-  InstallPlan,
-  ResourceRef,
-  ResourceVersion,
-} from '@/types/cloudResources';
+  GithubAccounts,
+  LocalProject,
+  ProjectCandidate,
+  ProjectRecord,
+} from '@/types/cloudProjects';
+import type { CloudJob as Job } from '@/types/cloudResources';
+import type { CloudReviewBinding } from '@/lib/cloudApi';
 import { cloudApi } from '@/lib/cloudApi';
 import { cloudCount } from '@/lib/cloudFormat';
 import Button from '@/components/ui/Button';
-import { buttonClass } from '@/components/ui/buttonClass';
-import Chip, { type ChipTone } from '@/components/ui/Chip';
 import EmptyState from '@/components/ui/EmptyState';
 import Field from '@/components/ui/Field';
-import TextInput from '@/components/ui/TextInput';
-import TextArea from '@/components/ui/TextArea';
-import NativeSelect from '@/components/ui/NativeSelect';
 import SectionHeader from '@/components/ui/SectionHeader';
 import StaleNote from '@/components/ui/StaleNote';
+import TextInput from '@/components/ui/TextInput';
 import CloudDialog from './CloudDialog';
-import CloudReview from './CloudReview';
 import CloudJob from './CloudJob';
+import CloudProjectRow, { OWN_SIGN_IN } from './CloudProjectRow';
+import CloudProjectSave, { type SaveChoice } from './CloudProjectSave';
 import { useCloudAction, useCloudSession } from './cloudSession';
 import { cacheKey, readCache, writeCache, rememberJob, type SavedJob } from './cloudCache';
 import styles from '@/styles/modules/CloudResources.module.css';
-type Local = Awaited<ReturnType<typeof cloudApi.localProject>>;
-const refKey = (r: ResourceRef) => r.resourceId + ':' + r.version;
-const labels: Record<Local['state'], string> = {
-  missing: 'Not downloaded',
-  ready: 'Ready',
-  dirty: 'Local changes',
-  diverged: 'Needs attention: local ahead or diverged',
-  detached: 'Needs attention: detached HEAD',
-  'wrong-remote': 'Needs attention: remote or branch mismatch',
-  busy: 'Busy: active session or Git operation',
-};
-const tones: Record<Local['state'], ChipTone> = {
-  missing: 'neutral',
-  ready: 'success',
-  dirty: 'warning',
-  diverged: 'warning',
-  detached: 'warning',
-  'wrong-remote': 'warning',
-  busy: 'info',
-};
-function newRecord(): ProjectRecord {
-  return {
-    id: crypto.randomUUID(),
-    version: 1,
-    name: '',
-    repository: { provider: 'github', owner: '', name: '', url: '', branch: 'main' },
-    description: '',
-    resources: [],
-    deleted: false,
-  };
+
+const ACTIVE: Job['state'][] = ['queued', 'running'];
+const FOLDER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const MAX_PAGES = 20;
+const parentOf = (path: string) =>
+  path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'), 1));
+
+async function allProjects(b: CloudReviewBinding, s: AbortSignal) {
+  const items: ProjectRecord[] = [];
+  let cursor: string | null = null;
+  for (let n = 0; n < MAX_PAGES; n++) {
+    const page = await cloudApi.listProjects(b, cursor ? { cursor } : {}, s);
+    items.push(...page.items);
+    cursor = page.nextCursor;
+    if (!cursor) break;
+  }
+  return items.filter((p) => !p.deleted);
 }
-export default function CloudProjects({
-  catalog,
-  visible = true,
-}: {
-  catalog: ResourceCatalog;
-  visible?: boolean;
-}) {
+
+export default function CloudProjects({ visible = true }: { visible?: boolean }) {
   const session = useCloudSession(),
     action = useCloudAction(),
-    key = cacheKey(session.status.connection);
-  const [page, setPage] = useState<{
-      key: string;
-      projects: ProjectRecord[];
-      versions: ResourceVersion[];
-      cursor: string | null;
-      stale: boolean;
-    }>({ key: '', projects: [], versions: [], cursor: null, stale: true }),
+    key = cacheKey(session.status.connection),
+    activityId = useId();
+  const [page, setPage] = useState<{ key: string; projects: ProjectRecord[]; stale: boolean }>({
+      key: '',
+      projects: [],
+      stale: true,
+    }),
+    [locals, setLocals] = useState<Record<string, LocalProject>>({}),
+    [accounts, setAccounts] = useState<GithubAccounts | null>(null),
     [jobs, setJobs] = useState<{ key: string; rows: SavedJob[] }>({ key: '', rows: [] }),
-    [locals, setLocals] = useState<Record<string, Local>>({});
-  const [draft, setDraft] = useState<{
-      value: ProjectRecord;
-      base: number | null;
-      mutationId: string;
-      owner: string;
-    } | null>(null),
-    [comparison, setComparison] = useState<{
-      value: ProjectRecord;
-      editor: number;
-      owner: string;
-      epoch: number;
-    } | null>(null),
-    [associate, setAssociate] = useState(''),
-    [receive, setReceive] = useState<{
+    [running, setRunning] = useState<string[]>([]),
+    [saving, setSaving] = useState<{ candidates: ProjectCandidate[] | null } | null>(null),
+    [cloning, setCloning] = useState<{
       project: ProjectRecord;
-      epoch: number;
-      jobId?: string;
-      returnFocus: HTMLElement | null;
+      parent: string;
+      name: string;
     } | null>(null),
-    [parent, setParent] = useState(''),
-    [directory, setDirectory] = useState(''),
-    [transport, setTransport] = useState<'https' | 'ssh'>('https'),
-    [pins, setPins] = useState<ResourceRef[]>([]),
-    [review, setReview] = useState<{
-      plan: InstallPlan;
-      jobId: string;
-      epoch: number;
-      returnFocus: HTMLElement | null;
-    } | null>(null);
-  const editorSession = useRef(0);
-  const visibleRef = useRef(visible);
-  visibleRef.current = visible;
-  if (!visible && review) setReview(null);
-  if (!visible && receive) setReceive(null);
-  const projects = page.key === key ? page.projects : [],
-    versions = page.key === key ? page.versions : [],
-    savedJobs = jobs.key === key ? jobs.rows : [];
-  function local(id: string) {
-    action.run(
-      (b, s) => cloudApi.localProject(id, b, s),
-      (l) => setLocals((old) => ({ ...old, [id]: l })),
-    );
+    [activityOpen, setActivityOpen] = useState(false);
+  const watching = useRef(new Set<string>());
+  if (!visible && (saving || cloning)) {
+    setSaving(null);
+    setCloning(null);
   }
-  function load(more = false) {
+  const projects = page.key === key ? page.projects : [],
+    savedJobs = jobs.key === key ? jobs.rows : [];
+
+  function load() {
     action.run(
       async (b, s) => {
-        const p = await cloudApi.listProjects(
-          b,
-          more && page.cursor ? { cursor: page.cursor } : {},
-          s,
-        );
-        let r = await cloudApi.listResources(b, {}, s);
-        const all = [...r.items];
-        while (r.nextCursor) {
-          r = await cloudApi.listResources(b, { cursor: r.nextCursor }, s);
-          all.push(...r.items);
-        }
-        return { p, all };
+        const [list, gh] = await Promise.all([allProjects(b, s), cloudApi.githubAccounts(b, s)]);
+        const states: Record<string, LocalProject> = {};
+        for (const p of list) states[p.id] = await cloudApi.localProject(p.id, b, s);
+        return { list, gh, states };
       },
-      ({ p, all }) => {
-        const next = more ? [...projects, ...p.items] : p.items;
-        setPage({ key, projects: next, versions: all, cursor: p.nextCursor, stale: false });
-        writeCache(key, { projects: next, resources: all, savedAt: Date.now() });
-        for (const p of next) local(p.id);
+      ({ list, gh, states }) => {
+        setPage({ key, projects: list, stale: false });
+        setAccounts(gh);
+        setLocals(states);
+        writeCache(key, { projects: list, savedAt: Date.now() });
       },
     );
   }
@@ -147,13 +98,7 @@ export default function CloudProjects({
     void Promise.resolve().then(() => {
       if (cancelled) return;
       const cached = readCache(key);
-      setPage({
-        key,
-        projects: cached.projects,
-        versions: cached.resources,
-        cursor: null,
-        stale: true,
-      });
+      setPage({ key, projects: cached.projects.filter((p) => !p.deleted), stale: true });
       setJobs({ key, rows: cached.jobs.filter((j) => j.projectId) });
       setLocals({});
       if (key && session.status.state === 'connected' && !session.changed) load();
@@ -161,590 +106,237 @@ export default function CloudProjects({
     return () => {
       cancelled = true;
     };
-    // An account transition reloads browsing only, never a pending mutation or edited draft.
+    // An account transition reloads the list only, never a running job.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, session.epoch]);
-  function saveJob(j: Job, projectId: string, generation = session.status.connection!.generation) {
+
+  const refreshLocal = (id: string) =>
+    action.run(
+      (b, s) => cloudApi.localProject(id, b, s),
+      (l) => setLocals((old) => ({ ...old, [id]: l })),
+    );
+  function started(job: Job, projectId: string) {
+    const generation = session.status.connection!.generation;
     setJobs((prev) => ({
       key,
-      rows: [{ job: j, generation, projectId }, ...prev.rows.filter((r) => r.job.id !== j.id)],
+      rows: [{ job, generation, projectId }, ...prev.rows.filter((j) => j.job.id !== job.id)],
     }));
-    rememberJob(key, j, generation, projectId);
-    if (!['queued', 'running'].includes(j.state)) local(projectId);
+    rememberJob(key, job, generation, projectId);
+    if (ACTIVE.includes(job.state)) {
+      watching.current.add(job.id);
+      setRunning([...watching.current]);
+    } else refreshLocal(projectId);
   }
-  function edit(p: ProjectRecord | null) {
-    editorSession.current++;
-    setDraft({
-      value: p ?? newRecord(),
-      base: p?.version ?? null,
-      mutationId: crypto.randomUUID(),
-      owner: key,
-    });
-    setComparison(null);
-    action.setError(null);
+  function jobChanged(next: Job, row: SavedJob) {
+    setJobs((prev) => ({
+      ...prev,
+      rows: prev.rows.map((r) => (r.job.id === next.id ? { ...r, job: next } : r)),
+    }));
+    rememberJob(key, next, row.generation, row.projectId);
+    // A ref, not the rendered list: two jobs can end in one render (see CloudResources).
+    if (!ACTIVE.includes(next.state) && watching.current.delete(next.id)) {
+      setRunning([...watching.current]);
+      if (row.projectId) refreshLocal(row.projectId);
+    }
   }
-  function closeEditor() {
-    editorSession.current++;
-    setDraft(null);
-    setComparison(null);
-  }
-  function patch(p: Partial<ProjectRecord>) {
-    setDraft((d) =>
-      d ? { ...d, value: { ...d.value, ...p }, mutationId: crypto.randomUUID() } : d,
-    );
-  }
-  function receiveProject(project: ProjectRecord, jobId?: string) {
-    if (!visibleRef.current) return;
-    setReceive({
-      project,
-      epoch: session.epoch,
-      jobId,
-      returnFocus: jobId ? action.origin.current : (document.activeElement as HTMLElement),
-    });
-    setPins(project.resources);
-    setDirectory(project.repository.name);
-  }
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const currentDraft = draft?.owner === key,
-    canonical = draft ? canonicalGithub(draft.value.repository.url) : null;
-  // Account guards alone cannot distinguish two editors for the same record.
-  // Increment on every open/close, including A -> B -> A before an await completes.
-  function editorReview() {
-    const editor = editorSession.current,
-      owner = key,
-      id = draft!.value.id,
-      epoch = session.epoch;
-    return {
-      editor,
-      owner,
-      id,
-      epoch,
-      current: () =>
-        editorSession.current === editor &&
-        session.current() === epoch &&
-        draftRef.current?.owner === owner &&
-        draftRef.current?.value.id === id,
-    };
-  }
-  const latest =
-    comparison &&
-    comparison.editor === editorSession.current &&
-    comparison.owner === key &&
-    comparison.epoch === session.epoch &&
-    comparison.value.id === draft?.value.id
-      ? comparison.value
-      : null;
-  function compareLatest() {
-    if (!draft || !currentDraft) return;
-    const review = editorReview();
+  function openSave() {
+    setSaving({ candidates: null });
     action.run(
-      (b, s) => cloudApi.project(review.id, b, s),
-      (p) => {
-        if (review.current() && p.id === review.id)
-          setComparison({
-            value: p,
-            editor: review.editor,
-            owner: review.owner,
-            epoch: review.epoch,
-          });
-      },
-      false,
-      review.current,
+      (b, s) => cloudApi.projectCandidates(b, s),
+      (c) => setSaving((open) => (open ? { candidates: c.items } : open)),
     );
   }
-  function save() {
-    if (!draft || !currentDraft) return;
-    const url = canonicalGithub(draft.value.repository.url);
-    if (!url) {
-      action.setError('Enter a canonical GitHub HTTPS URL or git@github.com:owner/repo.git.');
-      return;
-    }
-    const [owner, name] = url.slice('https://github.com/'.length).split('/');
-    const parsed = ProjectRecordSchema.safeParse({
-      ...draft.value,
-      repository: { ...draft.value.repository, owner, name, url },
-    });
-    if (!parsed.success) {
-      action.setError('Check project name, GitHub URL, branch and exact resource pins.');
-      return;
-    }
-    const review = editorReview();
+  function save(choice: SaveChoice) {
+    const value: ProjectRecord = {
+      id: crypto.randomUUID(),
+      version: 1,
+      name: choice.repository.name,
+      repository: choice.repository,
+      description: '',
+      resources: [],
+      deleted: false,
+    };
     action.run(
       (b, s) =>
         cloudApi.saveProject(
-          { mutationId: draft.mutationId, baseVersion: draft.base, value: parsed.data },
+          { mutationId: crypto.randomUUID(), baseVersion: null, value },
           b,
           s,
+          choice.localPath,
         ),
-      (p) => {
-        if (!review.current() || p.id !== review.id) return;
-        if (draftRef.current?.mutationId === draft.mutationId) {
-          setDraft({ value: p, base: p.version, mutationId: crypto.randomUUID(), owner: key });
-          setComparison(null);
-        } else {
-          // A successful save acknowledges only its submitted snapshot. Keep later typing.
-          setComparison({
-            value: p,
-            editor: review.editor,
-            owner: review.owner,
-            epoch: review.epoch,
-          });
-        }
+      () => {
+        setSaving(null);
         load();
       },
-      false,
-      review.current,
     );
   }
+  function openClone(project: ProjectRecord) {
+    const linked = Object.values(locals).find((l) => l.path)?.path;
+    setCloning({ project, parent: linked ? parentOf(linked) : '', name: project.repository.name });
+  }
+  const runningFor = (id: string) =>
+    savedJobs.filter((j) => j.projectId === id && running.includes(j.job.id));
+  const history = savedJobs.filter((j) => !running.includes(j.job.id));
+  const off = !action.enabled || action.busy || page.stale;
+  const signedIn = (accounts?.accounts ?? []).filter((a) => a.ok);
   return (
     <>
+      <SectionHeader label="GitHub accounts on this Mac" count={signedIn.length} />
+      <div className={styles.accounts}>
+        {accounts && !accounts.installed ? (
+          <p className={styles.hint}>
+            Install the GitHub CLI to clone, pull and push with your GitHub accounts: run{' '}
+            <code>brew install gh</code>, then <code>gh auth login</code>. Until then projects use{' '}
+            {OWN_SIGN_IN.toLowerCase()}.
+          </p>
+        ) : (
+          <>
+            {signedIn.length > 0 && (
+              <p className={styles.accountList}>
+                {signedIn.map((a) => (
+                  <span key={a.login}>
+                    {a.login}
+                    {a.active ? ' (active)' : ''}
+                  </span>
+                ))}
+              </p>
+            )}
+            <p className={styles.hint}>
+              To add an account, run <code>gh auth login</code> in a terminal (once per account),
+              then press Refresh. The GitHub CLI keeps the tokens; AASC only sees the account names.
+            </p>
+          </>
+        )}
+      </div>
       <SectionHeader
-        label="Projects"
+        label="Saved projects"
         count={projects.length}
-        countLabel={cloudCount(projects.length, 'cloud project')}
+        countLabel={cloudCount(projects.length, 'saved project')}
       />
-      <p className={styles.hint}>
-        Save the project’s GitHub details, choose its local folder, then add resource versions.
-      </p>
       <div className={styles.toolbar}>
-        <Button variant="primary" onClick={() => edit(null)}>
-          Add project
+        <Button variant="primary" disabled={!action.enabled || action.busy} onClick={openSave}>
+          Save a project
         </Button>
-        <Button disabled={!action.enabled || action.busy} onClick={() => load()}>
-          Refresh projects
+        <Button disabled={!action.enabled || action.busy} onClick={load}>
+          Refresh
         </Button>
       </div>
       {projects.length > 0 &&
         !action.busy &&
         (page.stale || session.status.state !== 'connected') && (
           <StaleNote>
-            Showing projects saved in this browser. Refresh before Git or metadata changes.
+            Showing projects saved in this browser. Refresh while connected to clone, pull or push.
           </StaleNote>
         )}
-      {draft && (
-        <section className={styles.card}>
-          <h3>
-            {draft.base === null ? 'New project' : 'Edit project'}
-            {draft.base !== null ? ` · revision ${draft.base}` : ''}
-          </h3>
-          {!currentDraft && (
-            <div role="alert" className={styles.banner}>
-              Draft belongs to another account and is preserved. Return to that account or start a
-              new record.
-            </div>
-          )}
-          <div className={styles.form}>
-            <Field label="Project name">
-              <TextInput
-                value={draft.value.name}
-                onChange={(e) => patch({ name: e.target.value })}
-              />
-            </Field>
-            <Field label="GitHub repository URL">
-              <TextInput
-                value={draft.value.repository.url}
-                onChange={(e) =>
-                  patch({ repository: { ...draft.value.repository, url: e.target.value } })
-                }
-              />
-            </Field>
-            {canonical && <p className={styles.hint}>GitHub repository: {canonical}</p>}
-            <Field label="Branch">
-              <TextInput
-                value={draft.value.repository.branch}
-                onChange={(e) =>
-                  patch({ repository: { ...draft.value.repository, branch: e.target.value } })
-                }
-              />
-            </Field>
-            <Field label="Description">
-              <TextArea
-                value={draft.value.description}
-                onChange={(e) => patch({ description: e.target.value })}
-              />
-            </Field>
-          </div>
-          <h4>Add resource versions</h4>
-          <p className={styles.hint}>
-            Saving an empty list is valid. Refresh resources after publication to select new
-            versions.
-          </p>
-          {[
-            ...new Map(
-              [
-                ...draft.value.resources,
-                ...versions
-                  .filter(
-                    (v) => v.manifest.scope === 'global' || v.manifest.projectId === draft.value.id,
-                  )
-                  .map((v) => ({ resourceId: v.manifest.resourceId, version: v.version })),
-              ].map((r) => [refKey(r), r]),
-            ).values(),
-          ].map((r) => (
-            <label className={styles.check} key={refKey(r)}>
-              <input
-                type="checkbox"
-                checked={draft.value.resources.some((x) => refKey(x) === refKey(r))}
-                onChange={(e) =>
-                  patch({
-                    resources: e.target.checked
-                      ? [...draft.value.resources.filter((x) => x.resourceId !== r.resourceId), r]
-                      : draft.value.resources.filter((x) => refKey(x) !== refKey(r)),
-                  })
-                }
-              />
-              {versions.find((v) => v.manifest.resourceId === r.resourceId)?.manifest.name ??
-                r.resourceId}{' '}
-              · v{r.version}
-            </label>
-          ))}
-          <div className={styles.toolbar}>
-            <Button
-              variant="primary"
-              disabled={!action.enabled || action.busy || !currentDraft}
-              onClick={save}
-            >
-              Save project details
-            </Button>
-            {draft.base !== null && (
-              <Button
-                disabled={!action.enabled || action.busy || !currentDraft}
-                onClick={compareLatest}
-              >
-                Load latest for comparison
-              </Button>
-            )}
-            <Button onClick={closeEditor}>Close editor</Button>
-          </div>
-          {latest && (
-            <div className={styles.banner}>
-              <h4>Latest revision {latest.version}</h4>
-              <section aria-label="Revision comparison" className={styles.comparison}>
-                {(
-                  [
-                    ['Latest saved', latest],
-                    ['Your draft', draft.value],
-                  ] as const
-                ).map(([label, value]) => (
-                  <div key={label}>
-                    <h4>{label}</h4>
-                    <dl>
-                      <dt>Project name</dt>
-                      <dd>{value.name}</dd>
-                      <dt>Repository</dt>
-                      <dd>{value.repository.url}</dd>
-                      <dt>Branch</dt>
-                      <dd>{value.repository.branch}</dd>
-                      <dt>Description</dt>
-                      <dd>{value.description || 'No description'}</dd>
-                      <dt>Resource versions</dt>
-                      <dd>
-                        {value.resources.length ? (
-                          <ul>
-                            {value.resources.map((r) => (
-                              <li key={refKey(r)}>
-                                {versions.find((v) => v.manifest.resourceId === r.resourceId)
-                                  ?.manifest.name ?? r.resourceId}{' '}
-                                · v{r.version}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          'No resources'
-                        )}
-                      </dd>
-                    </dl>
-                  </div>
-                ))}
-              </section>
-              <p>
-                Your fields above are unchanged. Review this revision before replacing its metadata
-                with your draft.
-              </p>
-              <Button
-                disabled={!action.enabled || !currentDraft || latest.deleted}
-                onClick={() => {
-                  if (
-                    !comparison ||
-                    comparison.editor !== editorSession.current ||
-                    comparison.epoch !== session.current() ||
-                    comparison.owner !== key ||
-                    latest.id !== draftRef.current?.value.id
-                  )
-                    return;
-                  setDraft((d) =>
-                    d && d.value.id === latest.id && d.owner === comparison.owner
-                      ? {
-                          ...d,
-                          base: latest.version,
-                          value: { ...d.value, version: latest.version },
-                          mutationId: crypto.randomUUID(),
-                        }
-                      : d,
-                  );
-                  setComparison(null);
-                  action.setError(null);
-                }}
-              >
-                Keep my draft using this reviewed revision
-              </Button>
-            </div>
-          )}
-          {draft.base !== null && (
-            <>
-              <h4>Choose an existing project folder on this device</h4>
-              <Field label="Local project folder">
-                <NativeSelect
-                  value={associate}
-                  onChange={setAssociate}
-                  options={[
-                    { value: '', label: 'Choose local project folder' },
-                    ...catalog.projects
-                      .filter((p) => p.exists)
-                      .map((p) => ({ value: p.path, label: `${p.name} · ${p.path}` })),
-                  ]}
-                />
-              </Field>
-              <p className={styles.hint}>
-                Only a checkout inside your home folder can be used, not one under ~/Library or a
-                hidden folder such as .config.
-              </p>
-              <Button
-                disabled={!associate || !action.enabled || action.busy || !currentDraft}
-                onClick={() =>
-                  action.run(
-                    (b, s) => cloudApi.associateProject(draft.value.id, associate, b, s),
-                    (l) => setLocals((old) => ({ ...old, [draft.value.id]: l })),
-                  )
-                }
-              >
-                Use this local folder
-              </Button>
-            </>
-          )}
-        </section>
-      )}
-      {action.error && (
+      {action.error && !saving && !cloning && (
         <div role="alert" className={styles.error}>
           {action.error}
         </div>
       )}
-      <div className={styles.grid}>
-        {projects.map((p) => (
-          <article className={styles.card} key={p.id}>
-            <h4>{p.name}</h4>
-            <p className={styles.hint}>
-              {p.repository.url} · {p.repository.branch} · revision {p.version}
-            </p>
-            {p.description && <p>{p.description}</p>}
-            <p className={styles.stepLine}>
-              {savedJobs.some((j) => j.projectId === p.id && j.job.state === 'partial') ? (
-                <Chip tone="warning">Partial · Git and resources have separate results</Chip>
-              ) : locals[p.id] ? (
-                <Chip tone={tones[locals[p.id].state]}>{labels[locals[p.id].state]}</Chip>
-              ) : (
-                <Chip>Local state not checked</Chip>
-              )}
-            </p>
-            <p className={styles.hint}>
-              {cloudCount(p.resources.length, 'resource version')} included
-            </p>
-            <div className={styles.toolbar}>
-              <Button disabled={page.stale} onClick={() => edit(p)}>
-                Edit project
-              </Button>
-              <Button
-                disabled={!action.enabled || action.busy || page.stale}
-                onClick={() => local(p.id)}
-              >
-                Check local state
-              </Button>
-              {(!locals[p.id] || locals[p.id].state === 'missing') && (
-                <Button
-                  disabled={!action.enabled || action.busy || page.stale}
-                  onClick={() => receiveProject(p)}
-                >
-                  Get project
-                </Button>
-              )}
-              {locals[p.id]?.state === 'ready' && (
-                <Button
-                  disabled={!action.enabled || action.busy || page.stale}
-                  onClick={() =>
-                    action.run(
-                      (b, s) => cloudApi.pullProject(p.id, b, s),
-                      (j) => saveJob(j, p.id),
-                    )
-                  }
-                >
-                  Pull updates
-                </Button>
-              )}
-              {locals[p.id]?.openUrl && (
-                <a
-                  className={buttonClass()}
-                  href={locals[p.id].openUrl!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Open project
-                </a>
-              )}
-            </div>
-            {locals[p.id] && !['ready', 'missing'].includes(locals[p.id].state) && (
-              <p className={styles.hint}>
-                Resolve local work, branch, remote or active sessions in your checkout, then check
-                again. Pull never resets, stashes or rebases.
-              </p>
-            )}
-          </article>
-        ))}
-      </div>
-      {page.cursor && (
-        <Button disabled={!action.enabled || action.busy} onClick={() => load(true)}>
-          More projects
-        </Button>
-      )}
       {!projects.length &&
         (action.busy ? (
-          <EmptyState compact busy title="Loading cloud projects…" />
+          <EmptyState compact busy title="Loading projects…" />
         ) : (
           <EmptyState
             compact
-            title="No cloud project records yet."
-            hint="A project record keeps a GitHub repository and the resource versions it needs together."
-            action={<Button onClick={() => edit(null)}>Add project</Button>}
+            title="No projects saved to cloud yet."
+            hint="Save a project from a GitHub folder on this Mac, or paste its GitHub link. Every device can then clone it."
           />
         ))}
-      {savedJobs.length > 0 && (
-        <SectionHeader
-          label="Jobs"
-          count={savedJobs.length}
-          countLabel={cloudCount(savedJobs.length, 'job')}
-        />
-      )}
-      {savedJobs.map((j) => (
-        <CloudJob
-          key={j.job.id}
-          job={j.job}
-          owned={j.generation === session.status.connection?.generation}
-          onChange={(next) => saveJob(next, j.projectId!, j.generation)}
-          onResourcesReview={
-            j.job.kind === 'get-project' && j.generation === session.status.connection?.generation
-              ? () =>
-                  action.run(
-                    (b, s) => cloudApi.project(j.projectId!, b, s),
-                    (p) => receiveProject(p, j.job.id),
-                  )
-              : undefined
-          }
-        />
-      ))}
-      {receive && (
-        <CloudDialog
-          returnFocus={receive.returnFocus}
-          title={receive.jobId ? 'Retry project resources' : 'Get project'}
-          onClose={() => setReceive(null)}
-        >
-          <p>
-            {receive.project.name} · {receive.project.repository.url} ·{' '}
-            {receive.project.repository.branch}
-          </p>
-          {!receive.jobId && (
-            <div className={styles.form}>
-              <Field label="Parent folder on this device">
-                <TextInput
-                  value={parent}
-                  onChange={(e) => setParent(e.target.value)}
-                  placeholder="/Users/you/Projects"
+      {projects.length > 0 && (
+        <ul className={styles.syncList} aria-label="Saved projects">
+          {projects.map((p) => (
+            <CloudProjectRow
+              key={p.id}
+              project={p}
+              local={locals[p.id]}
+              accounts={accounts}
+              disabled={off}
+              working={runningFor(p.id).length > 0}
+              onClone={() => openClone(p)}
+              onPull={() =>
+                action.run(
+                  (b, s) => cloudApi.pullProject(p.id, b, s),
+                  (j) => started(j, p.id),
+                )
+              }
+              onPush={() =>
+                action.run(
+                  (b, s) => cloudApi.pushProject(p.id, b, s),
+                  (j) => started(j, p.id),
+                )
+              }
+              onCheck={() =>
+                action.run(
+                  (b, s) => cloudApi.checkProject(p.id, b, s),
+                  (l) => setLocals((old) => ({ ...old, [p.id]: l })),
+                )
+              }
+              onAccount={(login) =>
+                action.run(
+                  (b, s) => cloudApi.setProjectAccount(p.id, login, b, s),
+                  (l) => setLocals((old) => ({ ...old, [p.id]: l })),
+                )
+              }
+              onRemove={() =>
+                action.run(
+                  (b, s) => cloudApi.removeProject(p.id, b, s),
+                  () =>
+                    setPage((old) => ({
+                      ...old,
+                      projects: old.projects.filter((x) => x.id !== p.id),
+                    })),
+                )
+              }
+            >
+              {runningFor(p.id).map((j) => (
+                <CloudJob
+                  key={j.job.id}
+                  job={j.job}
+                  owned={j.generation === session.status.connection?.generation}
+                  openUrl={locals[p.id]?.openUrl}
+                  onChange={(next) => jobChanged(next, j)}
                 />
-              </Field>
-              <p className={styles.hint}>
-                A full path inside your home folder (your home folder itself is fine), not under
-                ~/Library or a hidden folder such as .ssh or .claude.
-              </p>
-              <Field label="New directory name">
-                <TextInput value={directory} onChange={(e) => setDirectory(e.target.value)} />
-              </Field>
-              <Field label="Git transport">
-                <NativeSelect
-                  value={transport}
-                  onChange={setTransport}
-                  options={[
-                    { value: 'https', label: 'HTTPS · native credential helper' },
-                    { value: 'ssh', label: 'SSH · local keys and host trust' },
-                  ]}
-                />
-              </Field>
-            </div>
-          )}
-          <h4>Choose resource versions</h4>
-          {receive.project.resources.map((r) => (
-            <label className={styles.check} key={refKey(r)}>
-              <input
-                type="checkbox"
-                checked={pins.some((p) => refKey(p) === refKey(r))}
-                onChange={(e) =>
-                  setPins((old) =>
-                    e.target.checked ? [...old, r] : old.filter((p) => refKey(p) !== refKey(r)),
-                  )
-                }
-              />
-              {r.resourceId} · v{r.version}
-            </label>
+              ))}
+            </CloudProjectRow>
           ))}
-          <p className={styles.hint}>
-            {receive.jobId
-              ? 'An empty selection explicitly skips resources; the existing checkout remains.'
-              : 'Git and resource results are separate. Local authentication stays on this device.'}
-          </p>
-          <Button
-            variant="primary"
-            disabled={
-              !action.enabled ||
-              action.busy ||
-              receive.epoch !== session.epoch ||
-              (!receive.jobId && (!parent || !directory))
-            }
-            onClick={() => {
-              if (receive.jobId)
-                action.run(
-                  (b, s) => cloudApi.projectResourcePlan(receive.jobId!, b, pins, s),
-                  (plan) => {
-                    if (!visibleRef.current) return;
-                    setReview({
-                      plan,
-                      jobId: receive.jobId!,
-                      epoch: session.epoch,
-                      returnFocus: receive.returnFocus,
-                    });
-                    setReceive(null);
-                  },
-                );
-              else
-                action.run(
-                  (b, s) =>
-                    cloudApi.getProject(
-                      receive.project.id,
-                      {
-                        parentPath: parent,
-                        directoryName: directory,
-                        transport,
-                        resourceVersions: pins,
-                      },
-                      b,
-                      s,
-                    ),
-                  (j) => {
-                    saveJob(j, receive.project.id);
-                    setReceive(null);
-                  },
-                );
-            }}
-          >
-            {receive.jobId ? 'Compare resources for retry' : 'Start Get project'}
-          </Button>
+        </ul>
+      )}
+      <SectionHeader
+        label="Activity"
+        count={history.length}
+        countLabel={cloudCount(history.length, 'past job')}
+        collapsed={!activityOpen}
+        onToggle={() => setActivityOpen((open) => !open)}
+        controls={activityId}
+      />
+      <div id={activityId} hidden={!activityOpen}>
+        {!history.length && (
+          <p className={styles.hint}>No clones, pulls or pushes in this browser yet.</p>
+        )}
+        {history.map((j) => (
+          <CloudJob
+            key={j.job.id}
+            job={j.job}
+            owned={j.generation === session.status.connection?.generation}
+            onChange={(next) => jobChanged(next, j)}
+          />
+        ))}
+      </div>
+      {saving && (
+        <CloudDialog
+          returnFocus={action.origin.current}
+          title="Save a project"
+          onClose={() => setSaving(null)}
+        >
+          <CloudProjectSave
+            candidates={saving.candidates}
+            loading={!saving.candidates && action.busy}
+            busy={action.busy}
+            disabled={!action.enabled}
+            onSave={save}
+            onClose={() => setSaving(null)}
+          />
           {action.error && (
             <div role="alert" className={styles.error}>
               {action.error}
@@ -752,38 +344,70 @@ export default function CloudProjects({
           )}
         </CloudDialog>
       )}
-      {review && (
+      {cloning && (
         <CloudDialog
-          returnFocus={review.returnFocus}
-          title="Review project resource retry"
-          onClose={() => setReview(null)}
+          returnFocus={action.origin.current}
+          title={`Clone ${cloning.project.repository.name}`}
+          onClose={() => setCloning(null)}
         >
-          <CloudReview
-            key={review.plan.id}
-            install={review.plan}
-            busy={action.busy}
-            disabled={!action.enabled || !!action.error || review.epoch !== session.epoch}
-            onClose={() => setReview(null)}
-            onConfirm={(decisions) =>
-              action.run(
-                (b, s) =>
-                  cloudApi.retryProjectResources(
-                    review.jobId,
-                    b,
-                    { planId: review.plan.id, decisions },
-                    s,
-                  ),
-                (j) => {
-                  const owner = savedJobs.find((x) => x.job.id === j.id)?.projectId;
-                  if (owner) saveJob(j, owner);
-                  setReview(null);
-                },
-              )
-            }
-          />
+          <p className={styles.hint}>
+            Clones github.com/{cloning.project.repository.owner}/{cloning.project.repository.name} (
+            {cloning.project.repository.branch}) with{' '}
+            {locals[cloning.project.id]?.account ?? OWN_SIGN_IN.toLowerCase()}.
+          </p>
+          <div className={styles.form}>
+            <Field label="Into this folder">
+              <TextInput
+                value={cloning.parent}
+                placeholder="/Users/you/code"
+                onChange={(e) => setCloning({ ...cloning, parent: e.target.value })}
+              />
+            </Field>
+            <Field label="Folder name">
+              <TextInput
+                value={cloning.name}
+                onChange={(e) => setCloning({ ...cloning, name: e.target.value })}
+              />
+            </Field>
+          </div>
+          {cloning.name && !FOLDER_NAME.test(cloning.name) && (
+            <div className={styles.error} role="alert">
+              Use letters, digits, dots, dashes or underscores, starting with a letter or digit.
+            </div>
+          )}
+          <div className={styles.toolbar}>
+            <Button
+              variant="primary"
+              disabled={
+                !action.enabled ||
+                action.busy ||
+                !cloning.parent.trim() ||
+                !FOLDER_NAME.test(cloning.name)
+              }
+              onClick={() => {
+                const { project, parent, name } = cloning;
+                action.run(
+                  (b, s) =>
+                    cloudApi.getProject(
+                      project.id,
+                      { parentPath: parent.trim(), directoryName: name },
+                      b,
+                      s,
+                    ),
+                  (job) => {
+                    setCloning(null);
+                    started(job, project.id);
+                  },
+                );
+              }}
+            >
+              Clone
+            </Button>
+            <Button onClick={() => setCloning(null)}>Cancel</Button>
+          </div>
           {action.error && (
             <div role="alert" className={styles.error}>
-              {action.error} Close and create a fresh review after any active job finishes.
+              {action.error}
             </div>
           )}
         </CloudDialog>

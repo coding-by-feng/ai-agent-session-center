@@ -36,6 +36,9 @@ import { infoPath } from '@/lib/chat/phoneRoutes';
 import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, senderLine, waitingBlocker, type QueueGroup } from '@/lib/chat/queueTabModel';
 import { sendQueueItemNow } from '@/lib/chat/queueSendNow';
 import { showToast } from '@/components/ui/ToastContainer';
+import PromptTokens, { PromptSkillChips } from '@/components/ui/PromptTokens';
+import { useTextClipped } from '@/hooks/useTextClipped';
+import { AutoEnterIcon, AutoSendIcon, QueueGripIcon } from '@/components/ui/icons';
 import styles from '@/styles/modules/mobile/PhoneQueue.module.css';
 
 /** A finger held this long on ≡ picks the row up; moving first cancels. */
@@ -75,14 +78,6 @@ function BoltIcon() {
   );
 }
 
-function GripIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <path d="M5 8h14M5 12h14M5 16h14" />
-    </svg>
-  );
-}
-
 interface RowProps {
   session: Session;
   item: QueueItem;
@@ -102,7 +97,14 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
   const [sendingNow, setSendingNow] = useState(false);
   const n = index + 1;
   const line = promptLine(item);
+  // The preview is the first line, clamped to two: a skill past the "…" or on a later
+  // line ("… /raab") shows again under it, read from the whole prompt.
+  const lineRef = useRef<HTMLSpanElement>(null);
+  const lineClipped = useTextClipped(lineRef, line);
+  const hidesText = lineClipped || item.text.replace(/\\n/g, '\n').trim() !== line;
   const summary = itemSummary(item);
+  // The pill says "Paused" on screen; the spoken name keeps it with the other words.
+  const spoken = [summary, item.disabled ? 'paused' : ''].filter(Boolean).join(', ');
   const sid = session.sessionId;
   // Every group has a prompt 1: the session's name keeps the spoken names apart.
   const whose = `prompt ${n} for ${sessionDisplayTitle(session)}`;
@@ -251,13 +253,20 @@ function QueueRow({ session, item, index, count, drag, onEdit, onMove, onDelete,
                 e.stopPropagation();
               }}
             >
-              <GripIcon />
+              <QueueGripIcon />
             </button>
-            <button type="button" className={styles.main} onClick={() => onEdit(item)} aria-label={`${whose[0].toUpperCase()}${whose.slice(1)}: ${line}${summary ? `, ${summary}` : ''}. Edit`}>
+            <button type="button" className={styles.main} onClick={() => onEdit(item)} aria-label={`${whose[0].toUpperCase()}${whose.slice(1)}: ${line}${spoken ? `, ${spoken}` : ''}. Edit`}>
               <span className={styles.num} aria-hidden="true">{n}</span>
               <span className={styles.text}>
-                <span className={styles.line}>{line}</span>
-                {summary && <span className={styles.summary}>{summary}</span>}
+                <span ref={lineRef} className={styles.line}><PromptTokens text={line} sessionId={item.sessionId} /></span>
+                {hidesText && <PromptSkillChips text={item.text} sessionId={item.sessionId} />}
+                {(item.disabled || summary) && (
+                  // The session queue's meta line: its Paused pill, then the item's words.
+                  <span className={styles.meta}>
+                    {item.disabled && <span className={styles.paused}>Paused</span>}
+                    {summary && <span className={styles.summary}>{summary}</span>}
+                  </span>
+                )}
               </span>
             </button>
             <button
@@ -288,7 +297,23 @@ function GroupHeader({ group, onOpen }: { group: QueueGroup; onOpen: () => void 
     <button type="button" className={styles.groupHeader} onClick={onOpen} aria-label={`${title}, ${group.items.length} queued, ${state}. Open its queue`}>
       <span className={styles.groupText}>
         <span className={styles.groupTitle}>{title} · {group.items.length}</span>
-        <span className={styles.groupState} data-paused={automation.paused || waiting ? '' : undefined}>{state}</span>
+        <span className={styles.groupState} data-paused={automation.paused || waiting ? '' : undefined}>
+          {automation.paused || waiting ? state : (
+            // Words with the session queue's glyphs, in its order: they are its two switches'
+            // states, not switches (this header opens that queue, where they live).
+            <>
+              <span className={styles.auto} data-on={automation.autoEnter ? '' : undefined}>
+                <AutoEnterIcon />
+                Auto-Enter {automation.autoEnter ? 'on' : 'off'}
+              </span>
+              <span className={styles.auto} data-on={automation.autoSend ? '' : undefined}>
+                <span className={styles.autoDot} aria-hidden="true">·</span>
+                <AutoSendIcon />
+                Auto-send {automation.autoSend ? 'on' : 'off'}
+              </span>
+            </>
+          )}
+        </span>
       </span>
       <ChevronRightIcon />
     </button>

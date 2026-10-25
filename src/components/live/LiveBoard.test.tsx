@@ -16,6 +16,10 @@ import { useWsStore } from '@/stores/wsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 
+// The kill confirm toasts its result; nothing here needs the toast container.
+const toast = vi.hoisted(() => vi.fn());
+vi.mock('@/components/ui/ToastContainer', () => ({ showToast: toast }));
+
 const s = (id: string, over: Partial<Session> = {}): Session =>
   ({
     sessionId: id,
@@ -41,7 +45,13 @@ function renderBoard(list: Session[], selectedSessionId: string | null = null) {
 const cards = () => screen.getAllByRole('button', { name: /^Open / });
 
 beforeEach(() => {
-  useUiStore.setState({ detailPanelMinimized: false, liveHintDismissed: false });
+  useUiStore.setState({
+    detailPanelMinimized: false,
+    liveHintDismissed: false,
+    activeModal: null,
+    sessionKillTargetId: null,
+    liveBoardSort: 'status',
+  });
   useSettingsStore.setState({ scene3dEnabled: false } as never);
   useWsStore.setState({ snapshotReceived: true });
   useRoomStore.setState({ rooms: [] });
@@ -74,6 +84,25 @@ describe('LiveBoard — the cards', () => {
     expect(within(card).getByText('Approval needed')).toBeInTheDocument();
     expect(card.querySelector('svg')).not.toBeNull();
     expect(card.getAttribute('data-needs-you')).toBe('true');
+  });
+
+  it('marks a session whose answer asks you to proceed: P, the words, and the coloured frame', () => {
+    renderBoard([s('a', { status: 'idle', pendingProceedAt: 5 })]);
+    const card = cards()[0];
+    expect(within(card).getByText('Asks you to proceed')).toBeInTheDocument();
+    expect(card.getAttribute('data-proceed')).toBe('true');
+    expect(card.getAttribute('data-status')).toBe('idle'); // the real status is still there
+    expect(card.getAttribute('aria-label')).toContain('Asks you to proceed');
+    expect(card.getAttribute('data-needs-you')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /Needs you 1/ })); // counted, and kept by the filter
+    expect(cards()).toHaveLength(1);
+  });
+
+  it('an approval outranks the proceed reminder', () => {
+    renderBoard([s('a', { status: 'approval', pendingProceedAt: 5 })]);
+    const card = cards()[0];
+    expect(within(card).getByText('Approval needed')).toBeInTheDocument();
+    expect(card.getAttribute('data-proceed')).toBeNull();
   });
 
   // AASC-11: nearly every card is Claude, so "CLAUDE" on each told nobody anything.
@@ -427,5 +456,154 @@ describe('LiveBoard — the card lays out the same in the desktop app', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '');
     const card = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === '.card');
     expect(card?.[2]).toMatch(/align-items\s*:\s*stretch\s*;/);
+  });
+});
+
+// A test must never reach a real process: every kill here goes to a stubbed fetch.
+describe('LiveBoard — killing a session from its card', () => {
+  let fetchStub: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    toast.mockClear();
+    fetchStub = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, killedPid: 4242 }) }) as Response);
+    vi.stubGlobal('fetch', fetchStub);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const killButton = (title: string) => screen.getByRole('button', { name: `Kill session ${title}` });
+  const confirmKill = async () => {
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'KILL' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  it('every card has its own kill button, beside the card rather than inside it', () => {
+    renderBoard([s('Fix the cart'), s('Write docs')]);
+    for (const title of ['Fix the cart', 'Write docs']) {
+      const kill = killButton(title);
+      const open = screen.getByRole('button', { name: new RegExp(`^Open ${title}`) });
+      expect(open.contains(kill)).toBe(false);
+      expect(kill.closest('li')).toBe(open.closest('li'));
+    }
+  });
+
+  it('asks first, naming the session, and opens no panel', () => {
+    renderBoard([s('Fix the cart', { projectName: 'shop' }), s('Write docs', { projectName: 'shop' })]);
+    fireEvent.click(killButton('Write docs'));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent(/Write docs/);
+    expect(dialog).not.toHaveTextContent(/Fix the cart/);
+    expect(useSessionStore.getState().selectedSessionId).toBeNull();
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('kills that session once confirmed, and closes the dialog', async () => {
+    renderBoard([s('a'), s('b')]);
+    fireEvent.click(killButton('b'));
+    await confirmKill();
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub.mock.calls[0][0]).toBe('/api/sessions/b/kill');
+    expect((fetchStub.mock.calls[0][1] as RequestInit).method).toBe('POST');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(useUiStore.getState().sessionKillTargetId).toBeNull();
+  });
+
+  it('Cancel kills nothing', () => {
+    renderBoard([s('a')]);
+    fireEvent.click(killButton('a'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'CANCEL' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('leaves a minimized panel on its own session when another card is killed', async () => {
+    renderBoard([s('a'), s('b')], 'a');
+    act(() => useUiStore.setState({ detailPanelMinimized: true }));
+    fireEvent.click(killButton('b'));
+    await confirmKill();
+    expect(useSessionStore.getState().selectedSessionId).toBe('a');
+  });
+
+  it('a kill click does not retire the tip, which is about opening a session', () => {
+    renderBoard([s('a')]);
+    fireEvent.click(killButton('a'));
+    expect(useUiStore.getState().liveHintDismissed).toBe(false);
+  });
+});
+
+describe('LiveBoard — sorting by room or project', () => {
+  const sortSelect = () => screen.getByRole('combobox', { name: 'Sort' });
+  const groupHeadings = () => screen.queryAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+  const idsUnder = (heading: RegExp) => {
+    const list = screen.getByRole('list', { name: heading });
+    return within(list).getAllByRole('button', { name: /^Open / }).map((c) => c.getAttribute('data-session-id'));
+  };
+  const rooms = () => [
+    { ...room('r1', 'Build', ['a', 'c'], 0), listOrder: 1 },
+    { ...room('r2', 'Research', ['b'], 1), listOrder: 0 },
+  ];
+
+  it('starts on Status: today\'s order, with no group headings', () => {
+    useRoomStore.setState({ rooms: rooms() });
+    renderBoard([s('a'), s('b'), s('c'), s('d')]);
+    expect(sortSelect()).toHaveValue('status');
+    expect(groupHeadings()).toEqual([]);
+  });
+
+  it('Room puts the cards under one heading per room, in the strip\'s room order, then Common Area', () => {
+    useRoomStore.setState({ rooms: rooms() });
+    renderBoard([s('a'), s('b'), s('c', { status: 'working' }), s('d')]);
+    fireEvent.change(sortSelect(), { target: { value: 'room' } });
+    expect(groupHeadings()).toEqual(['Research (1)', 'Build (2)', 'Common Area (1)']);
+    expect(idsUnder(/^Build/)).toEqual(['c', 'a']);
+    expect(idsUnder(/^Common Area/)).toEqual(['d']);
+  });
+
+  it("paints a room heading's dot in that room's colour", () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Build', ['a'], 2)] });
+    renderBoard([s('a')]);
+    fireEvent.change(sortSelect(), { target: { value: 'room' } });
+    const heading = screen.getByRole('heading', { level: 3, name: /^Build/ });
+    expect(heading.style.getPropertyValue('--room-color')).toBe(ROOM_COLOR_PALETTE[2]);
+  });
+
+  it('Project puts the cards under one heading per folder, A to Z', () => {
+    renderBoard([
+      s('a', { projectPath: '/Users/me/zeta' }),
+      s('b', { projectPath: '/Users/me/alpha' }),
+      s('c', { projectPath: '/Users/me/zeta' }),
+    ]);
+    fireEvent.change(sortSelect(), { target: { value: 'project' } });
+    expect(groupHeadings()).toEqual(['alpha (1)', 'zeta (2)']);
+    expect(idsUnder(/^zeta/)).toEqual(['a', 'c']);
+  });
+
+  it('remembers the choice for next time, apart from the strip\'s own sort', () => {
+    const stripBefore = useUiStore.getState().sessionSortMode;
+    renderBoard([s('a')]);
+    fireEvent.change(sortSelect(), { target: { value: 'project' } });
+    expect(useUiStore.getState().liveBoardSort).toBe('project');
+    expect(localStorage.getItem('live-board-sort')).toBe('project');
+    expect(useUiStore.getState().sessionSortMode).toBe(stripBefore);
+  });
+
+  it('filters inside the groups, and a group with nothing left goes away', () => {
+    useRoomStore.setState({ rooms: rooms() });
+    renderBoard([s('a', { status: 'approval' }), s('b'), s('c'), s('d', { status: 'input' })]);
+    fireEvent.change(sortSelect(), { target: { value: 'room' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Needs you/ }));
+    expect(groupHeadings()).toEqual(['Build (1)', 'Common Area (1)']);
+  });
+
+  it('still holds the cards still while the pointer is on them', () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Build', ['x', 'y'], 0)] });
+    useUiStore.setState({ liveBoardSort: 'room' });
+    const { rerender } = renderBoard([s('y', { status: 'working' }), s('x', { status: 'waiting' })]);
+    expect(idsUnder(/^Build/)).toEqual(['y', 'x']);
+    fireEvent.pointerEnter(screen.getByRole('list', { name: /^Build/ }));
+    rerender(<LiveBoard sessions={boardSessions([s('y', { status: 'waiting' }), s('x', { status: 'waiting' })])} />);
+    expect(idsUnder(/^Build/)).toEqual(['y', 'x']);
+    fireEvent.pointerLeave(screen.getByRole('list', { name: /^Build/ }));
+    expect(idsUnder(/^Build/)).toEqual(['x', 'y']);
   });
 });

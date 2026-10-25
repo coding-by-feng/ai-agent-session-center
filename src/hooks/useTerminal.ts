@@ -13,6 +13,7 @@ import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWsStore } from '@/stores/wsStore';
+import { installAltScreenMouseReset } from '@/lib/terminalMouseReset';
 import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 import {
@@ -1281,7 +1282,13 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
         const CHUNK_SIZE = 4096;
         const usePtyIpc = isPtyHostTerminal(terminalId);
         term.textarea?.addEventListener('blur', () => inputTapRef.current?.onReset());
-        term.onData((data) => {
+        // A TUI that left the alt screen with mouse tracking on (Codex /logout)
+        // would type every mouse move into the shell; see terminalMouseReset.ts.
+        // Its parser handlers go with the terminal, so it needs no dispose here.
+        const mouseGuard = installAltScreenMouseReset(term);
+        term.onData((raw) => {
+          const data = mouseGuard.filterInput(raw);
+          if (data === null) return;
           const tap = inputTapRef.current;
           if (tap) tap.onData(data, readCaretContext(term));
           if (usePtyIpc) {
@@ -1302,7 +1309,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           }
         });
 
-        term.onBinary((data) => {
+        term.onBinary((raw) => {
+          const data = mouseGuard.filterInput(raw);
+          if (data === null) return;
           sendInput(wsRef.current, terminalId, data);
         });
 

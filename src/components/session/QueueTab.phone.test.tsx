@@ -195,6 +195,21 @@ describe('QueueTab on a phone — press and hold to reorder', () => {
     expect(order()).toEqual(['third', 'first', 'second']);
   });
 
+  it('the held prompt follows the finger and the one it passes slides up; no caret line (Oct 21 2026)', () => {
+    renderTab();
+    const first = rows()[0];
+    down(textOf(first), 40);
+    act(() => { vi.advanceTimersByTime(HOLD_MS + 10); });
+    act(() => { finger(first, 140); }); // 100 px down: its bottom (180) is past the second's middle (128)
+    expect(rows()[0].style.getPropertyValue('--queue-drag-dy')).toBe('100px');
+    expect(rows()[1].style.getPropertyValue('--queue-shift')).toBe('-88px');
+    expect(rows()[2].style.getPropertyValue('--queue-shift')).toBe('');
+    expect(rows().some((r) => /dropBefore|dropAfter/.test(r.className))).toBe(false);
+    act(() => { up(); });
+    expect(order()).toEqual(['second', 'first', 'third']);
+    expect(rows().every((r) => !r.style.getPropertyValue('--queue-shift') && !r.style.getPropertyValue('--queue-drag-dy'))).toBe(true);
+  });
+
   it('a quick swipe that starts on a prompt scrolls: nothing is cancelled, nothing moves', () => {
     renderTab();
     const third = rows()[2];
@@ -243,6 +258,25 @@ describe('Terminal.module.css — the phone rows hand a swipe to the browser', (
     expect(rule('.queuePanelPhone .queueItem')).toMatch(/touch-action:\s*pan-y/);
     expect(rule('.queueItem,\n.queueCard')).toMatch(/touch-action:\s*none/);
   });
+  // Oct 21 2026: a tap leaves :hover on a touch screen, so a just-paused row brightened back
+  // (0.85) and its power button turned green — it looked enabled. Those looks are pointer-only.
+  it('a paused row stays dim on touch: its hover lift and the green power ring need a real pointer', () => {
+    const pointerOnly = css.slice(css.indexOf('@media (hover: hover) {\n  .queueItemDisabled:hover'));
+    expect(pointerOnly).toMatch(/^@media \(hover: hover\) \{\n {2}\.queueItemDisabled:hover \{/);
+    expect(css).not.toMatch(/^\.queueItemDisabled:hover \{/m);
+    expect(css).not.toMatch(/^\.queueToggleBtnOff:hover \{/m);
+    expect(rule('.queueItemDisabled')).toMatch(/opacity:\s*0\.4;/);
+    expect(css).toMatch(/\.queueItemDisabled \.queueItemThumb img \{[^}]*filter:\s*grayscale\(1\)/);
+  });
+
+  // Oct 21 2026: blurring the empty box shrank it 88 → 44 px at once, so a tap on a button under it
+  // missed. The shrink waits out the tap (also with reduced motion); growing on focus does not wait.
+  it('the compose box keeps its size while a tap that blurred it lands', () => {
+    expect(rule('.queuePanelPhone .queueTextarea')).toMatch(/transition:\s*min-height 150ms ease 350ms;/);
+    expect(css).toMatch(/\.queuePanelPhone \.queueTextarea:focus,\s*\n\.queuePanelPhone \.queueTextarea:not\(:placeholder-shown\) \{\s*\n\s*min-height: 88px;\s*\n\s*transition-delay: 0s;/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\n\s*\.queuePanelPhone \.queueTextarea \{ transition-duration: 0s; \}/);
+  });
+
   it('phone rows show their actions without hover', () => {
     expect(css).toMatch(/\.queuePanelPhone \.queueItem \.queueActions,\s*\n\.queuePanelPhone \.queueItem:hover \.queueActions \{\s*\n\s*display: flex;/);
   });

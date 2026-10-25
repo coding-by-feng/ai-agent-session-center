@@ -26,7 +26,7 @@
  * The values also become the session's launch flags ({@link launchFlagsFromRuntime}),
  * so every resume relaunches with the model and effort the session last ran on.
  */
-import type { SessionContextUsage, SessionRuntime } from '../src/types/session.js';
+import type { SessionContextParts, SessionContextUsage, SessionRuntime } from '../src/types/session.js';
 import { modelFlagFromLabel, modelLabelKey } from '../src/lib/modelLabel.js';
 
 /** One source's view. `effort: null` = known to be unknown (cleared at `effortAt`). */
@@ -214,11 +214,35 @@ function contextFromCodexInfo(raw: unknown): SessionContextUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const info = raw as { last_token_usage?: unknown; model_context_window?: unknown };
   const size = countOf(info.model_context_window);
-  const last = info.last_token_usage as { total_tokens?: unknown; reasoning_output_tokens?: unknown } | null | undefined;
+  const last = info.last_token_usage as {
+    total_tokens?: unknown; reasoning_output_tokens?: unknown; input_tokens?: unknown;
+    cached_input_tokens?: unknown; cache_write_input_tokens?: unknown; output_tokens?: unknown;
+  } | null | undefined;
   const total = countOf(last?.total_tokens);
   if (!size || total === undefined) return undefined;
   const tokens = Math.max(0, total - (countOf(last?.reasoning_output_tokens) ?? 0));
-  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size, tokens };
+  // Codex counts cached input INSIDE input_tokens: new input is the rest.
+  const input = countOf(last?.input_tokens);
+  const cacheRead = countOf(last?.cached_input_tokens);
+  const parts = partsOf({
+    cacheRead,
+    cacheWrite: last?.cache_write_input_tokens,
+    input: input !== undefined && cacheRead !== undefined ? Math.max(0, input - cacheRead) : input,
+    output: last?.output_tokens,
+  });
+  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size, tokens, ...(parts ? { parts } : {}) };
+}
+
+/** The last reply's counts by kind (`{ input, cacheWrite, cacheRead, output }`), each kept only when it is a count. */
+function partsOf(raw: unknown): SessionContextParts | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const parts: SessionContextParts = {};
+  for (const key of ['input', 'cacheWrite', 'cacheRead', 'output'] as const) {
+    const n = countOf(r[key]);
+    if (n !== undefined) parts[key] = n;
+  }
+  return Object.keys(parts).length > 0 ? parts : undefined;
 }
 
 /**
@@ -228,16 +252,18 @@ function contextFromCodexInfo(raw: unknown): SessionContextUsage | undefined {
  */
 function contextFromSnapshot(raw: unknown): SessionContextUsage | null {
   if (!raw || typeof raw !== 'object') return null;
-  const c = raw as { used_percentage?: unknown; size?: unknown; tokens?: unknown };
+  const c = raw as { used_percentage?: unknown; size?: unknown; tokens?: unknown; parts?: unknown };
   const size = countOf(c.size);
   const tokens = countOf(c.tokens);
   const reported = countOf(c.used_percentage);
   const pct = reported ?? (tokens !== undefined && size ? Math.round((tokens / size) * 100) : undefined);
   if (pct === undefined) return null;
+  const parts = partsOf(c.parts);
   return {
     pct: Math.min(100, pct),
     ...(size ? { size } : {}),
     ...(tokens !== undefined ? { tokens } : {}),
+    ...(parts ? { parts } : {}),
   };
 }
 
@@ -318,7 +344,10 @@ export function withoutContext(runtime: SessionRuntime | undefined): SessionRunt
 }
 
 function sameContext(a: SessionContextUsage | undefined, b: SessionContextUsage | undefined): boolean {
-  return a?.pct === b?.pct && a?.size === b?.size && a?.tokens === b?.tokens;
+  const p = a?.parts;
+  const q = b?.parts;
+  return a?.pct === b?.pct && a?.size === b?.size && a?.tokens === b?.tokens
+    && p?.input === q?.input && p?.cacheWrite === q?.cacheWrite && p?.cacheRead === q?.cacheRead && p?.output === q?.output;
 }
 
 /**

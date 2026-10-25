@@ -7,6 +7,7 @@
 //   takeShare                              the item shared from another app, once (AASC-21, ShareInbox.kt)
 //   biometricStatus / authenticate / bootId  the biometric lock's native half (AASC-21, biometricLock.ts decides)
 //   writeWidget                            the home-screen widget's model (AASC-21, AascWidgetProvider.kt)
+//   discoverMacs                           Bonjour `_aasc._tcp` on this Wi-Fi, for the LAN rescan (LanDiscovery.kt)
 // Serves the bundled shell page only (ShellOnly.kt).
 package work.aasc.mobile
 
@@ -24,6 +25,7 @@ import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -161,6 +163,16 @@ class ShellBridgePlugin : Plugin() {
         val ids = manager.getAppWidgetIds(ComponentName(context, AascWidgetProvider::class.java))
         if (ids.isNotEmpty()) AascWidgetProvider.render(context, manager, ids)
         call.resolve()
+    }
+
+    /** The Macs advertising on this Wi-Fi, and the phone's own addresses; the shell checks every address before it uses one. */
+    @PluginMethod
+    fun discoverMacs(call: PluginCall) = fromShellOnly(call) {
+        LanDiscovery(context).browse(DiscoveryRules.browseMs(call.getInt("timeoutMs"))) { found ->
+            val services = JSArray()
+            found.forEach { services.put(JSObject().put("host", it.host).put("port", it.port)) }
+            call.resolve(JSObject().put("services", services).put("local", JSArray(localIpv4())))
+        }
     }
 
     /**

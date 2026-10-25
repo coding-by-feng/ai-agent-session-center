@@ -94,6 +94,20 @@ describe('readingFromStatusLine', () => {
     })).toEqual({ model: 'Opus 5.5', modelAt: 1000, effort: 'xhigh', effortAt: 1000, effortSet: false });
   });
 
+  // Oct 21 2026: the phone's Context window details.
+  it('keeps the last reply’s token counts by kind, dropping any that is not a count', () => {
+    const r = readingFromStatusLine({
+      session_id: 's', ts: 1000, model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
+      context: { used_percentage: 42, size: 200000, tokens: 84312, parts: { input: 12, cacheWrite: 300, cacheRead: 84000, output: 900 } },
+    });
+    expect(r?.context).toEqual({ pct: 42, size: 200000, tokens: 84312, parts: { input: 12, cacheWrite: 300, cacheRead: 84000, output: 900 } });
+    const odd = readingFromStatusLine({
+      session_id: 's', ts: 1000, model: { id: 'x' },
+      context: { used_percentage: 42, parts: { input: 'lots', cacheRead: -5, output: 7 } },
+    });
+    expect(odd?.context).toEqual({ pct: 42, parts: { output: 7 } });
+  });
+
   it('a model without the effort parameter has no effort: absent means cleared', () => {
     expect(readingFromStatusLine({ session_id: 's', ts: 1000, model: { id: 'claude-haiku-4-5' } }))
       .toEqual({ model: 'claude-haiku-4-5', modelAt: 1000, effort: null, effortAt: 1000, effortSet: false });
@@ -194,12 +208,13 @@ describe('readingFromTranscript — Codex rollouts', () => {
 
   it('reads the context window from the newest token_count (Oct 20 2026: the phone shows it for Codex too)', () => {
     const r = readingFromTranscript([tokenCount(usage(90_000), 1), turnContext('gpt-6-astra', 'high', 2), tokenCount(usage(172_161), 3)]);
-    expect(r.context).toEqual({ pct: 67, size: 258400, tokens: 172161 });
+    // Codex counts cached input inside input_tokens: new input is the rest.
+    expect(r.context).toEqual({ pct: 67, size: 258400, tokens: 172161, parts: { cacheRead: 167680, cacheWrite: 0, input: 524, output: 3957 } });
     expect(r.contextAt).toBe(at(3));
   });
 
   it('leaves reasoning tokens out of the window (they are not kept in the context)', () => {
-    expect(readingFromTranscript([tokenCount(usage(172_161, 20_000), 1)]).context).toEqual({ pct: 59, size: 258400, tokens: 152161 });
+    expect(readingFromTranscript([tokenCount(usage(172_161, 20_000), 1)]).context).toMatchObject({ pct: 59, size: 258400, tokens: 152161 });
   });
 
   it('says nothing about the context for a token_count with no usage (the one Codex writes before any reply)', () => {

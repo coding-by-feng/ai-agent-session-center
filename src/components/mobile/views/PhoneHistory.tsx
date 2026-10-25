@@ -43,11 +43,11 @@ import Field from '@/components/ui/Field';
 import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
 import Pagination from '@/components/ui/Pagination';
 import StaleNote from '@/components/ui/StaleNote';
-import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { DbSessionRow, DistinctProject, SessionDetailResponse, SessionSearchResponse } from '@/types';
 import { useIsHostDevice } from './hostAccess';
 import PhoneViewBar, { HostOnlyNote } from './PhoneViewBar';
+import PhoneDateInput from './PhoneDateInput';
 import styles from '@/styles/modules/PhoneViews.module.css';
 
 const SORT_DIR_OPTIONS: readonly NativeSelectOption<'asc' | 'desc'>[] = [
@@ -160,10 +160,10 @@ function HostHistory() {
             </Field>
             <div className={styles.sheetPair}>
               <Field label="From" className={styles.sheetField}>
-                <TextInput type="date" value={filters.dateFrom} onChange={(e) => update('dateFrom', e.target.value)} />
+                <PhoneDateInput value={filters.dateFrom} onChange={(v) => update('dateFrom', v)} />
               </Field>
               <Field label="To" className={styles.sheetField}>
-                <TextInput type="date" value={filters.dateTo} onChange={(e) => update('dateTo', e.target.value)} />
+                <PhoneDateInput value={filters.dateTo} onChange={(v) => update('dateTo', v)} />
               </Field>
             </div>
             <div className={styles.sheetPair}>
@@ -409,7 +409,7 @@ function HistoryDetailSheet({ sessionId, listed, canDelete, onClose, onDeleted }
 
   return (
     <>
-      <BottomSheet open onClose={onClose} title={title} fullHeight>
+      <BottomSheet open onClose={onClose} title={title} fullHeight className={styles.dress}>
         <div className={styles.detail} data-testid="history-detail">
           <div className={`${styles.detailScroll} ${styles.historyDetail}`}>{content}</div>
           <div className={styles.detailActions}>

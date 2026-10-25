@@ -48,6 +48,13 @@ beforeEach(() => {
     }
     if (url.endsWith('/approve')) { phones = phones.map((p) => ({ ...p, status: 'active', confirmCode: null })); return json(200, { success: true }); }
     if (method === 'DELETE') { phones = []; return json(200, { success: true }); }
+    if (method === 'PATCH') {
+      const id = decodeURIComponent(url.split('/').pop() ?? '');
+      const label = JSON.parse(String(init?.body)).label as string;
+      phones = phones.map((p) => (p.id === id ? { ...p, label: label.trim() } : p));
+      return json(200, { success: true, data: { device: phones.find((p) => p.id === id) } });
+    }
+    if (url.endsWith('/sign-out') && method === 'POST') return json(200, { success: true });
     return json(404, { error: 'Not found' });
   }));
 });
@@ -104,7 +111,7 @@ describe('PhonePairing', () => {
   it('says what an approved phone may do here (AASC-28)', async () => {
     phones = [phone({ label: 'Work phone', status: 'active', confirmCode: null, lastSeenAt: Date.now(), access: 'sessions-only' })];
     render(<PhonePairing />);
-    expect(await screen.findByText(/^iPhone · shared sessions only · last seen/)).toBeTruthy();
+    expect(await screen.findByText(/^iPhone · shared sessions only$/)).toBeTruthy();
     expect(screen.getByText(/can’t run other commands, change files or change this Mac’s settings/)).toBeTruthy();
   });
 
@@ -118,11 +125,11 @@ describe('PhonePairing', () => {
     ];
     render(<PhonePairing />);
     await screen.findByText('iPhone 13');
-    const metas = screen.getAllByText(/shared sessions only · last seen/).map((el) => el.textContent);
+    const metas = screen.getAllByText(/shared sessions only$/).map((el) => el.textContent);
     expect(metas).toEqual([
-      'shared sessions only · last seen just now',
-      'shared sessions only · last seen just now',
-      'Android · shared sessions only · last seen just now',
+      'shared sessions only',
+      'shared sessions only',
+      'Android · shared sessions only',
     ]);
   });
 
@@ -257,5 +264,77 @@ describe('loadPhonePairing', () => {
     vi.stubGlobal('fetch', vi.fn(() => json(200, { ok: true, success: true, data: [] })));
     const { loadPhonePairing } = await import('@/lib/mobilePairingApi');
     await expect(loadPhonePairing()).resolves.toEqual({ devices: [], pairingOffered: false });
+  });
+});
+
+describe('rename, sign out and when it was paired', () => {
+  const active = (o: Partial<PairedPhone> = {}) =>
+    phone({ status: 'active', confirmCode: null, lastSeenAt: Date.now(), approvedAt: new Date(2026, 9, 12).getTime(), ...o });
+
+  it('says when an approved phone was paired', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    expect(await screen.findByText(/paired 12 Oct · last seen just now/)).toBeTruthy();
+  });
+
+  it('renames a phone in place: Enter saves, through PATCH', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Kason iPhone' }));
+    const input = screen.getByRole('textbox', { name: 'Phone name' }) as HTMLInputElement;
+    expect(input.value).toBe('Kason iPhone');
+    fireEvent.change(input, { target: { value: 'Work iPhone' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(await screen.findByText('Work iPhone')).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Phone name' })).toBeNull();
+    expect(calls.some((c) => c.url === '/api/mobile/devices/p1' && c.method === 'PATCH')).toBe(true);
+  });
+
+  it('Esc cancels a rename without a request', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Kason iPhone' }));
+    const input = screen.getByRole('textbox', { name: 'Phone name' });
+    fireEvent.change(input, { target: { value: 'Other' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('textbox', { name: 'Phone name' })).toBeNull();
+    expect(screen.getByText('Kason iPhone')).toBeTruthy();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('Esc in the name field never reaches the panel’s own Esc (it would close the device panel)', async () => {
+    phones = [active()];
+    const onDocKey = vi.fn();
+    document.addEventListener('keydown', onDocKey);
+    try {
+      render(<PhonePairing />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Rename Kason iPhone' }));
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'Phone name' }), { key: 'Escape' });
+      expect(onDocKey).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', onDocKey);
+    }
+  });
+
+  it('Save is off for an empty or unchanged name, and Enter does nothing then', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Kason iPhone' }));
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    const input = screen.getByRole('textbox', { name: 'Phone name' });
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(save.disabled).toBe(true);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('signs a phone out through its own route, keeping it in the list', async () => {
+    phones = [active()];
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out Kason iPhone' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices/p1/sign-out' && c.method === 'POST')).toBe(true));
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(screen.getByText('Kason iPhone')).toBeTruthy();
   });
 });

@@ -14,10 +14,15 @@
  * what stays, says how long Restore is offered and where the trash is, and keeps
  * the server's refusal on screen. Portaled to <body>: an overlay inside a
  * scrolling or transformed ancestor is clipped or misplaced.
+ *
+ * A resource that syncs to the cloud (Oct 23 2026) offers **Also stop syncing it**,
+ * on by default: uninstalled alone, it reads "Only in cloud" and the next Sync now
+ * would install it again. The stop happens first; if it fails nothing is moved.
  */
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResourceSummary, UninstallResult } from '@/types/resources';
+import type { SyncItem } from '@/types/cloudResources';
 import { isUninstallableType, uninstallBlocker } from '@/types/resources';
 import { RESOURCE_TYPE_SINGULAR, formatBytes } from '@/lib/resourceFilters';
 import { ResourcesUnavailableError, errorMessage, uninstallResource } from '@/lib/resourcesApi';
@@ -48,14 +53,20 @@ interface UninstallDialogProps {
   /** Display path of the trash (catalog `roots.trash`), when the server named it. */
   trashPath?: string;
   onUninstalled: (result: UninstallResult) => void;
+  /** Its cloud sync, when it syncs (and is not already stopped or removed). */
+  syncing?: SyncItem;
+  /** Stop syncing it on this Mac (POST /sync-control stop). */
+  onStopSyncing?: (resourceId: string) => Promise<void>;
 }
 
-export function UninstallDialog({ summary, otherCopies, trashPath, onUninstalled }: UninstallDialogProps) {
+export function UninstallDialog({ summary, otherCopies, trashPath, onUninstalled, syncing, onStopSyncing }: UninstallDialogProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alsoStop, setAlsoStop] = useState(true);
+  const stopId = useId();
   const closeModal = useUiStore((s) => s.closeModal);
   const singular = RESOURCE_TYPE_SINGULAR[summary.type].toLowerCase();
   const files = summary.fileCount === 1 ? '1 file' : `${summary.fileCount} files`;
@@ -72,7 +83,8 @@ export function UninstallDialog({ summary, otherCopies, trashPath, onUninstalled
     if (!matches || pending) return;
     setPending(true);
     setError(null);
-    uninstallResource(summary.id, typed).then(
+    const stop = syncing && alsoStop && onStopSyncing ? onStopSyncing(syncing.resourceId) : Promise.resolve();
+    stop.then(() => uninstallResource(summary.id, typed)).then(
       (result) => {
         closeModal();
         onUninstalled(result);
@@ -101,6 +113,15 @@ export function UninstallDialog({ summary, otherCopies, trashPath, onUninstalled
           <p>Its line in this folder’s MEMORY.md goes too, and comes back on Restore.</p>
         )}
         {otherCopies.length > 0 && <p>Not touched: {otherCopies.join(', ')}.</p>}
+        {syncing && (
+          <label htmlFor={stopId} className={u.syncStop}>
+            <input id={stopId} type="checkbox" checked={alsoStop} onChange={(e) => setAlsoStop(e.target.checked)} />
+            <span>
+              Also stop syncing it on this Mac. Otherwise the next Sync now installs it again from the cloud.
+              The cloud copy stays for your other Macs.
+            </span>
+          </label>
+        )}
         <p className={styles.muted}>Sessions that already loaded it keep it until they restart.</p>
         {/* The label is uppercased; the name must show in the exact case it has to be typed in. */}
         <label htmlFor={inputId} className={u.confirmLabel}>

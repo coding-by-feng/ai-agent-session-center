@@ -167,3 +167,17 @@ describe('the paths this fix shares code with', () => {
     expect(local.received(WS_TYPES.PRESENCE_UPDATE)).toHaveLength(1);
   });
 });
+
+// chat_grew (Oct 22 2026) carries no text, only that a session's conversation just grew — which still tells a
+// device that a hidden session is busy, so it rides the same sessionId rule.
+describe('chat_grew', () => {
+  it('reaches a remote device only for a session shared with it, and fails closed for an unknown id', () => {
+    const remote = connect(REMOTE);
+    const local = connect(LOCAL);
+    for (const sessionId of ['qv-shared', 'qv-private', 'qv-does-not-exist']) {
+      ws.broadcast({ type: WS_TYPES.CHAT_GREW, sessionId });
+    }
+    expect(remote.received(WS_TYPES.CHAT_GREW).map((m) => m.sessionId)).toEqual(['qv-shared']);
+    expect(local.received(WS_TYPES.CHAT_GREW)).toHaveLength(3);
+  });
+});

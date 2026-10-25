@@ -13,22 +13,14 @@
  * Shown while its compose box has focus (the keyboard is up) or a fragment is
  * being typed. A tap never takes focus from the box: the keyboard stays up.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { fetchCommandIndex, type CommandEntry, type CommandKind } from '@/lib/commandIndex';
+import { useMemo } from 'react';
+import type { CommandKind } from '@/lib/commandIndex';
 import { parseTrigger } from '@/lib/autocompleteTrigger';
 import { detectCli } from '@/lib/cliDetect';
-import {
-  favoriteSuggestions,
-  fetchPhoneSkillNotes,
-  insertSigil,
-  insertSuggestion,
-  mergeNotes,
-  rankSuggestions,
-  type Suggestion,
-} from '@/lib/phoneSuggestions';
-import type { SkillNotes } from '@/lib/skillNotes';
+import { favoriteSuggestions, insertSigil, insertSuggestion, rankSuggestions, type Suggestion } from '@/lib/phoneSuggestions';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useSkillNotesStore } from '@/stores/skillNotesStore';
+import { usePhoneCommandIndex } from './usePhoneCommandIndex';
+import { useTextareaCaret } from './useTextareaCaret';
 import styles from '@/styles/modules/PhoneSuggestionBar.module.css';
 
 export interface PhoneSuggestionBarProps {
@@ -40,44 +32,6 @@ export interface PhoneSuggestionBarProps {
   projectPath?: string | null;
   disabled?: boolean;
   className?: string;
-}
-
-/** Follow a textarea's focus and caret through its own events. */
-function useCaret(textarea: HTMLTextAreaElement | null): {
-  focused: boolean;
-  caret: number | null;
-  /** Where a programmatic edit left the caret (setting `value` fires no event of its own). */
-  moveCaret: (at: number) => void;
-} {
-  // The box may already have focus when the bar mounts: the bar loads lazily
-  // (AASC-31), and a quick tap can land before it does.
-  const [state, setState] = useState<{ el: HTMLTextAreaElement | null; focused: boolean; caret: number | null }>(() =>
-    textarea && document.activeElement === textarea
-      ? { el: textarea, focused: true, caret: textarea.selectionStart }
-      : { el: null, focused: false, caret: null });
-  useEffect(() => {
-    if (!textarea) return;
-    const sync = () =>
-      setState({ el: textarea, focused: document.activeElement === textarea, caret: textarea.selectionStart });
-    const blur = () => setState((s) => ({ ...s, el: textarea, focused: false }));
-    const events = ['focus', 'input', 'keyup', 'click', 'select'] as const;
-    for (const e of events) textarea.addEventListener(e, sync);
-    textarea.addEventListener('blur', blur);
-    const onSelection = () => {
-      if (document.activeElement === textarea) sync();
-    };
-    document.addEventListener('selectionchange', onSelection);
-    return () => {
-      for (const e of events) textarea.removeEventListener(e, sync);
-      textarea.removeEventListener('blur', blur);
-      document.removeEventListener('selectionchange', onSelection);
-    };
-  }, [textarea]);
-  const moveCaret = (at: number) => setState({ el: textarea, focused: true, caret: at });
-  // A swapped textarea starts over (focus and caret belonged to the old one).
-  return state.el === textarea
-    ? { focused: state.focused, caret: state.caret, moveCaret }
-    : { focused: false, caret: null, moveCaret };
 }
 
 function chipLabel(s: Suggestion): string {
@@ -100,11 +54,7 @@ export default function PhoneSuggestionBar({
   // The terminal's box passes no project: the session's own (shared) one lists its project commands.
   const sessionProject = useSessionStore((s) => (sessionId ? s.sessions.get(sessionId)?.projectPath ?? null : null));
   const project = projectPath !== undefined ? projectPath : sessionProject;
-  const localNotes = useSkillNotesStore((s) => s.notes);
-  const [remoteNotes, setRemoteNotes] = useState<SkillNotes>({});
-  const [index, setIndex] = useState<{ key: string; entries: CommandEntry[] }>({ key: '', entries: [] });
-  const indexKey = `${cli}|${project ?? ''}`;
-  const { focused, caret, moveCaret } = useCaret(textarea);
+  const { focused, caret, moveCaret } = useTextareaCaret(textarea);
 
   const pos = Math.min(caret ?? text.length, text.length);
   const raw = parseTrigger(text, pos);
@@ -112,31 +62,7 @@ export default function PhoneSuggestionBar({
   const trigger = raw && (raw.type === 'command' || (raw.type === 'skill' && cli === 'codex')) ? raw : null;
   // Asked for only once the bar is wanted: a terminal that is never typed into fetches nothing.
   const wanted = !disabled && (focused || !!trigger);
-
-  useEffect(() => {
-    if (!wanted) return;
-    let live = true;
-    void fetchPhoneSkillNotes().then((notes) => {
-      if (live) setRemoteNotes(notes);
-    });
-    return () => {
-      live = false;
-    };
-  }, [wanted]);
-
-  useEffect(() => {
-    if (!wanted) return;
-    let live = true;
-    void fetchCommandIndex(cli, project ?? null).then((entries) => {
-      if (live) setIndex({ key: indexKey, entries });
-    });
-    return () => {
-      live = false;
-    };
-  }, [wanted, cli, project, indexKey]);
-
-  const notes = useMemo(() => mergeNotes(remoteNotes, localNotes), [remoteNotes, localNotes]);
-  const entries = useMemo(() => (index.key === indexKey ? index.entries : []), [index, indexKey]);
+  const { entries, notes } = usePhoneCommandIndex(cli, project ?? null, wanted);
 
   const suggestions = useMemo(() => {
     if (trigger) {

@@ -73,8 +73,8 @@ export const PROMPT_POLL_INTERVAL_MS = 1_000;
 export const PROMPT_FAST_POLL_MS = 90_000;
 export const PROMPT_SLOW_POLL_INTERVAL_MS = 5_000;
 export const PROMPT_POLL_TIMEOUT_MS = 5 * 60_000;
-/** Photos per prompt, as the route allows. */
-export const MAX_PROMPT_IMAGES = 4;
+/** Photos per prompt, as the route allows (server/promptRouter.ts; 10 since Oct 21 2026, was 4). */
+export const MAX_PROMPT_IMAGES = 10;
 
 const NETWORK_MESSAGE = 'Couldn’t reach your Mac. Check the connection and try again.';
 

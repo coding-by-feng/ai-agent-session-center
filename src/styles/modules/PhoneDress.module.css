@@ -1,0 +1,24 @@
+/* PhoneDress — the phone's dress for the desktop's own components on a phone (Oct 20 2026;
+   one copy since Oct 23 2026): Info → Notes, Queue, Agents and AI popups, and the queue
+   editor a phone opens full screen (portaled to <body>, outside Info's page, so until then
+   it kept the desktop's forced capitals and tracking). Only ever applied under
+   useIsMobile(), so the --ph-* tokens of the phone frame are there.
+
+   The phone's font for words, monospace kept for code and commands, no tracking or forced
+   capitals on controls. Redefining --font-mono on the root is how a component takes its own
+   font (settings-system.md); `.dress.dress` outranks the desktop's two-class control rules.
+   Not under styles/modules/mobile/: the editor is desktop code too (phoneChunkBoundary). */
+.dress {
+  --font-mono: var(--ph-font);
+  font-family: var(--ph-font);
+}
+
+.dress :global(:is(code, pre, kbd, samp)) {
+  --font-mono: var(--ph-font-mono);
+  font-family: var(--ph-font-mono);
+}
+
+.dress.dress :global(*:not(code, pre, kbd, samp)) {
+  letter-spacing: normal;
+  text-transform: none;
+}

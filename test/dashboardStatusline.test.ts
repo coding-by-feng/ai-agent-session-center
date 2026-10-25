@@ -174,8 +174,11 @@ describe.skipIf(!hasJq || process.platform === 'win32')('dashboard-statusline.sh
         },
       }));
       expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
-      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).context)
-        .toEqual({ used_percentage: 42, size: 200000, tokens: 84312 });
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).context).toEqual({
+        used_percentage: 42, size: 200000, tokens: 84312,
+        // Oct 21 2026: the last reply's counts by kind, for the phone's context details.
+        parts: { input: 12, cacheWrite: 300, cacheRead: 84000, output: 900 },
+      });
     });
 
     it('records no tokens before the first reply (current_usage is null)', async () => {

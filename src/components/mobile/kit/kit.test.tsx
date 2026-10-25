@@ -21,7 +21,7 @@ import {
   SwipeRow,
 } from '.';
 import { DRAG_THRESHOLD_PX, nextDetent } from './sheetDetents';
-import { LONG_PRESS_MS, clampMenuPosition } from './menuPosition';
+import { LONG_PRESS_MS, MENU_MIN_ROOM, clampMenuPosition, placeMenuAtPoint } from './menuPosition';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -132,6 +132,19 @@ describe('SegmentedControl', () => {
 });
 
 describe('Sheet', () => {
+  // Oct 23 2026: a sheet a hold opened sees the click the hold's release sends. iOS
+  // hit-tests it where the finger lifts — on the backdrop — and that must not close it.
+  it('opened by a hold, ignores the release click on the backdrop until a fresh press there', () => {
+    const onClose = vi.fn();
+    render(<Sheet open heldOpen onClose={onClose} title="Recent prompts"><button type="button">Row</button></Sheet>);
+    const backdrop = screen.getByTestId('kit-sheet-backdrop');
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('is a dialog that closes on Escape, the close button and the backdrop', async () => {
     const onClose = vi.fn();
     render(<Sheet open onClose={onClose} title="New session"><button type="button">Claude</button></Sheet>);
@@ -320,6 +333,54 @@ describe('ContextMenu', () => {
     expect(clampMenuPosition(10, 800, 200, 100, 390, 844).top).toBe(700); // flipped above the point
     expect(clampMenuPosition(-50, -50, 200, 100, 390, 844)).toEqual({ left: 8, top: 8 });
   });
+
+  // Oct 24 2026: a hold on a low row put a tall menu 8px from the top, under the iPhone's status bar.
+  describe('placeMenuAtPoint: inside the safe area, on the side with room', () => {
+    const iphone = { top: 47, right: 0, bottom: 34, left: 0 };
+    it('opens below the finger when it fits, above when that fits instead', () => {
+      expect(placeMenuAtPoint(10, 100, 200, 300, 390, 844, iphone, 8, 24)).toEqual({ left: 10, top: 124, maxHeight: 844 - 34 - 8 - 55 });
+      expect(placeMenuAtPoint(10, 700, 200, 300, 390, 844, iphone, 8, 24).top).toBe(700 - 24 - 300);
+    });
+
+    it('never runs under the status bar: the screenshot’s menu goes to the roomier side and scrolls', () => {
+      // A hold at y 512 on a 930px screen, a 486px menu: 352px below, 433px above.
+      expect(placeMenuAtPoint(10, 512, 200, 486, 430, 930, iphone, 8, 24)).toEqual({ left: 10, top: 55, maxHeight: 433 });
+      // More room below: it opens there and scrolls.
+      expect(placeMenuAtPoint(10, 300, 200, 700, 430, 930, iphone, 8, 24)).toEqual({ left: 10, top: 324, maxHeight: 930 - 34 - 8 - 324 });
+    });
+
+    it('covers the point only when neither side has room for three rows, still inside the safe area', () => {
+      const { top, maxHeight } = placeMenuAtPoint(10, 150, 200, 400, 390, 300, iphone, 8, 24);
+      expect(maxHeight).toBe(300 - 34 - 8 - 55);
+      expect(top).toBe(55);
+      expect(MENU_MIN_ROOM).toBe(140);
+    });
+
+    it('keeps clear of side notches', () => {
+      expect(placeMenuAtPoint(-50, 100, 200, 100, 844, 390, { top: 0, right: 47, bottom: 21, left: 47 }).left).toBe(55);
+      expect(placeMenuAtPoint(800, 100, 200, 100, 844, 390, { top: 0, right: 47, bottom: 21, left: 47 }).left).toBe(844 - 47 - 8 - 200);
+    });
+  });
+
+  it('a touch focuses the menu itself (no ring on an item); arrows still reach the items', () => {
+    vi.useFakeTimers();
+    render(<ContextMenu items={items()} label="Actions"><button type="button">Row</button></ContextMenu>);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Row' }), { pointerType: 'touch', clientX: 20, clientY: 20 });
+    act(() => { vi.advanceTimersByTime(LONG_PRESS_MS + 10); });
+    const menu = screen.getByRole('menu', { name: 'Actions' });
+    expect(menu).toHaveFocus();
+    expect(menu.style.getPropertyValue('--menu-max-height')).toMatch(/^\d+px$/);
+    fireEvent.keyDown(menu, { key: 'ArrowUp' });
+    expect(screen.getByRole('menuitem', { name: /Pin/ })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+  });
+
+  it('a right click focuses the menu too; only a keyboard focuses the first item', () => {
+    render(<ContextMenu items={items()} label="Actions"><button type="button">Row</button></ContextMenu>);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Row' }), { clientX: 10, clientY: 10 });
+    expect(screen.getByRole('menu', { name: 'Actions' })).toHaveFocus();
+  });
 });
 
 describe('SwipeRow', () => {
@@ -332,5 +393,86 @@ describe('SwipeRow', () => {
     const action = screen.getByText('Delete').closest('button')!;
     expect(action.tabIndex).toBe(-1);
     expect(action.parentElement).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+// Oct 23 2026: a session's title opens Info on a tap and its recent prompts on a
+// hold. The hold must not also open Info with the click that ends it.
+describe('NavBar — a long press on the title', () => {
+  const setup = () => {
+    vi.useFakeTimers();
+    const onTitlePress = vi.fn();
+    const onTitleLongPress = vi.fn();
+    render(
+      <NavBar
+        title="AASC Phone APP"
+        subtitle="Working"
+        onTitlePress={onTitlePress}
+        onTitleLongPress={onTitleLongPress}
+        titleLongPressHint="Hold for recent prompts"
+      />,
+    );
+    const title = screen.getByRole('button', { name: /AASC Phone APP/ });
+    return { title, onTitlePress, onTitleLongPress };
+  };
+  const touch = { pointerType: 'touch', clientX: 100, clientY: 20 };
+
+  it('a hold opens the long-press action, and the release does not also open Info', () => {
+    const { title, onTitlePress, onTitleLongPress } = setup();
+    fireEvent.pointerDown(title, touch);
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(onTitleLongPress).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(title, touch);
+    fireEvent.click(title);
+    expect(onTitlePress).not.toHaveBeenCalled();
+    // the next tap is a tap again
+    fireEvent.pointerDown(title, touch);
+    fireEvent.pointerUp(title, touch);
+    fireEvent.click(title);
+    expect(onTitlePress).toHaveBeenCalledTimes(1);
+  });
+
+  it('a quick tap opens Info only', () => {
+    const { title, onTitlePress, onTitleLongPress } = setup();
+    fireEvent.pointerDown(title, touch);
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    fireEvent.pointerUp(title, touch);
+    fireEvent.click(title);
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(onTitlePress).toHaveBeenCalledTimes(1);
+    expect(onTitleLongPress).not.toHaveBeenCalled();
+  });
+
+  it('a finger that moves (a scroll or a swipe back) is not a hold', () => {
+    const { title, onTitleLongPress } = setup();
+    fireEvent.pointerDown(title, touch);
+    fireEvent.pointerMove(title, { ...touch, clientX: 130 });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(onTitleLongPress).not.toHaveBeenCalled();
+  });
+
+  it('a mouse never holds, and the context-menu key reaches it from a keyboard', () => {
+    const { title, onTitleLongPress } = setup();
+    fireEvent.pointerDown(title, { ...touch, pointerType: 'mouse' });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(onTitleLongPress).not.toHaveBeenCalled();
+    fireEvent.keyDown(title, { key: 'F10', shiftKey: true });
+    expect(onTitleLongPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so to a screen reader, without the hint joining the screen\'s name', () => {
+    const { title } = setup();
+    expect(title).toHaveAccessibleDescription(/hold for recent prompts/i);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toMatch(/Hold/);
   });
 });

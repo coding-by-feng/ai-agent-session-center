@@ -22,8 +22,11 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
-import { checkTurnInterrupted } from './transcriptInterrupt.js';
+import { withBtwAnswer } from './btwCapture.js';
+import { toBackgroundTasks, FINISHED_TASK_STATUSES } from './backgroundTasks.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
+import { checkTurnInterrupted, readTranscriptTail } from './transcriptInterrupt.js';
+import { asksForProceed, lastAnswerAsksForProceed } from './proceedRequest.js';
 import { isCodexSession } from './sessionKillPolicy.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
@@ -534,6 +537,13 @@ async function broadcastSessionUpdate(session: Session): Promise<void> {
   // Dirty the snapshot NOW, not when the debounce below fires: a client that connects in those
   // 20 ms (or whose snapshot is read in the same tick) must not be handed the pre-change copy.
   invalidateSessionsCache();
+  // hookProcessor may still hold this session's last hook update (its 250 ms throttle), a copy
+  // taken before this change; sent after this one it would undo it on every client (Oct 23 2026:
+  // the P a transcript read sets, a user cancel). Bring it up to date, as a restart does. Lazy:
+  // hookProcessor imports this module.
+  void import('./hookProcessor.js')
+    .then(({ refreshPendingSessionUpdate }) => refreshPendingSessionUpdate(session.sessionId, session))
+    .catch(() => undefined);
   await debouncedBroadcast({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
 }
 
@@ -546,8 +556,11 @@ const PLAN_USAGE_BROADCAST_DELAY_MS = 300;
 /** A session is a reason to look at plan usage only while it can still be using the plan. */
 const isLiveSession = (session: Session): boolean => session.status !== SESSION_STATUS.ENDED;
 /** attachPlanUsage runs on every hook event, so a persistent fault may be reported at most this often. */
-/** `background_tasks` statuses that mean the work is over and must not hold the queue. */
-const FINISHED_TASK_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'exited']);
+/**
+ * `background_tasks` types that never count as background shells: subagents have their own
+ * hold, and agent-team teammates are separate sessions whose status stays `running` while idle.
+ */
+const NON_SHELL_TASK_TYPES: ReadonlySet<string> = new Set(['subagent', 'teammate']);
 
 const PLAN_USAGE_WARN_INTERVAL_MS = 60_000;
 let planUsageWarnedAt = 0;
@@ -914,6 +927,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
   // What the session waits on, structured for the phone's cards (AASC-43): raised by
   // PermissionRequest and PreToolUse of a question or plan, cleared when the call ends.
+  const requestBefore = session.pendingRequest ?? null;
   const pendingRequest = nextPendingRequest(
     session.pendingRequest ?? null, hook_event_name,
     hookData as unknown as Record<string, unknown>, requestCliOf(session.cliSource), Date.now(),
@@ -926,6 +940,14 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   );
   if (compacting !== (session.compacting ?? null)) session.compacting = compacting;
 
+  // Every hook names the transcript, not only SessionStart: `EnterWorktree` moves a running
+  // session's file into the worktree's projects folder, and a path kept from the start pointed
+  // the phone's Chat and the interrupt / proceed checks at a file that is gone.
+  if ('transcript_path' in hookData && hookData.transcript_path && hookData.transcript_path !== session.transcriptPath) {
+    session.transcriptPath = hookData.transcript_path;
+  }
+
+  const statusBefore = session.status;
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
       session.status = SESSION_STATUS.IDLE;
@@ -934,10 +956,21 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       // lost SubagentStop held the prompt queue until 15 minutes of silence.
       session.subagentCount = 0;
       session.backgroundTaskCount = 0;
+      session.backgroundTasks = null;
       session.animationState = ANIMATION_STATE.IDLE;
       session.model = hookData.model || session.model;
-      if ('transcript_path' in hookData && hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
       if ('permission_mode' in hookData && hookData.permission_mode) session.permissionMode = hookData.permission_mode;
+      // A new conversation (startup, /clear) owes no "proceed". A resume (an app restart rebuilt
+      // the card) keeps what it had until its transcript says (Codex has none to read), and a
+      // /compact is the same conversation.
+      {
+        const startSource = 'source' in hookData ? hookData.source : undefined;
+        if (startSource === 'resume') {
+          scheduleProceedCheck(session, 'transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined);
+        } else if (startSource !== 'compact') {
+          session.pendingProceedAt = null;
+        }
+      }
 
       // Update projectPath from the hook's actual cwd — ONLY for SSH sessions.
       // For remote SSH, createTerminalSession resolves '~' to LOCAL homedir
@@ -1004,6 +1037,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.status = SESSION_STATUS.PROMPTING;
       session.animationState = ANIMATION_STATE.WALKING;
       session.emote = EMOTE.WAVE;
+      session.pendingProceedAt = null; // any prompt, from any device, is the follow-up
     {
       const promptText = ('prompt' in hookData ? hookData.prompt : undefined) || '';
       const promptAt = Date.now();
@@ -1104,6 +1138,20 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         || ('message' in hookData ? hookData.message : undefined)
         || ('stop_reason_str' in hookData ? hookData.stop_reason_str : undefined)
         || '';
+      // Does the answer end by asking for "proceed" (the P reminder, proceedRequest.ts)? Read
+      // from the full text: the excerpt below keeps its start, and the ask is at the end. No
+      // text in the hook: the transcript says.
+      if (responseText) {
+        session.pendingProceedAt = asksForProceed(responseText) ? Date.now() : null;
+      } else {
+        session.pendingProceedAt = null;
+        scheduleProceedCheck(
+          session,
+          ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
+            ?? session.transcriptPath,
+          PROCEED_CHECK_DELAYS_MS,
+        );
+      }
       if (responseText) {
         const excerpt = responseText.substring(0, 2000);
         session.responseLog.push({ text: excerpt, timestamp: Date.now() });
@@ -1121,14 +1169,18 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         session.subagentCount = backgroundTasks.filter(
           (t) => !!t && typeof t === 'object' && (t as { type?: unknown }).type === 'subagent',
         ).length;
-        // Shells and monitors still running hold the queue just like subagents:
+        // Shells and monitors still running hold the queue just like subagents
+        // (teammates never do — see NON_SHELL_TASK_TYPES):
         // the turn is not truly over until they report finished.
         session.backgroundTaskCount = backgroundTasks.filter(
           (t) => !!t && typeof t === 'object'
-            && (t as { type?: unknown }).type !== 'subagent'
+            && !NON_SHELL_TASK_TYPES.has(String((t as { type?: unknown }).type ?? ''))
             && !FINISHED_TASK_STATUSES.has(String((t as { status?: unknown }).status ?? '')),
         ).length;
       }
+      // The whole list too, for the phone's Agents tab (Claude's own Background panel).
+      const listed = toBackgroundTasks(backgroundTasks, session.backgroundTasks, Date.now());
+      if (listed) session.backgroundTasks = listed;
 
       scheduleInterruptCheck(
         session,
@@ -1249,8 +1301,10 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.status = SESSION_STATUS.ENDED;
       session.animationState = ANIMATION_STATE.DEATH;
       session.endedAt = Date.now();
+      session.pendingProceedAt = null;
       session.subagentCount = 0;
       session.backgroundTaskCount = 0;
+      session.backgroundTasks = null;
       eventEntry.detail = `Session ended (${('reason' in hookData ? hookData.reason : undefined) || 'unknown'})`;
 
       // Release PID cache for this session
@@ -1273,6 +1327,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       // Non-SSH sessions are also kept (no auto-delete)
       break;
   }
+
+  holdForSubagentDialog(session, hook_event_name, requestBefore, statusBefore);
 
   // Keep last 50 events
   session.events.push(eventEntry);
@@ -2239,11 +2295,72 @@ registerTerminalFaultCallback((terminalId: string, fault) => {
   }
 });
 
+// ---- /btw side answers (btwCapture.ts) -------------------------------------
+// Claude never writes a /btw exchange to the transcript, so the phone Chat gets it from here.
+registerTerminalBtwCallback((terminalId: string, answer) => {
+  for (const [id, session] of sessions) {
+    if (session.terminalId !== terminalId) continue;
+    if (session.status === SESSION_STATUS.ENDED) continue;
+    session.btwAnswers = withBtwAnswer(session.btwAnswers, answer);
+    log.info('session', `BTW answer on ${id.slice(0, 8)}: ${answer.question.slice(0, 60)}`);
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+    return;
+  }
+});
+
 // ---- User cancel (Esc, or a declined tool) --------------------------------
 // Claude Code fires an ordinary Stop for a cancel, so the prompt queue would
 // read it as a finished turn and send its next prompt. The transcript says
 // which it was (see transcriptInterrupt.ts), so every Stop of a Claude session
 // is followed by a read of the transcript's tail.
+
+/**
+ * The status the main agent reached while a background subagent's dialog held the
+ * session in approval: what the session returns to once that dialog closes.
+ */
+const statusUnderSubagentDialog = new WeakMap<Session, Session['status']>();
+
+/**
+ * A background subagent's dialog stays up while the main agent works, stops or takes a
+ * prompt (pendingRequests.ts keeps its request through them), so the session stays in
+ * approval: otherwise it reads "waiting" and the phone has nothing to answer (Oct 21, seven
+ * hours). Runs after the event's own status change, which it records and, while the
+ * dialog is open, overrides; when the dialog closes the recorded status comes back.
+ */
+function holdForSubagentDialog(
+  session: Session,
+  event: string,
+  requestBefore: Session['pendingRequest'],
+  statusBefore: Session['status'],
+): void {
+  if (session.status === SESSION_STATUS.ENDED) return;
+  const asking = session.pendingRequest?.agentId ? session.pendingRequest : null;
+  if (asking) {
+    if (asking !== requestBefore && statusBefore !== SESSION_STATUS.APPROVAL) {
+      statusUnderSubagentDialog.set(session, statusBefore);
+    }
+    if (session.status !== SESSION_STATUS.APPROVAL) {
+      statusUnderSubagentDialog.set(session, session.status);
+      session.status = SESSION_STATUS.APPROVAL;
+      session.approvalSource = 'permission_request';
+      session.animationState = ANIMATION_STATE.WAITING;
+      session.waitingDetail = session.waitingDetail || `Approve ${asking.tool}`;
+    }
+    return;
+  }
+  // The dialog just closed and this event set no status of its own: hand back the main
+  // agent's (working when unknown: never a sendable state guessed for a live turn).
+  if (requestBefore?.agentId && session.status === SESSION_STATUS.APPROVAL
+    && statusBefore === SESSION_STATUS.APPROVAL && event !== EVENT_TYPES.PERMISSION_REQUEST) {
+    const under = statusUnderSubagentDialog.get(session) ?? SESSION_STATUS.WORKING;
+    session.status = under;
+    session.animationState = under === SESSION_STATUS.WORKING ? ANIMATION_STATE.RUNNING
+      : under === SESSION_STATUS.IDLE ? ANIMATION_STATE.IDLE : ANIMATION_STATE.WAITING;
+    session.waitingDetail = null;
+  }
+  statusUnderSubagentDialog.delete(session);
+}
 
 /**
  * Bumped on UserPromptSubmit and SessionStart. A check scheduled at a Stop
@@ -2277,6 +2394,43 @@ function scheduleInterruptCheck(session: Session, transcriptPath: string | undef
   setTimeout(() => { void attempt(0); }, INTERRUPT_CHECK_DELAYS_MS[0]).unref?.();
 }
 
+/** A Stop without the answer: read when the interrupt check does, the answer may land after the hook. */
+const PROCEED_CHECK_DELAYS_MS = [150, 600] as const;
+
+/**
+ * The P reminder from the transcript, when no hook carried the answer: a resumed session (an app
+ * restart rebuilt the card, and the answer it ended on may still be owed) or a Stop without
+ * `last_assistant_message`. Reads at each delay until one finds the ask (0 = at once); the last
+ * read also clears a kept P the transcript shows answered. Applies only if no new turn began
+ * since. Codex writes a different transcript; its Stop always carries the answer (`response`).
+ */
+function scheduleProceedCheck(session: Session, transcriptPath: string | undefined, delays: readonly number[] = [0]): void {
+  if (!transcriptPath || isCodexSession(session)) return;
+  const generation = turnGeneration.get(session) ?? 0;
+  const set = (at: number | null): void => {
+    session.pendingProceedAt = at;
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+  };
+  const attempt = async (n: number): Promise<void> => {
+    const lines = await readTranscriptTail(transcriptPath);
+    if ((turnGeneration.get(session) ?? 0) !== generation || session.status === SESSION_STATUS.ENDED) return;
+    const owed = lines ? lastAnswerAsksForProceed(lines) : null;
+    if (owed) {
+      if (!session.pendingProceedAt) set(Date.now());
+      return;
+    }
+    const next = delays[n + 1];
+    if (next !== undefined) {
+      setTimeout(() => { void attempt(n + 1); }, next - delays[n]).unref?.();
+    } else if (owed === false && session.pendingProceedAt) {
+      set(null);
+    }
+  };
+  if (delays[0] === 0) void attempt(0);
+  else setTimeout(() => { void attempt(0); }, delays[0]).unref?.();
+}
+
 /**
  * Hold the queue for a turn the user stopped. Also clears `interruption`: a
  * 529 banner from earlier in the turn would otherwise let the auto-resume
@@ -2286,6 +2440,7 @@ function confirmUserCancel(session: Session): void {
   if (session.userCancelledAt) return;
   session.userCancelledAt = Date.now();
   session.interruption = null;
+  session.pendingProceedAt = null;
   log.info('session', `USER CANCEL on ${session.sessionId.slice(0, 8)} — prompt queue held until the user acts`);
   invalidateSessionsCache();
   void broadcastSessionUpdate(session);
@@ -2372,6 +2527,7 @@ export function beginSessionRestart(
   session.userCancelledAt = null;
   session.subagentCount = 0;
   session.backgroundTaskCount = 0;
+  session.backgroundTasks = null;
   if (session.subagents?.length) session.subagents = endAllRuns(session.subagents, Date.now());
 
   session.status = SESSION_STATUS.CONNECTING as Session['status'];

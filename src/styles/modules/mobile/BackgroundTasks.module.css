@@ -1,0 +1,62 @@
+/* The phone Agents tab's Background section (Oct 25 2026): Claude Code's Background panel. */
+
+.section {
+  padding-top: var(--ph-space-2);
+}
+
+/* A running / finished dot before each row's title (colour is backed by the status text). */
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ph-status-idle);
+}
+
+.dotRunning {
+  background: var(--ph-status-working);
+}
+
+.dotFailed {
+  background: var(--ph-status-error);
+}
+
+/* Shell details sheet */
+.details {
+  margin: 0;
+  padding: 0 var(--ph-gutter) var(--ph-space-4);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--ph-space-2) var(--ph-space-3);
+  font-size: var(--ph-size-body);
+  line-height: var(--ph-line-body);
+}
+
+.details dt {
+  color: var(--ph-text-secondary);
+}
+
+.details dd {
+  margin: 0;
+  color: var(--ph-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.command {
+  font-family: var(--ph-font-mono);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.note {
+  margin: 0;
+  padding: 0 var(--ph-gutter) var(--ph-space-4);
+  color: var(--ph-text-secondary);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}

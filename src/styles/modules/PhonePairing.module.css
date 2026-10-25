@@ -129,7 +129,7 @@
 
 .phone {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -142,6 +142,30 @@
   flex-direction: column;
   min-width: 0;
   flex: 1;
+}
+
+/* Rename / Sign out / Revoke… sit under the meta lines, so a narrow panel never squeezes the name. */
+.phoneActions {
+  margin-top: 4px;
+}
+
+/* The name's editor: the input takes the row, the buttons wrap below it when narrow. */
+.rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.renameInput {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+/* Save and Cancel wrap as a pair, never Cancel alone. */
+.renameButtons {
+  display: inline-flex;
+  gap: 6px;
 }
 
 .phoneName {

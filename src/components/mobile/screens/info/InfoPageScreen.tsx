@@ -1,11 +1,11 @@
 /**
- * InfoPageScreen — what a session's Info opens (AASC-46): Notes, Queue, Agents,
- * AI popups, each a pushed screen with today's working phone piece inside. (Files
- * is the session's Project tab since AASC-56: Info goes back to it.)
+ * InfoPageScreen — what a session's Info opens (AASC-46): Notes, Queue, AI popups,
+ * each a pushed screen with today's working phone piece inside. (Files is the
+ * session's Project tab since AASC-56, Agents its Agents tab since Oct 22 2026:
+ * Info goes back to them.)
  *
  *   Notes      NotesTab: notes, photos from the camera, delete confirms
  *   Queue      QueueTab: this session's queue, compose, chains, loops, history
- *   Agents     AgentsTab: the subagent diagram and log, a subagent's transcript
  *   AI popups  AiPopupHistory: past popups, Open on a running one
  *
  * Each loads on first use (lazy), as in the classic panel.
@@ -18,16 +18,18 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { InfoPage } from '@/lib/chat/phoneRoutes';
 import styles from '@/styles/modules/mobile/SessionInfo.module.css';
+import dress from '@/styles/modules/PhoneDress.module.css';
+
+/** Info's pages: the desktop's components in the phone's dress. */
+const dressed = `${styles.tab} ${dress.dress}`;
 
 const NotesTab = lazy(() => import('@/components/session/NotesTab'));
 const QueueTab = lazy(() => import('@/components/session/QueueTab'));
-const AgentsTab = lazy(() => import('@/components/session/AgentsTab'));
 const AiPopupHistory = lazy(() => import('@/components/session/AiPopupHistory'));
 
 const TITLES: Record<InfoPage, string> = {
   notes: 'Notes',
   queue: 'Queue',
-  agents: 'Agents',
   popups: 'AI popups',
 };
 
@@ -56,17 +58,15 @@ export default function InfoPageScreen({ sessionId, page }: { sessionId: string;
 
   let body: ReactNode;
   if (page === 'notes') {
-    body = <div className={styles.tab}><NotesTab sessionId={sessionId} projectPath={session.projectPath} /></div>;
+    body = <div className={dressed}><NotesTab sessionId={sessionId} projectPath={session.projectPath} /></div>;
   } else if (page === 'queue') {
     body = (
-      <div className={styles.tab}>
+      <div className={dressed}>
         <QueueTab sessionId={sessionId} sessionStatus={session.status} terminalId={session.terminalId} fullHeight />
       </div>
     );
-  } else if (page === 'agents') {
-    body = <div className={styles.tab}><AgentsTab sessionId={sessionId} /></div>;
   } else {
-    body = <div className={styles.tab}><AiPopupHistory sessionId={sessionId} projectPath={session.projectPath} /></div>;
+    body = <div className={dressed}><AiPopupHistory sessionId={sessionId} projectPath={session.projectPath} /></div>;
   }
 
   return (

@@ -116,6 +116,7 @@ describe('matchSession — 5-priority session matching', () => {
     consumePendingLink: vi.fn(),
     registerTerminalExitCallback: vi.fn(),
     registerTerminalFaultCallback: vi.fn(),
+    registerTerminalBtwCallback: vi.fn(),
     closeTerminal: vi.fn(),
     getTerminals: vi.fn(() => []),
     getTerminalOutputBuffer: vi.fn(() => null),

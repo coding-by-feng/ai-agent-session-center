@@ -219,6 +219,81 @@
 
 /* ---- The box ---- */
 
+/* ---- Matching commands and skills, above the box (ComposerSuggestions) ----
+   In the footer's flow: the footer clips overflow, so a floating list would be cut off.
+   About 4½ rows show, then it scrolls (the half row says there is more). */
+
+.suggestions {
+  flex: none;
+  max-height: calc(var(--ph-target) * 4.5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.suggestionList {
+  margin: 0;
+  padding: var(--ph-space-1) 0;
+  list-style: none;
+}
+
+.suggestion {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--ph-space-2);
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: var(--ph-space-2) var(--ph-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+
+@media (hover: hover) {
+  .suggestion:hover { background: var(--ph-fill); }
+}
+
+.suggestion:active { background: var(--ph-fill-strong); }
+.suggestion:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
+.suggestionFav {
+  flex: none;
+  color: var(--ph-accent);
+}
+
+.suggestionToken {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  font-family: var(--ph-font-mono);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestionDesc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ph-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -284,6 +359,9 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  /* P is held to edit it: no iOS callout or selection on a long press. */
+  -webkit-touch-callout: none;
+  user-select: none;
   transition: background-color var(--ph-motion-fast) ease;
 }
 
@@ -294,6 +372,17 @@
 .tool:active:not(:disabled) { background: var(--ph-fill-strong); }
 .tool:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 .tool:disabled { opacity: 0.4; cursor: not-allowed; }
+/* The last answer asks you to proceed (Oct 23 2026): P lit in the approval amber, a reply away. */
+.tool[data-pending='true'] {
+  background: color-mix(in srgb, var(--ph-status-approval) 18%, transparent);
+  box-shadow: inset 0 0 0 2px var(--ph-status-approval);
+  color: var(--ph-status-approval);
+}
+.tool[data-pending='true']:active { background: color-mix(in srgb, var(--ph-status-approval) 30%, transparent); }
+
+/* The quick reply stays holdable while it can't send (a hold edits it), so it is aria-disabled. */
+.tool[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
+.tool[aria-disabled='true']:active { background: transparent; }
 
 /* A long main label ("Deny and tell Claude") needs the room: / and @ stay in ＋. */
 @media (max-width: 430px) {
@@ -357,7 +446,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .field, .tool, .primary { transition: none; }
+  .field, .tool, .primary, .suggestion { transition: none; }
   .primary:active:not([aria-disabled='true']) { transform: none; }
 }
 

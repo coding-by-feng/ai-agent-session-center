@@ -564,6 +564,15 @@ export function sendToClientId<T extends { type: string }>(clientId: string, dat
   return sent;
 }
 
+/** Does this paired phone have an open socket right now? (The header chip's 📱 count, Oct 22 2026.) */
+export function isPhoneDeviceOnline(deviceId: string): boolean {
+  if (!deviceId) return false;
+  for (const client of clients) {
+    if (client._deviceId === deviceId && client.readyState === 1) return true;
+  }
+  return false;
+}
+
 /** Is this device a paired phone (its socket signed in with a phone's session, AASC-15)? */
 export function isPairedPhoneClient(clientId: string): boolean {
   if (!clientId) return false;
@@ -717,8 +726,8 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
  */
 function broadcastSubject(data: { type: string; [key: string]: unknown }):
   { remoteVisible?: boolean | null } | null {
-  // queue_sent carries the head of a sent prompt (AASC-20): the same rule.
-  if (data.type === WS_TYPES.QUEUE_UPDATE || data.type === WS_TYPES.QUEUE_SENT) {
+  // queue_sent carries the head of a sent prompt (AASC-20), chat_grew that a session is busy: the same rule.
+  if (data.type === WS_TYPES.QUEUE_UPDATE || data.type === WS_TYPES.QUEUE_SENT || data.type === WS_TYPES.CHAT_GREW) {
     const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
     // A session that cannot be resolved (removed, archived, an id nobody has heard of, a
     // malformed message) is not visible to a remote client: for a visibility gate the

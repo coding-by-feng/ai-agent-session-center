@@ -1,7 +1,9 @@
 /**
  * SkillNotes — the user's own marks on a skill or command: a favourite flag,
- * any number of tags, and one abbreviation. Shown in the Library detail pane
- * (SkillNotes) and as a heart on each list row (FavToggle).
+ * any number of tags, and one abbreviation. The tags and abbreviation are the
+ * detail pane's Notes tab (SkillNotes, Oct 23 2026: a card above the preview
+ * before); the favourite is a heart on each list row and in the detail title
+ * row (FavToggle).
  *
  * The notes live in this browser (src/stores/skillNotesStore.ts) and are keyed
  * by `agent:name`, so they survive a rescan and a move. They never touch the
@@ -97,7 +99,7 @@ function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
   const connection = useSkillNotesStore((s) => s.connection);
   const syncMessage = useSkillNotesStore((s) => s.message);
   const historyReset = useSkillNotesStore((s) => s.historyReset);
-  const { toggleFav, addTag, removeTag, setAbbr, setCli } = useSkillNotesStore.getState();
+  const { addTag, removeTag, setAbbr, setCli } = useSkillNotesStore.getState();
   const own = notes[key];
   const merged = noteForResource(notes, resource);
   const tags = own?.tags ?? NO_TAGS;
@@ -228,23 +230,10 @@ function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
       {sync.durable && identity && <p role="status" className={styles.hint}>{sync.pending} pending · {sync.conflicts} need review{sync.state === 'off' || sync.state === 'offline' ? ' · offline' : ''}</p>}
       {sync.durable && syncMessage && <p role="alert" className={styles.error}>{syncMessage}</p>}
 
-      <div className={styles.row}>
-        <IconButton
-          label="Favourite"
-          ariaLabel={`Favourite ${resource.name}`}
-          tone="warning"
-          disabled={!ready}
-          pressed={own?.fav ?? false}
-          tooltip={false}
-          onClick={() => toggleFav(key)}
-        >
-          <span aria-hidden="true">{own?.fav ? '♥' : '♡'}</span>
-        </IconButton>
-        <span className={styles.caption}>{own?.fav ? 'Favourite' : 'Not a favourite'}</span>
-        {resource.agent !== 'shared' && merged && merged.fav && !own?.fav && (
-          <span className={styles.caption}>(favourite through the shared copy)</span>
-        )}
-      </div>
+      {/* The heart is in the detail title row (Oct 23 2026); only the inherited case needs words. */}
+      {resource.agent !== 'shared' && merged && merged.fav && !own?.fav && (
+        <p className={styles.hint}>A favourite through its shared copy.</p>
+      )}
 
       <div className={styles.block}>
         <span className={styles.label}>Tags</span>

@@ -1,0 +1,189 @@
+/* ResourceLibrary — the Library's layout pieces from the Oct 23 2026 redesign: the tab badge, the
+   filter chips under the bar, the summary row, the list header (Select, Select all), the row's
+   cloud glyph and the bulk bar pinned under the rows. The controls themselves are the shared kit;
+   this sheet only places them. Spacing on the 4/8px grid like Resources.module.css. */
+
+/* A tab's label with its count. */
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Filters the menu holds, shown while they are on: each removes itself. */
+.activeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* Counts on the left, the cloud summary on the right; wraps on a narrow pane. */
+.summaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-width: 0;
+}
+
+/* ---- List header: "SKILLS · 353   [Select all 353]  [Select]" ---- */
+
+/* Sticky like the heading it replaces: a revealed selection scrolls the rows beneath it. */
+.listHeader {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 0 8px 8px;
+  background: var(--bg-primary);
+}
+.listHeading.listHeading {
+  flex: 1 1 auto;
+  padding: 0;
+}
+.selectAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.selectAll:hover { color: var(--text-primary); }
+
+/* The row's cloud glyph sits at the end of its first line. */
+.rowCloud {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+/* Oct 23 2026: a skill's or command's second line — its description, then its uses at the end. */
+.rowFoot {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.rowUses {
+  position: relative; /* holds its visually hidden "not used": unpositioned, it measured against <body> and grew the page */
+  flex: none;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The detail pane's "Used 17× in the last 90 days · …" and what it was counted by. */
+.usageFacts {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.usageHeadline { color: var(--text-primary); font-weight: 600; }
+.usageNote {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* ---- Bulk bar: "3 selected · Save to cloud · Stop syncing · Clear" ---- */
+
+.bulkBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-accent-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 -4px 12px color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+.bulkTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bulkActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bulkCount {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.bulkNote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---- Health: Checks, then Sources ---- */
+
+.health {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.healthSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ---- Connection: the cloud link, then phones away from home ---- */
+
+.connection {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+@media (pointer: coarse) {
+  .selectAll { min-height: 44px; }
+}
+
+/* The two panels scroll on their own when shown alone; inside Health the tab scrolls them both. */
+.healthSection > :not(:first-child) {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+/* ---- Detail title row: name · TYPE · ♡ ………… [cloud control] [Uninstall] ---- */
+
+/* The right end of the title row; wraps onto its own line, still at the right, when the title is long. */
+.detailActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+  align-self: center;
+}
+/* UninstallControls places its button with margin-left: auto for the old row; inside this group the
+   group does the placing. */
+.detailActions > button:last-child { margin-left: 0; }

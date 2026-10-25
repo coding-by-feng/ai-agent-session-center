@@ -23,6 +23,8 @@ export interface PhoneStatus {
 
 const STATUS: Record<string, { tone: PhoneStatusTone; label: string }> = {
   approval: { tone: 'approval', label: 'Waiting for approval' },
+  // Not a status: the P reminder (sessionStatusStyle.displayStatus) a row passes in its place.
+  proceed: { tone: 'approval', label: 'Asks you to proceed' },
   input: { tone: 'question', label: 'Has a question' },
   working: { tone: 'working', label: 'Working' },
   prompting: { tone: 'working', label: 'Starting' },

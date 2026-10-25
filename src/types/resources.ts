@@ -241,6 +241,31 @@ export interface ResourceCatalog {
 }
 
 // ---------------------------------------------------------------------------
+// Uses (Oct 23 2026): skills and commands only — nothing invokes a rule or memory
+// ---------------------------------------------------------------------------
+
+/** One skill's or command's uses in the window (`server/resourceUsage.ts`). */
+export interface ResourceUsage {
+  /** Prompts that typed it, each prompt once. */
+  typed: number;
+  /** Times Claude ran it through its Skill tool without the prompt having typed it. Always 0 for Codex. */
+  agent: number;
+  /** The latest use, epoch ms. */
+  lastAt: number;
+  /** The tokens it was counted by, as typed ("/rar", "$rar"). */
+  tokens: string[];
+  /** How many other resources answer to the same token and so show the same uses (a skill and a command of one name). */
+  sharedWith?: number;
+}
+
+/** `GET /api/resources/usage`. */
+export interface ResourceUsageReport {
+  windowDays: number;
+  /** Resource id → uses; a skill or command not used in the window is absent. */
+  byId: Record<string, ResourceUsage>;
+}
+
+// ---------------------------------------------------------------------------
 // Detail, files, compare
 // ---------------------------------------------------------------------------
 

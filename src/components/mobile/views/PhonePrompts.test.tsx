@@ -119,6 +119,9 @@ describe('PhonePrompts — on the Mac itself', () => {
     await user.click(screen.getByRole('button', { name: 'Filters' }));
     const sheet = await screen.findByRole('dialog', { name: 'Filters' });
     expect(within(sheet).getByRole('combobox', { name: 'Project' })).toBeTruthy();
+    // In the phone's dress although portaled out of the view (Oct 22 2026: it said MINE · CLEAR ALL · DONE).
+    expect(sheet.className).toMatch(/dress/);
+    expect(within(sheet).getAllByText('Any date')).toHaveLength(2);
     await user.click(within(sheet).getByRole('button', { name: '/Cmd' }));
     await waitFor(() => expect(promptRequests().some((u) => u.searchParams.get('kind') === 'cmd')).toBe(true));
   });
@@ -196,5 +199,48 @@ describe('PhonePrompts — one session’s Prompts tab (Oct 19 2026)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Use again' }));
     expect(onUseAgain).toHaveBeenCalledWith('fix the alpha bug');
     await waitFor(() => expect(screen.queryByTestId('prompt-detail')).toBeNull());
+  });
+});
+
+// Oct 23 2026: a prompt tapped in the session title's recent list arrives as
+// `openAt` and opens by itself once its row is on the page, matched by time.
+describe('PhonePrompts — opening a prompt asked for from the recent list', () => {
+  const at = prompt(1, 'a', 'fix the alpha bug').timestamp;
+  function renderTab(openAt: { at: number } | null) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (o: { at: number } | null) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PhonePrompts sessionId="a" onUseAgain={vi.fn()} openAt={o} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(tree(openAt));
+    return { rerenderWith: (o: { at: number } | null) => view.rerender(tree(o)) };
+  }
+
+  it('opens it full screen once the rows load', async () => {
+    renderTab({ at });
+    const sheet = await screen.findByTestId('prompt-detail');
+    expect(within(sheet).getByText('fix the alpha bug')).toBeTruthy();
+  });
+
+  it('stays closed once closed, and opens again for a new request', async () => {
+    const user = userEvent.setup();
+    const first = { at };
+    const { rerenderWith } = renderTab(first);
+    await screen.findByTestId('prompt-detail');
+    await user.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByTestId('prompt-detail')).toBeNull());
+    rerenderWith(first);
+    expect(screen.queryByTestId('prompt-detail')).toBeNull();
+    rerenderWith({ at });
+    expect(await screen.findByTestId('prompt-detail')).toBeTruthy();
+  });
+
+  it('just lists the prompts when the asked-for one is not on the page', async () => {
+    renderTab({ at: 1 });
+    expect(await screen.findByText('fix the alpha bug')).toBeTruthy();
+    expect(screen.queryByTestId('prompt-detail')).toBeNull();
   });
 });

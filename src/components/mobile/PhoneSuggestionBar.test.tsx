@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import PhoneSuggestionBar from './PhoneSuggestionBar';
+import { BLUR_SETTLE_MS } from './useTextareaCaret';
 import { resetPhoneSkillNotesCache } from '@/lib/phoneSuggestions';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { Session } from '@/types';
@@ -144,12 +145,40 @@ describe('PhoneSuggestionBar', () => {
     expect(box.value).toBe('fix / bar');
   });
 
-  it('goes away with the keyboard', async () => {
+  // Oct 21 2026: a tap on a button under the box blurs it first; a bar that vanished at once
+  // moved that button 54 px up before the click landed, and the tap missed. It waits out a tap.
+  it('goes away with the keyboard, once a tap that blurred the box has landed', async () => {
     render(<Harness />);
     const box = screen.getByLabelText('compose') as HTMLTextAreaElement;
     act(() => box.focus());
     await waitFor(() => expect(bar()).not.toBeNull());
-    act(() => box.blur());
-    expect(bar()).toBeNull();
+    vi.useFakeTimers();
+    try {
+      act(() => box.blur());
+      expect(bar()).not.toBeNull();
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS - 1); });
+      expect(bar()).not.toBeNull();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(bar()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stays when focus comes back before it settles (no flicker while typing)', async () => {
+    render(<Harness />);
+    const box = screen.getByLabelText('compose') as HTMLTextAreaElement;
+    act(() => box.focus());
+    await waitFor(() => expect(bar()).not.toBeNull());
+    vi.useFakeTimers();
+    try {
+      act(() => box.blur());
+      act(() => { vi.advanceTimersByTime(100); });
+      act(() => box.focus());
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS); });
+      expect(bar()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

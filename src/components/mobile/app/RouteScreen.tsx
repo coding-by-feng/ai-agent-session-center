@@ -22,8 +22,9 @@ const InfoScreen = lazy(() => import('../screens/InfoScreen'));
 const InfoPageScreen = lazy(() => import('../screens/info/InfoPageScreen'));
 const GalleryScreen = lazy(() => import('../screens/GalleryScreen'));
 const DiffScreen = lazy(() => import('../screens/DiffScreen'));
-const CloudScreen = lazy(() => import('../screens/CloudScreen'));
 const CloudResourceScreen = lazy(() => import('../screens/CloudResourceScreen'));
+const ResourcesScreen = lazy(() => import('../screens/ResourcesScreen'));
+const ResourceItemScreen = lazy(() => import('../screens/ResourceItemScreen'));
 
 function UnknownScreen() {
   return (
@@ -39,6 +40,8 @@ export default function RouteScreen({ path }: { path: string }) {
   if (route.kind === 'session') return <SessionScreen sessionId={route.sessionId} segment={route.segment} />;
   if (route.kind === 'diff') return <DiffScreen sessionId={route.sessionId} fileIndex={route.fileIndex} />;
   if (route.kind === 'cloud-resource') return <CloudResourceScreen resourceId={route.resourceId} />;
+  if (route.kind === 'resources') return <ResourcesScreen tab={route.tab} />;
+  if (route.kind === 'resource-item') return <ResourceItemScreen id={route.id} />;
   if (route.kind === 'session-info') {
     return route.page
       ? <InfoPageScreen sessionId={route.sessionId} page={route.page} />
@@ -58,7 +61,6 @@ export default function RouteScreen({ path }: { path: string }) {
     case 'translation':
     case 'advanced':
       return <SettingsScreen page={route.page} />;
-    case 'cloud': return <CloudScreen />;
     case 'phone': return <ThisPhoneScreen />;
     // About folded into This phone (Oct 20 2026); an old link lands there.
     case 'about': return <ThisPhoneScreen />;

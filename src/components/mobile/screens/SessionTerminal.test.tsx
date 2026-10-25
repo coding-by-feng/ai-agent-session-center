@@ -1,5 +1,5 @@
 // SessionTerminal.test.tsx — the Terminal segment (AASC-45): the key bar and its
-// sticky Ctrl, the raw input line, Fit / Pan and the text size (local only), the
+// sticky Ctrl, the raw input line, the width picked by itself and ↓ Latest (Oct 23 2026), the
 // "driving elsewhere" lock, the ⋯ sheet's confirmed Clear, and the palette
 // that follows this phone's theme (AASC-58).
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -25,6 +25,7 @@ const term = vi.hoisted(() => ({
   sendKeys: vi.fn(),
   setWidthMode: vi.fn(),
   setTextSize: vi.fn(),
+  scrollToBottom: vi.fn(),
   clearOutput: vi.fn(),
   attach: vi.fn(),
   handleTerminalGeometry: vi.fn(),
@@ -52,7 +53,7 @@ vi.mock('@/hooks/useTerminal', () => ({
     textSize: 11,
     setTextSize: term.setTextSize,
     reparent: vi.fn(),
-    scrollToBottom: vi.fn(),
+    scrollToBottom: term.scrollToBottom,
     refreshOutput: vi.fn(),
     clearOutput: term.clearOutput,
     autoScrollEnabled: false,
@@ -141,12 +142,49 @@ describe('SessionTerminal', () => {
     localStorage.removeItem('terminal-theme');
   });
 
-  it('shows the PTY’s real size once the Mac reports it', () => {
+  it('passes the PTY’s real size on, and keeps the top row to the live state and ⋯', () => {
+    term.fitState = { fontSize: 11, fitted: false };
     render(<SessionTerminal session={session} />);
     push({ type: 'terminal_geometry', terminalId: 'term-1', cols: 160, rows: 40 });
     expect(screen.getByText('Live')).toBeInTheDocument();
-    expect(screen.getByText('160×40')).toBeInTheDocument();
     expect(term.handleTerminalGeometry).toHaveBeenCalledWith('term-1', 160);
+    // Oct 23 2026: the controls nobody could use are gone (Fit couldn't fit a 146-column CLI).
+    expect(screen.queryByText('160×40')).toBeNull();
+    for (const name of ['Fit', 'Pan', 'Smaller text', 'Larger text'])
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.queryByText(/Too wide to fit/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'More terminal actions' })).toBeInTheDocument();
+  });
+
+  it('picks the width by itself: a phone that chose Pan before reads fitted, at its own size', () => {
+    localStorage.setItem('aasc.phoneTerminal', JSON.stringify({ mode: 'pan', size: 13 }));
+    render(<SessionTerminal session={session} />);
+    expect(term.setWidthMode).toHaveBeenLastCalledWith('fit');
+    expect(term.setTextSize).toHaveBeenLastCalledWith(13);
+    expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('terminal_resize'));
+    localStorage.removeItem('aasc.phoneTerminal');
+  });
+
+  it('offers ↓ Latest only while scrolled up, and goes back to the newest line', () => {
+    render(<SessionTerminal session={session} />);
+    expect(screen.queryByRole('button', { name: 'Jump to the latest output' })).toBeNull();
+    // xterm's own scroller sits inside the viewer: scrolled 600 px up from the bottom.
+    const viewport = document.createElement('div');
+    viewport.className = 'xterm-viewport';
+    screen.getByTestId('phone-terminal-viewport').appendChild(viewport);
+    const at = (top: number) => {
+      Object.defineProperties(viewport, {
+        scrollTop: { value: top, configurable: true },
+        scrollHeight: { value: 2000, configurable: true },
+        clientHeight: { value: 400, configurable: true },
+      });
+      act(() => viewport.dispatchEvent(new Event('scroll')));
+    };
+    at(1000);
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to the latest output' }));
+    expect(term.scrollToBottom).toHaveBeenCalledTimes(1);
+    at(1600);
+    expect(screen.queryByRole('button', { name: 'Jump to the latest output' })).toBeNull();
   });
 
   it('writes each key bar key as a terminal keyboard would', () => {
@@ -184,30 +222,6 @@ describe('SessionTerminal', () => {
     fireEvent.submit(screen.getByTestId('raw-input'));
     await waitFor(() => expect(calls).toEqual(['ls -la', '\r']), { timeout: 3000 });
     expect(screen.getByTestId('raw-input')).toHaveValue('');
-  });
-
-  it('switches Fit and Pan locally, and remembers it on this phone', () => {
-    render(<SessionTerminal session={session} />);
-    expect(term.setWidthMode).toHaveBeenLastCalledWith('fit');
-    fireEvent.click(screen.getByRole('button', { name: 'Pan' }));
-    expect(term.setWidthMode).toHaveBeenLastCalledWith('pan');
-    expect(JSON.parse(localStorage.getItem('aasc.phoneTerminal') ?? '{}')).toMatchObject({ mode: 'pan' });
-    expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('terminal_resize'));
-  });
-
-  it('A+ from a fitted view reads one size up from what shows, panning', () => {
-    term.fitState = { fontSize: 8.75, fitted: true };
-    render(<SessionTerminal session={session} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Larger text' }));
-    expect(term.setTextSize).toHaveBeenLastCalledWith(9);
-    expect(term.setWidthMode).toHaveBeenLastCalledWith('pan');
-  });
-
-  it('says so when the PTY is too wide to fit at a readable size', () => {
-    term.fitState = { fontSize: 11, fitted: false };
-    render(<SessionTerminal session={session} />);
-    push({ type: 'terminal_geometry', terminalId: 'term-1', cols: 160, rows: 40 });
-    expect(screen.getByText(/Too wide to fit at a readable size/)).toBeInTheDocument();
   });
 
   // Oct 2026, by request: no control baton for people. The phone types even while the Mac typed last.

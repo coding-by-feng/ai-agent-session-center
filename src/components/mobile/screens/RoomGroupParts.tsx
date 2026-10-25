@@ -13,7 +13,7 @@
  * the rooms, asked of the Mac anywhere else. Kill-room stops only the sessions
  * shared with this phone (lib/chat/phoneRoomKill.ts).
  */
-import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { useCallback, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { EllipsisIcon } from '../kit/kitIcons';
 import { DeleteRoomConfirm, RoomEditSheet } from '../RoomSheets';
@@ -46,6 +46,15 @@ function ClockIcon() {
     <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
       className={styles.recentIcon}>
       <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+/** A filled pin, the size of a room swatch: what a pinned card shows (PinIcon), at header scale. */
+function PinGlyph() {
+  return (
+    <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
+      <path d="M6 1.2c-1.6 0-2.8 1.2-2.8 2.7 0 1.2.8 2.2 1.8 2.6L6 10.8l1-4.3c1-.4 1.8-1.4 1.8-2.6 0-1.5-1.2-2.7-2.8-2.7Z" />
     </svg>
   );
 }
@@ -128,6 +137,32 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
 export function RecentGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
   const minutes = RECENT_WINDOW_MS / 60_000;
   return (
+    <BuiltinGroupHeader
+      title="Recent"
+      icon={<ClockIcon />}
+      count={count}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      describe={`active in the last ${minutes} minutes`}
+    />
+  );
+}
+
+/** The built-in Pinned group's header (By room, Oct 22 2026): the desktop rail's PINNED frame, the same way. */
+export function PinnedGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+  return <BuiltinGroupHeader title="Pinned" icon={<PinGlyph />} count={count} collapsed={collapsed} onToggle={onToggle} describe="pinned" />;
+}
+
+function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe }: {
+  title: string;
+  icon: ReactNode;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  /** What its sessions have in common, for the spoken name ("pinned"). */
+  describe: string;
+}) {
+  return (
     <div className={styles.header}>
       <span className={styles.gripSpace} aria-hidden="true" />
       <h2 className={styles.title}>
@@ -136,11 +171,11 @@ export function RecentGroupHeader({ count, collapsed, onToggle }: { count: numbe
           className={styles.toggle}
           onClick={onToggle}
           aria-expanded={!collapsed}
-          aria-label={`Recent, ${count} ${count === 1 ? 'session' : 'sessions'} active in the last ${minutes} minutes, also in their rooms, ${collapsed ? 'folded' : 'open'}`}
+          aria-label={`${title}, ${count} ${count === 1 ? 'session' : 'sessions'} ${describe}, also in their rooms, ${collapsed ? 'folded' : 'open'}`}
         >
           <ChevronIcon open={!collapsed} />
-          <ClockIcon />
-          <span className={styles.titleText}>Recent · {count}</span>
+          {icon}
+          <span className={styles.titleText}>{title} · {count}</span>
         </button>
       </h2>
     </div>

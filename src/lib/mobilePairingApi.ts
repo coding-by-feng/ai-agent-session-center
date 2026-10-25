@@ -20,6 +20,8 @@ export interface PairedPhone {
   lastSeenAt: number | null;
   /** What the phone may do on this Mac. `sessions-only` is the one set today (AASC-28). */
   access?: 'sessions-only';
+  /** Has an open socket right now (Oct 22 2026); absent from older servers. */
+  online?: boolean;
 }
 
 export interface PhonePairing {
@@ -67,6 +69,20 @@ export async function approvePhone(id: string): Promise<void> {
 export async function removePhone(id: string): Promise<void> {
   const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   await readJson(res, 'Could not remove the phone');
+}
+
+/** Give a paired phone a new name (1–80 characters; the server cleans it). */
+export async function renamePhone(id: string, label: string): Promise<void> {
+  const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ label }),
+  });
+  await readJson(res, 'Could not rename the phone');
+}
+
+/** End an approved phone's sessions without unpairing it: it signs in again from the app. */
+export async function signOutPhone(id: string): Promise<void> {
+  const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}/sign-out`, { method: 'POST', headers: JSON_HEADERS });
+  await readJson(res, 'Could not sign the phone out');
 }
 
 /**

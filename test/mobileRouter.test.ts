@@ -13,7 +13,7 @@ vi.mock('../server/logger.js', () => ({
 }));
 
 import { createDeviceAuth, proofForToken, type MobileDeviceRecord, type MobileDeviceStore } from '../server/mobile/deviceAuth.js';
-import { createMobileRouter, buildPairingLink, PAIRING_LINK_BASE } from '../server/mobile/mobileRouter.js';
+import { createMobileRouter, buildPairingLink, PAIRING_LINK_BASE, type PairingTarget } from '../server/mobile/mobileRouter.js';
 
 function memoryStore(): MobileDeviceStore {
   const rows = new Map<string, MobileDeviceRecord>();
@@ -34,28 +34,37 @@ let passwordEnabled: boolean;
 let signedIn: boolean;
 let offered: boolean;
 let failures: Map<string, number>;
+/** What this Mac names for pairing; a promise stands for one that has to ask Tailscale first (AASC-60). */
+let pairingTarget: () => PairingTarget | Promise<PairingTarget>;
+/** Phone ids with an open socket, for GET /devices' `online` (Oct 22 2026). */
+let onlinePhones: Set<string>;
 const createSessionToken = vi.fn((deviceId: string) => `session-for-${deviceId}`);
 const onRevoked = vi.fn();
+const onSignedOut = vi.fn();
 
 beforeEach(async () => {
   passwordEnabled = true;
   signedIn = true;
   offered = true;
   failures = new Map();
+  pairingTarget = () => ({ name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: '100.100.1.2' });
+  onlinePhones = new Set();
   createSessionToken.mockClear();
   onRevoked.mockClear();
-  const deviceAuth = createDeviceAuth({ store: memoryStore(), onRevoked });
+  onSignedOut.mockClear();
+  const deviceAuth = createDeviceAuth({ store: memoryStore(), onRevoked, onSignedOut });
   const app = express();
   app.use(express.json());
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled: () => passwordEnabled,
     pairingOffered: () => offered,
+    isPhoneOnline: (id) => onlinePhones.has(id),
     // Stands in for authMiddleware: the desktop page holds a dashboard session.
     requireSession: (_req, res, next) => (signedIn ? next() : res.status(401).json({ error: 'Unauthorized' })),
     createSessionToken,
     sessionTtlSeconds: 3600,
-    pairingTarget: () => ({ name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: '100.100.1.2' }),
+    pairingTarget: () => pairingTarget(),
     rateLimit: {
       check: (ip) => ((failures.get(ip) ?? 0) >= 5 ? 900 : 0),
       record: (ip) => { failures.set(ip, (failures.get(ip) ?? 0) + 1); },
@@ -125,6 +134,17 @@ describe('POST /pairing (desktop)', () => {
     expect(params.get('ts')).toBe('100.100.1.2');
     expect(params.get('p')).toBe('3333');
     expect(res.body.data).not.toHaveProperty('backendIncluded');
+  });
+
+  it('waits for a pairing target that asks Tailscale first, and puts its address in the link', async () => {
+    pairingTarget = async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: '100.101.102.103' };
+    };
+    const res = await call('POST', '/pairing', { body: {} });
+    expect(res.status).toBe(200);
+    expect(new URLSearchParams(res.body.data.link.split('#')[1]).get('ts')).toBe('100.101.102.103');
+    expect(res.body.data.target.tailnet).toBe('100.101.102.103');
   });
 
   it('refuses when no dashboard password is set (phones are remote devices)', async () => {
@@ -221,6 +241,51 @@ describe('approve / deny from the desktop', () => {
   });
 });
 
+describe('rename / sign out from the desktop', () => {
+  it('PATCH renames a phone and the list shows the new name', async () => {
+    const phone = await pairedPhone();
+    const res = await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: '  Work iPhone ' } });
+    expect(res.status).toBe(200);
+    expect(res.body.data.device).toMatchObject({ id: phone.deviceId, label: 'Work iPhone' });
+    expect((await call('GET', '/devices')).body.data.devices[0].label).toBe('Work iPhone');
+  });
+
+  it('PATCH refuses an empty, too long or extra-field body, and an unknown phone', async () => {
+    const phone = await pairedPhone();
+    expect((await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: '   ' } })).status).toBe(400);
+    expect((await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: 'x'.repeat(81) } })).status).toBe(400);
+    expect((await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: 'A', status: 'active' } })).status).toBe(400);
+    expect((await call('PATCH', '/devices/00000000-0000-4000-8000-000000000000', { body: { label: 'A' } })).status).toBe(404);
+  });
+
+  it('PATCH and sign-out only answer the AASC page itself, signed in', async () => {
+    const phone = await pairedPhone();
+    await call('POST', `/devices/${phone.deviceId}/approve`);
+    const cross = { 'sec-fetch-site': 'same-site' };
+    expect((await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: 'A' }, headers: cross })).status).toBe(404);
+    expect((await call('POST', `/devices/${phone.deviceId}/sign-out`, { headers: cross })).status).toBe(404);
+    signedIn = false;
+    expect((await call('PATCH', `/devices/${phone.deviceId}`, { body: { label: 'A' } })).status).toBe(401);
+    expect((await call('POST', `/devices/${phone.deviceId}/sign-out`)).status).toBe(401);
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it('sign-out ends an approved phone\'s sessions without revoking it', async () => {
+    const phone = await pairedPhone();
+    await call('POST', `/devices/${phone.deviceId}/approve`);
+    const res = await call('POST', `/devices/${phone.deviceId}/sign-out`);
+    expect(res.status).toBe(200);
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+    expect(onRevoked).not.toHaveBeenCalled();
+    expect((await signIn(phone.deviceId, phone.deviceToken)).status).toBe(200);
+  });
+
+  it('sign-out answers 404 for a phone still waiting for approval', async () => {
+    const phone = await pairedPhone();
+    expect((await call('POST', `/devices/${phone.deviceId}/sign-out`)).status).toBe(404);
+  });
+});
+
 describe('phone routes', () => {
   it('a pending phone is told to wait for approval; an approved one gets a session cookie', async () => {
     const phone = await pairedPhone();
@@ -291,5 +356,15 @@ describe('buildPairingLink', () => {
     expect([...params.keys()]).toEqual(['v', 'name', 'ts', 'p', 'mc']);
     expect(params.get('mc')).toBe('MACCODE234');
     expect(params.has('lan')).toBe(false);
+  });
+});
+
+describe('GET /devices — online (Oct 22 2026)', () => {
+  it('marks a paired phone online only while it has an open socket', async () => {
+    const { deviceId } = await pairedPhone();
+    const phone = async () => (await call('GET', '/devices')).body.data.devices.find((d: { id: string }) => d.id === deviceId);
+    expect((await phone()).online).toBe(false);
+    onlinePhones.add(deviceId);
+    expect((await phone()).online).toBe(true);
   });
 });

@@ -60,8 +60,10 @@ function toSuggestion(entry: CommandEntry, note: SkillNote | null): Suggestion {
 /**
  * Commands and skills matching `query`, best first: the exact abbreviation,
  * then favourites, then names (or abbreviations) that start with the query,
- * then A–Z. With no notes this is the plain command ranking. One flat list,
- * not grouped by source: a favourite global skill outranks a built-in command.
+ * then the most used (`uses`, the Mac's count of your recent prompts; Oct 21
+ * 2026, it was A–Z), then A–Z. With no notes this is the plain command ranking.
+ * One flat list, not grouped by source: a favourite global skill outranks a
+ * built-in command.
  */
 export function rankSuggestions(
   entries: readonly CommandEntry[],
@@ -79,7 +81,8 @@ export function rankSuggestions(
     const exact = (x: typeof a) => (q && x.note?.abbr === q ? 0 : 1);
     const fav = (x: typeof a) => (x.note?.fav ? 0 : 1);
     const prefix = (x: typeof a) => (q && (x.name.startsWith(q) || x.note?.abbr?.startsWith(q)) ? 0 : 1);
-    return exact(a) - exact(b) || fav(a) - fav(b) || prefix(a) - prefix(b) || a.name.localeCompare(b.name);
+    const used = (x: typeof a) => x.e.uses ?? 0;
+    return exact(a) - exact(b) || fav(a) - fav(b) || prefix(a) - prefix(b) || used(b) - used(a) || a.name.localeCompare(b.name);
   });
   const seen = new Set<string>();
   const out: Suggestion[] = [];
@@ -91,6 +94,18 @@ export function rankSuggestions(
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/**
+ * What a sigil lists in the Chat composer (Oct 21 2026), or null for nothing: `/` lists
+ * commands and skills on both CLIs, each by its own token (a Codex skill goes in as
+ * `$name`, as the terminal's `/` list does); `$` lists skills on Codex only (on Claude it
+ * is ordinary text: $HOME, a price); `@` is the file sheet's.
+ */
+export function chatSuggestionKinds(type: 'command' | 'skill' | 'file', cli: 'claude' | 'codex'): CommandKind[] | null {
+  if (type === 'command') return ['command', 'skill'];
+  if (type === 'skill' && cli === 'codex') return ['skill'];
+  return null;
 }
 
 /** With nothing typed yet: the favourites, then anything with an abbreviation. Empty without notes. */

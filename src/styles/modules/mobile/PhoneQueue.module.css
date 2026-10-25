@@ -1,5 +1,8 @@
 /* The phone's Queue tab (AASC-47): who sends, groups per session, rows with a
-   reorder handle and ⚡. */
+   reorder handle and ⚡. Since Oct 23 2026 it wears the session queue's look (Info →
+   Queue, QueueTab in the phone dress): prompts on the page itself inside a hairline
+   border instead of a white card, its six-dot grip, its Paused pill and paused-row
+   bar, and Auto-Enter / Auto-send with their glyphs in its order. */
 
 .navAction {
   appearance: none;
@@ -35,7 +38,18 @@
   border-radius: var(--ph-radius-card);
 }
 
-section.group { margin-bottom: var(--ph-space-4); }
+section.group {
+  margin-bottom: var(--ph-space-4);
+  /* SwipeRow paints each row to hide its Move / Delete under it: the page's colour here. */
+  --swipe-row-bg: var(--ph-bg);
+}
+
+/* The kit list's white card, redrawn as the session queue's: the page, a hairline, 8px. */
+section.group > ul {
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius-sm);
+  background: var(--ph-bg);
+}
 
 /* The group header is a button inside the section's <h2>. */
 .groupHeader {
@@ -85,12 +99,36 @@ section.group { margin-bottom: var(--ph-space-4); }
 }
 
 .groupState {
+  /* A row of its own: the two words below centre on one line, whatever their first glyph. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .groupState[data-paused] { color: var(--ph-status-approval); font-weight: 600; }
+
+/* "↩ Auto-Enter on · ➤ Auto-send on": the session queue's two switches, as words. A glyph
+   takes the accent while its switch is on, as on the switch itself. The dot travels with
+   the second word, so a wrap never strands it at the end of a line. */
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  white-space: nowrap;
+}
+
+.auto svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.auto[data-on] svg { color: var(--ph-accent); }
+
+.autoDot { margin: 0 var(--ph-space-1); }
 
 /* ---- A queued prompt ---- */
 
@@ -125,14 +163,28 @@ section.group { margin-bottom: var(--ph-space-4); }
 }
 
 .row {
+  position: relative;
   display: flex;
   align-items: stretch;
   min-height: var(--ph-row);
-  background: var(--ph-surface);
 }
 
+/* A paused prompt: muted words, the session queue's bar on its left edge, and its Paused
+   pill. Not its 40% fade, which takes the words below 4.5:1. */
 .row[data-disabled] .line,
 .row[data-disabled] .num { color: var(--ph-text-secondary); }
+
+.row[data-disabled]::before {
+  content: '';
+  position: absolute;
+  top: var(--ph-space-1);
+  bottom: var(--ph-space-1);
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ph-text-tertiary);
+  pointer-events: none;
+}
 
 .handle,
 .main,
@@ -156,12 +208,14 @@ section.group { margin-bottom: var(--ph-space-4); }
   width: 44px;
   min-height: var(--ph-target);
   padding: 0 0 0 var(--ph-space-1);
-  color: var(--ph-text-tertiary);
+  color: var(--ph-text-secondary);
   cursor: grab;
   touch-action: none;
   -webkit-touch-callout: none;
   user-select: none;
 }
+
+.handle svg { opacity: 0.8; }
 
 .item[data-dragging] .handle { cursor: grabbing; color: var(--ph-accent); }
 
@@ -204,6 +258,46 @@ section.group { margin-bottom: var(--ph-space-4); }
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* A skill or command in a prompt (Oct 26 2026): on the phone it reads as part of the sentence, at
+   the text's own size and font, marked by the shared token's tint and colour and a semibold
+   weight. The desktop lists keep their larger mono token (PromptTokens.module.css). The chips
+   under a cut-off preview are a step smaller, and the rows of the text column are 4px apart, so
+   chips and the Paused pill no longer touch. */
+.text { gap: var(--ph-space-1); }
+
+.text [data-prompt-token],
+.text [data-prompt-chip] {
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 600;
+  padding: 0 0.25em;
+}
+
+.text [data-prompt-chip] {
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+/* Under the prompt: the Paused pill, then "3 steps", "Every 10 min"… */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ph-space-1) var(--ph-space-2);
+}
+
+.paused {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--ph-text-secondary);
+  border-radius: var(--ph-radius-sm);
+  font-size: var(--ph-size-caption);
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text);
 }
 
 .summary {

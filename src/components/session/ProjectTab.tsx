@@ -58,6 +58,10 @@ interface ProjectTabProps {
   initialPath?: string;
   /** True if initialPath points to a file (restore file view on mount) */
   initialIsFile?: boolean;
+  /** Load the initialPath file on mount even when saved tabs exist (it is
+   *  added to them). The detached Project window uses it to open the file the
+   *  docked tab was showing. */
+  preferInitialFile?: boolean;
   /** When set, programmatically navigates to this file path */
   navigateToFile?: string | null;
   /** Unique ID used to persist file tabs across remounts (e.g. sub-tab id) */
@@ -962,7 +966,7 @@ function ImageViewer({ src, alt, filePath, caption, fullscreen }: ImageViewerPro
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange, originSessionId }: ProjectTabProps) {
+export default function ProjectTab({ projectPath, initialPath, initialIsFile, preferInitialFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange, originSessionId }: ProjectTabProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
@@ -1269,7 +1273,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               data: XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[name], { header: 1 }) as string[][],
             }));
           }
-        } else if (isVideoExt(ext) || isAudioExt(ext)) {
+        } else if (isVideoExt(ext) || isAudioExt(ext) || ext === 'pdf') {
+          // Handed to the viewer as a URL, never copied into a blob: a PDF
+          // behind a blob: URL failed as "Unexpected server response (0)"
+          // whenever that URL was no longer readable, and the error stuck.
+          // pdf.js fetches it same-origin (cookie auth), as the phone does.
           data.blobUrl = streamUrl;
         } else if (isWordExt(ext)) {
           // Word docs are converted to HTML below — no blob needed
@@ -1325,6 +1333,12 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // In VS Code layout, the tree handles directory browsing, so we never need to call loadDir on mount.
   useEffect(() => {
     if (!projectPath) return;
+    // 0. The caller asked for this file explicitly — one loadFile only, since
+    //    two in flight race (loadFile has no version guard).
+    if (preferInitialFile && initialIsFile && initialPath) {
+      loadFile(initialPath);
+      return;
+    }
     // 1. Restore persisted active file tab
     if (activeTabPath && tabs.some(t => t.path === activeTabPath)) {
       loadFile(activeTabPath);

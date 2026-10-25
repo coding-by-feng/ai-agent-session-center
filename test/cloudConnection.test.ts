@@ -216,7 +216,8 @@ it.each([
  ['GET',`/v1/resources/${cloudId}`],
  ['DELETE',`/v1/resources/${cloudId}`],
  ['GET',`/v1/projects/${cloudId}`],
- ['DELETE',`/v1/projects/${cloudId}`],
+ ['DELETE','/v1/projects/x'],
+ ['DELETE',`/v1/projects/${cloudId}/extra`],
  ['GET',`/v1/resources/${cloudId}/versions/0`],
  ['GET',`/v1/resources/${cloudId}/versions/1/files/not-a-hash`],
  ['GET',`/v1/resources/uploads/${cloudId}/files/${sha}`],
@@ -236,6 +237,8 @@ it.each([
  ['GET','/v1/projects'],
  ['POST','/v1/projects'],
  ['PUT',`/v1/projects/${cloudId}`],
+ // AASC-63: Remove from the cloud list.
+ ['DELETE',`/v1/projects/${cloudId}`],
 ])('only the exact cloud resource and project routes are allowed: %s %s', async (method, path) => {
  const f=await fixture();await f.connect();
  await expect(f.cloud.client.request(method,path,method==='GET'?undefined:{})).resolves.toBeDefined();
@@ -275,4 +278,44 @@ it('a pairing response without a valid token still fails closed',async()=>{
  const f=await fixture((req,res)=>{res.end(JSON.stringify({success:true,data:{token:'short',ownerId:owner,deviceId:device,scopes:['notes:read']}}));});
  await expect(f.connect()).rejects.toMatchObject({code:'invalid_response'});
  expect(f.cloud.status().connection).toBeNull();
+});
+describe('Google sign-in pairing (AASC-61)', () => {
+  it('sends the verifier with the code and keeps the account email across a reload', async () => {
+    const verifier = 'v'.repeat(43);
+    let body = '';
+    const f = await fixture((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/v1/devices/pair') {
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () =>
+          res.end(JSON.stringify({ success: true, data: { token, ownerId: owner, deviceId: device, account: { email: 'owner@example.com' } } })),
+        );
+      } else res.end(JSON.stringify({ success: true, data: { status: 'ok', contractVersion: 1, ownerId: owner, deviceId: device } }));
+    });
+    const c = await f.cloud.connectCloud({ backendUrl: f.url, pairingCode: code, deviceName: 'kason-mac', verifier });
+    expect(JSON.parse(body)).toEqual({ code, name: 'kason-mac', verifier });
+    expect(c.accountEmail).toBe('owner@example.com');
+    await f.cloud.stop();
+    const again = await createCloudConnection({ directory: join(f.dir, 'config'), secrets: f.secrets, timeoutMs: 200 });
+    cleanups.push(() => again.stop());
+    expect(again.status().connection?.accountEmail).toBe('owner@example.com');
+  });
+  it('a typed code sends no verifier and stores no email', async () => {
+    let body = '';
+    const f = await fixture((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => res.end(JSON.stringify({ success: true, data: { token, ownerId: owner, deviceId: device } })));
+    });
+    const c = await f.connect();
+    expect(JSON.parse(body)).toEqual({ code, name: 'Test device' });
+    expect(c.accountEmail).toBeUndefined();
+  });
+  it('refuses a malformed verifier before any request', async () => {
+    const f = await fixture();
+    await expect(
+      f.cloud.connectCloud({ backendUrl: f.url, pairingCode: code, deviceName: 'x', verifier: 'short' }),
+    ).rejects.toThrow();
+    expect(f.calls()).toBe(0);
+  });
 });

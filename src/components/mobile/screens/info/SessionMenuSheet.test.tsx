@@ -69,6 +69,27 @@ describe('SessionMenuSheet', () => {
     expect(within(sheet).queryByRole('button', { name: /^Terminal/ })).toBeNull();
   });
 
+  // Oct 21 2026: the chat's search bar opens from here, not by scrolling up.
+  it('offers Search this chat, second, when the screen gives it a way there, and closes first', async () => {
+    const user = userEvent.setup();
+    useSessionStore.setState({ sessions: new Map([['s1', make()]]) });
+    const onClose = vi.fn();
+    const onSearch = vi.fn();
+    render(<SessionMenuSheet sessionId="s1" onClose={onClose} onTerminal={() => {}} onSearch={onSearch} />);
+    const sheet = screen.getByRole('dialog', { name: 'web' });
+    const rows = within(sheet).getAllByRole('button').map((b) => b.textContent ?? '').filter((t) => t.trim() !== '');
+    expect(rows[0]).toMatch(/^Terminal/);
+    expect(rows[1]).toMatch(/^Search this chat/);
+    await user.click(within(sheet).getByRole('button', { name: /^Search this chat/ }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Search without a chat to search (a shell)', () => {
+    const { sheet } = setup();
+    expect(within(sheet).queryByRole('button', { name: /^Search this chat/ })).toBeNull();
+  });
+
   it('the Sessions list’s actions sheet offers Terminal too', async () => {
     const user = userEvent.setup();
     useSessionStore.setState({ sessions: new Map([['s1', make()]]) });

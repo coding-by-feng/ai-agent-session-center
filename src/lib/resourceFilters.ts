@@ -104,12 +104,36 @@ export function findingLabel(code: FindingCode): string {
   return FINDING_LABELS[code] ?? code;
 }
 
+/** Errors and warnings: what the Health tab's count shows (info findings stay quiet). */
+export function healthIssues(findings: readonly ResourceFinding[]): number {
+  return findings.filter((f) => f.severity !== 'info').length;
+}
+
 // ---------------------------------------------------------------------------
 // URL state
 // ---------------------------------------------------------------------------
 
-export const RESOURCE_SECTIONS = ['library', 'sources', 'checks', 'cloud'] as const;
+/**
+ * The tab row (Oct 23 2026): Library · Cloud sync · Projects · Health (Checks + Sources) ·
+ * Connection (this Mac's cloud link, notes, Remote access). Before it there were two rows:
+ * Library · Sources · Checks · Cloud, and inside Cloud: Resources · Projects · Connection · Remote
+ * access. `sectionFrom` maps every old link.
+ */
+export const RESOURCE_SECTIONS = ['library', 'sync', 'projects', 'health', 'connection'] as const;
 export type ResourceSection = (typeof RESOURCE_SECTIONS)[number];
+
+/** Where a link opens, old links included (`?section=checks`, `?section=cloud&cloudTab=remote`). */
+function sectionFrom(params: URLSearchParams): ResourceSection {
+  const section = params.get('section');
+  if (section === 'sources' || section === 'checks') return 'health';
+  if (section === 'cloud') {
+    const view = params.get('cloudTab');
+    if (view === 'projects') return 'projects';
+    if (view === 'connection' || view === 'remote') return 'connection';
+    return 'sync';
+  }
+  return oneOf(section, RESOURCE_SECTIONS, 'library');
+}
 
 export type AgentFilter = 'all' | ResourceAgent;
 export type ScopeFilter = 'all' | ResourceScope;
@@ -164,7 +188,7 @@ export function readResourceParams(params: URLSearchParams): ResourceViewParams 
   const project = params.get('project') || null;
   const scope = oneOf(params.get('scope'), SCOPE_FILTERS, project ? 'project' : 'all');
   return {
-    section: oneOf(params.get('section'), RESOURCE_SECTIONS, 'library'),
+    section: sectionFrom(params),
     type: oneOf(params.get('type'), RESOURCE_TYPES, 'skill'),
     id: params.get('id') || null,
     agent: oneOf(params.get('agent'), AGENT_FILTERS, 'all'),

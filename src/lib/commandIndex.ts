@@ -18,6 +18,9 @@ export interface CommandEntry {
   source: CommandSource;
   sourcePath?: string;
   pluginName?: string;
+  /** How many of your prompts in the last 90 days used it, counted on the Mac
+   *  (server/commandUsage.ts, Oct 21 2026); absent = none, or an older Mac. */
+  uses?: number;
 }
 
 const TTL_MS = 30_000;
@@ -47,8 +50,8 @@ export async function fetchCommandIndex(
   const promise = fetch(`/api/commands?${params.toString()}`)
     .then(async (res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { entries?: CommandEntry[] };
-      return data.entries ?? [];
+      const data = (await res.json()) as { entries?: CommandEntry[]; usage?: unknown };
+      return withUses(data.entries ?? [], data.usage);
     })
     .then(
       (entries) => {
@@ -104,6 +107,16 @@ export function entryToken(entry: CommandEntry): string {
   return entryPrefix(entry) + entryDisplayName(entry);
 }
 
+/** Each entry with the Mac's count of its token (`{ "/raab": 105 }`), when it has one. */
+function withUses(entries: CommandEntry[], usage: unknown): CommandEntry[] {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return entries;
+  const counts = usage as Record<string, unknown>;
+  return entries.map((e) => {
+    const n = counts[entryToken(e)];
+    return typeof n === 'number' && Number.isFinite(n) && n > 0 ? { ...e, uses: n } : e;
+  });
+}
+
 /** Source label for the chip. */
 export function entrySourceLabel(entry: CommandEntry): string {
   switch (entry.source) {
@@ -124,6 +137,30 @@ export interface CommandGroup {
   title: string;
   source: CommandSource;
   entries: CommandEntry[];
+}
+
+/**
+ * The `limit` most used entries of `kinds`, commands and skills together (ties A–Z), each token
+ * once: the head of the phone's `/` sheet. Empty when the Mac sent no counts.
+ */
+export function mostUsed(
+  entries: readonly CommandEntry[],
+  kinds: readonly CommandKind[],
+  limit = 8,
+): CommandEntry[] {
+  const ranked = entries
+    .filter((e) => kinds.includes(e.kind) && (e.uses ?? 0) > 0)
+    .sort((a, b) => (b.uses ?? 0) - (a.uses ?? 0) || entryDisplayName(a).localeCompare(entryDisplayName(b)));
+  const seen = new Set<string>();
+  const out: CommandEntry[] = [];
+  for (const e of ranked) {
+    const token = entryToken(e);
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(e);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**
@@ -148,7 +185,8 @@ export function filterAndGroup(
       matches.push(e);
     }
   }
-  // Stable sort: the exact abbreviation, then favourites, then prefix matches, then alpha
+  // Stable sort: the exact abbreviation, then favourites, then prefix matches, then the most used
+  // (Oct 24 2026: the `/` lists were A–Z under each source), then alpha
   matches.sort((a, b) => {
     const aName = entryDisplayName(a).toLowerCase();
     const bName = entryDisplayName(b).toLowerCase();
@@ -163,6 +201,8 @@ export function filterAndGroup(
     const aPrefix = q && (aName.startsWith(q) || aNote?.abbr?.startsWith(q)) ? 0 : 1;
     const bPrefix = q && (bName.startsWith(q) || bNote?.abbr?.startsWith(q)) ? 0 : 1;
     if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+    const used = (b.uses ?? 0) - (a.uses ?? 0);
+    if (used !== 0) return used;
     return aName.localeCompare(bName);
   });
 

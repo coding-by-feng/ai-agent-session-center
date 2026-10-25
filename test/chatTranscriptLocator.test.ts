@@ -110,6 +110,62 @@ describe('a Claude session', () => {
     rollout(CODEX_ID);
     expect(await locateTranscript({ sessionId: CODEX_ID, cliSource: 'claude', projectPath: project })).toBeNull();
   });
+
+  describe('moved out of its launch folder (EnterWorktree, Oct 24 2026)', () => {
+    /** A projects folder other than the launch folder's, as a worktree's encoded path makes. */
+    function movedFile(id: string, folder = `${claudeDir}--claude-worktrees-central`): string {
+      mkdirSync(folder, { recursive: true });
+      const file = join(folder, `${id}.jsonl`);
+      writeFileSync(file, '{}\n');
+      return file;
+    }
+
+    it('finds its own <sessionId>.jsonl in another projects folder when the recorded path is gone', async () => {
+      const file = movedFile(CLAUDE_ID);
+      expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project, transcriptPath: join(claudeDir, `${CLAUDE_ID}.jsonl`) }))
+        .toEqual({ cli: 'claude', path: file });
+    });
+
+    it('in the projects folder of CLAUDE_CONFIG_DIR too', async () => {
+      const configDir = join(tmp, 'alt-config');
+      const file = movedFile(CLAUDE_ID, join(configDir, 'projects', 'wt'));
+      process.env.CLAUDE_CONFIG_DIR = configDir;
+      expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project }))
+        .toEqual({ cli: 'claude', path: file });
+    });
+
+    it('still never another conversation’s file', async () => {
+      movedFile(OTHER_ID);
+      expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project })).toBeNull();
+    });
+
+    it('never a link named after it that leads out of the projects folder', async () => {
+      const outside = join(tmp, 'elsewhere.jsonl');
+      writeFileSync(outside, '{}\n');
+      const folder = `${claudeDir}--claude-worktrees-central`;
+      mkdirSync(folder, { recursive: true });
+      symlinkSync(outside, join(folder, `${CLAUDE_ID}.jsonl`));
+      expect(await locateTranscript({ sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project })).toBeNull();
+    });
+
+    it('remembers a miss for a moment (a new session is read often), then looks again', async () => {
+      let now = 1_000_000;
+      const session = { sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project };
+      expect(await locateTranscript(session, { now: () => now })).toBeNull();
+      const file = movedFile(CLAUDE_ID);
+      expect(await locateTranscript(session, { now: () => now })).toBeNull(); // the miss is remembered
+      now += 11_000;
+      expect(await locateTranscript(session, { now: () => now })).toEqual({ cli: 'claude', path: file });
+    });
+
+    it('a miss never hides the launch folder’s file', async () => {
+      let now = 1_000_000;
+      const session = { sessionId: CLAUDE_ID, cliSource: 'claude', projectPath: project };
+      expect(await locateTranscript(session, { now: () => now })).toBeNull();
+      const file = claudeFile(CLAUDE_ID);
+      expect(await locateTranscript(session, { now: () => now })).toEqual({ cli: 'claude', path: file });
+    });
+  });
 });
 
 describe('a Codex session', () => {

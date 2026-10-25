@@ -8,6 +8,9 @@ import {
   ProjectMutationSchema,
   ProjectListSchema,
   GetProjectSchema,
+  GithubLoginSchema,
+  type LocalProject,
+  type ProjectCandidate,
   type ProjectRecord,
   type GetProjectInput,
 } from '../../src/types/cloudProjects.js';
@@ -19,7 +22,13 @@ import {
 import { assertCloudBinding, accountKey, abortCheck, type CloudBinding } from './binding.js';
 import { CloudError, type CloudConnector } from './types.js';
 import type { ResourceJobs } from './resourceJobs.js';
-import { createGitOperations, type GitOperations, type CloneIntent } from './git.js';
+import {
+  createGitOperations,
+  type GitAccount,
+  type GitOperations,
+  type CloneIntent,
+} from './git.js';
+import { createGithubAccounts, type GithubAccountsService } from './githubAccounts.js';
 import { safeError } from './jobRunners.js';
 import { assertSafeFolderName, confinedProjectPath } from './projectPaths.js';
 export interface CheckoutMapping {
@@ -35,6 +44,8 @@ interface ProjectInput {
   destination: string;
   transport: 'https' | 'ssh';
   refs: GetProjectInput['resourceVersions'];
+  /** The GitHub login chosen for this project here (AASC-63); resolved when the job runs. */
+  account?: string;
   errorCode?: string;
   cloneIntent?: CloneIntent;
   resourcePlanId?: string;
@@ -48,11 +59,23 @@ export interface ProjectJobsOptions {
   activeProjectPaths?: () => string[];
   /** The home folder project paths are confined to (projectPaths.ts). Default os.homedir(). */
   home?: string;
+  /** Folders "Save a project" looks at for a GitHub origin: the catalog's projects (AASC-63). */
+  candidatePaths?: () => string[];
+  /** The GitHub CLI's accounts. Default: the real CLI. */
+  accounts?: GithubAccountsService;
 }
+const PROJECT_JOB_KINDS = ['get-project', 'pull-project', 'push-project'];
+/** At most this many candidate folders are read for a GitHub origin at once. */
+const CANDIDATE_CONCURRENCY = 6;
+/** How long one scan of the candidate folders answers auto-linking. */
+const CANDIDATE_CACHE_MS = 30_000;
 export async function createProjectJobs(options: ProjectJobsOptions) {
   const { cloud, resources } = options,
     store = resources.store,
-    home = options.home ?? homedir();
+    home = options.home ?? homedir(),
+    accounts =
+      options.accounts ??
+      createGithubAccounts({ untrusted: () => options.candidatePaths?.() ?? [] });
   const git =
     options.git ??
     (await createGitOperations({
@@ -158,7 +181,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
         .list<import('./jobStore.js').SavedJob>('job')
         .some(
           (s) =>
-            ['get-project', 'pull-project'].includes(s.job.kind) &&
+            PROJECT_JOB_KINDS.includes(s.job.kind) &&
             ['queued', 'running'].includes(s.job.state) &&
             accountKey(s.binding) === accountKey(binding) &&
             (s.private as ProjectInput).project.id === id,
@@ -168,7 +191,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
   }
   function saved(id: string) {
     const s = store.getJob(z.uuid().parse(id));
-    if (!s || !['get-project', 'pull-project'].includes(s.job.kind))
+    if (!s || !PROJECT_JOB_KINDS.includes(s.job.kind))
       throw new CloudError('not_found', 'Project job was not found.', 404);
     return s;
   }
@@ -207,7 +230,11 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
           save();
           await resources.enqueue(async () => {
             check();
-            if (job.kind === 'get-project') {
+            const account = input.account ? await accounts.account(input.account) : undefined;
+            check();
+            if (job.kind === 'push-project')
+              await git.push(input.destination, input.project, c.signal, check, account);
+            else if (job.kind === 'get-project') {
               if (input.cloneIntent)
                 await git.recoverPublishedClone(
                   input.destination,
@@ -226,13 +253,21 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
                     input.cloneIntent = intent;
                     save();
                   },
+                  account,
                 );
             } else
-              await git.pull(input.destination, input.project, c.signal, check, () => {
-                job.steps.find((s) => s.id === 'fetch')!.state = 'complete';
-                step.state = 'running';
-                save();
-              });
+              await git.pull(
+                input.destination,
+                input.project,
+                c.signal,
+                check,
+                () => {
+                  job.steps.find((s) => s.id === 'fetch')!.state = 'complete';
+                  step.state = 'running';
+                  save();
+                },
+                account,
+              );
             check();
             await associate(input.project, input.destination, binding);
           });
@@ -326,7 +361,77 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
     queue = work.catch(() => {});
     running.set(job.id, work);
   }
-  function start(kind: 'get-project' | 'pull-project', input: ProjectInput, binding: CloudBinding) {
+  const accountFor = (id: string, binding: CloudBinding) =>
+    store.get<string>('project-account', key(id, binding));
+  // Listing the projects asks each unlinked one to link itself, and each would read every
+  // candidate folder: one scan serves them all for a little while ("Save a project" reads fresh).
+  let scanned: { at: number; account: string; items: Promise<ProjectCandidate[]> } | null = null;
+  function cachedCandidates(binding: CloudBinding) {
+    const account = accountKey(binding);
+    if (!scanned || scanned.account !== account || Date.now() - scanned.at > CANDIDATE_CACHE_MS)
+      scanned = { at: Date.now(), account, items: scanCandidates(binding) };
+    const current = scanned;
+    current.items.catch(() => {
+      if (scanned === current) scanned = null;
+    });
+    return current.items;
+  }
+  /** Each candidate folder's GitHub origin, a few at a time; anything unreadable is skipped. */
+  async function scanCandidates(binding: CloudBinding): Promise<ProjectCandidate[]> {
+    const saved = store
+      .valuesFor<ProjectRecord>('project-record', binding)
+      .filter((p) => !p.deleted);
+    const paths = [...new Set(options.candidatePaths?.() ?? [])].slice(0, 500);
+    const found: ProjectCandidate[] = [];
+    let next = 0;
+    async function worker() {
+      while (next < paths.length) {
+        const path = paths[next++];
+        let real: string;
+        try {
+          real = await confinedProjectPath(path, home);
+        } catch {
+          continue;
+        }
+        const origin = await git.readOrigin(real);
+        if (!origin) continue;
+        found.push({
+          path: real,
+          repository: { provider: 'github', ...origin },
+          projectId:
+            saved.find(
+              (p) => p.repository.url === origin.url && p.repository.branch === origin.branch,
+            )?.id ?? null,
+        });
+      }
+    }
+    await Promise.all(Array.from({ length: CANDIDATE_CONCURRENCY }, worker));
+    bind(binding);
+    return found.sort((a, b) => a.path.localeCompare(b.path));
+  }
+  /**
+   * A saved project with no checkout mapped here links itself to the one folder on this device
+   * with its repository and branch, so no device ever picks a folder by hand. None, or more than
+   * one, and it stays "not on this device".
+   */
+  async function autoLink(id: string, binding: CloudBinding) {
+    const p = store.get<ProjectRecord>('project-record', key(id, binding));
+    if (!p || p.deleted || !options.candidatePaths) return null;
+    const matches = (await cachedCandidates(binding)).filter(
+      (c) => c.repository.url === p.repository.url && c.repository.branch === p.repository.branch,
+    );
+    if (matches.length !== 1) return null;
+    try {
+      return await associate(p, matches[0].path, binding);
+    } catch {
+      return null;
+    }
+  }
+  function start(
+    kind: 'get-project' | 'pull-project' | 'push-project',
+    input: ProjectInput,
+    binding: CloudBinding,
+  ) {
     bind(binding);
     const job: CloudJob = {
       id: randomUUID(),
@@ -338,7 +443,12 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
           : []),
         {
           id: 'git',
-          label: kind === 'get-project' ? 'Get checkout' : 'Fast-forward checkout',
+          label:
+            kind === 'get-project'
+              ? 'Clone from GitHub'
+              : kind === 'push-project'
+                ? 'Push commits to GitHub'
+                : 'Fast-forward checkout',
           state: 'pending',
         },
         ...(input.refs.length
@@ -367,6 +477,19 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
           : body.value.version !== body.baseVersion)
       )
         throw new CloudError('invalid_request', 'Use the reviewed project revision.', 400);
+      // A folder to link is checked before anything reaches the cloud: a refused folder leaves
+      // no record behind (security review, Oct 23 2026). The link itself still runs after.
+      if (local) {
+        await confinedProjectPath(local.path, home);
+        const inspected = await git.inspectCheckout(local.path, body.value);
+        if (['missing', 'wrong-remote', 'detached', 'busy'].includes(inspected.state))
+          throw new CloudError(
+            'checkout_mismatch',
+            'Choose a canonical checkout with this remote and branch.',
+            409,
+          );
+        bind(binding);
+      }
       const p = ProjectRecordSchema.parse(
         await cloud.client.request(
           body.baseVersion === null ? 'POST' : 'PUT',
@@ -388,11 +511,21 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       await associate(p, real, binding);
       return api.localProject(id, binding);
     },
-    async localProject(id: string, binding: CloudBinding) {
+    async localProject(id: string, binding: CloudBinding): Promise<LocalProject> {
       bind(binding);
-      const m = mapping(id, binding);
+      const account = accountFor(id, binding);
+      const m = mapping(id, binding) ?? (await autoLink(id, binding));
       if (!m)
-        return { state: 'missing' as const, branch: null, openUrl: null, localProjectId: null };
+        return {
+          state: 'missing',
+          branch: null,
+          openUrl: null,
+          localProjectId: null,
+          path: null,
+          ahead: null,
+          behind: null,
+          account,
+        };
       const p = store.get<ProjectRecord>('project-record', key(id, binding));
       if (!p) throw new CloudError('review_required', 'Refresh project metadata.', 409);
       const state = await git.inspectCheckout(m.localRoot, p);
@@ -404,9 +537,95 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
             ? null
             : `/project-browser?path=${encodeURIComponent(m.localRoot)}`,
         localProjectId: m.localProjectId,
+        path: m.localRoot,
+        account,
       };
     },
-    async getProject(id: string, input: GetProjectInput, binding: CloudBinding) {
+    githubAccounts: () => accounts.list(),
+    /** Folders on this device whose origin is on GitHub, marked with the saved project's id. */
+    async candidates(binding: CloudBinding): Promise<{ items: ProjectCandidate[] }> {
+      bind(binding);
+      const items = await scanCandidates(binding);
+      scanned = { at: Date.now(), account: accountKey(binding), items: Promise.resolve(items) };
+      return { items };
+    },
+    /** Remove from the cloud list. The record is deleted; no folder, mapping or Git is touched. */
+    async removeProject(id: string, binding: CloudBinding) {
+      bind(binding);
+      const p = await getRecord(id, binding);
+      const removed = ProjectRecordSchema.parse(
+        await cloud.client.request('DELETE', `/v1/projects/${p.id}`, {
+          baseVersion: p.version,
+          mutationId: randomUUID(),
+        }),
+      );
+      bind(binding);
+      if (removed.id !== p.id || removed.version !== p.version + 1 || !removed.deleted)
+        throw new CloudError('invalid_response', 'Project acknowledgment is invalid.', 502);
+      store.put('project-record', key(p.id, binding), removed);
+      return removed;
+    },
+    /** Which GitHub account this device uses for a project; null is this Mac's own Git sign-in. */
+    async setAccount(id: string, login: string | null, binding: CloudBinding) {
+      bind(binding);
+      z.uuid().parse(id);
+      if (login === null) store.remove('project-account', key(id, binding));
+      else {
+        const chosen = await accounts.account(GithubLoginSchema.parse(login));
+        bind(binding);
+        store.put('project-account', key(id, binding), chosen.login);
+      }
+      return api.localProject(id, binding);
+    },
+    /** Check: fetch from GitHub with the project's account, so ahead/behind are current. */
+    async checkProject(id: string, binding: CloudBinding) {
+      bind(binding);
+      await api.localProject(id, binding); // links an existing checkout first
+      const m = mapping(id, binding);
+      if (!m) throw new CloudError('project_mapping_required', 'Clone this project first.', 409);
+      await confinedMapping(m);
+      const p = await getRecord(id, binding);
+      ensureNoActiveProject(id, binding);
+      const login = accountFor(id, binding);
+      const c = new AbortController(),
+        detach = cloud.onStop(() => c.abort());
+      try {
+        await resources.enqueue(async () => {
+          bind(binding);
+          const account = login ? await accounts.account(login) : undefined;
+          await git.fetch(m.localRoot, p, c.signal, account);
+        });
+      } finally {
+        detach();
+      }
+      return api.localProject(id, binding);
+    },
+    async pushProject(id: string, binding: CloudBinding) {
+      bind(binding);
+      const m = mapping(id, binding);
+      if (!m) throw new CloudError('project_mapping_required', 'Clone this project first.', 409);
+      await confinedMapping(m);
+      const p = await getRecord(id, binding);
+      if (p.repository.url !== m.canonicalRemote || p.repository.branch !== m.branch)
+        throw new CloudError(
+          'checkout_mismatch',
+          'Project repository metadata changed; review the mapping.',
+          409,
+        );
+      ensureNoActiveProject(id, binding);
+      return start(
+        'push-project',
+        {
+          project: p,
+          destination: m.localRoot,
+          transport: 'https',
+          refs: [],
+          account: accountFor(id, binding) ?? undefined,
+        },
+        binding,
+      );
+    },
+    async getProject(id: string, input: z.input<typeof GetProjectSchema>, binding: CloudBinding) {
       bind(binding);
       const parsed = GetProjectSchema.parse(input);
       // The clone's parent may be home itself; the new folder's name may not look secret.
@@ -442,6 +661,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
           destination: join(parsed.parentPath, parsed.directoryName),
           transport: parsed.transport,
           refs: parsed.resourceVersions,
+          account: accountFor(id, binding) ?? undefined,
         },
         binding,
       );
@@ -466,7 +686,13 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       ensureNoActiveProject(id, binding);
       return start(
         'pull-project',
-        { project: p, destination: m.localRoot, transport: 'https', refs: [] },
+        {
+          project: p,
+          destination: m.localRoot,
+          transport: 'https',
+          refs: [],
+          account: accountFor(id, binding) ?? undefined,
+        },
         binding,
       );
     },

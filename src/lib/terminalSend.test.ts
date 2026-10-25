@@ -5,6 +5,7 @@ import {
   submitDelayFor,
   SUBMIT_ENTER_DELAY_MS,
   IMAGE_SUBMIT_ENTER_DELAY_MS,
+  EXTRA_IMAGE_ENTER_DELAY_MS,
 } from './terminalSend';
 
 describe('sendPromptToTerminal', () => {
@@ -70,8 +71,13 @@ describe('submitDelayFor', () => {
     // Claude Code took ~1.3 s to take in a pasted image path on an idle CLI; an
     // Enter sent at 1 s landed inside that and was swallowed.
     expect(submitDelayFor(1)).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
-    expect(submitDelayFor(3)).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
     expect(IMAGE_SUBMIT_ENTER_DELAY_MS).toBeGreaterThan(SUBMIT_ENTER_DELAY_MS);
+  });
+
+  // Oct 21 2026: up to 10 photos a prompt; each pasted path takes the CLI a moment more.
+  it('waits a little longer for each further image', () => {
+    expect(submitDelayFor(3)).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS + 2 * EXTRA_IMAGE_ENTER_DELAY_MS);
+    expect(submitDelayFor(10)).toBe(5200);
   });
 });
 

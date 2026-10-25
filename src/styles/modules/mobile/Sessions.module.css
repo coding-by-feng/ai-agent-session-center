@@ -377,6 +377,24 @@
   color: var(--ph-text-secondary);
 }
 
+/* Prompts waiting in this session's queue (Oct 21 2026). The row's spoken label
+   carries the count, so the pill itself is aria-hidden. */
+.queueCount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: var(--ph-radius-pill);
+  font-size: var(--ph-size-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: var(--ph-line-caption);
+  color: var(--ph-accent);
+  background: var(--ph-accent-tint);
+}
+
 .line {
   display: -webkit-box;
   overflow: hidden;

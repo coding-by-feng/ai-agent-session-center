@@ -75,6 +75,12 @@ export default function StatusGlyph({ status }: { status: string }) {
           <circle cx="10.7" cy="7" r="1.05" />
         </svg>
       );
+    case 'proceed': // its answer asks you to reply "proceed" — P (sessionStatusStyle.PROCEED)
+      return (
+        <svg {...GLYPH_PROPS}>
+          <path d="M5 11.4V2.6h2.9a2.45 2.45 0 0 1 0 4.9H5" />
+        </svg>
+      );
     case 'idle': // available, doing nothing — pause bars
     default:
       return (

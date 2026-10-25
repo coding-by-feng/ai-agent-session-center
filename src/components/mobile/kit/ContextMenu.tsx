@@ -4,10 +4,13 @@
  * Opens on a 500 ms touch hold (a finger that moves first is scrolling, not
  * holding), on `contextmenu` (right click; Android's own long press) and on
  * Shift+F10 / the Menu key for a keyboard. The release that ends a hold doesn't
- * also tap the row. The menu is portaled to <body>, placed at the press and
- * clamped inside the viewport (8px pad, flipped above the point when it would
- * run off the bottom), focused once placed; arrows move, Escape / a tap outside
- * close and give focus back to the row.
+ * also tap the row. The menu is portaled to <body> and placed at the press by
+ * `placeMenuAtPoint` (Oct 24 2026): inside the safe area (status bar, home indicator,
+ * notches) plus an 8px pad, below the point or flipped above it, else on the
+ * roomier side with a scrolling list, so it never runs under the status bar.
+ * Once placed it takes focus: its first item when a keyboard opened it, the menu
+ * itself otherwise (iOS draws a focus ring on an item focused after a touch);
+ * arrows move, Escape / a tap outside close and give focus back to the row.
  */
 import {
   useCallback,
@@ -22,7 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD, clampMenuPosition } from './menuPosition';
+import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD, placeMenuAtPoint, type SafeInsets } from './menuPosition';
 import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/mobile/ContextMenu.module.css';
 
@@ -44,12 +47,24 @@ export interface ContextMenuProps {
 
 const MOVE_CANCEL_PX = 10;
 
+/** The safe-area insets in px. `env()` can't be read through a custom property, so a probe measures them. */
+function readSafeInsets(): SafeInsets {
+  const probe = document.createElement('div');
+  probe.className = styles.safeProbe;
+  document.body.appendChild(probe);
+  const s = getComputedStyle(probe);
+  const px = (v: string) => Number.parseFloat(v) || 0;
+  const insets = { top: px(s.paddingTop), right: px(s.paddingRight), bottom: px(s.paddingBottom), left: px(s.paddingLeft) };
+  probe.remove();
+  return insets;
+}
+
 export default function ContextMenu({ items, label, children }: ContextMenuProps) {
   const menuId = useId();
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  /** Where it opened, and whether a finger hold opened it (the finger is still down there). */
-  const [at, setAt] = useState<{ x: number; y: number; byHold?: boolean } | null>(null);
+  /** Where it opened, and how: a finger hold (the finger is still down there) or a keyboard. */
+  const [at, setAt] = useState<{ x: number; y: number; byHold?: boolean; byKeyboard?: boolean } | null>(null);
   // A hold-opened menu ignores item clicks until a fresh press inside it: on iOS
   // the click that follows the hold's release is hit-tested where the finger
   // lifts, which could be an item.
@@ -111,7 +126,7 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
       e.preventDefault();
       const r = (e.target as HTMLElement).getBoundingClientRect();
       armed.current = true;
-      setAt({ x: r.left + VIEWPORT_PAD, y: r.bottom });
+      setAt({ x: r.left + VIEWPORT_PAD, y: r.bottom, byKeyboard: true });
     }
   };
 
@@ -122,22 +137,26 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     e.stopPropagation();
   };
 
-  // Place once measured, then focus the first item (a hidden element can't take focus).
+  // Place once measured, then focus it (a hidden element can't take focus).
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!at || !menu) return;
     const { width, height } = menu.getBoundingClientRect();
     const gap = at.byHold ? FINGER_GAP : 0;
-    const { left, top } = clampMenuPosition(at.x, at.y, width, height, window.innerWidth, window.innerHeight, VIEWPORT_PAD, gap);
+    const { left, top, maxHeight } = placeMenuAtPoint(
+      at.x, at.y, width, height, window.innerWidth, window.innerHeight, readSafeInsets(), VIEWPORT_PAD, gap,
+    );
     menu.style.setProperty('--menu-left', `${Math.round(left)}px`);
     menu.style.setProperty('--menu-top', `${Math.round(top)}px`);
+    menu.style.setProperty('--menu-max-height', `${Math.floor(maxHeight)}px`);
     menu.dataset.placed = '';
-    // After placing, in the next frame: a real browser drops focus given in the
-    // same tick as the hidden render (ui-primitives.md; jsdom keeps it).
-    const first = menu.querySelector<HTMLElement>('[role="menuitem"]');
-    first?.focus();
+    // A keyboard gets its first item (and the focus ring); a touch or a click the menu itself,
+    // whose arrows still start at the first item. After placing, in the next frame too: a real
+    // browser drops focus given in the same tick as the hidden render (ui-primitives.md; jsdom keeps it).
+    const target = at.byKeyboard ? menu.querySelector<HTMLElement>('[role="menuitem"]') : menu;
+    target?.focus({ preventScroll: true });
     const frame = requestAnimationFrame(() => {
-      if (document.activeElement !== first) first?.focus();
+      if (document.activeElement !== target) target?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [at]);
@@ -166,7 +185,8 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
       list[(i + 1) % list.length]?.focus();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      list[(i - 1 + list.length) % list.length]?.focus();
+      // From the menu itself (a touch opened it), up goes to the last item.
+      list[i < 0 ? list.length - 1 : (i - 1 + list.length) % list.length]?.focus();
     } else if (e.key === 'Home') {
       e.preventDefault();
       list[0]?.focus();
@@ -198,6 +218,7 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
             id={menuId}
             role="menu"
             aria-label={label}
+            tabIndex={-1}
             className={styles.menu}
             onKeyDown={onMenuKey}
             onPointerDown={() => { armed.current = true; }}

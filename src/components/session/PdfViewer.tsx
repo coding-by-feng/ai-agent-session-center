@@ -40,7 +40,10 @@ export default function PdfViewer({
   const [count, setCount] = useState(0);
   const [page, setPage] = useState('1');
   const [zoom, setZoom] = useState('page-width');
-  const [error, setError] = useState('');
+  // Tied to the src that failed, so a new src (a reload, another file under
+  // the same key) starts clean instead of showing the old failure.
+  const [failure, setFailure] = useState<{ src: string; message: string } | null>(null);
+  const error = failure?.src === src ? failure.message : '';
   const [findOpen, setFindOpen] = useState(false);
   useEffect(() => {
     const el = container.current;
@@ -192,7 +195,7 @@ export default function PdfViewer({
       linkService.setDocument(document);
       viewer.setDocument(document);
     })().catch((e) => {
-      if (!disposed) setError(e instanceof Error ? e.message : 'Could not open PDF');
+      if (!disposed) setFailure({ src, message: e instanceof Error ? e.message : 'Could not open PDF' });
     });
     return () => {
       destroy?.();

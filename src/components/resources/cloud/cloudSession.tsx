@@ -7,8 +7,15 @@ export interface CloudSession {
   status: CloudStatus;
   epoch: number;
   current: () => number;
-  refresh: () => void;
+  /** Read the status again; `recheck` asks the backend instead of the Mac's last answer. */
+  refresh: (recheck?: boolean) => void;
   changed: boolean;
+  /** A status the Connection view just received (connect, disconnect, revoke). */
+  apply: (next: CloudStatus) => void;
+  /** The first status answer arrived (views wait for it). */
+  loaded: boolean;
+  /** Why the last status read failed, if it did. */
+  error: string | null;
 }
 export const CloudContext = createContext<CloudSession | null>(null);
 export function useCloudSession() {

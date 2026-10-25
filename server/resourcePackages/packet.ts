@@ -5,6 +5,7 @@ import { basename, dirname, join, relative, resolve } from 'path';
 import { safeParents } from '../cloud/installFs.js';
 import { isCredentialPath, isWithin, PACKAGE_SKIP } from '../fsSafe.js';
 import { redactText } from '../resourceMask.js';
+import { secretRefusal } from './secretHits.js';
 import { cloudPublicationBlocker } from './policy.js';
 import { ALIAS_MARKER } from '../resourceAliases.js';
 import { PackageManifestSchema } from '../../src/types/cloudResources.js';
@@ -106,8 +107,9 @@ export async function readPublicationPacket(r: InternalResource): Promise<Transf
         throw new Error(
           'Managed alias: publish its real target and sync the notes intent instead.',
         );
-      if (redactText(text) !== text)
-        throw new Error('Possible secret detected in the resource. Remove it before copying.');
+      const redacted = redactText(text);
+      // Names the lines (masked) so the owner can find the value, or see a false alarm.
+      if (redacted !== text) throw new Error(secretRefusal(rel || basename(abs), text, redacted));
       for (const match of text.matchAll(
         /(?:\.\.\/)+([A-Za-z0-9_.-]+)\/(?:SKILL\.md|[^\s)"'`]*_shared[^\s)"'`]*|[^\s)"'`]+)/g,
       )) {

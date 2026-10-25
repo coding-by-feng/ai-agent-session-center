@@ -66,6 +66,7 @@ import {
   roomDragHitY,
   type RoomDragRect,
 } from '@/lib/roomDragReorder';
+import { dropPoses, landSettle, settleInto, type DropPose } from '@/lib/dragSettle';
 
 /** How long a press must dwell before it becomes a drag. Same value as the
  *  queue's hook — no reason for rooms to feel different to hold. */
@@ -97,49 +98,6 @@ const NO_SHIFTS: ReadonlyMap<string, number> = new Map();
  *  pointer types stay conservative. */
 export function requiresHoldToDrag(pointerType: string | undefined): boolean {
   return !(pointerType === 'mouse' || pointerType === 'pen');
-}
-
-/** Where a room frame was on screen at the moment of the drop. */
-interface DropPose {
-  el: HTMLElement;
-  /** Centre y, carry offset / in-flight slide included. */
-  center: number;
-  /** The carried room: it also comes down from LIFT_SCALE. */
-  lifted: boolean;
-}
-
-/** On drop, glide every room from where it was on screen into wherever the
- *  re-render put it (a FLIP). That is the carried room coming down from where
- *  it was carried — also after a drop that changed nothing — and any passed
- *  room still mid-slide when a quick flick released: the drop removes the
- *  slide transition in the same render that commits the order, so without
- *  this it would jump the rest of the way. Measured by CENTRE, not top: the
- *  lifted room is scaled about its centre, the one point the scale leaves in
- *  place. Runs on the next frame, after React has committed the new order and
- *  before that frame paints, so no jump is ever visible. Started animations
- *  are added to `running` so the next lift can land them before measuring.
- *  Returns the scheduled frame, or null when nothing was scheduled. */
-function settleInto(poses: DropPose[], running: Set<Animation>): number | null {
-  if (poses.length === 0 || typeof requestAnimationFrame !== 'function') return null;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return null;
-  return requestAnimationFrame(() => {
-    for (const { el, center, lifted } of poses) {
-      if (!el.isConnected || typeof el.animate !== 'function') continue;
-      const r = el.getBoundingClientRect();
-      const dy = center - (r.top + r.height / 2);
-      // A room that neither moved nor was lifted has nothing to settle.
-      if (!lifted && Math.abs(dy) < 0.5) continue;
-      const from = lifted ? `translateY(${dy}px) scale(${LIFT_SCALE})` : `translateY(${dy}px)`;
-      const anim = el.animate(
-        [{ transform: from }, { transform: 'none' }],
-        { duration: SETTLE_MS, easing: 'ease-out' },
-      );
-      running.add(anim);
-      const forget = () => running.delete(anim);
-      anim.addEventListener('finish', forget);
-      anim.addEventListener('cancel', forget);
-    }
-  });
 }
 
 export interface RoomDragState {
@@ -233,12 +191,7 @@ export function useRoomDragReorder(
     // A drop's settle may still be gliding, and getBoundingClientRect
     // includes a running animation's transform — measuring now would freeze
     // a moving box into every slot and slide of this drag. Land it first.
-    if (settleFrame.current !== null) {
-      cancelAnimationFrame(settleFrame.current);
-      settleFrame.current = null;
-    }
-    for (const anim of settling.current) anim.finish();
-    settling.current.clear();
+    landSettle(settling.current, settleFrame);
     g.rects = getRects();
     g.frameEl = getFrameEl?.(g.id) ?? null;
     g.frames = g.rects.flatMap(({ id }) => {
@@ -298,10 +251,7 @@ export function useRoomDragReorder(
       // Where every room is on screen right now — carry offset and any
       // in-flight slide included — read before the commit re-renders them.
       const poses: DropPose[] = g?.active
-        ? g.frames.map(({ id, el }) => {
-          const r = el.getBoundingClientRect();
-          return { el, center: r.top + r.height / 2, lifted: id === g.id };
-        })
+        ? dropPoses(g.frames.map(({ id, el }) => ({ el, lifted: id === g.id })))
         : [];
       if (g?.active && g.index !== null) {
         const { ids: curIds, onReorder: commit } = latest.current;
@@ -309,7 +259,7 @@ export function useRoomDragReorder(
         if (next !== curIds) commit(next);
       }
       reset();
-      settleFrame.current = settleInto(poses, settling.current);
+      settleFrame.current = settleInto(poses, settling.current, { durationMs: SETTLE_MS, liftScale: LIFT_SCALE });
     };
 
     window.addEventListener('pointermove', onMove, { passive: false });

@@ -28,6 +28,7 @@ import QueueMovePicker, {
   MOVE_TRIGGER_ATTR,
   type QueueMoveTarget,
 } from '@/components/session/QueueMovePicker';
+import PromptTokens from '@/components/ui/PromptTokens';
 import type { Session } from '@/types';
 import styles from '@/styles/modules/Queue.module.css';
 
@@ -119,7 +120,7 @@ function QueueRow({ item, position, sessionId, move, onRemove }: QueueRowProps) 
       <td className={styles.pos}>{position}</td>
       {/* `data-added` lets a narrow layout show the time under the prompt in
           place of the Added column (see Queue.module.css). */}
-      <td className={styles.text} data-added={added}>{item.text}</td>
+      <td className={styles.text} data-added={added}><PromptTokens text={item.text} sessionId={sessionId} /></td>
       <td className={styles.added}>{added}</td>
       <td className={styles.actions}>
         <div className={styles.actionsRow}>

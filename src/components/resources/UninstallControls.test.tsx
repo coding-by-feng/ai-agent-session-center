@@ -122,3 +122,69 @@ describe('UninstallDialog', () => {
     expect(dialog).not.toHaveTextContent(/Not touched/);
   });
 });
+
+// Oct 23 2026: a resource that syncs would come back at the next Sync now unless it stops syncing.
+describe('UninstallDialog — a resource that syncs', () => {
+  const syncing = {
+    resourceId: '00000000-0000-4000-8000-000000000010',
+    catalogId: 'sk-claude-tdd',
+    name: 'tdd',
+    agent: 'claude' as const,
+    kind: 'skill' as const,
+    scope: 'global' as const,
+    state: 'synced' as const,
+    cloudVersion: 3,
+    syncedVersion: 3,
+    memory: false,
+  };
+  function openSyncing(onStopSyncing: (id: string) => Promise<void>) {
+    const onUninstalled = vi.fn();
+    useUiStore.setState({ activeModal: UNINSTALL_MODAL_ID });
+    render(
+      <UninstallDialog summary={tdd} otherCopies={[]} onUninstalled={onUninstalled} syncing={syncing} onStopSyncing={onStopSyncing} />,
+    );
+    return { onUninstalled, dialog: screen.getByRole('dialog') };
+  }
+
+  it('offers Also stop syncing it, on by default, and stops before it uninstalls', async () => {
+    const order: string[] = [];
+    const stop = vi.fn(async () => { order.push('stop'); });
+    uninstall.mockImplementation(async () => { order.push('uninstall'); return { name: 'tdd', trashId: 't1' } as never; });
+    const user = userEvent.setup();
+    const { dialog, onUninstalled } = openSyncing(stop);
+    const box = within(dialog).getByRole('checkbox', { name: /Also stop syncing it on this Mac/ });
+    expect(box).toBeChecked();
+    await user.type(within(dialog).getByLabelText(/to confirm/i), 'tdd');
+    await user.click(within(dialog).getByRole('button', { name: 'Uninstall' }));
+    await vi.waitFor(() => expect(onUninstalled).toHaveBeenCalled());
+    expect(stop).toHaveBeenCalledWith(syncing.resourceId);
+    expect(order).toEqual(['stop', 'uninstall']);
+  });
+
+  it('unticked, it only uninstalls', async () => {
+    const stop = vi.fn(async () => {});
+    uninstall.mockResolvedValue({ name: 'tdd', trashId: 't1' } as never);
+    const user = userEvent.setup();
+    const { dialog, onUninstalled } = openSyncing(stop);
+    await user.click(within(dialog).getByRole('checkbox', { name: /Also stop syncing/ }));
+    await user.type(within(dialog).getByLabelText(/to confirm/i), 'tdd');
+    await user.click(within(dialog).getByRole('button', { name: 'Uninstall' }));
+    await vi.waitFor(() => expect(onUninstalled).toHaveBeenCalled());
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it('when the stop fails nothing is moved, and the reason stays on screen', async () => {
+    const stop = vi.fn(async () => { throw new Error('Reconnect to the cloud first.'); });
+    const user = userEvent.setup();
+    const { dialog } = openSyncing(stop);
+    await user.type(within(dialog).getByLabelText(/to confirm/i), 'tdd');
+    await user.click(within(dialog).getByRole('button', { name: 'Uninstall' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Reconnect to the cloud first.');
+    expect(uninstall).not.toHaveBeenCalled();
+  });
+
+  it('a resource that does not sync shows no such option', () => {
+    const { dialog } = openDialog();
+    expect(within(dialog).queryByRole('checkbox', { name: /stop syncing/ })).toBeNull();
+  });
+});
