@@ -211,6 +211,7 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
               check={checks[c.id]}
               fallbackFocus={addButtonRef}
               onChanged={() => void reload()}
+              onRecheck={() => void checkOne(c.id).then(() => reload())}
               onRemoved={handleRemoved}
             />
           ))}
@@ -322,10 +323,12 @@ interface RemoteRowProps {
   check: RemoteComputerCheck | undefined;
   fallbackFocus: RefObject<HTMLButtonElement | null>;
   onChanged: () => void;
+  /** Check this row again now (a failed Open usually means its state changed). */
+  onRecheck: () => void;
   onRemoved: (id: string) => void;
 }
 
-function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRemoved }: RemoteRowProps) {
+function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRecheck, onRemoved }: RemoteRowProps) {
   const [opening, setOpening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -342,7 +345,11 @@ function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRemove
     setError(null);
     try {
       const res = await api.open(c.id);
-      if (!res.ok) setError(res.error);
+      if (!res.ok) {
+        setError(res.error);
+        // Revoked, back to pending or gone offline: without this the row reads "Online" until the 30 s check.
+        onRecheck();
+      }
     } catch (err) {
       setError(errorText(err));
     } finally {

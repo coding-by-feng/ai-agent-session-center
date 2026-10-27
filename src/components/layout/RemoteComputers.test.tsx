@@ -135,6 +135,22 @@ describe('RemoteComputers', () => {
     expect(screen.getByRole('button', { name: 'Open Studio Mac' }).textContent).toBe('Open');
   });
 
+  // E2E Oct 28 2026: after the remote revoked this computer, Open said so but the row still read
+  // "Online · … shared" with a green dot until the next 30 s check.
+  it('re-checks a row whose Open failed, so its status line follows the error', async () => {
+    stored = [computer({})];
+    answers = { r1: online() };
+    render(<RemoteComputers />);
+    expect(await screen.findByText('Online · Tailscale · 12 shared')).toBeTruthy();
+    api.open.mockImplementation(() => Promise.resolve({ ok: false, error: 'Studio Mac removed this computer. Remove it here and pair again.' }));
+    answers = { r1: { state: 'revoked', via: 'lan', sharedSessions: null, message: null } };
+    fireEvent.click(screen.getByRole('button', { name: 'Open Studio Mac' }));
+    expect(await screen.findByText('Removed on that computer')).toBeTruthy();
+    expect(screen.queryByText(/Online/)).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('removed this computer');
+    expect((screen.getByRole('button', { name: 'Open Studio Mac' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('pairs from a link, shows the code to compare, and polls every 3 s until allowed', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const added = computer({ id: 'n', name: 'New Mac', status: 'pending', confirmCode: '654321' });
