@@ -67,19 +67,93 @@ afterEach(() => {
 describe('PhonePairing', () => {
   it('starts with no phones and a Pair button', async () => {
     render(<PhonePairing />);
-    expect(await screen.findByText('No phones paired.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Pair a phone' })).toBeTruthy();
+    expect(await screen.findByText('No phones or computers paired.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pair a phone or computer' })).toBeTruthy();
   });
 
   it('shows a QR, the code in two halves and a countdown after Pair', async () => {
     render(<PhonePairing />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
     expect(await screen.findByRole('img', { name: 'QR code to pair a phone' })).toBeTruthy();
     expect(screen.getByText('ABCDE-FGHJK')).toBeTruthy();
     expect(screen.getByText(/Expires in [12]:\d\d/)).toBeTruthy();
     // AASC-52: the QR never carries a backend code, so there is no "pair again for notifications" note.
     expect(screen.queryByText(/Notifications need the AASC backend/)).toBeNull();
     expect(calls.some((c) => c.url === '/api/mobile/pairing' && c.method === 'POST')).toBe(true);
+  });
+
+  it('names the section for phones and computers', async () => {
+    render(<PhonePairing />);
+    expect(await screen.findByRole('region', { name: 'Paired phones and computers' })).toBeTruthy();
+    expect(screen.getByText('Phones & computers')).toBeTruthy();
+  });
+
+  it('copies the pairing link for a computer, and says "Copied" for 2 s', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
+    expect(await screen.findByText(/paste this link into its AASC → Remote computers/)).toBeTruthy();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+      expect(await screen.findByRole('button', { name: 'Copied' })).toBeTruthy();
+      expect(writeText).toHaveBeenCalledWith('https://aasc.work/pair#v=2&mc=ABCDEFGHJK');
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await screen.findByRole('button', { name: 'Copy link' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so inline when the clipboard refuses the link', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy link' }));
+    expect(await screen.findByText(/Couldn’t copy the link/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+  });
+
+  it('lists a paired computer with 🖥, "Computer" and what a password sign-in may see', async () => {
+    phones = [
+      phone({ id: 'd1', label: 'Studio Mac', platform: 'desktop', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+    ];
+    render(<PhonePairing />);
+    const row = (await screen.findByText('Studio Mac')).closest('li') as HTMLElement;
+    expect(row.textContent).toContain('🖥');
+    expect(row.textContent).not.toContain('📱');
+    expect(screen.getByText('Computer · Shared sessions, like a password sign-in')).toBeTruthy();
+    // The phone-only access paragraph is about phones.
+    expect(screen.queryByText(/Paired phones can watch and drive/)).toBeNull();
+  });
+
+  it('asks before letting a pending computer in, with the same code check', async () => {
+    phones = [phone({ id: 'd1', label: 'Studio Mac', platform: 'desktop', confirmCode: '654321' })];
+    render(<PhonePairing />);
+    expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow Studio Mac (Computer)?');
+    expect(screen.getByText('654 321')).toBeTruthy();
+    expect(screen.getByText(/Allow only if your computer shows the same code/)).toBeTruthy();
+    // A computer gets a password sign-in's reach: the prompt says so before Allow.
+    expect(screen.getByText(/can type into shared sessions’ terminals, like a password sign-in/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices/d1/approve' && c.method === 'POST')).toBe(true));
+  });
+
+  it('always names a pending computer as one, whatever label it sent', async () => {
+    // The redeemer picks both label and platform: a computer posing as a phone still reads "(Computer)".
+    phones = [phone({ id: 'd2', label: 'Kason’s computer iPhone', platform: 'desktop', confirmCode: '111222' })];
+    render(<PhonePairing />);
+    expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow Kason’s computer iPhone (Computer)?');
+  });
+
+  it('shows no computer warning for a pending phone', async () => {
+    phones = [phone({})];
+    render(<PhonePairing />);
+    await screen.findByText('123 456');
+    expect(screen.queryByText(/like a password sign-in/)).toBeNull();
   });
 
   it('asks before letting a pending phone in, showing its confirmation code', async () => {
@@ -145,7 +219,7 @@ describe('PhonePairing', () => {
       ? json(409, { error: 'Set a dashboard password first', code: 'PASSWORD_REQUIRED' })
       : json(200, { success: true, data: { devices: [], pairingOffered: true } }))));
     render(<PhonePairing />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
     expect(await screen.findByText('Set a dashboard password first')).toBeTruthy();
   });
 
@@ -155,7 +229,7 @@ describe('PhonePairing', () => {
     await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices')).toBe(true));
     await new Promise((r) => setTimeout(r, 0));
     expect(container.textContent).toBe('');
-    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pair a phone or computer' })).toBeNull();
   });
 
   it('before the phone app ships: phones paired before still list and can be revoked, with no Pair button', async () => {
@@ -163,7 +237,7 @@ describe('PhonePairing', () => {
     phones = [phone({ status: 'active', confirmCode: null })];
     render(<PhonePairing />);
     expect(await screen.findByText('Kason iPhone')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pair a phone or computer' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Revoke…' }));
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true));
@@ -175,7 +249,7 @@ describe('PhonePairing', () => {
       : json(404, { error: 'Not found' }))));
     render(<PhonePairing />);
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByRole('button', { name: 'Pair a phone' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pair a phone or computer' })).toBeNull();
   });
 });
 

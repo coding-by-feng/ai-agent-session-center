@@ -36,12 +36,14 @@ import { releaseAllControls } from '@/lib/presenceClient';
 import { listPairedPhones, type PairedPhone } from '@/lib/mobilePairingApi';
 import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
 import { showToast } from '@/components/ui/ToastContainer';
+import { useIsDesktopApp } from '@/lib/platform';
 import styles from '@/styles/modules/DevicePresence.module.css';
 
 // Lazy: the pairing section carries a QR encoder, and this chip sits in the
 // eager header chunk. It only loads when a local user opens the panel.
 const PhonePairing = lazy(() => import('@/components/layout/PhonePairing'));
 const SharingDefault = lazy(() => import('@/components/layout/SharingDefault'));
+const RemoteComputers = lazy(() => import('@/components/layout/RemoteComputers'));
 
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
@@ -205,6 +207,8 @@ export default function DevicePresenceChip() {
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      // A row's ⋯ menu (Remote computers) is portaled to <body>: a pick in it is still inside the panel.
+      if (target instanceof Element && target.closest('[data-menu-popover]')) return;
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -235,6 +239,9 @@ export default function DevicePresenceChip() {
   // Pairing answers the AASC page on this machine only; a remote device would
   // get 404s, so the section isn't offered there.
   const canPairPhones = isLocalDevice(devices, myId);
+  // Remote computers live in Electron's main process: the desktop app on this machine only.
+  const isDesktopApp = useIsDesktopApp();
+  const canPairRemotes = canPairPhones && isDesktopApp && !!window.electronAPI?.remotes;
   const phoneSummary = summarizePhones(canPairPhones ? pairedPhones : null);
 
   return (
@@ -349,6 +356,7 @@ export default function DevicePresenceChip() {
               <Suspense fallback={null}>
                 <SharingDefault />
                 <PhonePairing />
+                {canPairRemotes && <RemoteComputers />}
               </Suspense>
             )}
           </div>,

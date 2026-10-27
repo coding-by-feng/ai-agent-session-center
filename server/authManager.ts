@@ -94,7 +94,12 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // (clientBinding.ts, AASC-27) without breaking at the hourly refresh.
 // `deviceId` is set for sessions a paired phone obtained (server/mobile), so
 // revoking the phone can end every session it holds (`revokeTokensForDevice`).
-const tokens = new Map<string, { createdAt: number; lineage: string; deviceId?: string }>();
+// `computerId` is set instead for a paired computer (another AASC desktop, Oct 28
+// 2026): it signs in with a device key like a phone, but its session is a password
+// session's in every other respect (no phone allow-list, no phone-only limits), so
+// it never carries `deviceId`; revoking it ends its sessions all the same.
+type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string };
+const tokens = new Map<string, TokenEntry>();
 
 /**
  * Hash a plaintext password with a random salt.
@@ -132,13 +137,25 @@ export function createToken(deviceId?: string): string {
   return issueToken(deviceId ? `device:${deviceId}` : randomBytes(16).toString('hex'), deviceId);
 }
 
-function issueToken(lineage: string, deviceId?: string): string {
+/**
+ * A paired computer's session (Oct 28 2026): its own lineage, like a phone's, and no
+ * `deviceId`, so every phone rule (phoneProfile, the phone's terminal limits, phone
+ * push confirms) leaves it alone and it reaches what a password sign-in reaches.
+ */
+export function createComputerToken(computerId: string): string {
+  return issueToken(`computer:${computerId}`, undefined, computerId);
+}
+
+function issueToken(lineage: string, deviceId?: string, computerId?: string): string {
   const token = randomBytes(32).toString('hex');
-  tokens.set(token, deviceId ? { createdAt: Date.now(), lineage, deviceId } : { createdAt: Date.now(), lineage });
-  if (deviceId) {
+  tokens.set(token, deviceId
+    ? { createdAt: Date.now(), lineage, deviceId }
+    : computerId ? { createdAt: Date.now(), lineage, computerId } : { createdAt: Date.now(), lineage });
+  const owner = deviceId ?? computerId;
+  if (owner) {
     // Every sign-in mints a session; keep only the newest few per phone so
     // repeated sign-ins can't pile up live tokens. Map order is insertion order.
-    const mine = [...tokens.entries()].filter(([, e]) => e.deviceId === deviceId);
+    const mine = [...tokens.entries()].filter(([, e]) => (e.deviceId ?? e.computerId) === owner);
     for (const [old] of mine.slice(0, Math.max(0, mine.length - MAX_SESSIONS_PER_DEVICE))) tokens.delete(old);
   }
   return token;
@@ -165,11 +182,17 @@ export function getTokenDeviceId(token: string | null): string | null {
   return tokens.get(token)?.deviceId ?? null;
 }
 
-/** End every session a paired device holds. Returns how many tokens were removed. */
+/** The paired computer a session token belongs to, or null (Oct 28 2026). */
+export function getTokenComputerId(token: string | null): string | null {
+  if (!token || !validateToken(token)) return null;
+  return tokens.get(token)?.computerId ?? null;
+}
+
+/** End every session a paired device (phone or computer) holds. Returns how many tokens were removed. */
 export function revokeTokensForDevice(deviceId: string): number {
   let removed = 0;
   for (const [token, entry] of tokens) {
-    if (entry.deviceId === deviceId) {
+    if (entry.deviceId === deviceId || entry.computerId === deviceId) {
       tokens.delete(token);
       removed++;
     }
@@ -186,7 +209,7 @@ export function refreshToken(oldToken: string | null): string | null {
   const entry = tokens.get(oldToken);
   const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return issueToken(lineage, entry?.deviceId);
+  return issueToken(lineage, entry?.deviceId, entry?.computerId);
 }
 
 /**
@@ -266,10 +289,10 @@ export function extractToken(req: IncomingMessage): string | null {
  * shell's WebView next to the dashboard page, so any script there could send it,
  * while only the shell's own native request carries the Bearer header.
  */
-export function bearerSession(req: IncomingMessage): { deviceId: string | null } | null {
+export function bearerSession(req: IncomingMessage): { deviceId: string | null; computerId: string | null } | null {
   const header = req.headers.authorization;
   const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-  return validateToken(token) ? { deviceId: getTokenDeviceId(token) } : null;
+  return validateToken(token) ? { deviceId: getTokenDeviceId(token), computerId: getTokenComputerId(token) } : null;
 }
 
 /**

@@ -1,0 +1,235 @@
+/*
+ * RemoteComputers — "Remote computers" section of the device panel (Oct 28 2026).
+ * Lives inside DevicePresence's portaled panel (320px max), next to PhonePairing,
+ * so it uses the same rhythm: everything wraps rather than overflows, and nothing
+ * is positioned on its own.
+ */
+
+.section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #2a2a44);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * The row's ⋯ menu and its trigger's tooltip are portaled to <body> at 10000,
+ * under the device panel (10060). While this section is on screen, lift them
+ * over it, or the menu opens invisibly behind the panel.
+ */
+:global(body):has(.section) :global([data-menu-popover]),
+:global(body):has(.section) :global([role='tooltip']) {
+  z-index: 10070;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary, #e0e0f0);
+}
+
+.note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #8a8aa8);
+}
+
+.error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--accent-red, #ff5252);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------ add a computer */
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Caption above a full-width box: Field's inline row squeezed the link into a sliver.
+   Scoped under .addForm so it outranks Field's one-class rule whichever sheet loads last. */
+.addForm > .linkField {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* A pairing link is one long token: wrap it anywhere instead of scrolling sideways. */
+.linkInput {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* The same amber card PhonePairing uses for a phone waiting for Allow. */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--accent-orange, #ff9100);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-orange, #ff9100) 10%, transparent);
+}
+
+.waitingText {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary, #e0e0f0);
+  overflow-wrap: anywhere;
+}
+
+.code {
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------- rows */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* While renaming, the editor wraps to two lines: keep the dot level with the input, not mid-stack. */
+.topEditing {
+  align-items: flex-start;
+}
+
+.topEditing .dot {
+  margin-top: 12px;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary, #8a8aa8);
+}
+
+.online {
+  background: var(--accent-green, #00ff88);
+}
+
+.pending {
+  background: var(--accent-orange, #ff9100);
+}
+
+.revoked {
+  background: var(--accent-red, #ff5252);
+}
+
+/* Offline is the plain grey above; not checked yet is a grey ring. */
+.checking {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-secondary, #8a8aa8);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary, #e0e0f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowActions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The second line sits under the name, past the dot. */
+.meta {
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #8a8aa8);
+  overflow-wrap: anywhere;
+}
+
+.row > .error {
+  padding-left: 16px;
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-left: 16px;
+  padding: 8px;
+  border: 1px solid var(--accent-red, #ff5252);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-red, #ff5252) 8%, transparent);
+  font-size: 12px;
+  color: var(--text-primary, #e0e0f0);
+  overflow-wrap: anywhere;
+}
+
+/* The name's editor: the input takes the row, the buttons wrap below it when narrow. */
+.rename {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.renameInput {
+  flex: 1 1 140px;
+  min-width: 0;
+}

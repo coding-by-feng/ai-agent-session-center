@@ -23,6 +23,11 @@
  * Mac made that no paired phone holds any more get one line and a "Remove them"
  * action. That check calls the cloud, so it runs when the panel opens and once
  * a minute, not on the 2-second refresh.
+ *
+ * Another computer's AASC pairs through the same link (Oct 28 2026): its owner
+ * copies the link here (Copy link) and pastes it into that app's Remote
+ * computers. It lists as a `desktop` device, allowed with the same code check,
+ * and gets what a password sign-in gets: shared sessions.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
@@ -42,13 +47,24 @@ const CLOUD_POLL_MS = 60_000;
 
 /** Every paired phone has the same, narrower set than a password sign-in (server/mobile/phoneProfile.ts). */
 const ACCESS_LABEL = 'shared sessions only';
+/** A paired computer signs in like a password sign-in, so it sees what one sees. */
+const DESKTOP_ACCESS_LABEL = 'Shared sessions, like a password sign-in';
+/** Said before Allow: a computer is a password sign-in, not a phone (the redeemer, not the owner, picks the platform). */
+const DESKTOP_ALLOW_WARNING =
+  'A computer can type into shared sessions’ terminals, like a password sign-in. Allow it only if you are pairing a computer.';
+/** How long "Copied" shows on the Copy link button. */
+const COPIED_MS = 2000;
 const ACCESS_DETAIL =
   'Paired phones can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
   + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
 
-const PLATFORM_NAME: Record<PairedPhone['platform'], string> = { ios: 'iPhone', android: 'Android' };
+const PLATFORM_NAME: Record<PairedPhone['platform'], string> = { ios: 'iPhone', android: 'Android', desktop: 'Computer' };
 /** Words that already tell the platform when they appear in a phone's name (an iPad pairs as `ios` too). */
-const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = { ios: /\bi(phone|pad)\b/i, android: /\bandroid\b/i };
+const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = {
+  ios: /\bi(phone|pad)\b/i,
+  android: /\bandroid\b/i,
+  desktop: /\bcomputer\b/i,
+};
 
 /**
  * The platform word to show beside a phone's name, or null when the name
@@ -57,6 +73,15 @@ const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = { ios: /\bi(ph
  */
 function platformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
   return PLATFORM_IN_NAME[p.platform].test(p.label) ? null : PLATFORM_NAME[p.platform];
+}
+
+/** The platform word for an Allow prompt: a computer is always named as one, whatever its label says. */
+function pendingPlatformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
+  return p.platform === 'desktop' ? PLATFORM_NAME.desktop : platformLabel(p);
+}
+
+function accessLabel(p: Pick<PairedPhone, 'platform'>): string {
+  return p.platform === 'desktop' ? DESKTOP_ACCESS_LABEL : ACCESS_LABEL;
 }
 
 function secondsLeft(expiresAt: number, now: number): number {
@@ -107,6 +132,41 @@ function PairingQr({ link }: { link: string }) {
       <rect width={qr.size} height={qr.size} className={styles.qrLight} />
       <path d={qr.path} className={styles.qrDark} />
     </svg>
+  );
+}
+
+/** Copies the pairing link, for a computer to paste into its Remote computers. */
+function CopyLink({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return undefined;
+    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  const copy = async () => {
+    setFailed(false);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  return (
+    // .pairingText again: a third child of the wrapping .pairing row, so it drops under the QR at full width.
+    <div className={styles.pairingText}>
+      <Button size="sm" onClick={() => void copy()}>
+        {copied ? 'Copied' : 'Copy link'}
+      </Button>
+      <span className={styles.hint}>For a computer: paste this link into its AASC → Remote computers.</span>
+      {failed && (
+        <span className={styles.error} role="alert">Couldn’t copy the link. Allow clipboard access and try again.</span>
+      )}
+    </div>
   );
 }
 
@@ -231,12 +291,12 @@ export default function PhonePairing() {
   if (offered !== true && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
 
   return (
-    <section className={styles.section} aria-label="Paired phones">
+    <section className={styles.section} aria-label="Paired phones and computers">
       <div className={styles.head}>
-        <span className={styles.title}>Phones</span>
+        <span className={styles.title}>Phones &amp; computers</span>
         {offered === true && !pairingLive && (
           <Button size="sm" onClick={handleStart} disabled={busy}>
-            {busy ? 'Starting…' : 'Pair a phone'}
+            {busy ? 'Starting…' : 'Pair a phone or computer'}
           </Button>
         )}
       </div>
@@ -252,18 +312,22 @@ export default function PhonePairing() {
             </span>
             <Button size="sm" variant="quiet" onClick={() => setPairing(null)}>Cancel</Button>
           </div>
+          <CopyLink link={pairing.link} />
         </div>
       )}
 
       {pending.map((p) => (
         <div key={p.id} className={styles.pending} role="alert">
           <span className={styles.pendingText}>
-            Allow <strong>{p.label}</strong>{platformLabel(p) ? ` (${platformLabel(p)})` : ''}?
+            Allow <strong>{p.label}</strong>{pendingPlatformLabel(p) ? ` (${pendingPlatformLabel(p)})` : ''}?
           </span>
           <span className={styles.confirm}>
-            Code on the phone: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
+            Code on the {p.platform === 'desktop' ? 'computer' : 'phone'}: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
           </span>
-          <span className={styles.note}>Allow only if your phone shows the same code.</span>
+          <span className={styles.note}>
+            Allow only if your {p.platform === 'desktop' ? 'computer' : 'phone'} shows the same code.
+          </span>
+          {p.platform === 'desktop' && <span className={styles.note}>{DESKTOP_ALLOW_WARNING}</span>}
           <span className={styles.actions}>
             <Button size="sm" variant="primary" onClick={() => act(() => approvePhone(p.id), `${p.label} can now connect`)}>
               Allow
@@ -279,13 +343,13 @@ export default function PhonePairing() {
         <ul className={styles.list}>
           {active.map((p) => (
             <li key={p.id} className={styles.phone}>
-              <span className={styles.phoneIcon} aria-hidden="true">📱</span>
+              <span className={styles.phoneIcon} aria-hidden="true">{p.platform === 'desktop' ? '🖥' : '📱'}</span>
               <span className={styles.phoneMain}>
                 {editing?.id === p.id ? (
                   <span className={styles.rename}>
                     <TextInput
                       className={styles.renameInput}
-                      aria-label="Phone name"
+                      aria-label={p.platform === 'desktop' ? 'Computer name' : 'Phone name'}
                       value={editing.draft}
                       maxLength={MAX_NAME}
                       autoFocus
@@ -311,7 +375,7 @@ export default function PhonePairing() {
                   <span className={styles.phoneName} title={p.label}>{p.label}</span>
                 )}
                 <span className={styles.phoneMeta}>
-                  {[platformLabel(p), ACCESS_LABEL].filter(Boolean).join(' · ')}
+                  {[platformLabel(p), accessLabel(p)].filter(Boolean).join(' · ')}
                 </span>
                 <span className={styles.phoneMeta}>
                   {[p.approvedAt ? `paired ${shortDate(p.approvedAt)}` : null, `last seen ${relative(p.lastSeenAt)}`]
@@ -356,7 +420,7 @@ export default function PhonePairing() {
         </ul>
       )}
 
-      {active.length > 0 && <p className={styles.note}>{ACCESS_DETAIL}</p>}
+      {active.some((p) => p.platform !== 'desktop') && <p className={styles.note}>{ACCESS_DETAIL}</p>}
 
       {cloudUnlinked > 0 && (
         <div className={styles.cloudLeftover}>
@@ -375,7 +439,7 @@ export default function PhonePairing() {
       )}
 
       {offered === true && active.length === 0 && pending.length === 0 && !pairingLive && (
-        <p className={styles.empty}>No phones paired.</p>
+        <p className={styles.empty}>No phones or computers paired.</p>
       )}
 
       {error && <p className={styles.error} role="alert">{error}</p>}

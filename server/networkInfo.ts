@@ -34,16 +34,69 @@ export function getLocalIP(): string | null {
   return null;
 }
 
+/** Four canonical octets (see isTailnetAddress), or null. */
+function octetsOf(address: string): number[] | null {
+  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(address);
+  if (!m) return null;
+  const octets = m.slice(1).map(Number);
+  return octets.every((n) => n <= 255) ? octets : null;
+}
+
+/**
+ * RFC 1918 and link-local: the only home-network addresses the phone app dials over plain HTTP
+ * (the phone's pairingLink.ts `isPrivateLanAddress` has the same rule and refuses a whole QR whose
+ * `lan` breaks it).
+ */
+export function isPrivateLanAddress(address: string): boolean {
+  const o = octetsOf(address);
+  if (!o) return false;
+  const [a, b] = o;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+/**
+ * Interfaces whose address a phone on the same Wi-Fi can't reach: container and VM bridges, VPN
+ * tunnels (Tailscale has its own `ts=` field). Linux names: docker0, br-1a2b…, veth…, virbr0,
+ * tailscale0, wg0, cni0, flannel.1, cali…, lxcbr0; macOS: utun, bridge100, vmnet, vboxnet.
+ */
+const VIRTUAL_INTERFACE = /^(docker|br-|veth|virbr|lxcbr|lxdbr|cni|flannel|cali|tailscale|utun|wg|zt|tun|tap|bridge|vmnet|vboxnet|podman)/;
+
+/**
+ * The address the pairing QR offers as `lan=` (Oct 27 2026), or null. Only a private address on a
+ * real interface: the preferred names first, then any other. getLocalIP alone gave a Linux machine's
+ * first non-loopback address, since Linux names its NICs enp3s0 / wlp2s0 / ens18 rather than
+ * eth0 / wlan0, and that could be tailscale0's 100.x or a public server address. The phone refuses
+ * the whole QR for either ("That QR isn’t an AASC pairing code"), or docker0's 172.17.0.1, which it
+ * takes and can never reach.
+ */
+export function getPairingLanIP(): string | null {
+  const nets = networkInterfaces();
+  const usable = (name: string): string | null => {
+    if (VIRTUAL_INTERFACE.test(name)) return null;
+    for (const cfg of nets[name] ?? []) {
+      if (cfg.family === 'IPv4' && !cfg.internal && isPrivateLanAddress(cfg.address)) return cfg.address;
+    }
+    return null;
+  };
+  for (const name of ['en0', 'en1', 'eth0', 'wlan0']) {
+    const address = usable(name);
+    if (address) return address;
+  }
+  for (const name of Object.keys(nets)) {
+    const address = usable(name);
+    if (address) return address;
+  }
+  return null;
+}
+
 /**
  * Tailscale hands out addresses from the CGNAT range 100.64.0.0/10. Canonical dotted-quad only: four octets,
  * each `0` or digits with no leading zero, each at most 255. The URL layer reads a leading-zero octet as octal,
  * so '100.064.001.001' would pass here yet be dialled as 100.52.1.1 (the phone's pairingLink.ts has the same rule).
  */
 export function isTailnetAddress(address: string): boolean {
-  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(address);
-  if (!m) return false;
-  const octets = m.slice(1).map(Number);
-  return octets.every((n) => n <= 255) && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
+  const octets = octetsOf(address);
+  return !!octets && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
 }
 
 /**

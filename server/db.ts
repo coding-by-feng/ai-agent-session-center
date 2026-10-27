@@ -10,6 +10,7 @@ import log from './logger.js';
 import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
 import { migrateMobileDeviceCodeRefs } from './mobile/deviceCodeRefMigration.js';
+import { MOBILE_DEVICES_DDL, migrateMobileDevicePlatforms } from './mobile/devicePlatformMigration.js';
 import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
 import type { ProjectActivity } from './knownProjects.js';
 import type { Session } from '../src/types/session.js';
@@ -982,31 +983,23 @@ export function dbHandle(): Database.Database {
 // Paired phones (AASC-15). Only the SHA-256 of each device token is stored; the
 // token itself is shown to the phone once. Rows are kept after revocation (status
 // 'revoked') so the desktop can tell a revoked phone from an unknown one.
-db.exec(`CREATE TABLE IF NOT EXISTS mobile_devices (
-  id TEXT PRIMARY KEY,
-  label TEXT NOT NULL,
-  platform TEXT NOT NULL CHECK (platform IN ('ios','android')),
-  token_hash TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL CHECK (status IN ('pending','active','revoked')),
-  confirm_code TEXT NOT NULL,
-  be_code_ref TEXT,
-  be_code_ref_mac_bound INTEGER NOT NULL DEFAULT 0,
-  credential_epoch TEXT,
-  created_at INTEGER NOT NULL,
-  approved_at INTEGER,
-  last_seen_at INTEGER,
-  revoked_at INTEGER
-)`);
+db.exec(MOBILE_DEVICES_DDL);
 try {
   migrateMobileDeviceCodeRefs(db, (message) => log.warn('db', message));
 } catch (err: unknown) {
   log.warn('db', `Mobile device codeRef migration skipped: ${err instanceof Error ? err.message : String(err)}`);
 }
+// Paired computers (Oct 28 2026): the platform CHECK gains 'desktop' (a rebuild, once).
+try {
+  if (migrateMobileDevicePlatforms(db)) log.info('db', 'mobile_devices now accepts paired computers');
+} catch (err: unknown) {
+  log.warn('db', `Mobile device platform migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+}
 
 export interface MobileDeviceRow {
   id: string;
   label: string;
-  platform: 'ios' | 'android';
+  platform: 'ios' | 'android' | 'desktop';
   token_hash: string;
   status: 'pending' | 'active' | 'revoked';
   confirm_code: string;

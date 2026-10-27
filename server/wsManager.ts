@@ -45,6 +45,9 @@ interface WsClient extends WebSocket {
   _isLocal: boolean;
   /** The paired phone this socket belongs to (AASC-15), so revoking it can close the socket. */
   _deviceId: string | null;
+  /** The paired phone or computer this socket belongs to, so revoking either closes it (Oct 28 2026).
+   *  Separate from `_deviceId`: a computer must never fall under the phone rules. */
+  _pairedId: string | null;
   /** Last time we told this client it lacks control of a session — throttles the notice. */
   _lastDenyAt: Map<string, number>;
 }
@@ -64,6 +67,8 @@ export interface ClientIdentity {
   lineage?: string | null;
   /** Set when the socket authenticated with a session a paired phone obtained (server/mobile). */
   deviceId?: string | null;
+  /** The paired phone's or computer's id, for revoke; defaults to `deviceId`. */
+  pairedId?: string | null;
 }
 
 /**
@@ -142,6 +147,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   client._isLocal = identity?.isLocal ?? isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
   client._deviceId = identity?.deviceId ?? null;
+  client._pairedId = identity?.pairedId ?? client._deviceId;
   // A remote device must not borrow the desktop's id: that id passes the
   // control check and would demote the desktop to "remote" in presence
   // (AASC-27). It connects as an anonymous socket instead, which can watch but
@@ -535,13 +541,13 @@ export function presenceFor(isLocal: boolean): ReturnType<typeof presence.presen
 }
 
 /**
- * Close every live socket of a paired phone (AASC-15: revoke must end its
+ * Close every live socket of a paired phone or computer (AASC-15: revoke must end its
  * access within seconds, not when its session token next expires).
  */
 export function disconnectDevice(deviceId: string): number {
   let closed = 0;
   for (const client of clients) {
-    if (client._deviceId === deviceId) {
+    if (client._pairedId === deviceId) {
       // terminate(), not close(): ws keeps delivering incoming messages while a
       // close handshake is pending (up to its 30 s timeout), so a client that
       // ignores the close frame could keep typing after revocation.

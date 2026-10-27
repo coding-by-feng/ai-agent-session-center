@@ -125,6 +125,7 @@ function publishWords(
 const PLATFORM_LABEL: Record<PhoneReachView['platform'], string> = {
   ios: 'iOS',
   android: 'Android',
+  desktop: 'Computer',
 };
 /** What the phone knows of this Mac's Tailscale address: a dash while the Mac has none to know. */
 function knowsWords(phone: PhoneReachView, macAddress: string | null): string {

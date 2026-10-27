@@ -98,6 +98,16 @@ const api: ElectronAPI = {
     ipcRenderer.on('popout:return-to-list', handler)
     return () => { ipcRenderer.removeListener('popout:return-to-list', handler) }
   },
+
+  // ── Remote computers: other AASC desktops paired like a phone ──
+  remotes: {
+    list:   ()         => ipcRenderer.invoke('remote:list'),
+    add:    (link)     => ipcRenderer.invoke('remote:add', link),
+    check:  (id)       => ipcRenderer.invoke('remote:check', id),
+    open:   (id)       => ipcRenderer.invoke('remote:open', id),
+    remove: (id)       => ipcRenderer.invoke('remote:remove', id),
+    rename: (id, name) => ipcRenderer.invoke('remote:rename', id, name),
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

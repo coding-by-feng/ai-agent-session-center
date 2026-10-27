@@ -59,6 +59,11 @@ export interface MobileRouterDeps {
   requireSession: RequestHandler;
   /** Mint the normal one-hour session token, bound to the device. */
   createSessionToken: (deviceId: string) => string;
+  /**
+   * Mint a paired computer's session (Oct 28 2026, authManager createComputerToken): a password
+   * session's reach, no phone rules. Omitted: computers get the phone's token (tests only).
+   */
+  createComputerSessionToken?: (deviceId: string) => string;
   sessionTtlSeconds: number;
   /**
    * Where phones find this Mac: the QR's addresses and the one `/paths` signs. May need to ask Tailscale
@@ -77,7 +82,7 @@ export interface MobileRouterDeps {
    * dashboard page inside the shell's WebView holds the phone's cookie, and a
    * backend code must not reach it. Omitted: nobody is signed in here.
    */
-  sessionOf?: (req: Request) => { deviceId: string | null } | null;
+  sessionOf?: (req: Request) => { deviceId: string | null; computerId?: string | null } | null;
   /** Backend codes for signed-in phones (AASC-52). Omitted: no cloud on this Mac. */
   backendCodes?: Pick<PhoneBackendCodes, 'issue'>;
   /** Backend phone devices not linked to a paired phone (AASC-52). Omitted: no cloud. */
@@ -93,7 +98,7 @@ export interface MobileRouterDeps {
 const PairBody = z.object({
   code: z.string().min(4).max(32),
   label: z.string().min(1).max(200),
-  platform: z.enum(['ios', 'android']),
+  platform: z.enum(['ios', 'android', 'desktop']), // desktop: another computer's AASC (Oct 28 2026)
   // Accepted for older shells and ignored: the Mac binds the backend code it
   // issues to the phone itself (deviceAuth.bindBackendCode), so a phone can't
   // name another phone's backend device for a later revoke.
@@ -251,6 +256,16 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       });
       return;
     }
+    // A QR naming no address a phone can dial is refused by the phone as "not an AASC pairing code"
+    // (Oct 27 2026: a Linux desktop with no private LAN address and no Tailscale), so say why here.
+    const target = await deps.pairingTarget();
+    if (!target.lan && !target.tailnet) {
+      res.status(409).json({
+        error: 'This computer has no home-network or Tailscale address a phone can reach. Connect it to the same Wi-Fi as your phone (a private 10.x, 172.16–31.x or 192.168.x address), or sign it in to Tailscale, then try again.',
+        code: 'NO_PHONE_ADDRESS',
+      });
+      return;
+    }
     let pairing: { code: string; expiresAt: number };
     try {
       pairing = deps.deviceAuth.createPairingCode();
@@ -263,7 +278,6 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     }
     // The Mac code only: the backend code goes to the phone once it is approved
     // and signed in (POST /backend-code, AASC-52).
-    const target = await deps.pairingTarget();
     res.json({
       success: true,
       data: {
@@ -370,7 +384,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       res.status(401).json({ error: 'Pairing code is wrong or expired', code: 'INVALID_PAIRING_CODE' });
       return;
     }
-    log.info('mobile', `Phone paired, waiting for approval: ${result.device.label} (${result.device.platform})`);
+    log.info('mobile', `${platform === 'desktop' ? 'Computer' : 'Phone'} paired, waiting for approval: ${result.device.label} (${result.device.platform})`);
     res.status(201).json({
       success: true,
       data: {
@@ -441,7 +455,9 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       });
       return;
     }
-    const token = deps.createSessionToken(result.device.id);
+    const token = result.device.platform === 'desktop' && deps.createComputerSessionToken
+      ? deps.createComputerSessionToken(result.device.id)
+      : deps.createSessionToken(result.device.id);
     // How this phone reached the Mac, for Remote access: its home network or Tailscale (AASC-60).
     deps.pathLog?.signedIn(result.device.id, localAddressOf(req));
     warmPairingTarget();
@@ -499,17 +515,19 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       res.status(401).json({ error: 'Sign in first', code: 'NOT_SIGNED_IN' });
       return;
     }
-    if (!session.deviceId) {
-      res.status(403).json({ error: 'Only a paired phone gets this Mac’s Tailscale address', code: 'NOT_A_PHONE' });
+    // A paired computer asks too (Oct 28 2026): its session carries computerId, never deviceId.
+    const paired = session.deviceId ?? session.computerId ?? null;
+    if (!paired) {
+      res.status(403).json({ error: 'Only a paired phone or computer gets this Mac’s Tailscale address', code: 'NOT_A_PHONE' });
       return;
     }
     const { tailnet, port } = await deps.pairingTarget();
-    const proof = deps.deviceAuth.pathsProof(session.deviceId, parsed.data.nonce, tailnet, port);
+    const proof = deps.deviceAuth.pathsProof(paired, parsed.data.nonce, tailnet, port);
     if (!proof) {
       res.status(401).json({ error: 'This phone is no longer paired', code: 'DEVICE_UNKNOWN' });
       return;
     }
-    if (tailnet) deps.pathLog?.sent(session.deviceId, tailnet);
+    if (tailnet) deps.pathLog?.sent(paired, tailnet);
     res.json({ success: true, data: { tailnet, port, proof } });
   });
 

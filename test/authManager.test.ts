@@ -13,6 +13,12 @@ import {
   startTokenCleanup,
   stopTokenCleanup,
   getTokenLineage,
+  createComputerToken,
+  getTokenComputerId,
+  getTokenDeviceId,
+  refreshToken,
+  revokeTokensForDevice,
+  bearerSession,
 } from '../server/authManager.js';
 
 describe('authManager', () => {
@@ -244,5 +250,43 @@ describe('token lineage', () => {
 
   it('is new for every password sign-in', () => {
     expect(getTokenLineage(createToken())).not.toBe(getTokenLineage(createToken()));
+  });
+});
+
+// A paired computer (another AASC desktop, Oct 28 2026) signs in with a device key like a phone, but its
+// session must reach what a password sign-in reaches: no deviceId, so no phone rule ever applies to it.
+describe('paired computer sessions', () => {
+  it('carry the computer, never a phone device id, and keep it across a refresh', () => {
+    const token = createComputerToken('comp-1');
+    expect(validateToken(token)).toBe(true);
+    expect(getTokenDeviceId(token)).toBeNull();
+    expect(getTokenComputerId(token)).toBe('comp-1');
+    expect(getTokenLineage(token)).toBe('computer:comp-1');
+    const next = refreshToken(token);
+    expect(validateToken(token)).toBe(false);
+    expect(getTokenComputerId(next)).toBe('comp-1');
+    expect(getTokenDeviceId(next)).toBeNull();
+  });
+
+  it('end when the computer is revoked, leaving other sessions alone', () => {
+    const mine = createComputerToken('comp-2');
+    const phone = createToken('phone-2');
+    const password = createToken();
+    expect(revokeTokensForDevice('comp-2')).toBe(1);
+    expect(validateToken(mine)).toBe(false);
+    expect(validateToken(phone)).toBe(true);
+    expect(validateToken(password)).toBe(true);
+  });
+
+  it('keep only the newest few per computer', () => {
+    const all = Array.from({ length: 6 }, () => createComputerToken('comp-3'));
+    expect(all.filter((t) => validateToken(t))).toHaveLength(4);
+    expect(validateToken(all[5])).toBe(true);
+  });
+
+  it('show in bearerSession as the computer', () => {
+    const token = createComputerToken('comp-4');
+    const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Parameters<typeof bearerSession>[0];
+    expect(bearerSession(req)).toEqual({ deviceId: null, computerId: 'comp-4' });
   });
 });

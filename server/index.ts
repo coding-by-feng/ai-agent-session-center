@@ -36,7 +36,7 @@ import { config } from './serverConfig.js';
 import { respawnClaudeBase } from './respawnLine.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { getLocalIP } from './networkInfo.js';
+import { getLocalIP, getPairingLanIP } from './networkInfo.js';
 import { createTailscaleProbe } from './tailscaleStatus.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
@@ -72,7 +72,7 @@ import {
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
-  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
+  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, getTokenComputerId, revokeTokensForDevice, createComputerToken,
   bearerSession,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
@@ -399,11 +399,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId),
+    createComputerSessionToken: (deviceId) => createComputerToken(deviceId),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: createPairingTarget({
       name: () => hostname().replace(/\.local$/, ''),
       port: PORT,
-      lan: getLocalIP,
+      lan: getPairingLanIP, // a private address on a real interface only (Oct 27 2026)
       probe: tailscaleProbe,
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
@@ -651,6 +652,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     const wsIsRemote = !isLocalRequest(req);
     let wsLineage: string | null = null;
     let wsDeviceId: string | null = null;
+    let wsPairedId: string | null = null;
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -661,6 +663,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       }
       wsLineage = getTokenLineage(token);
       wsDeviceId = getTokenDeviceId(token);
+      wsPairedId = wsDeviceId ?? getTokenComputerId(token);
     } else if (wsIsRemote) {
       // No password configured: loopback still connects freely (the desktop
       // app), but a remote device is refused. 4003 "Forbidden" rather than
@@ -689,6 +692,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       isLocal: !wsIsRemote,
       lineage: wsLineage,
       deviceId: wsDeviceId,
+      pairedId: wsPairedId,
     });
   });
 

@@ -39,6 +39,7 @@ let pairingTarget: () => PairingTarget | Promise<PairingTarget>;
 /** Phone ids with an open socket, for GET /devices' `online` (Oct 22 2026). */
 let onlinePhones: Set<string>;
 const createSessionToken = vi.fn((deviceId: string) => `session-for-${deviceId}`);
+const createComputerSessionToken = vi.fn((deviceId: string) => `computer-session-for-${deviceId}`);
 const onRevoked = vi.fn();
 const onSignedOut = vi.fn();
 
@@ -50,6 +51,7 @@ beforeEach(async () => {
   pairingTarget = () => ({ name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: '100.100.1.2' });
   onlinePhones = new Set();
   createSessionToken.mockClear();
+  createComputerSessionToken.mockClear();
   onRevoked.mockClear();
   onSignedOut.mockClear();
   const deviceAuth = createDeviceAuth({ store: memoryStore(), onRevoked, onSignedOut });
@@ -63,6 +65,7 @@ beforeEach(async () => {
     // Stands in for authMiddleware: the desktop page holds a dashboard session.
     requireSession: (_req, res, next) => (signedIn ? next() : res.status(401).json({ error: 'Unauthorized' })),
     createSessionToken,
+    createComputerSessionToken,
     sessionTtlSeconds: 3600,
     pairingTarget: () => pairingTarget(),
     rateLimit: {
@@ -145,6 +148,24 @@ describe('POST /pairing (desktop)', () => {
     expect(res.status).toBe(200);
     expect(new URLSearchParams(res.body.data.link.split('#')[1]).get('ts')).toBe('100.101.102.103');
     expect(res.body.data.target.tailnet).toBe('100.101.102.103');
+  });
+
+  it('pairs over Tailscale alone when there is no private home-network address', async () => {
+    pairingTarget = () => ({ name: 'linux-box', port: 3333, lan: null, tailnet: '100.101.102.103' });
+    const res = await call('POST', '/pairing', { body: {} });
+    expect(res.status).toBe(200);
+    const params = new URLSearchParams(res.body.data.link.split('#')[1]);
+    expect(params.has('lan')).toBe(false);
+    expect(params.get('ts')).toBe('100.101.102.103');
+  });
+
+  // Oct 27 2026: a QR with no address the phone can dial reads "isn’t an AASC pairing code" on the phone.
+  it('makes no pairing code when there is no address a phone can reach, and says why', async () => {
+    pairingTarget = () => ({ name: 'linux-box', port: 3333, lan: null, tailnet: null });
+    const res = await call('POST', '/pairing', { body: {} });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NO_PHONE_ADDRESS');
+    expect(res.body.error).toMatch(/same Wi-Fi.*Tailscale/);
   });
 
   it('refuses when no dashboard password is set (phones are remote devices)', async () => {
@@ -299,6 +320,23 @@ describe('phone routes', () => {
     expect(ok.status).toBe(200);
     expect(createSessionToken).toHaveBeenCalledWith(phone.deviceId);
     expect(String(ok.headers['set-cookie'])).toContain(`auth_token=session-for-${phone.deviceId}; HttpOnly; SameSite=Strict`);
+  });
+
+  // Paired computers (Oct 28 2026): another AASC desktop pairs like a phone and gets a computer session.
+  it('pairs a computer, waits for Allow, then signs it in with a computer session', async () => {
+    const code = await pairingCode();
+    const res = await call('POST', '/pair', { body: { code, label: 'studio-mac', platform: 'desktop' } });
+    expect(res.status).toBe(201);
+    const { deviceId, deviceToken } = res.body.data;
+    expect((await signIn(deviceId, deviceToken)).body.code).toBe('DEVICE_PENDING');
+    const list = await call('GET', '/devices');
+    expect(list.body.data.devices.find((d: { id: string }) => d.id === deviceId)).toMatchObject({ platform: 'desktop', label: 'studio-mac', status: 'pending' });
+    await call('POST', `/devices/${deviceId}/approve`);
+    const ok = await signIn(deviceId, deviceToken);
+    expect(ok.status).toBe(200);
+    expect(createComputerSessionToken).toHaveBeenCalledWith(deviceId);
+    expect(createSessionToken).not.toHaveBeenCalled();
+    expect(String(ok.headers['set-cookie'])).toContain(`auth_token=computer-session-for-${deviceId}`);
   });
 
   it('all phone routes refuse when no password is set', async () => {

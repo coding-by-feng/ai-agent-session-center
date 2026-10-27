@@ -70,10 +70,26 @@ function fragmentOf(input: string): string | null {
 }
 
 export function parsePairingLink(input: string): PairingLink | null {
+  const read = readPairingLink(input);
+  return read.ok ? read.link : null;
+}
+
+/**
+ * Why a link was refused (Oct 27 2026): a real pairing code whose only addresses the phone won't dial
+ * (a public server address, say) used to read "That QR isn’t an AASC pairing code" and sent people back
+ * to the same QR. `address` is the refused `lan`, or null when the code named none.
+ */
+export type PairingLinkRead =
+  | { ok: true; link: PairingLink }
+  | { ok: false; why: 'not-a-pairing-link' }
+  | { ok: false; why: 'no-usable-address'; address: string | null };
+
+export function readPairingLink(input: string): PairingLinkRead {
+  const notALink = { ok: false, why: 'not-a-pairing-link' } as const;
   const fragment = fragmentOf(input);
-  if (!fragment) return null;
+  if (!fragment) return notALink;
   const p = new URLSearchParams(fragment);
-  if (p.get('v') !== '2') return null;
+  if (p.get('v') !== '2') return notALink;
 
   const name = (p.get('name') ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 80);
   const lan = p.get('lan');
@@ -81,13 +97,23 @@ export function parsePairingLink(input: string): PairingLink | null {
   const port = Number(p.get('p'));
   const macCode = p.get('mc') ?? '';
 
-  if (!name) return null;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  if (!MAC_CODE.test(macCode)) return null;
+  if (!name) return notALink;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return notALink;
+  if (!MAC_CODE.test(macCode)) return notALink;
   const lanOk = lan !== null && isPrivateLanAddress(lan);
   const tsOk = tailnet !== null && isTailnetAddress(tailnet);
-  if ((lan !== null && !lanOk) || (tailnet !== null && !tsOk)) return null; // a bad address is not ignored, it's refused
-  if (!lanOk && !tsOk) return null;
+  // A bad address is not ignored, it's refused: the whole link.
+  if (lan !== null && !lanOk) return { ok: false, why: 'no-usable-address', address: lan.slice(0, 64) };
+  if (tailnet !== null && !tsOk) return { ok: false, why: 'no-usable-address', address: tailnet.slice(0, 64) };
+  if (!lanOk && !tsOk) return { ok: false, why: 'no-usable-address', address: null };
 
-  return { version: 2, name, lan: lanOk ? lan : null, tailnet: tsOk ? tailnet : null, port, macCode };
+  return { ok: true, link: { version: 2, name, lan: lanOk ? lan : null, tailnet: tsOk ? tailnet : null, port, macCode } };
+}
+
+/** What the pair screen says about a link it refused. */
+export function pairingLinkRefusal(read: Exclude<PairingLinkRead, { ok: true }>, notALinkMessage: string): string {
+  if (read.why === 'not-a-pairing-link') return notALinkMessage;
+  const named = read.address ? `This pairing code names ${read.address}, which` : 'This pairing code names no address';
+  const tail = read.address ? ' the app can’t reach.' : ' the app can reach.';
+  return `${named}${tail} Put the computer on the same Wi-Fi as this phone, or sign both in to Tailscale, then show a new code.`;
 }

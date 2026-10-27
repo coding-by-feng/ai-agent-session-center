@@ -12,7 +12,7 @@ import { createExtras } from './extras.js';
 import { resumeAway } from './lockGate.js';
 import { manualLink } from './manualEntry.js';
 import type { ShellDeps } from './native.js';
-import { parsePairingLink, type PairingLink } from './pairingLink.js';
+import { pairingLinkRefusal, readPairingLink, type PairingLink } from './pairingLink.js';
 import { parseReauthRequest } from './reauth.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
 import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
@@ -327,15 +327,15 @@ export function createShellApp(
         return;
       }
       if (my !== gen || text === null) return;
-      const link = parsePairingLink(text);
-      if (link) showConfirm(link);
-      else update({ error: 'That QR isn’t an AASC pairing code. Scan the one on your Mac’s devices panel.' });
+      const read = readPairingLink(text);
+      if (read.ok) showConfirm(read.link);
+      else update({ error: pairingLinkRefusal(read, 'That QR isn’t an AASC pairing code. Scan the one on your Mac’s devices panel.') });
     }),
     submitLink() {
       if (screen.name !== 'pair') return;
-      const link = parsePairingLink(screen.linkText);
-      if (link) showConfirm(link);
-      else update({ error: screen.linkText.trim() ? BAD_LINK_MESSAGE : 'Paste the pairing link first.' });
+      const read = readPairingLink(screen.linkText);
+      if (read.ok) showConfirm(read.link);
+      else update({ error: screen.linkText.trim() ? pairingLinkRefusal(read, BAD_LINK_MESSAGE) : 'Paste the pairing link first.' });
     },
     submitManual() {
       if (screen.name !== 'pair') return;
@@ -453,9 +453,9 @@ export function createShellApp(
   };
 
   function openLink(url: string): void {
-    const link = parsePairingLink(url);
-    if (link) showConfirm(link);
-    else show(pairScreen(null, BAD_LINK_MESSAGE));
+    const read = readPairingLink(url);
+    if (read.ok) showConfirm(read.link);
+    else show(pairScreen(null, pairingLinkRefusal(read, BAD_LINK_MESSAGE)));
   }
 
   /** The Mac this phone opened last (signInAndOpen stamps it), else the only one paired. */

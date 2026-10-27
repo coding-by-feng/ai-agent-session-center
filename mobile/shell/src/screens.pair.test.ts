@@ -79,6 +79,22 @@ describe('Pair screen', () => {
     await until(t.root, () => heading(t.root) === 'Pair with Kason-MBP?');
   });
 
+  // Oct 27 2026: a Linux desktop's real pairing code named a public address and read "isn’t an AASC pairing code".
+  it('says when a real pairing code names an address the app won’t dial', async () => {
+    const t = createHarness({ scan: async () => 'https://aasc.work/pair#v=2&name=linux-box&lan=203.0.113.9&p=3333&mc=K7Q2M9XPZT' });
+    await t.app.start();
+    click(t.root, 'Scan the QR code');
+    await until(t.root, () => t.root.textContent?.includes('names 203.0.113.9, which the app can’t reach') ?? false);
+    expect(t.root.textContent).not.toContain('isn’t an AASC pairing code');
+  });
+
+  it('says when a pairing code names no address at all', async () => {
+    const t = createHarness({ scan: async () => 'https://aasc.work/pair#v=2&name=linux-box&p=3333&mc=K7Q2M9XPZT' });
+    await t.app.start();
+    click(t.root, 'Scan the QR code');
+    await until(t.root, () => t.root.textContent?.includes('names no address the app can reach') ?? false);
+  });
+
   it('opens "Pair with <Mac>?" for the link that started the app, once', async () => {
     const first = createHarness({ launchUrl: LINK });
     await first.app.start();

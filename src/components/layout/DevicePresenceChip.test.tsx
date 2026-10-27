@@ -268,3 +268,69 @@ describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
     expect(screen.getByRole('button')).not.toHaveTextContent('📱');
   });
 });
+
+describe('DevicePresenceChip — Remote computers (Oct 28 2026)', () => {
+  const remotes = () => ({
+    list: vi.fn().mockResolvedValue([]),
+    check: vi.fn(),
+    add: vi.fn(),
+    open: vi.fn(),
+    remove: vi.fn(),
+    rename: vi.fn(),
+  });
+
+  afterEach(() => {
+    delete window.electronAPI;
+  });
+
+  it('shows the section in the desktop app on this machine', async () => {
+    window.electronAPI = { remotes: remotes() } as unknown as typeof window.electronAPI;
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(await screen.findByRole('region', { name: 'Remote computers' })).toBeInTheDocument();
+  });
+
+  it('leaves it out in a browser, in an app without the API, and on a remote device', async () => {
+    seed([device({ clientId: 'me' })]);
+    const { unmount } = render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/config', expect.anything()));
+    expect(screen.queryByRole('region', { name: 'Remote computers' })).toBeNull();
+    unmount();
+
+    window.electronAPI = {} as typeof window.electronAPI;
+    const second = render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('region', { name: 'Remote computers' })).toBeNull();
+    second.unmount();
+
+    window.electronAPI = { remotes: remotes() } as unknown as typeof window.electronAPI;
+    seed([device({ clientId: 'me', isLocal: false })]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('region', { name: 'Remote computers' })).toBeNull();
+  });
+
+  it('a press inside a portaled row menu does not close the panel', async () => {
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(await screen.findByRole('dialog', { name: 'Connected devices' })).toBeInTheDocument();
+    const popover = document.createElement('div');
+    popover.setAttribute('data-menu-popover', '');
+    const item = document.createElement('button');
+    popover.appendChild(item);
+    document.body.appendChild(popover);
+    try {
+      fireEvent.mouseDown(item);
+      expect(screen.getByRole('dialog', { name: 'Connected devices' })).toBeInTheDocument();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole('dialog', { name: 'Connected devices' })).toBeNull();
+    } finally {
+      popover.remove();
+    }
+  });
+});

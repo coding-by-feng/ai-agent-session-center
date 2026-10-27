@@ -22,8 +22,8 @@ describe('bearerSession (AASC-52: who asks for a backend code)', () => {
   it('names the paired phone behind a Bearer session, nobody for a password sign-in, null without a valid one', () => {
     const phone = createToken('phone-rs');
     const desktop = createToken();
-    expect(bearerSession(req({ authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-rs' });
-    expect(bearerSession(req({ authorization: `Bearer ${desktop}` }))).toEqual({ deviceId: null });
+    expect(bearerSession(req({ authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-rs', computerId: null });
+    expect(bearerSession(req({ authorization: `Bearer ${desktop}` }))).toEqual({ deviceId: null, computerId: null });
     expect(bearerSession(req({ authorization: 'Bearer not-a-token' }))).toBeNull();
     expect(bearerSession(req({ authorization: phone }))).toBeNull();
     expect(bearerSession(req({}))).toBeNull();
@@ -43,8 +43,8 @@ describe('bearerSession (AASC-52: who asks for a backend code)', () => {
   it('goes by the Bearer header when a stale or other cookie rides along', () => {
     const phone = createToken('phone-bearer');
     const desktop = createToken();
-    expect(bearerSession(req({ cookie: 'auth_token=stale-token', authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer' });
-    expect(bearerSession(req({ cookie: `auth_token=${desktop}`, authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer' });
+    expect(bearerSession(req({ cookie: 'auth_token=stale-token', authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer', computerId: null });
+    expect(bearerSession(req({ cookie: `auth_token=${desktop}`, authorization: `Bearer ${phone}` }))).toEqual({ deviceId: 'phone-bearer', computerId: null });
   });
 });
 
@@ -108,5 +108,18 @@ describe('disconnectDevice', () => {
     expect(phone2.terminate).toHaveBeenCalled();
     expect(other.terminate).not.toHaveBeenCalled();
     for (const s of [phone1, phone2, other]) s.emit('close');
+  });
+
+  it('terminates a revoked paired computer\'s sockets, which carry no phone deviceId', () => {
+    const computer = new FakeSocket();
+    const password = new FakeSocket();
+    ws.handleConnection(computer as never, { clientId: 'c1', label: 'Computer', address: '192.168.1.20', isLocal: false, deviceId: null, pairedId: 'computer-y' });
+    ws.handleConnection(password as never, { clientId: 'w1', label: 'Browser', address: '192.168.1.21', isLocal: false, deviceId: null });
+    expect(ws.disconnectDevice('computer-y')).toBe(1);
+    expect(computer.terminate).toHaveBeenCalled();
+    expect(password.terminate).not.toHaveBeenCalled();
+    // Still not a phone: no phone rule may apply to a computer's socket.
+    expect(ws.isPairedPhoneClient('c1')).toBe(false);
+    for (const s of [computer, password]) s.emit('close');
   });
 });

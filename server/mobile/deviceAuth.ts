@@ -18,7 +18,8 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import { PHONE_ACCESS, type PhoneAccess } from './phoneProfile.js';
 
-export type DevicePlatform = 'ios' | 'android';
+/** 'desktop': another computer's AASC, paired like a phone (Oct 28 2026). */
+export type DevicePlatform = 'ios' | 'android' | 'desktop';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
 
 export interface MobileDeviceRecord {
@@ -264,7 +265,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const deviceToken = randomBytes(32).toString('base64url');
       const device: MobileDeviceRecord = {
         id: randomUUID(),
-        label: sanitizeDeviceLabel(input.label),
+        label: cleanLabel(input.label) || (input.platform === 'desktop' ? 'Computer' : 'Phone'),
         platform: input.platform,
         tokenHash: hashSecret(deviceToken),
         status: 'pending',

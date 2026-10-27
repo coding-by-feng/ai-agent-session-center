@@ -5,7 +5,8 @@
 // this device is local.
 import { readJson } from '@/lib/requestJson';
 
-export type PhonePlatform = 'ios' | 'android';
+/** `desktop`: another computer's AASC paired as a remote (Oct 28 2026), not a phone. */
+export type PhonePlatform = 'ios' | 'android' | 'desktop';
 export type PhoneStatus = 'pending' | 'active' | 'revoked';
 
 export interface PairedPhone {

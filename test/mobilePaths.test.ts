@@ -223,6 +223,8 @@ describe('POST /api/mobile/paths', () => {
       sessionOf: (req) => {
         const header = String(req.headers.authorization ?? '');
         if (header === 'Bearer desktop-session') return { deviceId: null }; // a password sign-in (a browser)
+        const c = /^Bearer computer-session-for-(.+)$/.exec(header); // a paired computer (Oct 28 2026)
+        if (c) return { deviceId: null, computerId: c[1] };
         const m = /^Bearer session-for-(.+)$/.exec(header);
         return m ? { deviceId: m[1] } : null;
       },
@@ -358,6 +360,13 @@ describe('POST /api/mobile/paths', () => {
     expect([res.status, res.body.code]).toEqual([403, 'NOT_A_PHONE']);
     expect(res.body.data).toBeUndefined();
     expect(strikes()).toBe(0);
+  });
+
+  it('answers a paired computer with a proof made with its key (Oct 28 2026)', async () => {
+    const c = pairPhone(auth);
+    const res = await post('/api/mobile/paths', { nonce: N64 }, { bearer: `computer-session-for-${c.deviceId}` });
+    expect(res.status).toBe(200);
+    expect(res.body.data.proof).toBe(hmac(c.deviceToken, `aasc-paths:${N64}:100.101.102.103:3334`));
   });
 
   it('401 DEVICE_UNKNOWN for a revoked phone or one from an older password', async () => {

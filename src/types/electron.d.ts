@@ -124,6 +124,55 @@ export interface ElectronAPI {
    *  directory path, or null if the user cancelled. Electron-only — the browser
    *  sandbox can't return an absolute path, so this is undefined there. */
   selectDirectory?(opts?: { defaultPath?: string }): Promise<string | null>
+
+  /** Remote computers: other AASC desktops this app is paired with (Oct 28 2026). Electron-only. */
+  remotes?: RemoteComputersAPI
+}
+
+/** One paired remote AASC, as the local UI sees it. Never its device token. */
+export interface RemoteComputer {
+  id: string
+  /** The remote's name from its pairing link (its hostname). */
+  name: string
+  /** Private home-network address from the link, or null. */
+  lan: string | null
+  /** Tailscale address: from the link, or later from the remote's signed /paths answer. */
+  tailnet: string | null
+  port: number
+  /** pending: waiting for Allow on the remote; active: allowed; revoked: the remote removed it. */
+  status: 'pending' | 'active' | 'revoked'
+  /** While pending: the 6-digit code the remote shows beside its Allow button. */
+  confirmCode: string | null
+  addedAt: number
+  /** Last time a sign-in succeeded (ms), or null. */
+  lastSeenAt: number | null
+}
+
+/** A remote's live state from `check`. */
+export interface RemoteComputerCheck {
+  /** online: signed in; pending: reachable, not allowed yet; revoked; offline: no address answered. */
+  state: 'online' | 'pending' | 'revoked' | 'offline'
+  /** The address that answered: 'lan' or 'tailnet'. */
+  via: 'lan' | 'tailnet' | null
+  /** Sessions the remote shares (GET /api/sessions), when online. */
+  sharedSessions: number | null
+  /** A short reason when offline or refused. */
+  message: string | null
+}
+
+export type RemoteResult<T> = { ok: true; data: T } | { ok: false; error: string }
+
+export interface RemoteComputersAPI {
+  list(): Promise<RemoteComputer[]>
+  /** Pair from the link the remote's devices panel shows (https://aasc.work/pair#…); `label` is this computer's name there. */
+  add(link: string): Promise<RemoteResult<RemoteComputer>>
+  /** Sign in (or ask while pending) and report; updates status, tailnet and lastSeenAt. */
+  check(id: string): Promise<RemoteResult<RemoteComputerCheck>>
+  /** Sign in and open the remote's own UI in its own window. */
+  open(id: string): Promise<RemoteResult<null>>
+  /** Unpair on the remote when it answers, then forget it here either way. */
+  remove(id: string): Promise<RemoteResult<{ unpairedRemotely: boolean }>>
+  rename(id: string, name: string): Promise<RemoteResult<RemoteComputer>>
 }
 
 declare global {

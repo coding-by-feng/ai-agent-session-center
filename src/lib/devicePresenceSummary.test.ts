@@ -17,6 +17,13 @@ describe('summarizePhones', () => {
       phone({ id: 'e', status: 'revoked' }),
     ])).toEqual({ paired: 3, online: 1 });
   });
+  it('leaves out paired computers: the 📱 count is phones only', () => {
+    expect(summarizePhones([
+      phone({ id: 'a', online: true }),
+      phone({ id: 'b', platform: 'desktop', online: true }),
+      phone({ id: 'c', platform: 'desktop' }),
+    ])).toEqual({ paired: 1, online: 1 });
+  });
   it('null (not loaded, or not this Mac) stays null', () => {
     expect(summarizePhones(null)).toBeNull();
   });

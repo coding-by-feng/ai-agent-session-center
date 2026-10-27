@@ -6,7 +6,7 @@
 import type { PairedPhone } from './mobilePairingApi';
 
 export interface PhoneSummary {
-  /** Active paired phones (pending and revoked left out). */
+  /** Active paired phones (pending, revoked and paired computers left out). */
   paired: number;
   /** Of those, how many have an open socket right now. */
   online: number;
@@ -14,7 +14,8 @@ export interface PhoneSummary {
 
 export function summarizePhones(phones: PairedPhone[] | null): PhoneSummary | null {
   if (!phones) return null;
-  const active = phones.filter((p) => p.status === 'active');
+  // The header's 📱 counts phones: a paired computer (`desktop`) is not one.
+  const active = phones.filter((p) => p.status === 'active' && p.platform !== 'desktop');
   return { paired: active.length, online: active.filter((p) => p.online === true).length };
 }
 

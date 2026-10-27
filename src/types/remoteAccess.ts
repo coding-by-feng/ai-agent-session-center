@@ -52,7 +52,8 @@ export interface PublishView {
 export interface PhoneReachView {
   id: string;
   label: string;
-  platform: 'ios' | 'android';
+  /** 'desktop': a paired computer (another AASC desktop, Oct 28 2026). */
+  platform: 'ios' | 'android' | 'desktop';
   status: 'pending' | 'active';
   /** The Mac has sent this phone its current Tailscale address. Never true while the Mac has none. */
   hasTailnet: boolean;
