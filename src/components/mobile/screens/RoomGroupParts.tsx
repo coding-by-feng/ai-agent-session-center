@@ -50,6 +50,15 @@ function ClockIcon() {
   );
 }
 
+/** A star, the size of a room swatch: what a central's card shows (CentralBadge's ★), at header scale. */
+function StarGlyph() {
+  return (
+    <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
+      <path d="M6 .8l1.55 3.3 3.6.42-2.66 2.47.7 3.56L6 8.77l-3.19 1.78.7-3.56L.85 4.52l3.6-.42Z" />
+    </svg>
+  );
+}
+
 /** A filled pin, the size of a room swatch: what a pinned card shows (PinIcon), at header scale. */
 function PinGlyph() {
   return (
@@ -151,6 +160,11 @@ export function RecentGroupHeader({ count, collapsed, onToggle }: { count: numbe
 /** The built-in Pinned group's header (By room, Oct 22 2026): the desktop rail's PINNED frame, the same way. */
 export function PinnedGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
   return <BuiltinGroupHeader title="Pinned" icon={<PinGlyph />} count={count} collapsed={collapsed} onToggle={onToggle} describe="pinned" />;
+}
+
+/** The built-in Central group's header (By room, Oct 27 2026): the desktop rail's CENTRAL frame, the same way. */
+export function CentralGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+  return <BuiltinGroupHeader title="Central" icon={<StarGlyph />} count={count} collapsed={collapsed} onToggle={onToggle} describe="central" />;
 }
 
 function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe }: {

@@ -148,8 +148,8 @@ export function connectionPath(hostname: string): ConnectionPath {
 export interface SessionGroup {
   /** Stable: React key and fold state. */
   key: string;
-  /** recent / pinned: the desktop rail's built-in RECENT and PINNED frames (By room only); not rooms. */
-  kind: 'status' | 'room' | 'project' | 'none' | 'recent' | 'pinned';
+  /** central / pinned / recent: the desktop rail's built-in CENTRAL, PINNED and RECENT frames (By room only); not rooms. */
+  kind: 'status' | 'room' | 'project' | 'none' | 'central' | 'recent' | 'pinned';
   title: string;
   sessions: Session[];
   /** Status groups: which section. */
@@ -204,12 +204,13 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: sortSessionsByActivity(listed) }] : [];
   }
 
-  // By room, Pinned then Recent go first, as the desktop rail's PINNED and RECENT frames
-  // (Oct 22 2026 for Pinned): their rules and order (sessionStrip.ts, recentSessions.ts),
-  // narrowed by the filter and search; each session also stays in its room.
+  // By room, Central, Pinned then Recent go first, as the desktop rail's CENTRAL, PINNED and
+  // RECENT frames (Oct 22 2026 for Pinned, Oct 27 2026 for Central): their rules and order
+  // (sessionStrip.ts, recentSessions.ts), narrowed by the filter and search; each session also
+  // stays in its room.
   const byRoom = groupBy === 'room';
   const recentIds = byRoom ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
-  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom });
+  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
   const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>
@@ -230,7 +231,9 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     }
   };
   for (const item of items) {
-    if (item.type === 'pinned') {
+    if (item.type === 'central') {
+      groups.push({ key: 'central', kind: 'central', title: 'Central', sessions: item.sessions });
+    } else if (item.type === 'pinned') {
       groups.push({ key: 'pinned', kind: 'pinned', title: 'Pinned', sessions: item.sessions });
     } else if (item.type === 'recent') {
       groups.push({ key: 'recent', kind: 'recent', title: 'Recent', sessions: item.sessions });

@@ -84,3 +84,25 @@ describe('SessionListRow — asks you to proceed', () => {
     expect(row().getAttribute('aria-label')).toContain('Idle');
   });
 });
+
+describe('SessionListRow — a central session (Oct 27 2026)', () => {
+  const star = () => screen.queryByTestId('session-central-s1');
+
+  it('shows the ★ before the title and names its scope in the row’s name', () => {
+    render(<ul><SessionListRow session={{ ...session, central: { centralId: 'c1', kind: 'global', scopeRef: null } }} onOpen={vi.fn()} now={NOW} /></ul>);
+    expect(star()?.textContent).toBe('★');
+    expect(row().getAttribute('aria-label')).toContain('Central session: global');
+  });
+
+  it('names a room central’s room', () => {
+    useRoomStore.setState({ rooms: [{ id: 'r1', name: 'Backend', sessionIds: [], collapsed: false, createdAt: 0, roomIndex: 0 }] as never });
+    render(<ul><SessionListRow session={{ ...session, central: { centralId: 'c1', kind: 'room', scopeRef: 'r1' } }} onOpen={vi.fn()} now={NOW} /></ul>);
+    expect(row().getAttribute('aria-label')).toContain('Central session: room Backend');
+  });
+
+  it('shows nothing for a plain session', () => {
+    renderRow();
+    expect(star()).toBeNull();
+    expect(row().getAttribute('aria-label')).not.toContain('Central');
+  });
+});

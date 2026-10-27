@@ -374,6 +374,41 @@ describe('SessionsScreen', () => {
       });
     });
 
+    describe('Central, the desktop rail\'s built-in frame (Oct 27 2026)', () => {
+      const centralS3 = () => {
+        const sessions = fixtures();
+        sessions.set('s3', { ...sessions.get('s3')!, pinned: true, central: { centralId: 'c1', kind: 'global', scopeRef: null } });
+        useSessionStore.setState({ sessions });
+      };
+      beforeEach(() => useUiStore.setState({ centralRoomCollapsed: false, pinnedRoomCollapsed: false, recentRoomCollapsed: false }));
+
+      it('comes first, before Pinned, with the central sessions, each also in its own room', () => {
+        centralS3();
+        render(<SessionsScreen />);
+        expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Central · 1', 'Pinned · 1', 'Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
+        expect(names(screen.getByTestId('room-group-central'))).toEqual(['s3']);
+        expect(names(screen.getByTestId('room-group-r1'))).toContain('s3');
+      });
+
+      it('is not a room: no ⋯, no grips; folds with the desktop\'s flag on this device', async () => {
+        centralS3();
+        const user = userEvent.setup();
+        render(<SessionsScreen />);
+        const central = screen.getByTestId('room-group-central');
+        expect(within(central).queryByRole('button', { name: /^Actions for the room/ })).toBeNull();
+        expect(within(central).queryByTestId(/^session-grip-/)).toBeNull();
+        await user.click(screen.getByRole('button', { name: /^Central, 1 session central, also in their rooms, open/ }));
+        expect(useUiStore.getState().centralRoomCollapsed).toBe(true);
+        expect(within(screen.getByTestId('room-group-central')).queryByTestId('session-row-s3')).toBeNull();
+        expect(within(screen.getByTestId('room-group-r1')).getByTestId('session-row-s3')).toBeTruthy();
+      });
+
+      it('is left out with no central session', () => {
+        render(<SessionsScreen />);
+        expect(screen.queryByTestId('room-group-central')).toBeNull();
+      });
+    });
+
     it('folds a room on this phone only, and keeps it folded after a reload', async () => {
       const user = userEvent.setup();
       const { unmount } = render(<SessionsScreen />);

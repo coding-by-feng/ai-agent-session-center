@@ -12,6 +12,8 @@
  * each device's own (labelStore never syncs), so the phone shows none (Oct 20 2026).
  * Before the age, a ≣ N pill when prompts wait in its queue (Oct 21 2026): the
  * shared queueStore's count, as the desktop rail shows it; none when empty.
+ * A central session (server/mcp) carries a ★ before its title, as its desktop
+ * rail card does, and its scope in the row's name (Oct 27 2026).
  *
  * With `swipeActions` the row swipes left to reveal them; with `menuItems` a
  * press-and-hold (or right click, Shift+F10) opens them as a menu. The swipe is
@@ -32,6 +34,7 @@ import { displayStatus } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
+import { centralLabel } from '@/lib/centralChoice';
 import { useClock } from '@/lib/chat/clock';
 import type { GripHandlers } from './useSessionRoomDrag';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
@@ -85,6 +88,10 @@ export default function SessionListRow({
   dragY,
 }: SessionListRowProps) {
   const room = useRoomStore((s) => (hideRoom ? undefined : s.rooms.find((r) => r.sessionIds.includes(session.sessionId))));
+  // A string or undefined, as CentralBadge reads it: re-renders only when that room is renamed.
+  const centralRoomName = useRoomStore((s) =>
+    session.central?.kind === 'room' ? s.rooms.find((r) => r.id === session.central?.scopeRef)?.name : undefined,
+  );
   const queued = useQueueStore((s) => s.queues.get(session.sessionId)?.length ?? 0);
   const clock = useClock();
   const title = sessionDisplayTitle(session);
@@ -96,7 +103,8 @@ export default function SessionListRow({
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
   const cliWord = cli === 'claude' ? 'Claude Code' : cli === 'codex' ? 'Codex' : null;
   const queuedWords = queued > 0 ? `${queued} queued prompt${queued === 1 ? '' : 's'}` : null;
-  const spoken = [title, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
+  const centralWords = session.central ? centralLabel(session.central, centralRoomName) : null;
+  const spoken = [title, centralWords, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
     .filter(Boolean)
     .join(', ');
 
@@ -114,6 +122,9 @@ export default function SessionListRow({
       </span>
       <span className={styles.text}>
         <span className={styles.top}>
+          {session.central && (
+            <span className={styles.central} aria-hidden="true" data-testid={`session-central-${session.sessionId}`}>★</span>
+          )}
           <span className={styles.title}>{title}</span>
           {queued > 0 && (
             <span className={styles.queueCount} aria-hidden="true" data-testid={`session-queue-${session.sessionId}`}>

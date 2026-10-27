@@ -377,6 +377,15 @@
   color: var(--ph-text-secondary);
 }
 
+/* A central session's ★ (Oct 27 2026): the desktop CentralBadge's purple, through the phone's own contrast-checked token. */
+.central {
+  flex: none;
+  align-self: center;
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-status-question);
+}
+
 /* Prompts waiting in this session's queue (Oct 21 2026). The row's spoken label
    carries the count, so the pill itself is aria-hidden. */
 .queueCount {

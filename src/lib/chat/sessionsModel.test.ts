@@ -284,6 +284,41 @@ describe('groupSessions', () => {
         }
       });
     });
+
+    // The desktop rail's built-in CENTRAL frame (Oct 27 2026): before Pinned, by the strip's own rule.
+    describe('Central, before Pinned', () => {
+      const centralRooms = [room('r1', 'First', ['a', 'b'], 0)];
+      const marker = (centralId: string) => ({ centralId, kind: 'global' as const, scopeRef: null });
+      const list = [
+        mk('a', { status: 'idle', central: marker('c1'), pinned: true }),
+        mk('b', { status: 'idle' }),
+        mk('c', { status: 'waiting', central: marker('c2') }),
+        mk('d', { status: 'ended', central: marker('c3') }),
+      ];
+      const central = (over: Partial<GroupInput> = {}) => groupSessions(input(list, { groupBy: 'room', rooms: centralRooms, now: N, ...over }));
+
+      it('lists the live central sessions first, then Pinned; each also stays in its room', () => {
+        const groups = central();
+        expect(groups[0]).toMatchObject({ key: 'central', kind: 'central', title: 'Central' });
+        expect(groups[0].sessions.map((s) => s.sessionId).sort()).toEqual(['a', 'c']);
+        expect(groups[1].kind).toBe('pinned');
+        expect(groups.find((g) => g.kind === 'room')!.sessions.map((s) => s.sessionId)).toContain('a');
+        expect(groups.find((g) => g.kind === 'none')!.sessions.map((s) => s.sessionId)).toEqual(['c']);
+      });
+
+      it('narrows with the search, and is left out with no central', () => {
+        expect(central({ query: 'b' }).some((g) => g.kind === 'central')).toBe(false);
+        expect(central({ query: 'c' })[0].sessions.map((s) => s.sessionId)).toEqual(['c']);
+        const plain = list.map((s) => ({ ...s, central: undefined }));
+        expect(groupSessions(input(plain, { groupBy: 'room', rooms: centralRooms, now: N })).some((g) => g.kind === 'central')).toBe(false);
+      });
+
+      it('is only in the By room view', () => {
+        for (const groupBy of ['status', 'project', 'activity'] as const) {
+          expect(central({ groupBy }).some((g) => g.kind === 'central'), groupBy).toBe(false);
+        }
+      });
+    });
   });
 
   it('groups by project with where to start a session', () => {

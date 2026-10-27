@@ -60,10 +60,10 @@ export interface StripItemsInput {
   /** The RECENT frame's ids in order (Rooms view only; empty for none). */
   recentIds: readonly string[];
   /** Draw the PINNED frame (Rooms view only). The desktop strip's toggle; the
-   *  phone's list leaves it out. */
+   *  phone's list draws it By room. */
   showPinned?: boolean;
-  /** Draw the CENTRAL frame (Rooms view only). The desktop strip draws it; the
-   *  phone's list leaves it out. */
+  /** Draw the CENTRAL frame (Rooms view only). The desktop strip and the phone's
+   *  list (By room) both draw it. */
   showCentral?: boolean;
 }
 

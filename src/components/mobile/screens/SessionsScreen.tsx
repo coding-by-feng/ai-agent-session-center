@@ -26,7 +26,7 @@ import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
 import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
-import { PinnedGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
+import { CentralGroupHeader, PinnedGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
 import { useCollapsedRooms } from './useCollapsedRooms';
 import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSessionRoomDrag';
 import { useIsHostDevice } from '../views/hostAccess';
@@ -125,7 +125,9 @@ function HostStatus() {
 interface RoomGrouping {
   collapsed: ReadonlySet<string>;
   onToggleRoom: (roomId: string) => void;
-  /** The built-in Recent and Pinned groups' folds: the desktop's own flags, on this device. */
+  /** The built-in Central, Pinned and Recent groups' folds: the desktop's own flags, on this device. */
+  centralCollapsed: boolean;
+  onToggleCentral: () => void;
   recentCollapsed: boolean;
   onToggleRecent: () => void;
   pinnedCollapsed: boolean;
@@ -160,10 +162,11 @@ interface GroupProps {
 function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
-  // Pinned and Recent (By room) list sessions that are also in their rooms: never a
+  // Central, Pinned and Recent (By room) list sessions that are also in their rooms: never a
   // drop target (their null room would read as "No room") and their copies have no grip.
-  const builtin = group.kind === 'recent' || group.kind === 'pinned';
-  const roomFolded = group.kind === 'recent' ? !!rooms?.recentCollapsed
+  const builtin = group.kind === 'central' || group.kind === 'recent' || group.kind === 'pinned';
+  const roomFolded = group.kind === 'central' ? !!rooms?.centralCollapsed
+    : group.kind === 'recent' ? !!rooms?.recentCollapsed
     : group.kind === 'pinned' ? !!rooms?.pinnedCollapsed
     : !!(rooms && roomId && rooms.collapsed.has(roomId));
   const groupRef = useCallback((el: HTMLDivElement | null) => {
@@ -173,7 +176,9 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
   }, [rooms, builtin, group.key, roomId]);
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
-  const header = rooms && group.kind === 'pinned' ? (
+  const header = rooms && group.kind === 'central' ? (
+    <CentralGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleCentral} />
+  ) : rooms && group.kind === 'pinned' ? (
     <PinnedGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onTogglePinned} />
   ) : rooms && group.kind === 'recent' ? (
     <RecentGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleRecent} />
@@ -279,6 +284,8 @@ export default function SessionsScreen() {
   const isHost = useIsHostDevice();
   const isRoomWriter = useIsRoomWriter();
   const { collapsed: collapsedRooms, toggle: toggleRoom } = useCollapsedRooms(rooms);
+  const centralCollapsed = useUiStore((s) => s.centralRoomCollapsed);
+  const toggleCentral = useUiStore((s) => s.toggleCentralRoomCollapsed);
   const recentCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecent = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const pinnedCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
@@ -410,6 +417,8 @@ export default function SessionsScreen() {
 
   const roomGrouping = useMemo<RoomGrouping | undefined>(() => (byRoom ? {
     collapsed: collapsedRooms,
+    centralCollapsed,
+    onToggleCentral: toggleCentral,
     recentCollapsed,
     onToggleRecent: toggleRecent,
     pinnedCollapsed,
@@ -423,7 +432,7 @@ export default function SessionsScreen() {
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
+  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
     registerRoomEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const actions = (
