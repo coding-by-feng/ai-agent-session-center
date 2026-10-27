@@ -185,6 +185,51 @@ sqliteIt(
   },
 );
 
+// Oct 26 2026: saving a project's basic information from a folder an agent is working in.
+sqliteIt('a save from a folder asks for a link check that ignores live agents, and links it', async () => {
+  const f = await withFolder();
+  const value = {
+    id: randomUUID(),
+    version: 1,
+    name: 'repo',
+    description: '',
+    resources: [],
+    deleted: false,
+    repository: { provider: 'github' as const, ...origin },
+  };
+  await f.service.saveProject({ mutationId: randomUUID(), baseVersion: null, value }, f.binding, {
+    path: f.folder,
+  });
+  expect(f.git.inspectCheckout.mock.calls.length).toBeGreaterThan(0);
+  for (const call of f.git.inspectCheckout.mock.calls as unknown[][])
+    expect(call[2]).toEqual({ ignoreAgents: true });
+  expect((await f.service.localProject(value.id, f.binding)).path).toBe(f.folder);
+});
+
+sqliteIt.each([
+  ['detached', /not on a branch/],
+  ['wrong-remote', /GitHub remote or branch/],
+  ['missing', /no longer on this Mac/],
+  ['busy', /Git operation/],
+] as const)('a refused folder (%s) says why in its own words', async (state, message) => {
+  const f = await withFolder();
+  const value = {
+    id: randomUUID(),
+    version: 1,
+    name: 'repo',
+    description: '',
+    resources: [],
+    deleted: false,
+    repository: { provider: 'github' as const, ...origin },
+  };
+  f.git.inspectCheckout.mockResolvedValueOnce({ state, branch: null, ahead: null, behind: null });
+  await expect(
+    f.service.saveProject({ mutationId: randomUUID(), baseVersion: null, value }, f.binding, {
+      path: f.folder,
+    }),
+  ).rejects.toMatchObject({ code: 'checkout_mismatch', message: expect.stringMatching(message) });
+});
+
 // Security review (Oct 23 2026): a folder that can't be linked refuses the save before any
 // record reaches the cloud.
 sqliteIt('a save from a folder that cannot be linked creates no cloud record', async () => {

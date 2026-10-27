@@ -24,7 +24,7 @@ import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from 
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
-import { listKnownProjects } from './knownProjects.js';
+import { listKnownProjects, rankProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { appendPausedItem } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
@@ -3141,10 +3141,11 @@ router.get('/sessions/history', (req: Request, res: Response) => {
   res.json(db.getAllPersistedSessions());
 });
 
-// ---- Known Claude Code projects (from ~/.claude/projects/) ----
+// ---- Known Claude Code projects (from ~/.claude/projects/), most used first ----
 
 router.get('/known-projects', (_req: Request, res: Response) => {
-  res.json({ paths: listKnownProjects() });
+  const activity = db.getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS);
+  res.json({ paths: rankProjects(listKnownProjects(), activity) });
 });
 
 // ---- File Browser (Project Tab) ----

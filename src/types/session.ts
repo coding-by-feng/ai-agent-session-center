@@ -247,6 +247,16 @@ export interface BtwAnswer {
 }
 
 /**
+ * Claude Code's suggested next prompt, read off the terminal's input box after a turn
+ * (server/promptSuggestionCapture.ts). Gone once the user types or the session moves on.
+ */
+export interface PromptSuggestion {
+  text: string;
+  /** Epoch ms of the capture. */
+  at: number;
+}
+
+/**
  * A context compaction in progress: set by a PreCompact hook, cleared when it ends
  * (PostCompact, or Claude's SessionStart with source `compact`) or by the next turn
  * event. Live-only; the phone ignores one older than `COMPACTING_STALE_MS`.
@@ -463,6 +473,8 @@ export interface Session {
   interruption?: SessionInterruption | null;
   /** The newest `/btw` exchanges seen in this session's terminal, oldest first (phone Chat). */
   btwAnswers?: BtwAnswer[];
+  /** Claude's suggested next prompt for this session, while it still stands (Claude only; Oct 26 2026). */
+  promptSuggestion?: PromptSuggestion | null;
   /** A context compaction in progress (see `SessionCompacting`); absent or null otherwise. */
   compacting?: SessionCompacting | null;
   /**

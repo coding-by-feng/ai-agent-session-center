@@ -1713,16 +1713,12 @@
 .sessionTabPin:hover { opacity: 1; filter: none; }
 .sessionTabPin.pinned { opacity: 1; filter: none; }
 
-/* The ★ central badge (CentralBadge) on a card. Two classes where the badge's own module has one, so
-   the placement below never depends on which stylesheet loads last. A detailed card puts it under the
-   title, where a long room or folder name ellipsises at the card's width; a compact card keeps its one
-   line and takes only the star, beside the title. */
+/* The ★ central star (CentralBadge `bare`) on a card: the first mark in the title, before the queue chip
+   (Oct 26 2026; it used to sit at the card's right end as an 18px block). Two classes where the badge's own
+   module has one, so this never depends on which stylesheet loads last. */
 .sessionTabCard .sessionTabCentral {
-  max-width: 100%;
-}
-
-.sessionTabCardCompact .sessionTabCentral {
   flex: 0 0 auto;
+  margin-right: 3px;
 }
 
 /* The worker badge (WorkerBadge) on a card, placed as the ★ badge above is: under the title on a detailed card,
@@ -1834,17 +1830,28 @@
    monokai (4.26), and --text-primary is the only neutral that clears it in
    all ten themes (solarized's lowest, 4.86). The dashed border and the
    triangle keep the quieter --room-color. */
+/* CENTRAL: every central session (server/mcp), first in room mode. Dashed like the other built-in frames,
+   in the ★'s purple held back toward the neutral border so it reads as "worked out", not as a room. Its text
+   follows the contrast rule below. */
+.centralRoomGroup {
+  --room-color: color-mix(in srgb, var(--accent-purple) 55%, var(--text-secondary));
+  border-style: dashed;
+}
+
 .recentRoomGroup .sessionTabRoomGroupLabel,
 .recentRoomGroup .roomCollapsedCount,
 .pinnedRoomGroup .sessionTabRoomGroupLabel,
-.pinnedRoomGroup .roomCollapsedCount {
+.pinnedRoomGroup .roomCollapsedCount,
+.centralRoomGroup .sessionTabRoomGroupLabel,
+.centralRoomGroup .roomCollapsedCount {
   color: var(--text-primary);
 }
 
 /* Half the rooms' 16% pill tint: at 16% the collapsed count measured 4.36:1
    in solarized, whose tint lightens the pill toward its own text. */
 .recentRoomGroup .roomCollapsedCount,
-.pinnedRoomGroup .roomCollapsedCount {
+.pinnedRoomGroup .roomCollapsedCount,
+.centralRoomGroup .roomCollapsedCount {
   background: color-mix(in srgb, var(--room-color, transparent) 8%, transparent);
 }
 

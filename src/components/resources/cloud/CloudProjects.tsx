@@ -25,8 +25,9 @@ import TextInput from '@/components/ui/TextInput';
 import CloudDialog from './CloudDialog';
 import CloudJob from './CloudJob';
 import CloudProjectRow, { OWN_SIGN_IN } from './CloudProjectRow';
-import CloudProjectSave, { type SaveChoice } from './CloudProjectSave';
-import { useCloudAction, useCloudSession } from './cloudSession';
+import CloudProjectSave from './CloudProjectSave';
+import { choiceKey, type SaveChoice, type SaveResults } from './projectState';
+import { cloudError, useCloudAction, useCloudSession } from './cloudSession';
 import { cacheKey, readCache, writeCache, rememberJob, type SavedJob } from './cloudCache';
 import styles from '@/styles/modules/CloudResources.module.css';
 
@@ -62,7 +63,10 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
     [accounts, setAccounts] = useState<GithubAccounts | null>(null),
     [jobs, setJobs] = useState<{ key: string; rows: SavedJob[] }>({ key: '', rows: [] }),
     [running, setRunning] = useState<string[]>([]),
-    [saving, setSaving] = useState<{ candidates: ProjectCandidate[] | null } | null>(null),
+    [saving, setSaving] = useState<{
+      candidates: ProjectCandidate[] | null;
+      results: SaveResults;
+    } | null>(null),
     [cloning, setCloning] = useState<{
       project: ProjectRecord;
       parent: string;
@@ -140,32 +144,47 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
     }
   }
   function openSave() {
-    setSaving({ candidates: null });
+    setSaving({ candidates: null, results: {} });
     action.run(
       (b, s) => cloudApi.projectCandidates(b, s),
-      (c) => setSaving((open) => (open ? { candidates: c.items } : open)),
+      (c) => setSaving((open) => (open ? { ...open, candidates: c.items } : open)),
     );
   }
-  function save(choice: SaveChoice) {
-    const value: ProjectRecord = {
-      id: crypto.randomUUID(),
-      version: 1,
-      name: choice.repository.name,
-      repository: choice.repository,
-      description: '',
-      resources: [],
-      deleted: false,
-    };
+  /** Save each ticked project's basic information in turn; one refusal never stops the rest. */
+  function save(choices: SaveChoice[]) {
     action.run(
-      (b, s) =>
-        cloudApi.saveProject(
-          { mutationId: crypto.randomUUID(), baseVersion: null, value },
-          b,
-          s,
-          choice.localPath,
-        ),
-      () => {
-        setSaving(null);
+      async (b, s) => {
+        const results: SaveResults = {};
+        for (const choice of choices) {
+          const value: ProjectRecord = {
+            id: crypto.randomUUID(),
+            version: 1,
+            name: choice.repository.name,
+            repository: choice.repository,
+            description: '',
+            resources: [],
+            deleted: false,
+          };
+          try {
+            await cloudApi.saveProject(
+              { mutationId: crypto.randomUUID(), baseVersion: null, value },
+              b,
+              s,
+              choice.localPath,
+            );
+            results[choiceKey(choice)] = { ok: true };
+          } catch (err) {
+            if (s.aborted) throw err;
+            results[choiceKey(choice)] = { ok: false, error: cloudError(err) };
+          }
+        }
+        return results;
+      },
+      (results) => {
+        const allSaved = Object.values(results).every((r) => r.ok);
+        setSaving((open) =>
+          allSaved || !open ? null : { ...open, results: { ...open.results, ...results } },
+        );
         load();
       },
     );
@@ -215,7 +234,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
       />
       <div className={styles.toolbar}>
         <Button variant="primary" disabled={!action.enabled || action.busy} onClick={openSave}>
-          Save a project
+          Save projects
         </Button>
         <Button disabled={!action.enabled || action.busy} onClick={load}>
           Refresh
@@ -240,7 +259,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
           <EmptyState
             compact
             title="No projects saved to cloud yet."
-            hint="Save a project from a GitHub folder on this Mac, or paste its GitHub link. Every device can then clone it."
+            hint="Tick GitHub folders on this Mac, or paste a GitHub link, to save their name, link and branch. Every device can then clone them."
           />
         ))}
       {projects.length > 0 && (
@@ -326,7 +345,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
       {saving && (
         <CloudDialog
           returnFocus={action.origin.current}
-          title="Save a project"
+          title="Save projects to cloud"
           onClose={() => setSaving(null)}
         >
           <CloudProjectSave
@@ -334,6 +353,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
             loading={!saving.candidates && action.busy}
             busy={action.busy}
             disabled={!action.enabled}
+            results={saving.results}
             onSave={save}
             onClose={() => setSaving(null)}
           />

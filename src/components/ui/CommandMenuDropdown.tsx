@@ -77,6 +77,9 @@ export default function CommandMenuDropdown({
             {item.abbr && <span className={styles.acAbbr} title={`Abbreviation: ${item.abbr}`}>{item.abbr}</span>}
             {item.hint && <span className={styles.acHint} title={item.hint}>{item.hint}</span>}
             {item.sub && <span className={styles.acSub}>{item.sub}</span>}
+            {item.uses ? (
+              <span className={styles.acUses} title={`Used ${item.uses} times in the last 90 days`}>{item.uses}×</span>
+            ) : null}
           </div>
         </div>
       ))}

@@ -505,8 +505,13 @@
   color: var(--ph-text-secondary);
 }
 
-.sheetFooter {
-  margin-top: var(--ph-space-2);
+/* New session: Browse + More options above the recent projects; side by side, stacked when a
+   half is too narrow for its label (a 320px phone), so neither label wraps. */
+.sheetActions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
+  gap: var(--ph-space-2);
+  margin-bottom: var(--ph-space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {

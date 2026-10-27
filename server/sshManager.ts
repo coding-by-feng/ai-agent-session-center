@@ -28,7 +28,8 @@ import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
 import type { FaultMatch } from './interruptionDetector.js';
 import { noteBtwChunk, clearBtwState, type BtwCaptureDeps } from './btwCapture.js';
-import type { BtwAnswer } from '../src/types/session.js';
+import { armSuggestionWatch, clearSuggestionState, disarmSuggestion, isTypingInput, noteSuggestionChunk, type SuggestionCaptureDeps } from './promptSuggestionCapture.js';
+import type { BtwAnswer, PromptSuggestion } from '../src/types/session.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
@@ -102,17 +103,42 @@ export function registerTerminalBtwCallback(cb: OnTerminalBtwCallback): void {
   onTerminalBtwCallback = cb;
 }
 
+/** A terminal's output ring and size, for the screen readers; null once it is gone or empty. */
+function screenSnapshot(terminalId: string): { bytes: Buffer; cols: number; rows: number } | null {
+  const term = terminals.get(terminalId);
+  const geometry = getTerminalGeometry(terminalId);
+  if (!term || !geometry || ringLength(term) === 0) return null;
+  return { bytes: ringSnapshot(term), ...geometry };
+}
+
 const btwDeps: BtwCaptureDeps = {
-  snapshot(terminalId) {
-    const term = terminals.get(terminalId);
-    const geometry = getTerminalGeometry(terminalId);
-    if (!term || !geometry || ringLength(term) === 0) return null;
-    return { bytes: ringSnapshot(term), ...geometry };
-  },
+  snapshot: screenSnapshot,
   onAnswer(terminalId, answer) {
     onTerminalBtwCallback?.(terminalId, answer);
   },
 };
+
+// Claude's suggested next prompt (promptSuggestionCapture.ts): found on the screen after a Stop,
+// gone as soon as anyone types into the terminal.
+type OnTerminalSuggestionCallback = (terminalId: string, suggestion: PromptSuggestion | null) => void;
+let onTerminalSuggestionCallback: OnTerminalSuggestionCallback | null = null;
+
+/** Register a callback for a suggestion appearing (or, with null, being typed over) in a terminal. */
+export function registerTerminalSuggestionCallback(cb: OnTerminalSuggestionCallback): void {
+  onTerminalSuggestionCallback = cb;
+}
+
+const suggestionDeps: SuggestionCaptureDeps = {
+  snapshot: screenSnapshot,
+  onSuggestion(terminalId, suggestion) {
+    onTerminalSuggestionCallback?.(terminalId, suggestion);
+  },
+};
+
+/** A turn ended in this terminal: watch it for Claude's next-prompt suggestion. */
+export function watchTerminalForSuggestion(terminalId: string): void {
+  if (onTerminalSuggestionCallback && terminals.has(terminalId)) armSuggestionWatch(terminalId, suggestionDeps);
+}
 
 /**
  * Run one PTY chunk past the interruption detector and forward any fault.
@@ -129,6 +155,7 @@ function notePtyOutput(terminalId: string, data: string): void {
       if (fault) onTerminalFaultCallback(terminalId, fault);
     }
     if (onTerminalBtwCallback) noteBtwChunk(terminalId, data, btwDeps);
+    if (onTerminalSuggestionCallback) noteSuggestionChunk(terminalId, data, suggestionDeps);
   } catch (e: unknown) {
     // Detection is best-effort — it must never break terminal streaming.
     log.debug('pty', `Output scan failed for ${terminalId}: ${(e as Error).message}`);
@@ -986,6 +1013,11 @@ export function writeToTerminal(terminalId: string, data: string): void {
   if (term && term.pty) {
     const cleaned = data.replace(TERMINAL_RESPONSE_RE, '');
     if (cleaned) term.pty.write(cleaned);
+    // Typing replaces Claude's suggestion in its box (and accepts it on Tab): it no longer stands.
+    if (cleaned && isTypingInput(cleaned)) {
+      disarmSuggestion(terminalId);
+      onTerminalSuggestionCallback?.(terminalId, null);
+    }
   }
 }
 
@@ -1479,6 +1511,7 @@ function cleanup(terminalId: string): void {
   // would make the new terminal's first banner look like a redraw of the old.
   clearFaultState(terminalId);
   clearBtwState(terminalId);
+  clearSuggestionState(terminalId);
   forgetTerminalOutput(terminalId);
   const term = terminals.get(terminalId);
   if (term) {

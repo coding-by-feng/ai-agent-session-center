@@ -41,7 +41,7 @@ export function decodeProjectDir(encoded: string): string | null {
   return resolve('/', 0);
 }
 
-/** Every known project folder, sorted; worktrees and `/` left out. Empty when the folder is missing. */
+/** Every known project folder, in path order; worktrees and `/` left out. Empty when the folder is missing. */
 export function listKnownProjects(): string[] {
   try {
     const entries = readdirSync(join(homedir(), '.claude', 'projects'), { withFileTypes: true });
@@ -56,4 +56,30 @@ export function listKnownProjects(): string[] {
   } catch {
     return [];
   }
+}
+
+/** How far back a folder's sessions count toward its rank in New session's recent projects. */
+export const PROJECT_ACTIVITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** One folder's use, from the sessions table: sessions started inside the window, and the newest activity ever. */
+export interface ProjectActivity {
+  project_path: string;
+  recent: number;
+  last: number | null;
+}
+
+/**
+ * The known folders, most used first: sessions in the window, then the newest activity, then path.
+ * A folder no session has used goes last, in path order. Only `paths` are ranked; the activity
+ * rows never add a folder (the list a phone is shown must stay the list it is checked against).
+ */
+export function rankProjects(paths: readonly string[], activity: readonly ProjectActivity[]): string[] {
+  const byPath = new Map(activity.map((a) => [a.project_path, a]));
+  const recent = (p: string): number => byPath.get(p)?.recent ?? 0;
+  const last = (p: string): number => byPath.get(p)?.last ?? -Infinity;
+  return [...paths].sort((a, b) => {
+    if (recent(a) !== recent(b)) return recent(b) - recent(a);
+    if (last(a) !== last(b)) return last(b) - last(a);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
 }

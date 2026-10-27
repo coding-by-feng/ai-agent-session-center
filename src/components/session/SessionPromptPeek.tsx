@@ -6,12 +6,18 @@
  * so sessions can be told apart and reviewed without opening them. The phone's
  * long press on the session title shows the same list in a sheet
  * (`RecentPromptsSheet`); the rule for "typed" is `lib/promptPeek.ts`.
+ *
+ * A central session (server/mcp) also gets one ★ line saying what it can reach and how many
+ * workers it runs: the card's star is the star alone (Oct 26 2026), so its scope lives here.
  */
 import { useState } from 'react';
 import type { Session } from '@/types';
 import { promptAge, typedPrompts } from '@/lib/promptPeek';
 import { quietFor } from '@/lib/liveBoard';
 import { statusLabel } from '@/lib/sessionStatusStyle';
+import { centralTooltip, workersText } from '@/lib/centralChoice';
+import { useMcpStore } from '@/stores/mcpStore';
+import { useRoomStore } from '@/stores/roomStore';
 import styles from '@/styles/modules/SessionPromptPeek.module.css';
 
 export default function SessionPromptPeek({ session }: { session: Session }) {
@@ -21,9 +27,17 @@ export default function SessionPromptPeek({ session }: { session: Session }) {
   const quiet = quietFor(session, now);
   const meta = [session.projectName, statusLabel(session.status), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
   const remark = typeof session.remark === 'string' ? session.remark.trim() : '';
+  const central = session.central;
+  const roomName = useRoomStore((s) =>
+    central?.kind === 'room' ? s.rooms.find((r) => r.id === central.scopeRef)?.name : undefined,
+  );
+  const workers = workersText(useMcpStore((s) => (central ? s.centrals.get(central.centralId)?.workerCount ?? 0 : 0)));
   return (
     <div className={styles.peek}>
       {meta && <p className={styles.meta}>{meta}</p>}
+      {central && (
+        <p className={styles.central}>{`★ ${centralTooltip(central, roomName)}${workers ? ` · ${workers}` : ''}`}</p>
+      )}
       {remark && <p className={styles.remark}>{remark}</p>}
       {prompts.length > 0 ? (
         <ol className={styles.list} aria-label="Recent prompts">

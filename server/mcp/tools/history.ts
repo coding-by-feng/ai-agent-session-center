@@ -305,7 +305,8 @@ const historyKnownProjects = defineTool({
   async run(args, ctx) {
     const allows = historyAllows(ctx);
     const body = readHistory<unknown>(await ctx.client.get('/known-projects'));
-    const all = strings(isRecord(body) ? body.paths : []).filter((p) => p !== '' && allows(p));
+    // The route ranks folders most used first, which moves with every hook; paging needs a fixed order.
+    const all = strings(isRecord(body) ? body.paths : []).filter((p) => p !== '' && allows(p)).sort();
     const page = pageOf(all.length, args.cursor, args.limit ?? NAMES_DEFAULT);
     const shown = all.slice(page.start, page.end);
     const data = { count: all.length, start: page.start, returned: shown.length, nextCursor: page.next, paths: shown };

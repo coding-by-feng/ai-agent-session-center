@@ -3,7 +3,7 @@
  * checkout state. Ahead/behind are as of the last fetch: Check, Pull and Push each fetch first.
  */
 import type { ChipTone } from '@/components/ui/Chip';
-import type { LocalProject } from '@/types/cloudProjects';
+import type { LocalProject, ProjectCandidate } from '@/types/cloudProjects';
 import { cloudCount } from '@/lib/cloudFormat';
 
 export interface ProjectStatus {
@@ -86,3 +86,16 @@ export function projectStatus(local: LocalProject | undefined, branch: string): 
       return { ...NONE, check: true, label: 'Up to date', tone: 'success' };
   }
 }
+
+/** A project to save to the cloud ("Save projects to cloud", Oct 26 2026). */
+export interface SaveChoice {
+  repository: ProjectCandidate['repository'];
+  /** The folder it came from, linked on this Mac; absent for a pasted link. */
+  localPath?: string;
+}
+
+/** One finished save, keyed by `choiceKey`: saved, or the reason it was refused. */
+export type SaveResults = Record<string, { ok: true } | { ok: false; error: string }>;
+
+/** A choice's row: its folder, or the link for a pasted repository. */
+export const choiceKey = (c: SaveChoice) => c.localPath ?? c.repository.url;

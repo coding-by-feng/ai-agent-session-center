@@ -16,7 +16,7 @@ vi.mock('../server/db.js', () => ({
   upsertSession: vi.fn(), updateSessionTitle: vi.fn(), updateSessionSummary: vi.fn(), updateSessionRemark: vi.fn(),
   updateSessionArchived: vi.fn(), migrateSessionId: vi.fn(), getPromptsForSession: vi.fn(() => []),
   insertFullPrompt: vi.fn(), getRecentSessions: vi.fn(() => []), getSessionById: vi.fn(() => null),
-  deleteSession: vi.fn(), getAllSessionQueues: vi.fn(() => []), default: {},
+  deleteSession: vi.fn(), getAllSessionQueues: vi.fn(() => []), getProjectActivity: vi.fn(() => []), default: {},
 }));
 
 const pty = vi.hoisted(() => ({

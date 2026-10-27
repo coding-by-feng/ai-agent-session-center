@@ -66,6 +66,8 @@ const RECENT_FRAME_TITLE =
   `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. Each is also listed in its own room.`;
 const PINNED_FRAME_KEY = 'builtin:pinned';
 const PINNED_FRAME_TITLE = 'Pinned: every pinned session. Each is also listed in its own room.';
+const CENTRAL_FRAME_KEY = 'builtin:central';
+const CENTRAL_FRAME_TITLE = 'Central: every central session (it reaches other sessions over MCP). Each is also listed in its own room.';
 
 /** Detect CLI tool from session command */
 function getCliBadge(session: Session): string | null {
@@ -134,6 +136,8 @@ export default function SessionSwitcher({
   const togglePinnedRoomHidden = useUiStore((s) => s.togglePinnedRoomHidden);
   const pinnedRoomCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
   const togglePinnedRoomCollapsed = useUiStore((s) => s.togglePinnedRoomCollapsed);
+  const centralRoomCollapsed = useUiStore((s) => s.centralRoomCollapsed);
+  const toggleCentralRoomCollapsed = useUiStore((s) => s.toggleCentralRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
   const openModal = useUiStore((s) => s.openModal);
   // Vertical rail only when docked-left AND not maximized
@@ -238,7 +242,7 @@ export default function SessionSwitcher({
   const hasRuntimeChip = resolveRuntimeDisplay(currentSession) !== null;
   const isCompact = cardDisplayMode === 'compact';
 
-  // The built-in frames (PINNED, RECENT) list second copies of cards that are
+  // The built-in frames (CENTRAL, PINNED, RECENT) list second copies of cards that are
   // also in their own rooms (see BuiltinFrame).
   const copyCards = (list: Session[]) =>
     list.map((s) => (
@@ -684,6 +688,21 @@ export default function SessionSwitcher({
       {!maximized && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {tabRenderItems.map((item) => {
+            if (item.type === 'central') {
+              return (
+                <BuiltinFrame
+                  key={CENTRAL_FRAME_KEY}
+                  label="Central"
+                  title={CENTRAL_FRAME_TITLE}
+                  className={styles.centralRoomGroup}
+                  collapsed={centralRoomCollapsed}
+                  onToggleCollapse={toggleCentralRoomCollapsed}
+                  count={item.sessions.length}
+                >
+                  {copyCards(item.sessions)}
+                </BuiltinFrame>
+              );
+            }
             if (item.type === 'pinned') {
               return (
                 <BuiltinFrame
@@ -1107,6 +1126,8 @@ function SessionTabCard({
           onDoubleClick={beginEdit}
           title={isCurrent ? 'Double-click to rename' : undefined}
         >
+          {/* A central session (server/mcp): the star first, before the queue chip; the card's hover names its scope. */}
+          {session.central && <CentralBadge central={session.central} bare className={styles.sessionTabCentral} />}
           {queueLen > 0 && (
             <span
               className={styles.sessionTabQueueBadge}
@@ -1128,10 +1149,6 @@ function SessionTabCard({
           )}
           {title}
         </div>
-      )}
-      {/* A central session (server/mcp): the star alone in a compact card, which keeps its one line. */}
-      {session.central && (
-        <CentralBadge central={session.central} compact={isCompact} className={styles.sessionTabCentral} />
       )}
       {/* A task a central handed this session that is not over (server/mcp): the task id alone in a compact card. */}
       <WorkerBadge sessionId={session.sessionId} compact={isCompact} className={styles.sessionTabWorker} />

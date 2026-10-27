@@ -138,6 +138,7 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       mode: sessionSortMode,
       recentIds: recentIdsKey ? recentIdsKey.split('\n') : [],
       showPinned: !pinnedRoomHidden,
+      showCentral: true,
     }),
     [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden],
   );

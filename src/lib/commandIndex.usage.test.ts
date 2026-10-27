@@ -68,6 +68,30 @@ describe('filterAndGroup — most used first (Oct 24 2026)', () => {
   });
 });
 
+describe('filterAndGroup — groups follow their best match (Oct 26 2026)', () => {
+  const titles = (groups: ReturnType<typeof filterAndGroup>) => groups.map((g) => g.title);
+  // The user's screenshot: "/rar" put a built-in that only contains "rar" above their daily /rar.
+  const list = [
+    entry('ultrareview', { kind: 'skill', source: 'builtin' }),
+    entry('rar', { uses: 104 }),
+    entry('generate-library', { source: 'plugin', pluginName: 'figma' }),
+  ];
+
+  it('puts the group of the best-ranked match first, not the built-ins', () => {
+    expect(titles(filterAndGroup(list, 'rar', 'skill'))).toEqual(['Global', 'Built-in', 'Plugin: figma']);
+  });
+
+  it('ranks a used plugin skill above an unused built-in', () => {
+    const used = list.map((e) => (e.name === 'generate-library' ? { ...e, uses: 5 } : e));
+    expect(titles(filterAndGroup(used, 'rar', 'skill'))).toEqual(['Global', 'Plugin: figma', 'Built-in']);
+  });
+
+  it('keeps the source order between groups that rank the same', () => {
+    const plain = [entry('zeta', { source: 'plugin', pluginName: 'p' }), entry('alpha'), entry('mid', { source: 'builtin' })];
+    expect(titles(filterAndGroup(plain, '', 'skill'))).toEqual(['Built-in', 'Global', 'Plugin: p']);
+  });
+});
+
 describe('mostUsed', () => {
   const list = [
     entry('raab', { uses: 105 }),

@@ -13,6 +13,12 @@
  * drag is written to CSS variables on the container (--edge-dx px, --edge-p
  * 0…1) and a `data-swipe` attribute, never state, so a move re-renders nothing.
  * Under Reduce Motion the finger still drives it, but the finish is instant.
+ *
+ * A drag always ends (Oct 26 2026: over Tailscale a session screen stayed half
+ * swiped). iOS sends a touch's later events to the element it started on, and a
+ * live update that replaces that element cuts them off from the stack, so the
+ * end is also heard on that element; a new touch, or the app leaving the
+ * screen, slides back a drag whose end never came.
  */
 import { useEffect, type RefObject } from 'react';
 
@@ -43,6 +49,10 @@ export function useEdgeSwipeBack(
     if (!el || !enabled) return;
     let track: { x: number; y: number; t: number; lastX: number; lastT: number; v: number; axis: 'x' | 'y' | null; width: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
+    // The element the touch started on, heard directly (it may leave the page mid-drag).
+    let origin: EventTarget | null = null;
+    // One event can reach both the stack and the origin: handle it once.
+    let seen: Event | null = null;
 
     const write = (dx: number, width: number) => {
       el.style.setProperty('--edge-dx', `${Math.round(dx)}px`);
@@ -55,15 +65,19 @@ export function useEdgeSwipeBack(
     };
 
     const onStart = (e: TouchEvent) => {
+      // A drag still open here lost its end: a finger can't start a touch while it is down.
+      if (track && e.touches.length === 1) finish(true);
       if (settle || e.touches.length !== 1) return;
       const rect = el.getBoundingClientRect();
       const touch = e.touches[0];
       if (touch.clientX - rect.left > EDGE_PX) return;
       track = { x: touch.clientX, y: touch.clientY, t: e.timeStamp, lastX: touch.clientX, lastT: e.timeStamp, v: 0, axis: null, width: rect.width };
+      listenOrigin(e.target);
     };
 
     const onMove = (e: TouchEvent) => {
-      if (!track) return;
+      if (!track || e === seen) return;
+      seen = e;
       const touch = e.touches[0];
       const dx = touch.clientX - track.x;
       const dy = touch.clientY - track.y;
@@ -72,6 +86,7 @@ export function useEdgeSwipeBack(
         track.axis = dx > 0 && Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
         if (track.axis === 'y') {
           track = null;
+          listenOrigin(null);
           return;
         }
         el.dataset.swipe = 'drag';
@@ -87,6 +102,7 @@ export function useEdgeSwipeBack(
     const finish = (cancelled: boolean) => {
       const t = track;
       track = null;
+      listenOrigin(null);
       if (!t || t.axis !== 'x') return;
       const dx = Math.max(0, t.lastX - t.x);
       // A cancelled touch (a system gesture took it) never completes a pop.
@@ -117,17 +133,52 @@ export function useEdgeSwipeBack(
       }, SETTLE_MS);
     };
 
+    const onEnd = (e: Event) => {
+      if (e === seen) return;
+      seen = e;
+      finish(false);
+    };
+    const onCancel = (e: Event) => {
+      if (e === seen) return;
+      seen = e;
+      finish(true);
+    };
+    // The app sent to the background mid-drag never hears the finger lift.
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') finish(true);
+    };
+    const onBlur = () => finish(true);
+
+    function listenOrigin(target: EventTarget | null) {
+      if (origin === target) return;
+      if (origin && origin !== el) {
+        origin.removeEventListener('touchmove', onMove as EventListener);
+        origin.removeEventListener('touchend', onEnd);
+        origin.removeEventListener('touchcancel', onCancel);
+      }
+      origin = target;
+      if (origin && origin !== el) {
+        origin.addEventListener('touchmove', onMove as EventListener, { passive: false });
+        origin.addEventListener('touchend', onEnd);
+        origin.addEventListener('touchcancel', onCancel);
+      }
+    }
+
     el.addEventListener('touchstart', onStart, { passive: true, capture: true });
     el.addEventListener('touchmove', onMove, { passive: false, capture: true });
-    const onEnd = () => finish(false);
-    const onCancel = () => finish(true);
     el.addEventListener('touchend', onEnd, { capture: true });
     el.addEventListener('touchcancel', onCancel, { capture: true });
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('blur', onBlur);
     return () => {
       el.removeEventListener('touchstart', onStart, { capture: true });
       el.removeEventListener('touchmove', onMove, { capture: true });
       el.removeEventListener('touchend', onEnd, { capture: true });
       el.removeEventListener('touchcancel', onCancel, { capture: true });
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('blur', onBlur);
+      listenOrigin(null);
+      track = null;
       if (settle) clearTimeout(settle);
       reset();
     };

@@ -16,6 +16,7 @@
 }
 
 .meta,
+.central,
 .remark,
 .empty {
   margin: 0;
@@ -24,6 +25,13 @@
 .meta {
   color: #aab0d0;
   font-size: 10px;
+}
+
+/* A central session's scope (server/mcp): the card's ★ is the star alone, so the words are here. */
+.central {
+  color: #c9b8ff;
+  font-size: 10px;
+  overflow-wrap: anywhere;
 }
 
 /* The user's own words for the session: set apart from the prompts by a rule and italics. */

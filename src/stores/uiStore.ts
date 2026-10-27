@@ -102,6 +102,9 @@ interface UiState {
   pinnedRoomHidden: boolean;
   /** Is the PINNED frame folded? Persisted to localStorage['pinned-room-collapsed']. */
   pinnedRoomCollapsed: boolean;
+  /** Is the CENTRAL frame (every central session, server/mcp) folded?
+   *  Persisted to localStorage['central-room-collapsed']. */
+  centralRoomCollapsed: boolean;
   /** The "go to session #" box (SessionJumpOverlay) is open. Not persisted. */
   sessionJumpOpen: boolean;
   /** Session strip grouping/ordering. Persisted to localStorage['session-sort-mode'].
@@ -163,6 +166,7 @@ interface UiState {
   toggleRecentRoomCollapsed: () => void;
   togglePinnedRoomHidden: () => void;
   togglePinnedRoomCollapsed: () => void;
+  toggleCentralRoomCollapsed: () => void;
   openSessionJump: () => void;
   closeSessionJump: () => void;
   setSessionSortMode: (mode: SessionSortMode) => void;
@@ -348,6 +352,7 @@ export const useUiStore = create<UiState>((set) => ({
   recentRoomCollapsed: loadFlag('recent-room-collapsed'),
   pinnedRoomHidden: loadFlag('pinned-room-hidden'),
   pinnedRoomCollapsed: loadFlag('pinned-room-collapsed'),
+  centralRoomCollapsed: loadFlag('central-room-collapsed'),
   sessionJumpOpen: false,
   sessionSortMode: loadSessionSortMode(),
   liveBoardSort: loadLiveBoardSort(),
@@ -450,6 +455,12 @@ export const useUiStore = create<UiState>((set) => ({
       const next = !s.pinnedRoomCollapsed;
       saveFlag('pinned-room-collapsed', next);
       return { pinnedRoomCollapsed: next };
+    }),
+  toggleCentralRoomCollapsed: () =>
+    set((s) => {
+      const next = !s.centralRoomCollapsed;
+      saveFlag('central-room-collapsed', next);
+      return { centralRoomCollapsed: next };
     }),
   openSessionJump: () => set({ sessionJumpOpen: true }),
   closeSessionJump: () => set({ sessionJumpOpen: false }),

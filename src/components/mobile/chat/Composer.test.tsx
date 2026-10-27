@@ -373,3 +373,41 @@ describe('Composer', () => {
     });
   });
 });
+
+describe('Claude’s suggested next prompt (Oct 26 2026)', () => {
+  const suggested = (extra: Partial<Session> = {}) => session({ promptSuggestion: { text: 'run the tests again', at: 1 }, ...extra } as Partial<Session>);
+
+  it('shows it as the empty box’s placeholder, with a chip that fills the box', () => {
+    presence();
+    stubMac();
+    renderComposer(suggested());
+    expect(screen.getByTestId('composer-input').getAttribute('placeholder')).toBe('run the tests again');
+    fireEvent.click(screen.getByRole('button', { name: 'Use Claude’s suggestion: run the tests again' }));
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('run the tests again');
+    // Filled, not sent: it can still be edited.
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).value).toBe('run the tests again');
+  });
+
+  it('steps aside once something is typed', () => {
+    presence();
+    stubMac();
+    renderComposer(suggested());
+    type('something else');
+    expect(screen.queryByRole('button', { name: /Use Claude’s suggestion/ })).toBeNull();
+  });
+
+  it('is not offered while the box is off (the session ended)', () => {
+    presence();
+    stubMac();
+    renderComposer(suggested({ status: 'ended' }));
+    expect(screen.queryByRole('button', { name: /Use Claude’s suggestion/ })).toBeNull();
+    expect(screen.getByTestId('composer-input').getAttribute('placeholder')).not.toBe('run the tests again');
+  });
+
+  it('shows nothing without a suggestion', () => {
+    presence();
+    stubMac();
+    renderComposer(session());
+    expect(screen.queryByRole('button', { name: /Use Claude’s suggestion/ })).toBeNull();
+  });
+});

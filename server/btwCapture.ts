@@ -10,18 +10,18 @@
  *
  * **Why a headless xterm.** The TUI redraws with cursor moves, so stripping ANSI from the raw
  * bytes interleaves old and new text (the garbled first line in the phone terminal). Replaying the
- * terminal's output ring into `@xterm/headless` gives the screen exactly as a real terminal shows
- * it, and the panel is read from that.
+ * terminal's output ring into `@xterm/headless` (headlessScreen.ts) gives the screen exactly as a
+ * real terminal shows it, and the panel is read from that.
  *
  * **Cheap on the hot path.** A chunk is only regex-tested for the footer. A capture (a replay of the
  * ring) runs after the output settles, at most once per `MIN_CAPTURE_GAP_MS` per terminal, and
  * only while the footer keeps appearing; an identical question and answer is not re-reported.
  */
-import headless from '@xterm/headless';
 import { stripAnsi } from '../src/lib/ansi.js';
 import type { BtwAnswer } from '../src/types/session.js';
+import { renderScreen, type TerminalScreen } from './headlessScreen.js';
 
-const { Terminal: HeadlessTerminal } = headless as unknown as typeof import('@xterm/headless');
+export { renderScreen };
 
 /** The panel's key-hint footer; both hints together are specific to the `/btw` panel. */
 const FOOTER_RE = /c to copy\b.*\bf to fork\b/;
@@ -42,11 +42,7 @@ const CARRY_CHARS = 256;
 export const BTW_QUESTION_CAP = 1024;
 export const BTW_ANSWER_CAP = 8 * 1024;
 
-export interface BtwScreen {
-  bytes: Buffer;
-  cols: number;
-  rows: number;
-}
+export type BtwScreen = TerminalScreen;
 
 export interface BtwCaptureDeps {
   /** The terminal's output ring and size, or null once it is gone. */
@@ -92,20 +88,6 @@ export function parseBtwScreen(lines: readonly string[]): { question: string; an
   const dedent = indents.length ? Math.min(...indents) : 0;
   const answer = [body[0], ...body.slice(1).map((l) => l.slice(Math.min(dedent, /^ */.exec(l)?.[0].length ?? 0)))].join('\n').trim();
   return answer ? { question, answer } : null;
-}
-
-/** The screen a terminal shows after `bytes`, one trimmed string per row of the viewport. */
-export function renderScreen(screen: BtwScreen): Promise<string[]> {
-  return new Promise((resolve) => {
-    const term = new HeadlessTerminal({ cols: screen.cols, rows: screen.rows, scrollback: 0, allowProposedApi: true });
-    term.write(screen.bytes, () => {
-      const buf = term.buffer.active;
-      const rows: string[] = [];
-      for (let y = 0; y < screen.rows; y++) rows.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
-      term.dispose();
-      resolve(rows);
-    });
-  });
 }
 
 async function capture(terminalId: string, deps: BtwCaptureDeps): Promise<void> {

@@ -25,7 +25,7 @@ import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
 import { withBtwAnswer } from './btwCapture.js';
 import { toBackgroundTasks, FINISHED_TASK_STATUSES } from './backgroundTasks.js';
-import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, registerTerminalSuggestionCallback, watchTerminalForSuggestion, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess } from './sshManager.js';
 import { createCodexTrust } from './codexTrust.js';
 import { forgetTerminalHeard, noteTerminalHeard, terminalHeard } from './heardTerminals.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
@@ -182,9 +182,11 @@ export function saveSnapshot(mqOffset?: number): void {
       // are still alive. Hook-backed external sessions (real sessionId) DO persist.
       if (key.startsWith('external-')) continue;
       // A waiting request is live-only: no PTY survives a restart, and its tool
-      // input (a command, a diff) has no business on disk.
-      const { pendingRequest: _liveOnly, ...persisted } = session;
+      // input (a command, a diff) has no business on disk. So is Claude's suggested
+      // next prompt: it describes the input box on screen now, not after a restart.
+      const { pendingRequest: _liveOnly, promptSuggestion: _onScreenOnly, ...persisted } = session;
       void _liveOnly;
+      void _onScreenOnly;
       sessionsObj[key] = persisted;
     }
     const countersObj: Record<string, number> = {};
@@ -947,6 +949,19 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     session.interruption = null;
   }
 
+  // Claude's suggested next prompt (promptSuggestionCapture.ts) answers the turn that just ended:
+  // any hook of a new turn, the end of this one or a /clear makes it stale. A Stop watches again.
+  if (
+    session.promptSuggestion
+    && (hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT
+      || hook_event_name === EVENT_TYPES.PRE_TOOL_USE
+      || hook_event_name === EVENT_TYPES.SESSION_START
+      || hook_event_name === EVENT_TYPES.STOP
+      || hook_event_name === EVENT_TYPES.SESSION_END)
+  ) {
+    session.promptSuggestion = null;
+  }
+
   // A user cancel holds the prompt queue until the user acts. Their own next
   // prompt is that action (so is a brand-new session). Not PreToolUse: a
   // cancel stops the turn, and nothing else should silently release the hold.
@@ -1174,6 +1189,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         session.status === SESSION_STATUS.WORKING;
       // Session finished its turn — waiting for user's next prompt
       session.status = SESSION_STATUS.WAITING;
+      // Claude draws its next-prompt suggestion a second or so after this; Codex's CLI has none.
+      if (session.terminalId && !isCodexSession(session)) watchTerminalForSuggestion(session.terminalId);
       if (wasHeavyWork) {
         session.animationState = ANIMATION_STATE.DANCE;
         session.emote = null;
@@ -2463,6 +2480,27 @@ registerTerminalBtwCallback((terminalId: string, answer) => {
     if (session.status === SESSION_STATUS.ENDED) continue;
     session.btwAnswers = withBtwAnswer(session.btwAnswers, answer);
     log.info('session', `BTW answer on ${id.slice(0, 8)}: ${answer.question.slice(0, 60)}`);
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+    return;
+  }
+});
+
+// ---- Suggested next prompt (promptSuggestionCapture.ts) ---------------------
+// Claude never writes it to the transcript or a hook; the phone Composer and the desktop queue box
+// get it from here. Null means someone typed into the terminal, so it no longer stands.
+registerTerminalSuggestionCallback((terminalId: string, suggestion) => {
+  for (const [id, session] of sessions) {
+    if (session.terminalId !== terminalId) continue;
+    if (suggestion === null) {
+      if (!session.promptSuggestion) return;
+      session.promptSuggestion = null;
+    } else {
+      // Only while the turn it answers is still the last one: a new prompt already moved on.
+      if (session.status !== SESSION_STATUS.WAITING && session.status !== SESSION_STATUS.IDLE) return;
+      session.promptSuggestion = suggestion;
+      log.debug('session', `Prompt suggestion on ${id.slice(0, 8)}: ${suggestion.text.slice(0, 60)}`);
+    }
     invalidateSessionsCache();
     void broadcastSessionUpdate(session);
     return;

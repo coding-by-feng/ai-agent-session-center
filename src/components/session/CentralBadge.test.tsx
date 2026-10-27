@@ -144,6 +144,37 @@ describe('CentralBadge', () => {
     });
   });
 
+  describe('bare (a card\'s star)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('is the star alone, named with the scope and the workers', () => {
+      render(<CentralBadge central={marker({ kind: 'room', scopeRef: 'room-1' })} bare />);
+
+      expect(screen.getByLabelText('Central session: room Backend')).toHaveTextContent(/^★$/);
+    });
+
+    it('opens no tooltip of its own: the card it sits in carries the scope', () => {
+      render(<CentralBadge central={marker()} bare />);
+      fireEvent.mouseEnter(screen.getByLabelText('Central session: global'));
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('takes the class it is given, on the star itself', () => {
+      render(<CentralBadge central={marker()} bare className="in-title" />);
+
+      expect(screen.getByLabelText('Central session: global')).toHaveClass('in-title');
+    });
+  });
+
   describe('the tooltip', () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

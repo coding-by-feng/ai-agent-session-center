@@ -135,6 +135,24 @@ it('nested live agent makes checkout busy', async () => {
     code: 'busy',
   });
 });
+// Oct 26 2026: saving or linking a project is metadata, so a live agent in the folder does not
+// block it; a Git operation in progress still does.
+it('ignoreAgents: a live agent does not make a checkout busy for linking; a Git lock still does', async () => {
+  let active: string[] = [];
+  const f = await gitFixture({ activeProjectPaths: () => active });
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  active = [dest];
+  expect(await f.ops.inspectCheckout(dest, f.project)).toMatchObject({ state: 'busy' });
+  expect(await f.ops.inspectCheckout(dest, f.project, { ignoreAgents: true })).toMatchObject({
+    state: 'ready',
+    branch: 'main',
+  });
+  await writeFile(join(dest, '.git', 'index.lock'), '');
+  expect(await f.ops.inspectCheckout(dest, f.project, { ignoreAgents: true })).toMatchObject({
+    state: 'busy',
+  });
+});
 it('pull with local commits preserves them (ahead: push first) and remote rewrite is refused', async () => {
   const f = await gitFixture();
   const dest = join(f.root, 'checkout');

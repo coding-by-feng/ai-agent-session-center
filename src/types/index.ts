@@ -26,6 +26,7 @@ export type {
   PlanUsageWindow,
   PendingRequest,
   PendingRequestOption,
+  PromptSuggestion,
   Session,
   BufferedEvent,
   HandleEventResult,

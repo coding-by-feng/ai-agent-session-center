@@ -85,6 +85,50 @@ describe('buildStripItems — the PINNED frame', () => {
   });
 });
 
+describe('buildStripItems — the CENTRAL frame', () => {
+  const G = { centralId: 'c1', kind: 'global', scopeRef: null } as const;
+  const all = [s('a', { pinned: true }), s('b', { central: { ...G } }), s('c', { central: { ...G, centralId: 'c2' } }), s('d')];
+  const rooms = [room('R1', ['a', 'b']), room('R2', ['c'])];
+
+  it('goes first, above PINNED and RECENT, and lists the central sessions in strip order', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: ['d'], showPinned: true, showCentral: true });
+    expect(items.map((i) => i.type)).toEqual(['central', 'pinned', 'recent', 'room', 'room', 'session']);
+    expect(items[0].type === 'central' && ids(items[0].sessions)).toEqual(['b', 'c']);
+  });
+
+  it('leaves each central in its own room too', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [], showCentral: true });
+    expect(items[1].type === 'room' && ids(items[1].sessions)).toEqual(['a', 'b']);
+  });
+
+  it('is absent unless asked for: the phone never asks', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [] });
+    expect(items.some((i) => i.type === 'central')).toBe(false);
+  });
+
+  it('is absent when no session is a central', () => {
+    const none = [s('a'), s('d')];
+    const items = buildStripItems({ filtered: none, all: none, rooms, mode: 'room', recentIds: [], showCentral: true });
+    expect(items.some((i) => i.type === 'central')).toBe(false);
+  });
+
+  it.each(['activity', 'project'] as const)('is absent in the %s view', (mode) => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode, recentIds: [], showCentral: true });
+    expect(items.some((i) => i.type === 'central')).toBe(false);
+  });
+
+  it('follows the room filter', () => {
+    const filtered = filterByRooms(all, new Set(['R2']), rooms);
+    const items = buildStripItems({ filtered, all, rooms, mode: 'room', recentIds: [], showCentral: true });
+    expect(items[0].type === 'central' && ids(items[0].sessions)).toEqual(['c']);
+  });
+
+  it('is skipped by the swipe order: its sessions stay in their rooms', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [], showCentral: true });
+    expect(stripSessionOrder(items)).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
 describe('stripSessionOrder — the swipe order', () => {
   it('walks the frames as drawn, skips RECENT (its sessions stay in their rooms), and lists each session once', () => {
     const all = [s('a'), s('b'), s('c'), s('d')];

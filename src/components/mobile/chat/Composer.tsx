@@ -169,6 +169,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const [quickOpen, setQuickOpen] = useState(false);
   const quickHeld = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
   const fieldOff = !!decision.fieldDisabledReason;
+  // Claude's suggested next prompt (server/promptSuggestionCapture.ts), offered only in an empty box
+  // this phone may type into: the placeholder shows it, the chip fills it in to edit or send.
+  const suggestion = !fieldOff && draft === '' ? session.promptSuggestion?.text ?? null : null;
   const runtime = resolveRuntimeDisplay(session);
   // Context window + plan limits on their own chip (Oct 20 2026); the clock ticks by the minute.
   const clock = useClock();
@@ -387,6 +390,11 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     insertToken(`@${path}`, triggerStart);
   }, [closeSheet, insertToken, triggerStart]);
   const setBoxText = useCallback((next: string) => setDraft(sessionId, next), [sessionId, setDraft]);
+  const useSuggestion = useCallback(() => {
+    if (!suggestion) return;
+    setDraft(sessionId, suggestion);
+    inputRef.current?.focus();
+  }, [suggestion, sessionId, setDraft, inputRef]);
   // The picker sends the command itself: the typed fragment is already gone from `next`.
   const openPicker = useCallback((focus: 'model' | 'effort', next: string) => {
     setDraft(sessionId, next);
@@ -486,6 +494,11 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           onPicker={openPicker}
         />
       )}
+      {suggestion && (
+        <button type="button" className={styles.suggest} onClick={useSuggestion} aria-label={`Use ${cliName}’s suggestion: ${suggestion}`}>
+          <span aria-hidden="true">↳</span> Use suggestion
+        </button>
+      )}
       <div className={styles.field} data-off={fieldOff ? '' : undefined}>
         <textarea
           ref={boxRef}
@@ -493,7 +506,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           value={draft}
           onChange={onChange}
           onKeyDown={onKeyDown}
-          placeholder={decision.fieldDisabledReason ?? decision.placeholder}
+          placeholder={decision.fieldDisabledReason ?? suggestion ?? decision.placeholder}
           aria-label={`Message to ${cliName}`}
           disabled={fieldOff}
           rows={1}

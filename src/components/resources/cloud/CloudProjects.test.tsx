@@ -102,27 +102,42 @@ it('shows each project as its GitHub repository and branch, and only Clone when 
   expect(screen.getByText('work-me', { selector: 'span' })).toBeInTheDocument();
 });
 
-it('saves a project from a GitHub folder on this Mac: repository only, folder linked here', async () => {
+const tool = { ...repository, name: 'tool', url: 'https://github.com/example/tool' };
+const site = { ...repository, name: 'site', url: 'https://github.com/example/site' };
+const candidates = () =>
   vi.spyOn(cloudApi, 'projectCandidates').mockResolvedValue({
     items: [
       { path: '/Users/me/code/project', repository, projectId: id },
-      {
-        path: '/Users/me/code/tool',
-        repository: { ...repository, name: 'tool', url: 'https://github.com/example/tool' },
-        projectId: null,
-      },
+      { path: '/Users/me/code/tool', repository: tool, projectId: null },
+      { path: '/Users/me/code/valux', repository: site, projectId: null },
     ],
   });
-  const save = vi.spyOn(cloudApi, 'saveProject').mockResolvedValue(project);
+async function openSave() {
   show();
   await screen.findByText('Not on this device');
-  fireEvent.click(screen.getByRole('button', { name: 'Save a project' }));
-  const dialog = await screen.findByRole('dialog');
-  expect(await within(dialog).findByText('example/project · already saved')).toBeInTheDocument();
-  expect(within(dialog).getByRole('radio', { name: /example\/project/ })).toBeDisabled();
-  fireEvent.click(within(dialog).getByRole('radio', { name: /example\/tool/ }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Save to cloud' }));
-  await waitFor(() => expect(save).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole('button', { name: 'Save projects' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Save projects to cloud' });
+  await within(dialog).findByRole('checkbox', { name: /tool/ });
+  return dialog;
+}
+
+// Oct 26 2026: tick several of this Mac's GitHub folders and save their basic information at once.
+it('saves several GitHub folders at once: repository only, each folder linked here', async () => {
+  candidates();
+  const save = vi.spyOn(cloudApi, 'saveProject').mockResolvedValue(project);
+  const dialog = await openSave();
+  const saved = within(dialog).getByRole('checkbox', { name: /project/ });
+  expect(saved).toBeChecked();
+  expect(saved).toBeDisabled();
+  expect(within(dialog).getByText('Saved')).toBeInTheDocument();
+  // The folder's path is shown: valux holds the repository "site".
+  expect(within(dialog).getByText('/Users/me/code/valux')).toBeInTheDocument();
+  const button = within(dialog).getByRole('button', { name: /^Save( \d+)? to cloud$/ });
+  expect(button).toBeDisabled();
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /tool/ }));
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /site/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save 2 to cloud' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   const [mutation, , , localPath] = save.mock.calls[0];
   expect(mutation.baseVersion).toBeNull();
   expect(mutation.value).toMatchObject({
@@ -132,6 +147,38 @@ it('saves a project from a GitHub folder on this Mac: repository only, folder li
     resources: [],
   });
   expect(localPath).toBe('/Users/me/code/tool');
+  expect(save.mock.calls[1][0].value.name).toBe('site');
+  expect(save.mock.calls[1][3]).toBe('/Users/me/code/valux');
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+});
+
+it('Select all ticks every folder not yet saved, and again clears them', async () => {
+  candidates();
+  const dialog = await openSave();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Select all' }));
+  expect(within(dialog).getByRole('checkbox', { name: /tool/ })).toBeChecked();
+  expect(within(dialog).getByRole('checkbox', { name: /site/ })).toBeChecked();
+  expect(within(dialog).getByRole('button', { name: 'Save 2 to cloud' })).toBeEnabled();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Clear' }));
+  expect(within(dialog).getByRole('checkbox', { name: /tool/ })).not.toBeChecked();
+  expect(within(dialog).getByRole('checkbox', { name: /project/ })).toBeChecked();
+});
+
+it('says which save failed and keeps the saved ones locked, instead of one banner', async () => {
+  candidates();
+  const save = vi
+    .spyOn(cloudApi, 'saveProject')
+    .mockResolvedValueOnce(project)
+    .mockRejectedValueOnce(new Error('That folder is not on a branch.'));
+  const dialog = await openSave();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Select all' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save 2 to cloud' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(await within(dialog).findByText('1 of 2 saved')).toBeInTheDocument();
+  expect(within(dialog).getByText('That folder is not on a branch.')).toBeInTheDocument();
+  expect(within(dialog).getByRole('checkbox', { name: /tool/ })).toBeDisabled();
+  expect(within(dialog).getByRole('checkbox', { name: /site/ })).toBeChecked();
+  expect(within(dialog).getByRole('button', { name: 'Save 1 to cloud' })).toBeEnabled();
 });
 
 it('saves a pasted GitHub link without any folder', async () => {
@@ -139,15 +186,19 @@ it('saves a pasted GitHub link without any folder', async () => {
   const save = vi.spyOn(cloudApi, 'saveProject').mockResolvedValue(project);
   show();
   await screen.findByText('Not on this device');
-  fireEvent.click(screen.getByRole('button', { name: 'Save a project' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save projects' }));
   const dialog = await screen.findByRole('dialog');
+  const toggle = within(dialog).getByRole('button', { name: 'Paste a GitHub link instead' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(within(dialog).queryByLabelText('GitHub repository link')).not.toBeInTheDocument();
+  fireEvent.click(toggle);
   const link = within(dialog).getByLabelText('GitHub repository link');
   fireEvent.change(link, { target: { value: 'https://gitlab.com/a/b' } });
   expect(within(dialog).getByRole('alert')).toHaveTextContent(/github.com\/owner\/repository/);
-  expect(within(dialog).getByRole('button', { name: 'Save to cloud' })).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: /^Save( \d+)? to cloud$/ })).toBeDisabled();
   fireEvent.change(link, { target: { value: 'https://github.com/Example/Other.git' } });
   fireEvent.change(within(dialog).getByLabelText('Branch'), { target: { value: 'develop' } });
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Save to cloud' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save 1 to cloud' }));
   await waitFor(() => expect(save).toHaveBeenCalled());
   expect(save.mock.calls[0][0].value.repository).toEqual({
     provider: 'github',

@@ -24,7 +24,7 @@ describe('edgeSwipeOutcome', () => {
 function Host({ enabled, onBack }: { enabled: boolean; onBack: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEdgeSwipeBack(ref, enabled, onBack);
-  return <div ref={ref} data-testid="host" />;
+  return <div ref={ref} data-testid="host"><p data-testid="row">row</p></div>;
 }
 
 function touch(el: Element, type: string, x: number, y = 100, t = 0) {
@@ -90,5 +90,59 @@ describe('useEdgeSwipeBack', () => {
     touch(host, 'touchend', 300, 100, 120);
     act(() => { vi.advanceTimersByTime(300); });
     expect(onBack).not.toHaveBeenCalled();
+  });
+
+  // Oct 26 2026: over Tailscale a session screen stayed half swiped.
+  describe('a drag always ends', () => {
+    it('hears the end on the element the touch started on, after a live update replaced it', () => {
+      const onBack = vi.fn();
+      const { getByTestId } = render(<Host enabled onBack={onBack} />);
+      const host = getByTestId('host');
+      const row = getByTestId('row');
+      touch(row, 'touchstart', 4, 100, 0);
+      touch(row, 'touchmove', 250, 100, 300);
+      expect(host.dataset.swipe).toBe('drag');
+      row.remove();
+      touch(row, 'touchend', 250, 100, 320);
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(onBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles an end that reaches both the row and the stack once', () => {
+      const onBack = vi.fn();
+      const { getByTestId } = render(<Host enabled onBack={onBack} />);
+      const row = getByTestId('row');
+      touch(row, 'touchstart', 4, 100, 0);
+      touch(row, 'touchmove', 250, 100, 300);
+      touch(row, 'touchend', 250, 100, 320);
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(onBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('slides back a drag whose end never came when the next touch starts', () => {
+      const onBack = vi.fn();
+      const { getByTestId } = render(<Host enabled onBack={onBack} />);
+      const host = getByTestId('host');
+      touch(host, 'touchstart', 4, 100, 0);
+      touch(host, 'touchmove', 250, 100, 300);
+      touch(host, 'touchstart', 200, 300, 2000);
+      expect(host.dataset.swipe).toBe('settle');
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(host.dataset.swipe).toBeUndefined();
+      expect(host.style.getPropertyValue('--edge-dx')).toBe('');
+      expect(onBack).not.toHaveBeenCalled();
+    });
+
+    it('slides back when the app leaves the screen mid-drag', () => {
+      const onBack = vi.fn();
+      const { getByTestId } = render(<Host enabled onBack={onBack} />);
+      const host = getByTestId('host');
+      touch(host, 'touchstart', 4, 100, 0);
+      touch(host, 'touchmove', 250, 100, 300);
+      act(() => { window.dispatchEvent(new Event('blur')); });
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(host.dataset.swipe).toBeUndefined();
+      expect(onBack).not.toHaveBeenCalled();
+    });
   });
 });

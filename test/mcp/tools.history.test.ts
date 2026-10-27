@@ -731,9 +731,16 @@ describe('history_known_projects', () => {
     const list = async (central: ReturnType<typeof makeCentral>) =>
       (await dataOf<{ paths: string[] }>('history_known_projects', {}, makeCtx({ central, sessions, rooms, routes }).ctx)).paths;
 
-    expect(await list(asGlobal())).toEqual(paths);
-    expect(await list(asProject())).toEqual(['/a/proj', '/a/proj/sub', '/a/proj/deeper/x']);
+    expect(await list(asGlobal())).toEqual([...paths].sort());
+    expect(await list(asProject())).toEqual(['/a/proj', '/a/proj/deeper/x', '/a/proj/sub']);
     expect(await list(asRoom())).toEqual(['/a/proj', '/a/proj/sub']);
+  });
+
+  it('pages in path order, not the route’s most-used-first order (which moves with every hook)', async () => {
+    const ranked = ['/z/busy', '/a/quiet', '/m/mid'];
+    const { ctx } = makeCtx({ routes: { 'GET /known-projects': ok({ paths: ranked }) } });
+
+    expect((await dataOf<{ paths: string[] }>('history_known_projects', {}, ctx)).paths).toEqual(['/a/quiet', '/m/mid', '/z/busy']);
   });
 
   it('pages, and says so when there are none', async () => {

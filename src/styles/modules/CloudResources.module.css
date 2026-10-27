@@ -360,6 +360,39 @@
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
+/* "Save projects to cloud" (Oct 26 2026): a checklist of this Mac's GitHub folders. */
+.saveHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* The whole row is the click target, at least a 44px touch height; the Saved chip sits at the end. */
+.check.saveRow {
+  min-height: 44px;
+  margin: 0;
+  padding: 4px 0;
+}
+/* The box lines up with the repository name (the first, larger line), not the block's middle. */
+.check.saveRow input {
+  margin-top: 4px;
+}
+.check.saveRow > :last-child:not(.syncMain) {
+  align-self: center;
+}
+.check.saveRow:has(input:disabled) {
+  cursor: default;
+}
+/* A refused save, under its own row, indented past the checkbox (16px + 8px gap). */
+.rowError {
+  margin: 0 0 8px 24px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent-red);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 /* Two classes: Modal's own .panel max-width (400px) loads first or last
    depending on the chunk; this must win either way. */
 .dialog.dialog {

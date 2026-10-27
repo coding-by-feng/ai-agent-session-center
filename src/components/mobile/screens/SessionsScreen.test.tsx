@@ -26,7 +26,10 @@ vi.mock('@/lib/launchSession', async (importOriginal) => ({
 }));
 vi.mock('@/lib/sessionRefresh', () => ({ refreshSessionList: vi.fn(async () => true) }));
 vi.mock('@/lib/alarmEngine', () => ({ muteSession: vi.fn(), unmuteSession: vi.fn(), alertSession: vi.fn(), unalertSession: vi.fn() }));
-vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => ['/w/agent-manager', '/w/site'] }));
+vi.mock('@/hooks/useKnownProjects', () => ({
+  useKnownProjects: () => ['/w/agent-manager', '/w/site'],
+  useRankedProjects: () => ['/w/agent-manager', '/w/site'],
+}));
 
 import SessionsScreen from './SessionsScreen';
 import { useSessionStore } from '@/stores/sessionStore';

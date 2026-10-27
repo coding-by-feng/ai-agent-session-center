@@ -310,6 +310,9 @@ export default function QueueTab({
   const dockedCollapsed = useUiStore((s) => s.queuePanelCollapsed);
   const setDockedCollapsed = useUiStore((s) => s.setQueuePanelCollapsed);
   const isMobile = useIsMobile();
+  // Claude's suggested next prompt (server/promptSuggestionCapture.ts): the empty box's placeholder,
+  // and Tab takes it. Desktop only; a phone has its Composer's "Use suggestion" (and no Tab).
+  const suggestion = !isMobile && composeText === '' ? currentSession?.promptSuggestion?.text ?? null : null;
   // The float window is the whole window: collapsing it would leave a bare header.
   // On a phone the QUEUE tab is the queue's only home (no strip under the
   // terminal, AASC-18), so it is never folded either — the stored flag belongs
@@ -1330,9 +1333,11 @@ export default function QueueTab({
           <AutocompleteTextarea
             className={styles.queueTextarea}
             placeholder={
-              isMobile
-                ? 'Add a prompt to the queue… (/ commands, @ files)'
-                : 'Add a prompt to the queue... (/ for commands, @ for files, Cmd+V for images)'
+              suggestion
+                ? `${suggestion}  ⇥ Tab to use`
+                : isMobile
+                  ? 'Add a prompt to the queue… (/ commands, @ files)'
+                  : 'Add a prompt to the queue... (/ for commands, @ for files, Cmd+V for images)'
             }
             rows={2}
             value={composeText}
@@ -1344,6 +1349,9 @@ export default function QueueTab({
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 handleAdd();
+              } else if (e.key === 'Tab' && !e.shiftKey && suggestion) {
+                e.preventDefault();
+                setComposeText(suggestion);
               }
             }}
             // On a phone `/` and `$` belong to the suggestion bar under the box (AASC-20).

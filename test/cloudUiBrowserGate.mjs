@@ -289,12 +289,16 @@ try {
   await clone.getByRole('button', { name: 'Clone' }).click();
   await clone.waitFor({ state: 'detached' });
   assert.deepEqual(calls.find((c) => c.path.endsWith('/get')).body, { parentPath: '/Users/you/code', directoryName: 'exmouth-erp' });
-  await page.getByRole('button', { name: 'Save a project' }).click();
+  // Oct 26 2026: a checklist; an already-saved repository is ticked, locked and marked Saved.
+  await page.getByRole('button', { name: 'Save projects' }).click();
   const save = page.getByRole('dialog');
-  await save.getByText('kason/agent-manager · already saved').waitFor();
+  const savedBox = save.getByRole('checkbox', { name: /agent-manager/ });
+  await savedBox.waitFor();
+  assert.equal(await savedBox.isChecked(), true);
+  assert.equal(await savedBox.isDisabled(), true);
   await page.screenshot({ animations: 'disabled', path: join(shots, 'save-project-xp.png') });
-  await save.getByRole('radio', { name: /kason\/kason-tools/ }).check();
-  await save.getByRole('button', { name: 'Save to cloud' }).click();
+  await save.getByRole('checkbox', { name: /kason-tools/ }).check();
+  await save.getByRole('button', { name: 'Save 1 to cloud' }).click();
   await save.waitFor({ state: 'detached' });
   const created = calls.find((c) => c.path.endsWith('/projects') && c.method === 'POST');
   assert.equal(created.body.localPath, '/Users/you/code/kason-tools');

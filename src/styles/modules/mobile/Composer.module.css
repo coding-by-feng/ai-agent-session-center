@@ -125,6 +125,36 @@
 
 .chip svg { flex: none; }
 
+/* "↳ Use suggestion" (Oct 26 2026): Claude's suggested next prompt is the empty box's placeholder;
+   this fills the box with it. A 44px target that overlaps the footer's padding like the chips. */
+.suggest {
+  appearance: none;
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  margin: 0 0 calc(-1 * var(--ph-space-1));
+  padding: 0 var(--ph-space-2);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .suggest:hover { background: var(--ph-fill); }
+}
+
+.suggest:active { background: var(--ph-fill-strong); }
+.suggest:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
+
 .modelChip {
   flex: 0 1 auto;
   min-width: 0;

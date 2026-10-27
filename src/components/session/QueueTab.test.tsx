@@ -785,3 +785,40 @@ describe('QueueTab — manual SEND', () => {
     expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
   });
 });
+
+describe('QueueTab — Claude’s suggested next prompt (Oct 26 2026)', () => {
+  const withSuggestion = (text: string | null) => {
+    useSessionStore.setState({
+      sessions: new Map([['s-sg', { sessionId: 's-sg', status: 'waiting', promptSuggestion: text ? { text, at: 1 } : null } as never]]),
+      selectedSessionId: 's-sg',
+    });
+  };
+  beforeEach(() => {
+    platform.isMobile = false;
+    useQueueStore.setState({ queues: new Map(), composeDrafts: new Map() } as never);
+  });
+  afterEach(() => cleanup());
+
+  it('shows it as the empty box’s placeholder, and Tab fills the box with it', () => {
+    withSuggestion('run the tests again');
+    render(<QueueTab sessionId="s-sg" sessionStatus="waiting" terminalId={null} />);
+    const box = screen.getByPlaceholderText('run the tests again ⇥ Tab to use') // the matcher collapses the two spaces;
+    fireEvent.keyDown(box, { key: 'Tab' });
+    expect(box).toHaveValue('run the tests again');
+  });
+
+  it('leaves Tab alone once something is typed, or with no suggestion', () => {
+    withSuggestion(null);
+    render(<QueueTab sessionId="s-sg" sessionStatus="waiting" terminalId={null} />);
+    const box = screen.getByPlaceholderText(/Add a prompt to the queue/i);
+    fireEvent.keyDown(box, { key: 'Tab' });
+    expect(box).toHaveValue('');
+    cleanup();
+    withSuggestion('run the tests again');
+    render(<QueueTab sessionId="s-sg" sessionStatus="waiting" terminalId={null} />);
+    const typed = screen.getByPlaceholderText(/Tab to use/);
+    fireEvent.change(typed, { target: { value: 'my own' } });
+    fireEvent.keyDown(typed, { key: 'Tab' });
+    expect(typed).toHaveValue('my own');
+  });
+});

@@ -113,6 +113,17 @@
   color: var(--text-secondary);
 }
 
+/* How often the row was used (Oct 26 2026), at the row's end: the list ranks by it, so the count
+   says why a row sits where it does. It never yields; the description truncates first. */
+.acUses {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .acFooter {
   display: flex;
   justify-content: space-between;

@@ -13,6 +13,7 @@ import {
   type ProjectCandidate,
   type ProjectRecord,
   type GetProjectInput,
+  type CheckoutState,
 } from '../../src/types/cloudProjects.js';
 import {
   ResourceDependencySchema,
@@ -69,6 +70,20 @@ const PROJECT_JOB_KINDS = ['get-project', 'pull-project', 'push-project'];
 const CANDIDATE_CONCURRENCY = 6;
 /** How long one scan of the candidate folders answers auto-linking. */
 const CANDIDATE_CACHE_MS = 30_000;
+/** Saving or linking a folder records metadata only: a live agent working in it does not block it. */
+const LINK_CHECK = { ignoreAgents: true } as const;
+/** Why a folder cannot be linked, in the words the Projects tab shows next to it (Oct 26 2026). */
+const UNLINKABLE: Partial<Record<CheckoutState, string>> = {
+  missing: 'That folder is no longer on this Mac. Refresh the list.',
+  'wrong-remote':
+    "That folder's GitHub remote or branch no longer matches. Refresh the list and try again.",
+  detached: 'That folder is not on a branch. Switch it to a branch, then save.',
+  busy: 'A Git operation (merge, rebase or lock) is in progress in that folder. Finish it, then save.',
+};
+function refuseUnlinkable(state: CheckoutState) {
+  const reason = UNLINKABLE[state];
+  if (reason) throw new CloudError('checkout_mismatch', reason, 409);
+}
 export async function createProjectJobs(options: ProjectJobsOptions) {
   const { cloud, resources } = options,
     store = resources.store,
@@ -133,13 +148,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
   async function associateChecked(project: ProjectRecord, path: string, binding: CloudBinding) {
     bind(binding);
     await confinedProjectPath(path, home);
-    const inspected = await git.inspectCheckout(path, project);
-    if (['missing', 'wrong-remote', 'detached', 'busy'].includes(inspected.state))
-      throw new CloudError(
-        'checkout_mismatch',
-        'Choose a canonical checkout with this remote and branch.',
-        409,
-      );
+    refuseUnlinkable((await git.inspectCheckout(path, project, LINK_CHECK)).state);
     const id = localId(path),
       prior = resources.projectAssociation(id, binding),
       mapped = mapping(project.id, binding);
@@ -481,13 +490,7 @@ export async function createProjectJobs(options: ProjectJobsOptions) {
       // no record behind (security review, Oct 23 2026). The link itself still runs after.
       if (local) {
         await confinedProjectPath(local.path, home);
-        const inspected = await git.inspectCheckout(local.path, body.value);
-        if (['missing', 'wrong-remote', 'detached', 'busy'].includes(inspected.state))
-          throw new CloudError(
-            'checkout_mismatch',
-            'Choose a canonical checkout with this remote and branch.',
-            409,
-          );
+        refuseUnlinkable((await git.inspectCheckout(local.path, body.value, LINK_CHECK)).state);
         bind(binding);
       }
       const p = ProjectRecordSchema.parse(

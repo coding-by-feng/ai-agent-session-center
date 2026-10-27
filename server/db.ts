@@ -11,6 +11,7 @@ import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
 import { migrateMobileDeviceCodeRefs } from './mobile/deviceCodeRefMigration.js';
 import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
+import type { ProjectActivity } from './knownProjects.js';
 import type { Session } from '../src/types/session.js';
 import type {
   DbSessionRow, DbPromptRow, DbResponseRow, DbToolCallRow, DbEventRow, DbNoteRow,
@@ -366,6 +367,7 @@ const stmts = {
 
   // Analytics
   distinctProjects: db.prepare(`SELECT DISTINCT project_path, project_name FROM sessions WHERE project_path IS NOT NULL AND project_path != '' ORDER BY project_name`),
+  projectActivity: db.prepare(`SELECT project_path, SUM(CASE WHEN started_at >= ? THEN 1 ELSE 0 END) AS recent, MAX(last_activity_at) AS last FROM sessions WHERE project_path IS NOT NULL AND project_path != '' GROUP BY project_path`),
 
   // Agenda tasks
   upsertAgendaTask: db.prepare(`
@@ -843,6 +845,16 @@ export function searchPrompts(params: PromptSearchParams = {}): PromptSearchResp
 
 export function getDistinctProjects(): DistinctProject[] {
   return stmts.distinctProjects.all() as DistinctProject[];
+}
+
+/** Each folder's sessions started since `sinceMs` and its newest activity (New session's ranking). Empty on error. */
+export function getProjectActivity(sinceMs: number): ProjectActivity[] {
+  try {
+    return stmts.projectActivity.all(sinceMs) as ProjectActivity[];
+  } catch (err: unknown) {
+    log.warn('db', `getProjectActivity failed: ${(err as Error).message}`);
+    return [];
+  }
 }
 
 // ---- Agenda Tasks ----

@@ -51,3 +51,22 @@
   padding: 0 3px;
   text-align: center;
 }
+
+/* `bare`: the rail card's star, inline before the title (Oct 26 2026). Sized and shaped like the card's queue
+   chip (.sessionTabQueueBadge: 0 3px padding, 5px corners, line-height 1.5) so the two sit as one row of marks,
+   not the 18px block the header uses. It never shrinks: a wrapped title keeps it whole on the first line. */
+.bare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  height: auto;
+  min-width: 0;
+  margin-right: 3px;
+  padding: 0 3px;
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}

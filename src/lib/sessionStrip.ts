@@ -25,6 +25,9 @@ export type StripItem =
   // The built-in PINNED frame: every pinned session, worked out from the pin
   // flag. Not a Room either, for the same reasons as RECENT.
   | { type: 'pinned'; sessions: Session[] }
+  // The built-in CENTRAL frame: every central session (server/mcp), worked out
+  // from the card's `central` marker. Not a Room either, for RECENT's reasons.
+  | { type: 'central'; sessions: Session[] }
   // One project's frame (Projects view). Worked out from the sessions' paths,
   // so, like RECENT, it is not a Room and takes no part in room reordering.
   | { type: 'project'; group: ProjectGroup; color: string };
@@ -59,6 +62,9 @@ export interface StripItemsInput {
   /** Draw the PINNED frame (Rooms view only). The desktop strip's toggle; the
    *  phone's list leaves it out. */
   showPinned?: boolean;
+  /** Draw the CENTRAL frame (Rooms view only). The desktop strip draws it; the
+   *  phone's list leaves it out. */
+  showCentral?: boolean;
 }
 
 /**
@@ -75,7 +81,9 @@ export interface StripItemsInput {
  * still narrows `filtered` first. A session with no project path follows the
  * frames as a plain card, like a room-less one does.
  */
-export function buildStripItems({ filtered, all, rooms, mode, recentIds, showPinned = false }: StripItemsInput): StripItem[] {
+export function buildStripItems({
+  filtered, all, rooms, mode, recentIds, showPinned = false, showCentral = false,
+}: StripItemsInput): StripItem[] {
   if (mode === 'activity') {
     return filtered.map((session) => ({ type: 'session', session }));
   }
@@ -97,7 +105,14 @@ export function buildStripItems({ filtered, all, rooms, mode, recentIds, showPin
 
   const items: StripItem[] = [];
 
-  // PINNED goes first, in strip order (the cards' numbers). Like RECENT, its
+  // CENTRAL goes first: the sessions that steer the others. Like PINNED and
+  // RECENT, its sessions stay in their own rooms below and the room filter narrows it.
+  if (showCentral) {
+    const centrals = filtered.filter((s) => s.central);
+    if (centrals.length > 0) items.push({ type: 'central', sessions: centrals });
+  }
+
+  // PINNED goes next, in strip order (the cards' numbers). Like RECENT, its
   // sessions stay in their own rooms below and the room filter narrows it.
   if (showPinned) {
     const pinned = filtered.filter((s) => s.pinned);
@@ -137,7 +152,7 @@ export function buildStripItems({ filtered, all, rooms, mode, recentIds, showPin
 
 /**
  * The sessions in the order the list shows them, each once: the order the
- * phone's swipe walks. PINNED and RECENT are skipped (their sessions are listed
+ * phone's swipe walks. CENTRAL, PINNED and RECENT are skipped (their sessions are listed
  * again in their own rooms, which is where they stay put); a folded frame still counts, since
  * folding hides cards, not sessions.
  */
@@ -150,7 +165,7 @@ export function stripSessionOrder(items: readonly StripItem[]): string[] {
     order.push(s.sessionId);
   };
   for (const item of items) {
-    if (item.type === 'recent' || item.type === 'pinned') continue;
+    if (item.type === 'recent' || item.type === 'pinned' || item.type === 'central') continue;
     if (item.type === 'session') add(item.session);
     else if (item.type === 'room') item.sessions.forEach(add);
     else item.group.sessions.forEach(add);

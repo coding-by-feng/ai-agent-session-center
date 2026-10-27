@@ -2,16 +2,20 @@
  * NewSessionSheet — ＋ on the Sessions tab (AASC-40, design §5.9).
  *
  *   New session
+ *   [ Browse folders… ] [ More options… ]
  *   RECENT PROJECTS
  *   agent-manager            [Claude] [Codex]
  *   ~/Documents/claude/agent-manager
  *   …
- *   [ Browse folders on the Mac… ]
- *   [ More options… ]
  *
  * One tap starts Claude or Codex in a project you have worked in; the new
  * session is selected, and the frame's selection bridge opens its Chat.
- * "Browse folders on the Mac…" (AASC-54) picks any folder under the home folder
+ * The projects come most used first (GET /known-projects ranks them by
+ * sessions in the last 30 days, then latest activity); this phone's own
+ * history doesn't jump the queue, and no rows show until that ranking arrives,
+ * so a row never moves under a tap. Browse and More options sit above the list
+ * so a long list never pushes them out of sight.
+ * "Browse folders…" (AASC-54) picks any folder under the home folder
  * that isn't hidden or private; it then sits at the top with the same chips,
  * and a folder no agent has worked in asks "Start in a new folder?" first.
  * "More options…" opens the full form (title, room, model, effort), full screen
@@ -24,7 +28,7 @@ import { Button, ListSection, Sheet } from '../kit';
 import NewFolderConfirm from '../NewFolderConfirm';
 import PhoneFolderBrowser from '../PhoneFolderBrowser';
 import { CLI_LAUNCHERS, type CliCommand } from '@/components/layout/cliLaunchers';
-import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { useRankedProjects } from '@/hooks/useKnownProjects';
 import { isKnownFolder } from '@/lib/folderBrowser';
 import { launchBlocker, launchSession, shortenPath } from '@/lib/launchSession';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -101,7 +105,9 @@ function ProjectRow({
 }
 
 function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; preferDir?: string | null; blocker: string | null }) {
-  const known = useKnownProjects();
+  // null until the Mac answers: nothing is listed rather than a list that reorders.
+  const ranked = useRankedProjects();
+  const known = useMemo(() => ranked ?? [], [ranked]);
   const used = useUsedFolders(known);
   const dirs = (preferDir ? [preferDir, ...known.filter((d) => d !== preferDir)] : known).slice(0, RECENT_PROJECT_LIMIT);
   const [pending, setPending] = useState<string | null>(null);
@@ -155,6 +161,10 @@ function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; 
 
   return (
     <>
+      <div className={styles.sheetActions}>
+        <Button block onClick={() => setBrowsing(true)} disabledReason={blocker ?? undefined}>Browse folders…</Button>
+        <Button block onClick={openFullForm} disabledReason={blocker ?? undefined}>More options…</Button>
+      </div>
       {/* A marker, not a wrapper: the sheet styles its lists as its direct children. */}
       <span ref={chosenRef} aria-hidden="true" />
       {chosen && (
@@ -163,20 +173,14 @@ function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; 
         </ListSection>
       )}
       {dirs.length > 0 ? (
-        <ListSection header="Recent projects" footer="One tap starts the session and opens its chat.">
+        <ListSection header="Recent projects" footer="Most used first. One tap starts the session and opens its chat.">
           {dirs.map((dir) => (
             <ProjectRow key={dir} dir={dir} pending={pending} blocker={blocker} onLaunch={requestLaunch} />
           ))}
         </ListSection>
       ) : (
-        !chosen && <p className={styles.sheetLead}>No projects yet. Browse the Mac’s folders to choose one.</p>
+        ranked !== null && !chosen && <p className={styles.sheetLead}>No projects yet. Browse the Mac’s folders to choose one.</p>
       )}
-      <div className={styles.sheetFooter}>
-        <Button block onClick={() => setBrowsing(true)} disabledReason={blocker ?? undefined}>Browse folders on the Mac…</Button>
-      </div>
-      <div className={styles.sheetFooter}>
-        <Button block onClick={openFullForm} disabledReason={blocker ?? undefined}>More options…</Button>
-      </div>
       <PhoneFolderBrowser
         open={browsing}
         onClose={() => setBrowsing(false)}

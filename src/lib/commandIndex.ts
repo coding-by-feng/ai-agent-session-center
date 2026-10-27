@@ -163,10 +163,46 @@ export function mostUsed(
   return out;
 }
 
+/** Source groups in their old fixed order, now only the tie-break between groups that rank alike. */
+export function sourceRank(source: string): number {
+  return source === 'builtin' ? 0 : source === 'project' ? 1 : source === 'global' ? 2 : 3;
+}
+
 /**
- * Filter `entries` to those whose display name starts with `query` (case
- * insensitive), then bucket into ordered groups: built-in → project → global
- * → plugin (one group per plugin). Empty groups are dropped.
+ * How two matches for `query` rank: the exact abbreviation, then favourites, then a name (or
+ * abbreviation) that starts with the query, then the most used (Oct 24 2026). 0 for a tie, which
+ * callers break A–Z or by keeping their order. Oct 26 2026: also orders the groups (by each one's
+ * best row) and a merged command + skill group, so `/` lists rank by use across sources.
+ */
+export function compareMatches(
+  query: string,
+  notes?: SkillNotes,
+): (a: CommandEntry, b: CommandEntry) => number {
+  const q = query.toLowerCase();
+  const noteOf = (e: CommandEntry) => (notes ? lookupNote(notes, e.cli, entryDisplayName(e)) : null);
+  return (a, b) => {
+    const aNote = noteOf(a);
+    const bNote = noteOf(b);
+    const aAbbr = q && aNote?.abbr === q ? 0 : 1;
+    const bAbbr = q && bNote?.abbr === q ? 0 : 1;
+    if (aAbbr !== bAbbr) return aAbbr - bAbbr;
+    const aFav = aNote?.fav ? 0 : 1;
+    const bFav = bNote?.fav ? 0 : 1;
+    if (aFav !== bFav) return aFav - bFav;
+    const aName = entryDisplayName(a).toLowerCase();
+    const bName = entryDisplayName(b).toLowerCase();
+    const aPrefix = q && (aName.startsWith(q) || aNote?.abbr?.startsWith(q)) ? 0 : 1;
+    const bPrefix = q && (bName.startsWith(q) || bNote?.abbr?.startsWith(q)) ? 0 : 1;
+    if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+    return (b.uses ?? 0) - (a.uses ?? 0);
+  };
+}
+
+/**
+ * Filter `entries` to those whose display name contains `query` (case insensitive) or whose
+ * abbreviation starts with it, rank them (`compareMatches`, then A–Z) and bucket them by source,
+ * one group per plugin. The groups follow their best row, ties in source order (built-in →
+ * project → global → plugin); until Oct 26 2026 that source order was fixed.
  */
 export function filterAndGroup(
   entries: CommandEntry[],
@@ -181,30 +217,12 @@ export function filterAndGroup(
     if (e.kind !== kind) continue;
     const display = entryDisplayName(e).toLowerCase();
     const abbr = noteOf(e)?.abbr;
-    if (!q || display.startsWith(q) || display.includes(q) || (abbr && abbr.startsWith(q))) {
+    if (!q || display.includes(q) || (abbr && abbr.startsWith(q))) {
       matches.push(e);
     }
   }
-  // Stable sort: the exact abbreviation, then favourites, then prefix matches, then the most used
-  // (Oct 24 2026: the `/` lists were A–Z under each source), then alpha
-  matches.sort((a, b) => {
-    const aName = entryDisplayName(a).toLowerCase();
-    const bName = entryDisplayName(b).toLowerCase();
-    const aNote = noteOf(a);
-    const bNote = noteOf(b);
-    const aAbbr = q && aNote?.abbr === q ? 0 : 1;
-    const bAbbr = q && bNote?.abbr === q ? 0 : 1;
-    if (aAbbr !== bAbbr) return aAbbr - bAbbr;
-    const aFav = aNote?.fav ? 0 : 1;
-    const bFav = bNote?.fav ? 0 : 1;
-    if (aFav !== bFav) return aFav - bFav;
-    const aPrefix = q && (aName.startsWith(q) || aNote?.abbr?.startsWith(q)) ? 0 : 1;
-    const bPrefix = q && (bName.startsWith(q) || bNote?.abbr?.startsWith(q)) ? 0 : 1;
-    if (aPrefix !== bPrefix) return aPrefix - bPrefix;
-    const used = (b.uses ?? 0) - (a.uses ?? 0);
-    if (used !== 0) return used;
-    return aName.localeCompare(bName);
-  });
+  const rank = compareMatches(query, notes);
+  matches.sort((a, b) => rank(a, b) || entryDisplayName(a).toLowerCase().localeCompare(entryDisplayName(b).toLowerCase()));
 
   const groups: Record<string, CommandGroup> = {};
   const order: string[] = [];
@@ -230,9 +248,8 @@ export function filterAndGroup(
     groups[key].entries.push(entry);
   }
 
-  // Order: builtin, project, global, then plugins
-  const sourceRank = (s: string): number =>
-    s === 'builtin' ? 0 : s === 'project' ? 1 : s === 'global' ? 2 : 3;
-  order.sort((a, b) => sourceRank(a.split(':')[0]) - sourceRank(b.split(':')[0]));
-  return order.map((k) => groups[k]);
+  // Each group's first row is its best: the groups rank by it, ties in source order.
+  return order
+    .map((k) => groups[k])
+    .sort((a, b) => rank(a.entries[0], b.entries[0]) || sourceRank(a.source) - sourceRank(b.source));
 }

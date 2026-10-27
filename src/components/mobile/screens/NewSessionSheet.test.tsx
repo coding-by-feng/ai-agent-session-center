@@ -10,7 +10,8 @@ vi.mock('@/lib/launchSession', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/launchSession')>()),
   launchSession: vi.fn(async () => ({ ok: true, terminalId: 'term-new', deduplicated: false })),
 }));
-vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => ['/Users/me/code/known'] }));
+const known = vi.hoisted(() => ({ ranked: ['/Users/me/code/known'] as string[] | null }));
+vi.mock('@/hooks/useKnownProjects', () => ({ useRankedProjects: () => known.ranked }));
 
 import NewSessionSheet from './NewSessionSheet';
 import PhoneFolderBrowser from '../PhoneFolderBrowser';
@@ -43,6 +44,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (url: string) => folderAnswer(url));
   vi.stubGlobal('fetch', fetchMock);
   vi.mocked(launchSession).mockClear();
+  known.ranked = ['/Users/me/code/known'];
   useSessionStore.setState({ sessions: new Map() });
 });
 
@@ -53,7 +55,7 @@ afterEach(() => {
 
 async function openBrowser(user: ReturnType<typeof userEvent.setup>) {
   render(<NewSessionSheet open onClose={vi.fn()} />);
-  await user.click(screen.getByRole('button', { name: 'Browse folders on the Mac…' }));
+  await user.click(screen.getByRole('button', { name: 'Browse folders…' }));
   return screen.findByRole('dialog', { name: 'Choose a folder' });
 }
 
@@ -141,5 +143,32 @@ describe('NewSessionSheet: a folder found by browsing', () => {
     await user.click(screen.getByRole('button', { name: 'More options…' }));
     expect(useUiStore.getState().activeModal).toBe('new-session');
     expect(useUiStore.getState().newSessionDir).toBe(`${HOME}/Documents`);
+  });
+});
+
+describe('NewSessionSheet layout and order', () => {
+  it('lists the Mac’s ranking in its order (most used first)', () => {
+    known.ranked = ['/Users/me/busy', '/Users/me/quiet'];
+    render(<NewSessionSheet open onClose={vi.fn()} />);
+    const recent = screen.getByRole('region', { name: 'Recent projects' });
+    expect(within(recent).getAllByRole('button', { name: /^New Claude session in / }).map((b) => b.getAttribute('aria-label')))
+      .toEqual(['New Claude session in busy', 'New Claude session in quiet']);
+  });
+
+  it('lists nothing, and doesn’t say "No projects yet", until the ranking arrives', () => {
+    known.ranked = null;
+    render(<NewSessionSheet open onClose={vi.fn()} />);
+    expect(screen.queryByRole('region', { name: 'Recent projects' })).toBeNull();
+    expect(screen.queryByText(/No projects yet/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Browse folders…' })).toBeTruthy();
+  });
+
+  it('shows Browse and More options above the recent projects, so they need no scroll', () => {
+    render(<NewSessionSheet open onClose={vi.fn()} />);
+    const browse = screen.getByRole('button', { name: 'Browse folders…' });
+    const more = screen.getByRole('button', { name: 'More options…' });
+    const recent = screen.getByRole('region', { name: 'Recent projects' });
+    expect(browse.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(more.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

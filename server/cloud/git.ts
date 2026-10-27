@@ -354,6 +354,7 @@ export async function createGitOperations(options: GitOptions) {
     root: string,
     project: ProjectRecord,
     owned = false,
+    ignoreAgents = false,
   ): Promise<CheckoutInspection> {
     ProjectRecordSchema.parse(project);
     const only = (state: CheckoutState, branch: string | null = null): CheckoutInspection => ({
@@ -365,7 +366,8 @@ export async function createGitOperations(options: GitOptions) {
     if (!(await exists(root))) return only('missing');
     await safeParents(root);
     if ((await realpath(root)) !== root) throw fail('checkout_changed');
-    if ((!owned && locks.has(root)) || active(root)) return only('busy');
+    // A live agent blocks Git work in the folder, not recording a link to it (ignoreAgents).
+    if ((!owned && locks.has(root)) || (!ignoreAgents && active(root))) return only('busy');
     const gd = join(root, '.git');
     if (!(await exists(gd))?.isDirectory()) return only('wrong-remote');
     const entries = await readdir(gd);
@@ -493,7 +495,9 @@ export async function createGitOperations(options: GitOptions) {
     }
   }
   return {
-    inspectCheckout: (root: string, project: ProjectRecord) => inspectCheckout(root, project),
+    /** `ignoreAgents`: for saving or linking (metadata), a live agent in the folder is not busy. */
+    inspectCheckout: (root: string, project: ProjectRecord, opts?: { ignoreAgents?: boolean }) =>
+      inspectCheckout(root, project, false, opts?.ignoreAgents === true),
     async clone(
       destination: string,
       project: ProjectRecord,

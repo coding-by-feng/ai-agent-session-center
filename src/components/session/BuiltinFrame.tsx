@@ -1,6 +1,6 @@
 /**
- * BuiltinFrame — the session strip's built-in frames, PINNED and RECENT. Neither
- * is a Room: each is worked out from the sessions (the pin flag, recent work),
+ * BuiltinFrame — the session strip's built-in frames, CENTRAL, PINNED and RECENT. None
+ * is a Room: each is worked out from the sessions (the central marker, the pin flag, recent work),
  * nothing stores it, and it takes no part in room reordering. So the header's
  * one control is the fold toggle: no grip, no ▲▼, no rename, no kill-all.
  *

@@ -42,6 +42,11 @@ section.group {
   margin-bottom: var(--ph-space-4);
   /* SwipeRow paints each row to hide its Move / Delete under it: the page's colour here. */
   --swipe-row-bg: var(--ph-bg);
+  /* A row's columns (Oct 26 2026): the grip's 44px target, a two-digit number, 8px, the text.
+     The hairline between rows starts where the text does, so it reads these too. */
+  --q-handle-w: 44px;
+  --q-num-w: calc(var(--ph-size-secondary) * 1.25);
+  --q-num-gap: var(--ph-space-2);
 }
 
 /* The kit list's white card, redrawn as the session queue's: the page, a hairline, 8px. */
@@ -154,7 +159,7 @@ section.group > ul {
   content: '';
   position: absolute;
   top: 0;
-  left: 52px;
+  left: calc(var(--q-handle-w) + var(--q-num-w) + var(--q-num-gap));
   right: 0;
   z-index: 1;
   height: 0.5px;
@@ -205,7 +210,7 @@ section.group > ul {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: var(--q-handle-w);
   min-height: var(--ph-target);
   padding: 0 0 0 var(--ph-space-1);
   color: var(--ph-text-secondary);
@@ -219,21 +224,28 @@ section.group > ul {
 
 .item[data-dragging] .handle { cursor: grabbing; color: var(--ph-accent); }
 
+/* The number is the prompt's list marker: it sits on the prompt's first line, not the row's
+   middle (Oct 26 2026: on a two- or three-line row it read with line 2). A short row stays
+   centred in the row's height (align-content); a tall one hangs from line 1 (align-items). The
+   grip and ⚡ act on the whole row, so they stay centred. */
 .main {
-  display: flex;
+  display: grid;
   flex: 1;
-  align-items: center;
-  gap: var(--ph-space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: start;
+  column-gap: var(--q-num-gap);
   min-width: 0;
-  padding: var(--ph-space-2) var(--ph-space-1);
+  padding: var(--ph-space-2) var(--ph-space-1) var(--ph-space-2) 0;
   text-align: left;
   touch-action: pan-y;
 }
 
 .num {
-  flex: none;
-  min-width: 20px;
+  min-width: var(--q-num-w);
   font-size: var(--ph-size-secondary);
+  /* The first line's own box, so the smaller digit centres on that line. */
+  line-height: var(--ph-line-body);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ph-text-secondary);

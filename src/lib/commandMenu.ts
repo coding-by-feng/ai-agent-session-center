@@ -5,7 +5,9 @@
  * groups, with the same sigils.
  */
 import {
+  compareMatches,
   filterAndGroup,
+  sourceRank,
   entryToken,
   entryDisplayName,
   type CommandEntry,
@@ -25,6 +27,8 @@ export interface CommandMenuItem {
   /** The user's own note on this skill (favourite, abbreviation). */
   fav?: boolean;
   abbr?: string;
+  /** The Mac's count of this token in the last 90 days, when it has one (Oct 26 2026). */
+  uses?: number;
 }
 
 export interface CommandMenuGroupSpan {
@@ -67,6 +71,7 @@ function groupsToItems(groups: CommandGroup[], shortcuts: MenuShortcuts, notes: 
         kind: e.kind,
         ...(note?.fav ? { fav: true } : {}),
         ...(note?.abbr ? { abbr: note.abbr } : {}),
+        ...(e.uses ? { uses: e.uses } : {}),
       });
     }
     if (items.length > startIdx) {
@@ -77,10 +82,12 @@ function groupsToItems(groups: CommandGroup[], shortcuts: MenuShortcuts, notes: 
 }
 
 /**
- * Merge the group lists of several `filterAndGroup` passes, preserving the
- * first list's group order and concatenating entries that share a title.
+ * Merge the group lists of several `filterAndGroup` passes (Claude's `/`: commands, then skills)
+ * into one ranking (Oct 26 2026: they were concatenated, so a much-used skill sat below unused
+ * commands of the same source). A merged group is re-ranked with `rank` — stable, so equal rows keep
+ * commands first, each A–Z — and the groups follow their best row, ties in source order.
  */
-function mergeGroups(lists: CommandGroup[][]): CommandGroup[] {
+function mergeGroups(lists: CommandGroup[][], rank: (a: CommandEntry, b: CommandEntry) => number): CommandGroup[] {
   const merged = new Map<string, CommandGroup>();
   const order: string[] = [];
   for (const g of lists.flat()) {
@@ -90,7 +97,12 @@ function mergeGroups(lists: CommandGroup[][]): CommandGroup[] {
     }
     merged.get(g.title)!.entries.push(...g.entries);
   }
-  return order.map((k) => merged.get(k)!);
+  return order
+    .map((k) => {
+      const g = merged.get(k)!;
+      return { ...g, entries: [...g.entries].sort(rank) };
+    })
+    .sort((a, b) => rank(a.entries[0], b.entries[0]) || sourceRank(a.source) - sourceRank(b.source));
 }
 
 /**
@@ -129,7 +141,7 @@ export function buildCommandMenu(
   kinds: Array<'command' | 'skill'> = menuKinds(sigil, cli),
 ): { items: CommandMenuItem[]; groupSpans: CommandMenuGroupSpan[] } {
   return groupsToItems(
-    mergeGroups(kinds.map((k) => filterAndGroup(entries, query, k, notes))),
+    mergeGroups(kinds.map((k) => filterAndGroup(entries, query, k, notes)), compareMatches(query, notes)),
     shortcutsFor(entries),
     notes,
   );

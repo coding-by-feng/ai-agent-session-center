@@ -2456,12 +2456,16 @@ describe('SessionSwitcher — central badge', () => {
     useUiStore.setState({
       activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
       navRailCollapsed: false, selectedRoomIds: new Set(), cardDisplayMode: 'detailed',
+      centralRoomCollapsed: false, pinnedRoomHidden: false, pinnedRoomCollapsed: false, recentRoomCollapsed: false,
     } as never);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
     try { localStorage.clear(); } catch { /* ignore */ }
   });
   afterEach(() => {
-    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), cardDisplayMode: 'detailed' } as never);
+    useUiStore.setState({
+      navPosition: 'top', selectedRoomIds: new Set(), cardDisplayMode: 'detailed', sessionSortMode: 'room',
+      centralRoomCollapsed: false,
+    } as never);
     useRoomStore.setState({ rooms: [] });
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -2490,11 +2494,12 @@ describe('SessionSwitcher — central badge', () => {
 
     it('sits after the title actions, so the name still has its actions right after it', () => {
       const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
-      const name = container.querySelector('[class*="switcherNameText"]')?.parentElement as HTMLElement;
+      const nameText = container.querySelector('[class*="switcherNameText"]') as HTMLElement;
       const actions = container.querySelector('[class*="switcherTitleActions"]') as HTMLElement;
       const badge = within(header(container)).getByText('★ global');
 
-      expect(name.nextElementSibling).toBe(actions);
+      // The name's text sits in the hover peek's trigger span inside the name, so compare the name element itself.
+      expect(actions.previousElementSibling?.contains(nameText)).toBe(true);
       expect(actions.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
@@ -2516,44 +2521,104 @@ describe('SessionSwitcher — central badge', () => {
   });
 
   describe('on a card in the rail', () => {
-    it('shows the badge on the card of a session that is a central', () => {
+    const titleOf = (card: HTMLElement) => card.querySelector('[class*="sessionTabTitle"]') as HTMLElement;
+
+    it('shows the star on the card of a session that is a central, with the scope in its name', () => {
       const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
 
-      expect(within(cardOf(container, 'Boss Agent')).getByText('★ global')).toBeInTheDocument();
+      expect(within(cardOf(container, 'Boss Agent')).getByLabelText('Central session: global')).toHaveTextContent('★');
     });
 
-    it('names the room on a room central\'s card', () => {
+    it('names the room in the star\'s name on a room central\'s card', () => {
       const { container } = renderWithCard(
         makeSession({ sessionId: 's2', title: 'Room Boss', central: { centralId: 'c2', kind: 'room', scopeRef: 'r1' } }),
       );
 
-      expect(within(cardOf(container, 'Room Boss')).getByText('★ room Backend')).toBeInTheDocument();
+      expect(within(cardOf(container, 'Room Boss')).getByLabelText('Central session: room Backend')).toBeInTheDocument();
     });
 
-    it('shows no badge on the card of a session that is not a central', () => {
+    it('shows no star on the card of a session that is not a central', () => {
       const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Plain Agent' }));
 
       expect(within(cardOf(container, 'Plain Agent')).queryByText(/★/)).toBeNull();
     });
 
-    it('is a mark inside the card: nothing focusable is added to the card button', () => {
+    it.each(['detailed', 'compact'] as const)('sits on the left of the title on a %s card, before the queue chip', (mode) => {
+      useUiStore.setState({ cardDisplayMode: mode } as never);
+      useQueueStore.setState({ queues: new Map([['s2', [{ id: 'q1', text: 'next' }]]]) } as never);
       const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
-      const card = cardOf(container, 'Boss Agent');
-      const badge = within(card).getByText('★ global');
+      const title = titleOf(cardOf(container, 'Boss Agent'));
+      const star = within(title).getByLabelText('Central session: global');
+      const queue = within(title).getByLabelText('1 queued prompt');
 
-      expect(badge.closest('button')).toBe(card);
-      expect(card.querySelectorAll('[tabindex], a, input, select')).toHaveLength(0);
+      expect(title.firstElementChild).toBe(star);
+      expect(star.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(title.textContent?.endsWith('Boss Agent')).toBe(true);
+      useQueueStore.setState({ queues: new Map() } as never);
     });
 
-    it('shows the star alone on a compact card, with the scope in its name', () => {
-      useUiStore.setState({ cardDisplayMode: 'compact' } as never);
+    it('shows the star alone: the scope words are left to the card\'s hover', () => {
       const { container } = renderWithCard(
         makeSession({ sessionId: 's2', title: 'Boss Agent', central: { centralId: 'c3', kind: 'project', scopeRef: '/Users/me/app' } }),
       );
       const card = cardOf(container, 'Boss Agent');
 
-      expect(within(card).getByLabelText('Central session: project app')).toHaveTextContent('★');
-      expect(within(card).queryByText(/project/)).toBeNull();
+      expect(within(card).getByLabelText('Central session: project app')).toHaveTextContent(/^★$/);
+      expect(within(card).queryByText(/project app/)).toBeNull();
+    });
+
+    it('is a mark inside the card: nothing focusable is added to the card button', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+      const card = cardOf(container, 'Boss Agent');
+      const star = within(card).getByLabelText('Central session: global');
+
+      expect(star.closest('button')).toBe(card);
+      expect(card.querySelectorAll('[tabindex], a, input, select')).toHaveLength(0);
+    });
+  });
+
+  describe('the CENTRAL frame', () => {
+    const frameOf = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('[class*="centralRoomGroup"]')) as HTMLElement[];
+
+    it('lists every central session above PINNED and RECENT, each still in its own place', () => {
+      const boss = makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL }, pinned: true });
+      const { container } = renderWithCard(boss);
+      const frames = frameOf(container);
+
+      expect(frames).toHaveLength(1);
+      expect(within(frames[0]).getByText('Central')).toBeInTheDocument();
+      expect(cardOf(frames[0], 'Boss Agent')).toBeTruthy();
+      const pinned = container.querySelector('[class*="pinnedRoomGroup"]') as HTMLElement;
+      expect(frames[0].compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The frame's card is a second listing: the session is listed again outside it.
+      const cards = Array.from(container.querySelectorAll('button[data-status]')).filter((b) => b.textContent?.includes('Boss Agent'));
+      expect(cards.length).toBeGreaterThan(1);
+    });
+
+    it('is not drawn when no session is a central', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Plain Agent' }));
+
+      expect(frameOf(container)).toHaveLength(0);
+    });
+
+    it('folds and unfolds, and remembers it', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+      const frame = frameOf(container)[0];
+
+      fireEvent.click(within(frame).getByRole('button', { name: 'Collapse Central' }));
+
+      expect(useUiStore.getState().centralRoomCollapsed).toBe(true);
+      expect(localStorage.getItem('central-room-collapsed')).toBe('1');
+      expect(cardOf(frameOf(container)[0], 'Boss Agent')).toBeUndefined();
+      act(() => useUiStore.setState({ centralRoomCollapsed: false } as never));
+    });
+
+    it('is not drawn in the Projects view', () => {
+      useUiStore.setState({ sessionSortMode: 'project' } as never);
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+
+      expect(frameOf(container)).toHaveLength(0);
     });
   });
 });
