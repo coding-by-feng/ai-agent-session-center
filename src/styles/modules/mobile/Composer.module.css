@@ -217,6 +217,32 @@
   border-radius: var(--ph-radius-sm);
 }
 
+/* A photo's thumbnail is the button that opens it full screen; the ✕ sits above it. */
+.thumbOpen {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.thumbOpen img { display: block; }
+.thumbOpen:active img { opacity: 0.7; }
+.thumbOpen:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+
+/* The full-screen photo: the sheet's body is a block, so the viewer needs a flex parent to fill it. */
+.photoView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 /* A video's chip (Oct 27 2026, ComposerVideoChip): its first frame, ▶ and length, and "Uploading"
    over a dimmed frame until the Mac has it. */
 .videoThumb video,
@@ -264,8 +290,10 @@
 .thumbRemove {
   appearance: none;
   position: absolute;
-  top: -10px;
-  right: -10px;
+  /* The 44px target sits out past the corner so the photo's middle stays its View button;
+     the glyph is pulled back in (below) to where it always was. */
+  top: -16px;
+  right: -16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -277,6 +305,7 @@
   background: transparent;
   color: var(--ph-on-accent);
   cursor: pointer;
+  z-index: 1;
 }
 
 .thumbRemove svg {
@@ -286,6 +315,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--ph-text) 75%, transparent);
   color: var(--ph-bg);
+  transform: translate(-6px, 6px);
 }
 
 .thumbRemove:focus-visible { outline: none; }

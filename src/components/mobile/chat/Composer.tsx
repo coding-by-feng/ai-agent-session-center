@@ -13,6 +13,8 @@
  *   box (ComposerSuggestions, Oct 21 2026; the / button opens them all as a
  *   sheet); "@" typed at a word start opens a file of the session's project.
  *   /model and /effort open their choices as a sheet.
+ * - Tapping an attached photo's thumbnail opens it full screen (PhoneImageViewer:
+ *   pinch, drag, double-tap); its ✕ only removes it.
  * - The main button follows lib/chat/composerAction: Send (idle, waiting),
  *   Queue while it works (hold: Send now, confirmed), "Deny and tell Claude"
  *   while a card waits (hold: queue instead). Stop is the status strip's, above it.
@@ -57,6 +59,7 @@ import QuickReplySheet from './QuickReplySheet';
 import { useQuickReply } from '@/lib/chat/quickReply';
 import { owesProceed } from '@/lib/sessionStatusStyle';
 import ComposerSuggestions from './ComposerSuggestions';
+import PhoneImageViewer from '../PhoneImageViewer';
 import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
 import { useDriverName } from './useDriverName';
 import { useComposerVideos } from './useComposerVideos';
@@ -89,6 +92,7 @@ const NO_ITEMS: readonly QueueItem[] = [];
 const MAX_LINES = 6;
 const HOLD_MS = 500;
 const PLUS_DETENTS = ['fit'] as const;
+const PHOTO_DETENTS = ['large'] as const;
 
 function statusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
   switch (state.phase) {
@@ -109,6 +113,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const setDraft = useComposerDraftStore((s) => s.setDraft);
   const appendToDraft = useComposerDraftStore((s) => s.appendToDraft);
   const [images, setImages] = useState<QueueImageAttachment[]>([]);
+  /** The attached photo open full screen (tap a thumbnail), or null. */
+  const [viewing, setViewing] = useState<QueueImageAttachment | null>(null);
   // Videos upload to the Mac as they are picked; the message carries their paths (lib/chat/videoAttach).
   const media = useComposerVideos();
   const attached = images.length + media.videos.length;
@@ -497,7 +503,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         <ul className={styles.thumbs} aria-label="Photos and videos to send">
           {images.map((img, i) => (
             <li key={`${img.name}-${i}`} className={styles.thumb}>
-              <img src={img.dataUrl} alt={img.name} />
+              <button type="button" className={styles.thumbOpen} onClick={() => setViewing(img)} aria-label={`View ${img.name}`}>
+                <img src={img.dataUrl} alt="" />
+              </button>
               <button type="button" className={styles.thumbRemove} onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove ${img.name}`}>
                 <CloseIcon />
               </button>
@@ -615,6 +623,13 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {/* Its own input: Android's capture turns any video/* in a list into a video-only camera. */}
       <input ref={videoInput} type="file" accept="video/*" capture="environment" hidden onChange={onPhotos} data-testid="composer-video-input" />
 
+      <Sheet open={viewing !== null} onClose={() => setViewing(null)} title={viewing?.name ?? 'Photo'} detents={PHOTO_DETENTS} testId="photo-view-sheet">
+        {viewing && (
+          <div className={styles.photoView}>
+            <PhoneImageViewer src={viewing.dataUrl} alt={viewing.name} />
+          </div>
+        )}
+      </Sheet>
       <Sheet open={sheet?.type === 'plus'} onClose={closeSheet} title="Add to your message" detents={PLUS_DETENTS} testId="plus-sheet">
         <ListSection label="Add to your message">
           <ListRow leading={<PhotoIcon />} title="Photos & videos" subtitle={`Up to ${MAX_PROMPT_IMAGES} a message`} onClick={() => { closeSheet(); photoInput.current?.click(); }} disabledReason={attached >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} already attached` : undefined} />
