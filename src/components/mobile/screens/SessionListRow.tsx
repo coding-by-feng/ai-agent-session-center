@@ -28,6 +28,7 @@ import { ChevronRightIcon, QueueTabIcon } from '../kit/kitIcons';
 import { ClaudeIcon, CodexIcon } from '@/components/layout/CliBrandIcons';
 import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { displayStatus } from '@/lib/sessionStatusStyle';
@@ -92,6 +93,8 @@ export default function SessionListRow({
   const centralRoomName = useRoomStore((s) =>
     session.central?.kind === 'room' ? s.rooms.find((r) => r.id === session.central?.scopeRef)?.name : undefined,
   );
+  // No ★ while central sessions are off: the marker stays, for when they are on again (centralFeatureStore).
+  const central = useCentralSessionsShown() ? session.central : undefined;
   const queued = useQueueStore((s) => s.queues.get(session.sessionId)?.length ?? 0);
   const clock = useClock();
   const title = sessionDisplayTitle(session);
@@ -103,7 +106,7 @@ export default function SessionListRow({
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
   const cliWord = cli === 'claude' ? 'Claude Code' : cli === 'codex' ? 'Codex' : null;
   const queuedWords = queued > 0 ? `${queued} queued prompt${queued === 1 ? '' : 's'}` : null;
-  const centralWords = session.central ? centralLabel(session.central, centralRoomName) : null;
+  const centralWords = central ? centralLabel(central, centralRoomName) : null;
   const spoken = [title, centralWords, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
     .filter(Boolean)
     .join(', ');
@@ -122,7 +125,7 @@ export default function SessionListRow({
       </span>
       <span className={styles.text}>
         <span className={styles.top}>
-          {session.central && (
+          {central && (
             <span className={styles.central} aria-hidden="true" data-testid={`session-central-${session.sessionId}`}>★</span>
           )}
           <span className={styles.title}>{title}</span>

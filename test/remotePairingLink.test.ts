@@ -48,6 +48,44 @@ describe('readRemotePairingLink', () => {
     expect(read).toMatchObject({ ok: false, why: 'no-usable-address', address: '169.254.169.254' });
   });
 
+  // A public address (Oct 28 2026, by request): only in its own `pub=`, never in `lan=` or `ts=`, and
+  // only a routable unicast IPv4. The phone shell does not read `pub` (it is not in the drift table).
+  describe('a public address (pub=)', () => {
+    it('reads a link that names only a public address', () => {
+      const read = readRemotePairingLink(link(`v=2&name=claude-desktop&pub=45.63.31.79&p=3333&mc=${MC}`));
+      expect(read).toEqual({
+        ok: true,
+        link: { version: 2, name: 'claude-desktop', lan: null, tailnet: null, publicAddress: '45.63.31.79', port: 3333, macCode: MC },
+      });
+    });
+
+    it('keeps the private and Tailscale addresses beside it', () => {
+      const read = readRemotePairingLink(link(`v=2&name=Box&lan=10.0.0.5&ts=100.74.194.86&pub=45.63.31.79&p=3333&mc=${MC}`));
+      expect(read.ok && read.link).toMatchObject({ lan: '10.0.0.5', tailnet: '100.74.194.86', publicAddress: '45.63.31.79' });
+    });
+
+    it('leaves the field out of a link without one', () => {
+      const read = readRemotePairingLink(link(`v=2&name=Box&lan=10.0.0.5&p=3333&mc=${MC}`));
+      expect(read.ok && 'publicAddress' in read.link).toBe(false);
+    });
+
+    it.each([
+      ['private', '192.168.1.5'], ['private 10', '10.0.0.1'], ['private 172', '172.20.0.1'],
+      ['Tailscale', '100.74.194.86'], ['carrier NAT edge', '100.64.0.0'], ['loopback', '127.0.0.1'],
+      ['this network', '0.0.0.0'], ['link-local', '169.254.1.1'], ['cloud metadata', '169.254.169.254'],
+      ['multicast', '224.0.0.1'], ['reserved', '240.0.0.1'], ['broadcast', '255.255.255.255'],
+      ['hostname', 'example.com'], ['octal-looking', '045.63.31.79'], ['empty', ''],
+    ])('refuses the whole link for a %s pub', (_label, address) => {
+      const read = readRemotePairingLink(link(`v=2&name=Box&lan=10.0.0.5&pub=${address}&p=3333&mc=${MC}`));
+      expect(read).toMatchObject({ ok: false, why: 'no-usable-address', address });
+    });
+
+    it('still refuses a public address in ts= or lan=', () => {
+      expect(readRemotePairingLink(link(`v=2&name=Box&ts=45.63.31.79&p=3333&mc=${MC}`)).ok).toBe(false);
+      expect(readRemotePairingLink(link(`v=2&name=Box&lan=45.63.31.79&p=3333&mc=${MC}`)).ok).toBe(false);
+    });
+  });
+
   it('strips invisible format characters from the name (no right-to-left spoofing)', () => {
     const read = readRemotePairingLink(link(`v=2&name=Box%E2%80%AEcam%E2%80%8B&lan=10.0.0.5&p=3333&mc=${MC}`));
     expect(read.ok && read.link.name).toBe('Boxcam');

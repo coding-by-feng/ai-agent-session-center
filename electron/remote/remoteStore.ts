@@ -12,6 +12,7 @@
 import { chmodSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type { RemoteComputer } from '../../src/types/electron.js'
+import { isPublicAddress } from './pairingLinkRules.js'
 
 export interface RemoteCrypto {
   isAvailable(): boolean
@@ -55,11 +56,13 @@ function readRecord(raw: unknown): StoredRemote | null {
   if (typeof r.id !== 'string' || !REMOTE_ID.test(r.id)) return null
   if (typeof r.name !== 'string' || typeof r.deviceId !== 'string' || typeof r.token !== 'string') return null
   if (!isNullableString(r.lan) || !isNullableString(r.tailnet) || !isNullableString(r.confirmCode)) return null
+  if (r.publicAddress !== undefined && !(typeof r.publicAddress === 'string' && isPublicAddress(r.publicAddress))) return null
   if (typeof r.port !== 'number' || typeof r.status !== 'string' || !STATUSES.has(r.status)) return null
   if (typeof r.addedAt !== 'number' || !(r.lastSeenAt === null || typeof r.lastSeenAt === 'number')) return null
   return {
-    id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet, port: r.port,
-    status: r.status as RemoteComputer['status'], confirmCode: r.confirmCode,
+    id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet,
+    ...(typeof r.publicAddress === 'string' ? { publicAddress: r.publicAddress } : {}),
+    port: r.port, status: r.status as RemoteComputer['status'], confirmCode: r.confirmCode,
     addedAt: r.addedAt, lastSeenAt: r.lastSeenAt as number | null,
     deviceId: r.deviceId, token: r.token,
   }
@@ -67,8 +70,9 @@ function readRecord(raw: unknown): StoredRemote | null {
 
 function toView(r: StoredRemote): RemoteComputer {
   return {
-    id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet, port: r.port, status: r.status,
-    confirmCode: r.confirmCode, addedAt: r.addedAt, lastSeenAt: r.lastSeenAt,
+    id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet,
+    ...(r.publicAddress ? { publicAddress: r.publicAddress } : {}),
+    port: r.port, status: r.status, confirmCode: r.confirmCode, addedAt: r.addedAt, lastSeenAt: r.lastSeenAt,
   }
 }
 
@@ -135,7 +139,9 @@ export function createRemoteStore(deps: RemoteStoreDeps) {
         return { ok: false, error: NO_KEYCHAIN }
       }
       const record: StoredRemote = {
-        id: newId(), name: input.name, lan: input.lan, tailnet: input.tailnet, port: input.port,
+        id: newId(), name: input.name, lan: input.lan, tailnet: input.tailnet,
+        ...(input.publicAddress ? { publicAddress: input.publicAddress } : {}),
+        port: input.port,
         status: input.status, confirmCode: input.confirmCode, addedAt: input.addedAt, lastSeenAt: input.lastSeenAt,
         deviceId: input.deviceId, token,
       }

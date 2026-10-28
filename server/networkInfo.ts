@@ -100,6 +100,19 @@ export function isTailnetAddress(address: string): boolean {
 }
 
 /**
+ * A routable unicast IPv4 (Oct 28 2026): none of private, Tailscale/carrier NAT, loopback, "this network",
+ * link-local, multicast, reserved or broadcast. What a pairing link may name in `pub=`; the desktop's
+ * electron/remote/pairingLinkRules.ts has the same rule.
+ */
+export function isPublicAddress(address: string): boolean {
+  const octets = octetsOf(address);
+  if (!octets) return false;
+  const [a] = octets;
+  if (a === 0 || a === 127 || a >= 224) return false;
+  return !isPrivateLanAddress(address) && !isTailnetAddress(address);
+}
+
+/**
  * The first 100.64.0.0/10 IPv4 address a network interface holds, or null. An interface scan cannot tell Tailscale's
  * address from another VPN's, so since AASC-60 it is only the Tailscale probe's fallback when there is no usable CLI
  * answer (server/tailscaleStatus.ts). The pairing QR, `/paths` and the published address all come from that probe.

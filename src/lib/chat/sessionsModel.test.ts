@@ -318,6 +318,13 @@ describe('groupSessions', () => {
           expect(central({ groupBy }).some((g) => g.kind === 'central'), groupBy).toBe(false);
         }
       });
+
+      it('is left out while central sessions are off; each session stays in its room', () => {
+        const groups = central({ showCentral: false });
+        expect(groups.some((g) => g.kind === 'central')).toBe(false);
+        expect(groups[0].kind).toBe('pinned');
+        expect(groups.find((g) => g.kind === 'room')!.sessions.map((s) => s.sessionId)).toContain('a');
+      });
     });
   });
 

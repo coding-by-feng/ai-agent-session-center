@@ -58,7 +58,8 @@ function rowState(c: RemoteComputer, check: RemoteComputerCheck | undefined): Ro
 function rowDetail(c: RemoteComputer, check: RemoteComputerCheck | undefined): string {
   const state = rowState(c, check);
   if (state === 'online') {
-    const via = check?.via === 'tailnet' ? 'Tailscale' : check?.via === 'lan' ? 'Home network' : null;
+    const via = check?.via === 'tailnet' ? 'Tailscale' : check?.via === 'lan' ? 'Home network'
+      : check?.via === 'public' ? 'Public IP, unencrypted' : null;
     const shared = check?.sharedSessions != null ? `${check.sharedSessions} shared` : null;
     return ['Online', via, shared].filter(Boolean).join(' · ');
   }

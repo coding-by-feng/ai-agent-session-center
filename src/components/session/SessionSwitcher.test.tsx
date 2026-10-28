@@ -13,7 +13,11 @@ import { projectColorIndex } from '@/lib/projectGroups';
 import { getClientId } from '@/lib/deviceIdentity';
 import type { DevicePresence } from '@/types/websocket';
 import { readFileSync } from 'node:fs';
+import { useCentralFeatureStore, __resetCentralFeatureForTest } from '@/stores/centralFeatureStore';
 import { resolve } from 'node:path';
+
+// The feature switch's answer is known up front, so no test sees its one GET /api/config among the calls it counts.
+beforeEach(() => useCentralFeatureStore.setState({ on: true }));
 
 // The strip hosts the panel's recent-directories menu, whose known-projects
 // fetch would otherwise resolve outside act() after every test here. One stable
@@ -2547,6 +2551,31 @@ describe('SessionSwitcher — central badge', () => {
 
       expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
       expect(within(header(container)).getByText('★ global')).toBeInTheDocument();
+    });
+  });
+
+  // Central sessions off in this run (Oct 28 2026): no CENTRAL frame and no ★, but the card stays in its room.
+  describe('while central sessions are off', () => {
+    const frame = (c: HTMLElement) => c.querySelector('[title^="Central: every central session"]');
+    afterEach(() => __resetCentralFeatureForTest());
+
+    it('draws the CENTRAL frame while the feature is on or unknown', () => {
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+      expect(frame(container)).toBeTruthy();
+    });
+
+    it('drops the CENTRAL frame and the stars, and keeps the card', () => {
+      useCentralFeatureStore.setState({ on: false });
+      const { container } = renderWithCard(makeSession({ sessionId: 's2', title: 'Boss Agent', central: { ...CENTRAL } }));
+      expect(frame(container)).toBeNull();
+      expect(cardOf(container, 'Boss Agent')).toBeTruthy();
+      expect(within(container).queryByText(/★/)).toBeNull();
+    });
+
+    it('drops the ★ from the header', () => {
+      useCentralFeatureStore.setState({ on: false });
+      const { container } = renderHeader(makeSession({ central: { ...CENTRAL } }));
+      expect(within(header(container)).queryByText(/★/)).toBeNull();
     });
   });
 

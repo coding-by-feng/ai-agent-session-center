@@ -395,6 +395,18 @@ describe('buildPairingLink', () => {
     expect(params.get('mc')).toBe('MACCODE234');
     expect(params.has('lan')).toBe(false);
   });
+
+  it('names a configured public address as pub=, after ts= (Oct 28 2026)', () => {
+    const link = buildPairingLink({ name: 'claude-desktop', port: 3333, lan: null, tailnet: '100.74.194.86', publicAddress: '45.63.31.79' }, 'MACCODE234');
+    const params = new URLSearchParams(link.split('#')[1]);
+    expect([...params.keys()]).toEqual(['v', 'name', 'ts', 'pub', 'p', 'mc']);
+    expect(params.get('pub')).toBe('45.63.31.79');
+  });
+
+  it('names none when no public address is set', () => {
+    const link = buildPairingLink({ name: 'Mac', port: 3333, lan: '192.168.1.2', tailnet: null, publicAddress: null }, 'MACCODE234');
+    expect(new URLSearchParams(link.split('#')[1]).has('pub')).toBe(false);
+  });
 });
 
 describe('GET /devices — online (Oct 22 2026)', () => {

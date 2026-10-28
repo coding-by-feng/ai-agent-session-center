@@ -41,6 +41,7 @@ import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
 import { refreshSessionList } from '@/lib/sessionRefresh';
@@ -298,9 +299,10 @@ export default function SessionsScreen() {
     try { localStorage.setItem(GROUP_KEY, next); } catch { /* the choice lasts until reload */ }
   }, []);
 
+  const showCentral = useCentralSessionsShown();
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now }),
-    [sessions, groupBy, filter, query, rooms, reads, now],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral }),
+    [sessions, groupBy, filter, query, rooms, reads, now, showCentral],
   );
   // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
   const contentHits = useMemo(() => {

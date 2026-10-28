@@ -1,12 +1,16 @@
 /**
  * Read another computer's pairing link (Remote computers, Oct 28 2026).
  *
- *   https://aasc.work/pair#v=2&name=…&lan=…&ts=…&p=…&mc=…   (or the bare `v=2&…` fragment)
+ *   https://aasc.work/pair#v=2&name=…&lan=…&ts=…&pub=…&p=…&mc=…   (or the bare `v=2&…` fragment)
  *
  * The same rules as the phone shell's `readPairingLink` (mobile/shell/src/pairingLink.ts):
  * everything here was pasted by a person, and the main process dials plain HTTP to
  * whatever address it names, so only a canonical private (RFC 1918 / link-local) or
  * Tailscale (100.64.0.0/10) IPv4 passes, and one bad address refuses the whole link.
+ *
+ * `pub` (Oct 28 2026, by request) is the one exception: a routable public IPv4, for a server
+ * with no shared network. It is plain HTTP over the Internet, so it is only ever read from
+ * its own parameter (never `lan`/`ts`) and dialled last. The phone shell does not read it.
  *
  * Kept import-free: `electron/` cannot import from `mobile/` (tsconfig rootDir), so this
  * is a mirror, and test/remotePairingLink.test.ts runs one table through both.
@@ -17,6 +21,8 @@ export interface RemotePairingLink {
   name: string
   lan: string | null
   tailnet: string | null
+  /** A public IPv4 from `pub=`; absent when the link names none. */
+  publicAddress?: string
   port: number
   macCode: string
 }
@@ -60,6 +66,19 @@ export function isTailnetAddress(raw: string | null): boolean {
   return !!ip && ip[0] === 100 && ip[1] >= 64 && ip[1] <= 127
 }
 
+/**
+ * A routable unicast IPv4: none of private, Tailscale/carrier NAT, loopback, "this network",
+ * link-local (the cloud metadata address too), multicast, reserved or broadcast.
+ * = server/networkInfo.ts `isPublicAddress`.
+ */
+export function isPublicAddress(raw: string | null): boolean {
+  const ip = ipv4(raw)
+  if (!ip) return false
+  const [a] = ip
+  if (a === 0 || a === 127 || a >= 224) return false
+  return !isPrivateLanAddress(raw) && !isTailnetAddress(raw)
+}
+
 function fragmentOf(input: string): string | null {
   const trimmed = input.trim()
   if (trimmed.startsWith('v=')) return trimmed // a bare fragment pasted on its own
@@ -99,6 +118,7 @@ export function readRemotePairingLink(input: string): RemotePairingLinkRead {
   const name = (p.get('name') ?? '').replace(/[\x00-\x1F\x7F\p{Cf}]/gu, '').trim().slice(0, 80)
   const lan = p.get('lan')
   const tailnet = p.get('ts')
+  const pub = p.get('pub')
   const port = Number(p.get('p'))
   const macCode = p.get('mc') ?? ''
 
@@ -108,10 +128,19 @@ export function readRemotePairingLink(input: string): RemotePairingLinkRead {
   // Link-local, but the cloud metadata address: a link never sends this computer's name there.
   const lanOk = lan !== null && isPrivateLanAddress(lan) && lan !== CLOUD_METADATA_ADDRESS
   const tsOk = tailnet !== null && isTailnetAddress(tailnet)
+  const pubOk = pub !== null && isPublicAddress(pub)
   // A bad address is not ignored, it's refused: the whole link.
   if (lan !== null && !lanOk) return noAddress(lan.slice(0, 64))
   if (tailnet !== null && !tsOk) return noAddress(tailnet.slice(0, 64))
-  if (!lanOk && !tsOk) return noAddress(null)
+  if (pub !== null && !pubOk) return noAddress(pub.slice(0, 64))
+  if (!lanOk && !tsOk && !pubOk) return noAddress(null)
 
-  return { ok: true, link: { version: 2, name, lan: lanOk ? lan : null, tailnet: tsOk ? tailnet : null, port, macCode } }
+  return {
+    ok: true,
+    link: {
+      version: 2, name, lan: lanOk ? lan : null, tailnet: tsOk ? tailnet : null,
+      ...(pubOk ? { publicAddress: pub } : {}),
+      port, macCode,
+    },
+  }
 }

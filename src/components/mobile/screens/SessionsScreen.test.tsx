@@ -45,6 +45,10 @@ import { HOLD_MS as ROOM_HOLD_MS } from '@/hooks/useRoomDragReorder';
 import { launchSession } from '@/lib/launchSession';
 import { refreshSessionList } from '@/lib/sessionRefresh';
 import { getSessionReads, resetSessionReadsForTest } from '@/lib/chat/sessionReads';
+import { useCentralFeatureStore } from '@/stores/centralFeatureStore';
+
+// The feature switch's answer is known up front, so no test sees its one GET /api/config among the calls it counts.
+beforeEach(() => useCentralFeatureStore.setState({ on: true }));
 
 const NOW = Date.now();
 

@@ -22,6 +22,13 @@ export interface PairingTargetDeps {
   lan: () => string | null;
   /** The Tailscale probe (`createTailscaleProbe`): its `status()` never rejects. */
   probe: { status(): Promise<TailscaleStatus> };
+  /** A public address for the link's `pub=` (publicAddress.ts), or null. Read on every call. */
+  publicAddress?: () => string | null;
+}
+
+/** Named only when set, so a target without one keeps its old shape. */
+function publicPart(address: string | null): Pick<PairingTarget, 'publicAddress'> {
+  return address ? { publicAddress: address } : {};
 }
 
 export function createPairingTarget(deps: PairingTargetDeps): () => Promise<PairingTarget> {
@@ -30,5 +37,6 @@ export function createPairingTarget(deps: PairingTargetDeps): () => Promise<Pair
     port: deps.port,
     lan: deps.lan(),
     tailnet: (await deps.probe.status()).address,
+    ...publicPart(deps.publicAddress?.() ?? null),
   });
 }

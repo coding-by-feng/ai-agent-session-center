@@ -7,6 +7,7 @@ import type { Session } from '@/types';
 import SessionListRow from './SessionListRow';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useCentralFeatureStore, __resetCentralFeatureForTest } from '@/stores/centralFeatureStore';
 
 const NOW = 1_800_000_000_000;
 
@@ -104,5 +105,13 @@ describe('SessionListRow — a central session (Oct 27 2026)', () => {
     renderRow();
     expect(star()).toBeNull();
     expect(row().getAttribute('aria-label')).not.toContain('Central');
+  });
+
+  it('shows no ★ and says nothing of it while central sessions are off', () => {
+    useCentralFeatureStore.setState({ on: false });
+    render(<ul><SessionListRow session={{ ...session, central: { centralId: 'c1', kind: 'global', scopeRef: null } }} onOpen={vi.fn()} now={NOW} /></ul>);
+    expect(star()).toBeNull();
+    expect(row().getAttribute('aria-label')).not.toContain('Central');
+    __resetCentralFeatureForTest();
   });
 });

@@ -20,6 +20,7 @@
  */
 import Tooltip from '@/components/ui/Tooltip';
 import { useMcpStore } from '@/stores/mcpStore';
+import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { centralBadgeText, centralLabel, centralTooltip, workersText } from '@/lib/centralChoice';
 import type { SessionCentralMarker } from '@/types';
@@ -44,6 +45,9 @@ export default function CentralBadge({ central, compact = false, className, bare
   const text = centralBadgeText(central, roomName);
   const label = centralLabel(central, roomName);
   const name = workers ? `${label}, ${workers}` : label;
+  // No ★ while central sessions are off; the card keeps its marker for when they are on again.
+  const shown = useCentralSessionsShown();
+  if (!shown) return null;
   if (bare) {
     return (
       <span

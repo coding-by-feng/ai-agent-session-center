@@ -172,6 +172,8 @@ export interface GroupInput {
   reads: ReadMap;
   /** The clock Recent is measured against (a session leaves it after 30 quiet minutes). */
   now: number;
+  /** Draw the Central group (By room). False while central sessions are off (centralFeatureStore). */
+  showCentral?: boolean;
 }
 
 const byRecent = (a: Session, b: Session) =>
@@ -182,7 +184,7 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
   const listed = numberedSessions(sessions).filter(
     (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
@@ -210,7 +212,7 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
   // stays in its room.
   const byRoom = groupBy === 'room';
   const recentIds = byRoom ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
-  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom });
+  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom && showCentral });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
   const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>

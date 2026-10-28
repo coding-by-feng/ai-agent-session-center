@@ -73,6 +73,20 @@ describe('addressPlan', () => {
     expect(addressPlan(target)).toEqual([{ via: 'lan', origin: LAN }, { via: 'tailnet', origin: TS }]);
   });
 
+  it('tries a public address last, after the home network and Tailscale', () => {
+    expect(addressPlan({ ...target, publicAddress: '45.63.31.79' })).toEqual([
+      { via: 'lan', origin: LAN }, { via: 'tailnet', origin: TS }, { via: 'public', origin: 'http://45.63.31.79:3333' },
+    ]);
+    expect(addressPlan({ lan: null, tailnet: null, publicAddress: '45.63.31.79', port: 3333 }))
+      .toEqual([{ via: 'public', origin: 'http://45.63.31.79:3333' }]);
+  });
+
+  it('never dials a "public" address that is private, Tailscale or local', () => {
+    for (const publicAddress of ['192.168.1.5', '100.74.194.86', '127.0.0.1', '169.254.169.254', 'evil.example']) {
+      expect(addressPlan({ lan: null, tailnet: null, publicAddress, port: 3333 }), publicAddress).toEqual([]);
+    }
+  });
+
   it('skips anything that isn’t a validated private or Tailscale address', () => {
     expect(addressPlan({ lan: '8.8.8.8', tailnet: 'evil.example', port: 3333 })).toEqual([]);
     expect(addressPlan({ lan: '10.0.0.1', tailnet: null, port: 0 })).toEqual([]);
@@ -80,6 +94,21 @@ describe('addressPlan', () => {
 });
 
 describe('pair', () => {
+  it('pairs over a public address when the link names only that, and says where it looked when none answers', async () => {
+    const pub: RemotePairingLink = { ...link, lan: null, tailnet: null, publicAddress: '45.63.31.79' };
+    const ok = fakeFetch(() => ({
+      status: 201,
+      body: { success: true, data: { deviceId: DEVICE_ID, deviceToken: DEVICE_TOKEN, confirmCode: '042137', status: 'pending' } },
+    }));
+    expect(await pair(deps(ok.fetch), pub, 'kason-mbp')).toMatchObject({ ok: true, via: 'public' });
+    expect(ok.calls.map((c) => c.url)).toEqual(['http://45.63.31.79:3333/api/mobile/pair']);
+
+    const down = fakeFetch(() => 'network-error');
+    const out = await pair(deps(down.fetch), pub, 'kason-mbp');
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain('45.63.31.79');
+  });
+
   it('redeems the code as a desktop and returns the device', async () => {
     const { fetch, calls } = fakeFetch(() => ({
       status: 201,

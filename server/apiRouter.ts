@@ -56,6 +56,7 @@ import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, 
 import { stripCentralLaunch } from './mcp/launch.js';
 import { recordQueuePut } from './mcp/queuePutRefusals.js';
 import { MCP_CLIENT_PREFIX } from './mcp/policy.js';
+import { isMcpEnabled } from './mcp/runtime.js';
 import { relaunchLineOf, TERMINAL_OPEN_CODE } from './mcp/relaunchRule.js';
 import { noteTerminalCloser } from './mcp/closedBy.js';
 import {
@@ -3869,6 +3870,10 @@ router.get('/config', (_req: Request, res: Response) => {
     // refused outright without one) instead of showing a stale warning after
     // the user has set one.
     passwordEnabled: isPasswordEnabled(),
+    // Is the central-session feature (server/mcp) on in this run? Every device reads it here, the phone too:
+    // while it is off nothing central is shown (src/stores/centralFeatureStore.ts). A saved Settings choice
+    // waits for the next start, so this is this run's answer, not that choice.
+    centralSessions: isMcpEnabled(),
   });
 });
 

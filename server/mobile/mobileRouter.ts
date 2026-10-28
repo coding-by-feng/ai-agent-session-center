@@ -42,6 +42,8 @@ export interface PairingTarget {
   port: number;
   lan: string | null;
   tailnet: string | null;
+  /** A public IPv4 another AASC desktop may dial (`pub=`, publicAddress.ts); null or absent for none. */
+  publicAddress?: string | null;
 }
 
 export interface MobileRouterDeps {
@@ -161,6 +163,7 @@ export function buildPairingLink(target: PairingTarget, macCode: string): string
   const params = new URLSearchParams({ v: '2', name: target.name });
   if (target.lan) params.set('lan', target.lan);
   if (target.tailnet) params.set('ts', target.tailnet);
+  if (target.publicAddress) params.set('pub', target.publicAddress);
   params.set('p', String(target.port));
   params.set('mc', macCode);
   return `${PAIRING_LINK_BASE}#${params.toString()}`;

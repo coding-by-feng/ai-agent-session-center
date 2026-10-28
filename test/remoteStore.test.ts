@@ -59,6 +59,30 @@ describe('remoteStore', () => {
     expect(store.get(newIdAt(1))).not.toHaveProperty('token');
   });
 
+  it('keeps a public address from the link, and reads it back from disk (Oct 28 2026)', () => {
+    const store = createRemoteStore({ file, crypto: fakeCrypto(), newId });
+    store.add({ ...base, lan: null, publicAddress: '45.63.31.79' }, TOKEN);
+    expect(store.get(newIdAt(1))?.publicAddress).toBe('45.63.31.79');
+    const again = createRemoteStore({ file, crypto: fakeCrypto(), newId });
+    expect(again.get(newIdAt(1))?.publicAddress).toBe('45.63.31.79');
+  });
+
+  it('reads a record saved before public addresses as having none', () => {
+    const store = createRemoteStore({ file, crypto: fakeCrypto(), newId });
+    store.add(base, TOKEN);
+    expect(store.get(newIdAt(1))).not.toHaveProperty('publicAddress');
+  });
+
+  it('drops a record whose public address is not a public address', () => {
+    const store = createRemoteStore({ file, crypto: fakeCrypto(), newId });
+    store.add(base, TOKEN);
+    const raw = JSON.parse(readFileSync(file, 'utf8'));
+    const records = Array.isArray(raw) ? raw : raw.computers;
+    records[0].publicAddress = '192.168.1.9';
+    writeFileSync(file, JSON.stringify(raw));
+    expect(createRemoteStore({ file, crypto: fakeCrypto(), newId }).list()).toEqual([]);
+  });
+
   it('never writes the token in the clear, and gives it back through credentials()', () => {
     const store = createRemoteStore({ file, crypto: fakeCrypto(), newId });
     store.add(base, TOKEN);

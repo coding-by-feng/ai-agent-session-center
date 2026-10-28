@@ -31,6 +31,11 @@ export interface ServerConfig {
    */
   phonePairing?: boolean;
   /**
+   * A public IPv4 a pairing link names as `pub=` (Oct 28 2026), for a server another AASC desktop can only
+   * reach over the Internet. Plain HTTP: open the port to that computer only. `AASC_PUBLIC_ADDRESS` overrides it.
+   */
+  publicAddress?: string;
+  /**
    * The switch for central sessions (server/mcp). Off unless `{ "enabled": true }` (Oct 28 2026); off leaves
    * `/mcp` unmounted and launches carry no MCP flags or token. The Settings → ADVANCED choice
    * (`central-sessions.json`, server/mcp/runtime.ts) wins over this when one was saved.

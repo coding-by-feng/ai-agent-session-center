@@ -54,6 +54,7 @@ import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
 import { createMacPathsPublisher } from './mobile/macPathsPublisher.js';
 import { createPairingTarget } from './mobile/pairingTarget.js';
+import { pairingPublicAddress } from './mobile/publicAddress.js';
 import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { createPhoneRevokedHandler, revokePhonesFromOldPassword } from './mobile/phoneRevocation.js';
 import { createPhoneBackendCodes } from './mobile/phoneBackendCode.js';
@@ -410,6 +411,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       port: PORT,
       lan: getPairingLanIP, // a private address on a real interface only (Oct 27 2026)
       probe: tailscaleProbe,
+      // Off unless server-config.json "publicAddress" or AASC_PUBLIC_ADDRESS names one (Oct 28 2026).
+      publicAddress: () => pairingPublicAddress(config, process.env),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
     sessionOf: bearerSession,

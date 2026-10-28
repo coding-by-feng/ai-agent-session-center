@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS } from '@/lib/recentSessions';
 import { buildStripItems, filterByRooms, type StripItem } from '@/lib/sessionStrip';
@@ -39,6 +40,8 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
+  // No CENTRAL frame while central sessions are off (centralFeatureStore).
+  const showCentral = useCentralSessionsShown();
   const rooms = useRoomStore((s) => s.rooms);
   const sortByActivity = sessionSortMode === 'activity';
 
@@ -138,9 +141,9 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       mode: sessionSortMode,
       recentIds: recentIdsKey ? recentIdsKey.split('\n') : [],
       showPinned: !pinnedRoomHidden,
-      showCentral: true,
+      showCentral,
     }),
-    [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden],
+    [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden, showCentral],
   );
 
   return { sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms, filteredSessions, items };

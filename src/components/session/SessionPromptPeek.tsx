@@ -17,6 +17,7 @@ import { quietFor } from '@/lib/liveBoard';
 import { statusLabel } from '@/lib/sessionStatusStyle';
 import { centralTooltip, workersText } from '@/lib/centralChoice';
 import { useMcpStore } from '@/stores/mcpStore';
+import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { useRoomStore } from '@/stores/roomStore';
 import styles from '@/styles/modules/SessionPromptPeek.module.css';
 
@@ -27,7 +28,8 @@ export default function SessionPromptPeek({ session }: { session: Session }) {
   const quiet = quietFor(session, now);
   const meta = [session.projectName, statusLabel(session.status), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
   const remark = typeof session.remark === 'string' ? session.remark.trim() : '';
-  const central = session.central;
+  // No ★ line while central sessions are off (centralFeatureStore); the marker stays.
+  const central = useCentralSessionsShown() ? session.central : undefined;
   const roomName = useRoomStore((s) =>
     central?.kind === 'room' ? s.rooms.find((r) => r.id === central.scopeRef)?.name : undefined,
   );

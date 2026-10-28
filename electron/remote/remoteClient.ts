@@ -9,12 +9,12 @@
  *
  * Pure: fetch, the clock and the random source are injected, so tests never touch
  * the network. Plain HTTP goes only to addresses pairingLinkRules.ts validated
- * (private LAN or Tailscale), redirects are never followed (a 3xx is just a failed
+ * (private LAN or Tailscale, or a public IPv4 the link named in `pub=`, tried last), redirects are never followed (a 3xx is just a failed
  * answer), each try gives up after a few seconds, and no token is ever put in an
  * error message.
  */
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import { isPrivateLanAddress, isTailnetAddress, type RemotePairingLink } from './pairingLinkRules.js'
+import { isPrivateLanAddress, isPublicAddress, isTailnetAddress, type RemotePairingLink } from './pairingLinkRules.js'
 
 /** The slice of a fetch Response this client reads. */
 export interface FetchResponse {
@@ -44,6 +44,8 @@ export interface RemoteClientDeps {
 export interface RemoteTarget {
   lan: string | null
   tailnet: string | null
+  /** A public IPv4 from the link's `pub=` (Oct 28 2026): plain HTTP over the Internet, so tried last. */
+  publicAddress?: string | null
   port: number
 }
 
@@ -52,7 +54,7 @@ export interface RemoteCredentials {
   deviceToken: string
 }
 
-export type Via = 'lan' | 'tailnet'
+export type Via = 'lan' | 'tailnet' | 'public'
 
 export const TRY_TIMEOUT_MS = 3_000
 /** GET /api/sessions can be a few hundred KB over Tailscale: a longer budget than a handshake. */
@@ -81,12 +83,15 @@ function sameHex(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
-/** The addresses to try, in order: the home network first (fast, direct), then Tailscale. */
+/** The addresses to try, in order: the home network first (fast, direct), then Tailscale, then a public address. */
 export function addressPlan(target: RemoteTarget): { via: Via; origin: string }[] {
   const plan: { via: Via; origin: string }[] = []
   if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) return plan
   if (target.lan && isPrivateLanAddress(target.lan)) plan.push({ via: 'lan', origin: `http://${target.lan}:${target.port}` })
   if (target.tailnet && isTailnetAddress(target.tailnet)) plan.push({ via: 'tailnet', origin: `http://${target.tailnet}:${target.port}` })
+  if (target.publicAddress && isPublicAddress(target.publicAddress)) {
+    plan.push({ via: 'public', origin: `http://${target.publicAddress}:${target.port}` })
+  }
   return plan
 }
 
@@ -194,8 +199,11 @@ function commonRefusal(a: Answer): string | null {
 }
 
 export function unreachableMessage(target: RemoteTarget): string {
-  const addrs = [target.lan, target.tailnet].filter(Boolean).join(' or ')
-  return `No answer from ${addrs || 'that computer'} on port ${target.port}. Is AASC running there, and is this computer on the same network or Tailscale?`
+  const addrs = [target.lan, target.tailnet, target.publicAddress].filter(Boolean).join(' or ')
+  const reach = target.publicAddress
+    ? 'is its port open to this computer, or is this computer on the same network or Tailscale?'
+    : 'is this computer on the same network or Tailscale?'
+  return `No answer from ${addrs || 'that computer'} on port ${target.port}. Is AASC running there, and ${reach}`
 }
 
 export type PairResult =
@@ -204,7 +212,7 @@ export type PairResult =
 
 /** Redeem the link's one-time code: the remote makes a pending device for this computer. */
 export async function pair(deps: RemoteClientDeps, link: RemotePairingLink, label: string): Promise<PairResult> {
-  const target = { lan: link.lan, tailnet: link.tailnet, port: link.port }
+  const target = { lan: link.lan, tailnet: link.tailnet, publicAddress: link.publicAddress ?? null, port: link.port }
   const hit = await firstAnswer(target, async (origin) => aascAnswer(await call(deps, 'POST', `${origin}/api/mobile/pair`, {
     body: { code: link.macCode, label: label.slice(0, 200) || 'Computer', platform: 'desktop' },
   })))
