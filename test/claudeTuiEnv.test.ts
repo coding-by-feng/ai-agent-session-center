@@ -6,9 +6,14 @@ describe('CLAUDE_TUI_ENV_DEFAULTS', () => {
     expect(CLAUDE_TUI_ENV_DEFAULTS.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN).toBe('1');
   });
 
-  it("lets oh-my-zsh update without its [Y/n] prompt, which eats the launch line's first char", () => {
-    // omz compares against the literal string "true".
-    expect(CLAUDE_TUI_ENV_DEFAULTS.DISABLE_UPDATE_PROMPT).toBe('true');
+  it("turns oh-my-zsh's update check off, so its [Y/n] can't eat the launch line's first char", () => {
+    // omz compares against the literal string "true"; this resolves update_mode=disabled.
+    expect(CLAUDE_TUI_ENV_DEFAULTS.DISABLE_AUTO_UPDATE).toBe('true');
+  });
+
+  it('never opts the shell into an automatic oh-my-zsh upgrade', () => {
+    // DISABLE_UPDATE_PROMPT=true means update_mode=auto: a git pull on every due shell start.
+    expect(CLAUDE_TUI_ENV_DEFAULTS).not.toHaveProperty('DISABLE_UPDATE_PROMPT');
   });
 });
 
@@ -18,7 +23,7 @@ describe('withClaudeTuiEnvDefaults', () => {
     expect(withClaudeTuiEnvDefaults(env)).toEqual({
       AGENT_MANAGER_TERMINAL_ID: 'term-1',
       CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
-      DISABLE_UPDATE_PROMPT: 'true',
+      DISABLE_AUTO_UPDATE: 'true',
     });
   });
 
@@ -32,9 +37,9 @@ describe('withClaudeTuiEnvDefaults', () => {
     expect(withClaudeTuiEnvDefaults(env).CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN).toBe('');
   });
 
-  it("respects the user's own oh-my-zsh update-prompt setting", () => {
-    const env = { DISABLE_UPDATE_PROMPT: 'false' };
-    expect(withClaudeTuiEnvDefaults(env).DISABLE_UPDATE_PROMPT).toBe('false');
+  it("respects the user's own oh-my-zsh auto-update setting", () => {
+    const env = { DISABLE_AUTO_UPDATE: 'false' };
+    expect(withClaudeTuiEnvDefaults(env).DISABLE_AUTO_UPDATE).toBe('false');
   });
 
   it('does not mutate the input env', () => {

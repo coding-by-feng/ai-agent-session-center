@@ -256,12 +256,12 @@ function applyClaudeLaunchFlags(command: string, model?: string | null, effortLe
  * 1000/1002/1003/1006), which kills xterm.js drag-selection — and with it the
  * select-to-translate/explain AI popup. The official opt-out forces the classic
  * main-screen renderer. A pre-existing value (user opt-back-in) wins.
- * DISABLE_UPDATE_PROMPT stops oh-my-zsh's one-key [Y/n] from eating the typed
- * launch line's first character; it updates on its own instead.
+ * DISABLE_AUTO_UPDATE turns oh-my-zsh's update check off, so its one-key [Y/n]
+ * can't eat the typed launch line's first character (and no upgrade runs).
  */
 const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
-  DISABLE_UPDATE_PROMPT: 'true',
+  DISABLE_AUTO_UPDATE: 'true',
 }
 
 function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<string, string> {

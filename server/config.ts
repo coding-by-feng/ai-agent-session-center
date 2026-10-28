@@ -284,15 +284,17 @@ export function sanitizeModelInCommand(command: string): string {
  * precedence over the user's `tui` setting. External terminals are unaffected —
  * this only applies to PTYs the dashboard spawns.
  *
- * `DISABLE_UPDATE_PROMPT=true` is for the shell, not Claude: oh-my-zsh's
+ * `DISABLE_AUTO_UPDATE=true` is for the shell, not Claude: oh-my-zsh's
  * "Would you like to update? [Y/n]" reads ONE key, and that key is the first
  * character of the launch line the dashboard types — `codex …` ran as `odex …`
- * ("command not found"). With it, oh-my-zsh updates on its own without asking
- * (its `auto` mode). A `zstyle ':omz:update' mode` in the user's .zshrc still wins.
+ * ("command not found"). With it, oh-my-zsh skips its update check entirely
+ * (its `disabled` mode). Not `DISABLE_UPDATE_PROMPT`: that one means `auto`,
+ * an unasked upgrade on the shell's start. A `zstyle ':omz:update' mode` in the
+ * user's .zshrc still wins.
  */
 export const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
-  DISABLE_UPDATE_PROMPT: 'true',
+  DISABLE_AUTO_UPDATE: 'true',
 };
 
 /**
