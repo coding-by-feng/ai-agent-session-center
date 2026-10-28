@@ -85,7 +85,7 @@ export type PairOutcome =
   | { ok: false; reason: 'unreachable' | 'refused' | 'storage'; message: string };
 
 /**
- * Redeem the Mac's code (it lasts 2 minutes and a failure leaves nothing behind
+ * Redeem the Mac's code (it lasts 10 minutes and a failure leaves nothing behind
  * anywhere) and keep the token in the vault. Push comes later: the Mac issues
  * the backend code once it has allowed this phone (signInAndOpen, AASC-52).
  */

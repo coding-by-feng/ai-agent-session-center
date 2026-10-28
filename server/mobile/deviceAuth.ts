@@ -74,7 +74,8 @@ export interface MobileDeviceStore {
   remove(id: string): void;
 }
 
-export const PAIRING_CODE_TTL_MS = 2 * 60 * 1000;
+/** A pairing link or QR works for ten minutes (two until 2.10.64), once. */
+export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 export const MAX_OUTSTANDING_CODES = 3;
 /** A phone nobody approves within this window is revoked. */
 export const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -196,7 +197,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const { store } = opts;
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
-  /** Open pairing codes, keyed by their hash. In memory on purpose: they live two minutes. */
+  /** Open pairing codes, keyed by their hash. In memory on purpose: they live ten minutes. */
   const codes = new Map<string, { expiresAt: number }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();

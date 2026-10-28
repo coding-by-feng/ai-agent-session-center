@@ -137,9 +137,10 @@ describe('a password change (AASC-52)', () => {
 });
 
 describe('pairing codes', () => {
-  it('are 10 characters from an unambiguous alphabet and last two minutes', () => {
+  it('are 10 characters from an unambiguous alphabet and last ten minutes', () => {
     const { code, expiresAt } = auth.createPairingCode();
     expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/);
+    expect(PAIRING_CODE_TTL_MS).toBe(10 * 60 * 1000);
     expect(expiresAt - clock).toBe(PAIRING_CODE_TTL_MS);
   });
 
