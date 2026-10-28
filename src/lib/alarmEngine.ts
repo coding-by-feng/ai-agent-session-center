@@ -174,7 +174,8 @@ export function handleEventSounds(session: Session): void {
       playForCli(session, 'taskComplete');
       break;
     case 'SessionEnd':
-      playForCli(session, 'sessionEnd');
+      // A session AASC put to sleep (server/sessionSleep.ts) ends quietly; a sweep can sleep many at once.
+      if (!session.asleepAt) playForCli(session, 'sessionEnd');
       break;
     case 'SubagentStart':
       playForCli(session, 'subagentStart');

@@ -14,6 +14,8 @@ import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
 import AgentCliSettings from './AgentCliSettings';
+import CentralSessionsSetting from './CentralSessionsSetting';
+import SessionSleepSetting from './SessionSleepSetting';
 import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import { APP_BUILD, APP_VERSION, versionSummary } from '@/lib/appVersion';
 import headerStyles from '@/styles/modules/Header.module.css';
@@ -402,6 +404,8 @@ function AdvancedSettings({
       <TerminalBufferControl />
       <KeepAwakeControl />
       <AgentCliSettings />
+      <SessionSleepSetting />
+      <CentralSessionsSetting />
 
       <div className={styles.section}>
         <h4>Import / Export</h4>

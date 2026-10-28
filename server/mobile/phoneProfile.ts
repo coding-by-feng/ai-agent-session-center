@@ -112,6 +112,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // profile honest about what it lets through.
   route('POST', '/sessions/spawn-floating', 'origin'),
   route('POST', '/queue-images', 'upload'),
+  route('POST', '/queue-media', 'upload'), // a prompt's video (Oct 27 2026)
   // Shared from the Mac (AASC-20): a paused append, the QUEUE badge record, saved prompts.
   route('POST', '/sessions/:id/queue/items', 'upload'), // may carry shared images
   route('GET|POST', '/sessions/:id/queue/sent', 'allow'),

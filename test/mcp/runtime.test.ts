@@ -1,11 +1,17 @@
 // test/mcp/runtime.test.ts — the process-wide settings of the central-session MCP server
 // (server/mcp/runtime.ts): the port /mcp listens on, and the `mcp.enabled` off switch.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
+  __resetCentralSessionsForTest,
   __resetMcpPortForTest,
+  centralSessionsSetting,
   getMcpPort,
   isMcpEnabled,
   recordMcpPort,
+  setCentralSessionsEnabled,
   setMcpPort,
 } from '../../server/mcp/runtime.js';
 import { config } from '../../server/serverConfig.js';
@@ -105,6 +111,22 @@ describe('recordMcpPort (what server startup calls)', () => {
   });
 });
 
+// The Settings choice lives in its own file; every test points it at a fresh temp folder, so a real
+// data/central-sessions.json never decides a result.
+let settingDir = '';
+let settingFile = '';
+beforeEach(() => {
+  settingDir = mkdtempSync(join(tmpdir(), 'aasc-central-'));
+  settingFile = join(settingDir, 'central-sessions.json');
+  process.env.AASC_CENTRAL_SESSIONS_FILE = settingFile;
+  __resetCentralSessionsForTest();
+});
+afterEach(() => {
+  delete process.env.AASC_CENTRAL_SESSIONS_FILE;
+  __resetCentralSessionsForTest();
+  rmSync(settingDir, { recursive: true, force: true });
+});
+
 describe('isMcpEnabled', () => {
   // `config` is the object serverConfig.ts built from data/server-config.json; a test edits it in
   // place and puts back whatever it found.
@@ -114,14 +136,14 @@ describe('isMcpEnabled', () => {
     else config.mcp = original;
   });
 
-  it('is on when the config does not mention mcp', () => {
+  it('is off when the config does not mention mcp (off by default since Oct 28 2026)', () => {
     delete config.mcp;
-    expect(isMcpEnabled()).toBe(true);
+    expect(isMcpEnabled()).toBe(false);
   });
 
-  it('is on when mcp does not say', () => {
+  it('is off when mcp does not say', () => {
     config.mcp = {};
-    expect(isMcpEnabled()).toBe(true);
+    expect(isMcpEnabled()).toBe(false);
   });
 
   it('is on when mcp.enabled is true', () => {
@@ -139,5 +161,47 @@ describe('isMcpEnabled', () => {
     expect(isMcpEnabled()).toBe(false);
     config.mcp = { enabled: true };
     expect(isMcpEnabled()).toBe(true);
+  });
+
+  it('follows a Settings choice saved before the start, over the config', () => {
+    writeFileSync(settingFile, JSON.stringify({ enabled: true }));
+    config.mcp = { enabled: false };
+    expect(isMcpEnabled()).toBe(true);
+  });
+
+  it('ignores a settings file that does not hold a boolean', () => {
+    writeFileSync(settingFile, JSON.stringify({ enabled: 'yes' }));
+    delete config.mcp;
+    expect(isMcpEnabled()).toBe(false);
+  });
+});
+
+describe('the Settings switch', () => {
+  const original = config.mcp;
+  afterEach(() => {
+    if (original === undefined) delete config.mcp;
+    else config.mcp = original;
+  });
+
+  it('saves the choice to its file and applies it only at the next start', () => {
+    delete config.mcp;
+    expect(centralSessionsSetting()).toEqual({ enabled: false, nextStart: false });
+
+    setCentralSessionsEnabled(true);
+    expect(JSON.parse(readFileSync(settingFile, 'utf8'))).toEqual({ enabled: true });
+    expect(isMcpEnabled()).toBe(false);
+    expect(centralSessionsSetting()).toEqual({ enabled: false, nextStart: true });
+
+    // A new start reads the file.
+    __resetCentralSessionsForTest();
+    expect(isMcpEnabled()).toBe(true);
+    expect(centralSessionsSetting()).toEqual({ enabled: true, nextStart: true });
+  });
+
+  it('turning it back before a restart owes no restart', () => {
+    delete config.mcp;
+    setCentralSessionsEnabled(true);
+    setCentralSessionsEnabled(false);
+    expect(centralSessionsSetting()).toEqual({ enabled: false, nextStart: false });
   });
 });

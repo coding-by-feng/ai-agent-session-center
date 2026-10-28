@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, ConfirmSheet, EmptyState, ListRow, ListSection, Sheet } from '../kit';
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
-import { useQueueStore } from '@/stores/queueStore';
+import { appendPromptToQueue } from '@/lib/queueAppend';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
@@ -21,8 +21,6 @@ import styles from '@/styles/modules/mobile/MoreScreens.module.css';
 const LABEL_MAX = 80;
 const DETENTS = ['medium', 'large'] as const;
 const FIT = ['fit'] as const;
-
-let nextQueueId = Date.now();
 
 function title(s: PromptSnippet): string {
   return s.label.trim() || s.text.split('\n').map((l) => l.trim()).find(Boolean) || '(empty)';
@@ -48,9 +46,7 @@ function PromptSheet({ snippet, onClose }: { snippet: PromptSnippet; onClose: ()
   };
 
   const queueFor = (sessionId: string) => {
-    const store = useQueueStore.getState();
-    const position = store.queues.get(sessionId)?.length ?? 0;
-    store.add(sessionId, { id: nextQueueId++, sessionId, text: snippet.text, position, createdAt: Date.now() });
+    appendPromptToQueue(sessionId, snippet.text);
     void usePromptSnippetStore.getState().touch(snippet.id);
     const s = sessions.get(sessionId);
     showToast(`Queued for ${s ? sessionDisplayTitle(s) : 'the session'}`, 'success');

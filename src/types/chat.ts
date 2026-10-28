@@ -239,6 +239,13 @@ export type ContextKind =
 export interface ContextKindTokens {
   kind: ContextKind;
   tokens: number;
+  /**
+   * What this kind holds, largest first, at most 8 (Oct 28 2026): entries with the same label are
+   * one, with their `count`. Absent for a kind the transcript can't split (the system prompt).
+   */
+  items?: ContextItem[];
+  /** The entries past the first 8. */
+  rest?: { count: number; tokens: number };
 }
 
 /** One large thing in the window: a tool result, a prompt, the compaction summary. */
@@ -247,6 +254,8 @@ export interface ContextItem {
   /** "Read · server/index.ts"; a secret file is never named. */
   label: string;
   tokens: number;
+  /** How many entries this one stands for, when more than one. */
+  count?: number;
 }
 
 /**

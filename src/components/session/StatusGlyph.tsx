@@ -81,6 +81,12 @@ export default function StatusGlyph({ status }: { status: string }) {
           <path d="M5 11.4V2.6h2.9a2.45 2.45 0 0 1 0 4.9H5" />
         </svg>
       );
+    case 'asleep': // CLI stopped to free memory, card kept — z (sessionStatusStyle.ASLEEP)
+      return (
+        <svg {...GLYPH_PROPS}>
+          <polyline points="4,4 10,4 4,10 10,10" />
+        </svg>
+      );
     case 'idle': // available, doing nothing — pause bars
     default:
       return (

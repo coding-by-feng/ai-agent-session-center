@@ -93,7 +93,7 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionsSignature, currentSessionId, sortByActivity]);
 
-  // ---- Built-in RECENT frame (Rooms view only: each session is also listed in its own room) ----
+  // ---- Built-in RECENT frame (Rooms and Projects views: each session is also listed in its own room or project) ----
   // Membership depends on the clock as well as on updates: a session leaves
   // RECENT when it has been quiet for the whole window, and no update arrives
   // to say so. The tick re-checks once a minute.
@@ -106,7 +106,7 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
   // `sessions` on every update and tick, but it only changes when a session
   // joins, leaves or moves, so everything downstream stays put otherwise.
   const recentIdsKey = useMemo(() => {
-    if (sessionSortMode !== 'room') return '';
+    if (sessionSortMode === 'activity') return '';
     const live = [...sessions.values()].filter((s) => s.status !== 'ended');
     return pickRecentSessions(live, recentNow).map((s) => s.sessionId).join('\n');
   }, [sessions, sessionSortMode, recentNow]);

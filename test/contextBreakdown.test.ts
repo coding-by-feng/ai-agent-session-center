@@ -134,6 +134,81 @@ describe('measureContext', () => {
   });
 });
 
+const kindOf = (b: ContextBreakdown, kind: ContextKind) => b.kinds.find((k) => k.kind === kind);
+/** A kind's entries plus its rest: what tapping the row lists (Oct 28 2026). */
+const listed = (b: ContextBreakdown, kind: ContextKind) => {
+  const k = kindOf(b, kind);
+  return (k?.items ?? []).reduce((n, i) => n + i.tokens, 0) + (k?.rest?.tokens ?? 0);
+};
+
+describe('measureContext — each kind opens to its own entries (Oct 28 2026)', () => {
+  it('lists a kind\'s entries, largest first, adding up to the kind', () => {
+    const b = measureContext(session(), { projectRoot: '/repo' }) as ContextBreakdown;
+    for (const k of b.kinds) {
+      if (!k.items) continue;
+      expect(k.items.map((i) => i.tokens)).toEqual([...k.items].map((i) => i.tokens).sort((x, y) => y - x));
+      expect(Math.abs(listed(b, k.kind) - k.tokens)).toBeLessThanOrEqual(k.items.length + 1);
+    }
+    expect(kindOf(b, 'read')?.items?.[0]).toMatchObject({ label: 'Read · server/index.ts' });
+    expect(kindOf(b, 'bash')?.items?.[0]).toMatchObject({ label: 'Bash · Run the tests' });
+  });
+
+  it('names what has no item of its own: replies, tool calls, the tool definitions one by one', () => {
+    const b = measureContext(session(), { projectRoot: '/repo' }) as ContextBreakdown;
+    // The last reply joins the window only with the next request.
+    expect(kindOf(b, 'replies')?.items?.map((i) => i.label)).toEqual(['Reply · Reading it.']);
+    expect(kindOf(b, 'toolCalls')?.items?.map((i) => i.label)).toEqual(expect.arrayContaining(['Read · server/index.ts', 'Bash · Run the tests']));
+    expect(kindOf(b, 'tools')?.items).toEqual([{ kind: 'tools', label: 'Read', tokens: tokensOf(b, 'tools') }]);
+    expect(kindOf(b, 'system')?.items).toBeUndefined();
+  });
+
+  it('merges entries with the same name and says how many', () => {
+    const records = [
+      ...session(),
+      ...reply(73_000, [{ type: 'tool_use', id: 'toolu_bash2', name: 'Bash', input: { command: 'npm test', description: 'Run the tests' } }], 8),
+      result('toolu_bash2', 'z'.repeat(3_600), 9),
+      ...reply(74_000, [{ type: 'text', text: 'Still green.' }], 10),
+    ];
+    const b = measureContext(records, { projectRoot: '/repo' }) as ContextBreakdown;
+    const bash = kindOf(b, 'bash')?.items ?? [];
+    expect(bash).toHaveLength(1);
+    expect(bash[0]).toMatchObject({ label: 'Bash · Run the tests', count: 2 });
+    expect(kindOf(b, 'read')?.items?.[0].count).toBeUndefined();
+  });
+
+  it('keeps the eight largest and folds the rest into one line', () => {
+    const many = Array.from({ length: 11 }, (_, i) => [
+      ...reply(72_000 + (i + 1) * 1_000, [{ type: 'tool_use', id: `toolu_r${i}`, name: 'Read', input: { file_path: `/repo/f${i}.ts` } }], 10 + i * 2),
+      result(`toolu_r${i}`, 'r'.repeat(1_000 * (i + 1)), 11 + i * 2),
+    ]).flat();
+    const b = measureContext([...session(), ...many, ...reply(84_000, [{ type: 'text', text: 'done' }], 40)], { projectRoot: '/repo' }) as ContextBreakdown;
+    const read = kindOf(b, 'read');
+    expect(read?.items).toHaveLength(8);
+    expect(read?.rest?.count).toBe(4);
+    expect(read?.rest?.tokens).toBeGreaterThan(0);
+    expect(Math.abs(listed(b, 'read') - (read?.tokens ?? 0))).toBeLessThanOrEqual(9);
+  });
+
+  it('opens memory to its files; one under a folder a phone never reads is named by its type only', () => {
+    const [boundary, summary, prompt, ...rest] = session();
+    const files = [
+      { path: '/repo/CLAUDE.md', type: 'Project', content: 'm'.repeat(20_000) },
+      { path: '/home/u/notes/AGENTS.md', type: 'User', content: 'n'.repeat(12_000) },
+      { path: '/home/u/.claude/rules/testing.md', type: 'User', content: 'r'.repeat(4_000) },
+      { path: '/home/u/.claude/CLAUDE.md', type: 'User', content: 'u'.repeat(4_000) },
+      { path: '/repo/.env', type: 'Project', content: 's'.repeat(1_000) },
+    ];
+    const records = [boundary, summary, prompt, { type: 'attachment', attachment: { type: 'instructions', files } }, ...rest];
+    const b = measureContext(records, { projectRoot: '/repo', home: '/home/u' }) as ContextBreakdown;
+    const memory = kindOf(b, 'memory')?.items?.map((i) => i.label);
+    expect(memory).toEqual(['CLAUDE.md', '~/notes/AGENTS.md', 'User memory file', 'Project memory file']);
+    expect(kindOf(b, 'memory')?.items?.[2].count).toBe(2);
+    expect(JSON.stringify(b)).not.toContain('.env');
+    expect(JSON.stringify(b)).not.toContain('.claude');
+    expect(b.items.map((i) => i.label)).toContain('Memory · CLAUDE.md and rules');
+  });
+});
+
 describe('readContextBreakdown', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aasc-context-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

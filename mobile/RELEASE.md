@@ -65,9 +65,8 @@ APPLE_TEAM_ID=XXXXXXXXXX ANDROID_SHA256=A4:D2:4E:BC:7B:47:22:22:41:F5:BB:55:4C:3
 
 The host must serve `/.well-known/apple-app-site-association` as `application/json`, with no redirect.
 
-**Desktop** — once the app installs from TestFlight and the APK, and aasc.work/pair is live, turn on "Pair a phone"
-for everyone by changing the default in `server/mobile/pairingOffer.ts` (or per Mac: `"phonePairing": true` in
-`server-config.json`, or `AASC_PHONE_PAIRING=1`). Until then a desktop release doesn't offer it (AASC-30).
+**Desktop** — "Pair a phone" is on by default (the default in `server/mobile/pairingOffer.ts`; it was off until the
+app shipped, AASC-30). Per Mac, `"phonePairing": false` in `server-config.json` or `AASC_PHONE_PAIRING=0` turns it off.
 
 ## 3. After installing
 

@@ -36,6 +36,7 @@ import { detectCli } from '@/lib/cliDetect';
 import { entryToken, type CommandEntry } from '@/lib/commandIndex';
 import { insertSuggestion } from '@/lib/phoneSuggestions';
 import { readQueueImages } from '@/lib/queueImageAttach';
+import { splitMediaFiles, withVideoPaths } from '@/lib/chat/videoAttach';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import { describeUsage } from '@/lib/chat/usageModel';
 import { useClock } from '@/lib/chat/clock';
@@ -58,7 +59,9 @@ import { owesProceed } from '@/lib/sessionStatusStyle';
 import ComposerSuggestions from './ComposerSuggestions';
 import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
 import { useDriverName } from './useDriverName';
-import { AtIcon, CameraIcon, CommandsIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
+import { useComposerVideos } from './useComposerVideos';
+import ComposerVideoChip from './ComposerVideoChip';
+import { AtIcon, CameraIcon, CommandsIcon, VideoIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ComposerProps {
@@ -106,6 +109,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const setDraft = useComposerDraftStore((s) => s.setDraft);
   const appendToDraft = useComposerDraftStore((s) => s.appendToDraft);
   const [images, setImages] = useState<QueueImageAttachment[]>([]);
+  // Videos upload to the Mac as they are picked; the message carries their paths (lib/chat/videoAttach).
+  const media = useComposerVideos();
+  const attached = images.length + media.videos.length;
   const baton = useControlBaton(sessionId);
   const driver = useDriverName(baton.holder?.clientId, baton.holder?.label);
   const received = usePresenceStore((s) => s.received);
@@ -137,6 +143,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
+  const videoInput = useRef<HTMLInputElement>(null);
   const held = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
   // The box as state too, for ComposerSuggestions (set once, on mount: never on a keystroke).
   const [boxEl, setBoxEl] = useState<HTMLTextAreaElement | null>(null);
@@ -243,16 +250,20 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const submit = useCallback((how: 'send' | 'send-now' | 'queue' | 'deny-and-tell' = decision.action) => {
     if (sending || fieldOff || text.trim() === '') return;
     if (how === decision.action && !decision.canSend) return;
+    if (media.uploading) {
+      showToast('Wait for the video to finish uploading.', 'info');
+      return;
+    }
     const picker = pickerSheetForText(text, cli);
     if (picker) {
       setSheet({ type: 'model', focus: picker });
       return;
     }
-    const message: OutgoingMessage = { text, images };
+    const message: OutgoingMessage = { text: withVideoPaths(text, media.takePaths()), images };
     setDraft(sessionId, '');
     setImages([]);
     void deliver(message, how);
-  }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, sessionId, setDraft, deliver]);
+  }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, media, sessionId, setDraft, deliver]);
 
   // While another device drives, or the session has ended or is still starting,
   // the Mac would refuse a /model too: the chip is off and says why.
@@ -300,14 +311,25 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
     if (files.length === 0) return;
+    // Photos and videos share the 10 a message; videos upload now, photos ride the message.
+    const { images: photoFiles, videos: videoFiles } = splitMediaFiles(files);
+    const videoRoom = Math.max(0, MAX_PROMPT_IMAGES - attached);
+    const takenVideos = videoFiles.slice(0, videoRoom);
+    if (takenVideos.length > 0) media.add(takenVideos);
+    const held = attached + takenVideos.length;
+    if (videoFiles.length > takenVideos.length || (photoFiles.length > 0 && held >= MAX_PROMPT_IMAGES)) {
+      showToast(`Up to ${MAX_PROMPT_IMAGES} photos and videos a message.`, 'warning');
+    }
+    if (photoFiles.length === 0 || held >= MAX_PROMPT_IMAGES) return;
     // The photos already held count toward the size cap too (~6 MB together: a queued message syncs in the queue).
     const heldChars = images.reduce((n, i) => n + i.dataUrl.length, 0);
-    void readQueueImages(files, images.length, undefined, heldChars).then(({ images: read, message }) => {
-      if (read.length > 0) setImages((prev) => [...prev, ...read].slice(0, MAX_PROMPT_IMAGES));
-      if (images.length + read.length > MAX_PROMPT_IMAGES) showToast(`Up to ${MAX_PROMPT_IMAGES} photos a message.`, 'warning');
+    const photoRoom = MAX_PROMPT_IMAGES - held;
+    void readQueueImages(photoFiles, images.length, undefined, heldChars).then(({ images: read, message }) => {
+      if (read.length > 0) setImages((prev) => [...prev, ...read.slice(0, photoRoom)]);
+      if (read.length > photoRoom) showToast(`Up to ${MAX_PROMPT_IMAGES} photos and videos a message.`, 'warning');
       else if (message) showToast(message, 'warning');
     });
-  }, [images]);
+  }, [images, attached, media]);
 
   // ---- Hold the main button for its other way to send ----
 
@@ -471,8 +493,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           )}
         </div>
       )}
-      {images.length > 0 && (
-        <ul className={styles.thumbs} aria-label="Photos to send">
+      {attached > 0 && (
+        <ul className={styles.thumbs} aria-label="Photos and videos to send">
           {images.map((img, i) => (
             <li key={`${img.name}-${i}`} className={styles.thumb}>
               <img src={img.dataUrl} alt={img.name} />
@@ -480,6 +502,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
                 <CloseIcon />
               </button>
             </li>
+          ))}
+          {media.videos.map((video) => (
+            <ComposerVideoChip key={video.key} video={video} onRemove={media.remove} onDuration={media.setDuration} />
           ))}
         </ul>
       )}
@@ -517,7 +542,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
           data-testid="composer-input"
         />
         <div className={styles.toolbar} data-long={longLabel ? '' : undefined}>
-          <button type="button" className={styles.tool} onClick={() => setSheet({ type: 'plus' })} aria-label="Add a photo, saved prompt, command or file" aria-haspopup="dialog" disabled={fieldOff}>
+          <button type="button" className={styles.tool} onClick={() => setSheet({ type: 'plus' })} aria-label="Add a photo or video, saved prompt, command or file" aria-haspopup="dialog" disabled={fieldOff}>
             <PlusIcon />
           </button>
           {cli && (
@@ -559,7 +584,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             type="button"
             className={styles.primary}
             data-action={decision.action}
-            aria-disabled={decision.canSend && !sending ? undefined : true}
+            aria-disabled={decision.canSend && !sending && !media.uploading ? undefined : true}
             aria-busy={sending || undefined}
             aria-describedby={decision.holdAction ? `${sessionId}-hold-hint` : undefined}
             onPointerDown={onHoldStart}
@@ -585,13 +610,16 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       </div>
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
 
-      <input ref={photoInput} type="file" accept="image/*" multiple hidden onChange={onPhotos} data-testid="composer-photo-input" />
+      <input ref={photoInput} type="file" accept="image/*,video/*" multiple hidden onChange={onPhotos} data-testid="composer-photo-input" />
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={onPhotos} data-testid="composer-camera-input" />
+      {/* Its own input: Android's capture turns any video/* in a list into a video-only camera. */}
+      <input ref={videoInput} type="file" accept="video/*" capture="environment" hidden onChange={onPhotos} data-testid="composer-video-input" />
 
       <Sheet open={sheet?.type === 'plus'} onClose={closeSheet} title="Add to your message" detents={PLUS_DETENTS} testId="plus-sheet">
         <ListSection label="Add to your message">
-          <ListRow leading={<PhotoIcon />} title="Photo library" subtitle={`Up to ${MAX_PROMPT_IMAGES} photos`} onClick={() => { closeSheet(); photoInput.current?.click(); }} disabledReason={images.length >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} photos already` : undefined} />
-          <ListRow leading={<CameraIcon />} title="Camera" onClick={() => { closeSheet(); cameraInput.current?.click(); }} disabledReason={images.length >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} photos already` : undefined} />
+          <ListRow leading={<PhotoIcon />} title="Photos & videos" subtitle={`Up to ${MAX_PROMPT_IMAGES} a message`} onClick={() => { closeSheet(); photoInput.current?.click(); }} disabledReason={attached >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} already attached` : undefined} />
+          <ListRow leading={<CameraIcon />} title="Camera" onClick={() => { closeSheet(); cameraInput.current?.click(); }} disabledReason={attached >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} already attached` : undefined} />
+          <ListRow leading={<VideoIcon />} title="Record video" subtitle="Up to 100 MB" onClick={() => { closeSheet(); videoInput.current?.click(); }} disabledReason={attached >= MAX_PROMPT_IMAGES ? `${MAX_PROMPT_IMAGES} already attached` : undefined} />
           <ListRow leading={<SnippetIcon />} title="Saved prompt" onClick={() => setSheet({ type: 'saved' })} chevron />
           {cli && <ListRow leading={<CommandsIcon />} title="Command or skill" onClick={() => setSheet({ type: 'command', start: null })} chevron />}
           {session.projectPath && <ListRow leading={<FileIcon />} title="File from the project" onClick={() => setSheet({ type: 'file', start: null })} chevron />}

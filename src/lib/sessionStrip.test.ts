@@ -32,11 +32,18 @@ describe('buildStripItems', () => {
     expect(items).toHaveLength(4);
   });
 
-  it('Projects view: one frame per project directory, no rooms and no RECENT', () => {
+  it('Projects view: one frame per project directory and no rooms, under RECENT', () => {
     const list = [s('a', { projectPath: '/w/app' }), s('b', { projectPath: '/w/app' }), s('c', { projectPath: '' })];
     const items = buildStripItems({ filtered: list, all: list, rooms, mode: 'project', recentIds: ['a'] });
-    expect(items.map((i) => i.type)).toEqual(['project', 'session']);
-    expect(items[0].type === 'project' && ids(items[0].group.sessions)).toEqual(['a', 'b']);
+    expect(items.map((i) => i.type)).toEqual(['recent', 'project', 'session']);
+    expect(items[0].type === 'recent' && ids(items[0].sessions)).toEqual(['a']);
+    expect(items[1].type === 'project' && ids(items[1].group.sessions)).toEqual(['a', 'b']);
+  });
+
+  it('Projects view: no RECENT when nothing is recent', () => {
+    const list = [s('a', { projectPath: '/w/app' })];
+    const items = buildStripItems({ filtered: list, all: list, rooms, mode: 'project', recentIds: [] });
+    expect(items.map((i) => i.type)).toEqual(['project']);
   });
 
   it('the room filter narrows the list, RECENT included', () => {
@@ -73,9 +80,40 @@ describe('buildStripItems — the PINNED frame', () => {
     expect(items.some((i) => i.type === 'pinned')).toBe(false);
   });
 
-  it.each(['activity', 'project'] as const)('is absent in the %s view', (mode) => {
-    const items = buildStripItems({ filtered: all, all, rooms, mode, recentIds: [], showPinned: true });
+  it('is absent in the activity view', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'activity', recentIds: [], showPinned: true });
     expect(items.some((i) => i.type === 'pinned')).toBe(false);
+  });
+
+  describe('in the Projects view', () => {
+    const paths = [s('a', { pinned: true, projectPath: '/w/app' }), s('b', { projectPath: '/w/app' }), s('c', { pinned: true, projectPath: '/w/site' }), s('d', { projectPath: '' })];
+
+    it('goes above RECENT and the project frames, pinned sessions from every project in strip order', () => {
+      const items = buildStripItems({ filtered: paths, all: paths, rooms, mode: 'project', recentIds: ['d'], showPinned: true });
+      expect(items.map((i) => i.type)).toEqual(['pinned', 'recent', 'project', 'project', 'session']);
+      expect(items[0].type === 'pinned' && ids(items[0].sessions)).toEqual(['a', 'c']);
+    });
+
+    it('leaves each pinned session in its project frame too', () => {
+      const items = buildStripItems({ filtered: paths, all: paths, rooms, mode: 'project', recentIds: [], showPinned: true });
+      expect(items[1].type === 'project' && ids(items[1].group.sessions)).toEqual(['a', 'b']);
+    });
+
+    it('obeys the Pinned room toggle', () => {
+      const items = buildStripItems({ filtered: paths, all: paths, rooms, mode: 'project', recentIds: [], showPinned: false });
+      expect(items.some((i) => i.type === 'pinned')).toBe(false);
+    });
+
+    it('follows the room filter', () => {
+      const filtered = filterByRooms(paths, new Set(['R2']), rooms);
+      const items = buildStripItems({ filtered, all: paths, rooms, mode: 'project', recentIds: [], showPinned: true });
+      expect(items[0].type === 'pinned' && ids(items[0].sessions)).toEqual(['c']);
+    });
+
+    it('is skipped by the swipe order, as RECENT is: their sessions stay in their project frames', () => {
+      const items = buildStripItems({ filtered: paths, all: paths, rooms, mode: 'project', recentIds: ['b'], showPinned: true });
+      expect(stripSessionOrder(items)).toEqual(['a', 'b', 'c', 'd']);
+    });
   });
 
   it('follows the room filter', () => {

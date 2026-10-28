@@ -18,6 +18,11 @@
  *    `disabled` drops keyboard focus to <body>.
  *  - The session the server starts has no room, and with a room filter on the
  *    strip would never show it. It joins the project's room (`projectLaunchRoom`).
+ *  - A button opens a menu of permission modes (`launchPermission`) rather than
+ *    launching: the menu opens on the mode picked last for that CLI, checked and
+ *    focused, so the usual launch is still one more click or Enter. A held button
+ *    does not open it. The menu is portaled, but React still bubbles its clicks
+ *    through this tree, so the wrapper stops them before they reach the frame.
  *
  * Three cases get no usable launch buttons:
  *
@@ -33,9 +38,18 @@
  *    buttons stay, disabled, and say why: a folder named `site (old)` is ordinary,
  *    and a button that fails with a toast on every click looks broken.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
 import { CLI_LAUNCHERS, type CliCommand } from '@/components/layout/cliLaunchers';
+import Menu from '@/components/ui/Menu';
 import { getClientId } from '@/lib/deviceIdentity';
+import {
+  commandForMode,
+  lastPermissionMode,
+  permissionModes,
+  permissionModesSnapshot,
+  rememberPermissionMode,
+  subscribePermissionModes,
+} from '@/lib/launchPermission';
 import { launchBlocker } from '@/lib/launchSession';
 import type { ProjectGroup } from '@/lib/projectGroups';
 import { launchInProjectGroup } from '@/lib/projectLaunch';
@@ -60,6 +74,9 @@ function PlusGlyph() {
   );
 }
 
+/** Keeps a click on a chip, or on its portaled menu, from reaching the frame around it. */
+const stopClick = (e: MouseEvent) => e.stopPropagation();
+
 export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse }: Props) {
   const [pending, setPending] = useState<CliCommand | null>(null);
   // `pending` only changes on the next render; this closes the gap for a second
@@ -67,14 +84,17 @@ export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse 
   const inFlight = useRef(false);
   const onHostMachine = usePresenceStore((s) => isLocalDevice(s.devices, getClientId()));
   const blocker = group.local ? launchBlocker(group.launchPath) : null;
+  // Re-render when any frame records a pick; the value itself is read below.
+  useSyncExternalStore(subscribePermissionModes, permissionModesSnapshot);
 
   const launch = useCallback(
-    async (command: CliCommand) => {
+    async (cli: CliCommand, modeId: string) => {
       if (inFlight.current) return;
       inFlight.current = true;
-      setPending(command);
+      setPending(cli);
+      rememberPermissionMode(cli, modeId);
       try {
-        await launchInProjectGroup(group, command);
+        await launchInProjectGroup(group, commandForMode(cli, modeId));
       } finally {
         inFlight.current = false;
         setPending(null);
@@ -103,24 +123,40 @@ export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse 
           <span className={styles.roomHeaderDivider} aria-hidden="true" />
           {CLI_LAUNCHERS.map(({ command, label, Icon }) => {
             const unavailable = blocker !== null || pending !== null;
+            const lastMode = lastPermissionMode(command);
+            const modes = permissionModes(command);
+            const lastLabel = modes.find((m) => m.id === lastMode)?.label;
             return (
-              <button
-                key={command}
-                type="button"
-                className={styles.projectLaunchBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (unavailable) return;
-                  void launch(command);
-                }}
-                aria-disabled={unavailable ? true : undefined}
-                aria-busy={pending === command ? true : undefined}
-                title={blocker ? `Can't start a session here: ${blocker}` : `New ${label} session in ${group.label}`}
-                aria-label={`New ${label} session in ${group.label}`}
-              >
-                <Icon size={14} />
-                <PlusGlyph />
-              </button>
+              <span key={command} className={styles.projectLaunchMenu} onClick={stopClick}>
+                <Menu
+                  label={`${label} permission mode`}
+                  triggerLabel={`New ${label} session in ${group.label}`}
+                  sections={[{
+                    id: 'mode',
+                    title: 'Permission mode',
+                    items: modes.map((mode) => ({
+                      kind: 'radio' as const,
+                      id: mode.id,
+                      label: mode.label,
+                      hint: commandForMode(command, mode.id),
+                      checked: mode.id === lastMode,
+                      onSelect: () => void launch(command, mode.id),
+                    })),
+                  }]}
+                  plainTrigger={{
+                    className: styles.projectLaunchBtn,
+                    held: unavailable,
+                    busy: pending === command,
+                    title: blocker ? `Can't start a session here: ${blocker}` : `New ${label} session in ${group.label} · last: ${lastLabel}`,
+                    content: (
+                      <>
+                        <Icon size={14} />
+                        <PlusGlyph />
+                      </>
+                    ),
+                  }}
+                />
+              </span>
             );
           })}
         </>

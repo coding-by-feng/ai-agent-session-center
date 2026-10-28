@@ -2143,6 +2143,12 @@
 /* "New <CLI> session here". A chip, not a bare mark: a lone brand icon is what
    the session cards use as a CLI badge, and borders are reserved for what can
    be pressed. Same look as the DIRS launcher's buttons (.dirLaunchBtn). */
+/* The chip's menu wrapper (ProjectFrameHeader): no box of its own, so the chips
+   sit in the header row exactly as before. */
+.projectLaunchMenu {
+  display: contents;
+}
+
 .projectLaunchBtn {
   display: inline-flex;
   align-items: center;

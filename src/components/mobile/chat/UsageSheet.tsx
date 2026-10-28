@@ -6,7 +6,9 @@
  * The Context window card opens to its details when the CLI reported more than the %
  * (Oct 21 2026): free space, the last reply's tokens by kind, how old the reading is. Opened,
  * it also asks the Mac what fills the window (Oct 22 2026): tokens by type with their share,
- * and the largest items, measured from the transcript (GET …/context-breakdown).
+ * and the largest items, measured from the transcript (GET …/context-breakdown). Each type
+ * opens to its next level (Oct 28 2026): its largest entries, same-named ones counted, then
+ * "N more"; Other opens to the types it folds; the system prompt says why it can't be split.
  *
  * Read-only: the figures come with the session (`runtime.context`, `planUsage`) as the
  * Mac reads them; a phone has nothing to sync. The plan section names the account: two
@@ -15,7 +17,7 @@
 import { useEffect, useId, useState, type CSSProperties } from 'react';
 import type { Session } from '@/types';
 import { Sheet } from '../kit';
-import { describeContextBreakdown, describeUsage, type UsageContext, type UsageContextDetails } from '@/lib/chat/usageModel';
+import { describeContextBreakdown, describeUsage, type ContextKindRow, type UsageContext, type UsageContextDetails } from '@/lib/chat/usageModel';
 import { fetchContextBreakdown, type ApiResult } from '@/lib/chat/chatApi';
 import type { ContextBreakdown } from '@/types/chat';
 import { ChevronRightIcon } from '../kit/kitIcons';
@@ -56,6 +58,59 @@ function UsageRow({ name, pctText, high, pct, level, detail }: {
   );
 }
 
+/** A kind's share bar, and the label row above it. */
+function KindHead({ row }: { row: ContextKindRow }) {
+  return (
+    <>
+      <span className={styles.usageKindHead}>
+        <span className={styles.usageKindLabel}>{row.label}</span>
+        <span className={styles.usageKindValue}>{row.tokensText} · {row.pctText}</span>
+      </span>
+      <span className={styles.usageKindBar} aria-hidden="true">
+        <span className={styles.usageKindFill} data-free={row.key === 'free' ? '' : undefined} style={{ '--usage-pct': `${Math.max(0, Math.min(100, row.pct))}%` } as CSSProperties} />
+      </span>
+    </>
+  );
+}
+
+/** A kind that opens to what it holds (or a sentence); one with nothing below it is a plain row. */
+function KindRow({ row, open, onToggle }: { row: ContextKindRow; open: boolean; onToggle: () => void }) {
+  const entriesId = useId();
+  const opens = row.entries.length > 0 || row.note !== null;
+  if (!opens) return <li className={styles.usageKind}><KindHead row={row} /></li>;
+  return (
+    <li className={styles.usageKind}>
+      <button type="button" className={styles.usageKindButton} aria-expanded={open} aria-controls={entriesId} onClick={onToggle}>
+        <KindHead row={row} />
+        <ChevronRightIcon className={styles.usageKindChevron} data-open={open ? '' : undefined} aria-hidden="true" />
+      </button>
+      {open && (
+        <div id={entriesId} className={styles.usageEntries}>
+          {row.entries.length > 0 ? (
+            <ul className={styles.usageEntryList} aria-label={`In ${row.label}`}>
+              {row.entries.map((e) => (
+                <li key={e.key} className={styles.usageEntry}>
+                  <span className={styles.usageEntryLabel}>{e.label}</span>
+                  {e.countText && <span className={styles.usageEntryCount}>{e.countText}</span>}
+                  <span className={styles.usageEntryValue}>{e.tokensText}</span>
+                </li>
+              ))}
+              {row.rest && (
+                <li className={styles.usageEntry} data-rest="">
+                  <span className={styles.usageEntryLabel}>{row.rest.label}</span>
+                  <span className={styles.usageEntryValue}>{row.rest.tokensText}</span>
+                </li>
+              )}
+            </ul>
+          ) : (
+            <p className={styles.usageDetail}>{row.note}</p>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 /**
  * What fills the window, asked of the Mac while the card is open; asked again when a new
  * reading arrives (`contextAt`). The last answer stays up while the next one loads.
@@ -64,6 +119,8 @@ function WindowBreakdown({ sessionId, contextAt, size, now }: {
   sessionId: string; contextAt: number | undefined; size: number | undefined; now: number;
 }) {
   const [result, setResult] = useState<ApiResult<ContextBreakdown | null> | null>(null);
+  /** The one kind opened to its entries. */
+  const [openKind, setOpenKind] = useState<string | null>(null);
   useEffect(() => {
     const ctrl = new AbortController();
     fetchContextBreakdown(sessionId, ctrl.signal).then(setResult, () => {});
@@ -79,15 +136,7 @@ function WindowBreakdown({ sessionId, contextAt, size, now }: {
       <h4 className={styles.usageSubheading}>What’s in it</h4>
       <ul className={styles.usageKinds} aria-label="What fills the context window">
         {view.rows.map((r) => (
-          <li key={r.key} className={styles.usageKind}>
-            <span className={styles.usageKindHead}>
-              <span className={styles.usageKindLabel}>{r.label}</span>
-              <span className={styles.usageKindValue}>{r.tokensText} · {r.pctText}</span>
-            </span>
-            <span className={styles.usageKindBar} aria-hidden="true">
-              <span className={styles.usageKindFill} data-free={r.key === 'free' ? '' : undefined} style={{ '--usage-pct': `${Math.max(0, Math.min(100, r.pct))}%` } as CSSProperties} />
-            </span>
-          </li>
+          <KindRow key={r.key} row={r} open={openKind === r.key} onToggle={() => setOpenKind((k) => (k === r.key ? null : r.key))} />
         ))}
       </ul>
       {view.items.length > 0 && (

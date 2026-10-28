@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { SettingsButton } from '@/components/settings/SettingsPanel';
 import DevicePresenceChip from './DevicePresenceChip';
+import MemoryChip from './MemoryChip';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -258,6 +259,8 @@ export default function Header() {
             collapses when you're on one device, nudging the icons to its right.
             That shift was previously absorbed by NavBar's flex spacer. */}
         <DevicePresenceChip />
+        {/* What macOS charges AASC for: mostly the CLIs in its terminals (Oct 28 2026). */}
+        <MemoryChip />
         {/* Workspace export/import: a desktop file-system workflow (OS file
             dialogs, snapshot files). A phone never gets this header: it has the
             phone app (AASC-48). */}

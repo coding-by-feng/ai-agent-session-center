@@ -67,6 +67,16 @@ export interface MenuSection {
   items: MenuItem[];
 }
 
+/** A trigger of the caller's own look, drawn as a plain <button>. */
+export interface MenuPlainTrigger {
+  className: string;
+  content: ReactNode;
+  title?: string;
+  /** Held: aria-disabled (focus stays put, unlike `disabled`) and the menu does not open. */
+  held?: boolean;
+  busy?: boolean;
+}
+
 export interface MenuProps {
   /** The menu's accessible name. */
   label: string;
@@ -85,6 +95,12 @@ export interface MenuProps {
   /** Which trigger edge the menu lines up with before clamping. */
   align?: 'start' | 'end';
   className?: string;
+  /**
+   * A trigger of the caller's own look (a project frame's launch chip), in place
+   * of the Button / IconButton, with this menu's placement, keyboard and
+   * outside-click handling all the same.
+   */
+  plainTrigger?: MenuPlainTrigger;
 }
 
 const ITEM_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitemradio"]:not([aria-disabled="true"]), [role="menuitemcheckbox"]:not([aria-disabled="true"])';
@@ -101,6 +117,7 @@ export default function Menu({
   footer,
   align = 'start',
   className,
+  plainTrigger,
 }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<MenuPosition | null>(null);
@@ -225,17 +242,31 @@ export default function Menu({
     item.onSelect();
   };
 
+  const toggle = () => (open ? close(false) : setOpen(true));
   const triggerProps = {
     ref: triggerRef,
     'aria-haspopup': 'menu' as const,
     'aria-expanded': open,
     'aria-controls': open ? menuId : undefined,
-    onClick: () => (open ? close(false) : setOpen(true)),
+    onClick: toggle,
   };
 
   return (
     <div className={`${styles.wrap}${className ? ` ${className}` : ''}`} ref={wrapRef} onKeyDown={onKeyDown} onBlur={onBlur}>
-      {triggerText ? (
+      {plainTrigger ? (
+        <button
+          {...triggerProps}
+          type="button"
+          className={plainTrigger.className}
+          onClick={plainTrigger.held ? undefined : toggle}
+          aria-label={triggerLabel}
+          aria-disabled={plainTrigger.held || undefined}
+          aria-busy={plainTrigger.busy || undefined}
+          title={plainTrigger.title}
+        >
+          {plainTrigger.content}
+        </button>
+      ) : triggerText ? (
         <Button
           {...triggerProps}
           size={size}

@@ -183,11 +183,9 @@ and JDK 17 can't compile Capacitor 8's Java 21 code. With a JDK 21 installed eit
 
 Pairing links the app to one Mac. You can pair several Macs; each is a separate entry in the app.
 
-**Turn pairing on first.** Until the phone app is released, a desktop doesn't offer "Pair a phone" (AASC-30), so a
-public build never shows a QR that leads nowhere. On your own Mac, add `"phonePairing": true` to `server-config.json`
-(in the app's data folder; `data/server-config.json` when run from source) and restart AASC, or start it with
-`AASC_PHONE_PAIRING=1`. `AASC_PHONE_PAIRING=0` turns it off again. Phones paired before stay listed and revocable
-either way.
+**Pairing is on by default** and needs a dashboard password. To turn it off on a Mac, add `"phonePairing": false` to
+`server-config.json` (in the app's data folder; `data/server-config.json` when run from source) and restart AASC, or
+start it with `AASC_PHONE_PAIRING=0`. Phones paired before stay listed and revocable either way.
 
 1. **On the Mac**, click the devices chip in AASC's top bar (it shows how many devices are connected)
    and press **Pair a phone**. A QR code appears with a 2-minute countdown. Only the Mac's own

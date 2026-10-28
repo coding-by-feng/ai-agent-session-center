@@ -38,6 +38,7 @@ import { clearTerminalOutput, getForegroundProcess } from './sshManager.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { terminalHeard } from './heardTerminals.js';
 import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
+import { createQueueMediaRouter } from './queueMediaRouter.js';
 import { createRoomsService } from './roomsRouter.js';
 import { parseRoomList, roomsViewFor } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -2707,6 +2708,9 @@ router.post('/queue-images', (req: Request, res: Response) => {
   }
   res.json({ ok: true, paths, ids: paths.map(queueImageId) });
 });
+
+// POST /api/queue-media — a prompt's video, streamed to the same folder (Oct 27 2026).
+router.use(createQueueMediaRouter());
 
 // Prefill a terminal's output ring buffer with saved data (base64).
 // Used during workspace import to restore previous terminal scrollback.

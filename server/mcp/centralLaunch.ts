@@ -216,7 +216,7 @@ export function prepareCentralLaunch(
     if (input.centralId === undefined) {
       throw new CentralLaunchError(
         400,
-        'Central sessions are switched off on this Mac (mcp.enabled is false in server-config.json)',
+        'Central sessions are off on this Mac. Turn them on in Settings → ADVANCED and restart AASC',
       );
     }
     return { centralId: input.centralId, kind: input.kind, scopeRef };

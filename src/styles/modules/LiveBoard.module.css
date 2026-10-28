@@ -260,6 +260,18 @@
   margin-right: 4px;
 }
 
+/* "≈ 312 MB": what the session's terminal holds (Oct 28 2026). Dimmer than the age: a detail. */
+.memory {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.memory::before {
+  content: '·';
+  margin-right: 4px;
+}
+
 .cli {
   flex-shrink: 0;
   margin-left: auto;

@@ -145,6 +145,7 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor('GET', '/sessions/abc/prompt/key-00000001')).toBe('allow');
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
+    expect(phoneRuleFor('POST', '/queue-media')).toBe('upload'); // a prompt's video (Oct 27 2026)
     expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');
     expect(phoneRuleFor('POST', '/db/sessions/abc/note-media')).toBe('upload');
     expect(phoneRuleFor('GET', '/files/read')).toBe('files');

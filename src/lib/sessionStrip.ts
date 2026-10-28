@@ -57,14 +57,37 @@ export interface StripItemsInput {
   all: Session[];
   rooms: readonly Room[];
   mode: SessionSortMode;
-  /** The RECENT frame's ids in order (Rooms view only; empty for none). */
+  /** The RECENT frame's ids in order (Rooms and Projects views; empty for none). */
   recentIds: readonly string[];
-  /** Draw the PINNED frame (Rooms view only). The desktop strip's toggle; the
-   *  phone's list draws it By room. */
+  /** Draw the PINNED frame (Rooms and Projects views). The desktop strip's
+   *  toggle; the phone's list draws it By room only. */
   showPinned?: boolean;
   /** Draw the CENTRAL frame (Rooms view only). The desktop strip and the phone's
    *  list (By room) both draw it. */
   showCentral?: boolean;
+}
+
+/**
+ * The PINNED then RECENT frames, for the Rooms and Projects views. PINNED is in
+ * strip order (the cards' numbers). Each session in them also stays in its own
+ * room or project frame below, and both take from `filtered`, so the room filter
+ * narrows them too.
+ */
+function builtinFrames(filtered: Session[], recentIds: readonly string[], showPinned: boolean): StripItem[] {
+  const frames: StripItem[] = [];
+  if (showPinned) {
+    const pinned = filtered.filter((s) => s.pinned);
+    if (pinned.length > 0) frames.push({ type: 'pinned', sessions: pinned });
+  }
+  if (recentIds.length > 0) {
+    const shown = new Map(filtered.map((s) => [s.sessionId, s]));
+    const recent = recentIds.flatMap((id) => {
+      const s = shown.get(id);
+      return s ? [s] : [];
+    });
+    if (recent.length > 0) frames.push({ type: 'recent', sessions: recent });
+  }
+  return frames;
 }
 
 /**
@@ -76,10 +99,11 @@ export interface StripItemsInput {
  * ordering, since a room can only sit in one place while its sessions belong
  * all over a recency-ranked list.
  *
- * The Projects view swaps the room frames for one frame per project directory.
- * Rooms play no part in it (no room frames, no PINNED or RECENT), though the room filter
- * still narrows `filtered` first. A session with no project path follows the
- * frames as a plain card, like a room-less one does.
+ * The Projects view swaps the room frames for one frame per project directory,
+ * under the same PINNED and RECENT frames (Oct 28 2026; not CENTRAL). Rooms draw
+ * no frames there, though the room filter still narrows `filtered` first. A
+ * session with no project path follows the frames as a plain card, like a
+ * room-less one does.
  */
 export function buildStripItems({
   filtered, all, rooms, mode, recentIds, showPinned = false, showCentral = false,
@@ -93,6 +117,7 @@ export function buildStripItems({
     // room filter lets through: otherwise filtering recolours projects that did not change.
     const { groups, ungrouped } = groupSessionsByProject(filtered, ROOM_COLOR_PALETTE.length, all);
     return [
+      ...builtinFrames(filtered, recentIds, showPinned),
       ...groups.map((group): StripItem => ({ type: 'project', group, color: ROOM_COLOR_PALETTE[group.colorIndex] })),
       ...ungrouped.map((session): StripItem => ({ type: 'session', session })),
     ];
@@ -112,23 +137,7 @@ export function buildStripItems({
     if (centrals.length > 0) items.push({ type: 'central', sessions: centrals });
   }
 
-  // PINNED goes next, in strip order (the cards' numbers). Like RECENT, its
-  // sessions stay in their own rooms below and the room filter narrows it.
-  if (showPinned) {
-    const pinned = filtered.filter((s) => s.pinned);
-    if (pinned.length > 0) items.push({ type: 'pinned', sessions: pinned });
-  }
-
-  // RECENT goes next. Its sessions also stay in their own rooms below, and it
-  // takes them from `filtered`, so the room filter narrows it too.
-  if (recentIds.length > 0) {
-    const shown = new Map(filtered.map((s) => [s.sessionId, s]));
-    const recent = recentIds.flatMap((id) => {
-      const s = shown.get(id);
-      return s ? [s] : [];
-    });
-    if (recent.length > 0) items.push({ type: 'recent', sessions: recent });
-  }
+  items.push(...builtinFrames(filtered, recentIds, showPinned));
 
   // listOrder is the LIST's own order, independent of roomIndex (the 3D scene's
   // world-space room slot; see Room.roomIndex). Falling back to roomIndex, then

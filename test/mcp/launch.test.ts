@@ -532,7 +532,7 @@ describe('centralWiringFor', () => {
   afterEach(() => {
     for (const record of centrals.list()) centrals.revoke(record.centralId);
     __resetMcpPortForTest();
-    delete config.mcp;
+    config.mcp = { enabled: true }; // central sessions are off by default since Oct 28 2026
   });
 
   it('is the port and the token for a local launch of a central the registry holds', () => {

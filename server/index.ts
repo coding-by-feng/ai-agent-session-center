@@ -13,10 +13,13 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal } from './sshManager.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
-import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince } from './db.js';
+import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue } from './db.js';
+import { createSessionMemory } from './sessionMemory.js';
+import { createSessionSleepRouter, startSessionSleep } from './sessionSleep.js';
+import { terminalLastOutputAt } from './terminalActivity.js';
 import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest, currentRooms } from './apiRouter.js';
 import { createRequestAnswerRouter } from './requestAnswer.js';
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
@@ -88,6 +91,7 @@ import { createEventHub } from './mcp/events.js';
 import { centralClient, createMcpRouter, mcpErrorHandler } from './mcp/index.js';
 import { createServerDeliver } from './mcp/deliverWiring.js';
 import { createCentralsRouter } from './mcp/http.js';
+import { createCentralSettingRouter } from './mcp/settingRoutes.js';
 import { startServerPhoneConfirms } from './mcp/phoneConfirmRoutes.js';
 import { createHandsOffSetter } from './mcp/handsOffSetter.js';
 import { watchCentralLifecycle } from './mcp/lifecycle.js';
@@ -394,7 +398,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
-    // Off until the phone app ships (AASC-30): server-config.json "phonePairing" or AASC_PHONE_PAIRING.
+    // On unless server-config.json "phonePairing": false or AASC_PHONE_PAIRING=0.
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
@@ -599,7 +603,23 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   // A central's skill-note change or keep-awake switch, carried out by the workspace writer's window on this Mac.
   const skillNoteOps = createSkillNoteOpsWiring(presence, { isLocal: isLocalRequest, clientId: clientIdFromRequest, isPhone: isPairedPhoneClient, sendToClient: sendToClientId });
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
+  // Memory per session and idle sleep (Oct 28 2026): which session holds what, and an opt-in sweep that
+  // closes the terminals of long-idle sessions (their cards stay; opening one resumes it). This Mac only.
+  const sessionMemory = createSessionMemory({
+    terminals: getTerminalShellPids,
+    sessions: () => Object.values(getAllSessions()),
+  });
+  const openTerminalIds = () => new Set(getTerminals().map((t) => t.terminalId));
+  const stopSessionSleep = startSessionSleep({
+    sessions: () => Object.values(getAllSessions()),
+    terminalSleepable: (terminalId) => openTerminalIds().has(terminalId) && !isTmuxBackedTerminal(terminalId),
+    lastOutputAt: terminalLastOutputAt,
+    hasArmedQueue: (sessionId) =>
+      (getSessionQueue(sessionId)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true),
+    markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
+    closeTerminal: closeTerminalAndWait,
+  });
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -931,6 +951,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       // Then the dashboard's feeds and P2's runtime (its prune timer and the ledger's wiring): best effort, the
       // server stops either way. The /mcp sessions were told first, as one may be mid-write.
       try { centralsRouter.close(); } catch { /* best effort */ }
+      try { stopSessionSleep(); } catch { /* best effort */ }
       try { phoneConfirms.close(); } catch { /* best effort */ }
       try { mcpDeliver?.close(); } catch { /* best effort */ }
       const httpClosed = new Promise<void>((resolve) => {

@@ -244,7 +244,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   router.post('/pairing', async (req, res) => {
     if (!pairingOffered()) {
       res.status(409).json({
-        error: 'Pairing a phone isn’t available yet: the AASC phone app hasn’t been released.',
+        error: 'Pairing a phone is turned off on this Mac (phonePairing: false or AASC_PHONE_PAIRING=0).',
         code: 'PAIRING_NOT_OFFERED',
       });
       return;

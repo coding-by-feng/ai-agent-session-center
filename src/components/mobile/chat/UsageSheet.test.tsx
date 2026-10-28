@@ -92,6 +92,68 @@ describe('UsageSheet — the Context window card', () => {
     expect(screen.getByText('Last reply, as reported')).toBeInTheDocument();
   });
 
+  it('opens a kind to its next level: its largest entries, merged ones counted, then the rest (Oct 28 2026)', async () => {
+    const breakdown: ContextBreakdown = {
+      tokens: 300_000,
+      kinds: [
+        { kind: 'system', tokens: 132_800 },
+        {
+          kind: 'bash', tokens: 120_000,
+          items: [
+            { kind: 'bash', label: 'Bash · Run the tests', tokens: 60_000, count: 3 },
+            { kind: 'bash', label: 'Bash · git diff HEAD', tokens: 40_000 },
+          ],
+          rest: { count: 41, tokens: 20_000 },
+        },
+        { kind: 'memory', tokens: 26_000, items: [{ kind: 'memory', label: 'CLAUDE.md', tokens: 26_000 }] },
+        { kind: 'tools', tokens: 20_000 },
+        { kind: 'edits', tokens: 1_000, items: [{ kind: 'edits', label: 'Edit · a.ts', tokens: 1_000 }] },
+        { kind: 'prompts', tokens: 200 },
+      ],
+      items: [],
+      requests: 85,
+      sinceCompaction: true,
+      measuredAt: NOW - 2 * 60_000,
+    };
+    api.fetchContextBreakdown.mockResolvedValue({ ok: true, data: breakdown });
+    render(<UsageSheet open onClose={() => {}} session={session({
+      pct: 30, size: 1_000_000, tokens: 300_000, parts: { cacheRead: 299_000, cacheWrite: 900, input: 100, output: 2_000 },
+    })} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Context window/ }));
+    await screen.findByRole('list', { name: 'What fills the context window' });
+
+    const bash = screen.getByRole('button', { name: /^Bash output/ });
+    expect(bash).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(bash);
+    expect(bash).toHaveAttribute('aria-expanded', 'true');
+    const inBash = screen.getByRole('list', { name: 'In Bash output' });
+    expect(within(inBash).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Bash · Run the tests×360k',
+      'Bash · git diff HEAD40k',
+      '41 more20k',
+    ]);
+
+    // One open at a time: Memory closes Bash.
+    fireEvent.click(screen.getByRole('button', { name: /^Memory/ }));
+    expect(screen.queryByRole('list', { name: 'In Bash output' })).toBeNull();
+    expect(within(screen.getByRole('list', { name: 'In Memory (CLAUDE.md, rules)' })).getByText('CLAUDE.md')).toBeInTheDocument();
+
+    // Other opens to the kinds it folds together.
+    fireEvent.click(screen.getByRole('button', { name: /^Other \(2 kinds\)/ }));
+    expect(within(screen.getByRole('list', { name: 'In Other (2 kinds)' })).getAllByRole('listitem').map((li) => li.textContent))
+      .toEqual(['Edits1k', 'Your prompts200']);
+
+    // The system prompt can't be split from the transcript: it says so instead.
+    fireEvent.click(screen.getByRole('button', { name: /^System prompt & setup/ }));
+    expect(screen.getByText(/sent with every request/)).toBeInTheDocument();
+
+    // Free space has nothing below it: not a button.
+    expect(screen.queryByRole('button', { name: /^Free/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^System prompt & setup/ }));
+    expect(screen.queryByText(/sent with every request/)).toBeNull();
+  });
+
   it('says a Codex session’s window is not measured', async () => {
     render(<UsageSheet open onClose={() => {}} session={session({ pct: 30, size: 200_000, tokens: 60_000 })} />);
     fireEvent.click(screen.getByRole('button', { name: /^Context window/ }));

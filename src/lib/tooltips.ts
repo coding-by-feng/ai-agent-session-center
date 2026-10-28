@@ -63,7 +63,7 @@ export const tooltips = {
   // frame has nothing to list (nothing pinned, or filtered out).
   pinnedRoomShown: {
     label: 'Pinned room',
-    description: 'Every pinned session in one frame at the top of the list, each still in its own room; click to hide it.',
+    description: 'Every pinned session in one frame at the top of the list, each still in its own room or project; click to hide it.',
   },
   pinnedRoomHidden: {
     label: 'Pinned room',

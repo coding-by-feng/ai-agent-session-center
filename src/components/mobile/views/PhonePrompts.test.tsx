@@ -25,6 +25,7 @@ import { authFetch } from '@/hooks/useAuth';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
+import { useQueueStore } from '@/stores/queueStore';
 import PhonePrompts from './PhonePrompts';
 
 const live = (id: string, title: string, lastActivityAt: number): Session =>
@@ -44,6 +45,8 @@ beforeEach(() => {
     sessions: new Map([['a', live('a', 'Alpha', 10)], ['b', live('b', 'Beta', 50)]]),
     selectedSessionId: null,
   });
+  useQueueStore.setState({ queues: new Map() });
+  vi.mocked(showToast).mockClear();
   vi.mocked(authFetch).mockImplementation(async (input) => {
     const url = new URL(String(input), 'http://localhost');
     urls.push(url);
@@ -199,6 +202,48 @@ describe('PhonePrompts — one session’s Prompts tab (Oct 19 2026)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Use again' }));
     expect(onUseAgain).toHaveBeenCalledWith('fix the alpha bug');
     await waitFor(() => expect(screen.queryByTestId('prompt-detail')).toBeNull());
+  });
+
+  it('Add to queue puts the prompt at the end of this session’s queue, unsent (Oct 28 2026)', async () => {
+    const user = userEvent.setup();
+    const onUseAgain = renderTab();
+    await user.click(await screen.findByText('fix the alpha bug'));
+    const sheet = await screen.findByTestId('prompt-detail');
+    await user.click(within(sheet).getByRole('button', { name: 'Add to queue' }));
+    expect(useQueueStore.getState().queues.get('a')?.map((i) => i.text)).toEqual(['fix the alpha bug']);
+    expect(onUseAgain).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Added to Alpha’s queue · 1 waiting', 'success');
+    await waitFor(() => expect(screen.queryByTestId('prompt-detail')).toBeNull());
+  });
+
+  it('offers no Add to queue once the session has ended', async () => {
+    useSessionStore.setState({ sessions: new Map([['a', { ...live('a', 'Alpha', 10), status: 'ended' } as Session]]) });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByText('fix the alpha bug'));
+    const sheet = await screen.findByTestId('prompt-detail');
+    expect(within(sheet).queryByRole('button', { name: 'Add to queue' })).toBeNull();
+  });
+});
+
+describe('PhonePrompts — Add to queue in the whole trace (Oct 28 2026)', () => {
+  it('queues for the prompt’s own session when it is live', async () => {
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole('button', { name: /ship beta/ }));
+    const sheet = await screen.findByRole('dialog', { name: /^Prompt · / });
+    await user.click(within(sheet).getByRole('button', { name: 'Add to queue' }));
+    expect(useQueueStore.getState().queues.get('b')?.map((i) => i.text)).toEqual(['ship beta']);
+  });
+
+  it('offers none for a session that is no longer here', async () => {
+    host.isHost = true;
+    useSessionStore.setState({ sessions: new Map([['a', live('a', 'Alpha', 10)]]) });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole('button', { name: /ship beta/ }));
+    const sheet = await screen.findByRole('dialog', { name: /^Prompt · / });
+    expect(within(sheet).queryByRole('button', { name: 'Add to queue' })).toBeNull();
   });
 });
 

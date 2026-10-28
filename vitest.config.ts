@@ -26,6 +26,7 @@ export default defineConfig({
           environment: 'node',
           include: ['test/**/*.test.{js,ts}'],
           globalSetup: ['test/globalSetup.ts'],
+          setupFiles: ['test/serverTestSetup.ts'],
           env: { APP_USER_DATA: SERVER_TEST_DATA_DIR },
         },
       },

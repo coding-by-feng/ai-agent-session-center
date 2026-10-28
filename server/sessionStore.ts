@@ -1367,7 +1367,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
     case EVENT_TYPES.SESSION_END:
       session.status = SESSION_STATUS.ENDED;
-      session.animationState = ANIMATION_STATE.DEATH;
+      // A session AASC put to sleep (sessionSleep.ts) ends quietly: it is resting, not dead.
+      session.animationState = session.asleepAt ? ANIMATION_STATE.IDLE : ANIMATION_STATE.DEATH;
       session.endedAt = Date.now();
       session.pendingProceedAt = null;
       session.subagentCount = 0;
@@ -1984,6 +1985,23 @@ export function setSessionRemark(sessionId: string, remark: string): Session | n
   return session ? { ...session } : null;
 }
 
+/**
+ * Mark a session asleep (server/sessionSleep.ts): its terminal was closed to free memory, the card stays.
+ * The card reads as ended (nothing runs, nothing may be sent) until a resume wakes it.
+ */
+export function setSessionAsleep(sessionId: string, at: number): Session | null {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  session.asleepAt = at;
+  session.status = SESSION_STATUS.ENDED as Session['status'];
+  session.animationState = ANIMATION_STATE.IDLE;
+  session.endedAt = at;
+  session.pendingRequest = null;
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+  return session;
+}
+
 export function setSessionPinned(sessionId: string, pinned: boolean): void {
   const session = sessions.get(sessionId);
   if (session) { session.pinned = pinned; invalidateSessionsCache(); }
@@ -2147,6 +2165,7 @@ export function reconnectSessionTerminal(
   session.emote = EMOTE.WAVE;
   session.isHistorical = false;
   session.endedAt = null;
+  delete session.asleepAt;
   session.lastActivityAt = Date.now();
   session.events.push({
     type: 'ResumeNewTerminal',

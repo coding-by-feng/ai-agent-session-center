@@ -564,6 +564,11 @@ export interface Session {
   muted?: boolean;
   pinned?: boolean;
   /**
+   * When AASC put this idle session to sleep (Oct 28 2026, server/sessionSleep.ts): its CLI was
+   * stopped to free memory and the card kept; opening it resumes with `--resume`. Absent when awake.
+   */
+  asleepAt?: number;
+  /**
    * May this session be seen by a device that is NOT the machine running the
    * server? Absent means NO — see server/sessionVisibility.ts for why the flag
    * is "may be seen" rather than "hidden": the absent state must be the safe

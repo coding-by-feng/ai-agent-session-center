@@ -108,10 +108,23 @@ const CONTEXT_KINDS = [
   'read', 'bash', 'search', 'edits', 'subagents', 'web', 'mcp', 'otherTools', 'reminders',
 ] as const satisfies readonly ContextKind[];
 
+const contextItemSchema = z.object({
+  kind: z.enum(CONTEXT_KINDS),
+  label: z.string().max(200),
+  tokens: z.number().nonnegative(),
+  count: z.number().int().positive().optional(),
+});
+
 const breakdownSchema = z.object({
   tokens: z.number().nonnegative(),
-  kinds: z.array(z.object({ kind: z.enum(CONTEXT_KINDS), tokens: z.number().nonnegative() })),
-  items: z.array(z.object({ kind: z.enum(CONTEXT_KINDS), label: z.string().max(200), tokens: z.number().nonnegative() })),
+  // A kind's entries and rest (Oct 28 2026) are optional: an older Mac sends neither.
+  kinds: z.array(z.object({
+    kind: z.enum(CONTEXT_KINDS),
+    tokens: z.number().nonnegative(),
+    items: z.array(contextItemSchema).max(50).optional(),
+    rest: z.object({ count: z.number().int().nonnegative(), tokens: z.number().nonnegative() }).optional(),
+  })),
+  items: z.array(contextItemSchema),
   requests: z.number().int().nonnegative(),
   sinceCompaction: z.boolean(),
   measuredAt: z.number(),

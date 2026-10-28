@@ -148,7 +148,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const record of centrals.list()) centrals.revoke(record.centralId);
-  delete config.mcp;
+  config.mcp = { enabled: true }; // central sessions are off by default since Oct 28 2026
 });
 
 const create = (body: Record<string, unknown>, headers: Record<string, string> = {}) =>

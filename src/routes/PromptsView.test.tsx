@@ -21,6 +21,7 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 import PromptsView from './PromptsView';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useQueueStore } from '@/stores/queueStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 
 // The search box debounces 300 ms and the whole suite runs in parallel with the
@@ -367,8 +368,25 @@ describe('PromptsView — day groups and rows', () => {
     await renderLoaded();
     const actions = (li: HTMLElement) => within(li).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     const [live, dead] = screen.getAllByRole('listitem');
-    expect(actions(live)).toEqual(['Open this session', 'Copy prompt', 'Save to your prompts']);
+    expect(actions(live)).toEqual(['Open this session', 'Add to this session’s queue', 'Copy prompt', 'Save to your prompts']);
     expect(actions(dead)).toEqual(['Copy prompt', 'Save to your prompts']);
+  });
+
+  it('Add to queue puts the prompt at the end of that session’s queue, unsent (Oct 28 2026)', async () => {
+    useSessionStore.setState({ sessions: new Map([['s1', liveSession('s1')]]) });
+    useQueueStore.setState({ queues: new Map() });
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole('button', { name: 'Add to this session’s queue' }));
+    expect(useQueueStore.getState().queues.get('s1')?.map((i) => i.text)).toEqual(['first today']);
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/^Added to .*’s queue · 1 waiting$/), 'success');
+  });
+
+  it('offers no Add to queue for an ended session still in memory, though it can still be opened', async () => {
+    useSessionStore.setState({ sessions: new Map([['s1', { ...liveSession('s1'), status: 'ended' } as Session]]) });
+    await renderLoaded();
+    expect(screen.getAllByRole('button', { name: 'Open this session' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Add to this session’s queue' })).toBeNull();
   });
 
   it('Open selects that session and goes to the board', async () => {
@@ -397,7 +415,7 @@ describe('PromptsView — row actions', () => {
     useSessionStore.setState({ sessions: new Map([['s1', liveSession('s1')]]) });
     await renderLoaded();
     const item = screen.getAllByRole('listitem')[0];
-    for (const name of ['Open this session', 'Copy prompt', 'Save to your prompts']) {
+    for (const name of ['Open this session', 'Add to this session’s queue', 'Copy prompt', 'Save to your prompts']) {
       expect(within(item).getByRole('button', { name })).toHaveAccessibleDescription(/^\d{2}:\d{2} alpha Fix the build$/);
     }
   });

@@ -33,6 +33,7 @@ import UnfoldIcon from '@/components/ui/UnfoldIcon';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { appendPromptToQueue, canQueuePromptFor } from '@/lib/queueAppend';
 import { uniqueProjectOptions } from '@/lib/projectOptions';
 import { canRetry, readJson } from '@/lib/requestJson';
 import { clipToMatch, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
@@ -95,6 +96,17 @@ const OpenGlyph = () => (
   </Glyph>
 );
 
+/** A list with a plus: "put this at the end of the queue". */
+const QueueGlyph = () => (
+  <Glyph>
+    <line x1="3" y1="6" x2="15" y2="6" />
+    <line x1="3" y1="12" x2="15" y2="12" />
+    <line x1="3" y1="18" x2="11" y2="18" />
+    <line x1="18" y1="15" x2="18" y2="21" />
+    <line x1="15" y1="18" x2="21" y2="18" />
+  </Glyph>
+);
+
 // ---------------------------------------------------------------------------
 // Row
 // ---------------------------------------------------------------------------
@@ -103,12 +115,17 @@ function PromptRow({
   row,
   query,
   isLive,
+  canQueue,
   onOpen,
+  onQueue,
 }: {
   row: PromptTraceRow;
   query: string;
   isLive: boolean;
+  /** The session is live and not ended, so its queue can take this prompt (Oct 28 2026). */
+  canQueue: boolean;
   onOpen: (sessionId: string) => void;
+  onQueue: (sessionId: string, text: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const saveSnippet = usePromptSnippetStore((s) => s.save);
@@ -182,6 +199,11 @@ function PromptRow({
               <OpenGlyph />
             </IconButton>
           )}
+          {canQueue && (
+            <IconButton size="sm" label="Add to this session’s queue" aria-describedby={describedBy} onClick={() => onQueue(row.session_id, text)}>
+              <QueueGlyph />
+            </IconButton>
+          )}
           <IconButton size="sm" label="Copy prompt" aria-describedby={describedBy} onClick={handleCopy}>
             <CopyGlyph />
           </IconButton>
@@ -223,6 +245,10 @@ export default function PromptsView() {
   // session still live?".
   const liveIds = useSessionStore(useShallow((s) => Array.from(s.sessions.keys())));
   const liveSessions = useMemo(() => new Set(liveIds), [liveIds]);
+  // The same, for "can its queue take a prompt": not ended, not a floating fork.
+  const queueableIds = useSessionStore(useShallow((s) =>
+    Array.from(s.sessions.values()).filter((x) => canQueuePromptFor(x)).map((x) => x.sessionId)));
+  const queueable = useMemo(() => new Set(queueableIds), [queueableIds]);
   const selectSession = useSessionStore((s) => s.selectSession);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -274,6 +300,13 @@ export default function PromptsView() {
     },
     [selectSession, navigate],
   );
+  // Queued, never sent here: the scheduler sends it when the session is free.
+  const queuePrompt = useCallback((sessionId: string, text: string) => {
+    const waiting = appendPromptToQueue(sessionId, text);
+    const target = useSessionStore.getState().sessions.get(sessionId);
+    const name = target ? sessionDisplayTitle(target) : 'the session';
+    showToast(`Added to ${name}’s queue · ${waiting} waiting`, 'success');
+  }, []);
 
   const projectOptions = useMemo(
     () => [{ value: '', label: 'All' }, ...uniqueProjectOptions(projects)],
@@ -450,7 +483,9 @@ export default function PromptsView() {
                     row={row}
                     query={query}
                     isLive={liveSessions.has(row.session_id)}
+                    canQueue={queueable.has(row.session_id)}
                     onOpen={openSession}
+                    onQueue={queuePrompt}
                   />
                 ))}
               </ul>

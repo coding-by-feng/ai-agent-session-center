@@ -19,6 +19,7 @@ import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
+import { sendPromptToTerminal } from '@/lib/terminalSend';
 
 vi.mock('@/lib/terminalSend', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/terminalSend')>()),
@@ -78,16 +79,24 @@ describe('QueueTab on a phone — the QUEUE tab is the queue', () => {
     expect(screen.getByPlaceholderText(/Add a prompt to the queue/)).toBeInTheDocument();
   });
 
-  it('Auto-Enter and Auto-send are labelled switches that say their state', async () => {
+  it('Auto-Enter is always on in the app, so only Auto-send is a switch (Oct 27 2026)', async () => {
     renderTab();
-    const autoEnter = screen.getByRole('button', { name: /Auto-Enter/ });
-    expect(autoEnter).toHaveAttribute('aria-pressed', 'true');
-    expect(autoEnter).toHaveTextContent(/Auto-Enter\s*on/i);
-    await userEvent.setup().click(autoEnter);
+    expect(screen.queryByRole('button', { name: /Auto-Enter/ })).toBeNull();
+    const autoSend = screen.getByRole('button', { name: /Auto-send/ });
+    expect(autoSend).toHaveAttribute('aria-pressed', 'true');
+    expect(autoSend).toHaveTextContent(/Auto-send\s*on/i);
+    await userEvent.setup().click(autoSend);
+    expect(useQueueStore.getState().automation.get('s1')?.autoSend).toBe(false);
+    expect(screen.getByRole('button', { name: /Auto-send/ })).toHaveTextContent(/off/i);
+  });
+
+  it("SEND on a phone submits the prompt even when the session's Auto-Enter was turned off on the Mac", async () => {
+    useQueueStore.getState().setAutoEnter('s1', false);
+    renderTab();
+    await userEvent.setup().click(within(rows()[0]).getByRole('button', { name: /^SEND$/ }));
+    expect(vi.mocked(sendPromptToTerminal)).toHaveBeenCalledWith('term-1', 'first', true, expect.any(Number));
+    // The shared flag is the Mac's to change: the phone never flips it.
     expect(useQueueStore.getState().automation.get('s1')?.autoEnter).toBe(false);
-    expect(screen.getByRole('button', { name: /Auto-Enter/ })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: /Auto-Enter/ })).toHaveTextContent(/off/i);
-    expect(screen.getByRole('button', { name: /Auto-send/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('every row carries SEND, EDIT, MOVE, DEL and More; ▲ ▼ ★ live in the More sheet', () => {
@@ -232,6 +241,18 @@ describe('QueueTab on a phone — press and hold to reorder', () => {
 });
 
 describe('QueueTab on a desktop is unchanged', () => {
+  it('keeps the Auto-Enter toggle, and SEND follows the stored flag', async () => {
+    platform.isMobile = false;
+    useQueueStore.getState().setAutoEnter('s1', false);
+    renderTab();
+    expect(screen.getByRole('button', { name: /Auto-Enter OFF/ })).toBeInTheDocument();
+    vi.mocked(sendPromptToTerminal).mockClear();
+    const user = userEvent.setup();
+    await user.hover(rows()[0]);
+    await user.click(within(rows()[0]).getByRole('button', { name: /^SEND$/ }));
+    expect(vi.mocked(sendPromptToTerminal)).toHaveBeenCalledWith('term-1', 'first', false, expect.any(Number));
+  });
+
   it('keeps the hover row (▲ ▼ ★, DEL removes at once, no More) and the collapse button', async () => {
     platform.isMobile = false;
     useUiStore.setState({ queuePanelCollapsed: false });

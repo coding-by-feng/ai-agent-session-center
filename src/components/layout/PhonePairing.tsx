@@ -10,9 +10,9 @@
  * Desktop only: the routes answer the AASC page on this machine and nothing
  * else, so the section renders only when this device is local.
  *
- * Until the phone app ships, the Mac doesn't offer pairing (AASC-30): no Pair
- * button, and no section at all unless phones were paired before, which still
- * list here with Allow / Revoke.
+ * Pairing is offered by default. With `phonePairing: false` (or
+ * AASC_PHONE_PAIRING=0) there is no Pair button, and no section at all unless
+ * phones were paired before, which still list here with Allow / Revoke.
  *
  * Each approved phone can be renamed in place (Enter saves, Esc cancels) and
  * signed out: its sessions and sockets end, its pairing stays, and the phone

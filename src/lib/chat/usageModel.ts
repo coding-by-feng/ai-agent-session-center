@@ -139,6 +139,15 @@ export const CONTEXT_KIND_LABELS: Readonly<Record<ContextKind, string>> = {
 /** Kinds under this share of the window are folded into one "Other" row. */
 const MIN_ROW_PCT = 0.5;
 
+/** One line of what a kind holds: "Bash · npm test", ×3, 9.1k. */
+export interface ContextEntryRow {
+  key: string;
+  label: string;
+  /** "×3" for entries merged by name, else null. */
+  countText: string | null;
+  tokensText: string;
+}
+
 export interface ContextKindRow {
   key: string;
   label: string;
@@ -146,7 +155,20 @@ export interface ContextKindRow {
   /** Share of the whole window (its size when known), 0–100. */
   pct: number;
   pctText: string;
+  /** What it opens to (Oct 28 2026): its largest entries, or for Other the kinds it folds. */
+  entries: ContextEntryRow[];
+  /** "41 more" with its tokens, or null. */
+  rest: { label: string; tokensText: string } | null;
+  /** Said instead of entries for what the transcript can't split. */
+  note: string | null;
 }
+
+/** What a kind with no entries says when opened. Free and the rest say nothing (not a button). */
+const KIND_NOTES: Partial<Record<ContextKind, string>> = {
+  system: 'Claude Code’s system prompt and setup, sent with every request. The transcript doesn’t record its parts.',
+  fixed: 'Claude Code’s system prompt and tool definitions, sent with every request. This transcript doesn’t record how they split.',
+  tools: 'The tools Claude can call, described with every request.',
+};
 
 export interface ContextBreakdownView {
   rows: ContextKindRow[];
@@ -167,16 +189,46 @@ export function describeContextBreakdown(b: ContextBreakdown, size: number | und
   const rows: ContextKindRow[] = [];
   let other = 0;
   let otherKinds = 0;
+  const folded: ContextEntryRow[] = [];
   for (const k of b.kinds) {
-    if (share(k.tokens) < MIN_ROW_PCT) { other += k.tokens; otherKinds += 1; continue; }
-    rows.push({ key: k.kind, label: CONTEXT_KIND_LABELS[k.kind], tokensText: formatTokens(k.tokens), pct: share(k.tokens), pctText: pctText(share(k.tokens)) });
+    if (share(k.tokens) < MIN_ROW_PCT) {
+      other += k.tokens;
+      otherKinds += 1;
+      folded.push({ key: k.kind, label: CONTEXT_KIND_LABELS[k.kind], countText: null, tokensText: formatTokens(k.tokens) });
+      continue;
+    }
+    const entries = (k.items ?? []).map((item, i) => ({
+      key: `${i}`,
+      label: item.label,
+      countText: item.count && item.count > 1 ? `×${item.count}` : null,
+      tokensText: formatTokens(item.tokens),
+    }));
+    rows.push({
+      key: k.kind,
+      label: CONTEXT_KIND_LABELS[k.kind],
+      tokensText: formatTokens(k.tokens),
+      pct: share(k.tokens),
+      pctText: pctText(share(k.tokens)),
+      entries,
+      rest: k.rest ? { label: `${k.rest.count} more`, tokensText: formatTokens(k.rest.tokens) } : null,
+      note: entries.length === 0 ? KIND_NOTES[k.kind] ?? null : null,
+    });
   }
   if (other > 0) {
-    rows.push({ key: 'other', label: otherKinds === 1 ? 'Other' : `Other (${otherKinds} kinds)`, tokensText: formatTokens(other), pct: share(other), pctText: pctText(share(other)) });
+    rows.push({
+      key: 'other',
+      label: otherKinds === 1 ? 'Other' : `Other (${otherKinds} kinds)`,
+      tokensText: formatTokens(other),
+      pct: share(other),
+      pctText: pctText(share(other)),
+      entries: folded,
+      rest: null,
+      note: null,
+    });
   }
   if (size && size > b.tokens) {
     const free = size - b.tokens;
-    rows.push({ key: 'free', label: 'Free', tokensText: formatTokens(free), pct: share(free), pctText: pctText(share(free)) });
+    rows.push({ key: 'free', label: 'Free', tokensText: formatTokens(free), pct: share(free), pctText: pctText(share(free)), entries: [], rest: null, note: null });
   }
   const age = b.measuredAt ? formatAge(b.measuredAt, now) : '';
   const since = b.sinceCompaction ? 'since the last compaction' : 'since the session started';

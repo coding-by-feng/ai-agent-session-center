@@ -33,9 +33,19 @@ const claudeBtn = () => screen.getByRole('button', { name: 'New Claude session i
 const codexBtn = () => screen.getByRole('button', { name: 'New Codex session in agent-manager' });
 const anyChip = () => screen.queryByRole('button', { name: /^New .* session in/ });
 
-/** Click, and let the launch settle inside act: the header updates state when the request returns. */
-const press = async (button: HTMLElement) => {
-  await act(async () => { fireEvent.click(button); });
+const modeItem = (name: string) => screen.getByRole('menuitemradio', { name });
+
+/** Open a chip's permission menu and pick a mode, without waiting for the launch. */
+const pick = (button: HTMLElement, mode = 'Default') => {
+  fireEvent.click(button);
+  fireEvent.click(modeItem(mode));
+};
+
+/** Pick a mode, and let the launch settle inside act: the header updates state when the request returns. */
+const press = async (button: HTMLElement, mode = 'Default') => {
+  fireEvent.click(button);
+  const item = modeItem(mode);
+  await act(async () => { fireEvent.click(item); });
 };
 
 const OK: LaunchResult = { ok: true, terminalId: 't1', deduplicated: false };
@@ -55,6 +65,7 @@ const room = (id: string, sessionIds: string[]): Room => ({ id, name: id.toUpper
 
 describe('ProjectFrameHeader', () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.mocked(launchSession).mockReset();
     vi.mocked(launchSession).mockResolvedValue(OK);
     // The machine that hosts the dashboard — the only place the chips are offered.
@@ -161,6 +172,75 @@ describe('ProjectFrameHeader', () => {
     });
   });
 
+  describe('permission mode', () => {
+    const modeNames = () => screen.getAllByRole('menuitemradio').map((el) => el.textContent);
+
+    it('opens a menu of modes instead of launching, on Default before anything was picked', () => {
+      render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
+      fireEvent.click(claudeBtn());
+      expect(launchSession).not.toHaveBeenCalled();
+      expect(screen.getByRole('menu', { name: 'Claude permission mode' })).toBeInTheDocument();
+      expect(modeNames()).toEqual(['Default', 'Accept edits', 'Plan', 'Auto', 'Bypass permissions']);
+      expect(modeItem('Default')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it("offers Codex only Codex's modes", () => {
+      render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
+      fireEvent.click(codexBtn());
+      expect(modeNames()).toEqual(['Default', 'Bypass approvals & sandbox']);
+    });
+
+    it("launches the picked mode's command", async () => {
+      render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
+      await press(claudeBtn(), 'Bypass permissions');
+      expect(vi.mocked(launchSession).mock.calls[0][0].command).toBe('claude --dangerously-skip-permissions');
+      await press(codexBtn(), 'Bypass approvals & sandbox');
+      expect(vi.mocked(launchSession).mock.calls[1][0].command).toBe('codex --dangerously-bypass-approvals-and-sandbox');
+    });
+
+    it('opens next time on the mode picked last, checked and focused, so Enter relaunches it', async () => {
+      render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
+      await press(claudeBtn(), 'Plan');
+      await act(async () => { fireEvent.click(claudeBtn()); });
+      expect(modeItem('Plan')).toHaveAttribute('aria-checked', 'true');
+      expect(modeItem('Default')).toHaveAttribute('aria-checked', 'false');
+      expect(modeItem('Plan')).toHaveFocus();
+      expect(claudeBtn().getAttribute('title')).toContain('last: Plan');
+    });
+
+    it("keeps each CLI's last pick apart", async () => {
+      render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
+      await press(claudeBtn(), 'Bypass permissions');
+      fireEvent.click(codexBtn());
+      expect(modeItem('Default')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it("follows a pick made in another project's frame", async () => {
+      render(
+        <>
+          <ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />
+          <ProjectFrameHeader group={group({ key: 'localhost|/w/site', path: '/w/site', launchPath: '/w/site', label: 'site' })} collapsed={false} onToggleCollapse={vi.fn()} />
+        </>,
+      );
+      await press(claudeBtn(), 'Accept edits');
+      const other = screen.getByRole('button', { name: 'New Claude session in site' });
+      expect(other.getAttribute('title')).toContain('last: Accept edits');
+      fireEvent.click(other);
+      expect(modeItem('Accept edits')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('does not let a pick in the menu reach whatever the frame sits in', async () => {
+      const onParentClick = vi.fn();
+      render(
+        <div onClick={onParentClick}>
+          <ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />
+        </div>,
+      );
+      await press(claudeBtn(), 'Auto');
+      expect(onParentClick).not.toHaveBeenCalled();
+    });
+  });
+
   // `~/Projects/site (old)` is an ordinary folder, and the server refuses its path outright.
   describe('a path the server would refuse', () => {
     const blocked = () => group({ path: '/Users/me/site (old)', launchPath: '/Users/me/site (old)' });
@@ -177,6 +257,7 @@ describe('ProjectFrameHeader', () => {
       render(<ProjectFrameHeader group={blocked()} collapsed={false} onToggleCollapse={vi.fn()} />);
       fireEvent.click(claudeBtn());
       fireEvent.click(codexBtn());
+      expect(screen.queryByRole('menu')).toBeNull();
       expect(launchSession).not.toHaveBeenCalled();
     });
 
@@ -204,7 +285,7 @@ describe('ProjectFrameHeader', () => {
 
     it('holds BOTH buttons while a launch is in flight, since every click would start another PTY', () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       expect(claudeBtn()).toHaveAttribute('aria-disabled', 'true');
       expect(codexBtn()).toHaveAttribute('aria-disabled', 'true');
       expect(claudeBtn()).toHaveAttribute('aria-busy', 'true');
@@ -214,32 +295,34 @@ describe('ProjectFrameHeader', () => {
     it('keeps keyboard focus on the chip that was pressed — a real `disabled` would drop it to <body>', () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
       claudeBtn().focus();
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       expect(claudeBtn()).toHaveAttribute('aria-disabled', 'true');
       expect(claudeBtn()).toHaveFocus();
     });
 
-    it('ignores a second click that lands before the first launch has finished', () => {
+    it('opens no menu on a held button, so a second launch cannot be picked before the first has finished', () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       fireEvent.click(claudeBtn());
       fireEvent.click(codexBtn());
+      expect(screen.queryByRole('menu')).toBeNull();
       expect(launchSession).toHaveBeenCalledTimes(1);
     });
 
-    it('ignores a second click in the same instant as the first, before React has re-rendered the buttons as held', () => {
+    it('ignores a second pick in the same instant as the first, before React has re-rendered the buttons as held', () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
-      const btn = claudeBtn();
+      fireEvent.click(claudeBtn());
+      const item = modeItem('Default');
       act(() => {
-        btn.click();
-        btn.click();
+        item.click();
+        item.click();
       });
       expect(launchSession).toHaveBeenCalledTimes(1);
     });
 
     it('lets go of the buttons once the launch is done', async () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       await act(async () => { release(OK); });
       expect(claudeBtn()).not.toHaveAttribute('aria-disabled');
       expect(codexBtn()).not.toHaveAttribute('aria-disabled');
@@ -248,10 +331,10 @@ describe('ProjectFrameHeader', () => {
 
     it('lets go after a failed launch too, so the user can try again', async () => {
       render(<ProjectFrameHeader group={group()} collapsed={false} onToggleCollapse={vi.fn()} />);
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       await act(async () => { release({ ok: false, error: 'Directory not found: /Users/me/agent-manager' }); });
       expect(claudeBtn()).not.toHaveAttribute('aria-disabled');
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       expect(launchSession).toHaveBeenCalledTimes(2);
     });
   });
@@ -261,7 +344,7 @@ describe('ProjectFrameHeader', () => {
   describe('the room the new session joins', () => {
     const launchAndSettle = async (g: ProjectGroup = group()) => {
       render(<ProjectFrameHeader group={g} collapsed={false} onToggleCollapse={vi.fn()} />);
-      fireEvent.click(claudeBtn());
+      pick(claudeBtn());
       await act(async () => { await Promise.resolve(); });
     };
     const membersOf = (id: string) => useRoomStore.getState().rooms.find((r) => r.id === id)?.sessionIds;

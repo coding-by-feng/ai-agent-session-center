@@ -1,12 +1,13 @@
-// pairingOffer.ts — is "Pair a phone" offered on this Mac? (AASC-30)
+// pairingOffer.ts — is "Pair a phone" offered on this Mac?
 //
-// Off until the AASC phone app can be installed and aasc.work/pair is live:
-// before that, a QR would send people to an app that doesn't exist. Turning it
-// on needs no code change:
-//   server-config.json  "phonePairing": true
-//   environment         AASC_PHONE_PAIRING=1 (or true); 0 / false turns it off
+// On by default now that the AASC phone app ships. It was off until then
+// (AASC-30), so a QR wouldn't send people to an app that didn't exist.
+// Turning it off needs no code change:
+//   server-config.json  "phonePairing": false
+//   environment         AASC_PHONE_PAIRING=0 (or false); 1 / true turns it on
 // The variable wins over the file. Phones paired before are never affected:
-// listing, approving and revoking them don't depend on this.
+// listing, approving and revoking them don't depend on this. The QR still
+// needs a dashboard password (POST /pairing refuses without one).
 
 export interface PairingOfferConfig {
   phonePairing?: boolean;
@@ -19,5 +20,5 @@ export function isPhonePairingOffered(
   const raw = (env.AASC_PHONE_PAIRING ?? '').trim().toLowerCase();
   if (raw === '1' || raw === 'true') return true;
   if (raw === '0' || raw === 'false') return false;
-  return config.phonePairing === true;
+  return config.phonePairing !== false;
 }

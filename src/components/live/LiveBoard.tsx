@@ -33,6 +33,8 @@ import {
 } from '@/lib/liveBoard';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { PROCEED, displayStatus, statusColor, statusLabel } from '@/lib/sessionStatusStyle';
+import { formatMemory } from '@/lib/memoryFormat';
+import { useSessionMemoryStore } from '@/stores/sessionMemoryStore';
 import { detectCli } from '@/lib/cliDetect';
 import { openSessionPanel } from '@/lib/liveSession';
 import { useBoardClock, useLiveHint } from '@/hooks/useLiveBoard';
@@ -80,6 +82,8 @@ function BoardCard({ session, room, now, onOpen, onKill }: BoardCardProps) {
   const cli = detectCli(session);
   const quiet = quietFor(session, now);
   const note = boardNote(session);
+  // What this session's terminal holds (server/sessionMemory.ts); absent while asleep or unread.
+  const memoryBytes = useSessionMemoryStore((s) => s.sample?.bySession[session.sessionId]);
   // The name leads with the title and carries the status, project, room and age
   // shown on the card (the CLI name is not in it, as before); the note is long,
   // so it describes the card instead of joining its name.
@@ -89,6 +93,7 @@ function BoardCard({ session, room, now, onOpen, onKill }: BoardCardProps) {
     project,
     room && `Room ${room.name}`,
     quiet && `quiet for ${quiet}`,
+    memoryBytes !== undefined && `using ${formatMemory(memoryBytes)} of memory`,
   ].filter(Boolean).join(' — ');
   return (
     <li className={styles.cell}>
@@ -108,6 +113,7 @@ function BoardCard({ session, room, now, onOpen, onKill }: BoardCardProps) {
           <span className={styles.statusLine}>
             <StatusBadge status={shown} label={label} className={styles.status} />
             {quiet && <span className={styles.age}>{quiet}</span>}
+            {memoryBytes !== undefined && <span className={styles.memory}>{formatMemory(memoryBytes)}</span>}
           </span>
           {/* Only the exception is marked: nearly every card is Claude (AASC-11). */}
           {cli && cli !== 'claude' && <span className={styles.cli}>{CLI_NAMES[cli]}</span>}

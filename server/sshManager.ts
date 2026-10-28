@@ -1485,6 +1485,16 @@ export function prefillTerminalOutput(terminalId: string, base64Data: string): b
   return true;
 }
 
+/** Each open terminal's shell pid, for the memory sampler (server/sessionMemory.ts). */
+export function getTerminalShellPids(): Array<{ terminalId: string; pid: number }> {
+  const result: Array<{ terminalId: string; pid: number }> = [];
+  for (const [terminalId, term] of terminals) {
+    const pid = (term.pty as { pid?: number } | undefined)?.pid;
+    if (typeof pid === 'number' && pid > 0) result.push({ terminalId, pid });
+  }
+  return result;
+}
+
 export function getTerminals(): TerminalInfo[] {
   const result: TerminalInfo[] = [];
   for (const [terminalId, term] of terminals) {

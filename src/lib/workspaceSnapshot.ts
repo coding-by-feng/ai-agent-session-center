@@ -188,8 +188,9 @@ export function buildSnapshot(
     if (!session.sshConfig) continue;
     // Never recreate sessions that were explicitly killed or archived by the user
     if (session.archived) continue;
-    // Skip ended sessions — they can't be meaningfully restored
-    if (session.status === 'ended') continue;
+    // Skip ended sessions — they can't be meaningfully restored. A session AASC put to sleep
+    // (server/sessionSleep.ts) reads as ended but is still the person's: it is kept, and resumed.
+    if (session.status === 'ended' && !session.asleepAt) continue;
 
     exportedSessionIds.add(session.sessionId);
     const projectTabs = getProjectTabs(session.sessionId);
@@ -232,7 +233,7 @@ export function buildSnapshot(
       terminalId: session.terminalId || session.lastTerminalId || undefined,
       previousSessionIds: session.previousSessions?.map((previous) => previous.sessionId),
       title: session.title,
-      status: session.status,
+      status: session.asleepAt ? 'idle' : session.status,
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
@@ -476,7 +477,7 @@ export function deduplicateSessions(sessions: SessionSnapshot[]): SessionSnapsho
 
 function sessionIdentityRank(session: Session): number {
   const hookId = /^(?:term|pty)-/.test(session.sessionId) ? 0 : 1;
-  const live = session.status === 'ended' ? 0 : 1;
+  const live = session.status === 'ended' && !session.asleepAt ? 0 : 1;
   return hookId * 1e15 + live * 1e14 + (session.lastActivityAt || session.startedAt || 0);
 }
 

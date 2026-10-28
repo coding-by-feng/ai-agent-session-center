@@ -1,0 +1,27 @@
+/* MemoryChip — a quiet readout in Header's `.stats` row: the same height and border as the
+   device chip beside it, but no hover or pointer, because it is not a button. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  min-height: 32px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle, #2a2a44);
+  border-radius: 6px;
+  color: var(--text-secondary, #8a8aa8);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.asleep {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}

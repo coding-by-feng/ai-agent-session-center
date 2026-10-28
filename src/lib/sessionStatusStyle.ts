@@ -40,23 +40,34 @@ export const PROCEED = 'proceed';
 const PROCEED_LABEL = 'Asks you to proceed';
 const PROCEED_COLOR = 'var(--accent-yellow)';
 
+/**
+ * "Asleep" (Oct 28 2026): AASC stopped this idle session's CLI to free memory (`Session.asleepAt`,
+ * server/sessionSleep.ts). Its status is `ended`, but it is resting, not gone: opening it resumes it.
+ */
+export const ASLEEP = 'asleep';
+const ASLEEP_LABEL = 'Asleep';
+const ASLEEP_COLOR = 'var(--text-dim)';
+
 export function owesProceed(session: { status: string; pendingProceedAt?: number | null }): boolean {
   return !!session.pendingProceedAt && (session.status === 'waiting' || session.status === 'idle');
 }
 
-/** The status to draw: `PROCEED` while a reply is owed, else the session's own. */
-export function displayStatus(session: { status: string; pendingProceedAt?: number | null }): string {
+/** The status to draw: `ASLEEP` while asleep, `PROCEED` while a reply is owed, else the session's own. */
+export function displayStatus(session: { status: string; pendingProceedAt?: number | null; asleepAt?: number }): string {
+  if (session.asleepAt) return ASLEEP;
   return owesProceed(session) ? PROCEED : session.status;
 }
 
 /** The status in words; an unknown status is shown as it is. */
 export function statusLabel(status: string): string {
   if (status === PROCEED) return PROCEED_LABEL;
+  if (status === ASLEEP) return ASLEEP_LABEL;
   return STATUS_LEGEND.find((s) => s.status === status)?.label ?? status;
 }
 
 /** The status colour; an unknown status gets the dim text colour. */
 export function statusColor(status: string): string {
   if (status === PROCEED) return PROCEED_COLOR;
+  if (status === ASLEEP) return ASLEEP_COLOR;
   return STATUS_COLORS[status] ?? 'var(--text-dim)';
 }

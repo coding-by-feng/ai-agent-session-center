@@ -17,6 +17,10 @@
  * session, wherever the phone is, with no picker, no per-row session name, and
  * "Use again" (`onUseAgain`: back into the composer, never sent) in place of
  * Open session.
+ *
+ * Oct 28 2026: an open prompt also offers **Add to queue**: its text goes to the
+ * end of the session's shared queue (this tab's session, or in the whole trace the
+ * prompt's own session), only while that session is live (`canQueuePromptFor`).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -25,6 +29,7 @@ import { authFetch } from '@/hooks/useAuth';
 import { canRetry, readJson } from '@/lib/requestJson';
 import { uniqueProjectOptions } from '@/lib/projectOptions';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { appendPromptToQueue, canQueuePromptFor } from '@/lib/queueAppend';
 import { clipToMatch, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 import {
   INITIAL_PROMPT_FILTERS,
@@ -182,6 +187,16 @@ function PromptTrace({ host, fixedSession, onUseAgain, openAt, onOpenAtDone }: {
     closeRow();
     navigate('/');
   }, [selectSession, navigate, closeRow]);
+  // Add to queue goes to this tab's session, else the prompt's own: only a live one takes it.
+  const queueId = shownRow ? fixedSession ?? shownRow.session_id : null;
+  const queueTarget = queueId && canQueuePromptFor(sessions.get(queueId)) ? queueId : null;
+  const addToQueue = useCallback((sessionId: string, text: string) => {
+    const waiting = appendPromptToQueue(sessionId, text);
+    const target = sessions.get(sessionId);
+    const name = target ? sessionDisplayTitle(target) : 'the session';
+    showToast(`Added to ${name}’s queue · ${waiting} waiting`, 'success');
+    closeRow();
+  }, [sessions, closeRow]);
 
   const body = () => {
     if (!host && !session) {
@@ -304,6 +319,7 @@ function PromptTrace({ host, fixedSession, onUseAgain, openAt, onOpenAtDone }: {
           live={!fixedSession && sessions.has(shownRow.session_id)}
           onOpenSession={openSession}
           onUseAgain={onUseAgain ? (text) => { closeRow(); onUseAgain(text); } : undefined}
+          onAddToQueue={queueTarget ? (text) => addToQueue(queueTarget, text) : undefined}
           onClose={closeRow}
         />
       )}
@@ -337,13 +353,15 @@ function PromptRow({ row, query, live, showSession, onOpen }: {
   );
 }
 
-function PromptSheet({ row, query, live, onOpenSession, onUseAgain, onClose }: {
+function PromptSheet({ row, query, live, onOpenSession, onUseAgain, onAddToQueue, onClose }: {
   row: PromptTraceRow;
   query: string;
   live: boolean;
   onOpenSession: (id: string) => void;
   /** Put the prompt back in the composer (one session's tab). */
   onUseAgain?: (text: string) => void;
+  /** Put the prompt at the end of a live session's queue (absent when none can take it). */
+  onAddToQueue?: (text: string) => void;
   onClose: () => void;
 }) {
   const saveSnippet = usePromptSnippetStore((s) => s.save);
@@ -386,6 +404,7 @@ function PromptSheet({ row, query, live, onOpenSession, onUseAgain, onClose }: {
           <Button onClick={() => void copy()}>Copy</Button>
           <Button onClick={() => void save()}>Save to prompts</Button>
           {live && <Button variant="primary" onClick={() => onOpenSession(row.session_id)}>Open session</Button>}
+          {onAddToQueue && <Button onClick={() => onAddToQueue(text)}>Add to queue</Button>}
           {onUseAgain && <Button variant="primary" onClick={() => onUseAgain(text)}>Use again</Button>}
         </div>
       </div>

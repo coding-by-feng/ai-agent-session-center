@@ -215,12 +215,17 @@
 .usageKinds {
   display: flex;
   flex-direction: column;
-  gap: var(--ph-space-2);
+  /* Kinds that open are 44 px buttons with their own padding; a plain one (Free) gets the same. */
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .usageKind { display: flex; flex-direction: column; gap: 2px; }
+/* A plain row (Free) lines up with the buttons: same vertical padding, and it stops where their
+   chevron column starts, so every value and bar ends on one line. */
+.usageKind > .usageKindHead:first-child { padding-top: var(--ph-space-1); margin-right: 20px; }
+.usageKind > .usageKindBar:last-child { margin-bottom: var(--ph-space-1); margin-right: 20px; }
 .usageKindHead {
   display: flex;
   justify-content: space-between;
@@ -245,10 +250,84 @@
   background: var(--ph-accent);
 }
 .usageKindFill[data-free] { background: var(--ph-fill-strong); }
+
+/* A kind that opens to what it holds (Oct 28 2026): the head and bar as one button, the chevron
+   at the right of the head. The pressed background reaches past the row's text, as the card's does. */
+.usageKindButton {
+  appearance: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: calc(100% + 2 * var(--ph-space-2));
+  min-height: var(--ph-target);
+  margin: 0 calc(-1 * var(--ph-space-2));
+  padding: var(--ph-space-1) calc(var(--ph-space-2) + 20px) var(--ph-space-1) var(--ph-space-2);
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--ph-motion-fast) ease;
+}
+@media (hover: hover) {
+  .usageKindButton:hover { background: var(--ph-fill); }
+}
+.usageKindButton:active { background: var(--ph-fill-strong); }
+.usageKindButton:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 0; }
+.usageKindChevron {
+  position: absolute;
+  top: 50%;
+  right: var(--ph-space-1);
+  margin-top: -8px;
+  width: 16px;
+  height: 16px;
+  color: var(--ph-text-tertiary);
+  transition: transform var(--ph-motion-fast) ease;
+}
+.usageKindChevron[data-open] { transform: rotate(90deg); }
+
+.usageEntries {
+  margin: 2px 0 var(--ph-space-1);
+  padding-left: var(--ph-space-2);
+  border-left: 2px solid var(--ph-separator);
+}
+.usageEntryList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.usageEntry {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ph-space-2);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+/* A path or a command: one line, cut at the end, so the tokens stay in view at 320 px. */
+.usageEntryLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ph-text-secondary);
+}
+.usageEntryCount { flex: none; color: var(--ph-text-tertiary); font-variant-numeric: tabular-nums; }
+.usageEntryValue { flex: none; color: var(--ph-text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.usageEntry[data-rest] .usageEntryLabel,
+.usageEntry[data-rest] .usageEntryValue { color: var(--ph-text-tertiary); font-weight: 400; }
 .usagePart dd { margin: 0; color: var(--ph-text); font-variant-numeric: tabular-nums; font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
-  .usageRowButton, .usageChevron { transition: none; }
+  .usageRowButton, .usageChevron, .usageKindButton, .usageKindChevron { transition: none; }
 }
 
 .usageHead {

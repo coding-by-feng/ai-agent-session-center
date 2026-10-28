@@ -25,14 +25,15 @@ export interface ServerConfig {
    */
   remoteListenerPort?: number | null;
   /**
-   * Offer "Pair a phone" on the desktop (AASC-30). Off until the phone app can
-   * be installed and aasc.work/pair is live. `AASC_PHONE_PAIRING=1` / `0`
+   * Offer "Pair a phone" on the desktop. Absent means on; `false` turns it off
+   * (it was off until the phone app shipped, AASC-30). `AASC_PHONE_PAIRING=1` / `0`
    * overrides it. Phones paired before are listed and revocable either way.
    */
   phonePairing?: boolean;
   /**
-   * The off switch for central sessions (server/mcp). `{ "enabled": false }` unmounts `/mcp` and
-   * stops launches from carrying MCP flags or a token. Absent, or `enabled` absent, means on.
+   * The switch for central sessions (server/mcp). Off unless `{ "enabled": true }` (Oct 28 2026); off leaves
+   * `/mcp` unmounted and launches carry no MCP flags or token. The Settings → ADVANCED choice
+   * (`central-sessions.json`, server/mcp/runtime.ts) wins over this when one was saved.
    * `router`, `autoRouting` and `idleWorkerMinutes` tune P4's automatic routing (server/mcp/routerConfig.ts);
    * all are read once at start, so a change needs a restart.
    */

@@ -2,9 +2,19 @@
 //
 // Two things the rest of the folder needs and none of them owns: the port /mcp is served on (a launch
 // line names it, and only the code that starts the server knows it), and the off switch.
+//
+// The switch is OFF by default (Oct 28 2026, by request: every central and the /mcp runtime cost memory
+// and timers most people never use). Settings → ADVANCED turns it on; that choice is saved in its own
+// small file beside server-config.json (`central-sessions.json`, written atomically) and applies the
+// next time AASC starts, because /mcp and its runtime are built once at startup (index.ts).
 
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import log from '../logger.js';
 import { config } from '../serverConfig.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mcpPort: number | null = null;
 
@@ -58,12 +68,61 @@ export function getMcpPort(): number | null {
   return mcpPort;
 }
 
+function settingFile(): string {
+  if (process.env.AASC_CENTRAL_SESSIONS_FILE) return process.env.AASC_CENTRAL_SESSIONS_FILE;
+  return process.env.APP_USER_DATA
+    ? join(process.env.APP_USER_DATA, 'central-sessions.json')
+    : join(__dirname, '..', '..', 'data', 'central-sessions.json');
+}
+
+/** The Settings choice this process started with: read once, so a later save waits for a restart. */
+let bootChoice: boolean | null | undefined;
+/** The choice saved since start (null: none saved this run). */
+let savedChoice: boolean | null = null;
+
+function readSavedChoice(): boolean | null {
+  try {
+    const value = (JSON.parse(readFileSync(settingFile(), 'utf8')) as { enabled?: unknown }).enabled;
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function startChoice(): boolean | null {
+  if (bootChoice === undefined) bootChoice = readSavedChoice();
+  return bootChoice;
+}
+
 /**
- * Is the central-session feature on? `mcp.enabled` in `data/server-config.json`; on unless that is
- * explicitly `false`. Read from the config each time, so it is whatever the loaded config says.
+ * Is the central-session feature on in this run? The Settings choice AASC started with, else
+ * `mcp.enabled` in `server-config.json`; off unless one of them says `true`.
  */
 export function isMcpEnabled(): boolean {
-  return config.mcp?.enabled !== false;
+  return startChoice() ?? config.mcp?.enabled === true;
+}
+
+/** For Settings: on in this run, and on after the next start (they differ until a restart). */
+export function centralSessionsSetting(): { enabled: boolean; nextStart: boolean } {
+  const enabled = isMcpEnabled();
+  return { enabled, nextStart: savedChoice ?? enabled };
+}
+
+/** Save the Settings choice (temp file, then rename). It applies the next time AASC starts. */
+export function setCentralSessionsEnabled(on: boolean): void {
+  startChoice(); // pin this run's choice before the file changes under it
+  const file = settingFile();
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ enabled: on })}\n`, { mode: 0o600 });
+  renameSync(tmp, file);
+  savedChoice = on;
+}
+
+/** @internal — test only: forget both choices, so the next read goes to the file. */
+export function __resetCentralSessionsForTest(): void {
+  bootChoice = undefined;
+  savedChoice = null;
 }
 
 /** @internal — test only: forget the port, as a server that has not started would. */

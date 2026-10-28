@@ -349,6 +349,10 @@ export default function QueueTab({
   // and the actual firing stay in lockstep.
   const autoSend = automationConfig.autoSend;
   const autoEnter = automationConfig.autoEnter;
+  // In the phone app Auto-Enter is always on: no switch, and its own SEND always
+  // submits. The stored flag is left alone; it is the Mac's (its toggle and its
+  // scheduler's sends), and a phone never flips it.
+  const submitOnSend = isMobile || autoEnter;
   const setAutoSend = useQueueStore((s) => s.setAutoSend);
   const setAutoEnter = useQueueStore((s) => s.setAutoEnter);
   const setAutoResume = useQueueStore((s) => s.setAutoResume);
@@ -447,16 +451,16 @@ export default function QueueTab({
       // the input box instead of submitting; a standalone "\r" sent after the text
       // registers as a real Enter keypress. See sendPromptToTerminal; image paths
       // need the longer pause (submitDelayFor).
-      const ok = await sendPromptToTerminal(terminalId, textToSend, autoEnter, submitDelayFor(imageCount));
+      const ok = await sendPromptToTerminal(terminalId, textToSend, submitOnSend, submitDelayFor(imageCount));
       if (!ok) {
         showToast('Failed to send to terminal', 'error');
         return false;
       }
       // Same record as the scheduler's sends, so the CONVERSATION tab badges "send now" too.
-      if (autoEnter) recordQueueSent(item.sessionId, { text: item.text.replace(/\\n/g, '\n'), sentAt: Date.now() });
+      if (submitOnSend) recordQueueSent(item.sessionId, { text: item.text.replace(/\\n/g, '\n'), sentAt: Date.now() });
       return true;
     },
-    [terminalId, uploadImages, autoEnter],
+    [terminalId, uploadImages, submitOnSend],
   );
 
   // The actual 1s scheduler tick lives in `useGlobalQueueScheduler`
@@ -1162,9 +1166,9 @@ export default function QueueTab({
             </svg>
           )}
         </button>}
-        <button
-          className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}${isMobile ? ` ${styles.queuePhoneControl}` : ''}`}
-          aria-pressed={isMobile ? autoEnter : undefined}
+        {/* Not on a phone: Auto-Enter is always on in the app (submitOnSend). */}
+        {!isMobile && <button
+          className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}`}
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoEnter;
@@ -1194,12 +1198,7 @@ export default function QueueTab({
           }
         >
           <AutoEnterIcon />
-          {isMobile && (
-            <span className={styles.queuePhoneControlLabel}>
-              Auto-Enter <span className={styles.queuePhoneControlState}>{autoEnter ? 'on' : 'off'}</span>
-            </span>
-          )}
-        </button>
+        </button>}
         <button
           className={`${styles.autoSendToggle} ${autoSend ? styles.autoSendOn : ''}${isMobile ? ` ${styles.queuePhoneControl}` : ''}`}
           aria-pressed={isMobile ? autoSend : undefined}

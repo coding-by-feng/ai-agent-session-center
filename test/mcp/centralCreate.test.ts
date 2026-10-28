@@ -186,7 +186,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const record of centrals.list()) centrals.revoke(record.centralId);
   live.clear();
-  delete config.mcp;
+  config.mcp = { enabled: true }; // central sessions are off by default since Oct 28 2026
 });
 
 /** A local launch request; forceNew unless the test is about deduplication. */

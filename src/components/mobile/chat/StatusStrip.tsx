@@ -10,6 +10,11 @@
  * writes keys (`writeTerminal`, POST /api/terminals/:id/write). It is the phone's
  * only Stop (Oct 20 2026: the composer had a second, which asked first where this
  * one didn't): while a tool runs it asks first, since stopping interrupts the tool.
+ *
+ * Oct 28 2026: once Esc is written the button holds "Stopping…" (busy) and the strip
+ * reads "Stopping", until the turn ends or a new one starts, or STOP_PENDING_MS
+ * passes with the agent still working (then Stop can be pressed again). Before, it
+ * was busy only for the write itself, so a tap looked like it did nothing.
  */
 import { useEffect, useId, useState } from 'react';
 import type { Session } from '@/types';
@@ -26,6 +31,8 @@ import { ChevronIcon, SquareStopIcon } from './chatViewIcons';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
 const TICK_MS = 1000;
+/** How long a written Stop holds "Stopping…" before Stop is offered again. */
+export const STOP_PENDING_MS = 10_000;
 
 /** When the current turn began: the last prompt, else the last activity. */
 function turnStart(session: Session): number {
@@ -53,6 +60,8 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   const baton = useControlBaton(sessionId);
   const [now, setNow] = useState(() => Date.now());
   const [stopping, setStopping] = useState(false);
+  /** When Esc was written, and for which turn (its start). */
+  const [stopSent, setStopSent] = useState<{ at: number; turn: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The tool a confirmed Stop would interrupt, while its confirm is open. */
   const [confirmTool, setConfirmTool] = useState<string | null>(null);
@@ -75,17 +84,28 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   const since = compacting ? compacting.since : turnStart(session);
   const tool = compacting ? null : currentTool(session, since);
   const elapsed = formatDuration(Math.max(0, now - since));
-  const label = compacting
-    ? ['Compacting context', compacting.trigger].filter(Boolean).join(' · ')
-    : session.status === 'prompting' ? 'Starting' : 'Working';
+  // Worked out on each tick, never set by an effect: a new turn or the timeout ends it.
+  const stopPending = !!stopSent && stopSent.turn === since && now - stopSent.at < STOP_PENDING_MS;
+  const label = stopPending
+    ? 'Stopping'
+    : compacting
+      ? ['Compacting context', compacting.trigger].filter(Boolean).join(' · ')
+      : session.status === 'prompting' ? 'Starting' : 'Working';
 
   const stop = async () => {
     if (!terminalId) return;
+    const turn = since;
     setStopping(true);
     setError(null);
     const result = await writeTerminal(terminalId, PHONE_KEY_SEQUENCES.esc);
     setStopping(false);
-    if (!result.ok) setError(result.message);
+    if (result.ok) {
+      const at = Date.now();
+      setStopSent({ at, turn });
+      setNow(at);
+    } else {
+      setError(result.message);
+    }
   };
   const askStop = () => {
     const running = runningTool(session);
@@ -127,13 +147,13 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           variant="secondary"
           icon={<SquareStopIcon size={16} />}
           onClick={askStop}
-          loading={stopping}
-          loadingLabel="Stopping"
+          loading={stopping || stopPending}
+          loadingLabel="Stopping…"
           disabledReason={disabledReason}
           aria-label="Stop the agent (Esc)"
           className={styles.stripStop}
         >
-          Stop
+          {stopping || stopPending ? 'Stopping…' : 'Stop'}
         </Button>
       </div>
       {error && <p className={styles.stripError} role="alert">{error}</p>}

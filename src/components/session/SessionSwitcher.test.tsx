@@ -1474,11 +1474,31 @@ describe('SessionSwitcher — built-in PINNED frame', () => {
     expect(titlesIn(pinnedOf(container)!)).toEqual(['SMS']);
   });
 
-  it.each(['activity', 'project'] as const)('is not in the %s view, and neither is its toggle', (mode) => {
-    useUiStore.setState({ sessionSortMode: mode });
+  it('is not in the activity view, and neither is its toggle', () => {
+    useUiStore.setState({ sessionSortMode: 'activity' });
     const { container } = renderSwitcher();
     expect(pinnedOf(container)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Pinned room' })).toBeNull();
+  });
+
+  describe('in the Projects view', () => {
+    beforeEach(() => useUiStore.setState({ sessionSortMode: 'project' }));
+    afterEach(() => useUiStore.setState({ sessionSortMode: 'room' }));
+
+    it('goes first, above the project frames, and says its cards are also in their projects', () => {
+      const { container } = renderSwitcher();
+      expect(framesOf(container)[0]).toBe(pinnedOf(container));
+      expect(titlesIn(pinnedOf(container)!)).toEqual(['Exmouth 3D', 'Exmouth KRT', 'SMS']);
+      expect(pinnedOf(container)!.getAttribute('title')).toContain('also listed in its own project');
+    });
+
+    it('keeps its toggle, which hides and reshows it', () => {
+      const { container } = renderSwitcher();
+      fireEvent.click(toggle());
+      expect(pinnedOf(container)).toBeNull();
+      fireEvent.click(toggle());
+      expect(pinnedOf(container)).not.toBeNull();
+    });
   });
 
   it('shows in the top-bar layout too, first', () => {
@@ -1691,10 +1711,17 @@ describe('SessionSwitcher — project view', () => {
       expect(screen.queryByRole('button', { name: /^Move room/ })).toBeNull();
     });
 
-    it('draws no RECENT frame — it says "also listed in its own room"', () => {
-      const working = mk({ sessionId: 'a3', title: 'Busy', projectName: 'agent-manager', projectPath: '/w/agent-manager', status: 'working' });
+    it('draws the RECENT frame above the project frames, saying its cards are also in their projects', () => {
+      const working = mk({ sessionId: 'a3', title: 'Busy', projectName: 'agent-manager', projectPath: '/w/agent-manager', status: 'working', lastActivityAt: Date.now() });
       const { container } = renderProjects([working], rooms);
-      expect(container.querySelector('[class*="recentRoomGroup"]')).toBeNull();
+      const recent = container.querySelector('[class*="recentRoomGroup"]') as HTMLElement | null;
+      expect(recent).not.toBeNull();
+      expect(recent!.getAttribute('title')).toContain('also listed in its own project');
+      expect(titlesIn(recent!)).toEqual(['Busy']);
+      // Still in its project frame too.
+      expect(titlesIn(frameLabeled(container, 'agent-manager'))).toEqual(['Busy']);
+      const strip = container.querySelector('[class*="sessionTabStrip"]')!;
+      expect(strip.firstElementChild).toBe(recent);
     });
 
     it('still narrows to the rooms picked in the room filter', () => {
@@ -1746,6 +1773,7 @@ describe('SessionSwitcher — project view', () => {
     it('asks the server for a NEW session of that CLI in that project, and selects it', async () => {
       const { container } = renderProjects([queueFloat, kts]);
       fireEvent.click(within(frameLabeled(container, 'kts')).getByRole('button', { name: 'New Codex session in kts' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Default' }));
 
       await vi.waitFor(() => expect(selectSession).toHaveBeenCalledWith('term-new'));
       // Only this feature's request: an earlier block's debounced queue push can land in the same stub.
@@ -1765,6 +1793,7 @@ describe('SessionSwitcher — project view', () => {
     it("launches in the path a session really used, as it stored it — not the tidied key the frame is grouped by", async () => {
       const { container } = renderProjects([pinnedKill]); // only the '/w/agent-manager/' session
       fireEvent.click(within(frameLabeled(container, 'agent-manager')).getByRole('button', { name: 'New Claude session in agent-manager' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Default' }));
       await vi.waitFor(() => expect(terminalRequests()).toHaveLength(1));
       expect(JSON.parse(String(terminalRequests()[0][1]?.body)).workingDir).toBe('/w/agent-manager/');
     });
@@ -1789,6 +1818,7 @@ describe('SessionSwitcher — project view', () => {
       expect(titlesIn(frameLabeled(container, 'kts'))).toEqual(['KTS Agent']);
 
       fireEvent.click(within(frameLabeled(container, 'kts')).getByRole('button', { name: 'New Claude session in kts' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Default' }));
       await vi.waitFor(() => expect(selectSession).toHaveBeenCalledWith('term-new'));
       await vi.waitFor(() => expect(useRoomStore.getState().rooms[0].sessionIds).toContain('term-new'));
 

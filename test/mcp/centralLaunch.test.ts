@@ -79,7 +79,7 @@ function refusalOf(run: () => unknown): CentralLaunchError {
 
 afterEach(() => {
   for (const record of centrals.list()) centrals.revoke(record.centralId);
-  delete config.mcp;
+  config.mcp = { enabled: true }; // central sessions are off by default since Oct 28 2026
   log.warn.mockClear();
 });
 

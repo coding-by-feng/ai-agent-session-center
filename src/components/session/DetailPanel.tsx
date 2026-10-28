@@ -10,6 +10,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useMcpStore } from '@/stores/mcpStore';
+import { useWakeAsleepSession } from '@/hooks/useWakeAsleepSession';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
 import ConversationView from './ConversationView';
@@ -531,6 +532,8 @@ export default function DetailPanel() {
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
     : undefined;
+  // A session AASC put to sleep to free memory resumes when it is opened (server/sessionSleep.ts).
+  useWakeAsleepSession(session?.sessionId, session?.asleepAt);
 
   // Keep last session alive so ProjectTabContainer stays mounted (preserves file state/scroll).
   const lastSessionRef = useRef<Session | undefined>(undefined);

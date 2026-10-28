@@ -8,7 +8,7 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useUiStore } from '@/stores/uiStore';
+import { useUiStore, type SessionSortMode } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -54,7 +54,7 @@ import Tooltip from '@/components/ui/Tooltip';
 import SessionPromptPeek from './SessionPromptPeek';
 import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
-import { PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed } from '@/lib/sessionStatusStyle';
+import { ASLEEP, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, statusLabel as statusWords } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
@@ -62,10 +62,12 @@ import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const RECENT_FRAME_KEY = 'builtin:recent';
-const RECENT_FRAME_TITLE =
-  `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. Each is also listed in its own room.`;
+/** Where a built-in frame's cards are listed again: their room, or in the Projects view their project. */
+const alsoListedIn = (mode: SessionSortMode) => `Each is also listed in its own ${mode === 'project' ? 'project' : 'room'}.`;
+const recentFrameTitle = (mode: SessionSortMode) =>
+  `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. ${alsoListedIn(mode)}`;
 const PINNED_FRAME_KEY = 'builtin:pinned';
-const PINNED_FRAME_TITLE = 'Pinned: every pinned session. Each is also listed in its own room.';
+const pinnedFrameTitle = (mode: SessionSortMode) => `Pinned: every pinned session. ${alsoListedIn(mode)}`;
 const CENTRAL_FRAME_KEY = 'builtin:central';
 const CENTRAL_FRAME_TITLE = 'Central: every central session (it reaches other sessions over MCP). Each is also listed in its own room.';
 
@@ -238,7 +240,8 @@ export default function SessionSwitcher({
   const pinnedCopy = pinnedRoomHidden
     ? tooltips.pinnedRoomHidden
     : pinnedFrameListed ? tooltips.pinnedRoomShown : tooltips.pinnedRoomEmpty;
-  const showPinnedToggle = sessionSortMode === 'room' && !maximized;
+  // PINNED is drawn in the Rooms and Projects views (lib/sessionStrip.ts), so its toggle is too.
+  const showPinnedToggle = sessionSortMode !== 'activity' && !maximized;
   const hasRuntimeChip = resolveRuntimeDisplay(currentSession) !== null;
   const isCompact = cardDisplayMode === 'compact';
 
@@ -592,7 +595,10 @@ export default function SessionSwitcher({
         <div className={styles.switcherMeta}>
           {/* The shared status mark — the same glyph and words as the LIVE card (AASC-11). */}
           {statusLabel && (
-            <StatusBadge status={isDisconnected ? 'ended' : currentSession.status} className={styles.switcherStatus} />
+            <StatusBadge
+              status={currentSession.asleepAt ? ASLEEP : isDisconnected ? 'ended' : currentSession.status}
+              className={styles.switcherStatus}
+            />
           )}
           {/* Claude: the model · effort it runs on NOW, following /model and /effort live.
               Others (Codex) report neither, so they keep the launch model as plain text. */}
@@ -708,7 +714,7 @@ export default function SessionSwitcher({
                 <BuiltinFrame
                   key={PINNED_FRAME_KEY}
                   label="Pinned"
-                  title={PINNED_FRAME_TITLE}
+                  title={pinnedFrameTitle(sessionSortMode)}
                   className={styles.pinnedRoomGroup}
                   collapsed={pinnedRoomCollapsed}
                   onToggleCollapse={togglePinnedRoomCollapsed}
@@ -723,7 +729,7 @@ export default function SessionSwitcher({
                 <BuiltinFrame
                   key={RECENT_FRAME_KEY}
                   label="Recent"
-                  title={RECENT_FRAME_TITLE}
+                  title={recentFrameTitle(sessionSortMode)}
                   className={styles.recentRoomGroup}
                   collapsed={recentRoomCollapsed}
                   onToggleCollapse={toggleRecentRoomCollapsed}
@@ -949,7 +955,10 @@ function SessionTabCard({
   needsAttention?: boolean;
 }) {
   const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
-  const statusTitle = STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
+  const railStatus = session.asleepAt ? ASLEEP : session.status;
+  const statusTitle = session.asleepAt
+    ? `${statusWords(ASLEEP)} — open to resume`
+    : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
@@ -1075,7 +1084,7 @@ function SessionTabCard({
           aria-label={statusTitle}
           title={statusTitle}
         >
-          <StatusGlyph status={session.status} />
+          <StatusGlyph status={railStatus} />
         </span>
       )}
 

@@ -46,6 +46,11 @@ export const CameraIcon = (p: IconProps) => (
   <Svg {...p}><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" /><circle cx="12" cy="12.5" r="3.4" /></Svg>
 );
 
+/** Record a video: a camcorder. */
+export const VideoIcon = (p: IconProps) => (
+  <Svg {...p}><rect x="3" y="6.5" width="13" height="11" rx="2.5" /><path d="M16 10.5l5-3v9l-5-3z" /></Svg>
+);
+
 export const SnippetIcon = (p: IconProps) => <Svg {...p}><path d="M7 4h10v16l-5-3.5L7 20z" /></Svg>;
 
 /** The quick reply ("proceed"): a P in a small rounded square. */

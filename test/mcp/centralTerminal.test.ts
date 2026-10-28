@@ -131,7 +131,7 @@ describe.skipIf(process.platform === 'win32')(
       vi.clearAllTimers();
       vi.useRealTimers();
       __resetMcpPortForTest();
-      delete config.mcp;
+      config.mcp = { enabled: true }; // central sessions are off by default since Oct 28 2026
       delete process.env.AASC_DISABLE_STATUSLINE_TAP;
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;

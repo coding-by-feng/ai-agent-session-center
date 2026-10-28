@@ -61,15 +61,15 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('photos and the camera on a phone', () => {
-  it('offers the photo library and the camera, images only, the camera facing out', async () => {
+  it('offers the photo library (photos and videos) and the camera (photos), the camera facing out', async () => {
     renderTab();
-    expect(await screen.findByRole('button', { name: 'Attach photos (0 of 10)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Attach photos or videos (0 of 10)' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Take a photo' })).toBeEnabled();
     const library = screen.getByTestId('queue-photo-input');
     const camera = screen.getByTestId('queue-camera-input');
-    expect(library).toHaveAttribute('accept', 'image/*');
+    expect(library).toHaveAttribute('accept', 'image/*,video/*');
     expect(library).toHaveAttribute('multiple');
-    expect(camera).toHaveAttribute('accept', 'image/*');
+    expect(camera).toHaveAttribute('accept', 'image/*'); // Android's capture would make any video/* a video-only camera
     expect(camera).toHaveAttribute('capture', 'environment');
     expect(screen.queryByTitle('Attach images')).toBeNull();
   });
@@ -89,8 +89,45 @@ describe('photos and the camera on a phone', () => {
     fireEvent.change(await screen.findByTestId('queue-camera-input'), { target: { files: shots } });
     await waitFor(() => expect(draftImages()).toHaveLength(10));
     expect(toast).toHaveBeenCalledWith('A prompt holds at most 10 images: 2 not added.', 'warning');
-    expect(screen.getByRole('button', { name: 'Attach photos (10 of 10)' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Attach photos or videos (10 of 10)' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Take a photo' })).toBeDisabled();
+  });
+});
+
+describe('a video in a queued prompt (Oct 27 2026)', () => {
+  const SAVED = '/tmp/claude-queue-images/queue-img-1-abc.mov';
+  const clip = () => new File([new Uint8Array([1, 2, 3])], 'bug.mov', { type: 'video/quicktime' });
+  const draftText = () => useQueueStore.getState().composeDrafts.get('s1')?.text ?? '';
+  const withUpload = (status: number, body: unknown) => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url === '/api/queue-media') return new Response(JSON.stringify(body), { status });
+      return fetchMock(url);
+    }));
+    return calls;
+  };
+
+  it('uploads a picked video raw and adds its Mac path to the prompt on its own line', async () => {
+    const calls = withUpload(200, { ok: true, path: SAVED, id: 'queue-img-1-abc.mov' });
+    renderTab();
+    useQueueStore.getState().setComposeDraft('s1', { text: 'the button flickers' });
+    const video = clip();
+    fireEvent.change(await screen.findByTestId('queue-photo-input'), { target: { files: [video] } });
+    await waitFor(() => expect(draftText()).toBe(`the button flickers\n${SAVED}`));
+    const upload = calls.find((c) => c.url === '/api/queue-media')!;
+    expect(upload.init).toMatchObject({ method: 'POST', body: video, headers: { 'Content-Type': 'video/quicktime' } });
+    expect(draftImages()).toEqual([]);
+    expect(toast).toHaveBeenCalledWith('Video added: bug.mov', 'success');
+  });
+
+  it('leaves the prompt alone and says why when the Mac refuses the video', async () => {
+    withUpload(413, { ok: false, code: 'too_large' });
+    renderTab();
+    useQueueStore.getState().setComposeDraft('s1', { text: 'look' });
+    fireEvent.change(await screen.findByTestId('queue-photo-input'), { target: { files: [clip()] } });
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('That video is over 100 MB. Trim it, or send a shorter one.', 'warning'));
+    expect(draftText()).toBe('look');
   });
 });
 

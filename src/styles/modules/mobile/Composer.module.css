@@ -217,6 +217,50 @@
   border-radius: var(--ph-radius-sm);
 }
 
+/* A video's chip (Oct 27 2026, ComposerVideoChip): its first frame, ▶ and length, and "Uploading"
+   over a dimmed frame until the Mac has it. */
+.videoThumb video,
+.videoBlank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--ph-radius-sm);
+  background: color-mix(in srgb, var(--ph-text) 18%, var(--ph-bg));
+}
+
+.videoThumb[data-uploading] video,
+.videoThumb[data-uploading] .videoBlank {
+  opacity: 0.45;
+}
+
+.videoBadge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #000 62%, transparent);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 16px;
+  pointer-events: none;
+}
+
+.videoUploading {
+  position: absolute;
+  inset: 0 0 auto;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ph-text);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
 .thumbRemove {
   appearance: none;
   position: absolute;
