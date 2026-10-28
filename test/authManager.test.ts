@@ -19,6 +19,11 @@ import {
   refreshToken,
   revokeTokensForDevice,
   bearerSession,
+  checkLoginRateLimit,
+  recordLoginAttempt,
+  clearLoginAttempts,
+  loginLockedMessage,
+  LOGIN_MAX_ATTEMPTS,
 } from '../server/authManager.js';
 
 describe('authManager', () => {
@@ -288,5 +293,83 @@ describe('paired computer sessions', () => {
     const token = createComputerToken('comp-4');
     const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Parameters<typeof bearerSession>[0];
     expect(bearerSession(req)).toEqual({ deviceId: null, computerId: 'comp-4' });
+  });
+});
+
+// Oct 28 2026: the 15 minutes used to run from the FIRST wrong password, so five tries spread
+// over 14 minutes earned a one-minute block. The block now starts at the 5th wrong password.
+describe('login lockout', () => {
+  const MIN = 60 * 1000;
+  let ipSeq = 0;
+  let ip = '';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-28T10:00:00Z'));
+    ip = `100.64.0.${++ipSeq}`;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function failTimes(n: number) {
+    let last = { attemptsLeft: LOGIN_MAX_ATTEMPTS, lockedFor: 0 };
+    for (let i = 0; i < n; i++) last = recordLoginAttempt(ip);
+    return last;
+  }
+
+  it('counts the tries left down from 5 and is not blocked before the 5th', () => {
+    expect(LOGIN_MAX_ATTEMPTS).toBe(5);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 4, lockedFor: 0 });
+    expect(failTimes(3)).toEqual({ attemptsLeft: 1, lockedFor: 0 });
+    expect(checkLoginRateLimit(ip)).toBe(0);
+  });
+
+  it('blocks for the full 15 minutes from the 5th wrong password', () => {
+    failTimes(4);
+    vi.advanceTimersByTime(14 * MIN);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 0, lockedFor: 15 * 60 });
+    expect(checkLoginRateLimit(ip)).toBe(15 * 60);
+    vi.advanceTimersByTime(10 * MIN);
+    expect(checkLoginRateLimit(ip)).toBe(5 * 60);
+  });
+
+  it('does not extend a block when tries keep coming during it', () => {
+    failTimes(5);
+    vi.advanceTimersByTime(5 * MIN);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 0, lockedFor: 10 * 60 });
+    expect(checkLoginRateLimit(ip)).toBe(10 * 60);
+  });
+
+  it('gives 5 fresh tries once the block ends', () => {
+    failTimes(5);
+    vi.advanceTimersByTime(15 * MIN);
+    expect(checkLoginRateLimit(ip)).toBe(0);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 4, lockedFor: 0 });
+  });
+
+  it('forgets wrong passwords older than 15 minutes when there is no block', () => {
+    failTimes(4);
+    vi.advanceTimersByTime(15 * MIN + 1);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 4, lockedFor: 0 });
+  });
+
+  it('keeps each address separate, so a blocked remote never blocks the Mac', () => {
+    failTimes(5);
+    expect(checkLoginRateLimit(ip)).toBeGreaterThan(0);
+    expect(checkLoginRateLimit('127.0.0.1')).toBe(0);
+  });
+
+  it('a right password clears the count', () => {
+    failTimes(4);
+    clearLoginAttempts(ip);
+    expect(recordLoginAttempt(ip)).toEqual({ attemptsLeft: 4, lockedFor: 0 });
+  });
+
+  it('says how long to wait in whole minutes, singular for one', () => {
+    expect(loginLockedMessage(15 * 60)).toBe('Too many wrong passwords. Try again in 15 minutes.');
+    expect(loginLockedMessage(61)).toBe('Too many wrong passwords. Try again in 2 minutes.');
+    expect(loginLockedMessage(30)).toBe('Too many wrong passwords. Try again in 1 minute.');
   });
 });

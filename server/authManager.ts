@@ -10,44 +10,70 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const SCRYPT_KEYLEN = 64;
 
 // ---------------------------------------------------------------------------
-// Login rate limiting: 5 attempts per 15 minutes per IP
+// Login rate limiting: 5 wrong passwords per address, then a 15-minute block
+// that starts at the 5th (Oct 28 2026; it used to run from the first, so a
+// block could last a minute). Pairing codes share these buckets.
 // ---------------------------------------------------------------------------
-const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+export const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // wrong passwords older than this are forgotten
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
 interface LoginAttemptBucket {
   count: number;
   windowStart: number;
+  /** Epoch ms the block ends; null while under the limit. */
+  lockedUntil: number | null;
+}
+
+export interface LoginAttemptResult {
+  /** Wrong passwords this address may still send before it is blocked. */
+  attemptsLeft: number;
+  /** Seconds the block lasts; 0 when this attempt did not block. */
+  lockedFor: number;
 }
 
 const loginAttempts = new Map<string, LoginAttemptBucket>();
 
+function bucketExpired(bucket: LoginAttemptBucket, now: number): boolean {
+  return bucket.lockedUntil !== null
+    ? now >= bucket.lockedUntil
+    : now - bucket.windowStart > LOGIN_WINDOW_MS;
+}
+
 /**
- * Check if a login IP is rate-limited. Returns remaining seconds if locked out, 0 otherwise.
+ * Check if a login IP is blocked. Returns remaining seconds if locked out, 0 otherwise.
  */
 export function checkLoginRateLimit(ip: string): number {
   const now = Date.now();
   const bucket = loginAttempts.get(ip);
-  if (!bucket || now - bucket.windowStart > LOGIN_WINDOW_MS) {
-    return 0; // Window expired or no attempts
-  }
-  if (bucket.count >= LOGIN_MAX_ATTEMPTS) {
-    return Math.ceil((LOGIN_WINDOW_MS - (now - bucket.windowStart)) / 1000);
-  }
-  return 0;
+  if (!bucket || bucket.lockedUntil === null || bucketExpired(bucket, now)) return 0;
+  return Math.ceil((bucket.lockedUntil - now) / 1000);
 }
 
 /**
- * Record a failed login attempt for an IP.
+ * Record a failed login attempt for an IP. A try during a block never extends it.
  */
-export function recordLoginAttempt(ip: string): void {
+export function recordLoginAttempt(ip: string): LoginAttemptResult {
   const now = Date.now();
-  const bucket = loginAttempts.get(ip);
-  if (!bucket || now - bucket.windowStart > LOGIN_WINDOW_MS) {
-    loginAttempts.set(ip, { count: 1, windowStart: now });
-  } else {
-    bucket.count++;
+  const prev = loginAttempts.get(ip);
+  if (prev && prev.lockedUntil !== null && !bucketExpired(prev, now)) {
+    return { attemptsLeft: 0, lockedFor: Math.ceil((prev.lockedUntil - now) / 1000) };
   }
+  const fresh = !prev || bucketExpired(prev, now);
+  const count = fresh ? 1 : prev.count + 1;
+  const windowStart = fresh ? now : prev.windowStart;
+  if (count >= LOGIN_MAX_ATTEMPTS) {
+    loginAttempts.set(ip, { count, windowStart, lockedUntil: now + LOGIN_LOCKOUT_MS });
+    return { attemptsLeft: 0, lockedFor: LOGIN_LOCKOUT_MS / 1000 };
+  }
+  loginAttempts.set(ip, { count, windowStart, lockedUntil: null });
+  return { attemptsLeft: LOGIN_MAX_ATTEMPTS - count, lockedFor: 0 };
+}
+
+/** The 429 sentence for a block with `seconds` left, in whole minutes. */
+export function loginLockedMessage(seconds: number): string {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }
 
 /**
@@ -400,7 +426,7 @@ export function startTokenCleanup(): void {
     }
     // Also clean up expired login attempt buckets
     for (const [ip, bucket] of loginAttempts) {
-      if (now - bucket.windowStart > LOGIN_WINDOW_MS) {
+      if (bucketExpired(bucket, now)) {
         loginAttempts.delete(ip);
       }
     }

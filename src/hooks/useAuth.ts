@@ -10,11 +10,27 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   needsLogin: boolean;
+  /** Seconds left of this address's login block when the status was read; absent when not blocked. */
+  lockedFor?: number;
+}
+
+export interface LoginResult {
+  success: boolean;
+  error?: string;
+  /** Wrong passwords left before the block (a 401). */
+  attemptsLeft?: number;
+  /** Seconds until this address may try again (a 429). */
+  retryAfter?: number;
 }
 
 interface UseAuthReturn extends AuthState {
-  login: (password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (password: string) => Promise<LoginResult>;
   logout: () => void;
+}
+
+/** A whole number of seconds or tries from the server, or undefined. */
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
 function getStoredToken(): string | null {
@@ -180,7 +196,8 @@ export function useAuth(): UseAuthReturn {
               scheduleRefresh(3600);
             }
           } else {
-            setState({ token: null, loading: false, needsLogin: true });
+            const lockedFor = count(data.lockedFor);
+            setState({ token: null, loading: false, needsLogin: true, ...(lockedFor ? { lockedFor } : {}) });
           }
           return; // success — stop retrying
         } catch {
@@ -213,7 +230,7 @@ export function useAuth(): UseAuthReturn {
   }, [scheduleRefresh]);
 
   const login = useCallback(
-    async (password: string): Promise<{ success: boolean; error?: string }> => {
+    async (password: string): Promise<LoginResult> => {
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -233,7 +250,14 @@ export function useAuth(): UseAuthReturn {
           }
           return { success: true };
         }
-        return { success: false, error: data.error || 'Authentication failed' };
+        const attemptsLeft = count(data.attemptsLeft);
+        const retryAfter = count(data.retryAfter);
+        return {
+          success: false,
+          error: data.error || 'Authentication failed',
+          ...(attemptsLeft !== undefined ? { attemptsLeft } : {}),
+          ...(retryAfter ? { retryAfter } : {}),
+        };
       } catch {
         return { success: false, error: 'Connection error -- is the server running?' };
       }

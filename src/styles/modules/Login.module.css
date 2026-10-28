@@ -77,11 +77,63 @@
   box-shadow: 0 0 20px var(--glow-accent-strong);
 }
 
-.error {
-  color: var(--accent-red);
-  font-size: 11px;
-  margin-top: 12px;
+.btn:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled,
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--bg-accent);
+  color: var(--accent-text, var(--accent-cyan));
+  box-shadow: none;
+}
+
+/* Messages under the field: a wrong password, the last try, a block (Oct 28 2026) */
+.error,
+.warning {
+  font-size: 12px;
+  margin-bottom: 16px;
   letter-spacing: 0.5px;
+}
+
+.error { color: var(--accent-red); }
+.warning { color: var(--accent-yellow); }
+
+.lockout { margin-bottom: 16px; }
+.lockout .error { margin-bottom: 4px; }
+
+.countdown {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.countdown time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-dim, var(--text-secondary));
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.hint code {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* ---- Responsive ---- */

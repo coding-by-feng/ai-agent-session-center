@@ -224,3 +224,68 @@ describe('useAuth — the phone app keeps no token in web storage (AASC-22)', ()
     expect(localStorage.getItem('auth_token')).toBe('session-token');
   });
 });
+
+// Oct 28 2026: the login screen shows tries left and a countdown, so the hook passes the
+// server's numbers through instead of only its sentence.
+describe('useAuth — wrong passwords and the block', () => {
+  function server(status: Record<string, unknown>, login: { status: number; body: Record<string, unknown> }) {
+    return vi.fn(async (url: string) => {
+      if (String(url).includes('/api/auth/status')) return new Response(JSON.stringify(status));
+      if (String(url).includes('/api/auth/login')) return new Response(JSON.stringify(login.body), { status: login.status });
+      return new Response('{}');
+    });
+  }
+
+  // Inside act(): an earlier block loads React under fake timers, so React's scheduler holds a
+  // dead setTimeout and only act() flushes the status check's update.
+  async function mount(fetchMock: ReturnType<typeof server>) {
+    const { renderHook, act } = await import('@testing-library/react');
+    const { useAuth } = await import('./useAuth');
+    vi.stubGlobal('fetch', fetchMock);
+    const hook = renderHook(() => useAuth());
+    for (let i = 0; i < 50 && hook.result.current.loading; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    }
+    expect(hook.result.current.loading).toBe(false);
+    return hook.result;
+  }
+
+  beforeEach(() => {
+    clearLocalStorage();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the tries left with a wrong password', async () => {
+    const { act } = await import('@testing-library/react');
+    const result = await mount(server(
+      { passwordRequired: true, authenticated: false },
+      { status: 401, body: { error: 'Wrong password', attemptsLeft: 2 } },
+    ));
+    let answer: Awaited<ReturnType<typeof result.current.login>> | undefined;
+    await act(async () => { answer = await result.current.login('nope'); });
+    expect(answer).toEqual({ success: false, error: 'Wrong password', attemptsLeft: 2 });
+  });
+
+  it('returns the seconds left of a block', async () => {
+    const { act } = await import('@testing-library/react');
+    const result = await mount(server(
+      { passwordRequired: true, authenticated: false },
+      { status: 429, body: { error: 'Too many wrong passwords. Try again in 15 minutes.', retryAfter: 900 } },
+    ));
+    let answer: Awaited<ReturnType<typeof result.current.login>> | undefined;
+    await act(async () => { answer = await result.current.login('nope'); });
+    expect(answer).toEqual({ success: false, error: 'Too many wrong passwords. Try again in 15 minutes.', retryAfter: 900 });
+  });
+
+  it('carries a block already running when the page loads', async () => {
+    const result = await mount(server(
+      { passwordRequired: true, authenticated: false, lockedFor: 640 },
+      { status: 429, body: {} },
+    ));
+    expect(result.current.needsLogin).toBe(true);
+    expect(result.current.lockedFor).toBe(640);
+  });
+});

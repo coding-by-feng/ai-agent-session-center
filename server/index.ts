@@ -75,7 +75,7 @@ import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
-  recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
+  recordLoginAttempt, clearLoginAttempts, loginLockedMessage, LOGIN_MAX_ATTEMPTS, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, getTokenComputerId, revokeTokensForDevice, createComputerToken,
   bearerSession,
 } from './authManager.js';
@@ -270,11 +270,18 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   if (mcpRouter) app.use('/mcp', mcpRouter, mcpErrorHandler);
 
   // -- Auth endpoints (no auth required) --
+  const loginClientIp = (req: express.Request): string => req.ip || req.socket?.remoteAddress || 'unknown';
+  const sendLoginLocked = (res: express.Response, seconds: number): void => {
+    res.setHeader('Retry-After', String(seconds));
+    res.status(429).json({ error: loginLockedMessage(seconds), retryAfter: seconds });
+  };
   app.get('/api/auth/status', (req, res) => {
     const passwordRequired = isPasswordEnabled();
     const token = parseCookieToken(req.headers.cookie);
     const authenticated = passwordRequired ? validateToken(token) : true;
-    res.json({ passwordRequired, authenticated });
+    // So a reloaded login page still shows its countdown.
+    const lockedFor = passwordRequired && !authenticated ? checkLoginRateLimit(loginClientIp(req)) : 0;
+    res.json({ passwordRequired, authenticated, ...(lockedFor > 0 ? { lockedFor } : {}) });
   });
 
   app.post('/api/auth/login', (req, res) => {
@@ -283,14 +290,11 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       return;
     }
 
-    // Rate limit: 5 attempts per 15 minutes per IP
-    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    // 5 wrong passwords per address, then a 15-minute block from the 5th
+    const ip = loginClientIp(req);
     const lockoutSeconds = checkLoginRateLimit(ip);
     if (lockoutSeconds > 0) {
-      res.status(429).json({
-        error: `Too many login attempts. Try again in ${Math.ceil(lockoutSeconds / 60)} minute(s).`,
-        retryAfter: lockoutSeconds,
-      });
+      sendLoginLocked(res, lockoutSeconds);
       return;
     }
 
@@ -300,9 +304,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       return;
     }
     if (!verifyPassword(password, config.passwordHash ?? '')) {
-      recordLoginAttempt(ip);
+      const { attemptsLeft, lockedFor } = recordLoginAttempt(ip);
       log.warn('auth', `Failed login attempt from IP ${ip}`);
-      res.status(401).json({ error: 'Wrong password' });
+      if (lockedFor > 0) {
+        log.warn('auth', `Login blocked for ${lockedFor}s for IP ${ip} after ${LOGIN_MAX_ATTEMPTS} wrong passwords`);
+        sendLoginLocked(res, lockedFor);
+        return;
+      }
+      res.status(401).json({ error: 'Wrong password', attemptsLeft });
       return;
     }
 

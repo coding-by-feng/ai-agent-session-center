@@ -237,7 +237,7 @@ function AuthGate() {
   // `needsLogin` so a fresh login can re-establish the session. When no password
   // is configured (the default), `needsLogin` stays false and this behaves
   // exactly like before (Dashboard with a null/absent token).
-  const { token, loading, needsLogin, login } = useAuth();
+  const { token, loading, needsLogin, lockedFor, login } = useAuth();
 
   if (loading) {
     return (
@@ -251,7 +251,7 @@ function AuthGate() {
     // The phone app never shows the password form: its shell re-exchanges the
     // device token for a session and comes back (AASC-17).
     if (isNativeMobileApp()) return <NativeReauth />;
-    return <LoginScreen onLogin={login} />;
+    return <LoginScreen onLogin={login} lockedFor={lockedFor} />;
   }
 
   return <Dashboard token={token} />;
