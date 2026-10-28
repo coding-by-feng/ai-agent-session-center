@@ -39,7 +39,7 @@ import { config } from './serverConfig.js';
 import { respawnClaudeBase } from './respawnLine.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { getLocalIP, getPairingLanIP } from './networkInfo.js';
+import { getLocalIP, getPairingLanIP, getPublicInterfaceIP } from './networkInfo.js';
 import { createTailscaleProbe } from './tailscaleStatus.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
@@ -411,8 +411,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       port: PORT,
       lan: getPairingLanIP, // a private address on a real interface only (Oct 27 2026)
       probe: tailscaleProbe,
-      // Off unless server-config.json "publicAddress" or AASC_PUBLIC_ADDRESS names one (Oct 28 2026).
-      publicAddress: () => pairingPublicAddress(config, process.env),
+      // The "Public IP" choice (Oct 28 2026): AASC_PUBLIC_ADDRESS, server-config.json "publicAddress", or the NIC's.
+      publicAddress: () => pairingPublicAddress(config, process.env, getPublicInterfaceIP),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
     sessionOf: bearerSession,

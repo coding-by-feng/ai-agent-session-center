@@ -90,6 +90,22 @@ export function getPairingLanIP(): string | null {
 }
 
 /**
+ * A public IPv4 on a real interface (Oct 28 2026), or null: what a cloud VM (Vultr, say) carries on its NIC,
+ * offered as the pairing link's "Public IP" choice. Behind a router every interface is private, so there is
+ * none; VPN tunnels and container bridges are skipped as for getPairingLanIP.
+ */
+export function getPublicInterfaceIP(): string | null {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    if (VIRTUAL_INTERFACE.test(name)) continue;
+    for (const cfg of nets[name] ?? []) {
+      if (cfg.family === 'IPv4' && !cfg.internal && isPublicAddress(cfg.address)) return cfg.address;
+    }
+  }
+  return null;
+}
+
+/**
  * Tailscale hands out addresses from the CGNAT range 100.64.0.0/10. Canonical dotted-quad only: four octets,
  * each `0` or digits with no leading zero, each at most 255. The URL layer reads a leading-zero octet as octal,
  * so '100.064.001.001' would pass here yet be dialled as 100.52.1.1 (the phone's pairingLink.ts has the same rule).

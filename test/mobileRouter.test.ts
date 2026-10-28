@@ -186,6 +186,73 @@ describe('POST /pairing (desktop)', () => {
   });
 });
 
+// Oct 28 2026: the desktop picks which addresses a new link carries.
+describe('POST /pairing — chosen addresses', () => {
+  const withPublic = (): PairingTarget => ({ name: 'claude-desktop', port: 3333, lan: '192.168.1.20', tailnet: '100.74.194.86', publicAddress: '45.63.31.79' });
+  const keysOf = (link: string) => [...new URLSearchParams(link.split('#')[1]).keys()];
+
+  it('carries only the chosen addresses, in lan, ts, pub order', async () => {
+    pairingTarget = withPublic;
+    const res = await call('POST', '/pairing', { body: { include: ['public', 'tailnet'] } });
+    expect(res.status).toBe(200);
+    expect(keysOf(res.body.data.link)).toEqual(['v', 'name', 'ts', 'pub', 'p', 'mc']);
+    expect(res.body.data.target).toEqual({ name: 'claude-desktop', port: 3333, lan: null, tailnet: '100.74.194.86', publicAddress: '45.63.31.79' });
+  });
+
+  it('makes a public-only link for a computer', async () => {
+    pairingTarget = withPublic;
+    const res = await call('POST', '/pairing', { body: { include: ['public'] } });
+    expect(res.status).toBe(200);
+    const params = new URLSearchParams(res.body.data.link.split('#')[1]);
+    expect(params.get('pub')).toBe('45.63.31.79');
+    expect(params.has('lan') || params.has('ts')).toBe(false);
+  });
+
+  it('leaves the public address out unless it is chosen', async () => {
+    pairingTarget = withPublic;
+    for (const body of [{}, { include: ['lan', 'tailnet'] }]) {
+      const res = await call('POST', '/pairing', { body });
+      expect(res.status).toBe(200);
+      expect(keysOf(res.body.data.link)).toEqual(['v', 'name', 'lan', 'ts', 'p', 'mc']);
+    }
+  });
+
+  it('makes no code when none of the chosen addresses exists here', async () => {
+    const res = await call('POST', '/pairing', { body: { include: ['public'] } });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NO_PAIRING_ADDRESS');
+  });
+
+  it.each([
+    ['an empty choice', { include: [] }],
+    ['an unknown kind', { include: ['lan', 'wan'] }],
+    ['a repeated kind', { include: ['lan', 'lan'] }],
+    ['an extra field', { include: ['lan'], address: '1.2.3.4' }],
+  ])('refuses %s', async (_label, body) => {
+    const res = await call('POST', '/pairing', { body });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /pairing/addresses', () => {
+  it('names the addresses a link could carry', async () => {
+    pairingTarget = () => ({ name: 'claude-desktop', port: 3333, lan: null, tailnet: '100.74.194.86', publicAddress: '45.63.31.79' });
+    const res = await call('GET', '/pairing/addresses');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ lan: null, tailnet: '100.74.194.86', public: '45.63.31.79' });
+  });
+
+  it('says null for a public address this computer has none of', async () => {
+    const res = await call('GET', '/pairing/addresses');
+    expect(res.body.data).toEqual({ lan: '192.168.1.20', tailnet: '100.100.1.2', public: null });
+  });
+
+  it('is invisible to a DNS-rebinding page', async () => {
+    const res = await call('GET', '/pairing/addresses', { headers: { host: 'attacker.example' } });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('before the phone app ships (AASC-30)', () => {
   it('makes no pairing code and says why', async () => {
     offered = false;

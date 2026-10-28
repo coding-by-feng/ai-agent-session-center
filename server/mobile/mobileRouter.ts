@@ -97,6 +97,28 @@ export interface MobileRouterDeps {
   pathLog?: PhonePathLog;
 }
 
+/** The addresses a new pairing link may carry (Oct 28 2026): the desktop ticks them per link. */
+const ADDRESS_KINDS = ['lan', 'tailnet', 'public'] as const;
+type AddressKind = typeof ADDRESS_KINDS[number];
+
+/** Without `include` (an older page): home network and Tailscale, never the public address. */
+const PairingBody = z.object({
+  include: z.array(z.enum(ADDRESS_KINDS)).min(1).max(ADDRESS_KINDS.length)
+    .refine((kinds) => new Set(kinds).size === kinds.length, 'each address once')
+    .optional(),
+}).strict();
+
+/** The target with only the chosen addresses left in it. */
+function chosenTarget(target: PairingTarget, include: readonly AddressKind[]): PairingTarget {
+  return {
+    name: target.name,
+    port: target.port,
+    lan: include.includes('lan') ? target.lan : null,
+    tailnet: include.includes('tailnet') ? target.tailnet : null,
+    ...(include.includes('public') && target.publicAddress ? { publicAddress: target.publicAddress } : {}),
+  };
+}
+
 const PairBody = z.object({
   code: z.string().min(4).max(32),
   label: z.string().min(1).max(200),
@@ -259,10 +281,23 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       });
       return;
     }
+    const body = PairingBody.safeParse(req.body ?? {});
+    if (!body.success) {
+      res.status(400).json({ error: 'Choose one or more of lan, tailnet and public, each once' });
+      return;
+    }
+    const include = body.data.include;
+    const target = chosenTarget(await deps.pairingTarget(), include ?? ['lan', 'tailnet']);
+    if (include && !target.lan && !target.tailnet && !target.publicAddress) {
+      res.status(409).json({
+        error: 'This computer has none of the addresses you chose. Choose another, then try again.',
+        code: 'NO_PAIRING_ADDRESS',
+      });
+      return;
+    }
     // A QR naming no address a phone can dial is refused by the phone as "not an AASC pairing code"
     // (Oct 27 2026: a Linux desktop with no private LAN address and no Tailscale), so say why here.
-    const target = await deps.pairingTarget();
-    if (!target.lan && !target.tailnet) {
+    if (!include && !target.lan && !target.tailnet) {
       res.status(409).json({
         error: 'This computer has no home-network or Tailscale address a phone can reach. Connect it to the same Wi-Fi as your phone (a private 10.x, 172.16–31.x or 192.168.x address), or sign it in to Tailscale, then try again.',
         code: 'NO_PHONE_ADDRESS',
@@ -290,6 +325,12 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
         target,
       },
     });
+  });
+
+  // What the desktop's address choices show before a link is made (Oct 28 2026).
+  router.get('/pairing/addresses', async (_req, res) => {
+    const target = await deps.pairingTarget();
+    res.json({ success: true, data: { lan: target.lan, tailnet: target.tailnet, public: target.publicAddress ?? null } });
   });
 
   router.get('/devices', (_req, res) => {

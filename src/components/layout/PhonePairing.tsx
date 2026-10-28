@@ -28,16 +28,23 @@
  * copies the link here (Copy link) and pastes it into that app's Remote
  * computers. It lists as a `desktop` device, allowed with the same code check,
  * and gets what a password sign-in gets: shared sessions.
+ *
+ * Before Pair, the owner picks which addresses the link carries (Oct 28 2026,
+ * PairingAddressChoice). A code works once, so the card closes by itself when a
+ * device that wasn't listed when it opened appears; its Allow prompt takes over.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { qrSvg } from '@/lib/qrSvg';
 import {
-  approvePhone, formatConfirmCode, formatPairingCode, loadCloudPhones, loadPhonePairing, removePhone,
-  removeUnlinkedCloudPhones, renamePhone, signOutPhone, startPhonePairing, type PairedPhone, type PhonePairing as Pairing,
+  approvePhone, formatConfirmCode, formatPairingCode, loadCloudPhones, loadPairingAddresses, loadPhonePairing, removePhone,
+  removeUnlinkedCloudPhones, renamePhone, signOutPhone, startPhonePairing, type PairedPhone, type PairingAddressKind,
+  type PairingAddresses, type PhonePairing as Pairing,
 } from '@/lib/mobilePairingApi';
+import { chosenAddresses, readPairingChoice } from '@/lib/pairingAddressChoice';
+import PairingAddressChoice from './PairingAddressChoice';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
 /** How often the list refreshes while the panel is open. */
@@ -185,6 +192,11 @@ export default function PhonePairing() {
   const [cloudUnlinked, setCloudUnlinked] = useState(0);
   const [confirmCloud, setConfirmCloud] = useState(false);
   const [cloudBusy, setCloudBusy] = useState(false);
+  /** This computer's addresses for the link choices; null from an older server, which gets its usual link. */
+  const [addresses, setAddresses] = useState<PairingAddresses | null>(null);
+  const [choice, setChoice] = useState<PairingAddressKind[]>(readPairingChoice);
+  /** The device ids listed when the open card was made: any other one means its code was used. */
+  const openedWith = useRef<Set<string> | null>(null);
 
   const refreshCloud = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -199,6 +211,11 @@ export default function PhonePairing() {
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const state = await loadPhonePairing(signal);
+      const known = openedWith.current;
+      if (known && state.devices.some((d) => !known.has(d.id))) {
+        openedWith.current = null;
+        setPairing(null);
+      }
       setPhones(state.devices);
       setOffered(state.pairingOffered);
     } catch (err) {
@@ -222,6 +239,14 @@ export default function PhonePairing() {
 
   useEffect(() => {
     const controller = new AbortController();
+    void loadPairingAddresses(controller.signal).then((found) => {
+      if (!controller.signal.aborted) setAddresses(found);
+    });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
     void refreshCloud(controller.signal);
     const timer = setInterval(() => void refreshCloud(controller.signal), CLOUD_POLL_MS);
     return () => {
@@ -233,11 +258,21 @@ export default function PhonePairing() {
   const remaining = pairing ? secondsLeft(pairing.expiresAt, now) : 0;
   const pairingLive = pairing !== null && remaining > 0;
 
+  /** Choices only when the server named an address; otherwise it makes its usual link (and says why it can't). */
+  const choosable = addresses !== null && Object.values(addresses).some((a) => a !== null) ? addresses : null;
+  const include = choosable ? chosenAddresses(choice, choosable) : undefined;
+
+  const closePairing = () => {
+    openedWith.current = null;
+    setPairing(null);
+  };
+
   const handleStart = async () => {
     setBusy(true);
     setError(null);
     try {
-      const next = await startPhonePairing();
+      openedWith.current = new Set(phones.map((p) => p.id));
+      const next = await startPhonePairing(include);
       setPairing(next);
       setNow(Date.now());
     } catch (err) {
@@ -295,11 +330,15 @@ export default function PhonePairing() {
       <div className={styles.head}>
         <span className={styles.title}>Phones &amp; computers</span>
         {offered === true && !pairingLive && (
-          <Button size="sm" onClick={handleStart} disabled={busy}>
+          <Button size="sm" onClick={handleStart} disabled={busy || include?.length === 0}>
             {busy ? 'Starting…' : 'Pair a phone or computer'}
           </Button>
         )}
       </div>
+
+      {offered === true && !pairingLive && choosable && (
+        <PairingAddressChoice addresses={choosable} choice={choice} onChange={setChoice} />
+      )}
 
       {pairingLive && pairing && (
         <div className={styles.pairing}>
@@ -310,7 +349,7 @@ export default function PhonePairing() {
             <span className={styles.countdown} aria-live="polite">
               Expires in {formatCountdown(remaining)}
             </span>
-            <Button size="sm" variant="quiet" onClick={() => setPairing(null)}>Cancel</Button>
+            <Button size="sm" variant="quiet" onClick={closePairing}>Cancel</Button>
           </div>
           <CopyLink link={pairing.link} />
         </div>

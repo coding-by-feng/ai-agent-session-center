@@ -13,6 +13,10 @@ let calls: Array<{ url: string; method: string }> = [];
 /** What GET /api/mobile/cloud-phones answers (AASC-52), and what removing them leaves. */
 let cloudPhones: { cloud: boolean; unlinked?: number };
 let removal: { removed: number; failed: number };
+/** What GET /api/mobile/pairing/addresses answers (Oct 28 2026); null = an older server (404). */
+let addresses: { lan: string | null; tailnet: string | null; public: string | null } | null;
+/** The bodies POST /api/mobile/pairing was sent. */
+let pairingBodies: unknown[];
 
 function json(status: number, body: unknown) {
   return Promise.resolve({ ok: status < 400, status, json: async () => body });
@@ -31,6 +35,8 @@ beforeEach(() => {
   calls = [];
   cloudPhones = { cloud: true, unlinked: 0 };
   removal = { removed: 0, failed: 0 };
+  addresses = null;
+  pairingBodies = [];
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ url, method });
@@ -40,7 +46,11 @@ beforeEach(() => {
       cloudPhones = { cloud: true, unlinked: removal.failed };
       return json(200, { success: true, data: removal });
     }
+    if (url === '/api/mobile/pairing/addresses') {
+      return addresses ? json(200, { success: true, data: addresses }) : json(404, { error: 'Not found' });
+    }
     if (url === '/api/mobile/pairing') {
+      pairingBodies.push(JSON.parse(String(init?.body ?? '{}')));
       return json(200, {
         success: true,
         data: { code: 'ABCDEFGHJK', expiresAt: Date.now() + 120_000, link: 'https://aasc.work/pair#v=2&mc=ABCDEFGHJK' },
@@ -410,5 +420,104 @@ describe('rename, sign out and when it was paired', () => {
     await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices/p1/sign-out' && c.method === 'POST')).toBe(true));
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     expect(screen.getByText('Kason iPhone')).toBeTruthy();
+  });
+});
+
+// Oct 28 2026: the link's addresses are chosen before Pair, and the card closes once its code was used.
+describe('PhonePairing — choosing the link’s addresses', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    addresses = { lan: '192.168.4.20', tailnet: '100.74.194.86', public: '45.63.31.79' };
+  });
+
+  const box = (name: RegExp) => screen.getByRole('checkbox', { name }) as HTMLInputElement;
+
+  it('offers each address this computer has, with home network and Tailscale ticked', async () => {
+    render(<PhonePairing />);
+    expect((await screen.findByRole('checkbox', { name: /Home network/ }) as HTMLInputElement).checked).toBe(true);
+    expect(box(/Tailscale/).checked).toBe(true);
+    expect(box(/Public IP/).checked).toBe(false);
+    expect(screen.getByText('45.63.31.79')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Pair a phone or computer' }));
+    await screen.findByRole('img', { name: 'QR code to pair a phone' });
+    expect(pairingBodies).toEqual([{ include: ['lan', 'tailnet'] }]);
+  });
+
+  it('shows only the addresses that exist here', async () => {
+    addresses = { lan: null, tailnet: '100.74.194.86', public: null };
+    render(<PhonePairing />);
+    await screen.findByRole('checkbox', { name: /Tailscale/ });
+    expect(screen.queryByRole('checkbox', { name: /Home network/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Public IP/ })).toBeNull();
+  });
+
+  it('warns that a public address is unencrypted, and says a public-only link is for computers', async () => {
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Public IP/ }));
+    expect(screen.getByText(/Unencrypted over the Internet/)).toBeTruthy();
+    expect(screen.queryByText(/computers only/)).toBeNull();
+    fireEvent.click(box(/Home network/));
+    fireEvent.click(box(/Tailscale/));
+    expect(screen.getByText(/Phones can’t use this link: computers only/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Pair a phone or computer' }));
+    await screen.findByRole('img', { name: 'QR code to pair a phone' });
+    expect(pairingBodies).toEqual([{ include: ['public'] }]);
+  });
+
+  it('keeps Pair off while nothing is ticked', async () => {
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Home network/ }));
+    fireEvent.click(box(/Tailscale/));
+    expect((screen.getByRole('button', { name: 'Pair a phone or computer' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('remembers the choice on this computer', async () => {
+    const first = render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Public IP/ }));
+    first.unmount();
+    render(<PhonePairing />);
+    expect((await screen.findByRole('checkbox', { name: /Public IP/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('offers no choice to an older server, and asks for its usual link', async () => {
+    addresses = null;
+    render(<PhonePairing />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
+    await screen.findByRole('img', { name: 'QR code to pair a phone' });
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(pairingBodies).toEqual([{}]);
+  });
+});
+
+describe('PhonePairing — the card closes once its code was used', () => {
+  it('closes the QR when a new device appears, leaving its Allow prompt', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<PhonePairing />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Pair a phone or computer' }));
+      await screen.findByRole('img', { name: 'QR code to pair a phone' });
+      phones = [phone({ id: 'd1', label: 'kason-mac', platform: 'desktop', confirmCode: '654321' })];
+      await vi.advanceTimersByTimeAsync(2100);
+      await waitFor(() => expect(screen.queryByRole('img', { name: 'QR code to pair a phone' })).toBeNull());
+      expect(screen.getByText('kason-mac').closest('[role=alert]')?.textContent).toContain('Allow kason-mac (Computer)?');
+      expect(screen.getByRole('button', { name: 'Pair a phone or computer' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the QR up for a device that was already waiting when it opened', async () => {
+    phones = [phone({ id: 'old', label: 'Old iPhone' })];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<PhonePairing />);
+      await screen.findByText('Old iPhone');
+      fireEvent.click(screen.getByRole('button', { name: 'Pair a phone or computer' }));
+      await screen.findByRole('img', { name: 'QR code to pair a phone' });
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(screen.getByRole('img', { name: 'QR code to pair a phone' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

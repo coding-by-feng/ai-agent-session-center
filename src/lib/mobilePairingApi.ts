@@ -34,8 +34,29 @@ export interface PhonePairing {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
-export async function startPhonePairing(): Promise<PhonePairing> {
-  const res = await fetch('/api/mobile/pairing', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+/** The addresses a pairing link can carry (Oct 28 2026), in the order the link names them. */
+export type PairingAddressKind = 'lan' | 'tailnet' | 'public';
+export const PAIRING_ADDRESS_KINDS: readonly PairingAddressKind[] = ['lan', 'tailnet', 'public'];
+export type PairingAddresses = Record<PairingAddressKind, string | null>;
+
+/** This computer's addresses for the link choices, or null from a server that can't say (older, or failed). */
+export async function loadPairingAddresses(signal?: AbortSignal): Promise<PairingAddresses | null> {
+  try {
+    const res = await fetch('/api/mobile/pairing/addresses', { signal });
+    if (!res.ok) return null;
+    const data = ((await res.json()) as { data?: Partial<Record<PairingAddressKind, unknown>> }).data;
+    if (!data) return null;
+    const read = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+    return { lan: read(data.lan), tailnet: read(data.tailnet), public: read(data.public) };
+  } catch {
+    return null;
+  }
+}
+
+/** Without `include` the server makes its usual link: home network and Tailscale. */
+export async function startPhonePairing(include?: readonly PairingAddressKind[]): Promise<PhonePairing> {
+  const request = JSON.stringify(include ? { include } : {});
+  const res = await fetch('/api/mobile/pairing', { method: 'POST', headers: JSON_HEADERS, body: request });
   const body = await readJson<{ data: PhonePairing }>(res, 'Could not start pairing');
   return body.data;
 }

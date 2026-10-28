@@ -17,11 +17,12 @@ let getLocalIP: typeof import('../server/networkInfo.js').getLocalIP;
 let isTailnetAddress: typeof import('../server/networkInfo.js').isTailnetAddress;
 let getPairingLanIP: typeof import('../server/networkInfo.js').getPairingLanIP;
 let isPrivateLanAddress: typeof import('../server/networkInfo.js').isPrivateLanAddress;
+let getPublicInterfaceIP: typeof import('../server/networkInfo.js').getPublicInterfaceIP;
 
 beforeEach(async () => {
   vi.resetModules();
   mockNetworkInterfaces.mockReset();
-  ({ getLocalIP, isTailnetAddress, getPairingLanIP, isPrivateLanAddress } = await import('../server/networkInfo.js'));
+  ({ getLocalIP, isTailnetAddress, getPairingLanIP, isPrivateLanAddress, getPublicInterfaceIP } = await import('../server/networkInfo.js'));
 });
 
 /** Minimal realistic NetworkInterfaceInfo — real entries carry more fields
@@ -154,6 +155,29 @@ describe('getPairingLanIP', () => {
   it('skips a public address on a preferred name for a private one elsewhere', () => {
     mockNetworkInterfaces.mockReturnValue({ eth0: [ipv4('203.0.113.9')], wlp2s0: [ipv4('10.0.0.12')] });
     expect(getPairingLanIP()).toBe('10.0.0.12');
+  });
+});
+
+// The "Public IP" choice for a pairing link (Oct 28 2026): a cloud VM like Vultr's has its public address on eth0.
+describe('getPublicInterfaceIP', () => {
+  it('finds the public address on a cloud server’s NIC, past the tailnet and container bridges', () => {
+    mockNetworkInterfaces.mockReturnValue({
+      lo: [ipv4('127.0.0.1', true)],
+      tailscale0: [ipv4('100.74.194.86')],
+      docker0: [ipv4('172.17.0.1')],
+      enp1s0: [ipv6('2001:db8::1'), ipv4('45.63.31.79')],
+    });
+    expect(getPublicInterfaceIP()).toBe('45.63.31.79');
+  });
+
+  it('gives none behind a router, where every address is private', () => {
+    mockNetworkInterfaces.mockReturnValue({ lo0: [ipv4('127.0.0.1', true)], en0: [ipv4('192.168.6.42')], utun3: [ipv4('100.101.102.103')] });
+    expect(getPublicInterfaceIP()).toBeNull();
+  });
+
+  it('ignores a public address on a VPN tunnel', () => {
+    mockNetworkInterfaces.mockReturnValue({ wg0: [ipv4('198.51.100.7')], tun0: [ipv4('203.0.113.4')] });
+    expect(getPublicInterfaceIP()).toBeNull();
   });
 });
 

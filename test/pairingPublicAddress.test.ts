@@ -1,5 +1,5 @@
 // test/pairingPublicAddress.test.ts — the public address a pairing link may name (Oct 28 2026, by request):
-// server-config.json "publicAddress" or AASC_PUBLIC_ADDRESS (the variable wins), and only a routable unicast IPv4.
+// AASC_PUBLIC_ADDRESS, then server-config.json "publicAddress", then a network interface; only a routable unicast IPv4.
 import { describe, expect, it } from 'vitest';
 import { pairingPublicAddress } from '../server/mobile/publicAddress.js';
 import { isPublicAddress } from '../server/networkInfo.js';
@@ -24,6 +24,28 @@ describe('pairingPublicAddress', () => {
       expect(pairingPublicAddress({ publicAddress: address }, {})).toBeNull();
     },
   );
+});
+
+// Oct 28 2026: the address the "Public IP" choice offers — the setting or variable, else the one on a network interface.
+describe('pairingPublicAddress — the interface fallback', () => {
+  const onNic = () => '45.63.31.79';
+
+  it('falls back to the network interface when nothing is set', () => {
+    expect(pairingPublicAddress({}, {}, onNic)).toBe('45.63.31.79');
+  });
+
+  it('lets the setting and the variable override it, for a server behind NAT', () => {
+    expect(pairingPublicAddress({ publicAddress: '198.51.100.7' }, {}, onNic)).toBe('198.51.100.7');
+    expect(pairingPublicAddress({ publicAddress: '198.51.100.7' }, { AASC_PUBLIC_ADDRESS: '203.0.113.9' }, onNic)).toBe('203.0.113.9');
+  });
+
+  it('turns it off with an empty variable', () => {
+    expect(pairingPublicAddress({}, { AASC_PUBLIC_ADDRESS: '' }, onNic)).toBeNull();
+  });
+
+  it('ignores an interface address that is no public one', () => {
+    expect(pairingPublicAddress({}, {}, () => '192.168.1.5')).toBeNull();
+  });
 });
 
 describe('isPublicAddress', () => {
