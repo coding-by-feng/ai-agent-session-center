@@ -1,7 +1,7 @@
 // SessionPromptPeek.test.tsx — the card's hover says what a central session reaches (server/mcp), since the
 // card's ★ is the star alone.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 
 import SessionPromptPeek from './SessionPromptPeek';
 import { useMcpStore } from '@/stores/mcpStore';
@@ -39,5 +39,15 @@ describe('SessionPromptPeek — central sessions', () => {
     render(<SessionPromptPeek session={session()} />);
 
     expect(screen.queryByText(/★/)).toBeNull();
+  });
+});
+
+describe('SessionPromptPeek — prompts', () => {
+  it('shows each prompt whole, line breaks kept, not two clamped lines (Oct 29 2026)', () => {
+    const text = `${'you know actually we need AASC Desktop version to serve as a BE service '.repeat(4)}\n\nand we can connect it from remote local`;
+    render(<SessionPromptPeek session={session({ promptHistory: [{ text, timestamp: Date.now() - 11 * 60_000 }] } as never)} />);
+
+    const [item] = within(screen.getByRole('list', { name: 'Recent prompts' })).getAllByRole('listitem');
+    expect(item.textContent).toBe(`11m${text}`);
   });
 });

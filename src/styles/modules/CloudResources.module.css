@@ -178,8 +178,11 @@
 .panel .zipField {
   max-width: 480px;
 }
-/* Projects (AASC-63): a project row is a sync row plus its hint, actions and running jobs. */
+/* Projects (AASC-63; one list since Oct 29 2026): a row is the ♥ column, the name and facts, then
+   the state, one button and the ⋯ menu; under it a hint, an error, an open panel and its jobs. */
 .projectRow {
+  /* The ♥ column and its gap (24px + 8px): what sits under a row starts where the name does. */
+  --fav-indent: 32px;
   padding: 8px 0;
 }
 .projectRow + .projectRow {
@@ -188,11 +191,130 @@
 .projectRow > .syncRow {
   padding: 0;
 }
-.projectRow > .hint {
+.projectRow > .hint,
+.projectRow > .rowError {
   margin: 4px 0 0;
 }
-.projectRow > .toolbar {
-  margin: 8px 0 0;
+/* Under a row with a ♥ column, the hint, error and panel start where the name does. */
+.projectRow.withFav > .hint,
+.projectRow.withFav > .rowError,
+.projectRow.withFav > .rowPanel {
+  margin-left: var(--fav-indent);
+}
+.projectHead {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.projectHead > .syncMain {
+  flex: 1 1 0;
+}
+/* The ♥ column: an empty one keeps the names in line on rows that can't have a ♥. */
+.favSlot {
+  display: flex;
+  flex: 0 0 24px;
+  justify-content: center;
+}
+/* The ⋯ column, the width of its small IconButton: an empty one keeps the buttons in line. */
+.menuSlot {
+  display: flex;
+  flex: 0 0 24px;
+  justify-content: center;
+}
+/* In a narrow list every row stacks the same way, the state line under the name, never a mix of
+   one-line and two-line rows. 600px holds the name's 240px and the widest state line. */
+.projectList {
+  container: projects / inline-size;
+}
+@container projects (max-width: 600px) {
+  .projectHead {
+    flex-basis: 100%;
+  }
+  .projectRow.withFav .syncSide {
+    margin-left: var(--fav-indent);
+  }
+}
+.projectTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  min-width: 0;
+}
+.projectFact {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+/* A folder that can't sync from here (no GitHub remote, another copy) reads quieter. */
+.projectRow.muted .syncName,
+.projectCard.muted .syncName {
+  color: var(--text-secondary);
+}
+/* Cards (Oct 29 2026, the default view): a row's parts stacked in a wrapping grid, the module's
+   .grid floor. Cards in a grid row are as tall as the tallest, and each foot (the state and the
+   button) keeps to the bottom, so the buttons line up across the row. Not clickable as a whole:
+   no hover. */
+.projectCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+.projectCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  overflow-wrap: anywhere;
+}
+.projectCard > .hint,
+.projectCard > .rowError,
+.projectCard > .rowPanel {
+  margin: 0;
+}
+/* A running job (CloudJob's .card) is a part of its card, under a hairline: no card in a card. */
+.projectCard > .card {
+  margin: 4px 0 0;
+  padding: 8px 0 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: none;
+}
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cardHead > .projectTitle {
+  flex: 1 1 0;
+}
+/* The ♥ and ⋯, in the top right corner. */
+.cardTools {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.cardFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+/* The List / Cards switch, between the filters and Add a GitHub link. */
+.viewSwitch {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
 }
 .repoLink {
   width: fit-content;
@@ -207,31 +329,43 @@
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
-/* A project's state and its GitHub account, stacked at the row's end. Two classes: .syncSide
-   (below) centres its items and would win on order alone. */
-.syncSide.projectSide {
-  flex-direction: column;
-  align-items: flex-end;
+/* Tags, GitHub account or Remove, opened from a row's ⋯ menu. */
+.rowPanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+}
+.rowPanel > ul {
+  flex-basis: 100%;
+}
+.rowPanel > form {
+  flex: 1 1 280px;
+}
+.rowPanel > .rowError {
+  flex-basis: 100%;
+}
+/* The panel's sentence takes the room left and wraps inside it, so a button never sits alone. */
+.rowPanel > .hint {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.panelActions {
+  display: flex;
+  flex: none;
+  gap: 8px;
 }
 /* Field is a caption beside its control; here the select stays a sensible width. */
 .accountField select {
   max-width: 220px;
 }
-/* Remove sits at the end of the row, away from Clone/Pull/Push. */
-.pushEnd {
-  margin-left: auto;
-}
-.confirm {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.accountList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin: 8px 0;
+.accountName {
+  color: var(--text-primary);
   font-weight: 600;
 }
 .panel code {
@@ -360,32 +494,9 @@
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
-/* "Save projects to cloud" (Oct 26 2026): a checklist of this Mac's GitHub folders. */
-.saveHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-/* The whole row is the click target, at least a 44px touch height; the Saved chip sits at the end. */
-.check.saveRow {
-  min-height: 44px;
-  margin: 0;
-  padding: 4px 0;
-}
-/* The box lines up with the repository name (the first, larger line), not the block's middle. */
-.check.saveRow input {
-  margin-top: 4px;
-}
-.check.saveRow > :last-child:not(.syncMain) {
-  align-self: center;
-}
-.check.saveRow:has(input:disabled) {
-  cursor: default;
-}
-/* A refused save, under its own row, indented past the checkbox (16px + 8px gap). */
+/* A row's own error (a refused tag, a failed check), with a red rule. */
 .rowError {
-  margin: 0 0 8px 24px;
+  margin: 0;
   padding-left: 8px;
   border-left: 3px solid var(--accent-red);
   color: var(--text-primary);
@@ -426,6 +537,14 @@
     min-height: 44px;
     align-items: center;
   }
+  /* The ♥ and ⋯ grow to 44px touch targets (IconButton); their columns grow with them. */
+  .favSlot,
+  .menuSlot {
+    flex-basis: 44px;
+  }
+  .projectRow {
+    --fav-indent: 52px;
+  }
   .check input {
     width: 24px;
     height: 24px;
@@ -446,4 +565,6 @@
 }
 
 /* The Keep mine / Use cloud's explanation sits above the Needs you group: room before its rule. */
-.choiceHint { margin: 0 0 12px; }
+.choiceHint {
+  margin: 0 0 12px;
+}

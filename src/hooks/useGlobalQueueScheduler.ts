@@ -366,8 +366,8 @@ export function useGlobalQueueScheduler(): void {
       if (confirmed || cancelled) return;
 
       // ── Held: the user cancelled, or subagents are still running ──────────
-      // Both reach `waiting` without the turn being finished (Esc fires a real
-      // Stop), so nothing automatic may send: not the queue below, and not the
+      // Both reach `waiting` without the turn being finished (the server ends an
+      // Esc-stopped turn as `waiting`), so nothing automatic may send: not the queue below, and not the
       // auto-resume watchdog, which would otherwise "continue" a turn the user
       // stopped on purpose. A fresh ⚡ NOW still forces one item further down.
       const hold = queueHoldReason(

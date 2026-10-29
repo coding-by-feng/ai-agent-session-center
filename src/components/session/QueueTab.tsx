@@ -59,7 +59,8 @@ import { appendSnippet } from '@/lib/promptSnippetInsert';
 import { useQueueDragReorder } from '@/hooks/useQueueDragReorder';
 import type { DragRect } from '@/lib/queueDragReorder';
 import QueueItemEditModal from './QueueItemEditModal';
-import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
+import QueueMovePicker, { MOVE_TRIGGER_ATTR } from './QueueMovePicker';
+import { queueMoveTargets } from '@/lib/queueMoveTargets';
 import QueueItemText from './QueueItemText';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
@@ -792,10 +793,8 @@ export default function QueueTab({
     [items, reorder, sessionId],
   );
 
-  // ---- Other sessions for move picker ----
-  const moveTargets: QueueMoveTarget[] = Array.from(sessions.entries())
-    .filter(([id]) => id !== sessionId)
-    .map(([id, s]) => ({ id, projectName: s.projectName, title: s.title }));
+  // ---- Other sessions for move picker: live ones, by name (lib/queueMoveTargets.ts) ----
+  const moveTargets = useMemo(() => queueMoveTargets(sessions.values(), sessionId), [sessions, sessionId]);
 
   // Type chip + next-fire + chain badge. Extracted (rather than left as the
   // inline IIFE it used to be) so both List and Card layouts render the exact
@@ -1305,7 +1304,7 @@ export default function QueueTab({
             </button>
           </div>
         )}
-        {/* Held: the user stopped the last turn (Esc fires a real Stop, so
+        {/* Held: the user stopped the last turn (Esc ends it as `waiting`, so
             without this the queue would send its next prompt into the turn
             they just stopped), or subagents are still running, or its CLI has
             not reported that it started. Only when there is something waiting

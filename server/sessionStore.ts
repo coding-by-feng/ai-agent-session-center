@@ -29,7 +29,8 @@ import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallb
 import { createCodexTrust } from './codexTrust.js';
 import { forgetTerminalHeard, noteTerminalHeard, terminalHeard } from './heardTerminals.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
-import { checkTurnInterrupted, readTranscriptTail } from './transcriptInterrupt.js';
+import { checkTurnInterrupted, readTranscriptTail, TYPED_PROMPT_MARKER_MS, type StoppedTurn } from './transcriptInterrupt.js';
+import { emitTerminalHook } from './hookSignals.js';
 import { asksForProceed, lastAnswerAsksForProceed } from './proceedRequest.js';
 import { isCodexSession } from './sessionKillPolicy.js';
 import {
@@ -697,6 +698,26 @@ function runtimeSourcePath(session: Session): string | undefined {
   return codexRollouts.get(session.sessionId)?.path ?? undefined;
 }
 
+/** After a prompt, how long to wait before looking once more for a rollout that was not there. */
+const CODEX_ROLLOUT_PROMPT_RETRY_MS = 2_000;
+
+/**
+ * Codex writes its rollout at the session's first prompt, which can come long after
+ * SessionStart, when the lookup's backoff has grown to minutes. A prompt looks again now
+ * and once more shortly after, so a stop in that turn is seen.
+ */
+function lookAgainForCodexRollout(session: Session): void {
+  const { sessionId } = session;
+  if (!isCodexSession(session) || codexRollouts.get(sessionId)?.path) return;
+  codexRollouts.delete(sessionId);
+  const timer = setTimeout(() => {
+    if (codexRollouts.get(sessionId)?.path) return;
+    codexRollouts.delete(sessionId);
+    syncRuntimeWatch();
+  }, CODEX_ROLLOUT_PROMPT_RETRY_MS);
+  timer.unref?.();
+}
+
 /** Find a Codex session's rollout in the background; the next sync starts watching it. */
 function lookUpCodexRollout(sessionId: string, now: number): void {
   const known = codexRollouts.get(sessionId);
@@ -742,6 +763,11 @@ const runtimeWatch = createRuntimeWatch({
   applyToTranscript(path, reading) {
     for (const session of sessions.values()) {
       if (tracksRuntime(session) && runtimeSourcePath(session) === path) applyRuntimeReading(session, reading);
+    }
+  },
+  applyToStoppedTurn(path, stopped) {
+    for (const session of sessions.values()) {
+      if (tracksRuntime(session) && runtimeSourcePath(session) === path) endTurnStoppedByUser(session, stopped);
     }
   },
 });
@@ -977,6 +1003,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.userCancelledAt = null;
     }
   }
+  noteTurnId(session, hook_event_name, hookData);
+  if (hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT) lookAgainForCodexRollout(session);
 
   // In-process subagent runs for the AGENTS tab (subagentTracker.ts). A
   // PreToolUse applies it below, where the tool summary exists, and learns
@@ -2527,10 +2555,12 @@ registerTerminalSuggestionCallback((terminalId: string, suggestion) => {
 });
 
 // ---- User cancel (Esc, or a declined tool) --------------------------------
-// Claude Code fires an ordinary Stop for a cancel, so the prompt queue would
-// read it as a finished turn and send its next prompt. The transcript says
-// which it was (see transcriptInterrupt.ts), so every Stop of a Claude session
-// is followed by a read of the transcript's tail.
+// Neither CLI fires a hook when Esc stops a turn (Claude no Stop, Codex
+// nothing), so the card would stay working. Each writes it into its own file
+// instead, which the session runtime's watcher reads as it changes: that
+// ends the turn (endTurnStoppedByUser). A Stop that does come after a cancel
+// would read as a finished turn and let the queue send its next prompt, so
+// every Stop of a Claude session is also followed by a read of the tail.
 
 /**
  * The status the main agent reached while a background subagent's dialog held the
@@ -2585,6 +2615,34 @@ function holdForSubagentDialog(
  * survives a re-key.
  */
 const turnGeneration = new WeakMap<Session, number>();
+
+/**
+ * The id the CLI gives the turn that is running, as its hooks send it: Claude's
+ * `prompt_id`, Codex's `turn_id`. Set by UserPromptSubmit, or by the first hook
+ * that carries one (a card restored mid-turn); dropped by SessionStart. A stop
+ * read off the transcript must name this turn, not the one before it.
+ */
+const turnIds = new WeakMap<Session, string>();
+/** When the running turn's UserPromptSubmit reached the store. */
+const turnPromptedAt = new WeakMap<Session, number>();
+/** The turn the transcript already ended (`endTurnStoppedByUser`): it is ended once. */
+const endedTurns = new WeakMap<Session, string>();
+
+function noteTurnId(session: Session, event: string, hookData: HookPayload): void {
+  const id = ('prompt_id' in hookData && typeof hookData.prompt_id === 'string' && hookData.prompt_id)
+    || ('turn_id' in hookData && typeof hookData.turn_id === 'string' && hookData.turn_id)
+    || null;
+  if (event === EVENT_TYPES.SESSION_START) {
+    turnIds.delete(session);
+    turnPromptedAt.delete(session);
+    endedTurns.delete(session);
+  } else if (event === EVENT_TYPES.USER_PROMPT_SUBMIT) {
+    if (id) turnIds.set(session, id);
+    else turnIds.delete(session);
+    turnPromptedAt.set(session, Date.now());
+    endedTurns.delete(session);
+  } else if (id && !turnIds.has(session)) turnIds.set(session, id);
+}
 
 /**
  * When to read the transcript after a Stop. The marker is written before the
@@ -2661,6 +2719,55 @@ function confirmUserCancel(session: Session): void {
   log.info('session', `USER CANCEL on ${session.sessionId.slice(0, 8)} — prompt queue held until the user acts`);
   invalidateSessionsCache();
   void broadcastSessionUpdate(session);
+}
+
+/** A turn still running: what an Esc can stop. */
+const STOPPABLE_STATUSES: ReadonlySet<string> = new Set([
+  SESSION_STATUS.PROMPTING, SESSION_STATUS.WORKING, SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT,
+]);
+
+/**
+ * The user stopped the running turn (Esc, the phone's Stop, a declined tool) and
+ * the CLI only wrote it down (`stoppedTurn`): end the turn as its Stop would,
+ * hold the queue as for any cancel, and tell whoever waits on the terminal (an
+ * interrupt, a central's task). A stop of another turn is stale, and a turn is
+ * ended once: a later read of the same line changes nothing.
+ */
+function endTurnStoppedByUser(session: Session, stopped: StoppedTurn): void {
+  if (!STOPPABLE_STATUSES.has(session.status)) return;
+  const running = turnIds.get(session);
+  if (running && stopped.turnId && stopped.turnId !== running) return;
+  // Stamped as its prompt arrived: the marker Claude writes for a prompt typed into a busy
+  // turn, in whichever order it reached the file.
+  const promptedAt = turnPromptedAt.get(session);
+  if (stopped.at !== null && promptedAt !== undefined && Math.abs(stopped.at - promptedAt) <= TYPED_PROMPT_MARKER_MS) return;
+  // A subagent's open dialog keeps the card in approval, and every later write re-reads the marker.
+  const turn = stopped.turnId ?? running ?? '';
+  if (endedTurns.get(session) === turn) return;
+  endedTurns.set(session, turn);
+  const requestBefore = session.pendingRequest ?? null;
+  const statusBefore = session.status;
+  const now = Date.now();
+  clearApprovalTimer(session.sessionId, session);
+  session.status = SESSION_STATUS.WAITING;
+  session.animationState = ANIMATION_STATE.WAITING;
+  session.emote = null;
+  session.totalToolCalls = 0;
+  session.lastActivityAt = now;
+  session.pendingRequest = nextPendingRequest(requestBefore, EVENT_TYPES.STOP, {}, requestCliOf(session.cliSource), now);
+  session.compacting = nextCompacting(session.compacting ?? null, EVENT_TYPES.STOP, {}, now);
+  holdForSubagentDialog(session, EVENT_TYPES.STOP, requestBefore, statusBefore);
+  session.events.push({ type: EVENT_TYPES.STOP, timestamp: now, detail: 'Stopped by you' });
+  if (session.events.length > 50) session.events.shift();
+  dbUpsertSession(session);
+  log.info('session', `STOPPED ${session.sessionId.slice(0, 8)}: the user ended the turn; the CLI sent no hook`);
+  if (session.userCancelledAt) {
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+  } else {
+    confirmUserCancel(session);
+  }
+  emitTerminalHook(EVENT_TYPES.STOP, session);
 }
 
 /**

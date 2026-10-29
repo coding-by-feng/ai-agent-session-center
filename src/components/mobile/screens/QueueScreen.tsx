@@ -32,6 +32,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { queueMoveTargets } from '@/lib/queueMoveTargets';
 import { infoPath } from '@/lib/chat/phoneRoutes';
 import { automationWords, dropIndex, itemSummary, moveId, promptLine, queueGroups, senderLine, waitingBlocker, type QueueGroup } from '@/lib/chat/queueTabModel';
 import { sendQueueItemNow } from '@/lib/chat/queueSendNow';
@@ -362,11 +363,7 @@ export default function QueueScreen() {
   const editSession = editing ? sessions.get(editing.sessionId) : undefined;
   const editAutomation = useQueueStore((s) => (editing ? s.automation.get(editing.sessionId) ?? DEFAULT_AUTOMATION : DEFAULT_AUTOMATION));
   const moveTargets = useMemo(
-    () => (moving
-      ? [...sessions.values()]
-        .filter((s) => s.sessionId !== moving.sessionId && s.status !== 'ended' && !s.isFloating)
-        .map((s) => ({ id: s.sessionId, projectName: s.projectName, title: sessionDisplayTitle(s) }))
-      : []),
+    () => (moving ? queueMoveTargets(sessions.values(), moving.sessionId) : []),
     [moving, sessions],
   );
   const liveSessions = useMemo(

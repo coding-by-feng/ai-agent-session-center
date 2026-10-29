@@ -39,6 +39,7 @@ import log from './logger.js';
 import { createCloudRouter, type CloudGoogleRoutes } from './cloud/router.js';
 import { createNotesRouter, notesErrorHandler } from './cloud/notesRouter.js';
 import { createResourceJobs, type ResourceJobs } from './cloud/resourceJobs.js';
+import type { ProjectActivity } from './knownProjects.js';
 import { createProjectJobs, type ProjectJobs } from './cloud/projectJobs.js';
 import { createProjectRouter } from './cloud/projectRouter.js';
 import { createResourceJobsRouter } from './cloud/resourceRouter.js';
@@ -68,8 +69,10 @@ export interface ResourceRouterDeps {
   onCloudAliasesReady?: (getCloudAliases: () => Promise<CloudAliasesService>) => void;
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
   sessionProjectPaths: () => string[];
-  /** Projects with a live session: cloud project actions refuse to touch them. Default `sessionProjectPaths`. */
+  /** Projects an agent is working in now (agentWork.ts): Pull and Push wait for them. Default `sessionProjectPaths`. */
   cloudActiveProjectPaths?: () => string[];
+  /** Sessions per folder over the last 30 days: RESOURCES → Projects lists folders most used first. */
+  projectActivity?: () => readonly ProjectActivity[];
   /** Tests override; default `isLocalResourceRequest`. */
   isLocalRequest?: (req: Request) => boolean;
   /** Tests override the environment and home dir (fixtures). Default process.env / os.homedir(). */
@@ -259,6 +262,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
           cloud,
           resources,
           activeProjectPaths: deps.cloudActiveProjectPaths ?? deps.sessionProjectPaths,
+          projectActivity: deps.projectActivity,
           home,
           // "Save a project" offers the catalog's project folders (display paths: `~/…`).
           candidatePaths: () =>
@@ -266,6 +270,11 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
               .getOrStartCatalog()
               .projects.filter((p) => p.exists && !p.isHome)
               .map((p) => (p.path.startsWith('~/') ? join(home, p.path.slice(2)) : p.path)),
+          // The first scan after a start lists no projects until it ends: the tab would read
+          // "No projects on this Mac yet" (code review, Oct 29 2026). Later scans keep the last list.
+          candidatesReady: async () => {
+            if (!catalog.getOrStartCatalog().projects.length) await catalog.whenIdle();
+          },
         }),
       ));
     deps.onCloudProjectsReady?.(getProjects);

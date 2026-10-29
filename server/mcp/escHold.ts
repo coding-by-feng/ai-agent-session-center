@@ -4,8 +4,8 @@
 // (promptRouter.ts, the per-keystroke check for `mcp:` callers).
 //
 // One stamp is not the person's: the one a central's own Esc causes (task_cancel, a prompt sent with mode `interrupt`).
-// sessionStore stamps it 150-600 ms after the Stop the Esc brings, so a stamp that lands within CENTRAL_ESC_GRACE_MS
-// after a central's Esc on that session is not a hold. Whoever presses that Esc notes it here first (`noteCentralEsc`).
+// sessionStore stamps it once the transcript records the Esc (no CLI fires a hook for one), a fraction of a second
+// later, so a stamp that lands within CENTRAL_ESC_GRACE_MS after a central's Esc on that session is not a hold. Whoever presses that Esc notes it here first (`noteCentralEsc`).
 //
 // In memory, per process, like presence: an Esc a restart forgot only makes the hold stricter.
 

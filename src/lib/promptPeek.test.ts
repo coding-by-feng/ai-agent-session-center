@@ -82,3 +82,18 @@ describe('promptAge', () => {
     expect(promptAge(0, now)).toBe('');
   });
 });
+
+describe("typedPrompts — 'full' (the desktop hover peek, Oct 29 2026)", () => {
+  it('keeps every word and the line breaks, trimming only the ends', () => {
+    const long = `${'word '.repeat(80)}end`;
+    const [first, second] = typedPrompts(s([[long, at(1)], ['  line one\n\n  line two  ', at(2)]]), PEEK_PROMPT_COUNT, 'full');
+    expect(first.text).toBe('line one\n\n  line two');
+    expect(second.text).toBe(long);
+    expect(second.text.length).toBeGreaterThan(PEEK_PROMPT_MAX_CHARS);
+  });
+
+  it('still leaves out what the harness put in, and still falls back to the prompt in flight', () => {
+    expect(typedPrompts(s([['<command-name>/x</command-name>', at(1)], ['real\nwork', at(2)]]), PEEK_PROMPT_COUNT, 'full').map((p) => p.text)).toEqual(['real\nwork']);
+    expect(typedPrompts(s([], { currentPrompt: 'just\nasked' }), PEEK_PROMPT_COUNT, 'full').map((p) => p.text)).toEqual(['just\nasked']);
+  });
+});

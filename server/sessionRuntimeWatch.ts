@@ -4,8 +4,11 @@
  *
  * - the status-line snapshots in `<queue>/runtime/` (one fs.watch on the directory,
  *   written by `hooks/dashboard-statusline.sh`), and
- * - each live Claude session's transcript (one fs.watch per file, re-synced from the
- *   session list rather than tied to the many teardown paths a session has).
+ * - each live session's transcript, Claude's or Codex's rollout (one fs.watch per file,
+ *   re-synced from the session list rather than tied to the many teardown paths a session has).
+ *
+ * Each transcript read also says whether the user stopped the newest turn (Esc, a declined
+ * tool), which no hook reports (`stoppedTurn`, transcriptInterrupt.ts).
  *
  * The directory is shared /tmp ground: it is read only while it passes the same check
  * as the plan-usage directory (`checkUsageDirectory`: a real directory, ours, not
@@ -16,7 +19,7 @@ import { lstat, readFile, readdir, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import log from './logger.js';
 import { USAGE_DIR, checkUsageDirectory } from './planUsageSources.js';
-import { readTranscriptTail } from './transcriptInterrupt.js';
+import { readTranscriptTail, stoppedTurn, type StoppedTurn } from './transcriptInterrupt.js';
 import { readingFromStatusLine, readingFromTranscript, type RuntimeReading } from './sessionRuntime.js';
 
 /** `<queue dir>/runtime/<session-id>.json` — beside `usage/`, same hard-coded path as the tap.
@@ -39,6 +42,8 @@ export interface RuntimeWatchHost {
   applyToSession(sessionId: string, reading: RuntimeReading): void;
   /** A transcript reading, for every live session that writes this transcript. */
   applyToTranscript(path: string, reading: RuntimeReading): void;
+  /** This transcript's newest turn was stopped by the user, reported on every read that still sees it. */
+  applyToStoppedTurn?(path: string, stopped: StoppedTurn): void;
 }
 
 export interface RuntimeWatch {
@@ -150,6 +155,8 @@ export function createRuntimeWatch(
     if (!lines || !transcripts.has(path)) return;
     const reading = readingFromTranscript(lines);
     if (reading.modelAt !== undefined || reading.effortAt !== undefined) host.applyToTranscript(path, reading);
+    const stopped = stoppedTurn(lines);
+    if (stopped) host.applyToStoppedTurn?.(path, stopped);
   }
 
   const dropTranscript = (path: string): void => {

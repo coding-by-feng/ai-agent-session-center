@@ -15,7 +15,9 @@
  * scroll containers, overflow:hidden parents, or stacking contexts.
  *
  * Positioning: prefers `placement` (default 'top'), but flips to the opposite
- * side if the preferred side would clip the viewport.
+ * side if the preferred side would clip the viewport. It is placed by its layout
+ * size (the fade-in draws it at 96% at first), and its arrow stays on the trigger
+ * when the viewport pushes it along.
  *
  * Touch (AASC-20): a finger has no hover, so a tap never opens the tooltip (the
  * mouse events and focus a tap emulates are ignored) and a long press does: 500
@@ -23,6 +25,15 @@
  * presses. The click that may end that press is swallowed, so holding a button
  * to read its name does not also press it. The tooltip then closes on the next
  * touch anywhere, on scroll, or after a few seconds.
+ *
+ * Interactive (Oct 29 2026, the session prompt peek): the pointer may move into the
+ * tooltip, so it never covers its trigger: it takes the first side with room enough,
+ * capped to the room there, and its body scrolls the rest (never past the window).
+ * Leaving the trigger waits `INTERACTIVE_GRACE_MS` so the pointer can cross the gap;
+ * a scroll inside it, or in a scroller that does not hold the trigger (a terminal
+ * printing), and a click into it do not close it. A portal still bubbles React events
+ * to the trigger's ancestors (the header name renames on a double-click), so it keeps
+ * its clicks to itself; a press still reaches the page's click-outside listeners.
  */
 import {
   useCallback,
@@ -58,8 +69,10 @@ interface TooltipProps {
   /** Extra class on the wrapper span: a trigger that is a flex or grid item
    *  (a strip card) needs the wrapper to take its slot, not shrink to it. */
   triggerClassName?: string;
-  /** 360px instead of 280px, for a `content` list (the strip's prompt peek). */
+  /** 480px instead of 280px, for a `content` list (the strip's prompt peek). */
   wide?: boolean;
+  /** The pointer may move into the tooltip to scroll a body taller than the window. */
+  interactive?: boolean;
 }
 
 const VIEWPORT_PAD = 8;
@@ -72,13 +85,64 @@ const LONG_PRESS_SLOP_PX = 10;
 const TOUCH_GHOST_MS = 800;
 /** A tooltip a long press opened closes by itself after this long. */
 const TOUCH_SHOW_MS = 4000;
+/** An interactive tooltip closes this long after the pointer leaves the trigger or the tooltip. */
+const INTERACTIVE_GRACE_MS = 150;
 
-interface Pos { left: number; top: number; placement: TooltipPlacement }
+/** The arrow keeps this far from the tooltip's ends (its half width and the rounded corner). */
+const ARROW_INSET = 10;
+/** An interactive tooltip takes a side that leaves it at least this tall (top/bottom) or wide (left/right). */
+const MIN_FIT_HEIGHT = 160;
+const MIN_FIT_WIDTH = 280;
+
+/** A portal bubbles React events to the trigger's ancestors: an interactive tooltip keeps its clicks. */
+const keepToTooltip = (e: React.SyntheticEvent) => e.stopPropagation();
+
+interface Size { width: number; height: number }
+
+interface Pos {
+  left: number;
+  top: number;
+  placement: TooltipPlacement;
+  /** Where the arrow sits along its edge (px from the tooltip's left or top). */
+  arrow?: number;
+  /** The room an interactive tooltip is capped to on its side (px): a height above or
+   *  below its trigger, a width (`--tooltip-room`) beside it. */
+  maxHeight?: number;
+  maxWidth?: number;
+}
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const isVertical = (p: TooltipPlacement) => p === 'top' || p === 'bottom';
+
+/**
+ * Where an interactive tooltip goes: never over its trigger, since the pointer may move into
+ * it. The first side in `order` with room enough, else the roomiest, capped to the room there
+ * (its body scrolls the rest); never taller than the window, as `.tooltipInteractive` says.
+ */
+function fitInteractive(trigger: DOMRect, tooltip: Size, order: TooltipPlacement[]) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const room = (p: TooltipPlacement) => {
+    if (p === 'top') return trigger.top - GAP - VIEWPORT_PAD;
+    if (p === 'bottom') return vh - VIEWPORT_PAD - trigger.bottom - GAP;
+    if (p === 'left') return trigger.left - GAP - VIEWPORT_PAD;
+    return vw - VIEWPORT_PAD - trigger.right - GAP;
+  };
+  const height = Math.min(tooltip.height, vh - 2 * VIEWPORT_PAD);
+  const enough = (p: TooltipPlacement) =>
+    room(p) >= (isVertical(p) ? Math.min(height, MIN_FIT_HEIGHT) : Math.min(tooltip.width, MIN_FIT_WIDTH));
+  const placement = order.find(enough) ?? order.reduce((best, p) => (room(p) > room(best) ? p : best));
+  const cap = Math.max(0, Math.floor(room(placement)));
+  return isVertical(placement)
+    ? { placement, size: { width: tooltip.width, height: Math.min(height, cap) }, maxHeight: cap }
+    : { placement, size: { width: Math.min(tooltip.width, cap), height }, maxWidth: cap };
+}
 
 function computePosition(
   trigger: DOMRect,
-  tooltip: DOMRect,
+  tooltip: Size,
   preferred: TooltipPlacement,
+  interactive = false,
 ): Pos {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -101,29 +165,42 @@ function computePosition(
     right: ['top', 'bottom'],
   };
   const order: TooltipPlacement[] = [preferred, opposite[preferred], ...perpendicular[preferred]];
-  const placement = order.find(fits) ?? preferred;
+  const fit = interactive ? fitInteractive(trigger, tooltip, order) : undefined;
+  const placement = fit?.placement ?? order.find(fits) ?? preferred;
+  const size = fit?.size ?? tooltip;
 
   let left = 0;
   let top = 0;
   if (placement === 'top') {
-    left = trigger.left + trigger.width / 2 - tooltip.width / 2;
-    top = trigger.top - tooltip.height - GAP;
+    left = trigger.left + trigger.width / 2 - size.width / 2;
+    top = trigger.top - size.height - GAP;
   } else if (placement === 'bottom') {
-    left = trigger.left + trigger.width / 2 - tooltip.width / 2;
+    left = trigger.left + trigger.width / 2 - size.width / 2;
     top = trigger.bottom + GAP;
   } else if (placement === 'left') {
-    left = trigger.left - tooltip.width - GAP;
-    top = trigger.top + trigger.height / 2 - tooltip.height / 2;
+    left = trigger.left - size.width - GAP;
+    top = trigger.top + trigger.height / 2 - size.height / 2;
   } else {
     left = trigger.right + GAP;
-    top = trigger.top + trigger.height / 2 - tooltip.height / 2;
+    top = trigger.top + trigger.height / 2 - size.height / 2;
   }
 
   // Clamp into viewport.
-  left = Math.max(VIEWPORT_PAD, Math.min(vw - tooltip.width - VIEWPORT_PAD, left));
-  top = Math.max(VIEWPORT_PAD, Math.min(vh - tooltip.height - VIEWPORT_PAD, top));
+  left = Math.max(VIEWPORT_PAD, Math.min(vw - size.width - VIEWPORT_PAD, left));
+  top = Math.max(VIEWPORT_PAD, Math.min(vh - size.height - VIEWPORT_PAD, top));
 
-  return { left, top, placement };
+  // The arrow on the trigger's centre, wherever the clamp left the tooltip.
+  const arrow = isVertical(placement)
+    ? clamp(trigger.left + trigger.width / 2 - left, ARROW_INSET, size.width - ARROW_INSET)
+    : clamp(trigger.top + trigger.height / 2 - top, ARROW_INSET, size.height - ARROW_INSET);
+
+  return { left, top, placement, arrow, maxHeight: fit?.maxHeight, maxWidth: fit?.maxWidth };
+}
+
+/** The arrow's offset along the edge it sits on; before the first measure, the CSS's 50%. */
+function arrowStyle({ placement, arrow }: Pos): React.CSSProperties | undefined {
+  if (arrow === undefined) return undefined;
+  return isVertical(placement) ? { left: arrow } : { top: arrow };
 }
 
 export default function Tooltip({
@@ -137,10 +214,12 @@ export default function Tooltip({
   disabled = false,
   triggerClassName,
   wide = false,
+  interactive = false,
 }: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<Pos>({ left: -9999, top: -9999, placement });
@@ -173,11 +252,36 @@ export default function Tooltip({
     timerRef.current = window.setTimeout(() => setOpen(true), delay);
   }, [disabled, delay, clearTimer]);
 
-  const hide = useCallback(() => {
-    clearTimer();
+  // Closing forgets the room an interactive tooltip was capped to, or the next open
+  // would measure it under that old cap.
+  const close = useCallback(() => {
     touchOpenRef.current = false;
     setOpen(false);
-  }, [clearTimer]);
+    setPos((p) =>
+      p.maxHeight === undefined && p.maxWidth === undefined ? p : { ...p, maxHeight: undefined, maxWidth: undefined },
+    );
+  }, []);
+
+  const hide = useCallback(() => {
+    clearTimer();
+    close();
+  }, [clearTimer, close]);
+
+  // Interactive: close a moment after the pointer leaves the trigger or the tooltip,
+  // so it can cross the gap between them; arriving at either cancels it.
+  const scheduleHide = useCallback(() => {
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      close();
+    }, INTERACTIVE_GRACE_MS);
+  }, [clearTimer, close]);
+
+  // A click into an interactive tooltip takes the focus from the trigger: that is reading, not leaving.
+  const onTriggerBlur = useCallback((e: React.FocusEvent) => {
+    if (interactive && e.relatedTarget instanceof Node && tooltipRef.current?.contains(e.relatedTarget)) return;
+    hide();
+  }, [interactive, hide]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.pointerType !== 'touch') return;
@@ -193,12 +297,11 @@ export default function Tooltip({
       setOpen(true);
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
-        touchOpenRef.current = false;
-        setOpen(false);
+        close();
       }, TOUCH_SHOW_MS);
     }, LONG_PRESS_MS);
     pressRef.current = { timer, x: e.clientX, y: e.clientY };
-  }, [disabled, clearPress, clearTimer]);
+  }, [disabled, clearPress, clearTimer, close]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const press = pressRef.current;
@@ -229,19 +332,43 @@ export default function Tooltip({
   useLayoutEffect(() => {
     if (!open) return;
     const trigger = triggerRef.current?.getBoundingClientRect();
-    const tooltip = tooltipRef.current?.getBoundingClientRect();
+    const tooltip = tooltipRef.current;
     if (!trigger || !tooltip) return;
-    setPos(computePosition(trigger, tooltip, placement));
-  }, [open, label, description, shortcut, content, placement]);
+    // Its layout size: its rect is the fade-in's, scaled to 96% (`tooltipFadeIn`). An
+    // interactive one's height is what its body asks for, not what a cap left it, and once
+    // narrowed (`pos.maxWidth`) it is measured again with its lines rewrapped.
+    const body = bodyRef.current;
+    const size = {
+      width: tooltip.offsetWidth,
+      height: tooltip.offsetHeight + (body ? body.scrollHeight - body.clientHeight : 0),
+    };
+    setPos(computePosition(trigger, size, placement, interactive));
+  }, [open, label, description, shortcut, content, placement, interactive, pos.maxWidth]);
 
   // Hide on scroll, resize, or Escape — and a long-press tooltip on the next
   // touch anywhere (a finger has no mouseleave).
   useEffect(() => {
     if (!open) return;
-    const onScroll = () => hide();
+    const onScroll = (e: Event) => {
+      // An interactive one closes only when its trigger may have moved: a scroll inside it is
+      // someone reading it, and a scroller that does not hold the trigger (a terminal printing)
+      // moves nothing it points at. A page scroll or a resize still closes it.
+      const target = e.target;
+      if (
+        interactive && target instanceof Node && target !== document
+        && (tooltipRef.current?.contains(target) || !target.contains(triggerRef.current))
+      ) return;
+      hide();
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') hide(); };
     const onTouchDown = (e: PointerEvent) => {
-      if (touchOpenRef.current && e.pointerType === 'touch') hide();
+      if (!touchOpenRef.current || e.pointerType !== 'touch') return;
+      // A finger reading an interactive one (scrolling it) keeps it, until a touch lands elsewhere.
+      if (interactive && e.target instanceof Node && tooltipRef.current?.contains(e.target)) {
+        clearTimer();
+        return;
+      }
+      hide();
     };
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
@@ -253,7 +380,7 @@ export default function Tooltip({
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onTouchDown, true);
     };
-  }, [open, hide]);
+  }, [open, hide, interactive, clearTimer]);
 
   // Cleanup pending timers on unmount.
   useEffect(() => () => {
@@ -267,16 +394,16 @@ export default function Tooltip({
         ref={triggerRef}
         className={triggerClassName ? `${styles.trigger} ${triggerClassName}` : styles.trigger}
         onMouseEnter={show}
-        onMouseLeave={hide}
+        onMouseLeave={interactive && open ? scheduleHide : hide}
         onFocus={show}
-        onBlur={hide}
+        onBlur={onTriggerBlur}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
         onClickCapture={onClickCapture}
         onContextMenu={onContextMenu}
-        aria-describedby={open ? id : undefined}
+        aria-describedby={open ? (interactive ? `${id}-label${description ? ` ${id}-description` : ''}` : id) : undefined}
       >
         {children}
       </span>
@@ -285,14 +412,30 @@ export default function Tooltip({
           ref={tooltipRef}
           id={id}
           role="tooltip"
-          className={`${styles.tooltip}${wide ? ` ${styles.tooltipWide}` : ''} ${styles[`placement_${pos.placement}`]}`}
-          style={{ left: pos.left, top: pos.top }}
+          className={`${styles.tooltip}${wide ? ` ${styles.tooltipWide}` : ''}${interactive ? ` ${styles.tooltipInteractive}` : ''} ${styles[`placement_${pos.placement}`]}`}
+          style={{
+            left: pos.left,
+            top: pos.top,
+            maxHeight: pos.maxHeight,
+            '--tooltip-room': pos.maxWidth === undefined ? undefined : `${pos.maxWidth}px`,
+          } as React.CSSProperties}
+          {...(interactive
+            ? {
+                tabIndex: -1,
+                onMouseEnter: clearTimer,
+                onMouseLeave: scheduleHide,
+                onClick: keepToTooltip,
+                onDoubleClick: keepToTooltip,
+                onContextMenu: keepToTooltip,
+              }
+            : {})}
         >
-          <div className={styles.label}>{label}</div>
-          {description && <div className={styles.description}>{description}</div>}
-          {content}
+          {/* An interactive one's body can run to thousands of words: its label and description describe the trigger. */}
+          <div id={interactive ? `${id}-label` : undefined} className={styles.label}>{label}</div>
+          {description && <div id={interactive ? `${id}-description` : undefined} className={styles.description}>{description}</div>}
+          {interactive && content != null ? <div ref={bodyRef} className={styles.body}>{content}</div> : content}
           {shortcut && <div className={styles.shortcut}><kbd>{shortcut}</kbd></div>}
-          <span className={styles.arrow} aria-hidden />
+          <span className={styles.arrow} style={arrowStyle(pos)} aria-hidden />
         </div>,
         document.body,
       )}

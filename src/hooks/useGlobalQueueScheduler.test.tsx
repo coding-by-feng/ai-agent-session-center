@@ -4,10 +4,9 @@
  *
  * Two things reach `waiting` — the queue's "turn finished" signal — without the
  * turn being finished, and neither may send the next prompt:
- *   - the user stopped the turn with Esc (Claude Code fires a real Stop for it,
- *     so the session lands in `waiting` exactly like a clean finish; the server
- *     marks `userCancelledAt` from the CLI's own "What should Claude do
- *     instead?" line);
+ *   - the user stopped the turn with Esc (the server reads it from the CLI's
+ *     transcript, ends the turn as `waiting` exactly like a clean finish, and
+ *     marks `userCancelledAt`);
  *   - subagents still running after the main agent's Stop (`subagentCount`).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -134,7 +133,7 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     expect(recordQueueSent).not.toHaveBeenCalled();
   });
 
-  it('after an Esc-cancel (a real Stop), nothing sends', async () => {
+  it('after an Esc-cancel (ended as waiting), nothing sends', async () => {
     setSession({ status: 'waiting', userCancelledAt: T0 });
     queueOnce('next prompt');
     render(<Harness />);

@@ -11,6 +11,7 @@ describe('LocalProjectSchema.openUrl', () => {
     ahead: 0,
     behind: 0,
     account: null,
+    agentActive: false,
   } as const;
   it('accepts the project browser link the server builds', () => {
     expect(

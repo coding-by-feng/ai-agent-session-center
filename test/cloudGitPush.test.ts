@@ -163,6 +163,24 @@ it('reads a folder\'s GitHub origin and branch for "Save a project", and nothing
   expect(await f.ops.readOrigin(join(f.root, 'not-a-checkout'))).toBeNull();
 });
 
+// Code review, Oct 29 2026: a GitHub checkout AASC won't read says why, so the Projects tab doesn't
+// call it "No GitHub remote": Git settings that send its traffic elsewhere (a common SSH setup),
+// a linked worktree, or a checkout that is not on a branch.
+it('says why it will not read a GitHub checkout: its settings, a worktree, no branch', async () => {
+  const f = await cloned();
+  f.git(f.dest, 'config', 'url.git@github.com:.insteadOf', 'https://github.com/');
+  expect(await f.ops.readOrigin(f.dest)).toEqual({ blocked: 'settings' });
+  f.git(f.dest, 'config', '--unset', 'url.git@github.com:.insteadOf');
+  f.git(f.dest, 'config', 'http.proxy', 'http://127.0.0.1:9');
+  expect(await f.ops.readOrigin(f.dest)).toEqual({ blocked: 'settings' });
+  f.git(f.dest, 'config', '--unset', 'http.proxy');
+  const tree = join(f.root, 'tree');
+  f.git(f.dest, 'worktree', 'add', '-b', 'side', tree);
+  expect(await f.ops.readOrigin(tree)).toEqual({ blocked: 'worktree' });
+  f.git(f.dest, 'checkout', '--detach');
+  expect(await f.ops.readOrigin(f.dest)).toEqual({ blocked: 'detached' });
+});
+
 // Security review (Oct 23 2026): the checkout's own config must not redirect, widen or proxy a
 // push or fetch, and a GitHub CLI inside the checkout is never the credential helper.
 it.each([

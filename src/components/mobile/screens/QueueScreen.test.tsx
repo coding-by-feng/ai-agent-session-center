@@ -231,6 +231,9 @@ describe('QueueScreen', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: /^Prompt 1 for web: first prompt/ }));
     await user.click(await screen.findByRole('menuitem', { name: 'Move to another session…' }));
     const sheet = await screen.findByRole('dialog', { name: 'Move to another session' });
+    // By name, A→Z; a folder that is the name is not said twice.
+    const targets = within(within(sheet).getByRole('list', { name: 'Sessions' })).getAllByRole('button');
+    expect(targets.map((b) => b.textContent)).toEqual(['api', 'docs']);
     await user.click(within(sheet).getByRole('button', { name: /docs/ }));
     await waitFor(() => expect(order('s3')).toEqual([1]));
   });

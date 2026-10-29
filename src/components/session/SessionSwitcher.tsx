@@ -449,12 +449,14 @@ export default function SessionSwitcher({
                 onDoubleClick={beginHeaderEdit}
               >
                 {/* Hover peeks at the session (Oct 23 2026): where it runs, your remark and
-                    the last prompts you typed. Its first line is the full name, which the
+                    the last prompts you typed, each in full (Oct 29), so the pointer may move
+                    in to scroll a long one. Its first line is the full name, which the
                     native title used to give when the rail clamps a long one. */}
                 <Tooltip
                   label={primaryName}
                   content={<SessionPromptPeek session={currentSession} />}
                   wide
+                  interactive
                   delay={PEEK_HOVER_DELAY_MS}
                   placement={isVertical ? 'right' : 'bottom'}
                   triggerClassName={styles.switcherNameTrigger}
@@ -1018,11 +1020,13 @@ function SessionTabCard({
 
   // Hover peeks at the session (Oct 23 2026): its name, where it runs, your remark and
   // the last prompts you typed, in place of the native "title · project · status" title.
+  // The prompts are whole (Oct 29), so the pointer may move in to scroll a long one.
   return (
     <Tooltip
       label={title}
       content={<SessionPromptPeek session={session} />}
       wide
+      interactive
       delay={PEEK_HOVER_DELAY_MS}
       placement={peekPlacement}
       triggerClassName={styles.sessionTabTrigger}

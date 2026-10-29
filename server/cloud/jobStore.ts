@@ -183,5 +183,9 @@ export async function createJobStore(directory: string) {
         association,
       );
     },
+    /** The folder is no longer any project's checkout here (Remove, or a link moved elsewhere). */
+    dissociateProject(binding: CloudBinding, localProjectId: string) {
+      remove('project', JSON.stringify([accountKey(binding), localProjectId]));
+    },
   };
 }

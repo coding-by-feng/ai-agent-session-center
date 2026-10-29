@@ -129,7 +129,7 @@ describe('QueueTab — compose draft session isolation', () => {
 
 /**
  * The queue's notice while it is deliberately holding: after the user stopped
- * the last turn (Esc — Claude Code fires a real Stop, so without the hold the
+ * the last turn (Esc — the server ends it as `waiting`, so without the hold the
  * queue would send its next prompt into the turn you just stopped), or while
  * subagents are still running.
  */

@@ -191,9 +191,10 @@ export type QueueHold = 'not-started' | 'cancelled' | 'subagents' | 'background'
  * being finished, and neither may send the next queued prompt:
  *
  *  - `cancelled`: the user stopped the turn (Esc, or declining a tool).
- *    Claude Code fires a real Stop for that, so the status alone is identical
- *    to a clean finish; the server marks `userCancelledAt` when the turn's
- *    transcript ends in Claude Code's "[Request interrupted by user]" entry,
+ *    No CLI fires a hook for that; the server ends the turn as `waiting`, so
+ *    the status alone is identical to a clean finish, and marks
+ *    `userCancelledAt` when the transcript records the stop (Claude Code's
+ *    "[Request interrupted by user]" entry, Codex's `turn_aborted`),
  *    and clears it on the user's next prompt (or the queue's Resume). Nothing
  *    sends until then, except an item you force with ⚡ NOW (pickWhileHeld).
  *  - `subagents`: the main agent stopped but its subagents are still running.

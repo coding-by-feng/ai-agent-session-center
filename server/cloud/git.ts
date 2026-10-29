@@ -51,6 +51,10 @@ export interface CheckoutInspection {
   behind: number | null;
 }
 /** A folder's GitHub origin and current branch, for saving it as a cloud project. */
+/** Why a GitHub checkout is one AASC won't work in (readOrigin). */
+export interface FolderBlock {
+  blocked: NonNullable<import('../../src/types/cloudProjects.js').ProjectFolder['blocked']>;
+}
 export interface GithubOrigin {
   url: string;
   owner: string;
@@ -96,6 +100,13 @@ const fail = (code: string) =>
  * only the GitHub CLI, for that login. Refused (before any Git runs) unless the login is a GitHub
  * login and the helper an absolute path that can sit inside single quotes.
  */
+/** `git version` output names Git `major.minor` or later; anything unreadable is older. */
+export function gitAtLeast(version: string, major: number, minor: number): boolean {
+  const m = /^git version (\d+)\.(\d+)/.exec(version.trim());
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a > major || (a === major && b >= minor);
+}
 export function credentialConfig(account?: GitAccount): string[] {
   if (!account) return [];
   if (
@@ -175,7 +186,8 @@ export async function createGitOperations(options: GitOptions) {
       ![hooks, workdir].includes(join(options.directory, name))
     )
       await rmdir(join(options.directory, name)).catch(() => {});
-  const locks = new Set<string>();
+  /** Folders AASC's Git works in now: a fetch moves only refs/remotes, anything else the folder. */
+  const locks = new Map<string, 'fetch' | 'write'>();
   const fixture = options.testTransport;
   if (fixture) {
     const s = await lstat(fixture.barePath);
@@ -189,6 +201,18 @@ export async function createGitOperations(options: GitOptions) {
       program = null;
       throw e;
     }));
+  // Git 2.29+ fetches without writing FETCH_HEAD, which a `git pull` in the folder reads between
+  // its own fetch and merge (security review, Oct 29 2026). With an older Git, or when the version
+  // cannot be read, a check waits for a live agent instead of running past it.
+  let quiet: Promise<boolean> | null = null;
+  const quietFetch = (root: string) =>
+    (quiet ??= run(root, ['version'], undefined, true).then(
+      (v) => v.code === 0 && gitAtLeast(v.text, 2, 29),
+      () => {
+        quiet = null;
+        return false;
+      },
+    ));
   async function run(
     root: string,
     args: string[],
@@ -339,11 +363,13 @@ export async function createGitOperations(options: GitOptions) {
   async function remoteUrl(root: string, project: ProjectRecord): Promise<string> {
     if (fixture) return fixture.barePath;
     const { owner, name, url } = project.repository;
-    const origin = (await run(root, ['remote', 'get-url', 'origin'], undefined, true)).text;
-    return origin.startsWith('git@github.com:')
-      ? `git@github.com:${owner}/${name}.git`
-      : `${url}.git`;
+    return (await sshOrigin(root)) ? `git@github.com:${owner}/${name}.git` : `${url}.git`;
   }
+  /** The checkout's origin is GitHub's SSH form, so remoteUrl reaches GitHub over SSH. */
+  const sshOrigin = async (root: string) =>
+    (await run(root, ['remote', 'get-url', 'origin'], undefined, true)).text.startsWith(
+      'git@github.com:',
+    );
   /** A GitHub CLI inside the folder it would sign in for is that folder's, like a Git there. */
   const assertHelperOutside = (root: string, account?: GitAccount) => {
     if (account && within(root, account.helper)) throw fail('git_unavailable');
@@ -366,8 +392,12 @@ export async function createGitOperations(options: GitOptions) {
     if (!(await exists(root))) return only('missing');
     await safeParents(root);
     if ((await realpath(root)) !== root) throw fail('checkout_changed');
-    // A live agent blocks Git work in the folder, not recording a link to it (ignoreAgents).
-    if ((!owned && locks.has(root)) || (!ignoreAgents && active(root))) return only('busy');
+    // A live agent blocks Git work in the folder, not recording a link to it (ignoreAgents). So
+    // does AASC's own Git, except a fetch for such a read: it moves only refs/remotes, and a
+    // reload while the tab checks a project would read "In use" (code review, Oct 29 2026).
+    const held = locks.get(root);
+    if (!owned && held && !(held === 'fetch' && ignoreAgents)) return only('busy');
+    if (!ignoreAgents && active(root)) return only('busy');
     const gd = join(root, '.git');
     if (!(await exists(gd))?.isDirectory()) return only('wrong-remote');
     const entries = await readdir(gd);
@@ -439,7 +469,7 @@ export async function createGitOperations(options: GitOptions) {
     if (ahead && behind) return counted('diverged');
     return counted(ahead ? 'ahead' : 'ready');
   }
-  /** Bring GitHub's branch into refs/remotes/origin; the files and HEAD never move. */
+  /** Bring GitHub's branch into refs/remotes/origin; the files, HEAD and FETCH_HEAD never move. */
   async function fetchBranch(
     root: string,
     project: ProjectRecord,
@@ -452,6 +482,7 @@ export async function createGitOperations(options: GitOptions) {
         'fetch',
         '--no-tags',
         '--no-recurse-submodules',
+        ...((await quietFetch(root)) ? ['--no-write-fetch-head'] : []),
         '--',
         await remoteUrl(root, project),
         `+refs/heads/${project.repository.branch}:refs/remotes/origin/${project.repository.branch}`,
@@ -468,9 +499,17 @@ export async function createGitOperations(options: GitOptions) {
   };
   const lockPathFor = (root: string) =>
     join(dirname(root), `.aasc-git-${createHash('sha256').update(root).digest('hex')}.lock`);
-  async function withLock<T>(root: string, op: (lock: CloneIntent['lock']) => Promise<T>) {
-    if (locks.has(root) || active(root)) throw fail('busy');
-    locks.add(root);
+  /**
+   * `kind: 'fetch'` moves only refs/remotes; `ignoreAgents`: it runs while an agent works here
+   * (Git 2.29+, which leaves FETCH_HEAD alone).
+   */
+  async function withLock<T>(
+    root: string,
+    op: (lock: CloneIntent['lock']) => Promise<T>,
+    { kind = 'write', ignoreAgents = false }: { kind?: 'fetch' | 'write'; ignoreAgents?: boolean } = {},
+  ) {
+    if (locks.has(root) || (!ignoreAgents && active(root))) throw fail('busy');
+    locks.set(root, kind);
     const lockPath = lockPathFor(root);
     let handle;
     try {
@@ -498,6 +537,8 @@ export async function createGitOperations(options: GitOptions) {
     /** `ignoreAgents`: for saving or linking (metadata), a live agent in the folder is not busy. */
     inspectCheckout: (root: string, project: ProjectRecord, opts?: { ignoreAgents?: boolean }) =>
       inspectCheckout(root, project, false, opts?.ignoreAgents === true),
+    /** A live agent session works in this folder (Pull and Push wait for it; Check does not). */
+    agentActive: (root: string) => active(root),
     async clone(
       destination: string,
       project: ProjectRecord,
@@ -683,16 +724,27 @@ export async function createGitOperations(options: GitOptions) {
       }
       await syncDirectory(dirname(root));
     },
-    /** Check: fetch GitHub's branch so ahead/behind are current. Nothing in the folder changes. */
+    /**
+     * Check: fetch GitHub's branch so ahead/behind are current. Nothing in the folder changes, so
+     * a live agent there does not block it (Oct 29 2026) when Git can leave FETCH_HEAD alone; a
+     * Git lock or merge in progress does.
+     */
     async fetch(root: string, project: ProjectRecord, signal: AbortSignal, account?: GitAccount) {
       const config = credentialConfig(account);
       assertHelperOutside(root, account);
-      usable(await inspectCheckout(root, project));
-      return withLock(root, async () => {
-        usable(await inspectCheckout(root, project, true));
-        await fetchBranch(root, project, signal, config);
-      });
+      const pastAgents = await quietFetch(root);
+      usable(await inspectCheckout(root, project, false, pastAgents));
+      return withLock(
+        root,
+        async () => {
+          usable(await inspectCheckout(root, project, true, pastAgents));
+          await fetchBranch(root, project, signal, config);
+        },
+        { kind: 'fetch', ignoreAgents: pastAgents },
+      );
     },
+    /** Check, Pull and Push reach GitHub over SSH here (an SSH clone keeps SSH). Reads only. */
+    sshTransport: (root: string) => sshOrigin(root),
     /**
      * Push this branch's commits to GitHub. Never forced: GitHub must have nothing this checkout
      * lacks (fetched first), and the refspec has no `+`, so Git itself refuses a rewrite too.
@@ -738,18 +790,27 @@ export async function createGitOperations(options: GitOptions) {
         await fetchBranch(root, project, signal, config);
       });
     },
-    /** The folder's GitHub origin and branch, or null for anything else. Reads only. */
-    async readOrigin(root: string): Promise<GithubOrigin | null> {
+    /**
+     * The folder's GitHub origin and branch; for a checkout AASC won't work in, why (code review,
+     * Oct 29 2026): its Git settings send the traffic elsewhere (configSafe), its `.git` points at
+     * another checkout (a worktree or a submodule), or it is not on a branch. Null for anything
+     * else: no checkout, or an origin that is not GitHub. Reads only.
+     */
+    async readOrigin(root: string): Promise<GithubOrigin | FolderBlock | null> {
       try {
-        if (!isAbsolute(root) || !(await exists(join(root, '.git')))?.isDirectory()) return null;
-        if ((await realpath(root)) !== root) return null;
-        await configSafe(root);
+        if (!isAbsolute(root)) return null;
+        const dotGit = await exists(join(root, '.git'));
+        if (dotGit?.isFile()) return { blocked: 'worktree' };
+        if (!dotGit?.isDirectory() || (await realpath(root)) !== root) return null;
+        // get-url expands url.insteadOf, so an SSH rewrite of GitHub still reads as GitHub here.
         const remote = await run(root, ['remote', 'get-url', 'origin'], undefined, true);
         const url = remote.code === 0 ? canonicalGithub(remote.text) : null;
+        if (!url) return null;
+        if (!(await configSafe(root).then(() => true, () => false))) return { blocked: 'settings' };
         const branch = (
           await run(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], undefined, true)
         ).text;
-        if (!url || !branch) return null;
+        if (!branch) return { blocked: 'detached' };
         const [owner, name] = url.slice('https://github.com/'.length).split('/');
         GithubRepositorySchema.parse({ provider: 'github', owner, name, url, branch });
         return { url, owner, name, branch };

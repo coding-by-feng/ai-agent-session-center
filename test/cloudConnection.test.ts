@@ -218,6 +218,11 @@ it.each([
  ['GET',`/v1/projects/${cloudId}`],
  ['DELETE','/v1/projects/x'],
  ['DELETE',`/v1/projects/${cloudId}/extra`],
+ // Oct 29 2026: project ♥/tags are one GET list and one POST per project, nothing else.
+ ['PUT',`/v1/projects/${cloudId}/meta`],
+ ['GET',`/v1/projects/${cloudId}/meta`],
+ ['POST','/v1/projects/meta'],
+ ['POST','/v1/projects/x/meta'],
  ['GET',`/v1/resources/${cloudId}/versions/0`],
  ['GET',`/v1/resources/${cloudId}/versions/1/files/not-a-hash`],
  ['GET',`/v1/resources/uploads/${cloudId}/files/${sha}`],
@@ -239,6 +244,9 @@ it.each([
  ['PUT',`/v1/projects/${cloudId}`],
  // AASC-63: Remove from the cloud list.
  ['DELETE',`/v1/projects/${cloudId}`],
+ // Oct 29 2026: a saved project's ♥ and tags.
+ ['GET','/v1/projects/meta?limit=100'],
+ ['POST',`/v1/projects/${cloudId}/meta`],
 ])('only the exact cloud resource and project routes are allowed: %s %s', async (method, path) => {
  const f=await fixture();await f.connect();
  await expect(f.cloud.client.request(method,path,method==='GET'?undefined:{})).resolves.toBeDefined();

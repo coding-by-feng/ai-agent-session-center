@@ -1033,6 +1033,14 @@ const DESKTOP_CLOUD_ROUTES: Array<[string, string]> = [
   ['GET', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/local'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/resources-plan'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/retry-resources'],
+  // RESOURCES → Projects (AASC-63, Oct 29 2026): this Mac's folders and accounts, ♥/tags, row actions.
+  ['GET', '/resources/cloud/projects/github-accounts'], ['GET', '/resources/cloud/projects/candidates'],
+  ['GET', '/resources/cloud/projects/folders'], ['GET', '/resources/cloud/projects/meta'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/meta'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/remove'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/check'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/push'],
+  ['PUT', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/account'],
   // Remote access (AASC-60): this Mac's Tailscale state, its refresh, and launching the Tailscale app.
   ['GET', '/resources/cloud/remote-access'], ['POST', '/resources/cloud/remote-access/refresh'],
   ['POST', '/resources/cloud/remote-access/open-tailscale'],

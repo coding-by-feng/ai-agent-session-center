@@ -1272,8 +1272,8 @@ describe('queueScheduler', () => {
 
 /**
  * Two things that look like "turn finished" but must never send the next
- * queued prompt: the user stopping the turn (Esc fires a real Stop, so the
- * session lands in `waiting` exactly like a clean finish), and subagents that
+ * queued prompt: the user stopping the turn (the server ends it as `waiting`
+ * exactly like a clean finish), and subagents that
  * are still running after the main agent's Stop.
  */
 describe('queueHoldReason', () => {

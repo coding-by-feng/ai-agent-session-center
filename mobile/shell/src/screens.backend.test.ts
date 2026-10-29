@@ -95,7 +95,7 @@ describe('the backend device for push (AASC-52)', () => {
   it('keeps one backend device per Mac: each Mac issues its own', async () => {
     const first = await openSaved();
     await open(first, /^Kason-MBP/);
-    const t = await relaunch(first, { search: '?tap=1' }); // back on Your Macs (More → Switch Mac)
+    const t = await relaunch(first, { search: '?tap=1' }); // back on Your Macs (More → Switch AASC)
     await open(t, /^Studio/);
     const a = await readBackendCredential(t.deps.vault, KASON_MBP.id);
     const b = await readBackendCredential(t.deps.vault, STUDIO.id);
@@ -110,7 +110,7 @@ describe('the backend device for push (AASC-52)', () => {
     await open(first, /^Kason-MBP/);
     const old = await readBackendCredential(first.deps.vault, KASON_MBP.id);
     first.mac.revokeBackendDevice(old!.deviceId); // e.g. "Remove them" on the Mac, or the owner CLI
-    // Back on Your Macs (More → Switch Mac), so the sign-in below comes after push dropped the device.
+    // Back on Your Macs (More → Switch AASC), so the sign-in below comes after push dropped the device.
     const t = await relaunch(first, { push: { configured: true, permission: 'granted' }, search: '?tap=1' });
     await until(t.root, () => t.extras.token !== null);
     t.extras.token!('fcm-token-1');

@@ -15,6 +15,10 @@ export async function projectFixture(
     /** Folders "Save a project" offers (AASC-63). */
     candidatePaths?: () => string[];
     accounts?: import('../server/cloud/githubAccounts.js').GithubAccountsService;
+    /** Sessions per folder (Oct 29 2026): the Projects tab's ranking. */
+    projectActivity?: () => import('../server/knownProjects.js').ProjectActivity[];
+    /** The catalog's first scan (Oct 29 2026): the folders list waits for it. */
+    candidatesReady?: () => Promise<void>;
   } = {},
 ) {
   const f = await cloudFixture();
@@ -72,6 +76,8 @@ export async function projectFixture(
     readOrigin: vi.fn(
       async (_path: string): Promise<import('../server/cloud/git.js').GithubOrigin | null> => null,
     ),
+    agentActive: vi.fn((_root: string) => false),
+    sshTransport: vi.fn(async (_root: string) => false),
   };
   const service = await createProjectJobs({
     cloud,
@@ -80,6 +86,8 @@ export async function projectFixture(
     home: f.home,
     candidatePaths: extra.candidatePaths,
     accounts: extra.accounts,
+    projectActivity: extra.projectActivity,
+    candidatesReady: extra.candidatesReady,
   });
   return {
     ...f,

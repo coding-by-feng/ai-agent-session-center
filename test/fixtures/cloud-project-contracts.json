@@ -137,5 +137,57 @@
       "deviceId": "00000000-0000-4000-8000-000000000002",
       "services": ["resources", "projects"]
     }
+  },
+  "meta": {
+    "change": {
+      "mutationId": "00000000-0000-4000-8000-000000000031",
+      "favorite": true,
+      "addTags": ["  Work Stuff ", "Client"]
+    },
+    "changeResponse": {
+      "success": true,
+      "data": {
+        "projectId": "00000000-0000-4000-8000-000000000011",
+        "version": 1,
+        "favorite": true,
+        "tags": ["client", "work-stuff"]
+      }
+    },
+    "update": {
+      "mutationId": "00000000-0000-4000-8000-000000000032",
+      "favorite": false,
+      "addTags": ["ＡＢＣ 中文"],
+      "removeTags": ["CLIENT"]
+    },
+    "updateResponse": {
+      "success": true,
+      "data": {
+        "projectId": "00000000-0000-4000-8000-000000000011",
+        "version": 2,
+        "favorite": false,
+        "tags": ["abc-中文", "work-stuff"]
+      }
+    },
+    "listResponse": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "projectId": "00000000-0000-4000-8000-000000000011",
+            "version": 2,
+            "favorite": false,
+            "tags": ["abc-中文", "work-stuff"]
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "tagLimit": {
+      "success": false,
+      "error": {
+        "code": "tag_limit",
+        "message": "A project can have at most 12 tags"
+      }
+    }
   }
 }
