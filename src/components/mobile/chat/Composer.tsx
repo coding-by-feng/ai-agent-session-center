@@ -1,11 +1,11 @@
 /**
  * Composer — the session's message box on the phone (AASC-42).
  *
- *   ⧉ 2 queued ›                 Opus 5.5 · high · ◔ 38%     chips
  *   ┌────────────────────────────────────────────────┐
  *   │ Reply to Claude…                                │       grows to 6 lines
  *   │ ＋  /  @                            ■  [Send ↑] │
  *   └────────────────────────────────────────────────┘
+ *   ⧉ 2 queued ›                 Opus 5.5 · high · ◔ 38%     chips (Oct 30 2026: under the box)
  *
  * - The draft is kept per session on this phone (composerDraftStore).
  * - ＋: photo library, camera, saved prompt, command, file. A "/" word under
@@ -455,50 +455,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {decision.queueNote && !line && (
         <p className={styles.note}><InfoIcon /> {decision.queueNote}</p>
       )}
-      {(queued > 0 || modelLabel || usage.chip) && (
-        <div className={styles.chips}>
-          {queued > 0 && (
-            // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
-            <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
-              <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
-            </button>
-          )}
-          {modelLabel && (
-            <button
-              type="button"
-              className={`${styles.chip} ${styles.modelChip}`}
-              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
-              aria-label={`Model ${modelLabel}: change`}
-              aria-disabled={blocked ? true : undefined}
-              aria-describedby={blocked ? chipReasonId : undefined}
-            >
-              <span className={styles.modelText}>{modelLabel}</span>
-              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
-            </button>
-          )}
-          {usage.chip && (
-            <button
-              type="button"
-              className={`${styles.chip} ${styles.usageChip}`}
-              onClick={() => setSheet({ type: 'usage' })}
-              aria-label={`${usage.ariaLabel} Show details.`}
-              aria-haspopup="dialog"
-            >
-              {usage.chip.context && (
-                <span className={styles.context} data-level={usage.chip.context.level}>
-                  <ContextRing pct={usage.chip.context.pct} /> {usage.chip.context.pctText}
-                </span>
-              )}
-              {usage.chip.context && usage.chip.planText && <span aria-hidden="true">·</span>}
-              {usage.chip.planText && (
-                <span className={styles.planPart}>
-                  {usage.chip.planText}{usage.chip.planHigh && <span aria-hidden="true"> ▲</span>}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-      )}
       {attached > 0 && (
         <ul className={styles.thumbs} aria-label="Photos and videos to send">
           {images.map((img, i) => (
@@ -617,6 +573,52 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         </div>
       </div>
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
+      {/* Under the box (Oct 30 2026): queue count, model and usage sit in the strip above the
+          home indicator instead of between the working line and the box. */}
+      {(queued > 0 || modelLabel || usage.chip) && (
+        <div className={styles.chips}>
+          {queued > 0 && (
+            // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
+            <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
+              <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
+            </button>
+          )}
+          {modelLabel && (
+            <button
+              type="button"
+              className={`${styles.chip} ${styles.modelChip}`}
+              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
+              aria-label={`Model ${modelLabel}: change`}
+              aria-disabled={blocked ? true : undefined}
+              aria-describedby={blocked ? chipReasonId : undefined}
+            >
+              <span className={styles.modelText}>{modelLabel}</span>
+              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
+            </button>
+          )}
+          {usage.chip && (
+            <button
+              type="button"
+              className={`${styles.chip} ${styles.usageChip}`}
+              onClick={() => setSheet({ type: 'usage' })}
+              aria-label={`${usage.ariaLabel} Show details.`}
+              aria-haspopup="dialog"
+            >
+              {usage.chip.context && (
+                <span className={styles.context} data-level={usage.chip.context.level}>
+                  <ContextRing pct={usage.chip.context.pct} /> {usage.chip.context.pctText}
+                </span>
+              )}
+              {usage.chip.context && usage.chip.planText && <span aria-hidden="true">·</span>}
+              {usage.chip.planText && (
+                <span className={styles.planPart}>
+                  {usage.chip.planText}{usage.chip.planHigh && <span aria-hidden="true"> ▲</span>}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       <input ref={photoInput} type="file" accept="image/*,video/*" multiple hidden onChange={onPhotos} data-testid="composer-photo-input" />
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={onPhotos} data-testid="composer-camera-input" />

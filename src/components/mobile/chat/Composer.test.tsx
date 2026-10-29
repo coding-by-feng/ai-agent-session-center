@@ -291,6 +291,16 @@ describe('Composer', () => {
     useComposerDraftStore.setState({ sheetRequest: null });
   });
 
+  it('puts the queue · model · usage chips under the box, not above it', () => {
+    stubMac();
+    useQueueStore.setState({ queues: new Map([['s1', [{ id: 1, sessionId: 's1', text: 'next', position: 0, createdAt: 1 } as QueueItem]]]) });
+    renderComposer(session());
+    const box = screen.getByTestId('composer-input');
+    for (const chip of [screen.getByRole('button', { name: /queued: open this session/ }), screen.getByRole('button', { name: /^Model / })]) {
+      expect(box.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it('offers the model chip with an empty box', async () => {
     stubMac();
     renderComposer(session());
