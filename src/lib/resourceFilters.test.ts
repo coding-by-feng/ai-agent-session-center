@@ -36,6 +36,7 @@ import {
   repoChipLabel,
   hasVariantDiff,
   originTag,
+  publisherTag,
   scopeName,
   emptyStateMessage,
   canCompare,
@@ -379,6 +380,13 @@ describe('row chips', () => {
     expect(originTag(res({ id: 'c', origin: 'system' }))).toBe('system');
     expect(originTag(res({ id: 'd', origin: 'synced' }))).toBe('synced');
     expect(originTag(res({ id: 'e', origin: 'linked' }))).toBe('linked');
+  });
+
+  it('publisherTag names Claude and Codex official makers and third-party authors, never your own', () => {
+    expect(publisherTag(res({ id: 'a' }))).toBeNull();
+    expect(publisherTag(res({ id: 'b', origin: 'synced', publisher: { kind: 'anthropic', name: 'Anthropic' } }))).toBe('Claude official');
+    expect(publisherTag(res({ id: 'c', origin: 'system', agent: 'codex', publisher: { kind: 'openai', name: 'OpenAI' } }))).toBe('Codex official');
+    expect(publisherTag(res({ id: 'd', origin: 'plugin', publisher: { kind: 'third-party', name: 'Jesse Vincent' } }))).toBe('by Jesse Vincent');
   });
 
   it('scopeName shows the project name for project items', () => {

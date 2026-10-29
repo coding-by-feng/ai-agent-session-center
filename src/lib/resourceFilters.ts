@@ -395,6 +395,14 @@ export function originTag(r: ResourceSummary): string | null {
   return r.origin === 'user' ? null : r.origin;
 }
 
+const OFFICIAL_LABELS = { anthropic: 'Claude official', openai: 'Codex official' } as const;
+
+/** Who made it, beside the origin chip: "Claude official", "Codex official", "by <author>"; null for your own. */
+export function publisherTag(r: ResourceSummary): string | null {
+  if (!r.publisher) return null;
+  return r.publisher.kind === 'third-party' ? `by ${r.publisher.name}` : OFFICIAL_LABELS[r.publisher.kind];
+}
+
 /** "Global", the owning project's name, or "Project" when that project is unknown. */
 export function scopeName(r: ResourceSummary, projectsById: ReadonlyMap<string, ResourceProject>): string {
   if (r.scope === 'global') return SCOPE_LABELS.global;

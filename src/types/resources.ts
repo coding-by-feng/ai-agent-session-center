@@ -58,6 +58,24 @@ export type ResourceScope = 'global' | 'project';
 export type ResourceOrigin = 'user' | 'plugin' | 'system' | 'synced' | 'linked';
 
 /**
+ * Who made it, as far as the files on disk say — apart from `origin`, which is
+ * how it got here: a synced skill is Anthropic's (`xlsx`) or the person's own
+ * upload, and a plugin from the official marketplace may be a third party's.
+ * - `anthropic`   — Claude official: a claude.ai manifest `source` of
+ *                   `anthropic`/`anthropic-example`, or a plugin.json author "Anthropic".
+ * - `openai`      — Codex official: Codex's bundled `skills/.system`.
+ * - `third-party` — a plugin whose plugin.json names another author.
+ * Absent = the person's own, or nothing on disk says.
+ */
+export type PublisherKind = 'anthropic' | 'openai' | 'third-party';
+
+export interface ResourcePublisher {
+  kind: PublisherKind;
+  /** "Anthropic", "OpenAI", or the plugin.json author as written. */
+  name: string;
+}
+
+/**
  * How the detail pane renders it.
  * `policy` = Codex `rules/*.rules`, an exec-approval policy — a different thing
  * from Claude's markdown rules despite the shared word, and never paired with them.
@@ -96,6 +114,8 @@ export interface ResourceSummary {
   linkTarget?: string;
   /** The plugin that ships it, for `origin: 'plugin'`. */
   pluginName?: string;
+  /** Who made it — see `ResourcePublisher`. Absent for the person's own. */
+  publisher?: ResourcePublisher;
   /** Files in the package (skills); 1 for a single file or a config entry. */
   fileCount: number;
   bytes: number;

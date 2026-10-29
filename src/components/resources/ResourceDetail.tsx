@@ -33,6 +33,7 @@ import {
   compareTargets,
   findingLabel,
   formatBytes,
+  publisherTag,
   scopeName,
 } from '@/lib/resourceFilters';
 import {
@@ -159,7 +160,7 @@ function DetailHeader({
         </span>
       </div>
       <p className={styles.detailMeta}>
-        {[AGENT_LABELS[summary.agent], scopeName(summary, projectsById), summary.origin].join(' · ')}
+        {[AGENT_LABELS[summary.agent], scopeName(summary, projectsById), summary.origin, publisherTag(summary)].filter(Boolean).join(' · ')}
       </p>
       {summary.pluginName && <p className={styles.detailMeta}>Plugin: {summary.pluginName}</p>}
       <p className={styles.detailPath}>
