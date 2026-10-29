@@ -50,6 +50,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import ImagePreview from '@/components/ui/ImagePreview';
 import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
 import dress from '@/styles/modules/PhoneDress.module.css';
@@ -148,6 +149,9 @@ export default function QueueItemEditModal({
   const [images, setImages] = useState<QueueImageAttachment[]>(
     (item.images ?? []).map((img) => ({ ...img })),
   );
+  /** The attached photo open full size (a tap or click on its thumbnail), or null. */
+  const [viewingImage, setViewingImage] = useState<QueueImageAttachment | null>(null);
+  const closeImage = useCallback(() => setViewingImage(null), []);
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -292,8 +296,8 @@ export default function QueueItemEditModal({
     setImages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  // ESC to close — but never while a snippet, effort or model picker is open, so the topmost
-  // layer closes first. `stopPropagation` cannot achieve this: the picker also
+  // ESC to close — but never while a snippet, effort or model picker (or a photo) is open, so
+  // the topmost layer closes first. `stopPropagation` cannot achieve this: the picker also
   // listens on `document`, and stopping propagation does NOT suppress a sibling
   // listener on the SAME node (that would need stopImmediatePropagation, whose
   // effect depends on registration order). Gating on the state is the only
@@ -301,14 +305,14 @@ export default function QueueItemEditModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (snippetPicker || effortPicker || modelPicker || confirmingDelete) return;
+        if (snippetPicker || effortPicker || modelPicker || confirmingDelete || viewingImage) return;
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, snippetPicker, effortPicker, modelPicker, confirmingDelete]);
+  }, [onClose, snippetPicker, effortPicker, modelPicker, confirmingDelete, viewingImage]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -719,7 +723,15 @@ export default function QueueItemEditModal({
                 <div className={styles.queueComposeImages}>
                   {images.map((img, i) => (
                     <div key={i} className={styles.queueImageThumb}>
-                      <img src={img.dataUrl} alt={img.name} />
+                      <button
+                        type="button"
+                        className={styles.queueImageView}
+                        onClick={() => setViewingImage(img)}
+                        title={`View ${img.name}`}
+                        aria-label={`View ${img.name}`}
+                      >
+                        <img src={img.dataUrl} alt={img.name} />
+                      </button>
                       <button
                         type="button"
                         className={styles.queueImageRemove}
@@ -877,6 +889,11 @@ export default function QueueItemEditModal({
           onPick={(model) => addModelStep(modelPicker.target, model)}
           onClose={() => setModelPicker(null)}
         />
+      )}
+      {/* Portaled to <body> one z-index above the editor (itself portaled there on a phone);
+          closing it leaves the editor and its edits as they were. */}
+      {viewingImage && (
+        <ImagePreview src={viewingImage.dataUrl} name={viewingImage.name} onClose={closeImage} />
       )}
       {isMobile && (
         <ConfirmSheet

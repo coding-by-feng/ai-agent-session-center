@@ -1,9 +1,11 @@
-/* ImagePreview — full-size view of an attached image (queue compose thumbnails). */
+/* ImagePreview — full-size view of an attached image (queue compose thumbnails, queue editor). */
 
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: var(--z-portal-menu, 10000);
+  /* One above the portaled band, where the queue editor (.chainModalOverlay, 10000) sits: equal
+     z-indexes leave the order to <body>, and a remount can put the editor last. Below --z-confirm. */
+  z-index: calc(var(--z-portal-menu, 10000) + 1);
   display: flex;
   align-items: center;
   justify-content: center;
