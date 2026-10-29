@@ -485,7 +485,7 @@ export function createShellApp(
     }
     // The phone sent the app back for a notification tap (AASC-19, MainActivity): the tap, held
     // until push starts listening, picks the session. Opening a Mac here would race it. The Mac's
-    // page sends it here too (More → Switch Mac, thisPhone.ts), to pick another Mac or pair one.
+    // page sends it here too (More → Switch AASC, thisPhone.ts), to pick another Mac or pair one.
     if (new URLSearchParams(search).get('tap') === '1') {
       show(homeScreen(null));
       return;

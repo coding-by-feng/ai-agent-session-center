@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useUiStore } from './uiStore';
 
 describe('uiStore', () => {
@@ -105,6 +105,33 @@ describe('uiStore', () => {
 
     it('falls back to card on an unrecognised stored value', async () => {
       expect(await freshStore('nonsense')).toBe('card');
+    });
+  });
+
+  // RESOURCES → Projects, Oct 29 2026: the same rule as the queue's.
+  describe('projectViewMode (loaded at module init)', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('projects-view-mode');
+      if (stored !== null) localStorage.setItem('projects-view-mode', stored);
+      vi.resetModules();
+      return (await import('./uiStore')).useUiStore;
+    }
+    afterEach(() => localStorage.removeItem('projects-view-mode'));
+
+    it('defaults to cards and keeps a list choice', async () => {
+      expect((await freshStore(null)).getState().projectViewMode).toBe('card');
+      expect((await freshStore('list')).getState().projectViewMode).toBe('list');
+      expect((await freshStore('nonsense')).getState().projectViewMode).toBe('card');
+    });
+
+    it('switches and remembers the choice', async () => {
+      const store = await freshStore(null);
+      store.getState().setProjectViewMode('list');
+      expect(store.getState().projectViewMode).toBe('list');
+      expect(localStorage.getItem('projects-view-mode')).toBe('list');
+      store.getState().setProjectViewMode('card');
+      expect(store.getState().projectViewMode).toBe('card');
+      expect(localStorage.getItem('projects-view-mode')).toBe('card');
     });
   });
 

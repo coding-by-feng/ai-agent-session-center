@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRuntimeWatch, type RuntimeWatch } from '../server/sessionRuntimeWatch.js';
 import type { RuntimeReading } from '../server/sessionRuntime.js';
+import type { StoppedTurn } from '../server/transcriptInterrupt.js';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<boolean> {
@@ -27,12 +28,14 @@ let dir: string;
 let watch: RuntimeWatch | null;
 let bySession: Array<[string, RuntimeReading]>;
 let byTranscript: Array<[string, RuntimeReading]>;
+let stopped: Array<[string, StoppedTurn]>;
 
 function makeWatch(target = dir): RuntimeWatch {
   watch = createRuntimeWatch(
     {
       applyToSession: (id, r) => { bySession.push([id, r]); },
       applyToTranscript: (p, r) => { byTranscript.push([p, r]); },
+      applyToStoppedTurn: (p, t) => { stopped.push([p, t]); },
     },
     { dir: target, debounceMs: 20 },
   );
@@ -46,6 +49,7 @@ beforeEach(() => {
   mkdirSync(dir, { mode: 0o700 });
   bySession = [];
   byTranscript = [];
+  stopped = [];
   watch = null;
 });
 
@@ -141,6 +145,38 @@ describe('createRuntimeWatch — transcripts', () => {
     writeFileSync(t, effortLine('medium', '2026-10-14T03:00:04.000Z'));
     watch!.syncTranscripts([t]);
     expect(await waitFor(() => byTranscript.some(([, r]) => r.effort === 'medium'))).toBe(true);
+  });
+
+  it('reports a turn the user stopped, which no hook does, as soon as the CLI writes it down', async () => {
+    const t = join(root, 'session.jsonl');
+    const prompt = JSON.stringify({ type: 'user', promptId: 'p-1', message: { role: 'user', content: 'do it' } }) + '\n';
+    writeFileSync(t, prompt);
+    makeWatch();
+    watch!.syncTranscripts([t]);
+    await sleep(80);
+    expect(stopped).toEqual([]);
+
+    appendFileSync(t, JSON.stringify({
+      type: 'user', promptId: 'p-1', interruptedMessageId: 'msg_1',
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+    }) + '\n');
+    expect(await waitFor(() => stopped.length >= 1)).toBe(true);
+    expect(stopped[0]).toEqual([t, { turnId: 'p-1', at: null }]);
+  });
+
+  it('a host that does not listen for stopped turns is fine', async () => {
+    const t = join(root, 'session.jsonl');
+    writeFileSync(t, JSON.stringify({
+      timestamp: '2026-10-27T05:40:21.975Z', type: 'event_msg',
+      payload: { type: 'turn_aborted', turn_id: 't-1', reason: 'interrupted' },
+    }) + '\n' + effortLine('high', '2026-10-27T05:40:22.000Z'));
+    watch = createRuntimeWatch(
+      { applyToSession: () => undefined, applyToTranscript: (p, r) => { byTranscript.push([p, r]); } },
+      { dir, debounceMs: 20 },
+    );
+    watch.start();
+    watch.syncTranscripts([t]);
+    expect(await waitFor(() => byTranscript.length >= 1)).toBe(true);
   });
 
   it('only ever reads .jsonl transcripts', async () => {

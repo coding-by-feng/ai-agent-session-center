@@ -16,7 +16,7 @@ import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
-import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue } from './db.js';
+import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue, getProjectActivity } from './db.js';
 import { createSessionMemory } from './sessionMemory.js';
 import { createSessionSleepRouter, startSessionSleep } from './sessionSleep.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
@@ -48,7 +48,7 @@ import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { createFolderRouter } from './mobile/folderRouter.js';
 import { createServerCliVersions } from './cliVersions.js';
 import { createCliVersionsRouter } from './cliVersionsRouter.js';
-import { listKnownProjects } from './knownProjects.js';
+import { listKnownProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
@@ -81,6 +81,7 @@ import {
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
+import { workingProjectPaths } from './cloud/agentWork.js';
 import { createCloudConnection } from './cloud/connection.js';
 import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
 import { cloudStateBase } from './cloud/paths.js';
@@ -489,11 +490,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     onCatalogReady: (catalog) => { resourceCatalog = catalog; },
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
-    cloudActiveProjectPaths: () =>
-      Object.values(getAllSessions())
-        .filter((s) => s.status !== 'ended')
-        .map((s) => s.projectPath)
-        .filter(Boolean),
+    cloudActiveProjectPaths: () => workingProjectPaths(Object.values(getAllSessions())),
+    projectActivity: () => getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS),
     remoteAccess,
     ...(cloudSetup
       ? {

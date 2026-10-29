@@ -65,14 +65,11 @@
   text-align: right;
 }
 
-/* Two lines at most; the full prompt is in CONVERSATION / Prompt Trace. */
+/* The whole prompt as typed (Oct 29 2026): its line breaks kept, a long word broken.
+   A peek taller than the window scrolls inside the tooltip (Tooltip `interactive`). */
 .text {
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
 }
 
 .empty {

@@ -112,7 +112,8 @@ export function repoWords(p: Pick<PhoneProject, 'owner' | 'repo' | 'branch'>): s
 /** What a project's row says about its checkout on the Mac (the desktop's `projectStatus`). */
 export function projectStateWords(p: PhoneProject): { label: string; tone: SyncTone; hint?: string } {
   if (!p.local) return { label: 'Couldn’t check', tone: 'neutral', hint: 'Your Mac couldn’t read this checkout just now.' };
-  const { label, tone, hint } = projectStatus({ ...p.local, openUrl: null, localProjectId: null }, p.branch);
+  // The phone only reads: a live agent changes nothing it can do, so it never says so.
+  const { label, tone, hint } = projectStatus({ ...p.local, openUrl: null, localProjectId: null, agentActive: false }, p.branch);
   return { label, tone: tone === 'accent' ? 'info' : tone, ...(hint ? { hint } : {}) };
 }
 

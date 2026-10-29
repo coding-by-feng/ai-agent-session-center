@@ -1,9 +1,10 @@
 /**
  * CloudPanel — the RESOURCES tabs that live in the cloud (Oct 23 2026: they were one "Cloud" tab
- * with its own row of tabs): **Cloud sync** (the AASC-62 list), **Projects** (GitHub project
- * records, AASC-63) and **Connection** (pairing, skill-notes sync and cloud aliases, then Remote
- * access: this Mac's Tailscale, which needs no cloud connection). Lazy-loaded by ResourcesView,
- * which also provides the cloud session (CloudSessionProvider): the Library shows cloud state too.
+ * with its own row of tabs): **Cloud sync** (the AASC-62 list), **Projects** (this Mac's project
+ * folders and the saved GitHub projects, AASC-63) and **Connection** (pairing, skill-notes sync
+ * and cloud aliases, then Remote access: this Mac's Tailscale, which needs no cloud connection).
+ * Lazy-loaded by ResourcesView, which also provides the cloud session (CloudSessionProvider): the
+ * Library shows cloud state too.
  *
  * A view stays mounted (hidden) once opened, so a running job, a draft or an open review survives
  * a switch to another tab and back.
@@ -45,26 +46,32 @@ export default function CloudPanel({
   const { status, loaded, error, changed } = session;
   const [visited, setVisited] = useState<ReadonlySet<CloudSection>>(() => new Set([section]));
   if (!visited.has(section)) setVisited(new Set([...visited, section]));
+  // Projects is this Mac's folder list first (Oct 29 2026): the bar shows there only when the
+  // connection needs you (offline, revoked, changed or unreadable).
+  const quiet =
+    section === 'projects' && loaded && status.state === 'connected' && !changed && !error;
   return (
     <div className={styles.panel}>
-      <div className={`${styles.banner} ${styles.statusBar}`} role="status">
-        <span>
-          Cloud · {loaded ? status.state : 'checking connection'}
-          {status.connection
-            ? ` · ${status.connection.deviceName} · ${status.connection.accountEmail ?? status.connection.accountId}`
-            : ''}
-        </span>
-        {status.state === 'revoked' && section !== 'connection' && (
-          <Button onClick={() => onSection('connection')}>Reconnect</Button>
-        )}
-        <Button onClick={() => session.refresh(true)}>Refresh connection</Button>
-        {changed && (
-          <p>
-            Connection changed. Existing reviews are no longer valid; refresh and review again.
-            Drafts are preserved.
-          </p>
-        )}
-      </div>
+      {!quiet && (
+        <div className={`${styles.banner} ${styles.statusBar}`} role="status">
+          <span>
+            Cloud · {loaded ? status.state : 'checking connection'}
+            {status.connection
+              ? ` · ${status.connection.deviceName} · ${status.connection.accountEmail ?? status.connection.accountId}`
+              : ''}
+          </span>
+          {status.state === 'revoked' && section !== 'connection' && (
+            <Button onClick={() => onSection('connection')}>Reconnect</Button>
+          )}
+          <Button onClick={() => session.refresh(true)}>Refresh connection</Button>
+          {changed && (
+            <p>
+              Connection changed. Existing reviews are no longer valid; refresh and review again.
+              Drafts are preserved.
+            </p>
+          )}
+        </div>
+      )}
       {error && (
         <div className={styles.error} role="alert">
           <span>{error}</span>

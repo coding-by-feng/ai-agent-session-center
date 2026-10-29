@@ -6,7 +6,7 @@ import {
   GithubLoginSchema,
 } from '../../src/types/cloudProjects.js';
 import { ResourceDependencySchema } from '../../src/types/cloudResources.js';
-import { bindingFromHeaders } from './binding.js';
+import { bindingFromHeaders, optionalBindingFromHeaders } from './binding.js';
 import { CloudError } from './types.js';
 import { LocalPathSchema } from './projectPaths.js';
 import type { ProjectJobs } from './projectJobs.js';
@@ -66,6 +66,30 @@ export function createProjectRouter(
     res.json({
       success: true,
       data: await (await getService()).candidates(bindingFromHeaders(req)),
+    });
+  });
+  // Oct 29 2026: every project folder on this device, most used first, and saved projects' ♥/tags.
+  // The folders list with no connection too (no binding headers): they are this Mac's own.
+  router.get('/projects/folders', async (req, res) => {
+    empty.parse(req.query);
+    res.json({
+      success: true,
+      data: await (await getService()).folders(optionalBindingFromHeaders(req)),
+    });
+  });
+  router.get('/projects/meta', async (req, res) => {
+    empty.parse(req.query);
+    res.json({
+      success: true,
+      data: await (await getService()).projectMeta(bindingFromHeaders(req)),
+    });
+  });
+  router.post('/projects/:id/meta', async (req, res) => {
+    res.json({
+      success: true,
+      data: await (
+        await getService()
+      ).changeProjectMeta(id.parse(req.params.id), req.body, bindingFromHeaders(req)),
     });
   });
   router.post('/projects', async (req, res) => {
@@ -128,12 +152,13 @@ export function createProjectRouter(
     });
   });
   router.post('/projects/:id/check', async (req, res) => {
-    empty.parse(req.body);
+    // `auto`: the Projects tab opening; it skips a fetch made here in the last 10 minutes.
+    const body = z.object({ auto: z.boolean().optional() }).strict().parse(req.body);
     res.json({
       success: true,
       data: await (
         await getService()
-      ).checkProject(id.parse(req.params.id), bindingFromHeaders(req)),
+      ).checkProject(id.parse(req.params.id), bindingFromHeaders(req), { auto: body.auto }),
     });
   });
   router.post('/projects/:id/push', async (req, res) => {

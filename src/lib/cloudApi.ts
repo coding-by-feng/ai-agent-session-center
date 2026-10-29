@@ -8,6 +8,10 @@ import {
   GetProjectSchema,
   GithubAccountsSchema,
   ProjectCandidatesSchema,
+  ProjectFoldersSchema,
+  ProjectMetaSchema,
+  ProjectMetasSchema,
+  type ProjectMetaChange,
 } from '@/types/cloudProjects';
 import type { CloudConnection, CloudDefaults, CloudStatus } from '@/types/cloud';
 import type { RemoteAccessView } from '@/types/remoteAccess';
@@ -199,10 +203,37 @@ export const cloudApi = {
     request('/projects/github-accounts', 'GET', binding, undefined, GithubAccountsSchema, signal),
   projectCandidates: (binding: CloudReviewBinding, signal?: AbortSignal) =>
     request('/projects/candidates', 'GET', binding, undefined, ProjectCandidatesSchema, signal),
+  // Oct 29 2026: every project folder on this Mac, most used first, and saved projects' ♥ and tags.
+  /** `null`: no connection to name; this Mac's folders still list, matched to no saved project. */
+  projectFolders: (binding: CloudReviewBinding | null, signal?: AbortSignal) =>
+    request(
+      '/projects/folders',
+      'GET',
+      binding ?? undefined,
+      undefined,
+      ProjectFoldersSchema,
+      signal,
+    ),
+  projectMeta: (binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/projects/meta', 'GET', binding, undefined, ProjectMetasSchema, signal),
+  changeProjectMeta: (
+    id: string,
+    change: ProjectMetaChange,
+    binding: CloudReviewBinding,
+    signal?: AbortSignal,
+  ) => request(`/projects/${uuid(id)}/meta`, 'POST', binding, change, ProjectMetaSchema, signal),
   removeProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request(`/projects/${uuid(id)}/remove`, 'POST', binding, {}, ProjectRecordSchema, signal),
-  checkProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
-    request(`/projects/${uuid(id)}/check`, 'POST', binding, {}, LocalProjectSchema, signal),
+  /** `auto`: the tab's own check on opening; this Mac skips a fetch made in the last 10 minutes. */
+  checkProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal, auto = false) =>
+    request(
+      `/projects/${uuid(id)}/check`,
+      'POST',
+      binding,
+      auto ? { auto: true } : {},
+      LocalProjectSchema,
+      signal,
+    ),
   pushProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request(`/projects/${uuid(id)}/push`, 'POST', binding, {}, CloudJobSchema, signal),
   setProjectAccount: (
@@ -222,6 +253,16 @@ export const cloudApi = {
     request(`/projects/${uuid(id)}/pull`, 'POST', binding, {}, CloudJobSchema, signal),
   localProject: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
     request(`/projects/${uuid(id)}/local`, 'GET', binding, undefined, LocalProjectSchema, signal),
+  /** Use this folder for a saved project here: two folders had its repository and branch. */
+  associateProject: (id: string, path: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(
+      `/projects/${uuid(id)}/associate`,
+      'POST',
+      binding,
+      { path },
+      LocalProjectSchema,
+      signal,
+    ),
   status: (signal?: AbortSignal) => request('/status', 'GET', undefined, undefined, status, signal),
   defaults: (signal?: AbortSignal) =>
     request('/defaults', 'GET', undefined, undefined, defaults, signal),

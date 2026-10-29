@@ -1,11 +1,11 @@
 /**
  * The server half of "a user cancel holds the prompt queue".
  *
- * Esc fires a real Stop, so the hook stream alone makes a cancelled turn look
- * finished and the queue would send its next prompt into it. After every Stop
- * the store reads the transcript's tail for Claude Code's interruption marker
- * (see transcriptInterrupt.ts); this file drives real hook events against real
- * transcript files and checks what the store does.
+ * A cancelled turn ends as `waiting`, like a finished one, and the queue would
+ * send its next prompt into it. The store reads the transcript for Claude
+ * Code's interruption marker (see transcriptInterrupt.ts) as it is written
+ * (escStopsTurn.test.ts) and again after a Stop; this file drives real hook
+ * events against real transcript files and checks the Stop path.
  *
  * Real timers: the check reads files asynchronously 150 ms and 600 ms after
  * the Stop, which fake timers cannot see through.

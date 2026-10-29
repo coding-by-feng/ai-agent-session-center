@@ -7,12 +7,16 @@
  * long press on the session title shows the same list in a sheet
  * (`RecentPromptsSheet`); the rule for "typed" is `lib/promptPeek.ts`.
  *
+ * Each prompt is shown whole, line breaks kept (Oct 29 2026, "show the prompt fully"):
+ * the tooltip is `interactive`, so when the peek is taller than the window its body
+ * scrolls and the pointer can move into it. The phone sheet keeps one line each.
+ *
  * A central session (server/mcp) also gets one ★ line saying what it can reach and how many
  * workers it runs: the card's star is the star alone (Oct 26 2026), so its scope lives here.
  */
 import { useState } from 'react';
 import type { Session } from '@/types';
-import { promptAge, typedPrompts } from '@/lib/promptPeek';
+import { PEEK_PROMPT_COUNT, promptAge, typedPrompts } from '@/lib/promptPeek';
 import { quietFor } from '@/lib/liveBoard';
 import { statusLabel } from '@/lib/sessionStatusStyle';
 import { centralTooltip, workersText } from '@/lib/centralChoice';
@@ -24,7 +28,7 @@ import styles from '@/styles/modules/SessionPromptPeek.module.css';
 export default function SessionPromptPeek({ session }: { session: Session }) {
   // The tooltip mounts this when it opens: one clock reading for the few seconds it is read.
   const [now] = useState(() => Date.now());
-  const prompts = typedPrompts(session);
+  const prompts = typedPrompts(session, PEEK_PROMPT_COUNT, 'full');
   const quiet = quietFor(session, now);
   const meta = [session.projectName, statusLabel(session.status), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
   const remark = typeof session.remark === 'string' ? session.remark.trim() : '';

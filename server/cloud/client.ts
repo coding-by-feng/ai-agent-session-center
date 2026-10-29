@@ -59,6 +59,9 @@ const RESOURCE_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['PUT', exact(`/v1/projects/${UUID}`)],
   // AASC-63: "Remove from the cloud list" (a soft delete of the record; no folder is touched).
   ['DELETE', exact(`/v1/projects/${UUID}`)],
+  // Oct 29 2026: a saved project's ♥ and tags, kept beside the record, never in it.
+  ['GET', exact('/v1/projects/meta')],
+  ['POST', exact(`/v1/projects/${UUID}/meta`)],
 ];
 /** The one write this Mac makes about itself: where phones can find it on Tailscale (Remote access). */
 const MAC_PATHS_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
@@ -111,6 +114,7 @@ const RESOURCE_MESSAGES: Record<string, string> = {
   hash_mismatch: 'Resource file hash did not match.',
   size_mismatch: 'Resource file size did not match.',
   rate_limited: 'Cloud rate limit reached. Retry after the indicated delay.',
+  tag_limit: 'A project can have at most 12 tags.',
 };
 const RESOURCE_STATUSES: Record<string, number> = Object.fromEntries(
   Object.keys(RESOURCE_MESSAGES).map((code) => [

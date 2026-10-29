@@ -4,9 +4,10 @@ vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return { ...actual, spawn: vi.fn(actual.spawn) };
 });
-import { mkdir, writeFile, readFile, rm, rename, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, rm, rename, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, dirname, delimiter, isAbsolute, relative } from 'node:path';
-import { createGitOperations, resolveGitExecutable } from '../server/cloud/git.js';
+import { createGitOperations, gitAtLeast, resolveGitExecutable } from '../server/cloud/git.js';
 import { ProjectRecordSchema } from '../src/types/cloudProjects.js';
 import { gitFixture } from './cloudGitFixture.js';
 it('clone_uses_validated_argv and leaves correct canonical remote and branch', async () => {
@@ -152,6 +153,115 @@ it('ignoreAgents: a live agent does not make a checkout busy for linking; a Git 
   expect(await f.ops.inspectCheckout(dest, f.project, { ignoreAgents: true })).toMatchObject({
     state: 'busy',
   });
+});
+// Oct 29 2026: Check only moves refs/remotes, so a live agent no longer blocks it (the Projects tab
+// fetches every recent project, and those are the ones agents work in). Pull and Push still wait.
+it('a live agent does not block fetch; pull and push still refuse; agentActive reports it', async () => {
+  let active: string[] = [];
+  const f = await gitFixture({ activeProjectPaths: () => active });
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  await writeFile(join(f.source, 'hello'), 'two');
+  f.git(f.source, 'commit', '-am', 'second');
+  f.git(f.source, 'push', f.bare, 'main');
+  active = [join(dest, 'src')];
+  expect(f.ops.agentActive(dest)).toBe(true);
+  await f.ops.fetch(dest, f.project, new AbortController().signal);
+  expect(await f.ops.inspectCheckout(dest, f.project, { ignoreAgents: true })).toMatchObject({
+    state: 'ready',
+    behind: 1,
+  });
+  await expect(f.ops.pull(dest, f.project, new AbortController().signal)).rejects.toMatchObject({
+    code: 'busy',
+  });
+  await expect(f.ops.push(dest, f.project, new AbortController().signal)).rejects.toMatchObject({
+    code: 'busy',
+  });
+  active = [];
+  expect(f.ops.agentActive(dest)).toBe(false);
+});
+// Oct 29 2026 (security review): a `git pull` running in the folder reads FETCH_HEAD between its
+// own fetch and merge, so a check that runs past an agent never writes it (Git 2.29+). With an
+// older Git a check waits for the agent again.
+it('fetch leaves FETCH_HEAD alone; sshTransport reads the checkout’s own origin', async () => {
+  const f = await gitFixture();
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  await writeFile(join(f.source, 'hello'), 'two');
+  f.git(f.source, 'commit', '-am', 'second');
+  f.git(f.source, 'push', f.bare, 'main');
+  await f.ops.fetch(dest, f.project, new AbortController().signal);
+  expect(await f.ops.inspectCheckout(dest, f.project)).toMatchObject({ behind: 1 });
+  await expect(readFile(join(dest, '.git', 'FETCH_HEAD'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+  expect(await f.ops.sshTransport(dest)).toBe(false);
+  f.git(dest, 'remote', 'set-url', 'origin', 'git@github.com:fixture/repo.git');
+  expect(await f.ops.sshTransport(dest)).toBe(true);
+});
+it('with a Git older than 2.29 a check fetches as before, and waits for a live agent', async () => {
+  const real = await resolveGitExecutable(process.env);
+  const shim = await mkdtemp(join(tmpdir(), 'aasc-old-git-'));
+  try {
+    await writeFile(
+      join(shim, 'git'),
+      `#!/bin/sh\nfor a in "$@"; do last="$a"; done\n[ "$last" = version ] && { echo 'git version 2.25.1'; exit 0; }\nexec '${real}' "$@"\n`,
+      { mode: 0o755 },
+    );
+    let active: string[] = [];
+    const f = await gitFixture({ activeProjectPaths: () => active, pathFirst: shim });
+    const dest = join(f.root, 'checkout');
+    await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+    active = [dest];
+    await expect(
+      f.ops.fetch(dest, f.project, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'busy' });
+    active = [];
+    vi.mocked(spawn).mockClear();
+    await f.ops.fetch(dest, f.project, new AbortController().signal);
+    const fetches = vi
+      .mocked(spawn)
+      .mock.calls.filter(([, args]) => Array.isArray(args) && args.includes('fetch'));
+    expect(fetches).toHaveLength(1);
+    expect(fetches[0]![1]).not.toContain('--no-write-fetch-head');
+  } finally {
+    await rm(shim, { recursive: true, force: true });
+  }
+});
+// Code review, Oct 29 2026: the tab reloads while it checks a project (a Save, a tab switch); that
+// read is not "In use" over AASC's own fetch, while Git work that changes the folder still waits.
+it('a read past agents reads through AASC’s own fetch; work that changes the folder waits', async () => {
+  const f = await gitFixture();
+  const dest = join(f.root, 'checkout');
+  await f.ops.clone(dest, f.project, 'https', new AbortController().signal);
+  const real = vi.mocked(spawn).getMockImplementation()!;
+  let started!: () => void;
+  const inFetch = new Promise<void>((r) => (started = r));
+  vi.mocked(spawn).mockImplementation(((file: string, args: readonly string[], opts: SpawnOptions) => {
+    if (!args.includes('fetch')) return real(file, args as string[], opts);
+    started();
+    return real('/bin/sh', ['-c', 'sleep 0.4; exec "$0" "$@"', file, ...args], opts);
+  }) as typeof spawn);
+  try {
+    const fetching = f.ops.fetch(dest, f.project, new AbortController().signal);
+    await inFetch;
+    expect(await f.ops.inspectCheckout(dest, f.project, { ignoreAgents: true })).toMatchObject({
+      state: 'ready',
+    });
+    expect(await f.ops.inspectCheckout(dest, f.project)).toMatchObject({ state: 'busy' });
+    await fetching;
+  } finally {
+    vi.mocked(spawn).mockImplementation(real);
+  }
+});
+it('gitAtLeast reads `git version`; anything it cannot read is older', () => {
+  expect(gitAtLeast('git version 2.54.0 (Apple Git-157)', 2, 29)).toBe(true);
+  expect(gitAtLeast('git version 2.29.0.windows.1', 2, 29)).toBe(true);
+  expect(gitAtLeast('git version 3.0.0', 2, 29)).toBe(true);
+  expect(gitAtLeast('git version 2.25.1', 2, 29)).toBe(false);
+  expect(gitAtLeast('git version 1.99.9', 2, 29)).toBe(false);
+  expect(gitAtLeast('hub version 2.14.2', 2, 29)).toBe(false);
+  expect(gitAtLeast('', 2, 29)).toBe(false);
 });
 it('pull with local commits preserves them (ahead: push first) and remote rewrite is refused', async () => {
   const f = await gitFixture();

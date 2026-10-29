@@ -34,8 +34,8 @@
 // command and its first hook arrived), never onto text it may have left unsent.
 //
 // `interrupt` presses Esc first and waits (at most 10 s) for the turn to stop.
-// Claude Code fires an ordinary Stop for an Esc; the transcript check that follows
-// it stamps `userCancelledAt` (sessionStore), which is why only a cancel stamped
+// No CLI fires a hook for an Esc: sessionStore ends the turn once the transcript
+// records it and stamps `userCancelledAt`, which is why only a cancel stamped
 // after this prompt's own Enter counts as the user taking over, and for an
 // interrupt only once INTERRUPT_CANCEL_GRACE_MS have passed.
 

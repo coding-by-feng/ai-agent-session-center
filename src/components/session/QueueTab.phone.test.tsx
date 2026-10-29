@@ -151,7 +151,10 @@ describe('QueueTab on a phone — More and MOVE are sheets', () => {
     await user.click(within(rows()[0]).getByRole('button', { name: /^MOVE$/ }));
     const sheet = await screen.findByRole('dialog', { name: 'Move to another session' });
     expect(within(sheet).queryByText('agent-manager')).toBeNull(); // not its own session
-    await user.click(within(sheet).getByRole('button', { name: /exmouth/ }));
+    // The session's name leads; its folder is the second line.
+    const target = within(sheet).getByRole('button', { name: /Exmouth 3D/ });
+    expect([...target.children].map((c) => c.textContent)).toEqual(['Exmouth 3D', 'exmouth']);
+    await user.click(target);
     expect(order()).toEqual(['second', 'third']);
     expect(useQueueStore.getState().queues.get('s2')?.map((i) => i.text)).toEqual(['first']);
     expect(screen.queryByRole('dialog')).toBeNull();

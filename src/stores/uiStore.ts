@@ -35,6 +35,10 @@ export type CardDisplayMode = 'detailed' | 'compact';
  *  same grip; a carried card moves both ways (Oct 22 2026) and ▲/▼ remain. */
 export type QueueViewMode = 'list' | 'card';
 
+/** RESOURCES → Projects layout (Oct 29 2026): a wrapping grid of cards (the
+ *  default) or the original rows. The same facts and one action either way. */
+export type ProjectViewMode = 'list' | 'card';
+
 /** Where the DetailPanel session-navigation bar sits: a horizontal strip on top
  *  (default) or a vertical rail down the left side (reclaims vertical space). */
 export type NavPosition = 'top' | 'left';
@@ -80,6 +84,8 @@ interface UiState {
   cardDisplayMode: CardDisplayMode;
   /** Prompt Queue layout. Persisted to localStorage['queue-view-mode']. */
   queueViewMode: QueueViewMode;
+  /** RESOURCES → Projects layout. Persisted to localStorage['projects-view-mode']. */
+  projectViewMode: ProjectViewMode;
   /** DetailPanel nav-bar position: 'top' (default) or 'left' rail. Persisted. */
   navPosition: NavPosition;
   /** Maximize mode: hide the detail panel's own session-chip strip for more
@@ -157,6 +163,7 @@ interface UiState {
   clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
   toggleQueueViewMode: () => void;
+  setProjectViewMode: (mode: ProjectViewMode) => void;
   setNavPosition: (pos: NavPosition) => void;
   toggleNavPosition: () => void;
   setMaximized: (on: boolean) => void;
@@ -211,6 +218,15 @@ function loadQueueViewMode(): QueueViewMode {
   } catch {
     // localStorage unavailable (private mode / disabled site data) — fall back
     // to the same default an unset key gets, not the old one.
+    return 'card';
+  }
+}
+
+/** Projects layout: cards unless 'list' was picked (the queue's rule above). */
+function loadProjectViewMode(): ProjectViewMode {
+  try {
+    return localStorage.getItem('projects-view-mode') === 'list' ? 'list' : 'card';
+  } catch {
     return 'card';
   }
 }
@@ -346,6 +362,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
   queueViewMode: loadQueueViewMode(),
+  projectViewMode: loadProjectViewMode(),
   navPosition: loadNavPosition(),
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
@@ -397,6 +414,15 @@ export const useUiStore = create<UiState>((set) => ({
         /* ignore */
       }
       return { queueViewMode: next };
+    }),
+  setProjectViewMode: (mode) =>
+    set(() => {
+      try {
+        localStorage.setItem('projects-view-mode', mode);
+      } catch {
+        /* ignore */
+      }
+      return { projectViewMode: mode };
     }),
   setNavPosition: (pos) =>
     set(() => {

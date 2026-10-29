@@ -496,9 +496,9 @@ export interface Session {
 
   /**
    * When the user stopped the current turn — Esc mid-turn, or declining a tool
-   * and redirecting — detected from Claude Code's own "What should Claude do
-   * instead?" line. Claude Code fires a real Stop for a cancel, so without this
-   * the queue reads it as a finished turn and sends the next prompt. The queue
+   * and redirecting — read from the CLI's transcript (no CLI fires a hook for
+   * it). The server then ends the turn as `waiting`, so without this the queue
+   * reads it as a finished turn and sends the next prompt. The queue
    * holds while set; cleared by the user's next prompt (UserPromptSubmit), a new
    * session (SessionStart), or the queue's Resume. Deliberately separate from
    * `interruption`: the auto-resume watchdog must never continue a turn the

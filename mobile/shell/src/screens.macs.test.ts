@@ -98,7 +98,7 @@ describe('Your Macs', () => {
   });
 
   it('stays on the list when the Mac’s page sent the app back to switch Macs (?tap=1)', async () => {
-    // More → Switch Mac opens nativeShellHomeUrl(): opening the Mac used last there would bounce straight back.
+    // More → Switch AASC opens nativeShellHomeUrl(): opening the Mac used last there would bounce straight back.
     const t = createHarness({ search: '?tap=1', store: { [LAST_MAC_KEY]: STUDIO.id } });
     await seedMac(t, KASON_MBP);
     await seedMac(t, STUDIO);

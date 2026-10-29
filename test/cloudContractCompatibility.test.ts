@@ -44,6 +44,13 @@ function contractCases(s: typeof client) {
       proposedTags: notesFixture.tagLimitConflict.proposedTags,
     });
   });
+  // Oct 29 2026: a saved project's ♥ and tags, beside its record.
+  it('accepts canonical project ♥/tag answers and their list page', () => {
+    const m = projectFixture.meta;
+    for (const r of [m.changeResponse, m.updateResponse])
+      expect(s.ProjectMetaSchema.parse(r.data)).toEqual(r.data);
+    expect(s.ProjectMetaListSchema.parse(m.listResponse.data)).toEqual(m.listResponse.data);
+  });
   it('rejects absolute/traversing resource paths and notes content/account/credential fields', () => {
     for (const path of ['/private/data', 'C:\\Users\\file', '../escape', 'a/../../escape'])
       expect(
@@ -62,6 +69,11 @@ describe('AASC canonical cloud contracts', () => {
   contractCases(client);
   it('normalizes canonical tags identically', () => {
     for (const f of notesFixture.normalization) expect(normalizeTag(f.raw)).toBe(f.tag);
+    // This Mac sends a project's tags already normalized (projectMeta.ts): the cloud's answer.
+    const m = projectFixture.meta;
+    expect(m.change.addTags.map(normalizeTag).sort()).toEqual(m.changeResponse.data.tags);
+    expect(m.update.addTags.map(normalizeTag)).toEqual(['abc-中文']);
+    expect(m.update.removeTags.map(normalizeTag)).toEqual(['client']);
   });
 });
 const beRoot = process.env.AASC_TEST_BE_ROOT;

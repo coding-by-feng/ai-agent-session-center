@@ -28,6 +28,18 @@ function signedIn(...logins: string[]): GithubAccountsService {
     }),
   } as unknown as GithubAccountsService;
 }
+/** The cloud lists these projects from now on (the fixture's lists its own project). */
+function cloudLists(f: { cloud: { client: { request: unknown } } }, items: unknown[]) {
+  const request = vi.mocked(
+    f.cloud.client.request as (method: string, path: string, body?: unknown) => Promise<unknown>,
+  );
+  const answer = request.getMockImplementation()!;
+  request.mockImplementation(async (method: string, path: string, body?: unknown) =>
+    method === 'GET' && (path === '/v1/projects' || path.startsWith('/v1/projects?'))
+      ? { items, nextCursor: null }
+      : answer(method, path, body),
+  );
+}
 async function withFolder(accounts = signedIn('octo', 'work-me')) {
   let paths: string[] = [];
   const f = await projectFixture(undefined, { candidatePaths: () => paths, accounts });
@@ -54,6 +66,7 @@ sqliteIt("offers this device's GitHub folders and marks the one already saved", 
 
 sqliteIt('saving from a folder sends only the repository and links the folder here', async () => {
   const f = await withFolder();
+  cloudLists(f, []); // nothing saved with this repository yet
   const id = randomUUID();
   const saved = await f.service.saveProject(
     {
@@ -188,6 +201,7 @@ sqliteIt(
 // Oct 26 2026: saving a project's basic information from a folder an agent is working in.
 sqliteIt('a save from a folder asks for a link check that ignores live agents, and links it', async () => {
   const f = await withFolder();
+  cloudLists(f, []); // nothing saved with this repository yet
   const value = {
     id: randomUUID(),
     version: 1,
@@ -258,4 +272,145 @@ sqliteIt('a save from a folder that cannot be linked creates no cloud record', a
   });
   await expect(save(f.folder)).rejects.toMatchObject({ code: 'checkout_mismatch' });
   expect(f.calls.filter((c) => (c as { method: string }).method === 'POST')).toEqual([]);
+});
+
+const recordFor = (id: string, branch = 'main') => ({
+  id,
+  version: 1,
+  name: 'repo',
+  description: '',
+  resources: [],
+  deleted: false,
+  repository: { provider: 'github' as const, ...origin, branch },
+});
+const posts = (f: { calls: unknown[] }) =>
+  f.calls.filter((c) => (c as { method: string }).method === 'POST');
+
+// Code review, Oct 29 2026: Remove, then Save on the same folder, made a new cloud record on every
+// click, each refused at the link; a project removed on another device left the folder stuck too.
+sqliteIt('after Remove, saving the folder again links it with one new record', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding);
+  await f.service.localProject(f.project.id, f.binding); // linked here
+  await f.service.removeProject(f.project.id, f.binding);
+  cloudLists(f, []); // the cloud lists it no more
+  const id = randomUUID();
+  await f.service.saveProject(
+    { mutationId: randomUUID(), baseVersion: null, value: recordFor(id) },
+    f.binding,
+    { path: f.folder },
+  );
+  expect(posts(f)).toHaveLength(1);
+  expect(await f.service.localProject(id, f.binding)).toMatchObject({
+    state: 'ready',
+    path: f.folder,
+  });
+});
+
+sqliteIt('a folder linked to a project removed on another device saves again', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding);
+  await f.service.localProject(f.project.id, f.binding); // linked here
+  cloudLists(f, []); // another device removed it: the cloud has no record of it now
+  const id = randomUUID();
+  await f.service.saveProject(
+    { mutationId: randomUUID(), baseVersion: null, value: recordFor(id) },
+    f.binding,
+    { path: f.folder },
+  );
+  expect(await f.service.localProject(id, f.binding)).toMatchObject({ path: f.folder });
+});
+
+sqliteIt('a folder still linked to a live project is refused before any record is made', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding);
+  await f.service.localProject(f.project.id, f.binding); // linked here
+  await expect(
+    f.service.saveProject(
+      { mutationId: randomUUID(), baseVersion: null, value: recordFor(randomUUID(), 'dev') },
+      f.binding,
+      { path: f.folder },
+    ),
+  ).rejects.toMatchObject({ code: 'association_conflict' });
+  expect(posts(f)).toHaveLength(0);
+});
+
+sqliteIt('saving a repository and branch already saved is refused, with no record made', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding); // the cloud has fixture/repo on main
+  await expect(
+    f.service.saveProject(
+      { mutationId: randomUUID(), baseVersion: null, value: recordFor(randomUUID()) },
+      f.binding,
+    ),
+  ).rejects.toMatchObject({ code: 'already_saved' });
+  expect(posts(f)).toHaveLength(0);
+});
+
+// A checkout moved or deleted on this Mac no longer holds the project: the one folder left with its
+// repository links by itself, and Clone is open again when there is none.
+sqliteIt('a project whose folder is gone links to the other clone, or clones again', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding);
+  await f.service.localProject(f.project.id, f.binding); // linked to f.folder
+  const moved = join(dirname(f.folder), 'repo-2');
+  await mkdir(moved);
+  const { rm } = await import('node:fs/promises');
+  await rm(f.folder, { recursive: true });
+  f.git.readOrigin.mockImplementation(async (path: string) => (path === moved ? origin : null));
+  f.git.inspectCheckout.mockImplementation(async (root: string) => ({
+    state: root === f.folder ? 'missing' : 'ready',
+    branch: 'main',
+    ahead: 0,
+    behind: 0,
+  }));
+  expect(await f.service.associateProject(f.project.id, moved, f.binding)).toMatchObject({
+    state: 'ready',
+    path: moved,
+  });
+  await rm(moved, { recursive: true });
+  expect(await f.service.localProject(f.project.id, f.binding)).toMatchObject({
+    state: 'missing',
+    path: null,
+  });
+  const job = await f.service.getProject(
+    f.project.id,
+    { parentPath: dirname(f.folder), directoryName: 'again' },
+    f.binding,
+  );
+  await f.service.wait(job.id);
+  expect(await f.service.localProject(f.project.id, f.binding)).toMatchObject({
+    path: join(dirname(f.folder), 'again'),
+  });
+});
+
+// The catalog's first scan after a start lists no project folders until it ends.
+sqliteIt('the folders list waits for the catalog’s first scan', async () => {
+  let release!: () => void;
+  const ready = new Promise<void>((r) => (release = r));
+  let paths: string[] = [];
+  const f = await projectFixture(undefined, {
+    candidatePaths: () => paths,
+    candidatesReady: () => ready,
+  });
+  const folder = join(f.home, 'code', 'repo');
+  await mkdir(folder, { recursive: true });
+  const listed = f.service.folders(f.binding);
+  paths = [folder];
+  release();
+  expect((await listed).items.map((i) => i.path)).toEqual([folder]);
+});
+
+// Every visit to the tab read every folder again; one scan now serves for 30 seconds, and a change
+// to a link (save, link, remove, clone) reads them again.
+sqliteIt('one folder scan serves the list for 30 seconds; a save reads them again', async () => {
+  const f = await withFolder();
+  await f.service.listProjects({}, f.binding);
+  await f.service.folders(f.binding);
+  const once = f.git.readOrigin.mock.calls.length;
+  await f.service.folders(f.binding);
+  expect(f.git.readOrigin.mock.calls.length).toBe(once);
+  await f.service.removeProject(f.project.id, f.binding);
+  await f.service.folders(f.binding);
+  expect(f.git.readOrigin.mock.calls.length).toBeGreaterThan(once);
 });
