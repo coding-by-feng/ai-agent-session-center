@@ -66,8 +66,10 @@ export function buildRespawnBody(session: Session): Record<string, unknown> | nu
   const cfg = session.sshConfig;
   if (!cfg) return null;
   const originalId = session.sessionId || '';
+  // A restored card no hook has re-keyed yet resumes the session its restore resumed (Session.launchResumeId).
+  const resumeId = /^(?:term|pty)-/.test(originalId) && session.launchResumeId ? session.launchResumeId : originalId;
   const looksLikeRealSessionId =
-    !!originalId && !originalId.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(originalId);
+    !!resumeId && !resumeId.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(resumeId);
 
   let payloadCommand = cfg.command || 'claude';
   let payloadStartupCommand = session.startupCommand || undefined;
@@ -94,7 +96,7 @@ export function buildRespawnBody(session: Session): Record<string, unknown> | nu
     effortLevel: session.effortLevel || undefined,
     model: session.model || undefined,
     originalSessionId: originalId || undefined,
-    resumeSessionId: looksLikeRealSessionId ? originalId : undefined,
+    resumeSessionId: looksLikeRealSessionId ? resumeId : undefined,
     pinned: true,
     accentColor: session.accentColor || undefined,
     characterModel: session.characterModel || undefined,

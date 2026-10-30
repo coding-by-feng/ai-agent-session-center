@@ -58,6 +58,26 @@ export function remotePermissionAllowed(permission: string): boolean {
   return permission === 'clipboard-sanitized-write'
 }
 
+/** The keys `isPasteShortcut` reads off Electron's `before-input-event` input. */
+export interface PasteKeyInput {
+  type: string
+  key: string
+  meta: boolean
+  control: boolean
+  shift: boolean
+  alt: boolean
+}
+
+/**
+ * ⌘V (macOS) / Ctrl+V (elsewhere). A remote's terminal up to 2.10.64 cancels the native paste and reads the
+ * async Clipboard API, which a remote's plain-http page lacks and this window refuses (`clipboard-read`), so
+ * the window turns the key into a native paste itself: the page gets a paste event it may always read.
+ */
+export function isPasteShortcut(input: PasteKeyInput, platform: string = process.platform): boolean {
+  if (input.type !== 'keyDown' || input.key.toLowerCase() !== 'v' || input.shift || input.alt) return false
+  return platform === 'darwin' ? input.meta && !input.control : input.control && !input.meta
+}
+
 /**
  * Is an IPC call from this app's own dashboard (http on this machine's loopback)? The
  * remote windows load no preload, so they can't call at all; this also refuses a
@@ -118,6 +138,25 @@ function openExternalFor(id: string, url: string): void {
   void shell.openExternal(url)
 }
 
+/** The part of `WebContents` the paste shortcut needs. */
+export interface PasteTarget {
+  on(event: 'before-input-event', listener: (event: { preventDefault(): void }, input: PasteKeyInput) => void): unknown
+  paste(): void
+}
+
+/**
+ * ⌘V / Ctrl+V becomes a native paste (`isPasteShortcut`). The page never sees that keydown, auto-repeat
+ * included, only the paste it makes: a remote UI that listened for the keydown itself would hear nothing.
+ * Only real input comes through `before-input-event`; a page's synthetic KeyboardEvent never does.
+ */
+export function attachPasteShortcut(wc: PasteTarget): void {
+  wc.on('before-input-event', (event, input) => {
+    if (!isPasteShortcut(input)) return
+    event.preventDefault()
+    wc.paste()
+  })
+}
+
 /** Keep `win` on `origin`: same-origin pop-ups open as more remote windows, the rest leave or vanish. */
 function attachRemotePolicy(win: BrowserWindow, id: string, origin: string, title: string): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -138,6 +177,7 @@ function attachRemotePolicy(win: BrowserWindow, id: string, origin: string, titl
     if (classifyRemoteUrl(url, origin) !== 'same-origin') event.preventDefault()
   })
   win.webContents.on('will-attach-webview', (event) => event.preventDefault())
+  attachPasteShortcut(win.webContents)
   win.webContents.on('select-bluetooth-device', (event, _devices, callback) => { event.preventDefault(); callback('') })
   // The page names itself "AASC"; the window says which computer it is.
   win.on('page-title-updated', (event) => event.preventDefault())

@@ -143,8 +143,8 @@ export interface AiActionState {
 
 /**
  * Which modes a source offers. A selection offers the desktop popup's six; the
- * session's Chat and Terminal also offer its last answer (Claude only: the Mac reads
- * it from Claude's transcript); a project file offers the whole file.
+ * session's Chat and Terminal also offer its last answer (Claude and Codex: the Mac reads
+ * it from the transcript or rollout); a project file offers the whole file.
  */
 export function aiActionsFor(input: {
   source: AiSource;
@@ -169,8 +169,8 @@ export function aiActionsFor(input: {
     custom: selection,
     'translate-answer': {
       offered: answerOffered,
-      ...(answerOffered && cli !== 'claude'
-        ? { disabledReason: 'Claude Code only: your Mac reads the answer from Claude’s transcript.' }
+      ...(answerOffered && cli !== 'claude' && cli !== 'codex'
+        ? { disabledReason: 'Claude Code and Codex only: your Mac reads the answer from the session’s transcript.' }
         : {}),
     },
     'translate-file': {

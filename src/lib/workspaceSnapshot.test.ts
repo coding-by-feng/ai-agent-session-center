@@ -165,6 +165,104 @@ describe('session identity reconciliation', () => {
     expect(snapshot.rooms[0].sessionIds).toEqual(['codex-uuid']);
   });
 
+  // Oct 30 2026, "AASC New Website": the card's first hook was lost, so it stayed keyed by its
+  // terminal while a twin under the Codex thread id took every hook. The terminal alias picked the
+  // twin, the twin has no launch config, and the card vanished on the next restart.
+  describe('a split pair (a card that never heard its thread, and a twin that did)', () => {
+    const card = () => ({
+      ...loopSession('term-web'),
+      terminalId: 'term-web',
+      title: 'AASC New Website',
+      remark: 'website',
+      pinned: true,
+      effortLevel: 'max',
+      sshConfig: { host: 'localhost', port: 22, username: 'u', workingDir: '/web', command: 'codex --yolo' },
+      startupCommand: 'codex --no-daemon --yolo',
+      lastActivityAt: 10,
+    } as unknown as Session);
+    const twin = (overrides: Partial<Session> = {}) => ({
+      sessionId: '01a18661-thread',
+      status: 'ended',
+      asleepAt: 50,
+      terminalId: 'term-web',
+      title: 'website #2 — And we need admin console…',
+      effortLevel: 'xhigh',
+      startupCommand: 'codex --yolo resume --no-daemon 01a18661-thread',
+      lastActivityAt: 40,
+      ...overrides,
+    } as unknown as Session);
+
+    it('saves the card, under the twin\'s thread id, so the restore resumes that thread', () => {
+      const snapshot = buildSnapshot(
+        new Map([['term-web', card()], ['01a18661-thread', twin()]]),
+        [room(['term-web'])],
+      );
+
+      expect(snapshot.sessions).toHaveLength(1);
+      const saved = snapshot.sessions[0];
+      expect(saved.originalSessionId).toBe('01a18661-thread');
+      expect(saved.title).toBe('AASC New Website');
+      expect(saved.remark).toBe('website');
+      expect(saved.pinned).toBe(true);
+      expect(saved.effortLevel).toBe('max');
+      expect(saved.sshConfig.workingDir).toBe('/web');
+      expect(saved.status).toBe('idle'); // asleep reads as ended, and is kept
+      expect(saved.previousSessionIds).toContain('term-web');
+      expect(snapshot.rooms[0].sessionIds).toEqual(['01a18661-thread']);
+    });
+
+    it('keeps the card\'s queue, which lives under its terminal id', () => {
+      useQueueStore.setState({
+        queues: new Map([['term-web', [{ id: 1, sessionId: 'term-web', text: 'next', position: 0, createdAt: 1 } as QueueItem]]]),
+        automation: new Map(),
+      });
+
+      const snapshot = buildSnapshot(new Map([['term-web', card()], ['01a18661-thread', twin()]]), []);
+
+      expect(snapshot.sessions[0].queueItems?.map((q) => q.text)).toEqual(['next']);
+      useQueueStore.setState({ queues: new Map(), automation: new Map() });
+    });
+
+    it('saves the live card as it was when its twin has ended for good (not asleep)', () => {
+      const snapshot = buildSnapshot(
+        new Map([['term-web', card()], ['01a18661-thread', twin({ asleepAt: undefined })]]),
+        [],
+      );
+
+      expect(snapshot.sessions.map((s) => [s.originalSessionId, s.status])).toEqual([['01a18661-thread', 'idle']]);
+    });
+  });
+
+  // Oct 30 2026: Codex sends no hook on `codex resume`, so a restored Codex card nobody prompted
+  // stays keyed by its terminal id. Saved under it, the next restore launched a fresh Codex.
+  it('saves a restored card no hook re-keyed under the session its restore resumed', () => {
+    const restored = {
+      ...loopSession('term-codex'),
+      terminalId: 'term-codex',
+      title: 'AASC Codex',
+      launchResumeId: '01a1864e-thread',
+    } as unknown as Session;
+    const rekeyed = { ...loopSession('real-id'), terminalId: 'term-real', launchResumeId: 'older-thread' } as unknown as Session;
+
+    const snapshot = buildSnapshot(
+      new Map([['term-codex', restored], ['real-id', rekeyed]]),
+      [room(['term-codex', 'real-id'])],
+    );
+
+    expect(snapshot.sessions.map((s) => s.originalSessionId)).toEqual(['01a1864e-thread', 'real-id']);
+    expect(snapshot.sessions[0].previousSessionIds).toEqual(['term-codex']);
+    expect(snapshot.rooms[0].sessionIds).toEqual(['01a1864e-thread', 'real-id']);
+  });
+
+  it('points a popup at the id its origin card is saved under, or the restore drops it as an orphan', () => {
+    const origin = { ...loopSession('term-codex'), terminalId: 'term-codex', launchResumeId: '01a1864e-thread' } as unknown as Session;
+    const popup = { ...loopSession('popup'), terminalId: 'term-popup', isFloating: true, originSessionId: 'term-codex' } as unknown as Session;
+
+    const snapshot = buildSnapshot(new Map([['term-codex', origin], ['popup', popup]]), []);
+
+    expect(snapshot.sessions.find((s) => s.originalSessionId === 'popup')?.originSessionId).toBe('01a1864e-thread');
+  });
+
   it('uses live terminal and previous-session lineage to repair a legacy snapshot', () => {
     const legacy: WorkspaceSnapshot = {
       version: 1,

@@ -276,6 +276,15 @@ export default function DevicePresenceChip() {
             role="dialog"
             aria-label="Connected devices"
           >
+            {/* The actions lead, so Pair is in view without scrolling; the devices list follows them. */}
+            {canPairPhones && (
+              <Suspense fallback={null}>
+                <SharingDefault />
+                <PhonePairing />
+                {canPairRemotes && <RemoteComputers />}
+              </Suspense>
+            )}
+
             <div className={styles.panelHead}>Connected devices</div>
 
             <ul className={styles.deviceList}>
@@ -352,13 +361,6 @@ export default function DevicePresenceChip() {
               </p>
             )}
 
-            {canPairPhones && (
-              <Suspense fallback={null}>
-                <SharingDefault />
-                <PhonePairing />
-                {canPairRemotes && <RemoteComputers />}
-              </Suspense>
-            )}
           </div>,
           document.body,
         )}

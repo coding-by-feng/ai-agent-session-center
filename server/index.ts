@@ -13,7 +13,7 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep } from './sessionStore.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep, healSplitCard } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue, getProjectActivity } from './db.js';
@@ -620,12 +620,26 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     sessions: () => Object.values(getAllSessions()),
   });
   const openTerminalIds = () => new Set(getTerminals().map((t) => t.terminalId));
+  const foldedFrom = new Map<string, string>(); // real id -> the terminal id a folded split card was keyed by
   const stopSessionSleep = startSessionSleep({
     sessions: () => Object.values(getAllSessions()),
     terminalSleepable: (terminalId) => openTerminalIds().has(terminalId) && !isTmuxBackedTerminal(terminalId),
     lastOutputAt: terminalLastOutputAt,
-    hasArmedQueue: (sessionId) =>
-      (getSessionQueue(sessionId)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true),
+    // A folded card's queue can still be stored under the card's terminal id (foldedFrom, below).
+    hasArmedQueue: (sessionId) => [sessionId, foldedFrom.get(sessionId)].some((id) => !!id &&
+      (getSessionQueue(id)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true)),
+    // A split pair is judged and sleeps as one card (sessionStore.healSplitCard): its pin, hands-off and queue
+    // count, and opening it resumes the thread. Asleep alone, the twin closed the card's terminal and the card's
+    // Reconnect opened a fresh CLI (Oct 30 2026). A twin's card is the one keyed by the twin's terminal.
+    // Always the live object: an earlier fold in this sweep may have merged or slept the one listed.
+    prepare: (s) => {
+      const cardKey = s.terminalId && s.terminalId !== s.sessionId && getSession(s.terminalId)?.sessionId === s.terminalId
+        ? s.terminalId
+        : s.sessionId;
+      const id = healSplitCard(cardKey);
+      if (id !== cardKey) foldedFrom.set(id, cardKey);
+      return getSession(id) ?? s;
+    },
     markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
     closeTerminal: closeTerminalAndWait,
   });

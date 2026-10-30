@@ -10,6 +10,9 @@ vi.mock('../server/sessionStore.js', () => ({
   getSession: vi.fn(),
   getSessionByTerminalId: vi.fn(),
   createTerminalSession: vi.fn(),
+  // The real rule (sessionStore.resumableIdOf): a restored card still keyed by its terminal id resumes its launchResumeId.
+  resumableIdOf: (s: { sessionId: string; launchResumeId?: string }) =>
+    /^(?:term|pty)-/.test(s.sessionId) && s.launchResumeId ? s.launchResumeId : s.sessionId,
 }));
 vi.mock('../server/sshManager.js', () => ({
   createTerminal: vi.fn(),
@@ -19,6 +22,7 @@ vi.mock('../server/sshManager.js', () => ({
 }));
 vi.mock('../server/extractPreviousAnswer.js', () => ({
   readClaudeLastAssistant: vi.fn(),
+  readCodexLastAssistant: vi.fn(),
   // Pre-existing dependency of spawnFloatingSession's resumeId resolution —
   // this suite only ever exercised resolveOriginCli (a pure function) before,
   // so this gap was latent until a test actually calls spawnFloatingSession.
@@ -37,6 +41,7 @@ import { resolveOriginCli, spawnFloatingSession } from '../server/floatingSessio
 import { getSession } from '../server/sessionStore.js';
 import { createTerminal } from '../server/sshManager.js';
 import { applyClaudeLaunchFlags } from '../server/config.js';
+import { readCodexLastAssistant } from '../server/extractPreviousAnswer.js';
 
 type Origin = Parameters<typeof resolveOriginCli>[0];
 const origin = (o: Partial<Origin>): Origin => o as Origin;
@@ -173,5 +178,50 @@ describe('spawnFloatingSession — quick-settings model/effort override', () => 
       'origin-model',
       'origin-effort',
     );
+  });
+});
+
+// Oct 30 2026: the ✦ AI popups on a Codex terminal. A restored Codex card nobody has prompted stays keyed by its
+// terminal id (Codex sends no hook on `codex resume`), so its popup forked `codex fork --last`, the newest thread in
+// the folder; and translate-answer refused every Codex card ("requires a Claude Code transcript").
+describe('spawnFloatingSession — a Codex origin', () => {
+  const THREAD = '01a1864e-3a18-7f32-81b5-974678409dc2';
+  const restoredCodex = (fields: Record<string, unknown> = {}) => ({
+    sessionId: 'term-1793304597795-edo0p0',
+    launchResumeId: THREAD,
+    cliSource: 'codex',
+    startupCommand: `codex resume '${THREAD}'`,
+    projectPath: '/tmp/proj',
+    promptHistory: [{ text: 'earlier', timestamp: 1 }],
+    ...fields,
+  });
+
+  beforeEach(() => {
+    vi.mocked(getSession).mockReset();
+    vi.mocked(createTerminal).mockReset().mockResolvedValue('term-fake-2');
+    vi.mocked(applyClaudeLaunchFlags).mockClear();
+    vi.mocked(readCodexLastAssistant).mockReset();
+  });
+
+  it('a restored card still keyed by its terminal id forks the thread its restore resumed, never --last', async () => {
+    vi.mocked(getSession).mockReturnValue(restoredCodex() as never);
+    await spawnFloatingSession({
+      originSessionId: 'term-1793304597795-edo0p0', mode: 'custom', customPrompt: 'explain', selection: 'x',
+      nativeLanguage: 'en', learningLanguage: 'en',
+    });
+    const launch = String(vi.mocked(applyClaudeLaunchFlags).mock.calls[0][0]);
+    expect(launch).toContain(`fork '${THREAD}'`);
+    expect(launch).not.toContain('--last');
+  });
+
+  it('translate-answer reads the previous answer from the Codex rollout', async () => {
+    vi.mocked(getSession).mockReturnValue(restoredCodex({ transcriptPath: '/tmp/rollout-x.jsonl' }) as never);
+    vi.mocked(readCodexLastAssistant).mockReturnValue('The build passed.');
+    await spawnFloatingSession({
+      originSessionId: 'term-1793304597795-edo0p0', mode: 'translate-answer', selection: '',
+      nativeLanguage: 'zh', learningLanguage: 'en',
+    });
+    expect(readCodexLastAssistant).toHaveBeenCalledWith('/tmp/rollout-x.jsonl');
+    expect(String(vi.mocked(applyClaudeLaunchFlags).mock.calls[0][0])).toContain('The build passed.');
   });
 });

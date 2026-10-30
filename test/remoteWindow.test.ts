@@ -5,7 +5,7 @@ vi.mock('electron', () => ({ BrowserWindow: class {}, session: {}, shell: {} }))
 
 const {
   remoteWindowWebPreferences, remotePartition, classifyRemoteUrl, remotePermissionAllowed,
-  mayOpenRemoteWindow, mayOpenExternal, MAX_REMOTE_WINDOWS, EXTERNAL_OPEN_GAP_MS, isLocalAppSenderUrl,
+  mayOpenRemoteWindow, mayOpenExternal, MAX_REMOTE_WINDOWS, EXTERNAL_OPEN_GAP_MS, isLocalAppSenderUrl, isPasteShortcut, attachPasteShortcut,
 } = await import('../electron/remote/remoteWindow.js');
 
 const ID = '1b4e28ba-2fa1-41d2-883f-0016d3cca427';
@@ -103,5 +103,46 @@ describe('isLocalAppSenderUrl', () => {
     for (const u of [`${ORIGIN}/`, 'https://localhost:3333/', 'http://localhost.evil.example/', 'file:///tmp/x.html', '', 'nope']) {
       expect(isLocalAppSenderUrl(u)).toBe(false);
     }
+  });
+});
+
+describe('isPasteShortcut (a remote window turns ⌘V into a native paste)', () => {
+  const key = (over: Partial<{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }>) =>
+    ({ type: 'keyDown', key: 'v', meta: false, control: false, shift: false, alt: false, ...over });
+
+  it('is ⌘V on macOS and Ctrl+V elsewhere, either case of V', () => {
+    expect(isPasteShortcut(key({ meta: true }), 'darwin')).toBe(true);
+    expect(isPasteShortcut(key({ meta: true, key: 'V' }), 'darwin')).toBe(true);
+    expect(isPasteShortcut(key({ control: true }), 'linux')).toBe(true);
+    expect(isPasteShortcut(key({ control: true }), 'win32')).toBe(true);
+  });
+
+  it('is nothing else: the other platform\'s modifier, Shift/Alt chords, key-up, other keys', () => {
+    expect(isPasteShortcut(key({ control: true }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true }), 'linux')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true, shift: true }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true, alt: true }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true, control: true }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true, type: 'keyUp' }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({ meta: true, key: 'c' }), 'darwin')).toBe(false);
+    expect(isPasteShortcut(key({}), 'darwin')).toBe(false);
+  });
+
+  it('the window turns the key into one native paste and keeps it from the page; nothing else', () => {
+    let listener: ((event: { preventDefault(): void }, input: Parameters<typeof isPasteShortcut>[0]) => void) | null = null;
+    const wc = { on: vi.fn((_name: string, l: typeof listener) => { listener = l; }), paste: vi.fn() };
+    attachPasteShortcut(wc);
+    expect(wc.on).toHaveBeenCalledWith('before-input-event', expect.any(Function));
+    const fire = (input: ReturnType<typeof key>) => {
+      const event = { preventDefault: vi.fn() };
+      listener!(event, input);
+      return event.preventDefault;
+    };
+    const paste = process.platform === 'darwin' ? { meta: true } : { control: true };
+    expect(fire(key(paste))).toHaveBeenCalled();
+    expect(wc.paste).toHaveBeenCalledTimes(1);
+    expect(fire(key({ ...paste, type: 'keyUp' }))).not.toHaveBeenCalled();
+    expect(fire(key({ ...paste, key: 'c' }))).not.toHaveBeenCalled();
+    expect(wc.paste).toHaveBeenCalledTimes(1);
   });
 });

@@ -140,6 +140,23 @@ export function watchTerminalForSuggestion(terminalId: string): void {
   if (onTerminalSuggestionCallback && terminals.has(terminalId)) armSuggestionWatch(terminalId, suggestionDeps);
 }
 
+type OutputTap = (chunk: string) => void;
+const outputTaps = new Map<string, Set<OutputTap>>();
+
+/**
+ * Listen to a terminal's live PTY output from now on (never its replay ring, which a restore prefills). Returns
+ * the unsubscribe. For short watches, such as a new Codex card waiting for its input row (codexReadyWatch.ts).
+ */
+export function tapTerminalOutput(terminalId: string, tap: OutputTap): () => void {
+  const taps = outputTaps.get(terminalId) ?? new Set<OutputTap>();
+  taps.add(tap);
+  outputTaps.set(terminalId, taps);
+  return () => {
+    taps.delete(tap);
+    if (taps.size === 0 && outputTaps.get(terminalId) === taps) outputTaps.delete(terminalId);
+  };
+}
+
 /**
  * Run one PTY chunk past the interruption detector and forward any fault.
  * Called from every `onData` handler that owns an agent terminal. Kept tiny and
@@ -156,6 +173,7 @@ function notePtyOutput(terminalId: string, data: string): void {
     }
     if (onTerminalBtwCallback) noteBtwChunk(terminalId, data, btwDeps);
     if (onTerminalSuggestionCallback) noteSuggestionChunk(terminalId, data, suggestionDeps);
+    outputTaps.get(terminalId)?.forEach((tap) => tap(data));
   } catch (e: unknown) {
     // Detection is best-effort — it must never break terminal streaming.
     log.debug('pty', `Output scan failed for ${terminalId}: ${(e as Error).message}`);

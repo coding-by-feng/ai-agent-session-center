@@ -13,7 +13,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
@@ -65,6 +65,7 @@ import {
   type CentralCaller, type CentralLaunchContext, type CentralLaunchInput,
 } from './mcp/centralLaunch.js';
 import type { SessionCentralMarker } from '../src/types/central.js';
+import type { Session } from '../src/types/session.js';
 import { stripCodexNoDaemon } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
@@ -389,6 +390,20 @@ export function buildStartupLaunchCommand(
  */
 export function buildResumeCommand(session: Parameters<typeof buildResumeLine>[0], sessionId: string): string {
   return stripCentralLaunch(buildResumeLine(session, sessionId));
+}
+
+/**
+ * Reconnect's line when the card's stored line may not hold its conversation: a restored card still keyed
+ * by its terminal id resumes the session its restore resumed (Session.launchResumeId), and a pair that was
+ * just folded resumes its real id. Null otherwise, and for a central, whose line keeps its own path.
+ */
+export function reconnectResumeLine(session: Session, healed: boolean): string | null {
+  if (session.central) return null;
+  // A pair just folded under its real id: its stored line can be the card's fresh launch (a twin minted by a
+  // non-startup hook carries none), so the line is built from the id.
+  if (healed) return buildResumeCommand(session, session.sessionId);
+  const resumeId = resumableIdOf(session);
+  return resumeId === session.sessionId ? null : buildResumeCommand(session, resumeId);
 }
 
 function buildResumeLine(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
@@ -1127,15 +1142,17 @@ function restoredSessionLabel(body: { originalSessionId?: string; resumeSessionI
 // Resume an ended session — on its card, or from a HISTORY row (resumeFromHistory).
 // `<cli> --resume <id>` first, falling back to a FRESH CLI (see buildResumeCommand).
 router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
-  const sessionId = str(req.params.id);
+  const requestedId = str(req.params.id);
 
   // Validate session ID format to prevent command injection (only allow UUID-like chars)
-  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(requestedId)) {
     res.status(400).json({ error: 'Invalid session ID format' });
     return;
   }
 
-  if (refuseWhileRestarting(sessionId, res)) return;
+  if (refuseWhileRestarting(requestedId, res)) return;
+  // A split card resumes its twin's thread, as one card (sessionStore.healSplitCard).
+  const sessionId = healSplitCard(requestedId);
   const session = getSession(sessionId);
   if (!session) { await resumeFromHistory(sessionId, req, res); return; }
 
@@ -1149,7 +1166,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     return;
   }
 
-  const resumeCmd = buildResumeCommand(session, sessionId);
+  const resumeCmd = buildResumeCommand(session, resumableIdOf(session));
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
 
   if (terminalExists) {
@@ -1248,8 +1265,11 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
 // Works for SSH sessions (using stored sshConfig) and hook-detected sessions
 // that have a captured startupCommand.
 router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
-  const sessionId = str(req.params.id);
-  if (refuseWhileRestarting(sessionId, res)) return;
+  const requestedId = str(req.params.id);
+  if (refuseWhileRestarting(requestedId, res)) return;
+  // A split card reconnects to its twin's thread, as one card (sessionStore.healSplitCard).
+  const sessionId = healSplitCard(requestedId);
+  const healed = sessionId !== requestedId;
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
   if (session.source !== 'ssh' && !session.startupCommand) {
@@ -1269,7 +1289,9 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       // a Claude line's name is rebuilt, quoted, from the card's title (Ruling P3-36): ps printed `-n "x mcp add …"` as
       // loose words, and typed as they are `-n` takes `x` and claude runs `mcp add …`.
       const storedCmd = session.startupCommand || cfg.command || 'claude';
-      const launchCmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      // A restored card no hook has re-keyed yet resumes the conversation its restore resumed, not a fresh CLI.
+      const launchCmd = reconnectResumeLine(session, healed)
+        ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
       // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
@@ -1314,7 +1336,8 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       // As above: a central's command with a bare claude / codex word, a Claude line's name rebuilt from the card's
       // title, and its central in the new PTY (or a plain session when the central cannot be established again).
       const storedCmd = session.startupCommand || 'claude';
-      const cmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      const cmd = reconnectResumeLine(session, healed)
+        ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
       const plan = prepareCentralRelaunch(session, { command: cmd, workingDir: baseConfig.workingDir || '~', remoteHost: false }, centralCaller(req));
       const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
       const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
@@ -1364,9 +1387,12 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
 
   // A Claude/Codex card whose id is not a real CLI session id yet (no hook has reported one) can only be
   // relaunched blank: `buildResumeCommand` drops `--resume`. "Same session" would be a lie, so refuse.
+  // A restored card still keyed by its terminal id resumes the session its restore resumed (a Codex
+  // sends no hook on `codex resume` until its first prompt).
+  const resumeId = resumableIdOf(session);
   const launchCommand = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   if ((commandStartsWithCli(launchCommand, 'claude') || commandStartsWithCli(launchCommand, 'codex'))
-      && !CLAUDE_SESSION_UUID_RE.test(session.sessionId)) {
+      && !CLAUDE_SESSION_UUID_RE.test(resumeId)) {
     res.status(409).json({
       ok: false,
       error: 'This session has not reported its Claude session id yet (no hook has arrived), so a restart could not bring its conversation back',
@@ -1377,7 +1403,7 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
   try {
     const outcome = await restartSessionTerminal(
       session.sessionId,
-      buildResumeCommand(session, session.sessionId),
+      buildResumeCommand(session, resumeId),
       centralCaller(req),
     );
     if (!outcome.ok) {
@@ -1402,7 +1428,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   // buildForkCommand produces a fresh `claude --resume ... --fork-session` template
   // (no `-n` flag). Append `-n "<newTitle>"` so the new fork has its own name
   // rather than inheriting the original session's name from the resumed state.
-  const forkCmd = appendSessionName(buildForkCommand(session, sessionId), newTitle);
+  // A restored card still keyed by its terminal id forks the session its restore resumed, not `fork --last`.
+  const forkCmd = appendSessionName(buildForkCommand(session, resumableIdOf(session)), newTitle);
 
   try {
     const cfg = session.sshConfig;
@@ -1475,12 +1502,14 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
     const cfg = session.sshConfig;
     const newTitle = `Clone of ${session.title || session.projectName}`;
     const baseCmd = session.startupCommand || cfg?.command || 'claude';
-    // Strip session-specific flags (--resume, --continue, --fork-session) so a
-    // resumed session's stored startupCommand doesn't bleed into the clone, then
-    // strip the name so the clone gets its own title.
-    let cloneCmd = stripClaudeSessionFlags(baseCmd);
-    cloneCmd = stripClaudeSessionName(cloneCmd);
-    cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
+    // Strip session-specific flags (--resume, --continue, --fork-session; a Codex line's `resume <id>` /
+    // `fork <id>`) so a resumed session's stored startupCommand doesn't bleed into the clone, then strip the
+    // name so the clone gets its own title. A Codex line keeps its own approval flags: the permission
+    // rebuild below writes Claude's.
+    const isCodex = commandStartsWithCli(baseCmd, 'codex');
+    let cloneCmd = isCodex
+      ? stripCodexSessionSubcommand(baseCmd) || 'codex'
+      : reconstructPermissionFlags(stripClaudeSessionName(stripClaudeSessionFlags(baseCmd)), session.permissionMode);
     // The clone starts on the session's latest model + effort, not its launch flags.
     cloneCmd = applyClaudeLaunchFlags(cloneCmd, session.model, session.effortLevel, { replace: true });
     cloneCmd = appendSessionName(cloneCmd, newTitle);
@@ -2542,6 +2571,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.originalSessionId) {
       registerSessionAlias(body.originalSessionId, terminalId);
     }
+    // Until a hook re-keys the card, this is how it knows its conversation (Session.launchResumeId).
+    if (resumeLaunchCmd && resumeId) setLaunchResumeId(terminalId, resumeId);
 
     // Inject the resume command once the shell is ready.
     // For remote SSH sessions, prepend `cd` + AGENT_MANAGER_TERMINAL_ID export since

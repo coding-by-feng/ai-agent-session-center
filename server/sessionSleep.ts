@@ -137,6 +137,11 @@ export interface SleepDeps {
   terminalSleepable: SleepContext['terminalSleepable'];
   lastOutputAt: SleepContext['lastOutputAt'];
   hasArmedQueue: SleepContext['hasArmedQueue'];
+  /**
+   * The session as it should be judged, run before the rules: a split pair folds into one card here
+   * (sessionStore.healSplitCard), so the card's pin, hands-off, central and queue are what is checked.
+   */
+  prepare?: (s: SleepSession) => SleepSession;
   /** Mark the card asleep (sessionStore.setSessionAsleep). */
   markAsleep: (sessionId: string, at: number) => void;
   /** Close the terminal and wait for its processes to exit (sshManager.closeTerminalAndWait). */
@@ -156,7 +161,8 @@ export async function sweepIdleSessions(deps: SleepDeps): Promise<string[]> {
   };
   if (ctx.idleMinutes <= 0) return [];
   const slept: string[] = [];
-  for (const s of deps.sessions()) {
+  for (const listed of deps.sessions()) {
+    const s = deps.prepare ? deps.prepare(listed) : listed;
     if (sleepRefusal(s, ctx) !== null) continue;
     const terminalId = s.terminalId!;
     // Marked first, so the card reads as ended (and nothing is sent to it) before its CLI goes away.

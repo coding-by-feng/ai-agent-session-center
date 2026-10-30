@@ -115,14 +115,15 @@ describe('the last answer (Chat and Terminal)', () => {
     }
   });
 
-  it('is Claude Code only: a Codex session says why and sends nothing', () => {
+  // Oct 30 2026: the Mac reads a Codex answer from its rollout, so a Codex session translates it too.
+  it('a Codex session translates its last answer as well', async () => {
     useSessionStore.setState({ sessions: new Map([['root', session({ cliSource: 'codex' })]]) });
     sheet(SOURCES.chat, null);
     const button = screen.getByRole('button', { name: 'Translate the last answer to 简体中文' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription(/Claude Code only/);
+    expect(button).toBeEnabled();
     fireEvent.click(button);
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(lastBody()).toMatchObject({ originSessionId: 'root', mode: 'translate-answer' });
   });
 });
 

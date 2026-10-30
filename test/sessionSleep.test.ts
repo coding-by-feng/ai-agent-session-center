@@ -92,6 +92,19 @@ describe('sweepIdleSessions', () => {
     expect(order).toEqual([`mark 0f8b ${NOW}`, 'close term-1']);
   });
 
+  // Oct 30 2026: a split pair is judged as the folded card, so the card's pin still keeps it awake.
+  it('judges the session prepare() returns (a folded split card), not the one listed', async () => {
+    const markAsleep = vi.fn();
+    const slept = await sweepIdleSessions({
+      sessions: () => [idle()],
+      prepare: (s) => ({ ...s, pinned: true }),
+      idleMinutes: () => 60, terminalSleepable: () => true, lastOutputAt: () => undefined, hasArmedQueue: () => false,
+      markAsleep, closeTerminal: async () => true, now: () => NOW,
+    });
+    expect(slept).toEqual([]);
+    expect(markAsleep).not.toHaveBeenCalled();
+  });
+
   it('does nothing while the setting is off', async () => {
     const close = vi.fn(async () => true);
     const slept = await sweepIdleSessions({

@@ -291,6 +291,21 @@ describe('DevicePresenceChip — Remote computers (Oct 28 2026)', () => {
     expect(await screen.findByRole('region', { name: 'Remote computers' })).toBeInTheDocument();
   });
 
+  // Oct 30 2026: the actions (Sharing, pairing, paired computers) lead the panel, so Pair is in view without
+  // scrolling; the connected devices list follows them.
+  it('puts Sharing, pairing and paired computers above the connected devices list', async () => {
+    window.electronAPI = { remotes: remotes() } as unknown as typeof window.electronAPI;
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    const remote = await screen.findByRole('region', { name: 'Remote computers' });
+    const heading = screen.getByText('Connected devices');
+    const sharing = screen.getByText(/^sharing$/i);
+    const follows = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(sharing, remote)).toBe(true);
+    expect(follows(remote, heading)).toBe(true);
+  });
+
   it('leaves it out in a browser, in an app without the API, and on a remote device', async () => {
     seed([device({ clientId: 'me' })]);
     const { unmount } = render(<DevicePresenceChip />);

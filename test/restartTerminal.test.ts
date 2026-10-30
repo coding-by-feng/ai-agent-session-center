@@ -335,6 +335,17 @@ describe('POST /api/sessions/:id/restart-terminal — what a restart must not ge
     expect(mocks.closeTerminalAndWait).not.toHaveBeenCalled();
   });
 
+  // Oct 30 2026: Codex sends no hook on `codex resume`, so a restored Codex card nobody prompted keeps its
+  // terminal id. Its restart used to be refused; it resumes the thread its restore resumed instead.
+  it('restarts a restored Codex card still keyed by its terminal id onto the thread its restore resumed', async () => {
+    await store.createTerminalSession(OLD_TERMINAL, { host: 'localhost', workingDir: DIR, command: 'codex' });
+    store.setLaunchResumeId(OLD_TERMINAL, UUID);
+    const { status } = await restart(OLD_TERMINAL);
+    expect(status).toBe(200);
+    const [, typed] = mocks.writeWhenReady.mock.calls[0] as [string, string];
+    expect(typed).toContain(`resume '${UUID}'`);
+  });
+
   it('relaunches where the agent REALLY runs: the hook-corrected project path, not the launch directory', async () => {
     await liveSession({ launchDir: `${DIR}-launch` });
     expect(store.getSession(UUID)?.projectPath).toBe(DIR); // the card's cwd, corrected by the first hook

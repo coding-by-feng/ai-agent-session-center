@@ -27,6 +27,8 @@ import {
 } from '@/lib/terminalGeometry';
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
 import { logicalLineAt, locateBookmark, rowAtOffset } from '@/lib/terminalBookmarks';
+import { isPasteKey, readPasteData, stripTrailingNewlines } from '@/lib/terminalPaste';
+import { isMac } from '@/lib/shortcutKeys';
 import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
 
 // ---------------------------------------------------------------------------
@@ -1226,45 +1228,11 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
             return false;
           }
-          // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines and
-          // support image paste (saves image to temp file, pastes the path).
-          // preventDefault() is critical — without it the browser still fires a
-          // native paste event that xterm processes via onData, causing a double-paste.
-          if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
-            e.preventDefault();
-            if (e.type === 'keydown') {
-              // The paste goes straight to the PTY, past onData: the `/` list can't follow it.
-              inputTapRef.current?.onReset();
-              readClipboard().then(async ({ text, imageBlobs }) => {
-                const usePty = isPtyHostTerminal(terminalId);
-                // Handle image paste — upload and paste file path(s)
-                if (imageBlobs.length > 0) {
-                  const paths = await uploadClipboardImages(imageBlobs);
-                  if (paths.length > 0) {
-                    const pathText = paths.join(' ');
-                    if (usePty) {
-                      sendInput(null, terminalId, pathText);
-                    } else if (wsRef.current && wsRef.current.readyState === 1) {
-                      wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: pathText }));
-                    }
-                    return;
-                  }
-                }
-                // Handle text paste
-                if (!text) return;
-                const stripped = text.replace(/[\r\n]+$/, '');
-                if (!stripped) return;
-                if (usePty) {
-                  sendInput(null, terminalId, stripped);
-                } else if (wsRef.current && wsRef.current.readyState === 1) {
-                  wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: stripped }));
-                }
-              }).catch((err) => {
-                console.warn('Terminal paste failed:', err);
-              });
-            }
-            return false;
-          }
+          // ⌘V (macOS) / Ctrl+V: xterm skips the key but the browser keeps its default, so a native paste event
+          // follows and the capture listener below sends it (terminalPaste.ts). Never cancel it here: the async
+          // Clipboard API that used to replace it is missing on plain http:// and refused in a remote computer's
+          // window, so the paste vanished there.
+          if (isPasteKey(e, isMac)) return false;
           return true;
         });
 
@@ -1278,10 +1246,44 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
         // the layout is done moving.
         fitAndSendWhenSettled(term, fitAddon, container, wsRef.current, terminalId);
 
-        // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
+        // Send keystrokes (chunk large pastes: one terminal_input carries at most 262 144 chars)
         const CHUNK_SIZE = 4096;
         const usePtyIpc = isPtyHostTerminal(terminalId);
         term.textarea?.addEventListener('blur', () => inputTapRef.current?.onReset());
+        // Every paste (⌘V, the Edit menu, a phone's long-press) arrives here first. Capture phase on xterm's own
+        // root, so its textarea's paste handler never runs and nothing is typed twice.
+        // `term.paste` goes out through onData below (bracketed when the app asked for it, \n → \r, chunked),
+        // and the `/` list never follows a paste.
+        let pasting = false;
+        const pasteText = (text: string): void => {
+          pasting = true;
+          try {
+            term.paste(text);
+          } finally {
+            pasting = false;
+          }
+        };
+        // Every paste (⌘V, the Edit menu, a phone's long-press) arrives here first. Capture phase on xterm's own
+        // root, so xterm's paste handlers (its textarea's, and its root's) never run and nothing is typed twice.
+        term.element?.addEventListener('paste', (e: ClipboardEvent) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          inputTapRef.current?.onReset();
+          const { text, images } = readPasteData(e.clipboardData);
+          void (async () => {
+            if (images.length > 0) {
+              const paths = await uploadClipboardImages(images);
+              if (paths.length > 0) {
+                pasteText(paths.join(' '));
+                return;
+              }
+            }
+            const stripped = stripTrailingNewlines(text);
+            if (stripped) pasteText(stripped);
+          })().catch((err: unknown) => {
+            console.warn('Terminal paste failed:', err);
+          });
+        }, true);
         // A TUI that left the alt screen with mouse tracking on (Codex /logout)
         // would type every mouse move into the shell; see terminalMouseReset.ts.
         // Its parser handlers go with the terminal, so it needs no dispose here.
@@ -1290,7 +1292,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           const data = mouseGuard.filterInput(raw);
           if (data === null) return;
           const tap = inputTapRef.current;
-          if (tap) tap.onData(data, readCaretContext(term));
+          if (tap && !pasting) tap.onData(data, readCaretContext(term));
           if (usePtyIpc) {
             // IPC transport — no chunking needed (no WS frame limit)
             sendInput(null, terminalId, data);

@@ -21,12 +21,13 @@ import {
 } from './constants.js';
 
 // Sub-module imports
-import { matchSession, detectHookSource } from './sessionMatcher.js';
+import { matchSession, detectHookSource, findSplitTwin, foldSplitPair } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
 import { withBtwAnswer } from './btwCapture.js';
 import { toBackgroundTasks, FINISHED_TASK_STATUSES } from './backgroundTasks.js';
-import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, registerTerminalSuggestionCallback, watchTerminalForSuggestion, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, registerTerminalSuggestionCallback, watchTerminalForSuggestion, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess, tapTerminalOutput } from './sshManager.js';
 import { createCodexTrust } from './codexTrust.js';
+import { watchCodexReady } from './codexReadyWatch.js';
 import { forgetTerminalHeard, noteTerminalHeard, terminalHeard } from './heardTerminals.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { checkTurnInterrupted, readTranscriptTail, TYPED_PROMPT_MARKER_MS, type StoppedTurn } from './transcriptInterrupt.js';
@@ -1570,6 +1571,25 @@ export function getSessionIdByTerminalId(terminalId: string): string | null {
  * stored under newId. Used during workspace import to map snapshot IDs to
  * freshly created terminal IDs.
  */
+/** Note the CLI session a restore launched this card to resume (Session.launchResumeId). */
+export function setLaunchResumeId(sessionId: string, resumeId: string): void {
+  const session = sessions.get(sessionId);
+  if (!session || session.sessionId === resumeId) return;
+  const updated = { ...session, launchResumeId: resumeId };
+  sessions.set(sessionId, updated);
+  invalidateSessionsCache();
+  // The workspace auto-save reads it off the client's copy, which may hear nothing else until a prompt.
+  broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...updated } }).catch(() => { /* the next update carries it */ });
+}
+
+/**
+ * The id to resume this card's conversation by: its own, or, while it is still keyed by its terminal
+ * id, the session its restore resumed (Session.launchResumeId).
+ */
+export function resumableIdOf(session: Pick<Session, 'sessionId' | 'launchResumeId'>): string {
+  return /^(?:term|pty)-/.test(session.sessionId) && session.launchResumeId ? session.launchResumeId : session.sessionId;
+}
+
 export function registerSessionAlias(originalId: string, newId: string): void {
   if (originalId && newId && originalId !== newId) {
     sessionAliases.set(originalId, newId);
@@ -1760,12 +1780,36 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // Unref'd, and its callback never rejects: a timer that outlives a test file (or the server's shutdown) must not
   // keep the process up or surface as an unhandled rejection (Ruling P4-44).
   const local = LOCAL_TERMINAL_HOSTS.has(config.host || 'localhost');
-  const timer = setTimeout(() => {
-    leaveConnecting(terminalId, command, agentCli, local ? workDir : null).catch((err: unknown) => {
-      log.error('session', `The connecting timeout of ${terminalId} failed: ${err instanceof Error ? err.message : String(err)}`);
+  const localFolder = local ? workDir : null;
+  const leave = (reason: string): void => {
+    leaveConnecting(terminalId, command, agentCli, localFolder, reason).catch((err: unknown) => {
+      log.error('session', `Leaving connecting (${reason}) for ${terminalId} failed: ${err instanceof Error ? err.message : String(err)}`);
     });
+  };
+  let codexWatch: (() => void) | null = null;
+  const timer = setTimeout(() => {
+    if (codexWatch) stopCodexReadyWatch(terminalId, codexWatch);
+    leave('connecting timeout');
   }, agentCli ? 30_000 : 3_000);
   timer.unref?.();
+  // A terminal id can be reused (a resume, `/terminals/register`): an older card's watch must not judge this one.
+  const older = codexReadyWatches.get(terminalId);
+  if (older) stopCodexReadyWatch(terminalId, older);
+  // A trusted local Codex leaves as soon as its input row is drawn and settled, not at 30 s (codexReadyWatch.ts).
+  if (CODEX_COMMAND_RE.test(command) && localFolder !== null) {
+    const cancel = watchCodexReady({
+      stillConnecting: () => sessions.get(terminalId)?.status === (SESSION_STATUS.CONNECTING as string),
+      atInput: () => codexAtItsInput(terminalId, command, localFolder),
+      tapOutput: (listener) => tapTerminalOutput(terminalId, listener),
+      onReady: () => {
+        stopCodexReadyWatch(terminalId, cancel);
+        clearTimeout(timer);
+        leave('its Codex input settled');
+      },
+    });
+    codexWatch = cancel;
+    codexReadyWatches.set(terminalId, cancel);
+  }
 
   return session;
 }
@@ -1777,7 +1821,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
  * Codex too (it sends its first hook only at its first prompt), except where it waits at its input (Ruling P4-46).
  * A plain shell never hooks and is never marked.
  */
-async function leaveConnecting(terminalId: string, command: string, agentCli: boolean, localFolder: string | null): Promise<void> {
+async function leaveConnecting(terminalId: string, command: string, agentCli: boolean, localFolder: string | null, reason: string): Promise<void> {
   const s = sessions.get(terminalId);
   if (!s || s.status !== (SESSION_STATUS.CONNECTING as string)) return;
   s.status = SESSION_STATUS.IDLE;
@@ -1800,12 +1844,20 @@ async function leaveConnecting(terminalId: string, command: string, agentCli: bo
   // guard missed path-qualified launches like `/usr/local/bin/claude`.
   if (!s.model) s.model = extractModelFromCommand(command);
   await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
-  log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
+  log.info('session', `Auto-transitioned session ${terminalId} to idle after ${reason} (${command})`);
 }
 
 /** Hosts whose folders are this Mac's: only there is the owner's Codex trust record the one that applies. */
 const LOCAL_TERMINAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1']);
 const CODEX_COMMAND_RE = /^(?:\S*\/)?codex(?:\s|$)/;
+/** The early-leave watch of each new Codex card still connecting, by terminal id. */
+const codexReadyWatches = new Map<string, () => void>();
+
+/** Stop one watch (stopping twice is harmless), and forget it unless a newer card's watch took the id. */
+function stopCodexReadyWatch(terminalId: string, cancel: () => void): void {
+  cancel();
+  if (codexReadyWatches.get(terminalId) === cancel) codexReadyWatches.delete(terminalId);
+}
 const codexTrust = createCodexTrust();
 
 /**
@@ -2155,6 +2207,37 @@ export function resumeSession(sessionId: string): { error: string } | { ok: true
   log.info('session', `RESUME: session ${sessionId?.slice(0,8)} → connecting (terminal=${session.lastTerminalId?.slice(0,8)})`);
 
   return { ok: true, terminalId: session.lastTerminalId, session: { ...session } };
+}
+
+/**
+ * Fold a split pair into one card before a relaunch, and return the id to relaunch.
+ * A card whose first hook was lost stays keyed by its terminal id while a twin under the real
+ * session id takes the hooks (sessionMatcher `findSplitTwin`). Relaunched alone, the card starts a
+ * fresh CLI: its launch line never knew the thread. Folded, Resume and Reconnect go back to the
+ * thread (`codex resume <id>`), and the card keeps its title, room and queue (`replacesId`).
+ * Returns `sessionId` unchanged when there is no pair.
+ */
+export function healSplitCard(sessionId: string): string {
+  const card = sessions.get(sessionId);
+  if (!card) return sessionId;
+  const twin = findSplitTwin(card, sessions);
+  if (!twin) return sessionId;
+  const realId = twin.sessionId;
+  const merged = foldSplitPair(card, twin, card.lastTerminalId ?? card.terminalId ?? twin.terminalId ?? null);
+  // An update still in the 20 ms batch would bring the card back on clients, or put the twin's bare fields
+  // over the merged card, after the update that carries `replacesId`.
+  dropPendingSessionUpdates(sessionId);
+  dropPendingSessionUpdates(realId);
+  sessions.delete(sessionId);
+  sessions.set(realId, merged);
+  sessionAliases.set(sessionId, realId);
+  dbMigrateSessionId(sessionId, realId);
+  migrateControl(sessionId, realId);
+  invalidateSessionsCache();
+  broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...merged } }).catch(() => { /* the relaunch broadcasts again */ });
+  delete merged.replacesId;
+  log.info('session', `REJOINED split card before relaunch: ${sessionId} + ${realId.slice(0, 8)} -> one card ${realId.slice(0, 8)}`);
+  return realId;
 }
 
 /**

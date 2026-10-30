@@ -946,14 +946,17 @@
 }
 .switcherBarVertical .switcherCollapseBtn { order: 9; }
 
-/* Title block in the rail: number + title, then the project and label under the
-   title, then the actions row — not the project floating between icon rows. */
+/* Title block in the rail: number + title, then the label, ★ badge and project on
+   one line under the title, then the actions row — not the project floating
+   between icon rows. The project's 80px basis is wider than the ≤60px the title
+   row leaves free, so it never climbs up beside the title; it ellipsises after. */
 .switcherBarVertical .switcherProject,
 .switcherBarVertical .switcherLabelChip {
   order: 1;
 }
 .switcherBarVertical .switcherProject {
-  flex: 0 0 100%;
+  flex: 1 1 80px;
+  min-width: 0;
 }
 .switcherBarVertical .switcherTitleActions {
   order: 2;
@@ -1230,7 +1233,8 @@
 /* The ★ central badge (CentralBadge) in the name row, after the label chip. It gives way before the
    title does (the title is what the row is for) and is capped, so a long folder name ellipsises; its
    tooltip has the whole scope. Two classes: the badge's own module has a one-class `max-width`. In the
-   rail it joins the label chip and the project name under the title (see the block below). */
+   rail it shares one line with the label chip and the project name under the title, capped at half the row so a
+   long room or folder scope leaves the project readable. */
 .switcherNameDisplay .switcherCentral {
   flex: 0 1 auto;
   max-width: 160px;
@@ -1238,7 +1242,7 @@
 
 .switcherBarVertical .switcherNameDisplay .switcherCentral {
   order: 1;
-  max-width: 100%;
+  max-width: 50%;
 }
 
 .switcherProject {

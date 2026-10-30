@@ -95,12 +95,15 @@ describe('useTerminal — input tap', () => {
 
   it('resets the tap before every write that skips onData: Shift+Enter, paste, toolbar keys', async () => {
     const onReset = vi.fn();
-    const { hook, keyHandler } = await attachedWithTap({ onKey: () => false, onData: vi.fn(), onReset });
-    Object.defineProperty(navigator, 'clipboard', { value: { read: vi.fn(async () => []), readText: vi.fn(async () => 'x') }, configurable: true });
+    const { hook, term, keyHandler } = await attachedWithTap({ onKey: () => false, onData: vi.fn(), onReset });
 
     keyHandler({ ...keydown('Enter'), shiftKey: true } as KeyboardEvent);
     expect(onReset).toHaveBeenCalledTimes(1);
-    keyHandler({ ...keydown('v'), metaKey: true } as KeyboardEvent);
+    // A paste is the paste event (⌘V only lets the browser make one): useTerminal.paste.test.ts.
+    const paste = Object.assign(new Event('paste', { bubbles: true, cancelable: true }), {
+      clipboardData: { items: [], getData: () => 'x' },
+    });
+    act(() => { term.textarea!.dispatchEvent(paste); });
     expect(onReset).toHaveBeenCalledTimes(2);
     act(() => hook.result.current.sendEnter());
     act(() => hook.result.current.sendKeys('a'));

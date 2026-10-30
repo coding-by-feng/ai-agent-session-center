@@ -554,6 +554,13 @@ export interface Session {
 
   // Resume / re-key
   replacesId?: string;
+  /**
+   * The CLI session a restore's launch resumed (`codex resume <id>`), while the card is still keyed
+   * by its terminal id. Codex sends no hook until its first prompt, so an unprompted restored card
+   * never learns its id otherwise: saved and relaunched under the terminal id, it came back as a
+   * fresh CLI (Oct 30 2026). Read through `resumableIdOf` (server) / `savedIdentityOf` (snapshot).
+   */
+  launchResumeId?: string;
   previousSessions?: ArchivedSession[];
   isHistorical?: boolean;
 

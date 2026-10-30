@@ -235,6 +235,45 @@ export function readClaudeLastAssistant(
   return null;
 }
 
+/**
+ * The most recent assistant message in a Codex rollout (`~/.codex/sessions/…/rollout-*.jsonl`): a
+ * `response_item` message with role `assistant`, its text blocks joined. A rollout with no such item
+ * falls back to its newest `agent_message` event. Null when the file is missing or holds no answer.
+ */
+export function readCodexLastAssistant(rolloutPath: string): string | null {
+  if (!existsSync(rolloutPath)) return null;
+  try {
+    const lines = readFileSync(rolloutPath, 'utf8').split('\n');
+    let eventAnswer: string | null = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const raw = lines[i].trim();
+      if (!raw) continue;
+      let record: { type?: string; payload?: { type?: string; role?: string; content?: unknown; message?: unknown } };
+      try {
+        record = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      const p = record.payload;
+      if (!p) continue;
+      if (record.type === 'response_item' && p.type === 'message' && p.role === 'assistant' && Array.isArray(p.content)) {
+        const text = (p.content as ContentBlock[])
+          .map((b) => (typeof b?.text === 'string' ? b.text : ''))
+          .filter((t) => t.trim())
+          .join('\n');
+        if (text) return text;
+      }
+      if (!eventAnswer && record.type === 'event_msg' && p.type === 'agent_message' && typeof p.message === 'string' && p.message.trim()) {
+        eventAnswer = p.message;
+      }
+    }
+    return eventAnswer;
+  } catch (err) {
+    log.warn('floating-spawn', `Failed to read Codex rollout ${rolloutPath}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 /** A record's own time in ms, or NaN when it has none. */
 export function transcriptLineTimestamp(line: unknown): number {
   const stamp = (line as JsonlLine | null)?.timestamp;

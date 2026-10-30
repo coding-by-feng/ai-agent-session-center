@@ -81,6 +81,20 @@
   font-size: 12px;
 }
 
+/* The sections (Sharing, pairing, paired computers) each draw a top rule; the first one in the
+   panel drops it, and the devices heading takes one when the sections sit above it. */
+.panel > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.panel > .panelHead:not(:first-child) {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #2a2a44);
+}
+
 .panelHead {
   margin-bottom: 10px;
   color: var(--text-secondary, #8a8aa8);
