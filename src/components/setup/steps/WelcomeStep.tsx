@@ -1,3 +1,4 @@
+import TrialLauncher from '@/components/trial/TrialLauncher'
 import type { StepProps } from '../SetupWizard'
 import styles from '@/styles/modules/SetupWizard.module.css'
 
@@ -12,6 +13,7 @@ export default function WelcomeStep({ onNext }: StepProps) {
       <button className={styles.primaryBtn} onClick={onNext}>
         Get Started
       </button>
+      <TrialLauncher />
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import type { NativeTrialAPI } from './trial'
 // src/types/electron.d.ts
 // Shared IPC contract between Electron main process and React renderer.
 // Both electron-main (IPC handlers) and frontend (wizard UI) implement against this.
@@ -127,6 +128,9 @@ export interface ElectronAPI {
 
   /** Remote computers: other AASC desktops this app is paired with (Oct 28 2026). Electron-only. */
   remotes?: RemoteComputersAPI
+
+  /** Isolated three-reply trial. No project, terminal or owner credentials. */
+  trial?: NativeTrialAPI
 }
 
 /** One paired remote AASC, as the local UI sees it. Never its device token. */

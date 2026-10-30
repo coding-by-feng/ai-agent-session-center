@@ -8,6 +8,7 @@ import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
 import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { registerRemoteHandlers } from './ipc/remoteHandlers.js'
+import { registerTrialHandlers } from './ipc/trialHandlers.js'
 import { disposeAll as disposePtyHost } from './ptyHost.js'
 import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
@@ -521,6 +522,7 @@ app.whenReady().then(async () => {
   registerAppHandlers()
   registerTerminalHandlers()
   registerRemoteHandlers()
+  registerTrialHandlers()
   registerPopoutHandler()
   registerDirectoryPickerHandler()
   registerProjectWindowHandler()

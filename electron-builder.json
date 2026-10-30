@@ -7,6 +7,7 @@
   },
   "files": [
     "dist/client/**",
+    "bin/trial/**",
     "dist/electron/**",
     "dist/server-bundle.cjs",
     "server/**",

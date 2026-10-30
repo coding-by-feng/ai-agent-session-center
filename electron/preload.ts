@@ -4,6 +4,14 @@ import type { ElectronAPI } from '../src/types/electron.js'
 const api: ElectronAPI = {
   platform: process.platform as 'darwin' | 'win32',
 
+  trial: {
+    refresh: () => ipcRenderer.invoke('trial:refresh'),
+    activate: code => ipcRenderer.invoke('trial:activate', code),
+    ask: prompt => ipcRenderer.invoke('trial:ask', prompt),
+    retry: () => ipcRenderer.invoke('trial:retry'),
+    logout: () => ipcRenderer.invoke('trial:logout'),
+  },
+
   // Setup wizard IPC
   isSetup:       ()    => ipcRenderer.invoke('setup:is-complete'),
   checkDeps:     ()    => ipcRenderer.invoke('setup:check-deps'),

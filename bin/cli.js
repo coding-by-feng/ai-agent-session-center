@@ -13,45 +13,51 @@ const setupPath = join(projectRoot, 'hooks', 'setup-wizard.js');
 const configPath = join(projectRoot, 'data', 'server-config.json');
 
 const args = process.argv.slice(2);
-const forceSetup = args.includes('--setup');
-const forceUninstall = args.includes('--uninstall');
-const isFirstRun = !existsSync(configPath);
-
-const installHooksPath = join(projectRoot, 'hooks', 'install-hooks.js');
-
-// Resolve tsx binary: prefer local node_modules/.bin (works for global installs)
-const localTsx = join(projectRoot, 'node_modules', '.bin', 'tsx');
-const tsxBin = existsSync(localTsx) ? localTsx : 'tsx';
-
-function startServer() {
-  const serverArgs = args.filter(a => a !== '--setup');
-  const child = spawn(tsxBin, [serverPath, ...serverArgs], {
-    stdio: 'inherit',
-    cwd: projectRoot,
-  });
-  child.on('exit', (code) => process.exit(code || 0));
-}
-
-if (forceUninstall) {
-  // Run uninstall hooks and exit
-  const uninstall = spawn('node', [installHooksPath, '--uninstall'], {
-    stdio: 'inherit',
-    cwd: projectRoot,
-  });
-  uninstall.on('exit', (code) => process.exit(code || 0));
-} else if (forceSetup || isFirstRun) {
-  // Run setup wizard, then start server on success
-  const setup = spawn('node', [setupPath], {
-    stdio: 'inherit',
-    cwd: projectRoot,
-  });
-  setup.on('exit', (code) => {
-    if (code === 0) {
-      startServer();
-    } else {
-      process.exit(code || 1);
-    }
-  });
+// Trial must bypass setup, hook installation and the local server entirely.
+if (args[0] === 'trial') {
+  const { runTrialCli } = await import('./trial/cli.js');
+  process.exitCode = await runTrialCli(args.slice(1));
 } else {
-  startServer();
+  const forceSetup = args.includes('--setup');
+  const forceUninstall = args.includes('--uninstall');
+  const isFirstRun = !existsSync(configPath);
+
+  const installHooksPath = join(projectRoot, 'hooks', 'install-hooks.js');
+
+  // Resolve tsx binary: prefer local node_modules/.bin (works for global installs)
+  const localTsx = join(projectRoot, 'node_modules', '.bin', 'tsx');
+  const tsxBin = existsSync(localTsx) ? localTsx : 'tsx';
+
+  function startServer() {
+    const serverArgs = args.filter((a) => a !== '--setup');
+    const child = spawn(tsxBin, [serverPath, ...serverArgs], {
+      stdio: 'inherit',
+      cwd: projectRoot,
+    });
+    child.on('exit', (code) => process.exit(code || 0));
+  }
+
+  if (forceUninstall) {
+    // Run uninstall hooks and exit
+    const uninstall = spawn('node', [installHooksPath, '--uninstall'], {
+      stdio: 'inherit',
+      cwd: projectRoot,
+    });
+    uninstall.on('exit', (code) => process.exit(code || 0));
+  } else if (forceSetup || isFirstRun) {
+    // Run setup wizard, then start server on success
+    const setup = spawn('node', [setupPath], {
+      stdio: 'inherit',
+      cwd: projectRoot,
+    });
+    setup.on('exit', (code) => {
+      if (code === 0) {
+        startServer();
+      } else {
+        process.exit(code || 1);
+      }
+    });
+  } else {
+    startServer();
+  }
 }

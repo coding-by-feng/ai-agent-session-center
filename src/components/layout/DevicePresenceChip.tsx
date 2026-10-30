@@ -38,6 +38,7 @@ import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useIsDesktopApp } from '@/lib/platform';
 import styles from '@/styles/modules/DevicePresence.module.css';
+import TrialLauncher from '@/components/trial/TrialLauncher';
 
 // Lazy: the pairing section carries a QR encoder, and this chip sits in the
 // eager header chunk. It only loads when a local user opens the panel.
@@ -208,7 +209,7 @@ export default function DevicePresenceChip() {
       const target = e.target as Node;
       if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       // A row's ⋯ menu (Remote computers) is portaled to <body>: a pick in it is still inside the panel.
-      if (target instanceof Element && target.closest('[data-menu-popover]')) return;
+      if (target instanceof Element && target.closest('[data-menu-popover], [data-aasc-trial-dialog]')) return;
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -352,6 +353,7 @@ export default function DevicePresenceChip() {
               </p>
             )}
 
+            <TrialLauncher />
             {canPairPhones && (
               <Suspense fallback={null}>
                 <SharingDefault />
