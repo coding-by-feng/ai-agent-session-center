@@ -10,12 +10,17 @@
  * The top screen's scroller is handed to the frame through screenSlot, for the
  * tab bar's scroll-to-top.
  *
+ * In the iPad's split view (`hideRoot`) the tab's root is drawn by the frame's
+ * list pane instead, and this is the right pane: the screens above the root, or
+ * `empty` when there are none. The other slots keep their keys, so a rotation
+ * across the split line keeps the open screen (and its terminal) mounted.
+ *
  * Focus follows the stack (AASC-48): a pushed screen (or the next waiting session
  * swapped in) takes it, so a screen reader names the new screen; a pop gives it
  * back to what had it on the screen underneath (the row that opened it). Neither
  * scrolls. A first paint or a tab switch leaves it where it is.
  */
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ScreenSlotContext } from '../kit/screenSlot';
 import RouteScreen from './RouteScreen';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
@@ -27,6 +32,10 @@ export interface PhoneStackProps {
   stack: readonly string[];
   registerScroller: (el: HTMLElement | null) => void;
   onBack: () => void;
+  /** Split view: leave the root to the list pane. */
+  hideRoot?: boolean;
+  /** Split view: what the pane shows with nothing open. */
+  empty?: ReactNode;
 }
 
 const noop = () => {};
@@ -118,7 +127,7 @@ function useStackFocus(containerRef: RefObject<HTMLDivElement | null>, topSlot: 
   }, [containerRef, topSlot, lastAction]);
 }
 
-export default function PhoneStack({ stack, registerScroller, onBack }: PhoneStackProps) {
+export default function PhoneStack({ stack, registerScroller, onBack, hideRoot = false, empty = null }: PhoneStackProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastAction = usePhoneNavStore((s) => s.lastAction);
 
@@ -161,9 +170,11 @@ export default function PhoneStack({ stack, registerScroller, onBack }: PhoneSta
   if (exiting && (stack[exiting.index] === undefined || slotKey(exiting.index, stack[exiting.index]) !== slotKey(exiting.index, exiting.path))) {
     slots.push({ ...exiting, leaving: true });
   }
+  const shown = hideRoot ? slots.filter((s) => s.index > 0) : slots;
   return (
-    <div ref={containerRef} className={styles.stack}>
-      {slots.map(({ path, index, leaving }) => (
+    <div ref={containerRef} className={styles.stack} data-pane={hideRoot ? 'detail' : undefined}>
+      {hideRoot && topIndex === 0 && empty}
+      {shown.map(({ path, index, leaving }) => (
         <Slot
           key={slotKey(index, path)}
           slotId={slotKey(index, path)}

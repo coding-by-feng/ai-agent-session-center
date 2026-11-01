@@ -341,6 +341,24 @@ describe('isCredentialPath — widened deny list (security review M2a)', () => {
   );
 });
 
+describe('isCredentialPath — Project Sync keep-both copies', () => {
+  it.each([
+    '.npmrc.server-20261031', 'auth.server-20261031.json', 'credentials.server-20261031-2.json',
+    'kubeconfig.server-20261031', '.git-credentials.server-20261031', 'config/.env.server-20261031',
+    // A copy of a copy carries two marks.
+    'auth.server-20261031.server-20261105.json', '.env.server-20261105.server-20261031',
+  ])('treats the copy %s as a credential', (p) => {
+    expect(isCredentialPath(p)).toBe(true);
+  });
+
+  it.each(['notes.server-20261031.md', 'src/app.server-20261031.ts', 'server-20261031.json'])(
+    'does not flag the copy %s',
+    (p) => {
+      expect(isCredentialPath(p)).toBe(false);
+    },
+  );
+});
+
 describe('readConfigFile — non-blocking open (security review L12)', () => {
   it('reads through an O_NONBLOCK handle and never by path', async () => {
     const f = join(base, 'nb.json');

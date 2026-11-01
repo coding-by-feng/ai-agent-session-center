@@ -9,6 +9,7 @@
 // only ever leads to "Pair with <Mac>?".
 import type { Candidate } from './connectionPlan.js';
 import { createExtras } from './extras.js';
+import { defaultDeviceName, deviceNoun } from './formFactor.js';
 import { resumeAway } from './lockGate.js';
 import { manualLink } from './manualEntry.js';
 import type { ShellDeps } from './native.js';
@@ -95,7 +96,7 @@ export function createShellApp(
   };
   const find = (id: string) => macs.find((m) => m.id === id);
   const homeScreen = (notice: string | null = null): Screen => (macs.length ? { name: 'macs', notice } : pairScreen(notice));
-  const defaultPhoneName = () => (deps?.os === 'ios' ? 'iPhone' : deps?.os === 'android' ? 'Android phone' : 'Phone');
+  const defaultPhoneName = () => defaultDeviceName(deps?.os ?? 'web', deps?.formFactor);
 
   // AASC-19 / AASC-21: share, lock, push, this phone's settings.
   const extras = deps
@@ -159,6 +160,7 @@ export function createShellApp(
       actions,
       lock: extras?.lockView() ?? null,
       pushNote: extras?.pushNote() ?? '',
+      device: deviceNoun(deps?.os ?? 'web', deps?.formFactor),
     };
     const s = screen;
     switch (s.name) {

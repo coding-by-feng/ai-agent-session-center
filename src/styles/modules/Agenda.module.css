@@ -77,6 +77,8 @@
   width: 100%;
   min-width: 0;
   padding: 8px 8px 12px 16px;
+  /* Muted icon colour at rest (see .cardActions). */
+  --ag-icon: color-mix(in srgb, var(--text-secondary) 70%, var(--bg-card));
   background: var(--bg-card);
   border: 1px solid var(--border-subtle-strong);
   border-radius: 8px;
@@ -87,6 +89,8 @@
   box-shadow: 0 2px 12px color-mix(in srgb, var(--accent-cyan) 10%, transparent);
 }
 .card:focus-within { border-color: var(--border-accent-strong); }
+.card:hover,
+.card:focus-within { --ag-icon: var(--text-secondary); }
 
 .overdue { box-shadow: inset 3px 0 0 var(--accent-red); }
 .dueToday { box-shadow: inset 3px 0 0 var(--accent-yellow); }
@@ -199,10 +203,14 @@
 /* Two classes on purpose. windows-xp restyles every select with a (0-1-2)
    rule — white box, blue border, its own chevron at right:10px — which beat
    the old one-class .priorityBadge: it erased the tint and painted the chevron
-   over the label ("URGENT▼"). (0-2-0) wins, and `background-image: none`
-   drops XP's chevron for the currentColor one beside it. Longhands only: a
-   `background` shorthand would reset the image the same way XP's did. */
-.priority .prioritySelect {
+   over the label ("URGENT▼"). Its selector is (0-2-2) once `:not(.phoneApp)`
+   counts, so two classes lost too (Nov 2 2026: XP box + its ▼ beside our
+   chevron, "Urgent ▼✓"). The doubled class makes it (0-3-0), and the states
+   below (0-4-0) beat XP's `select:hover` / `select:focus` (0-3-2).
+   `background-image: none` drops XP's chevron for the currentColor one beside
+   it. Longhands only: a `background` shorthand would reset the image the same
+   way XP's did. */
+.priority .prioritySelect.prioritySelect {
   height: 24px;
   padding: 0 22px 0 20px;
   background-color: transparent;
@@ -221,12 +229,12 @@
   -webkit-appearance: none;
   -moz-appearance: none;
 }
-.priority .prioritySelect:hover { background-color: var(--bg-subtle-strong); border-color: var(--border-subtle-strong); }
-.priority .prioritySelect:active { background-color: var(--bg-accent-strong); }
+.priority .prioritySelect.prioritySelect:hover { background-color: var(--bg-subtle-strong); border-color: var(--border-subtle-strong); }
+.priority .prioritySelect.prioritySelect:active { background-color: var(--bg-accent-strong); }
 /* XP's `select:focus` (0-2-2) would paint its blue box + inset glow on focus —
    a second ring under the outline, and the box the quiet design avoids. */
-.priority .prioritySelect:focus { border-color: transparent; box-shadow: none; }
-.priority .prioritySelect:focus-visible { outline: 2px solid var(--ag-accent); outline-offset: 1px; }
+.priority .prioritySelect.prioritySelect:focus { border-color: transparent; box-shadow: none; }
+.priority .prioritySelect.prioritySelect:focus-visible { outline: 2px solid var(--ag-accent); outline-offset: 1px; }
 
 /* ---- Meta row: due date, tags, details ---- */
 
@@ -272,6 +280,12 @@
 
 /* ---- Card actions: edit tags, delete (and the inline delete confirm) ---- */
 
+/* Tag + trash are muted at rest so a grid of cards isn't forty dark glyphs;
+   they come up on card hover / focus (and always on touch, below). Only the
+   colour changes, so nothing moves under a tap. A variable, not a hover rule
+   on the button: IconButton's own :hover (0-3-0) keeps its brighter and danger
+   colours over this (0-1-1). Descendant, not `>`: a Tooltip wraps each button. */
+.cardActions button { color: var(--ag-icon); }
 .cardActions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-height: 28px; margin-left: auto; }
 .confirm { display: flex; align-items: center; gap: 4px; width: 100%; padding-left: 8px; }
 .confirm .confirmText { margin-right: auto; }
@@ -297,7 +311,7 @@
   .card,
   .title,
   .tag,
-  .priority .prioritySelect { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+  .priority .prioritySelect.prioritySelect { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
 }
 
 /* Choose where the toolbar breaks. Search + three captioned selects + the
@@ -319,7 +333,8 @@
   /* A 16px checkbox is well under the 44px touch minimum, and mis-tapping it
      silently completes a task. */
   .checkbox { width: 22px; height: 22px; margin-top: 0; }
-  .priority .prioritySelect { height: 44px; }
+  .priority .prioritySelect.prioritySelect { height: 44px; }
+  .card { --ag-icon: var(--text-secondary); }
   .tag { position: relative; }
   .tag::after { content: ''; position: absolute; inset: -12px -2px; }
 }

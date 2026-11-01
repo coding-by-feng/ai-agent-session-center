@@ -24,6 +24,15 @@
 		A051517B415910537BB5FF44 /* ShellBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */; };
 		E3A1D0C25B7F4A9E8C61D2F4 /* LanDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */; };
 		B4DD0BD919916BCCB27BB8AF /* ShellRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E781329F762876B66C2A9B /* ShellRules.swift */; };
+		A1F0C0020000000000000001 /* LiveActivityRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000001 /* LiveActivityRules.swift */; };
+		A1F0C0020000000000000002 /* AascActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000002 /* AascActivityAttributes.swift */; };
+		A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000003 /* LiveActivityBridge.swift */; };
+		A1F0C0020000000000000004 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
+		A1F0C0020000000000000009 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
+		A1F0C0020000000000000005 /* AascActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000002 /* AascActivityAttributes.swift */; };
+		A1F0C0020000000000000006 /* AascLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */; };
+		A1F0C0020000000000000007 /* AascLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000005 /* AascLiveActivityWidget.swift */; };
+		A1F0C0020000000000000008 /* AascLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000007 /* AascLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,7 +55,39 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		98E781329F762876B66C2A9B /* ShellRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellRules.swift; sourceTree = "<group>"; };
 		F0AE731E880DE64408C3F995 /* AppViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewController.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000001 /* LiveActivityRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityRules.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000008 /* LiveActivityCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityCard.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000002 /* AascActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascActivityAttributes.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000003 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityBundle.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000005 /* AascLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityWidget.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1F0C0010000000000000007 /* AascLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AascLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		A1F0C003000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1F0C0030000000000000002;
+			remoteInfo = AascLiveActivity;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1F0C0030000000000000009 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1F0C0020000000000000008 /* AascLiveActivity.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		504EC3011FED79650016851F /* Frameworks */ = {
@@ -54,6 +95,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1F0C0030000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +113,7 @@
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				A1F0C0030000000000000001 /* AascLiveActivity */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +122,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				A1F0C0010000000000000007 /* AascLiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +141,10 @@
 				7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */,
 				9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */,
 				F0AE731E880DE64408C3F995 /* AppViewController.swift */,
+				A1F0C0010000000000000001 /* LiveActivityRules.swift */,
+				A1F0C0010000000000000008 /* LiveActivityCard.swift */,
+				A1F0C0010000000000000002 /* AascActivityAttributes.swift */,
+				A1F0C0010000000000000003 /* LiveActivityBridge.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -99,6 +153,16 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A1F0C0030000000000000001 /* AascLiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */,
+				A1F0C0010000000000000005 /* AascLiveActivityWidget.swift */,
+				A1F0C0010000000000000006 /* Info.plist */,
+			);
+			path = AascLiveActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -111,10 +175,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				A1F0C0030000000000000009 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1F0C003000000000000000A /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -123,6 +189,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1F0C0030000000000000002 /* AascLiveActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1F0C0030000000000000006 /* Build configuration list for PBXNativeTarget "AascLiveActivity" */;
+			buildPhases = (
+				A1F0C0030000000000000003 /* Sources */,
+				A1F0C0030000000000000004 /* Frameworks */,
+				A1F0C0030000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AascLiveActivity;
+			productName = AascLiveActivity;
+			productReference = A1F0C0010000000000000007 /* AascLiveActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -136,6 +219,10 @@
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
+						ProvisioningStyle = Automatic;
+					};
+					A1F0C0030000000000000002 = {
+						CreatedOnToolsVersion = 27.0;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -157,6 +244,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				A1F0C0030000000000000002 /* AascLiveActivity */,
 			);
 		};
 /* End PBXProject section */
@@ -172,6 +260,13 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1F0C0030000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,10 +287,33 @@
 				E3A1D0C25B7F4A9E8C61D2F4 /* LanDiscovery.swift in Sources */,
 				5ACB400F761243BDCFA6E8B7 /* AppViewController.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				A1F0C0020000000000000001 /* LiveActivityRules.swift in Sources */,
+				A1F0C0020000000000000009 /* LiveActivityCard.swift in Sources */,
+				A1F0C0020000000000000002 /* AascActivityAttributes.swift in Sources */,
+				A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1F0C0030000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1F0C0020000000000000004 /* LiveActivityCard.swift in Sources */,
+				A1F0C0020000000000000005 /* AascActivityAttributes.swift in Sources */,
+				A1F0C0020000000000000006 /* AascLiveActivityBundle.swift in Sources */,
+				A1F0C0020000000000000007 /* AascLiveActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1F0C003000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1F0C0030000000000000002 /* AascLiveActivity */;
+			targetProxy = A1F0C003000000000000000B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -372,6 +490,52 @@
 			};
 			name = Release;
 		};
+		A1F0C0030000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = ZKV5T6HS8A;
+				INFOPLIST_FILE = AascLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1F0C0030000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = ZKV5T6HS8A;
+				INFOPLIST_FILE = AascLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -389,6 +553,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1F0C0030000000000000006 /* Build configuration list for PBXNativeTarget "AascLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1F0C0030000000000000007 /* Debug */,
+				A1F0C0030000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

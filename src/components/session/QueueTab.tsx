@@ -271,7 +271,7 @@ export default function QueueTab({
     },
     [sessionId, setComposeDraftPatch, composeDraft.text],
   );
-  // The compose thumbnail opened full size, if any.
+  // The compose or queued-item thumbnail opened full size, if any.
   const [previewImage, setPreviewImage] = useState<QueueImageAttachment | null>(null);
   const closePreview = useCallback(() => setPreviewImage(null), []);
   const setComposeImages = useCallback(
@@ -795,6 +795,32 @@ export default function QueueTab({
 
   // ---- Other sessions for move picker: live ones, by name (lib/queueMoveTargets.ts) ----
   const moveTargets = useMemo(() => queueMoveTargets(sessions.values(), sessionId), [sessions, sessionId]);
+
+  // A queued item's photos: each thumbnail opens full size, like the compose row's. A button,
+  // so the row's press-and-hold drag never starts on it (useQueueDragReorder skips buttons).
+  const renderItemImages = (item: QueueItem) => {
+    if (!item.images || item.images.length === 0) return null;
+    return (
+      <div className={styles.queueItemImages}>
+        {item.images.map((img, i) => (
+          <div key={i} className={styles.queueItemThumb}>
+            <button
+              type="button"
+              className={styles.queueImageView}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewImage(img);
+              }}
+              title={`View ${img.name}`}
+              aria-label={`View ${img.name}`}
+            >
+              <img src={img.dataUrl} alt={img.name} />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Type chip + next-fire + chain badge. Extracted (rather than left as the
   // inline IIFE it used to be) so both List and Card layouts render the exact
@@ -1607,15 +1633,7 @@ export default function QueueTab({
                           onToggle={() => toggleExpanded(item.id)}
                         />
                       )}
-                      {item.images && item.images.length > 0 && (
-                        <div className={styles.queueItemImages}>
-                          {item.images.map((img, i) => (
-                            <div key={i} className={styles.queueItemThumb} title={img.name}>
-                              <img src={img.dataUrl} alt={img.name} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {renderItemImages(item)}
                     </div>
 
                     {renderItemMeta(item)}
@@ -1683,15 +1701,7 @@ export default function QueueTab({
                           onToggle={() => toggleExpanded(item.id)}
                         />
                       )}
-                      {item.images && item.images.length > 0 && (
-                        <div className={styles.queueItemImages}>
-                          {item.images.map((img, i) => (
-                            <div key={i} className={styles.queueItemThumb} title={img.name}>
-                              <img src={img.dataUrl} alt={img.name} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {renderItemImages(item)}
                     </div>
 
                     {renderItemMeta(item)}

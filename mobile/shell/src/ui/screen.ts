@@ -1,5 +1,6 @@
 // screen.ts — the shell's screens as data, and what a screen can ask the app to do (AASC-17).
 import type { Candidate } from '../connectionPlan.js';
+import type { DeviceNoun } from '../formFactor.js';
 import type { ManualEntry } from '../manualEntry.js';
 import type { RawShare } from '../native.js';
 import type { PairingLink } from '../pairingLink.js';
@@ -94,4 +95,6 @@ export interface ScreenContext {
   lock: LockView | null;
   /** What the phone settings say about notifications. */
   pushNote: string;
+  /** What the screens call this device: "this phone", "this iPad", "this tablet" (formFactor.ts). */
+  device: DeviceNoun;
 }

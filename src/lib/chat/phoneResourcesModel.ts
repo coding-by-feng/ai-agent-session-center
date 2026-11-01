@@ -12,7 +12,7 @@ import type { ResourcesTab } from './phoneRoutes';
 import { AGENT_LABELS, RESOURCE_TYPE_SINGULAR, SCOPE_LABELS, formatBytes, originTag, relativeAge } from '../resourceFilters';
 import { isUsageCounted, totalUses, usesLabel } from '../resourceUsage';
 import { SYNC_GROUPS, SYNC_STATE_INFO, syncGroup, syncVersionText, type SyncGroup, type SyncTone } from '../cloudSyncStates';
-import { resourceKindLabel } from '../cloudFormat';
+import { cloudCount, resourceKindLabel } from '../cloudFormat';
 import { projectStatus } from '@/components/resources/cloud/projectState';
 
 export const RESOURCES_TAB_LABELS: Record<ResourcesTab, string> = {
@@ -115,6 +115,17 @@ export function projectStateWords(p: PhoneProject): { label: string; tone: SyncT
   // The phone only reads: a live agent changes nothing it can do, so it never says so.
   const { label, tone, hint } = projectStatus({ ...p.local, openUrl: null, localProjectId: null, agentActive: false }, p.branch);
   return { label, tone: tone === 'accent' ? 'info' : tone, ...(hint ? { hint } : {}) };
+}
+
+/** A project's detail rows about its checkout on the Mac; empty when the Mac has none to read. */
+export function checkoutFacts(p: PhoneProject): { title: string; value: string }[] {
+  const local = p.local;
+  if (!local?.path) return [];
+  const facts = [{ title: 'Branch here', value: local.branch ?? 'None (detached)' }];
+  if (local.ahead !== null) facts.push({ title: 'To push', value: local.ahead === 0 ? 'Nothing' : cloudCount(local.ahead, 'commit') });
+  if (local.behind !== null) facts.push({ title: 'To pull', value: local.behind === 0 ? 'Nothing' : cloudCount(local.behind, 'commit') });
+  if (local.account) facts.push({ title: 'GitHub account', value: local.account });
+  return facts;
 }
 
 export function accountsWords(a: GithubAccounts): string {

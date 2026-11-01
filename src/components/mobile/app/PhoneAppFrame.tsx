@@ -18,13 +18,24 @@
  *    snapshot says the session is visible (hidden or unknown: nothing happens);
  *  - turns any `selectSession(id)` from the views it reuses (History "Open",
  *    global search, fork / clone) into "open that session on the Sessions tab".
+ *
+ * On a wide, tall screen (an iPad in landscape: PHONE_SPLIT_MEDIA_QUERY) it is a
+ * split view: the tab's root list and the tab bar on the left, the screens above
+ * the root on the right (PhoneStack `hideRoot`), and a row opened from the list
+ * replaces the right pane (`openFromRoot` through listPane.ts `useOpenScreen`;
+ * the pane's own screens drill down with `push`). The stacks are the same in both
+ * layouts, so crossing the line keeps what is open.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MemoryRouter } from 'react-router';
-import { TabBar } from '../kit';
+import { EmptyState, TabBar } from '../kit';
+import { ScreenSlotContext } from '../kit/screenSlot';
+import RouteScreen from './RouteScreen';
+import { ListPaneContext } from './listPane';
 import { InboxTabIcon, MoreTabIcon, QueueTabIcon, SessionsTabIcon } from '../kit/kitIcons';
 import PhoneStack from './PhoneStack';
 import { useSoftKeyboardOpen } from './useSoftKeyboardOpen';
+import { useLiveActivityFeed } from './useLiveActivityFeed';
 import ToastContainer, { showToast } from '@/components/ui/ToastContainer';
 import NewSessionModal from '@/components/modals/NewSessionModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
@@ -53,6 +64,8 @@ import { usePhoneAppearanceOnBody } from '@/lib/chat/phoneAppearance';
 import { rekeyedSessions } from '@/lib/chat/sessionRekey';
 import { moveSessionRead } from '@/lib/chat/sessionReads';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { PHONE_SPLIT_MEDIA_QUERY } from '@/lib/platform';
 import '@/styles/modules/mobile/phoneTokens.css';
 import styles from '@/styles/modules/mobile/PhoneAppFrame.module.css';
 
@@ -74,6 +87,16 @@ const TABS = [
   { id: 'queue' as const, label: 'Queue', icon: <QueueTabIcon /> },
   { id: 'more' as const, label: 'More', icon: <MoreTabIcon /> },
 ];
+
+/** What the split view's right pane says with nothing open. */
+const SPLIT_EMPTY: Record<PhoneTab, string> = {
+  sessions: 'Pick a session to open it here',
+  inbox: 'Pick a waiting session to answer it here',
+  queue: 'Pick a queue to open it here',
+  more: 'Pick an item to open it here',
+};
+
+const noop = () => {};
 
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -172,6 +195,30 @@ function useSelectionBridge(): void {
   }), []);
 }
 
+/** The split view's left pane: the shown tab's root screen, always on top (it owns the tab bar's scroll-to-top). */
+function ListPane({ path, registerScroller }: { path: string; registerScroller: (el: HTMLElement | null) => void }) {
+  const slot = useMemo(() => ({ isTop: true, registerScroller }), [registerScroller]);
+  return (
+    <div className={styles.listPane} data-testid="phone-list-pane">
+      <ListPaneContext.Provider value>
+        <ScreenSlotContext.Provider value={slot}>
+          <RouteScreen path={path} />
+        </ScreenSlotContext.Provider>
+      </ListPaneContext.Provider>
+    </div>
+  );
+}
+
+/** Tell the nav store whether the split view shows, before a tap can push. */
+function useSplitView(): boolean {
+  const split = useMediaQuery(PHONE_SPLIT_MEDIA_QUERY);
+  useLayoutEffect(() => {
+    usePhoneNavStore.getState().setSplit(split);
+  }, [split]);
+  useEffect(() => () => usePhoneNavStore.getState().setSplit(false), []);
+  return split;
+}
+
 export default function PhoneAppFrame() {
   const [initialSearch] = useState(() => window.location.search);
   usePhoneBodyClass();
@@ -181,6 +228,9 @@ export default function PhoneAppFrame() {
   useLegacyDeepLink(initialSearch);
   useSessionRekey();
   useSelectionBridge();
+  // The lock-screen Live Activity (iOS app only).
+  useLiveActivityFeed();
+  const split = useSplitView();
 
   const tab = usePhoneNavStore((s) => s.tab);
   const stack = usePhoneNavStore((s) => s.stacks[s.tab]);
@@ -214,13 +264,28 @@ export default function PhoneAppFrame() {
   const top = parsePhonePath(stack[stack.length - 1]);
   // Hidden inside a session and on every screen pushed from it (Info, a diff): the composer
   // owns the bottom there, and the bar shouldn't come back one level deeper.
-  const tabBarHidden = keyboardOpen || top?.kind === 'session' || top?.kind === 'session-info' || top?.kind === 'diff';
+  // In the split view the composer is in the right pane: the bar stays under the list.
+  const tabBarHidden = keyboardOpen
+    || (!split && (top?.kind === 'session' || top?.kind === 'session-info' || top?.kind === 'diff'));
   const items = TABS.map((t) => (t.id === 'inbox' ? { ...t, badge: waiting } : t));
 
   return (
     <MemoryRouter>
-      <div className={styles.frame} data-testid="phone-app" data-tabbar-hidden={tabBarHidden ? '' : undefined}>
-        <PhoneStack key={tab} stack={stack} registerScroller={registerScroller} onBack={pop} />
+      <div
+        className={styles.frame}
+        data-testid="phone-app"
+        data-split={split ? '' : undefined}
+        data-tabbar-hidden={tabBarHidden ? '' : undefined}
+      >
+        {split && <ListPane key={`list-${tab}`} path={stack[0]} registerScroller={registerScroller} />}
+        <PhoneStack
+          key={tab}
+          stack={stack}
+          registerScroller={split ? noop : registerScroller}
+          onBack={pop}
+          hideRoot={split}
+          empty={<div className={styles.splitEmpty}><EmptyState title={SPLIT_EMPTY[tab]} /></div>}
+        />
         <TabBar items={items} active={tab} onSelect={onSelectTab} hidden={tabBarHidden} />
         <ToastContainer className={styles.toasts} />
         <NewSessionModal />

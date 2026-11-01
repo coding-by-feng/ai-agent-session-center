@@ -407,7 +407,8 @@ export default function SessionSwitcher({
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
       {/* ── Top row: current session name + meta controls ── */}
-      <div className={styles.switcherToggle}>
+      {/* The rail asks the kit for roomy touch icons (Button.module.css): 16px glyphs in the 44px target. */}
+      <div className={styles.switcherToggle} data-touch-icons={isVertical ? 'roomy' : undefined}>
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
               .switcherMeta below: that row's icon count is what the rail is sized for. */}

@@ -2,7 +2,7 @@
 // floating window. Hiding never ends the session; only End does, after a confirm. Info → AI popups
 // ("Open") brings a hidden popup back, even with its session's screen under Info (AASC-48).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Session } from '@/types';
 
 const platform = vi.hoisted(() => ({ isMobile: true }));
@@ -67,12 +67,48 @@ describe('the fork sheet', () => {
     expect(screen.getByRole('button', { name: '1. Explain (English)' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('closing the sheet hides the popup and leaves it running', async () => {
+  it('minimizing the sheet hides the popup and leaves it running', async () => {
     render(<FloatingTerminalRoot />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Minimize' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(closeSpy).not.toHaveBeenCalled();
     expect(useFloatingSessionsStore.getState().floats).toHaveLength(2);
+  });
+
+  it('a minimized popup leaves a ✦ button that reopens the one last shown', async () => {
+    render(<FloatingTerminalRoot />);
+    expect(screen.queryByTestId('phone-float-fab')).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Minimize' }));
+    const fab = screen.getByRole('button', { name: 'Open AI popups (2)' });
+    expect(fab.textContent).toContain('2');
+    fireEvent.click(fab);
+    expect(await screen.findByRole('dialog', { name: 'Translate → 中文' })).toBeTruthy();
+    expect(screen.queryByTestId('phone-float-fab')).toBeNull();
+  });
+
+  it('the ✦ button falls back to the newest popup when the last shown has ended, and drops the count for one', async () => {
+    render(<FloatingTerminalRoot />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Minimize' }));
+    act(() => useFloatingSessionsStore.setState((st) => ({ floats: st.floats.filter((f) => f.terminalId !== 't-2') })));
+    const fab = screen.getByRole('button', { name: 'Open AI popup' });
+    fireEvent.click(fab);
+    expect(await screen.findByRole('dialog', { name: 'Explain (English)' })).toBeTruthy();
+  });
+
+  it('marks the ✦ button while a popup is still answering', async () => {
+    render(<FloatingTerminalRoot />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Minimize' }));
+    const fab = screen.getByTestId('phone-float-fab');
+    expect(fab.querySelectorAll('span')).toHaveLength(2);
+    act(() => useSessionStore.setState((st) => ({ sessions: new Map(st.sessions).set('fork-2', s('fork-2', { terminalId: 't-2', status: 'waiting' })) })));
+    expect(screen.getByTestId('phone-float-fab').querySelectorAll('span')).toHaveLength(1);
+  });
+
+  it('shows no ✦ button once the last popup ends', async () => {
+    useFloatingSessionsStore.setState({ phoneShown: null, floats: [] });
+    render(<FloatingTerminalRoot />);
+    await settleLazy(() => import('./PhoneFloatingSheet'));
+    expect(screen.queryByTestId('phone-float-fab')).toBeNull();
   });
 
   it('End asks first, then closes that popup (saving its answer, killing its terminal)', async () => {

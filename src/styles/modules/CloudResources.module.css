@@ -310,6 +310,13 @@
   margin-top: auto;
   padding-top: 8px;
 }
+/* Sync and the card's own button, together at the foot's right. */
+.footButtons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 /* The List / Cards switch, between the filters and Add a GitHub link. */
 .viewSwitch {
   display: inline-flex;

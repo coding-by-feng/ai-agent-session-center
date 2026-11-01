@@ -400,7 +400,8 @@ describe('resume', () => {
     expect(status).toBe(200);
     expect(json.terminalId).toBe(open);
     expect(mocks.createTerminal).not.toHaveBeenCalled();
-    expect(mocks.writeToTerminal).not.toHaveBeenCalled();
+    // Only the Ctrl-U that empties the shell's input line is typed raw; the launch line goes through the hooks.
+    expect(mocks.writeToTerminal.mock.calls).toEqual([[open, '\x15']]);
     expect(mocks.writeWhenReady).toHaveBeenCalledWith(
       open,
       expect.stringContaining(`--resume '${UUID}'`),

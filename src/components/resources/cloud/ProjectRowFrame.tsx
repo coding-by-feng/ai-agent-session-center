@@ -7,6 +7,8 @@
  * As a card (the Projects grid, Oct 29 2026) the same parts stack: the name with the ♥ and ⋯ at
  * its right, the folder, the last session and repository, the tags, what the row adds, and at
  * the foot the state and the button, so the feet line up across a row of cards.
+ *
+ * `aside` (Project Sync's Sync, Oct 31 2026) sits before the button, so the buttons still line up.
  */
 import type { ReactNode } from 'react';
 import type { GithubRepositorySchema } from '@/types/cloudProjects';
@@ -110,6 +112,7 @@ export default function ProjectRowFrame({
   repository,
   status,
   button,
+  aside,
   menu,
   children,
 }: {
@@ -128,6 +131,8 @@ export default function ProjectRowFrame({
   repository: z.infer<typeof GithubRepositorySchema> | null;
   status: ProjectStatus;
   button: ReactNode;
+  /** A second button, before the first. */
+  aside?: ReactNode;
   menu?: ReactNode;
   /** The hint, an error, an open panel and running jobs, under the row. */
   children?: ReactNode;
@@ -177,7 +182,14 @@ export default function ProjectRowFrame({
         {children}
         <div className={styles.cardFoot}>
           <Chip tone={status.tone}>{status.label}</Chip>
-          {button}
+          {aside ? (
+            <span className={styles.footButtons}>
+              {aside}
+              {button}
+            </span>
+          ) : (
+            button
+          )}
         </div>
       </li>
     );
@@ -211,6 +223,7 @@ export default function ProjectRowFrame({
         </div>
         <div className={styles.syncSide}>
           <Chip tone={status.tone}>{status.label}</Chip>
+          {aside}
           {button}
           {/* Kept when empty, so every row's button lines up. */}
           <span className={styles.menuSlot}>{menu}</span>

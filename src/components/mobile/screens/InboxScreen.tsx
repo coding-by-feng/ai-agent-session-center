@@ -28,7 +28,7 @@ import { PhoneConfirmList } from '../chat/PhoneConfirmCard';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
@@ -100,8 +100,9 @@ function useContinue(sessions: ReadonlyMap<string, Session>) {
 export default function InboxScreen() {
   const sessions = useSessionStore((s) => s.sessions);
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
-  const push = usePhoneNavStore((s) => s.push);
-  const openTerminal = usePhoneNavStore((s) => s.openTerminal);
+  // In the iPad's split view the list opens into the right pane (listPane.ts).
+  const push = useOpenScreen();
+  const openTerminal = useOpenTerminalScreen();
   const confirms = usePhoneConfirmStore((s) => s.confirms);
   const pruneConfirms = usePhoneConfirmStore((s) => s.prune);
   const offer = useSyncExternalStore(subscribeInterrupted, getInterruptedOffer, () => null);

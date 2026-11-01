@@ -491,6 +491,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
     cloudActiveProjectPaths: () => workingProjectPaths(Object.values(getAllSessions())),
+    sync: { eagerLoad: true, activeSessionPaths: () => workingProjectPaths(Object.values(getAllSessions())) },
     projectActivity: () => getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS),
     remoteAccess,
     ...(cloudSetup

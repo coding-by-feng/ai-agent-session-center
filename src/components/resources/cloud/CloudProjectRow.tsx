@@ -3,7 +3,8 @@
  * ♥, name, branch and tags, where its checkout is here, how it compares with GitHub, and the one
  * thing to do about it (Clone, Pull, Push or Open). The ⋯ menu holds the rest: Open folder, Check
  * for changes now, Edit tags…, GitHub account… and Remove from cloud…, which asks once and never
- * touches a folder. Each "…" opens a small panel under the row.
+ * touches a folder. Each "…" opens a small panel under the row. A checkout here can also sync
+ * with a server (Project Sync, Oct 31 2026): "Sync with a server…", then a Sync button.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
@@ -21,6 +22,7 @@ import { MoreActionsIcon } from '@/components/ui/icons';
 import ProjectRowFrame, { FavToggle, PrimaryButton } from './ProjectRowFrame';
 import ProjectTags from './ProjectTags';
 import { projectStatus } from './projectState';
+import type { SyncCard } from '../sync/useSyncCards';
 import styles from '@/styles/modules/CloudResources.module.css';
 
 export const OWN_SIGN_IN = 'This Mac’s Git sign-in';
@@ -53,6 +55,7 @@ export default function CloudProjectRow({
   onCheck,
   onAccount,
   onRemove,
+  sync,
   children,
 }: {
   /** A row of the list, or a card of the grid. */
@@ -85,6 +88,8 @@ export default function CloudProjectRow({
   onCheck: () => void;
   onAccount: (login: string | null) => void;
   onRemove: () => void;
+  /** Project Sync's part of the card; absent where its checkout can't sync. */
+  sync?: SyncCard;
   /** This project's running jobs. */
   children?: ReactNode;
 }) {
@@ -148,6 +153,7 @@ export default function CloudProjectRow({
       disabled: !local,
       onSelect: () => setPanel('account'),
     },
+    ...(sync?.menuItems ?? []),
     {
       kind: 'action',
       id: 'remove',
@@ -183,6 +189,7 @@ export default function CloudProjectRow({
           }
         />
       }
+      aside={sync?.button}
       menu={
         <Menu
           label={`Actions for ${project.name}`}
@@ -193,6 +200,7 @@ export default function CloudProjectRow({
         />
       }
     >
+      {sync?.line && <p className={styles.hint}>{sync.line}</p>}
       {status.hint && <p className={styles.hint}>{status.hint}</p>}
       {checkError && <div className={styles.rowError}>{checkError}</div>}
       {panel === 'tags' && (

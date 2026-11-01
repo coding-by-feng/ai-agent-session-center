@@ -1,11 +1,13 @@
 /**
  * The queue compose thumbnails open the image full size, so a pasted screenshot can be checked
- * before it is queued. Their ✕ still only removes the image.
+ * before it is queued. Their ✕ still only removes the image. A queued item's thumbnails open
+ * full size too (Nov 2 2026), in the List and the Card layout, without sending the item.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import QueueTab from './QueueTab';
+import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { useQueueStore } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -56,4 +58,29 @@ describe('queue compose thumbnails', () => {
     expect(draftImages().map((i) => i.name)).toEqual(['b.png']);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+});
+
+describe('queued item thumbnails', () => {
+  const QUEUED = { name: 'queued.png', dataUrl: 'data:image/png;base64,QQQQ' };
+  beforeEach(() => {
+    useQueueStore.getState().setComposeDraft('s1', { images: [] });
+    useQueueStore.setState({
+      queues: new Map([['s1', [{ id: 7, sessionId: 's1', text: 'check the layout', position: 0, createdAt: 1, images: [QUEUED] }]]]),
+    });
+    vi.mocked(sendPromptToTerminal).mockClear();
+  });
+
+  for (const mode of ['list', 'card'] as const) {
+    it(`a click opens the image full size in the ${mode} layout, and sends nothing`, () => {
+      useUiStore.setState({ queueViewMode: mode });
+      renderTab();
+      fireEvent.click(screen.getByRole('button', { name: 'View queued.png' }));
+      const dialog = screen.getByRole('dialog', { name: 'queued.png' });
+      expect(dialog.querySelector('img')?.getAttribute('src')).toBe(QUEUED.dataUrl);
+      expect(sendPromptToTerminal).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+      expect(screen.queryByRole('dialog', { name: 'queued.png' })).toBeNull();
+      expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+    });
+  }
 });

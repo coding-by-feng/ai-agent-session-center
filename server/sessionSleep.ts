@@ -23,12 +23,12 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import log from './logger.js';
 import { isLocalRequest } from './requestLocality.js';
+// Minutes a person may pick (0 is off): one list with the dropdown.
+import { SLEEP_CHOICES } from '../src/lib/sessionSleepChoices.js';
 import type { Session } from '../src/types/session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Minutes a person may pick; 0 is off. */
-export const SLEEP_CHOICES = [0, 15, 30, 60, 120, 240] as const;
 export const SWEEP_EVERY_MS = 60_000;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -16,8 +16,9 @@
  * same gate: connection status/actions, skill-notes sync, cloud aliases, cloud
  * resource packages (publish, install, download, restore) and cloud project
  * records. A remote device or a paired phone never reaches any of it. SSH
- * Resource Transfers and Project Sync were retired for the cloud (AASC-51).
- * Remote access (`deps.remoteAccess`, AASC-60) mounts at `/cloud/remote-access`
+ * Resource Transfers were retired for the cloud (AASC-51). Project Sync
+ * (`/sync`: a project folder kept in step with an SSH server, two-way by
+ * default) mounts behind the same gate. Remote access (`deps.remoteAccess`, AASC-60) mounts at `/cloud/remote-access`
  * behind the same gate, but needs no cloud connector.
  *
  * Every input is Zod-validated; every answer is `{ success, data | error }`;
@@ -43,6 +44,8 @@ import type { ProjectActivity } from './knownProjects.js';
 import { createProjectJobs, type ProjectJobs } from './cloud/projectJobs.js';
 import { createProjectRouter } from './cloud/projectRouter.js';
 import { createResourceJobsRouter } from './cloud/resourceRouter.js';
+import { createSyncRouter } from './projectSync/router.js';
+import { createSyncService, type SyncServiceDeps } from './projectSync/service.js';
 import { globalRootPaths } from './resourceRoots.js';
 import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
 import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
@@ -84,6 +87,8 @@ export interface ResourceRouterDeps {
   usageCounts?: () => ReadonlyMap<string, TokenUse> | null;
   /** Hands the catalog to the phone's Library (server/mobile/phoneResources.ts): one scan for both. */
   onCatalogReady?: (catalog: ResourceCatalogService) => void;
+  /** Project Sync overrides; `eagerLoad` (production) loads links at start, so a run AASC stopped during reads as interrupted. */
+  sync?: Partial<Omit<SyncServiceDeps, 'catalog'>> & { eagerLoad?: boolean };
 }
 
 /**
@@ -293,9 +298,19 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite, deps.cloudGoogle));
   }
   router.use(json({ limit: '64kb' }));
-  // SSH Resource Transfers and Project Sync were retired for the cloud (AASC-51):
-  // their old prefixes answer like any unknown route, and no legacy service is built.
-  router.use(['/transfers', '/sync'], (_req, res) => fail(res, 404, 'Not found'));
+  // SSH Resource Transfers were retired for the cloud (AASC-51): the old prefix answers like any unknown route.
+  router.use('/transfers', (_req, res) => fail(res, 404, 'Not found'));
+  const { eagerLoad, ...syncDeps } = deps.sync ?? {};
+  const sync = createSyncService({
+    ...syncDeps,
+    catalog,
+    ...(deps.home && !syncDeps.home ? { home: deps.home } : {}),
+  });
+  if (eagerLoad)
+    void sync
+      .load()
+      .catch((err) => log.warn('project-sync', `Could not load links: ${err instanceof Error ? err.message : String(err)}`));
+  router.use('/sync', createSyncRouter(sync, isSameOriginWrite));
 
   const idOf = (req: Request): string | null => {
     const parsed = resourceIdSchema.safeParse(str(req.params.id));

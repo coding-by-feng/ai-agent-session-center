@@ -94,7 +94,7 @@ export default function CloudPanel({
           )}
           {visited.has('projects') && (
             <div hidden={section !== 'projects'}>
-              <CloudProjects visible={open && section === 'projects'} />
+              <CloudProjects visible={open && section === 'projects'} catalog={catalog} />
             </div>
           )}
           {visited.has('connection') && (

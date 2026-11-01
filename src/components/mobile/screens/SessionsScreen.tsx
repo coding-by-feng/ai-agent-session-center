@@ -37,7 +37,7 @@ import SessionSheets, { type SessionSheetKind } from './info/SessionSheets';
 import { forkBlocker, useSessionActions } from './info/useSessionActions';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
 import { useRoomStore } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -261,7 +261,9 @@ export default function SessionsScreen() {
   const connected = useWsStore((s) => s.connected);
   const hiddenCount = useWsStore((s) => s.hiddenCount);
   const rooms = useRoomStore((s) => s.rooms);
-  const push = usePhoneNavStore((s) => s.push);
+  // In the iPad's split view the list opens into the right pane (listPane.ts).
+  const push = useOpenScreen();
+  const openTerminal = useOpenTerminalScreen();
   const reads = useSessionReads();
   const now = useClock();
   const { copy, setNotifications, markRead } = useSessionActions();
@@ -339,8 +341,8 @@ export default function SessionsScreen() {
   // The actions sheet's "Terminal" (AASC-56): over the session's Chat, or a shell's Terminal tab.
   const openSessionTerminal = useCallback((id: string) => {
     const target = useSessionStore.getState().sessions.get(id);
-    usePhoneNavStore.getState().openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
-  }, []);
+    openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
+  }, [openTerminal]);
 
   const rowProps = useCallback((s: Session) => {
     const id = s.sessionId;

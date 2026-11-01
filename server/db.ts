@@ -970,10 +970,10 @@ export function closeDb(): void {
   }
 }
 
-// SSH Resource Transfers and Project Sync were retired for the cloud (AASC-51).
-// Their tables (resource_transfer_state, project_sync_links/base/runs/entries)
-// are neither created nor dropped here: existing rows stay in this file as
-// recovery data, readable through server/cloud/legacyHistory.ts.
+// SSH Resource Transfers were retired for the cloud (AASC-51): resource_transfer_state
+// is neither created nor dropped here; its rows stay as recovery data (server/cloud/
+// legacyHistory.ts), and Project Sync imports its saved servers once. Project Sync's own
+// tables (project_sync_*) are created by server/projectSync/store.ts.
 
 /** The open handle, for feature stores that keep their own tables (queueSent.ts, promptSnippets.ts). */
 export function dbHandle(): Database.Database {

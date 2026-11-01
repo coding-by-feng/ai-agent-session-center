@@ -15,14 +15,24 @@ describe('summarizePhones', () => {
       phone({ id: 'c' }),
       phone({ id: 'd', status: 'pending', online: true }),
       phone({ id: 'e', status: 'revoked' }),
-    ])).toEqual({ paired: 3, online: 1 });
+    ])).toEqual({ paired: 3, tablets: 0, tabletNoun: 'iPad', online: 1 });
   });
-  it('leaves out paired computers: the 📱 count is phones only', () => {
+  it('leaves out paired computers: the count is phones and tablets only', () => {
     expect(summarizePhones([
       phone({ id: 'a', online: true }),
       phone({ id: 'b', platform: 'desktop', online: true }),
       phone({ id: 'c', platform: 'desktop' }),
-    ])).toEqual({ paired: 1, online: 1 });
+    ])).toEqual({ paired: 1, tablets: 0, tabletNoun: 'iPad', online: 1 });
+  });
+  it('counts tablets (an iPad by name) apart from phones; online covers both', () => {
+    expect(summarizePhones([
+      phone({ id: 'a', label: 'iPhone 17', online: false }),
+      phone({ id: 'b', label: 'iPad', online: true }),
+    ])).toEqual({ paired: 1, tablets: 1, tabletNoun: 'iPad', online: 1 });
+    expect(summarizePhones([
+      phone({ id: 'b', label: 'iPad' }),
+      phone({ id: 'c', label: 'Android tablet', platform: 'android' }),
+    ])).toMatchObject({ paired: 0, tablets: 2, tabletNoun: 'tablet' });
   });
   it('null (not loaded, or not this Mac) stays null', () => {
     expect(summarizePhones(null)).toBeNull();
@@ -32,10 +42,14 @@ describe('summarizePhones', () => {
 describe('deviceChipTitle', () => {
   it('reads like the old title without phones', () => {
     expect(deviceChipTitle(1, null)).toBe('1 device connected');
-    expect(deviceChipTitle(2, { paired: 0, online: 0 })).toBe('2 devices connected');
+    expect(deviceChipTitle(2, { paired: 0, tablets: 0, tabletNoun: 'iPad', online: 0 })).toBe('2 devices connected');
   });
   it('adds the paired phones and how many are online', () => {
-    expect(deviceChipTitle(1, { paired: 2, online: 1 })).toBe('1 device connected · 2 paired phones (1 online)');
-    expect(deviceChipTitle(1, { paired: 1, online: 0 })).toBe('1 device connected · 1 paired phone (none online)');
+    expect(deviceChipTitle(1, { paired: 2, tablets: 0, tabletNoun: 'iPad', online: 1 })).toBe('1 device connected · 2 paired phones (1 online)');
+    expect(deviceChipTitle(1, { paired: 1, tablets: 0, tabletNoun: 'iPad', online: 0 })).toBe('1 device connected · 1 paired phone (none online)');
+  });
+  it('names the tablets apart: iPads as iPads', () => {
+    expect(deviceChipTitle(1, { paired: 2, tablets: 1, tabletNoun: 'iPad', online: 1 })).toBe('1 device connected · 2 paired phones, 1 paired iPad (1 online)');
+    expect(deviceChipTitle(1, { paired: 0, tablets: 2, tabletNoun: 'tablet', online: 0 })).toBe('1 device connected · 2 paired tablets (none online)');
   });
 });

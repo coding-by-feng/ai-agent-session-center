@@ -313,6 +313,12 @@
 
 .row:active { background: color-mix(in srgb, var(--ph-surface) 84%, var(--ph-text)); }
 
+/* The iPad's split view: the session open in the right pane. */
+.row[data-current] {
+  background: var(--ph-accent-tint);
+  border-radius: var(--ph-radius-card);
+}
+
 .row:focus-visible {
   outline: 2px solid var(--ph-focus);
   outline-offset: -2px;

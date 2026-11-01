@@ -127,17 +127,16 @@ describe('PhonePairing', () => {
     expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
   });
 
-  it('lists a paired computer with 🖥, "Computer" and what a password sign-in may see', async () => {
+  it('lists a paired computer with a computer icon, "Computer" and what a password sign-in may see', async () => {
     phones = [
       phone({ id: 'd1', label: 'Studio Mac', platform: 'desktop', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
     ];
     render(<PhonePairing />);
     const row = (await screen.findByText('Studio Mac')).closest('li') as HTMLElement;
-    expect(row.textContent).toContain('🖥');
-    expect(row.textContent).not.toContain('📱');
+    expect(row.querySelector('svg')?.getAttribute('data-kind')).toBe('computer');
     expect(screen.getByText('Computer · Shared sessions, like a password sign-in')).toBeTruthy();
     // The phone-only access paragraph is about phones.
-    expect(screen.queryByText(/Paired phones can watch and drive/)).toBeNull();
+    expect(screen.queryByText(/Paired phones and tablets can watch and drive/)).toBeNull();
   });
 
   it('asks before letting a pending computer in, with the same code check', async () => {
@@ -157,6 +156,30 @@ describe('PhonePairing', () => {
     phones = [phone({ id: 'd2', label: 'Kason’s computer iPhone', platform: 'desktop', confirmCode: '111222' })];
     render(<PhonePairing />);
     expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow Kason’s computer iPhone (Computer)?');
+  });
+
+  it('a paired iPad gets a tablet icon, and a phone a phone icon (Nov 2 2026)', async () => {
+    phones = [
+      phone({ id: 't1', label: 'iPad', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 'p2', label: 'iPhone 17', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 't2', label: 'Kitchen tablet', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+    ];
+    render(<PhonePairing />);
+    const kind = async (name: string) => ((await screen.findByText(name)).closest('li') as HTMLElement).querySelector('svg')?.getAttribute('data-kind');
+    expect(await kind('iPad')).toBe('tablet');
+    expect(await kind('iPhone 17')).toBe('phone');
+    expect(await kind('Kitchen tablet')).toBe('tablet');
+    // An iOS tablet whose name doesn't say so is called an iPad, never an iPhone.
+    expect(screen.getByText('iPad · shared sessions only')).toBeTruthy();
+    expect(screen.getByText(/Paired phones and tablets can watch and drive/)).toBeTruthy();
+  });
+
+  it('asks about a pending iPad in iPad words', async () => {
+    phones = [phone({ id: 't1', label: 'iPad', confirmCode: '654321' })];
+    render(<PhonePairing />);
+    expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow iPad?');
+    expect(screen.getByText(/Code on the iPad/)).toBeTruthy();
+    expect(screen.getByText(/Allow only if your iPad shows the same code/)).toBeTruthy();
   });
 
   it('shows no computer warning for a pending phone', async () => {

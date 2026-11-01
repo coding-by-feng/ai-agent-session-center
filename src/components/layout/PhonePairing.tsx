@@ -45,6 +45,8 @@ import {
 } from '@/lib/mobilePairingApi';
 import { chosenAddresses, readPairingChoice } from '@/lib/pairingAddressChoice';
 import PairingAddressChoice from './PairingAddressChoice';
+import { pairedDeviceKind, pairedDeviceNoun } from '@/lib/deviceKind';
+import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
 /** How often the list refreshes while the panel is open. */
@@ -62,7 +64,7 @@ const DESKTOP_ALLOW_WARNING =
 /** How long "Copied" shows on the Copy link button. */
 const COPIED_MS = 2000;
 const ACCESS_DETAIL =
-  'Paired phones can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
+  'Paired phones and tablets can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
   + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
 
 const PLATFORM_NAME: Record<PairedPhone['platform'], string> = { ios: 'iPhone', android: 'Android', desktop: 'Computer' };
@@ -79,8 +81,15 @@ const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = {
  * the word on every row. Exported for tests.
  */
 function platformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
-  return PLATFORM_IN_NAME[p.platform].test(p.label) ? null : PLATFORM_NAME[p.platform];
+  if (PLATFORM_IN_NAME[p.platform].test(p.label)) return null;
+  // An iOS tablet is an iPad, not an iPhone ("Kason’s tablet" · iPad).
+  return p.platform === 'ios' && pairedDeviceKind(p) === 'tablet' ? 'iPad' : PLATFORM_NAME[p.platform];
 }
+
+/** The rename field's label, by what the device is: "iPad name", "Computer name". */
+const NAME_FIELD_LABEL: Record<string, string> = {
+  computer: 'Computer name', phone: 'Phone name', iPad: 'iPad name', tablet: 'Tablet name',
+};
 
 /** The platform word for an Allow prompt: a computer is always named as one, whatever its label says. */
 function pendingPlatformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
@@ -361,10 +370,10 @@ export default function PhonePairing() {
             Allow <strong>{p.label}</strong>{pendingPlatformLabel(p) ? ` (${pendingPlatformLabel(p)})` : ''}?
           </span>
           <span className={styles.confirm}>
-            Code on the {p.platform === 'desktop' ? 'computer' : 'phone'}: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
+            Code on the {pairedDeviceNoun(p)}: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
           </span>
           <span className={styles.note}>
-            Allow only if your {p.platform === 'desktop' ? 'computer' : 'phone'} shows the same code.
+            Allow only if your {pairedDeviceNoun(p)} shows the same code.
           </span>
           {p.platform === 'desktop' && <span className={styles.note}>{DESKTOP_ALLOW_WARNING}</span>}
           <span className={styles.actions}>
@@ -382,13 +391,13 @@ export default function PhonePairing() {
         <ul className={styles.list}>
           {active.map((p) => (
             <li key={p.id} className={styles.phone}>
-              <span className={styles.phoneIcon} aria-hidden="true">{p.platform === 'desktop' ? '🖥' : '📱'}</span>
+              <span className={styles.phoneIcon}><DeviceKindIcon kind={pairedDeviceKind(p)} /></span>
               <span className={styles.phoneMain}>
                 {editing?.id === p.id ? (
                   <span className={styles.rename}>
                     <TextInput
                       className={styles.renameInput}
-                      aria-label={p.platform === 'desktop' ? 'Computer name' : 'Phone name'}
+                      aria-label={NAME_FIELD_LABEL[pairedDeviceNoun(p)]}
                       value={editing.draft}
                       maxLength={MAX_NAME}
                       autoFocus

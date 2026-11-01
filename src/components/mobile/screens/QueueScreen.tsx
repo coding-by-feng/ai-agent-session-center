@@ -29,7 +29,7 @@ import { DEFAULT_AUTOMATION, useQueueStore, type QueueItem } from '@/stores/queu
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen } from '../app/listPane';
 import { getClientId } from '@/lib/deviceIdentity';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { queueMoveTargets } from '@/lib/queueMoveTargets';
@@ -329,7 +329,8 @@ export default function QueueScreen() {
   const received = usePresenceStore((s) => s.received);
   const workspaceWriter = usePresenceStore((s) => s.workspaceWriter);
   const devices = usePresenceStore((s) => s.devices);
-  const push = usePhoneNavStore((s) => s.push);
+  // In the iPad's split view the list opens into the right pane (listPane.ts).
+  const push = useOpenScreen();
   const reorder = useQueueStore((s) => s.reorder);
   const updateItem = useQueueStore((s) => s.updateItem);
   const remove = useQueueStore((s) => s.remove);

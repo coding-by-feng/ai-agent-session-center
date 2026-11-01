@@ -196,4 +196,27 @@ describe('Pair with <Mac>?', () => {
     await pairUntilApproval(t);
     expect(t.mac.calls.find((c) => c.url.endsWith('/api/mobile/pair'))?.body).toMatchObject({ label: 'iPhone', platform: 'ios' });
   });
+
+  it('on an iPad says “this iPad”, names it iPad, and names the Mac’s real button', async () => {
+    const t = createHarness({ os: 'ios', formFactor: 'tablet' });
+    await t.app.start();
+    expect(t.root.textContent).toContain('press Pair a phone or computer.');
+    fill(t.root, 'Pairing link', LINK);
+    submit(t.root, 'Paste the pairing link');
+    expect(t.root.textContent).toContain('Continue only if you just pressed Pair a phone or computer on this Mac.');
+    expect(fieldLabelled(t.root, 'Name for this iPad').value).toBe('iPad');
+    expect(t.root.textContent).toContain('Your Mac shows it when it asks you to allow this iPad.');
+    expect(t.root.textContent).not.toMatch(/this phone/i);
+    click(t.root, 'Pair');
+    await until(t.root, () => heading(t.root) === 'Approve on your Mac');
+    expect(t.mac.calls.find((c) => c.url.endsWith('/api/mobile/pair'))?.body).toMatchObject({ label: 'iPad', platform: 'ios' });
+  });
+
+  it('on an Android tablet says “this tablet”', async () => {
+    const t = createHarness({ os: 'android', formFactor: 'tablet' });
+    await t.app.start();
+    fill(t.root, 'Pairing link', LINK);
+    submit(t.root, 'Paste the pairing link');
+    expect(fieldLabelled(t.root, 'Name for this tablet').value).toBe('Android tablet');
+  });
 });

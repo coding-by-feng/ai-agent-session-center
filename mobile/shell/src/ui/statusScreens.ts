@@ -20,23 +20,23 @@ export function renderApprove(s: ApproveScreen, ctx: ScreenContext): HTMLElement
   const { mac } = s;
   if (s.state === 'refused') {
     return screen('Not allowed', { label: 'Your Macs', onClick: a.showMacs },
-      para(`${mac.name} refused this phone, or the request expired. Requests last 10 minutes.`),
-      para('Press Pair a phone on the Mac again to start over.', 'hint'),
+      para(`${mac.name} refused this ${ctx.device}, or the request expired. Requests last 10 minutes.`),
+      para('Press Pair a phone or computer on the Mac again to start over.', 'hint'),
       actions(button('Pair again', a.showPair, 'primary')));
   }
 
   const line: Record<Exclude<typeof s.state, 'refused'>, [string, boolean]> = {
     waiting: [`Waiting for ${mac.name}…`, true],
     unreachable: [`Can’t reach ${mac.name} right now. Still trying…`, true],
-    stalled: ['Still waiting. Allow this phone on your Mac, then check again.', false],
+    stalled: [`Still waiting. Allow this ${ctx.device} on your Mac, then check again.`, false],
     error: [s.message ?? 'Something went wrong. Still trying…', true],
     cancelling: ['Cancelling…', true],
   };
   const [text, busy] = line[s.state];
 
   return screen('Approve on your Mac', null,
-    para(`${mac.name} asks: Allow “${mac.phoneName || 'this phone'}”? Press Allow only if it shows this code:`),
-    mac.confirmCode ? confirmCode(mac.confirmCode) : para('This phone lost its code. Cancel and pair again.', 'hint'),
+    para(`${mac.name} asks: Allow “${mac.phoneName || `this ${ctx.device}`}”? Press Allow only if it shows this code:`),
+    mac.confirmCode ? confirmCode(mac.confirmCode) : para(`This ${ctx.device} lost its code. Cancel and pair again.`, 'hint'),
     status(text, busy),
     para('Codes don’t match? Press Deny on your Mac: someone else scanned your QR.', 'hint'),
     s.state === 'cancelling' ? null : actions(
@@ -46,7 +46,7 @@ export function renderApprove(s: ApproveScreen, ctx: ScreenContext): HTMLElement
 
 export function renderConnecting(s: ConnectingScreen, mac: SavedMac, ctx: ScreenContext): HTMLElement {
   return screen(s.reauth ? `Signing in to ${mac.name}` : `Opening ${mac.name}`, null,
-    s.reauth ? para('Your session ended, so the app signs in again with this phone’s key.') : null,
+    s.reauth ? para(`Your session ended, so the app signs in again with this ${ctx.device}’s key.`) : null,
     status(s.status, true),
     actions(button('Cancel', ctx.actions.showMacs, 'quiet')));
 }

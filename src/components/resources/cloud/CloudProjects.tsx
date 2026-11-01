@@ -8,7 +8,8 @@
  *
  * The tab reads everything again each time it is shown. Each saved checkout here is then read and
  * checked with GitHub in the background (useProjectReads.ts), and ♥ and tag changes go to the cloud
- * one at a time per project (useProjectMeta.ts).
+ * one at a time per project (useProjectMeta.ts). A folder Sources knows can also sync with an SSH
+ * server (Project Sync, Oct 31 2026; useSyncCards.tsx).
  */
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
@@ -20,6 +21,7 @@ import type {
   ProjectRecord,
 } from '@/types/cloudProjects';
 import type { CloudJob as Job } from '@/types/cloudResources';
+import type { ResourceCatalog } from '@/types/resources';
 import type { CloudReviewBinding } from '@/lib/cloudApi';
 import { cloudApi } from '@/lib/cloudApi';
 import { cloudCount } from '@/lib/cloudFormat';
@@ -39,6 +41,7 @@ import ProjectFolderRow from './ProjectFolderRow';
 import {
   buildProjectRows,
   filterProjectRows,
+  folderName,
   mergeMetas,
   newerMeta,
   projectTagChoices,
@@ -50,6 +53,7 @@ import { useProjectMeta } from './useProjectMeta';
 import { useProjectReads } from './useProjectReads';
 import { cloudError, useCloudAction, useCloudSession } from './cloudSession';
 import { cacheKey, readCache, writeCache, rememberJob, type SavedJob } from './cloudCache';
+import { useSyncCards } from '../sync/useSyncCards';
 import styles from '@/styles/modules/CloudResources.module.css';
 
 const ACTIVE: Job['state'][] = ['queued', 'running'];
@@ -92,7 +96,14 @@ const EMPTY: Loaded = {
 const metaIndex = (items: readonly ProjectMeta[]) =>
   Object.fromEntries(items.map((m) => [m.projectId, m]));
 
-export default function CloudProjects({ visible = true }: { visible?: boolean }) {
+export default function CloudProjects({
+  visible = true,
+  catalog,
+}: {
+  visible?: boolean;
+  /** Sources' projects: a folder it knows can sync with a server. */
+  catalog?: ResourceCatalog;
+}) {
   const session = useCloudSession(),
     action = useCloudAction(),
     key = cacheKey(session.status.connection),
@@ -132,6 +143,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
     setCloning(null);
   }
   const view = page.key === key ? page : EMPTY;
+  const syncCards = useSyncCards({ catalog, home: view.folders?.home ?? null, visible });
   const savedJobs = useMemo(() => (jobs.key === key ? jobs.rows : []), [jobs, key]);
   const connected = session.status.state === 'connected' && !session.changed;
   /** The latest `connected`: a read made offline never lands once the cloud is back. */
@@ -434,6 +446,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
                 alike={row.project ? (unlinked.get(row.project.id) ?? 0) : 0}
                 disabled={off}
                 onFav={(favorite) => row.project && changeMeta(row.project.id, { favorite })}
+                sync={syncCards.cardFor(row.folder.path, folderName(row.folder.path))}
                 onSave={() =>
                   row.folder.repository &&
                   save({ repository: row.folder.repository, localPath: row.folder.path })
@@ -465,6 +478,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
                   ((action.busy || reads.reading.has(row.project.id)) && !locals[row.project.id])
                 }
                 checkError={reads.errors[row.project.id]}
+                sync={syncCards.cardFor(row.path, row.project.name)}
                 onFav={(favorite) => changeMeta(row.project.id, { favorite })}
                 onAddTag={(tag) => changeMeta(row.project.id, { addTags: [tag] })}
                 onRemoveTag={(tag) => changeMeta(row.project.id, { removeTags: [tag] })}
@@ -568,6 +582,7 @@ export default function CloudProjects({ visible = true }: { visible?: boolean })
           />
         ))}
       </div>
+      {syncCards.dialog}
       {adding && (
         <CloudDialog
           returnFocus={action.origin.current}

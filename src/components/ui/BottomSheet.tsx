@@ -32,6 +32,9 @@ export interface BottomSheetProps {
   flush?: boolean;
   /** Extra class on the panel: the sheet is portaled to <body>, so a host's scoped rules (the phone views' dress) reach it only this way. */
   className?: string;
+  /** The close button's spoken name and glyph, when closing means something else (an AI popup minimizes). */
+  closeLabel?: string;
+  closeIcon?: ReactNode;
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -43,7 +46,9 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
  */
 const openSheets: HTMLElement[] = [];
 
-export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight, headerAction, flush, className }: BottomSheetProps) {
+export default function BottomSheet({
+  open, onClose, title, children, hideTitle, fullHeight, headerAction, flush, className, closeLabel = 'Close', closeIcon = '×',
+}: BottomSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   // In the phone app, Android's back closes the sheet, not the screen under it (AASC-48).
@@ -111,7 +116,7 @@ export default function BottomSheet({ open, onClose, title, children, hideTitle,
           <h2 id={titleId} className={styles.title}>{title}</h2>
           {!hideTitle && headerAction && <div className={styles.headerAction}>{headerAction}</div>}
           {!hideTitle && (
-            <button type="button" className={styles.close} onClick={onClose} aria-label="Close">×</button>
+            <button type="button" className={styles.close} onClick={onClose} aria-label={closeLabel}>{closeIcon}</button>
           )}
         </div>
         <div className={styles.body}>{children}</div>

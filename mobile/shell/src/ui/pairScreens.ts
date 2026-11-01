@@ -70,7 +70,7 @@ export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
 
   return screen('Pair with a Mac', back,
     notice(s.notice),
-    para('On your Mac, open AASC, click the devices chip in the top bar and press Pair a phone.'),
+    para('On your Mac, open AASC, click the devices chip in the top bar and press Pair a phone or computer.'),
     scan,
     pasteForm,
     manual);
@@ -83,7 +83,7 @@ export function renderConfirm(s: ConfirmScreen, ctx: ScreenContext): HTMLElement
   const busy = s.busy !== null;
   const canPair = !busy && (!lanOnly || s.allowLan);
 
-  const paths = h('ul', { class: 'paths', attrs: { 'aria-label': 'How this phone reaches the Mac' } },
+  const paths = h('ul', { class: 'paths', attrs: { 'aria-label': `How this ${ctx.device} reaches the Mac` } },
     link.tailnet ? pathRow('tailnet', link.tailnet, link.port) : null,
     link.lan && s.allowLan ? pathRow('lan', link.lan, link.port) : null);
 
@@ -102,12 +102,12 @@ export function renderConfirm(s: ConfirmScreen, ctx: ScreenContext): HTMLElement
   const pairButton = button(busy ? 'Pairing…' : 'Pair', a.pair, 'primary', { disabled: !canPair, 'aria-busy': busy ? 'true' : null });
 
   return screen(`Pair with ${link.name}?`, { label: 'Back', onClick: a.cancelPair },
-    para('Continue only if you just pressed Pair a phone on this Mac.'),
+    para('Continue only if you just pressed Pair a phone or computer on this Mac.'),
     paths,
     lanToggle,
     field({
-      id: 'phone-name', label: 'Name for this phone', value: s.phoneName,
-      hint: 'Your Mac shows it when it asks you to allow this phone.',
+      id: 'phone-name', label: `Name for this ${ctx.device}`, value: s.phoneName,
+      hint: `Your Mac shows it when it asks you to allow this ${ctx.device}.`,
       attrs: { maxlength: 60, autocapitalize: 'words' },
       onInput: (phoneName) => a.remember({ phoneName }),
     }),

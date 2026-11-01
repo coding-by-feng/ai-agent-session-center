@@ -153,4 +153,12 @@ describe('the sleep setting', () => {
   it('refuses a value that is not one of the choices', () => {
     expect(() => setSleepIdleMinutes(7)).toThrow(RangeError);
   });
+
+  it('offers day-length choices up to a week', () => {
+    for (const minutes of [1440, 2880, 4320, 10080]) {
+      setSleepIdleMinutes(minutes);
+      __resetSleepSettingForTest();
+      expect(getSleepIdleMinutes()).toBe(minutes);
+    }
+  });
 });

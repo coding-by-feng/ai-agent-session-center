@@ -134,7 +134,10 @@
 }
 
 .phoneIcon {
-  font-size: 14px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 2px;
+  color: var(--text-secondary, inherit);
 }
 
 .phoneMain {

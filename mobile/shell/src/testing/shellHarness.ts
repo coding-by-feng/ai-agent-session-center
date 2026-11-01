@@ -1,6 +1,7 @@
 // shellHarness.ts — the shell app on a fake phone and a fake Mac, for the screen tests (AASC-17).
 // Plain TS (no vitest import) so it type-checks with the shell; never bundled.
 import { createShellApp, type ShellApp, type ShellTiming } from '../app.js';
+import type { FormFactor } from '../formFactor.js';
 import { createFakeMac, type FakeDeviceStatus, type FakeMac, type FakeMacOptions } from '../dev/fakeMac.js';
 import type { BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { BrowseResult } from '../lanRescan.js';
@@ -21,6 +22,7 @@ export interface HarnessOptions {
   search?: string;
   launchUrl?: string | null;
   os?: ShellOs;
+  formFactor?: FormFactor;
   scan?: () => Promise<string | null>;
   /** Pre-filled Preferences (the saved list) and vault. */
   store?: Record<string, string>;
@@ -102,6 +104,7 @@ export function createHarness(opts: HarnessOptions = {}) {
 
   const deps: ShellDeps = {
     os: opts.os ?? 'android',
+    formFactor: opts.formFactor,
     vault: {
       get: async (k) => vault.get(k) ?? null,
       set: async (k, v) => {

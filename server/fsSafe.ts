@@ -131,6 +131,13 @@ const CREDENTIAL_NAME_RES: readonly RegExp[] = [
 const CREDENTIAL_DIRS: ReadonlySet<string> = new Set(['secrets', '.ssh', '.gnupg', '.aws', '.kube']);
 
 /**
+ * Project Sync's keep-both copy (`auth.server-20261031.json`, `.npmrc.server-20261031-2`):
+ * as secret as the file it copies, so the name is also judged without the mark (every mark:
+ * a copy of a copy carries two).
+ */
+const KEEP_BOTH_MARK_RE = /\.server-\d{8}(?:-\d+)?(?=\.|$)/g;
+
+/**
  * True for a file that is only ever reported by name and size. Pass the path
  * RELATIVE to the root being walked (see `isCredentialTarget`): a `secrets/`
  * or `.ssh/` folder inside it counts — the whole folder is credentials, not
@@ -140,7 +147,8 @@ export function isCredentialPath(relPath: string): boolean {
   const segments = relPath.toLowerCase().split(/[\\/]+/).filter(Boolean);
   if (segments.some((s) => CREDENTIAL_DIRS.has(s))) return true;
   const name = segments[segments.length - 1] ?? '';
-  return CREDENTIAL_NAME_RES.some((re) => re.test(name));
+  const names = [name, name.replace(KEEP_BOTH_MARK_RE, '')];
+  return names.some((n) => CREDENTIAL_NAME_RES.some((re) => re.test(n)));
 }
 
 /** True when `target` is `root` itself or lies below it (both already realpath'd). */

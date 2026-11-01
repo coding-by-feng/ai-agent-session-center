@@ -12,7 +12,7 @@
  * Settings page at `/more/settings/<section>`, so back from it returns to Settings).
  */
 import { ListRow, ListSection, Screen } from '../kit';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen } from '../app/listPane';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSettingsStore, THEMES } from '@/stores/settingsStore';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
@@ -23,7 +23,7 @@ import { useIsHostDevice } from '../views/hostAccess';
 
 /** The settings rows, shared by More and More → Settings. */
 export function SettingsRows() {
-  const push = usePhoneNavStore((s) => s.push);
+  const push = useOpenScreen();
   const themeName = useSettingsStore((s) => s.themeName);
   return (
     <>
@@ -42,7 +42,7 @@ export function SettingsRows() {
 }
 
 export default function MoreScreen() {
-  const push = usePhoneNavStore((s) => s.push);
+  const push = useOpenScreen();
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const isHost = useIsHostDevice();
   // The app's own Your Macs (null in a phone browser): the shell reopens the Mac used last, so this is the way back.

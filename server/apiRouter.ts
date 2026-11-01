@@ -254,6 +254,8 @@ function saveLastUsername(username: string): void {
 // Build set of all addresses/hostnames that resolve to this machine.
 // Matches sshManager.ts approach so local-session detection is consistent.
 const LOCAL_HOSTS = new Set<string>(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+/** Ctrl-U: empties a shell's input line (kill-line in zsh and bash) before a line is typed into it. */
+const CLEAR_INPUT_LINE = '\x15';
 try {
   const h = hostname();
   LOCAL_HOSTS.add(h);
@@ -1180,6 +1182,11 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     const result = resumeSession(sessionId);
     if ('error' in result) { res.status(400).json({ error: result.error }); return; }
 
+    // Empty the shell's input line first (Ctrl-U, kill-line in zsh and bash). A CLI that exited fast leaves
+    // xterm's late replies to its colour / cursor queries there as text ("1R10;rgb:…;rgb:…", Nov 2 2026), and
+    // the line typed after them was glued on and failed. Its own write: the launch hooks below read the
+    // line from its first word.
+    writeToTerminal(result.terminalId, CLEAR_INPUT_LINE);
     // A central (server/mcp) resumed in its still-open shell is typed through the launch hooks, which put
     // its MCP flags on the line: its token is still valid and still in that shell's environment, so nothing
     // is minted. Every other card's line is typed raw, as before: writeWhenReady would also add the

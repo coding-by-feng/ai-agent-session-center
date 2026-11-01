@@ -395,3 +395,82 @@
 }
 .cameraBtn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 24%, var(--bg-card)); }
 .cameraBtn:active:not(:disabled) { transform: scale(0.97); }
+
+/* ---------- a minimized AI popup: the ✦ button over its session (Nov 2 2026) ---------- */
+
+/* Portaled to <body> (a stack screen's transform would clip it). Top-right, just under the nav
+   bar, the "needs you" banner and the segment row: the bottom holds the composer and a waiting
+   card of any height (a bottom anchor covered "Allow once"), so the button covers only chat that
+   scrolls. Under every sheet and menu. */
+.floatFab {
+  position: fixed;
+  top: calc(136px + var(--ph-safe-top, 0px));
+  right: calc(16px + var(--ph-safe-right, 0px));
+  z-index: calc(var(--ph-z-bar, 20) + 10);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--ph-accent, var(--accent-cyan));
+  color: var(--ph-on-accent, #fff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: transform 150ms ease, filter 150ms ease;
+}
+
+.floatFab:hover { filter: brightness(1.08); }
+.floatFab:active { transform: scale(0.94); filter: brightness(0.92); }
+.floatFab:focus-visible {
+  outline: 2px solid var(--ph-focus, var(--accent-cyan));
+  outline-offset: 3px;
+}
+
+/* How many popups the session has, when it has several. */
+.floatFabCount {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 2px solid var(--ph-bg, #fff);
+  border-radius: 12px;
+  background: var(--ph-text, #111);
+  color: var(--ph-bg, #fff);
+  font-family: var(--ph-font, inherit);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A popup is still answering. */
+.floatFabLive {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid var(--ph-bg, #fff);
+  border-radius: 50%;
+  background: var(--ph-status-working, #0284c7);
+  animation: floatFabPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes floatFabPulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floatFab { transition: none; }
+  .floatFabLive { animation: none; }
+}
