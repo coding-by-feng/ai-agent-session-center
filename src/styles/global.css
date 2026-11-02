@@ -39,7 +39,7 @@
 
 /* Saved (favorited) AI-popup selections, highlighted back in the markdown viewer.
    Injected as <mark className="saved-selection"> by makeSavedSelectionsPlugin;
-   clicking opens the saved record in the REVIEW tab. */
+   clicking opens the saved record in the REVIEW tab (Lite's AI POPUPS). */
 .saved-selection {
   background: rgba(0, 229, 255, 0.18);
   color: inherit;
@@ -51,6 +51,14 @@
 }
 .saved-selection:hover {
   background: rgba(0, 229, 255, 0.34);
+}
+
+/* The same phrase where there is nowhere to open it (Lite on a phone, or a window with no session). */
+.saved-selection-plain {
+  background: rgba(0, 229, 255, 0.18);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 /* 3D Robot label animation (used by RobotLabel's Html portal) */

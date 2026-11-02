@@ -141,6 +141,12 @@ interface UiState {
    *  window ignores it. Persisted to localStorage['queue-panel-collapsed'];
    *  collapsed when nothing is stored. */
   queuePanelCollapsed: boolean;
+  /** Lite's click on the queue strip, for one session. Never stored: Full reads the flag above on the
+   *  same port, so Lite must not write it. See useQueueStripCollapsed. */
+  queueStripChoice: { sessionId: string; collapsed: boolean; hadQueued: boolean } | null;
+  /** The AI popup record a saved highlight asked this session's AI POPUPS tab to open (Lite, which has
+   *  no REVIEW). `fresh` until the tab has opened it, once per click: the tab remounts on every visit. */
+  focusedAiPopup: { sessionId: string; uuid: string; fresh: boolean } | null;
 
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
@@ -186,6 +192,9 @@ interface UiState {
   clearRoomFilter: () => void;
   dismissLiveHint: () => void;
   setQueuePanelCollapsed: (collapsed: boolean) => void;
+  setQueueStripChoice: (choice: { sessionId: string; collapsed: boolean; hadQueued: boolean } | null) => void;
+  setFocusedAiPopup: (focus: { sessionId: string; uuid: string } | null) => void;
+  markFocusedAiPopupOpened: () => void;
 }
 
 function loadCardDisplayMode(): CardDisplayMode {
@@ -379,6 +388,8 @@ export const useUiStore = create<UiState>((set) => ({
   liveHintDismissed: loadLiveHintDismissed(),
   workspaceRestorePending: true,
   queuePanelCollapsed: loadQueuePanelCollapsed(),
+  queueStripChoice: null,
+  focusedAiPopup: null,
 
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
@@ -550,4 +561,9 @@ export const useUiStore = create<UiState>((set) => ({
     }
     set({ queuePanelCollapsed: collapsed });
   },
+  setQueueStripChoice: (queueStripChoice) => set({ queueStripChoice }),
+  setFocusedAiPopup: (focus) => set({ focusedAiPopup: focus && { ...focus, fresh: true } }),
+  markFocusedAiPopupOpened: () => set((s) => (
+    s.focusedAiPopup?.fresh ? { focusedAiPopup: { ...s.focusedAiPopup, fresh: false } } : s
+  )),
 }));

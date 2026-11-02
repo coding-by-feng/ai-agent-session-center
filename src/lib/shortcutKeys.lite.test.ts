@@ -13,13 +13,17 @@ describe('buildBindings in the Lite build', () => {
   const ids = buildBindings().map((binding) => binding.actionId as string);
 
   it('binds what Lite keeps', () => {
-    for (const id of ['switchTabTerminal', 'switchTabProject', 'terminalToggleAutoScroll', 'switchSession1']) {
+    for (const id of ['switchTabTerminal', 'switchTabProject', 'switchTabQueue', 'terminalToggleAutoScroll', 'switchSession1']) {
       expect(ids).toContain(id);
     }
   });
 
+  it('binds the AI popup window\'s keys, which its buttons name', () => {
+    for (const id of ['floatMinimize', 'floatMaximize', 'floatClose']) expect(ids).toContain(id);
+  });
+
   it('binds nothing Lite leaves out', () => {
-    for (const id of ['terminalClone', 'terminalFork', 'terminalPopOut', 'terminalRefresh', 'switchTabNotes', 'switchTabQueue', 'floatClose']) {
+    for (const id of ['terminalClone', 'terminalFork', 'terminalPopOut', 'terminalRefresh', 'switchTabNotes']) {
       expect(ids).not.toContain(id);
     }
   });

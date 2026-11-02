@@ -38,6 +38,7 @@ import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useQueueStripCollapsed } from '@/hooks/useQueueStripCollapsed';
 import { useUiStore } from '@/stores/uiStore';
 import { useIsStartReleased } from '@/stores/startReleaseStore';
 import QueueHoldBanner from './QueueHoldBanner';
@@ -143,6 +144,9 @@ interface QueueTabProps {
    *  shared by every window of the app and a pop-out must neither inherit nor
    *  rewrite the docked strip's; and an inert header for the same reason. */
   floating?: boolean;
+  /** Never fold this copy, because it fills its whole tab and folding would leave a bare header.
+   *  Lite's QUEUE tab, whose strip folds on its own while the queue is empty. */
+  alwaysOpen?: boolean;
 }
 
 export default function QueueTab({
@@ -152,6 +156,7 @@ export default function QueueTab({
   onQueueCountChange,
   fullHeight,
   floating = false,
+  alwaysOpen = false,
 }: QueueTabProps) {
   const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const activeCount = items.filter((it) => !it.disabled).length;
@@ -308,9 +313,8 @@ export default function QueueTab({
   /** The compose row's "saved prompts" trigger, while its picker is open. */
   const [snippetAnchor, setSnippetAnchor] = useState<HTMLElement | null>(null);
   // Shared, not local: DetailPanel sizes the strip's row from it (collapsed, the
-  // terminal gets the height) and both docked mounts must agree — see uiStore.
-  const dockedCollapsed = useUiStore((s) => s.queuePanelCollapsed);
-  const setDockedCollapsed = useUiStore((s) => s.setQueuePanelCollapsed);
+  // terminal gets the height) and both docked mounts must agree.
+  const [dockedCollapsed, setDockedCollapsed] = useQueueStripCollapsed(sessionId);
   const isMobile = useIsMobile();
   // Claude's suggested next prompt (server/promptSuggestionCapture.ts): the empty box's placeholder,
   // and Tab takes it. Desktop only; a phone has its Composer's "Use suggestion" (and no Tab).
@@ -319,7 +323,7 @@ export default function QueueTab({
   // On a phone the QUEUE tab is the queue's only home (no strip under the
   // terminal, AASC-18), so it is never folded either — the stored flag belongs
   // to the docked strip of a desktop window.
-  const fixedOpen = floating || isMobile;
+  const fixedOpen = floating || isMobile || alwaysOpen;
   const collapsed = fixedOpen ? false : dockedCollapsed;
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
   const canFloat = !IS_LITE && !floating && !isMobile;
@@ -1348,6 +1352,7 @@ export default function QueueTab({
         {/* Compose */}
         <div
           className={`${styles.queueCompose}${dragOver ? ` ${styles.queueComposeDragOver}` : ''}`}
+          data-queue-compose={fixedOpen ? undefined : sessionId}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);

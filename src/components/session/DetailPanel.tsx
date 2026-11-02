@@ -26,7 +26,7 @@ const AgentsTab = lazy(() => import('./AgentsTab'));
 const CentralActivity = lazy(() => import('./CentralActivity'));
 import QueueTab from './QueueTab';
 import { IS_LITE } from '@/lib/edition';
-import { useQueueStore } from '@/stores/queueStore';
+import { useQueueStripCollapsed } from '@/hooks/useQueueStripCollapsed';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
@@ -146,10 +146,7 @@ const TerminalContent = memo(function TerminalContent({
   // to the terminal (queueHeight is kept for when it expands) and the divider
   // goes, since there is nothing to resize. Without this the row kept its height
   // and the header sat over ~220px of nothing.
-  const queueCollapsed = useUiStore((s) => s.queuePanelCollapsed);
-  // Lite: no queue strip until this session has queued prompts, which must stay in sight.
-  const queueLength = useQueueStore((s) => s.queues.get(sessionId)?.length ?? 0);
-  const showQueue = !IS_LITE || queueLength > 0;
+  const [queueCollapsed] = useQueueStripCollapsed(sessionId);
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -296,7 +293,7 @@ const TerminalContent = memo(function TerminalContent({
       {/* Draggable divider between the terminal and the always-on queue
           strip. Pointer events (not mouse) so it is grabbable on a phone,
           same reason as the queue's drag-reorder. */}
-      {showQueue && !queueCollapsed && (
+      {!queueCollapsed && (
         <div
           className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
           onPointerDown={handleResizeStart}
@@ -307,20 +304,18 @@ const TerminalContent = memo(function TerminalContent({
           title="Drag to resize the queue — double-click to reset"
         />
       )}
-      {showQueue && (
-        <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
-          {/* `fullHeight` makes the panel fill the height the divider produced
-              rather than the old hard-coded 250px cap. It is the same mechanism
-              the QUEUE tab uses — the class is defined in Terminal.module.css,
-              so it cannot be reached from this file's own stylesheet. */}
-          <QueueTab
-            sessionId={sessionId}
-            sessionStatus={status}
-            terminalId={terminalId}
-            fullHeight
-          />
-        </div>
-      )}
+      <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
+        {/* `fullHeight` makes the panel fill the height the divider produced
+            rather than the old hard-coded 250px cap. It is the same mechanism
+            the QUEUE tab uses — the class is defined in Terminal.module.css,
+            so it cannot be reached from this file's own stylesheet. */}
+        <QueueTab
+          sessionId={sessionId}
+          sessionStatus={status}
+          terminalId={terminalId}
+          fullHeight
+        />
+      </div>
     </div>
   );
 });
@@ -927,6 +922,7 @@ export default function DetailPanel() {
               sessionStatus={displaySession.status}
               terminalId={displaySession.terminalId}
               fullHeight
+              alwaysOpen={IS_LITE}
             />
           }
           projectContent={

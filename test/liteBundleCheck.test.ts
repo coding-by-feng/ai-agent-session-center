@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 const script = join(process.cwd(), 'scripts/verify-lite-bundle.mjs');
-const KEEP = ['HistoryView-a.js', 'PhoneAppFrame-a.js', 'ProjectTab-a.js'];
+const KEEP = ['HistoryView-a.js', 'PhoneAppFrame-a.js', 'ProjectTab-a.js', 'AiPopupHistory-a.js', 'PopoutTerminalView-a.js'];
 
 function check(files: string[]) {
   const root = mkdtempSync(join(tmpdir(), 'lite-bundle-'));
@@ -38,7 +38,7 @@ describe('verify-lite-bundle', () => {
     },
   );
 
-  it.each(KEEP)('fails without %s: a paired phone and HISTORY need the kept chunks', (chunk) => {
+  it.each(KEEP)('fails without %s: a kept tab, popup window or paired phone needs it', (chunk) => {
     const result = check(KEEP.filter((name) => name !== chunk));
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(chunk.split('-')[0]);

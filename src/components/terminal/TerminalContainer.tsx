@@ -425,7 +425,7 @@ export default memo(function TerminalContainer({
   }, [originSessionId, toggleAiPopup]);
 
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && aiPopupEnabled && !liteDesktop,
+    enabled: translationEnabled && !!originSessionId && aiPopupEnabled,
     trigger: translationTrigger,
     containerRef: rootRef,
     extract: popupExtract,
@@ -508,7 +508,7 @@ export default memo(function TerminalContainer({
         onRefreshOutput={liteDesktop ? undefined : refreshOutput}
         onClearOutput={liteDesktop ? undefined : clearOutput}
         aiPopupEnabled={aiPopupEnabled}
-        onToggleAiPopup={originSessionId && !liteDesktop ? handleToggleAiPopup : undefined}
+        onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
         wrapMode={showWrapToggle ? widthMode : undefined}
@@ -645,7 +645,7 @@ export default memo(function TerminalContainer({
               onRefreshOutput={liteDesktop ? undefined : refreshOutput}
               onClearOutput={liteDesktop ? undefined : clearOutput}
                           aiPopupEnabled={aiPopupEnabled}
-              onToggleAiPopup={originSessionId && !liteDesktop ? handleToggleAiPopup : undefined}
+              onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
               autoScrollEnabled={autoScrollEnabled}
               onToggleAutoScroll={toggleAutoScroll}
               wrapMode={showWrapToggle ? widthMode : undefined}

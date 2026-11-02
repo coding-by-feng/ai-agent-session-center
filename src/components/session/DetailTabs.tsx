@@ -337,7 +337,7 @@ export default function DetailTabs({
   const queueCount = useQueueStore((s) =>
     sessionId ? s.queues.get(sessionId)?.length ?? 0 : 0);
   const allTabs: ReadonlyArray<{ id: string; label: string }> = activityContent ? [...BASE_TABS, ACTIVITY_TAB] : BASE_TABS;
-  const tabs = IS_LITE ? liteSessionTabs(allTabs, queueCount, hasTerminal) : allTabs;
+  const tabs = IS_LITE ? liteSessionTabs(allTabs, hasTerminal) : allTabs;
   // Same rule for a tab Lite doesn't show: a saved choice or a deep link may name one.
   const shownTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'terminal';
 

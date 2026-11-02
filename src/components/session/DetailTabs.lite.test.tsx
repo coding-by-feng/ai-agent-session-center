@@ -1,5 +1,5 @@
 // DetailTabs.lite.test.tsx — the session tabs in the Lite build (lib/edition.ts): TERMINAL first, then
-// PROJECT, and QUEUE only while the session has queued prompts, because the scheduler keeps sending.
+// PROJECT, AI POPUPS and QUEUE.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 
@@ -45,23 +45,30 @@ describe('DetailTabs in the Lite build', () => {
     expect(screen.getByRole('button', { name: /Merge with Terminal|Split/ })).toBeInTheDocument();
   });
 
-  it('opens with TERMINAL, then PROJECT, and nothing else', () => {
+  it('opens with TERMINAL, then PROJECT, AI POPUPS and QUEUE, and nothing else', () => {
     render(<DetailTabs {...props} />);
-    expect(tabLabels()).toEqual(['TERMINAL', 'PROJECT']);
+    expect(tabLabels()).toEqual(['TERMINAL', 'PROJECT', 'AI POPUPS', 'QUEUE']);
   });
 
   it('adds CONVERSATION for a session with no terminal, such as a claude started in iTerm', () => {
     render(<DetailTabs {...props} hasTerminal={false} />);
-    expect(tabLabels()).toEqual(['TERMINAL', 'CONVERSATION', 'PROJECT']);
+    expect(tabLabels()).toEqual(['TERMINAL', 'CONVERSATION', 'PROJECT', 'AI POPUPS', 'QUEUE']);
   });
 
-  it('adds QUEUE while the session has queued prompts', () => {
+  it('counts the queued prompts on the QUEUE tab', () => {
     setQueue(2);
     render(<DetailTabs {...props} />);
-    expect(tabLabels()).toEqual(['TERMINAL', 'PROJECT', 'QUEUE']);
+    expect(tabButton('queue')?.textContent).toBe('QUEUE2');
   });
 
-  it.each(['notes', 'conversation', 'agents', 'aiPopups', 'activity'])(
+  it.each([['aiPopups', 'AI Popups Content'], ['queue', 'Queue Content']])('reopens on a saved %s tab', (saved, content) => {
+    localStorage.setItem('active-tab', saved);
+    render(<DetailTabs {...props} />);
+    expect(tabButton(saved)?.className).toMatch(/active/);
+    expect(screen.getByText(content)).toBeInTheDocument();
+  });
+
+  it.each(['notes', 'conversation', 'agents', 'activity'])(
     'shows the terminal when the saved tab is %s, one Lite leaves out (Full wrote it)',
     (saved) => {
       localStorage.setItem('active-tab', saved);
@@ -77,7 +84,7 @@ describe('DetailTabs in the Lite build', () => {
     expect(localStorage.getItem('active-tab')).toBe('notes');
   });
 
-  it('goes back to the terminal when the last queued prompt leaves the open QUEUE tab', () => {
+  it('stays on the QUEUE tab when the last queued prompt leaves it', () => {
     setQueue(1);
     localStorage.setItem('active-tab', 'queue');
     render(<DetailTabs {...props} />);
@@ -85,7 +92,6 @@ describe('DetailTabs in the Lite build', () => {
 
     act(() => setQueue(0));
 
-    expect(tabButton('queue')).toBeNull();
-    expect(tabButton('terminal')?.className).toMatch(/active/);
+    expect(tabButton('queue')?.className).toMatch(/active/);
   });
 });

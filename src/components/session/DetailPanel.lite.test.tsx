@@ -1,7 +1,7 @@
 // DetailPanel.lite.test.tsx — what the session panel hands its tabs in the Lite build. The queue strip under the
-// terminal shows only while this session has queued prompts, which keep sending and must stay in sight.
+// terminal is one line while the session's queue is empty, so the terminal keeps its height.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/edition', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/edition')>()),
@@ -17,11 +17,14 @@ vi.mock('@/lib/robotStateMap', () => ({ sessionStatusToRobotState: (s: string) =
 vi.mock('./ConversationView', () => ({ default: () => null }));
 vi.mock('./AiPopupHistory', () => ({ default: () => null }));
 vi.mock('./NotesTab', () => ({ default: () => null }));
-vi.mock('./QueueTab', () => ({ default: () => <div data-testid="queue-strip" /> }));
+vi.mock('./QueueTab', () => ({
+  default: ({ alwaysOpen }: { alwaysOpen?: boolean }) => <div data-testid={alwaysOpen ? 'queue-tab' : 'queue-strip'} />,
+}));
 vi.mock('./DetailTabs', () => ({
-  default: ({ terminalContent, commandsContent, hasTerminal }: Record<string, React.ReactNode>) => (
+  default: ({ terminalContent, queueContent, commandsContent, hasTerminal }: Record<string, React.ReactNode>) => (
     <div>
       {terminalContent}
+      {queueContent}
       {commandsContent ? <div data-testid="commands" /> : null}
       <div data-testid="has-terminal">{String(hasTerminal)}</div>
     </div>
@@ -32,6 +35,7 @@ import DetailPanel from './DetailPanel';
 import { useQueueStore } from '@/stores/queueStore';
 import type { QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
 
 const session = {
@@ -55,21 +59,39 @@ describe('DetailPanel in the Lite build', () => {
   });
   afterEach(() => {
     queue(0);
+    useUiStore.setState({ queueStripChoice: null });
     useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
     vi.unstubAllGlobals();
   });
 
-  it('has no queue strip while nothing is queued', async () => {
+  it('folds the queue strip to one line while nothing is queued, with no divider to drag', async () => {
     queue(0);
     render(<DetailPanel />);
-    expect(await screen.findByTestId('terminal')).toBeInTheDocument();
-    expect(screen.queryByTestId('queue-strip')).not.toBeInTheDocument();
+    const strip = await screen.findByTestId('queue-strip');
+    expect(strip.parentElement?.style.height).toBe('');
+    expect(screen.queryByRole('separator', { name: /Resize queue/ })).not.toBeInTheDocument();
   });
 
-  it('shows the queue strip while this session has queued prompts', async () => {
+  it('opens the queue strip while this session has queued prompts', async () => {
     queue(1);
     render(<DetailPanel />);
-    expect(await screen.findByTestId('queue-strip')).toBeInTheDocument();
+    const strip = await screen.findByTestId('queue-strip');
+    expect(strip.parentElement?.style.height).not.toBe('');
+    expect(screen.getByRole('separator', { name: /Resize queue/ })).toBeInTheDocument();
+  });
+
+  it('opens the strip when it is clicked open with nothing queued', async () => {
+    queue(0);
+    render(<DetailPanel />);
+    const strip = await screen.findByTestId('queue-strip');
+    act(() => useUiStore.setState({ queueStripChoice: { sessionId: 'sess-1', collapsed: false, hadQueued: false } }));
+    expect(strip.parentElement?.style.height).not.toBe('');
+  });
+
+  it('keeps the QUEUE tab open, because folding it would leave a bare header', async () => {
+    queue(0);
+    render(<DetailPanel />);
+    expect(await screen.findByTestId('queue-tab')).toBeInTheDocument();
   });
 
   it('tells the tabs whether this session has a terminal', async () => {

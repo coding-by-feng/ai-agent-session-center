@@ -23,38 +23,22 @@ export const APP_DISPLAY_NAME = IS_LITE ? 'AI Agent Session Center Lite' : 'AI A
 export const LITE_NAV_ROUTES: ReadonlySet<string> = new Set(['/', '/history']);
 
 /** The Settings tabs Lite shows. */
-export const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(['appearance', 'sound']);
+export const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(['appearance', 'sound', 'translation']);
 
 /**
- * The session tabs Lite shows, in its order (TERMINAL first). The queue scheduler keeps sending in
- * Lite, so a session with queued prompts must show them: QUEUE appears only then. A session with no
- * terminal, such as a `claude` started in iTerm, has nothing else to read: it gets CONVERSATION.
+ * The session tabs Lite shows, in its order (TERMINAL first). A session with no terminal, such as a
+ * `claude` started in iTerm, has nothing else to read: it gets CONVERSATION.
  */
-export function liteSessionTabs<T extends { id: string }>(
-  tabs: readonly T[],
-  queueCount: number,
-  hasTerminal = true,
-): T[] {
-  const ids = [
-    'terminal',
-    ...(hasTerminal ? [] : ['conversation']),
-    'project',
-    ...(queueCount > 0 ? ['queue'] : []),
-  ];
+export function liteSessionTabs<T extends { id: string }>(tabs: readonly T[], hasTerminal = true): T[] {
+  const ids = ['terminal', ...(hasTerminal ? [] : ['conversation']), 'project', 'aiPopups', 'queue'];
   return ids.flatMap((id) => tabs.filter((tab) => tab.id === id));
-}
-
-/**
- * Auto-resume types into a session on its own, and its switch is in QUEUE. Lite shows QUEUE only with
- * queued prompts, so without any there is no way to turn it off, and it must not run.
- */
-export function liteAllowsAutoResume(queueCount: number): boolean {
-  return queueCount > 0;
 }
 
 const LITE_SHORTCUTS: ReadonlySet<string> = new Set([
   'toggleFullscreen', 'scrollToBottom', 'terminalToggleAutoScroll',
-  'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal',
+  'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabQueue',
+  // An AI popup window's keys, named on its buttons. Only a focused window reacts.
+  'floatMinimize', 'floatMaximize', 'floatClose',
 ]);
 
 /** Whether a keyboard action exists in Lite: only those that reach something Lite shows. */

@@ -1,7 +1,6 @@
 /**
- * Auto-resume types into a session on its own, and Lite shows its switch only inside QUEUE, which
- * shows only while the session has queued prompts. So without any, Lite must not type at all.
- * Driven through the real hook; only the PTY write is mocked.
+ * Auto-resume types into a session on its own, and its switch is in QUEUE. Lite always shows QUEUE, so it
+ * behaves as Full does: the switch decides. Driven through the real hook; only the PTY write is mocked.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
@@ -80,14 +79,22 @@ describe('auto-resume and the Lite build', () => {
     expect(resumed()).toBe(true);
   });
 
-  it('Lite types nothing into a session with an empty queue', async () => {
+  it('Lite rescues a session with an empty queue too', async () => {
     edition.lite = true;
     setQueue([]);
+    await waitForResume();
+    expect(resumed()).toBe(true);
+  });
+
+  it('Lite types nothing once the switch in QUEUE is off', async () => {
+    edition.lite = true;
+    setQueue([]);
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoResume: false }]]) });
     await waitForResume();
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('Lite still rescues a session with queued prompts, whose QUEUE tab holds the switch', async () => {
+  it('Lite rescues a session with queued prompts', async () => {
     edition.lite = true;
     setQueue([{ id: 1, sessionId: 's1', text: 'next', position: 0, createdAt: T0, type: 'once' }]);
     // Auto-send off so the prompt stays queued: with it on, the queue sends first and then is empty.

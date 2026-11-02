@@ -66,7 +66,7 @@ describe('TerminalContainer in the Lite build', () => {
     for (const props of toolbar.all) {
       expect(props.onRestart).toBe(actions.onRestart);
       expect(props.onReconnect).toBe(actions.onReconnect);
-      for (const kept of ['onToggleAutoScroll', 'onScrollToBottom', 'onFullscreen']) {
+      for (const kept of ['onToggleAutoScroll', 'onScrollToBottom', 'onFullscreen', 'onToggleAiPopup']) {
         expect(props[kept], kept).toEqual(expect.any(Function));
       }
     }
@@ -75,16 +75,16 @@ describe('TerminalContainer in the Lite build', () => {
   it('hides the rest on the desktop, fullscreen included', () => {
     mount();
     for (const props of toolbar.all) {
-      for (const hidden of ['onFork', 'onClone', 'onPopOut', 'onRefreshOutput', 'onClearOutput', 'onToggleAiPopup', 'onToggleWrapMode', 'wrapMode']) {
+      for (const hidden of ['onFork', 'onClone', 'onPopOut', 'onRefreshOutput', 'onClearOutput', 'onToggleWrapMode', 'wrapMode']) {
         expect(props[hidden], hidden).toBeUndefined();
       }
       expect(props.ttsEnabled).toBeFalsy();
     }
   });
 
-  it('never opens the AI popup from a desktop selection', () => {
+  it('opens the AI popup from a desktop selection', () => {
     mount();
-    expect(selection.enabled).toBe(false);
+    expect(selection.enabled).toBe(true);
   });
 
   it('keeps the AI popup for a phone paired to Lite', () => {
