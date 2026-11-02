@@ -60,7 +60,7 @@ import { useQuickReply } from '@/lib/chat/quickReply';
 import { owesProceed } from '@/lib/sessionStatusStyle';
 import ComposerSuggestions from './ComposerSuggestions';
 import PhoneImageViewer from '../PhoneImageViewer';
-import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
+import { sendStatusLine, usePromptSender, type OutgoingMessage } from './usePromptSender';
 import { useDriverName } from './useDriverName';
 import { useComposerVideos } from './useComposerVideos';
 import ComposerVideoChip from './ComposerVideoChip';
@@ -93,17 +93,6 @@ const MAX_LINES = 6;
 const HOLD_MS = 500;
 const PLUS_DETENTS = ['fit'] as const;
 const PHOTO_DETENTS = ['large'] as const;
-
-function statusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
-  switch (state.phase) {
-    case 'sending': return 'Sending…';
-    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
-    case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
-    case 'failed': return state.message;
-    case 'unsure': return state.message;
-    default: return null;
-  }
-}
 
 export default function Composer({ session, card, inputRef }: ComposerProps) {
   const sessionId = session.sessionId;
@@ -433,7 +422,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
   }, [appendToDraft, sessionId, focusAt]);
 
-  const line = statusLine(sender.state, cliName, windowOpen);
+  const line = sendStatusLine(sender.state, cliName, windowOpen);
   const failed = sender.state.phase === 'failed';
   const dismissable = failed || sender.state.phase === 'unsure';
   const longLabel = decision.label.length > 8;

@@ -184,12 +184,50 @@ describe('SessionsScreen', () => {
       expect(items.some((t) => t?.startsWith(label))).toBe(true);
     }
     expect(items.some((t) => t?.startsWith('Label'))).toBe(false);
-    expect(items.some((t) => /Pin/.test(t ?? ''))).toBe(false);
+    expect(items.some((t) => t?.startsWith('Pin'))).toBe(true);
     await user.click(within(menu).getByRole('menuitem', { name: /Kill/ }));
     expect(requestSessionKill).not.toHaveBeenCalled();
     const confirm = await screen.findByRole('dialog', { name: 'Kill this session?' });
     await user.click(within(confirm).getByRole('button', { name: 'Kill session' }));
     await waitFor(() => expect(requestSessionKill).toHaveBeenCalledWith('s2', 'term-s2'));
+  });
+
+  describe('Pin from the row menu (Nov 2 2026)', () => {
+    it('pins on the Mac at once and says so', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+      expect(useSessionStore.getState().sessions.get('s2')?.pinned).toBe(true);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s2/pinned', expect.objectContaining({
+        method: 'PUT', body: JSON.stringify({ pinned: true }),
+      })));
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/^Pinned/), 'info'));
+    });
+
+    it('offers Unpin on a pinned session', async () => {
+      const sessions = fixtures();
+      sessions.set('s3', { ...sessions.get('s3')!, pinned: true });
+      useSessionStore.setState({ sessions });
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s3'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Unpin' }));
+      expect(useSessionStore.getState().sessions.get('s3')?.pinned).toBe(false);
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith('Unpinned', 'info'));
+    });
+
+    it('puts the pin back and says why when the Mac refuses', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith('Not pinned. This session isn’t shared with this phone.', 'error'));
+      expect(useSessionStore.getState().sessions.get('s2')?.pinned).toBe(false);
+    });
   });
 
   it('renames from the long-press menu, never saving an untouched name', async () => {

@@ -104,7 +104,9 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // /sessions/:id gate answers 404 for a session that isn't shared.
   route('GET', '/sessions/:id/(chat|changes|context-breakdown)', 'allow'),
   route('GET', '/sessions/:id/changes/\\d+', 'allow'),
-  route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
+  // Pinned (Nov 2 2026, reversing AASC-50): a shared session's PINNED flag, so the Mac brings it back if it
+  // ends. No more than Restart or Resume already let a phone do to the same session; kill still unpins first.
+  route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|pinned|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
   // An AI popup (AASC-20): a floating fork of a shared session, started from its

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { isWithin } from '../fsSafe.js';
 import { cloudPublicationBlocker } from '../resourcePackages/policy.js';
 import { readPublicationPacket, type TransferPacket } from '../resourcePackages/packet.js';
@@ -19,6 +20,11 @@ import type { CloudConnector } from './types.js';
 import { CloudError } from './types.js';
 import { assertCloudBinding, type CloudBinding } from './binding.js';
 import { installedAssociationKey, type InstalledAssociation, type JobStore } from './jobStore.js';
+/** `~/…` for paths under home, so the blocked row names the file without the full path. */
+const displayPath = (p: string): string => {
+  const home = homedir();
+  return isWithin(home, p) ? `~${p.slice(home.length)}` : p;
+};
 export interface PrivatePublication {
   public: PublicationPlan;
   binding: CloudBinding;
@@ -101,7 +107,10 @@ export async function preparePublication(options: {
             x.realPath &&
             (x.realPath === path || (x.entry.kind === 'package' && isWithin(x.realPath, path))),
         );
-        if (!dep) throw new Error('A referenced local dependency is missing from the catalog.');
+        if (!dep)
+          throw new Error(
+            `References ${displayPath(path)}, which isn't in the catalog. Add it, or remove the reference.`,
+          );
         await visit(dep);
         const item = plan.items.find((x) => x.catalogId === dep.summary.id);
         if (!item)

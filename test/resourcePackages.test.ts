@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scanResources } from '../server/resourceScanner.js';
 import { readPublicationPacket } from '../server/resourcePackages/packet.js';
+import { preparePublication } from '../server/cloud/publication.js';
 import { cloudPublicationBlocker } from '../server/resourcePackages/policy.js';
 import { PackageManifestSchema } from '../src/types/cloudResources.js';
 const dirs: string[] = [];
@@ -34,6 +35,51 @@ it('reads a confined portable skill and rejects hardlinks, links, secrets and ma
   await writeFile(extra, '<!-- aasc-alias:v1 -->');
   await expect(readPublicationPacket(r)).rejects.toThrow(/alias/i);
   expect(cloudPublicationBlocker({ ...r.summary, type: 'settings' })).toMatch(/adapter/i);
+});
+it('a ../ reference counts as a dependency only when its target exists', async () => {
+  const { home, r } = await fixture();
+  const skill = join(r.entry.absPath, 'SKILL.md');
+  // An example of a broken link inside the prose (align-existing-feature-docs had one).
+  await writeFile(
+    skill,
+    '---\nname: demo\ndescription: test\n---\nSee `../strategies/bb.md` and ../helper/SKILL.md',
+  );
+  expect((await readPublicationPacket(r)).dependencies).toEqual([]);
+  await mkdir(join(home, '.claude', 'skills', 'helper'), { recursive: true });
+  await writeFile(join(home, '.claude', 'skills', 'helper', 'SKILL.md'), 'x');
+  expect((await readPublicationPacket(r)).dependencies).toEqual([
+    join(home, '.claude', 'skills', 'helper', 'SKILL.md'),
+  ]);
+});
+it('a blocked publication names the dependency missing from the catalog', async () => {
+  const { home, r } = await fixture();
+  await writeFile(
+    join(r.entry.absPath, 'SKILL.md'),
+    '---\nname: demo\ndescription: t\n---\n../helper/SKILL.md',
+  );
+  await mkdir(join(home, '.claude', 'skills', 'helper'), { recursive: true });
+  await writeFile(join(home, '.claude', 'skills', 'helper', 'SKILL.md'), 'x');
+  const binding = {
+    backendOrigin: 'https://cloud.example',
+    accountId: 'd23c54de-1b99-4802-87bf-d84ddba2fdf1',
+    generation: 1,
+  };
+  const plan = await preparePublication({
+    selection: [{ resourceId: r.summary.id, include: true }],
+    binding,
+    cloud: { status: () => ({ connection: binding }) } as never,
+    store: {} as never,
+    resources: [r], // helper is on disk but was not scanned into the catalog
+    roots: {} as never,
+  });
+  expect(plan.public.blocked).toEqual([
+    {
+      catalogId: r.summary.id,
+      reason: expect.stringMatching(
+        /^References .*helper\/SKILL\.md, which isn't in the catalog\./,
+      ),
+    },
+  ]);
 });
 it('validates traversal, case collisions and file-directory collisions', () => {
   const m = {

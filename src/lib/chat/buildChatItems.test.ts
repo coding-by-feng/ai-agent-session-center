@@ -5,7 +5,7 @@
 // prompts at the end, redacted inputs shown plainly, and one search predicate.
 import { describe, it, expect } from 'vitest';
 import type { ChatEntry } from '@/types/chat';
-import { buildChatItems, findMatches, type ChatItem, type ToolItem, type ToolGroupItem } from './buildChatItems';
+import { buildChatItems, findMatches, type ChatItem, type QuestionItem, type ToolItem, type ToolGroupItem } from './buildChatItems';
 
 const T0 = Date.parse('2026-10-15T10:00:00.000Z');
 
@@ -287,6 +287,79 @@ describe('buildChatItems — live, partial and redacted', () => {
 
   it('ignores an entry kind it doesn’t know', () => {
     expect(buildChatItems(stream({ kind: 'mystery' }, { kind: 'assistant', text: 'hi' })).map((i) => i.kind)).toEqual(['assistant']);
+  });
+});
+
+describe('buildChatItems — questions (Nov 2 2026)', () => {
+  const ask = {
+    questions: [{ question: 'Which layout?', header: 'Layout', multiSelect: false, options: [{ label: 'Cards', description: 'One per project' }, { label: 'List' }] }],
+  };
+  const question = (items: ChatItem[]) => items.find((i): i is QuestionItem => i.kind === 'question');
+
+  it('draws Claude’s open AskUserQuestion as an open question card', () => {
+    const items = buildChatItems(stream(
+      { kind: 'user', text: 'build it' },
+      { kind: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: ask },
+    ), { live: true, awaiting: true });
+    expect(kinds(items)).toEqual(['user', 'question']);
+    expect(question(items)).toMatchObject({
+      id: 'toolu_q', cli: 'claude', open: true, failed: false, answers: [null],
+      questions: [{ question: 'Which layout?', header: 'Layout', options: [{ label: 'Cards', description: 'One per project' }, { label: 'List' }] }],
+    });
+  });
+
+  it('marks Claude’s pick from its result, and is closed', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'q', name: 'AskUserQuestion', input: ask },
+      { kind: 'tool_result', toolUseId: 'q', isError: false, output: 'User has answered your questions: "Which layout?"="List". You can now continue with the user\'s answers in mind.', truncated: false },
+      { kind: 'assistant', text: 'A list it is.' },
+    ));
+    expect(question(items)).toMatchObject({ open: false, failed: false, answers: [['List']] });
+    expect(question(items)?.searchText).toContain('List');
+  });
+
+  it('says a declined Claude question failed', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'q', name: 'AskUserQuestion', input: ask },
+      { kind: 'tool_result', toolUseId: 'q', isError: true, output: 'The user doesn\'t want to proceed', truncated: false },
+    ));
+    expect(question(items)).toMatchObject({ open: false, failed: true, answers: [null] });
+  });
+
+  it('keeps a Codex question open until you send a message, then marks an exact pick', () => {
+    const codexAsk = { questions: [{ title: 'Deploy which?', options: ['Current (recommended)', 'Local'] }] };
+    const asked = stream(
+      { kind: 'user', text: 'deploy' },
+      { kind: 'tool_use', id: 'call_1', name: 'request_user_input_async', input: codexAsk },
+      { kind: 'tool_result', toolUseId: 'call_1', isError: false, output: '{"accepted":true}', truncated: false },
+      { kind: 'assistant', text: 'Which version should go out?' },
+    );
+    expect(question(buildChatItems(asked))).toMatchObject({ cli: 'codex', open: true, answers: [null] });
+    const picked = [...asked, ...stream({ kind: 'user', text: 'Local' }).map((e) => ({ ...e, key: '900:0' }))];
+    expect(question(buildChatItems(picked))).toMatchObject({ open: false, answers: [['Local']] });
+    const typed = [...asked, ...stream({ kind: 'user', text: 'go with local please' }).map((e) => ({ ...e, key: '900:0' }))];
+    expect(question(buildChatItems(typed))).toMatchObject({ open: false, answers: [null] });
+  });
+
+  it('falls back to a tool row for input it can’t read, never folded', () => {
+    const items = buildChatItems(stream(
+      { kind: 'tool_use', id: 'a', name: 'Read', input: { file_path: 'a' } },
+      { kind: 'tool_result', toolUseId: 'a', isError: false, output: 'x', truncated: false },
+      { kind: 'tool_use', id: 'q', name: 'request_user_input', input: '{"questions":[{"tit' },
+      { kind: 'tool_result', toolUseId: 'q', isError: false, output: '{"accepted":true}', truncated: false },
+      { kind: 'tool_use', id: 'b', name: 'Read', input: { file_path: 'b' } },
+      { kind: 'tool_result', toolUseId: 'b', isError: false, output: 'y', truncated: false },
+    ));
+    expect(kinds(items)).toEqual(['tool', 'tool', 'tool']);
+  });
+
+  it('changes its sig when it is answered', () => {
+    const open = question(buildChatItems(stream({ kind: 'tool_use', id: 'q', name: 'AskUserQuestion', input: ask }), { live: true, awaiting: true }))!;
+    const done = question(buildChatItems(stream(
+      { kind: 'tool_use', id: 'q', name: 'AskUserQuestion', input: ask },
+      { kind: 'tool_result', toolUseId: 'q', isError: false, output: 'User has answered your questions: "Which layout?"="Cards".', truncated: false },
+    )))!;
+    expect(open.sig).not.toBe(done.sig);
   });
 });
 

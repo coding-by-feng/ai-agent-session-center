@@ -12,6 +12,8 @@
  * useRequestAnswer answers through the Mac's checked route. Answered elsewhere →
  * "Already answered on your Mac"; the Mac can't tell the choices → only "Open
  * terminal". The card is server state, so it comes back after a reconnect.
+ * While the chat shows the question as its own card (items/QuestionCard, Nov 2 2026), the
+ * choices are there and this card says so instead of repeating them.
  */
 import { useId } from 'react';
 import type { Session } from '@/types';
@@ -19,6 +21,7 @@ import { Button, ConfirmSheet } from '../kit';
 import { ChevronRightIcon } from '../kit/kitIcons';
 import { offeredChoices, type CardDetail, type WaitingCard as WaitingCardData } from '@/lib/chat/waitingCardModel';
 import { choiceKey, useRequestAnswer } from './useRequestAnswer';
+import { useAnsweredInChat } from './chatQuestions';
 import { QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/WaitingCard.module.css';
 
@@ -94,8 +97,12 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
   const tone = card.kind === 'question' ? 'question' : 'approval';
   const terminalOnly = card.terminalOnly || outcome?.kind === 'terminal-only';
   const settled = outcome?.kind === 'sent' || outcome?.kind === 'stale';
-  const showChoices = !terminalOnly && !settled && card.choices.length > 0;
   const isQuestion = card.kind === 'question';
+  // A question card in the chat offers the same choices (items/QuestionCard): the card here keeps
+  // what is asked, "Other…" and the terminal, not a second set of buttons.
+  const inChat = useAnsweredInChat(session.sessionId, isQuestion ? card.requestId : null);
+  const answerable = !terminalOnly && !settled && card.choices.length > 0;
+  const showChoices = answerable && !inChat;
   const { offered, reasons } = offeredChoices(card.choices);
 
   const choices = showChoices && offered.length > 0 && (
@@ -139,6 +146,7 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
           {card.where && <p className={styles.where}>{card.where}</p>}
         </div>
         {isQuestion && choices}
+        {answerable && inChat && <p className={styles.note} data-testid="waiting-card-in-chat">Pick an answer in the chat above.</p>}
       </div>
 
       <div className={styles.fixed}>
@@ -156,7 +164,7 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
 
         <div className={styles.links}>
           {/* The box is off while another device drives: nothing to tell it in. */}
-          {showChoices && card.tell && !spectator && (
+          {answerable && card.tell && !spectator && (
             <button type="button" className={styles.link} onClick={onTell}>
               <span>{card.tell.label}</span>
               <ChevronRightIcon />

@@ -23,7 +23,7 @@ import type { Session } from '@/types';
 import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { CloneIcon, ForkIcon, KillIcon, PinIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
 import { CentralGroupHeader, PinnedGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
@@ -266,7 +266,7 @@ export default function SessionsScreen() {
   const openTerminal = useOpenTerminalScreen();
   const reads = useSessionReads();
   const now = useClock();
-  const { copy, setNotifications, markRead } = useSessionActions();
+  const { copy, setNotifications, setPinned, markRead } = useSessionActions();
 
   const [filter, setFilter] = useState<SessionsFilter>('all');
   const [groupChoice, setGroupChoice] = useState<SessionsGroupBy | null>(readGroupChoice);
@@ -356,6 +356,8 @@ export default function SessionsScreen() {
     const menuItems: ContextMenuItem[] = [
       { id: 'read', label: 'Mark read', disabledReason: unread ? undefined : 'Nothing new since you read it.', onSelect: () => markRead(s) },
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
+      // The desktop's PINNED frame and respawn (Nov 2 2026; AASC-50 had kept a phone from pinning).
+      { id: 'pin', label: s.pinned ? 'Unpin' : 'Pin', icon: <PinIcon />, onSelect: () => void setPinned(s, !s.pinned) },
       { id: 'rename', label: 'Rename', icon: <RenameIcon />, onSelect: () => openSheet(id, 'rename') },
       { id: 'remark', label: 'Remark…', onSelect: () => openSheet(id, 'remark') },
       { id: 'room', label: 'Move to room…', icon: <RoomIcon />, onSelect: () => openSheet(id, 'move-room') },
@@ -365,7 +367,7 @@ export default function SessionsScreen() {
       { id: 'kill', label: 'Kill…', icon: <KillIcon />, destructive: true, disabledReason: ended ? 'It has already ended.' : undefined, onSelect: () => openSheet(id, 'kill') },
     ];
     return { swipeActions, menuItems };
-  }, [reads, markRead, setNotifications, openSheet, copy]);
+  }, [reads, markRead, setNotifications, setPinned, openSheet, copy]);
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);

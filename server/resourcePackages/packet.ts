@@ -26,6 +26,11 @@ export interface TransferPacket {
   relativePath: string;
   dependencies: string[];
 }
+const pathExists = (p: string): Promise<boolean> =>
+  lstat(p).then(
+    () => true,
+    () => false,
+  );
 export const digest = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 export function packetHash(files: PacketFile[]): string {
   return digest(
@@ -114,7 +119,8 @@ export async function readPublicationPacket(r: InternalResource): Promise<Transf
         /(?:\.\.\/)+([A-Za-z0-9_.-]+)\/(?:SKILL\.md|[^\s)"'`]*_shared[^\s)"'`]*|[^\s)"'`]+)/g,
       )) {
         const target = resolve(abs, '..', match[0]);
-        if (!isWithin(r.realPath!, target)) dependencies.add(target);
+        // A path that doesn't exist is a broken link or prose example, not something to ship.
+        if (!isWithin(r.realPath!, target) && (await pathExists(target))) dependencies.add(target);
       }
     }
     files.push({

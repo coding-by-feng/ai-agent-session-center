@@ -37,6 +37,7 @@ import ChatSearchBar from './ChatSearchBar';
 import ChatTerminalStart from './ChatTerminalStart';
 import StatusStrip from './StatusStrip';
 import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
+import { ChatTerminalContext } from './chatQuestions';
 import SelectionReadAloud from './SelectionReadAloud';
 import { useChatLive } from './useChatLive';
 import { useChatScroll } from './useChatScroll';
@@ -201,7 +202,9 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
       popup={popup}
     />
   );
-  return fileLinks ? <FileLinkContext.Provider value={fileLinks}>{body}</FileLinkContext.Provider> : body;
+  // Question cards in the chat open the terminal for a question only it can answer (chatQuestions).
+  const withTerminal = <ChatTerminalContext.Provider value={onTerminal}>{body}</ChatTerminalContext.Provider>;
+  return fileLinks ? <FileLinkContext.Provider value={fileLinks}>{withTerminal}</FileLinkContext.Provider> : withTerminal;
 }
 
 interface ChatBodyProps {
