@@ -2,7 +2,7 @@
 // keychain item (electron/edition.ts), and what it leaves out must be nothing the server loads.
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import viteLite from '../vite.config.lite';
 import viteFull from '../vite.config';
@@ -12,7 +12,8 @@ const full = require('../electron-builder.json') as Record<string, never>;
 const lite = require('../electron-builder.lite.cjs') as {
   appId: string; productName: string; files: Array<string | { from: string; to: string }>;
   extraMetadata: Record<string, unknown>; directories: { output: string };
-  linux: { artifactName: string; executableName: string }; deb: { packageName: string }; dmg: { title: string };
+  linux: { artifactName: string; executableName: string; icon: string }; deb: { packageName: string }; dmg: { title: string };
+  mac: { icon: string }; win: { icon: string };
   [key: string]: unknown;
 };
 
@@ -50,6 +51,33 @@ describe('the Lite package', () => {
     expect(lite.linux.artifactName).toMatch(/^ai-agent-session-center-lite-/);
     expect(lite.linux.executableName).toBe('ai-agent-session-center-lite');
     expect(lite.deb.packageName).toBe('ai-agent-session-center-lite');
+  });
+
+  // Both editions install side by side, so the Dock, Applications folder and desktop must tell them apart. Without
+  // linux.icon electron-builder falls back to mac.icon, so all three are stated.
+  it('has its own icon on every platform', () => {
+    const fullIcons = full as unknown as { mac: { icon: string }; win: { icon: string } };
+    for (const [icon, fullIcon] of [
+      [lite.mac.icon, fullIcons.mac.icon],
+      [lite.win.icon, fullIcons.win.icon],
+      [lite.linux.icon, fullIcons.mac.icon],
+    ]) {
+      expect(icon).toMatch(/^electron\/icon\/icon-lite\./);
+      expect(existsSync(icon), icon).toBe(true);
+      expect(readFileSync(icon).equals(readFileSync(fullIcon)), icon).toBe(false);
+    }
+  });
+
+  it('changes only the icon in the platform settings it inherits from Full', () => {
+    const base = full as unknown as { mac: object; win: object };
+    expect(lite.mac).toEqual({ ...base.mac, icon: lite.mac.icon });
+    expect(lite.win).toEqual({ ...base.win, icon: lite.win.icon });
+  });
+
+  it('leaves Full on the original icons', () => {
+    const base = full as unknown as { mac: { icon: string }; win: { icon: string } };
+    expect(base.mac.icon).toBe('electron/icon/icon.icns');
+    expect(base.win.icon).toBe('electron/icon/icon.ico');
   });
 
   it('builds into its own folder, so it cannot overwrite a Full build', () => {

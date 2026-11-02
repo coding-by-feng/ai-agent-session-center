@@ -21,8 +21,13 @@ module.exports = {
   ],
   afterPack: 'scripts/verify-lite-package.cjs',
   dmg: { ...base.dmg, title: productName },
+  // The same robot as Full with a green keyboard, so the two can be told apart when both are installed.
+  // Linux converts the .icns, as Full's does through mac.icon; stated so it can't follow a change to mac.
+  mac: { ...base.mac, icon: 'electron/icon/icon-lite.icns' },
+  win: { ...base.win, icon: 'electron/icon/icon-lite.ico' },
   linux: {
     ...base.linux,
+    icon: 'electron/icon/icon-lite.icns',
     artifactName: 'ai-agent-session-center-lite-${version}-${arch}.${ext}',
     executableName: 'ai-agent-session-center-lite',
   },
