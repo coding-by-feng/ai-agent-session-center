@@ -5,9 +5,11 @@
 // tap had just opened was clipped to 0px. A second tap meant for "haiku" landed on the keyboard
 // instead. A finger asked for the list, not for typing: only a mouse or pen keeps the focus
 // (and with it the arrow keys).
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import Combobox from './Combobox';
+import Modal from './Modal';
+import { useUiStore } from '@/stores/uiStore';
 
 const ITEMS = ['fable', 'opus', 'sonnet', 'haiku'];
 
@@ -173,7 +175,7 @@ describe('Combobox searchable', () => {
     expect(rows()).toHaveLength(DIRS.length);
   });
 
-  // The search box is portaled out of any modal, so Tab from it would leave an aria-modal dialog
+  // The search box is the last stop in the dialog or the page, so Tab from it would leave the field behind
   // with the list still open: Tab closes the list and continues from the field.
   it('Tab from the search box closes the list and returns to the field', () => {
     open();
@@ -200,10 +202,8 @@ describe('Combobox rows break at path separators', () => {
   });
 });
 
-// Nov 2 2026: the Working Directory list blanked the desktop app. The unplaced popover was
-// `visibility: hidden` (ignored by the accessibility tree); flipping it shown while focus moved into
-// its search box tripped a fatal Chromium 132 check (ax_object.cc:3471) when a macOS accessibility
-// client was on. Before it is placed it must be see-through and unclickable, never hidden.
+// Before it is placed the popover is see-through and unclickable, never `visibility: hidden`. Nov 2
+// 2026's first attempt at the blank-window crash; the cause is pinned in the last describe below.
 describe('Combobox popover before placement', () => {
   it('is never visibility:hidden, and cannot catch clicks until placed', () => {
     const styles: string[] = [];
@@ -222,5 +222,99 @@ describe('Combobox popover before placement', () => {
     expect(unplaced.length).toBeGreaterThan(0);
     expect(unplaced.every((s) => /pointer-events:\s*none/.test(s))).toBe(true);
     expect(styles.some((s) => s.includes('visibility'))).toBe(false);
+  });
+});
+
+// Nov 3 2026: with an accessibility tool on, the first click on the New Terminal Session dialog's
+// Working Directory ▾ still killed the renderer (Chromium 132, ax_object.cc:3471). The dialog is
+// aria-modal, so accessibility tools ignore everything outside it, and the list was drawn in <body>
+// with focus moving into it. jsdom can't reach that check: packaged builds, run with
+// --force-renderer-accessibility, are where it shows. These pin where the list lands.
+describe('Combobox list and a modal dialog', () => {
+  afterEach(() => {
+    act(() => useUiStore.getState().closeModal());
+    cleanup();
+  });
+
+  function inAriaModal() {
+    render(
+      <div role="dialog" aria-modal="true" data-testid="dialog">
+        <Combobox value="" onChange={vi.fn()} items={ITEMS} searchable searchLabel="Search folders" />
+      </div>,
+    );
+    return { dialog: screen.getByTestId('dialog'), toggle: screen.getByRole('button', { name: 'Toggle dropdown' }) };
+  }
+
+  it('draws the list and its search box inside the dialog', () => {
+    const { dialog, toggle } = inAriaModal();
+    press(toggle, 'mouse');
+    expect(dialog.contains(screen.getByRole('listbox'))).toBe(true);
+    expect(dialog.contains(screen.getByRole('searchbox', { name: 'Search folders' }))).toBe(true);
+  });
+
+  it('draws it inside the dialog when typing or the arrow keys open it too', () => {
+    const { dialog } = inAriaModal();
+    const input = screen.getByRole('combobox');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(dialog.contains(screen.getByRole('listbox'))).toBe(true);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.change(input, { target: { value: 'o' } });
+    expect(dialog.contains(screen.getByRole('listbox'))).toBe(true);
+  });
+
+  it('draws it directly in <body> outside a modal, so a scroller cannot clip it', () => {
+    render(
+      <div data-testid="host" role="dialog">
+        <Combobox value="" onChange={vi.fn()} items={ITEMS} />
+      </div>,
+    );
+    press(screen.getByRole('button', { name: 'Toggle dropdown' }), 'mouse');
+    const listbox = screen.getByRole('listbox');
+    expect(screen.getByTestId('host').contains(listbox)).toBe(false);
+    expect(listbox.closest('body')).toBe(document.body);
+  });
+
+  function inRealModal() {
+    render(
+      <Modal modalId="combobox-test" title="Test dialog">
+        <Combobox value="" onChange={vi.fn()} items={ITEMS} searchable searchLabel="Search folders" />
+      </Modal>,
+    );
+    act(() => useUiStore.getState().openModal('combobox-test'));
+    const dialog = screen.getByRole('dialog');
+    press(screen.getByRole('button', { name: 'Toggle dropdown' }), 'mouse');
+    return { dialog, search: screen.getByRole('searchbox', { name: 'Search folders' }) };
+  }
+
+  it('sits inside the real Modal, and Escape closes the list but not the dialog', () => {
+    const { dialog, search } = inRealModal();
+    expect(dialog.contains(screen.getByRole('listbox'))).toBe(true);
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+  });
+
+  it('Tab from the search box closes the list and goes back to the field', () => {
+    const { search } = inRealModal();
+    search.focus();
+    fireEvent.keyDown(search, { key: 'Tab' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+  });
+
+  it('a press on a row picks it without closing the dialog', () => {
+    const onChange = vi.fn();
+    render(
+      <Modal modalId="combobox-test" title="Test dialog">
+        <Combobox value="" onChange={onChange} items={ITEMS} searchable searchLabel="Search folders" />
+      </Modal>,
+    );
+    act(() => useUiStore.getState().openModal('combobox-test'));
+    press(screen.getByRole('button', { name: 'Toggle dropdown' }), 'mouse');
+    const row = screen.getByRole('option', { name: 'opus' });
+    fireEvent.mouseDown(row);
+    expect(onChange).toHaveBeenCalledWith('opus');
+    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 });

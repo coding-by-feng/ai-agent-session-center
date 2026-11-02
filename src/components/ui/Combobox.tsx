@@ -18,14 +18,20 @@ import { placeMenu, type MenuPosition } from '@/lib/menuPlacement';
 import { matchesQuery, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 import styles from '@/styles/modules/Combobox.module.css';
 
-/**
- * The popover before it is placed: see-through and unclickable, never `visibility: hidden`. A hidden
- * container is ignored by the accessibility tree, and flipping it shown while focus moves into its
- * search box tripped a fatal Chromium 132 check (ax_object.cc:3471, "Stale values" on an ignored <div>
- * with 2 children) whenever a macOS accessibility client was on: the renderer died and the window went
- * blank (crash dumps Oct 28, Oct 29, Nov 2 2026). The layout effect places it before the first paint.
- */
+/** The popover before it is placed: see-through and unclickable. The layout effect places it before the first paint. */
 const UNPLACED_STYLE: CSSProperties = { opacity: 0, pointerEvents: 'none', top: 0, left: 0 };
+
+/**
+ * Where the list is drawn: inside the modal dialog that holds the field, else <body> so no scroller clips it.
+ * Portaled to <body> from an aria-modal dialog, opening this list killed the renderer whenever accessibility was
+ * on: a fatal Chromium 132 check, ax_object.cc:3471 (crashes Oct 27, Oct 29, Nov 2 2026). Why this list is not
+ * known: the prompt picker and the chain menus are portaled the same way and take focus there too, and they don't
+ * crash (packaged, complete and basic, Nov 3 2026). The list is `position: fixed`, so the dialog needs no transform
+ * or filter.
+ */
+function listContainer(field: Element | null): HTMLElement {
+  return field?.closest<HTMLElement>('[aria-modal="true"]') ?? document.body;
+}
 
 /** Fallback for the list's cap when --cb-cap can't be read (Combobox.module.css owns it). */
 const LIST_MAX_HEIGHT = 200;
@@ -51,6 +57,7 @@ function withPathBreaks(text: string): ReactNode[] {
 
 export default function Combobox({ value, onChange, items, placeholder, className, searchable = false, searchLabel = 'Search' }: ComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [container, setContainer] = useState<HTMLElement | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState('');
@@ -134,6 +141,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
     setShowAll(all);
     setQuery('');
     focusSearchRef.current = searchable && focusSearch;
+    setContainer(listContainer(wrapperRef.current));
     setIsOpen(true);
   }
 
@@ -211,8 +219,8 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
         if (document.activeElement === searchRef.current) inputRef.current?.focus();
       }
     } else if (e.key === 'Tab' && document.activeElement === searchRef.current) {
-      // The search box is portaled out of any modal (and its focus trap): close the list and let
-      // Tab carry on from the field, or it would leave the dialog with the list still open.
+      // Close the list and let Tab carry on from the field: the search box is the last thing in the
+      // dialog or the page, so Tab would otherwise leave the field behind with the list still open.
       setIsOpen(false);
       inputRef.current?.focus();
     }
@@ -255,7 +263,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
           &#x25BE;
         </button>
       </div>
-      {isOpen && createPortal(
+      {isOpen && container && createPortal(
         <div
           ref={popRef}
           className={`${styles.popover}${searchable ? ` ${styles.popoverSearchable}` : ''}`}
@@ -312,7 +320,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
             </div>
           )}
         </div>,
-        document.body,
+        container,
       )}
     </div>
   );
