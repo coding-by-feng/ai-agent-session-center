@@ -17,6 +17,7 @@ import { activeProjectFile, postOpenFile } from '@/lib/projectPopoutFile';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useNotesStore } from '@/stores/notesStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { IS_LITE, liteSessionTabs } from '@/lib/edition';
 import { countLiveAgents } from '@/lib/agentFlow';
 
 const STORAGE_KEY = 'active-tab';
@@ -42,6 +43,8 @@ interface DetailTabsProps {
   onTabChange?: (tabId: string) => void;
   /** Session ID used to persist split-ratio per session */
   sessionId?: string;
+  /** False for a session with no terminal: Lite then adds CONVERSATION (edition.ts) */
+  hasTerminal?: boolean;
   /** When set, programmatically switches to this tab */
   externalActiveTab?: string | null;
   /** Search bar props */
@@ -308,6 +311,7 @@ export default function DetailTabs({
   commandsContent,
   onTabChange,
   sessionId,
+  hasTerminal = true,
   externalActiveTab,
   searchQuery,
   searchOpen,
@@ -330,8 +334,12 @@ export default function DetailTabs({
   // The open tab is remembered across sessions (one key for them all), so it may be ACTIVITY while the selected
   // session is no central and has no such tab: it shows the terminal then, and the choice is kept for the next
   // central rather than rewritten.
-  const shownTab = activeTab === ACTIVITY_TAB.id && !activityContent ? 'terminal' : activeTab;
-  const tabs: ReadonlyArray<{ id: string; label: string }> = activityContent ? [...BASE_TABS, ACTIVITY_TAB] : BASE_TABS;
+  const queueCount = useQueueStore((s) =>
+    sessionId ? s.queues.get(sessionId)?.length ?? 0 : 0);
+  const allTabs: ReadonlyArray<{ id: string; label: string }> = activityContent ? [...BASE_TABS, ACTIVITY_TAB] : BASE_TABS;
+  const tabs = IS_LITE ? liteSessionTabs(allTabs, queueCount, hasTerminal) : allTabs;
+  // Same rule for a tab Lite doesn't show: a saved choice or a deep link may name one.
+  const shownTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : 'terminal';
 
   // Allow external callers to switch tabs programmatically
   useEffect(() => {
@@ -373,8 +381,6 @@ export default function DetailTabs({
   // never synced to the client (the update_queue_count WS message is unused).
   const notesCount = useNotesStore((s) =>
     sessionId ? s.notes.get(sessionId)?.length ?? 0 : 0);
-  const queueCount = useQueueStore((s) =>
-    sessionId ? s.queues.get(sessionId)?.length ?? 0 : 0);
   // Subagents working now plus teammates working or waiting on the user.
   const agentsCount = useSessionStore((s) =>
     sessionId ? countLiveAgents(s.sessions.get(sessionId), s.sessions) : 0);
@@ -656,21 +662,25 @@ export default function DetailTabs({
                   </Tooltip>
                   {/* Detach is an ACTION, not a third layout mode — the rule
                       keeps it from reading as one. */}
-                  <span className={styles.toggleDivider} aria-hidden="true" />
-                  <Tooltip {...tooltips.floatProject}>
-                    <span
-                      className={styles.splitToggle}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openProjectWindow();
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={tooltips.floatProject.label}
-                    >
-                      <DetachIcon />
-                    </span>
-                  </Tooltip>
+                  {!IS_LITE && (
+                    <>
+                      <span className={styles.toggleDivider} aria-hidden="true" />
+                      <Tooltip {...tooltips.floatProject}>
+                        <span
+                          className={styles.splitToggle}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openProjectWindow();
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={tooltips.floatProject.label}
+                        >
+                          <DetachIcon />
+                        </span>
+                      </Tooltip>
+                    </>
+                  )}
                 </>
               )}
             </button>

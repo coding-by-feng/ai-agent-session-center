@@ -18,6 +18,7 @@ import CentralSessionsSetting from './CentralSessionsSetting';
 import SessionSleepSetting from './SessionSleepSetting';
 import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import { APP_BUILD, APP_VERSION, versionSummary } from '@/lib/appVersion';
+import { IS_LITE, LITE_SETTINGS_TABS } from '@/lib/edition';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -102,7 +103,7 @@ export default function SettingsPanel() {
 
         {/* Tab Navigation */}
         <div className={styles.tabs}>
-          {TABS.filter((tab) => !(tab.hideInNativeApp && isNativeMobileApp())).map((tab) => (
+          {TABS.filter((tab) => !(tab.hideInNativeApp && isNativeMobileApp()) && (!IS_LITE || LITE_SETTINGS_TABS.has(tab.id))).map((tab) => (
             <button
               key={tab.id}
               className={`${styles.tab}${activeTab === tab.id ? ` ${styles.active}` : ''}`}

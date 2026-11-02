@@ -6,6 +6,7 @@
  * hover was painted from JS and there was no keyboard focus or pressed state.
  */
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { IS_LITE } from '@/lib/edition';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
@@ -226,16 +227,18 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
           {soundEnabled ? 'Sound On' : 'Muted'}
         </button>
 
-        <button
-          type="button"
-          className={`${styles.hudButton} ${scene3dEnabled ? '' : styles.hudButtonOffWarning}`}
-          onClick={() => setScene3dEnabled(!scene3dEnabled)}
-          title={scene3dEnabled ? 'Disable 3D scene to save CPU/GPU' : 'Enable 3D scene'}
-          aria-label="3D scene"
-          aria-pressed={scene3dEnabled}
-        >
-          {scene3dEnabled ? '3D On' : '3D Off'}
-        </button>
+        {!IS_LITE && (
+          <button
+            type="button"
+            className={`${styles.hudButton} ${scene3dEnabled ? '' : styles.hudButtonOffWarning}`}
+            onClick={() => setScene3dEnabled(!scene3dEnabled)}
+            title={scene3dEnabled ? 'Disable 3D scene to save CPU/GPU' : 'Enable 3D scene'}
+            aria-label="3D scene"
+            aria-pressed={scene3dEnabled}
+          >
+            {scene3dEnabled ? '3D On' : '3D Off'}
+          </button>
+        )}
 
         <RoomPanel />
       </div>

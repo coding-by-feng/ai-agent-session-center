@@ -26,6 +26,7 @@ import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
+import { IS_LITE } from '@/lib/edition';
 import styles from '@/styles/modules/LiveEmptyState.module.css';
 
 const actionClass = () => styles.action;
@@ -34,7 +35,7 @@ const actionClass = () => styles.action;
 function ThreeDFooter() {
   const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
   const setScene3dEnabled = useSettingsStore((s) => s.setScene3dEnabled);
-  if (scene3dEnabled) return null;
+  if (IS_LITE || scene3dEnabled) return null;
   return (
     <div className={styles.footer}>
       <span>Want the 3D office?</span>

@@ -8,6 +8,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { jumpToSessionNumber } from '@/lib/sessionJump';
+import { IS_LITE } from '@/lib/edition';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,8 +42,9 @@ export function useKeyboardShortcuts(): void {
       const currentModal = useUiStore.getState().activeModal;
       const selectedId = useSessionStore.getState().selectedSessionId;
 
-      // Cmd+Shift+F (macOS) / Ctrl+Shift+F — open global session content search
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+      // Cmd+Shift+F (macOS) / Ctrl+Shift+F — open global session content search.
+      // Not in Lite: a hit opens inside CONVERSATION, which Lite hides.
+      if (!IS_LITE && e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault();
         if (currentModal === 'global-search') {
           closeModal();

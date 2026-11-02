@@ -1,5 +1,5 @@
 #!/bin/bash
-# Guided first-run helper for "AI Agent Session Center".
+# Guided first-run helper for "AI Agent Session Center" and its Lite edition.
 #
 # macOS flags brand-new apps downloaded from the internet with a "quarantine"
 # attribute. For an unsigned/un-notarized app this shows up as:
@@ -12,10 +12,14 @@
 
 set -uo pipefail
 
-APP_NAME="AI Agent Session Center"
-TITLE="$APP_NAME — First-Run Setup"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Both DMGs ship this one script, so it takes its name from the app beside it.
+APP_NAME="AI Agent Session Center"
+for beside in "$SCRIPT_DIR"/AI\ Agent\ Session\ Center*.app; do
+  if [ -d "$beside" ]; then APP_NAME="$(basename "$beside" .app)"; break; fi
+done
+TITLE="$APP_NAME — First-Run Setup"
 
 # Candidate install locations, in priority order.
 CANDIDATES=(

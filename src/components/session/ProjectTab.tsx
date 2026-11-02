@@ -49,6 +49,7 @@ import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
+import { IS_LITE } from '@/lib/edition';
 import { extractDomSelection } from '@/lib/selectionExtractors';
 import { useSettingsStore } from '@/stores/settingsStore';
 import styles from '@/styles/modules/ProjectTab.module.css';
@@ -1183,13 +1184,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
   );
   const isMarkdownFile = file?.ext === 'md' || file?.ext === 'mdx';
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && !mdEdit && !showFullscreen && isMarkdownFile,
+    enabled: !IS_LITE && translationEnabled && !!originSessionId && !mdEdit && !showFullscreen && isMarkdownFile,
     trigger: translationTrigger,
     containerRef: markdownRef,
     extract: popupExtract,
   });
   const popupFs = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && showFullscreen && isMarkdownFile,
+    enabled: !IS_LITE && translationEnabled && !!originSessionId && showFullscreen && isMarkdownFile,
     trigger: translationTrigger,
     containerRef: markdownFsRef,
     extract: popupExtractFs,
@@ -2164,7 +2165,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
     // a data-saved-uuid; clicking opens the record in REVIEW. Other <mark>s pass through.
     mark: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
       const uuid = (props as Record<string, unknown>)['data-saved-uuid'] as string | undefined;
-      if (!uuid) return <mark {...props}>{children}</mark>;
+      // Lite has no REVIEW to open it in: a highlight that came from Full stays plain text.
+      if (!uuid || IS_LITE) return <mark {...props}>{children}</mark>;
       return (
         <mark
           className="saved-selection"

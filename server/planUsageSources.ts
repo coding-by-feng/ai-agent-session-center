@@ -18,6 +18,7 @@ import { join } from 'path';
 import { lstatSync, watch as fsWatch, type FSWatcher, type Stats } from 'fs';
 import { lstat, open, readdir, readFile, rm, stat } from 'fs/promises';
 import type { PlanCli, PlanUsage } from '../src/types/session.js';
+import { hookQueueDir } from './hookQueueDir.js';
 import log from './logger.js';
 import { latestCodexUsage, parseClaudeSnapshot } from './planUsageCodec.js';
 import { globalRootPaths } from './resourceRoots.js';
@@ -26,9 +27,7 @@ import { globalRootPaths } from './resourceRoots.js';
 // macOS/Linux because a hook cannot predict os.tmpdir(), which is /var/folders/…
 // there. The status-line script hard-codes the same path; a test keeps the two
 // from drifting.
-const QUEUE_DIR = process.platform === 'win32'
-  ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
-  : '/tmp/claude-session-center';
+const QUEUE_DIR = hookQueueDir();
 
 /** `<queue dir>/usage/<session-id>.json`, one per Claude session the status-line script has seen. */
 export const USAGE_DIR = join(QUEUE_DIR, 'usage');

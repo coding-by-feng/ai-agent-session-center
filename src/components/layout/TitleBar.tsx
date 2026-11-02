@@ -4,6 +4,7 @@
  * z-index: 99999 ensures it sits above all overlays (DetailPanel, SetupWizard, etc.)
  * The native traffic-light buttons (OS-level) render above even this overlay.
  */
+import { APP_DISPLAY_NAME } from '@/lib/edition';
 import styles from '@/styles/modules/TitleBar.module.css';
 
 export default function TitleBar() {
@@ -15,7 +16,7 @@ export default function TitleBar() {
 
   return (
     <div className={styles.titleBar}>
-      <span className={styles.appName}>AI AGENT SESSION CENTER</span>
+      <span className={styles.appName}>{APP_DISPLAY_NAME.toUpperCase()}</span>
       {isElectron && (
         <button
           className={styles.exitBtn}

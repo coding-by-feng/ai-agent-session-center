@@ -10,6 +10,7 @@
  */
 import { lazy, Suspense, Component, useEffect, useMemo, useState } from 'react';
 import { isNativeMobileApp } from '@/lib/platform';
+import { IS_LITE } from '@/lib/edition';
 import type { ReactNode, ErrorInfo } from 'react';
 import type { Session } from '@/types';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -22,7 +23,8 @@ import { useLiveFlatState, useSceneEmptyState } from '@/hooks/useLiveBoard';
 import { boardSessions } from '@/lib/liveBoard';
 import styles from '@/styles/modules/LiveView.module.css';
 
-const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
+// @__PURE__: the Lite build never renders it, and only then can Rollup drop the chunk (and Three.js).
+const CyberdromeScene = /* @__PURE__ */ lazy(() => import('@/components/3d/CyberdromeScene'));
 
 // #57: Error boundary to catch 3D scene crashes gracefully
 class SceneErrorBoundary extends Component<
@@ -150,7 +152,8 @@ export default function LiveView() {
   // screen big enough for this layout.
   const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp();
 
-  if (!scene3dEnabled) {
+  // IS_LITE comes first so the scene below is dead code in the Lite build.
+  if (IS_LITE || !scene3dEnabled) {
     return (
       <div style={{ position: 'absolute', inset: 0 }}>
         <FlatView />

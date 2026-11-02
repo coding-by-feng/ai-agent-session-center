@@ -15,6 +15,7 @@ import { detectCli } from '@/lib/cliDetect';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { useSessionStore } from '@/stores/sessionStore';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
+import { IS_LITE } from '@/lib/edition';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
 import { useIsMobile } from '@/lib/platform';
 import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
@@ -149,14 +150,19 @@ export default memo(function TerminalContainer({
     return null;
   });
 
+  const isPhone = useIsMobile();
+  // A phone paired to Lite loads this same bundle and keeps its whole terminal.
+  const liteDesktop = IS_LITE && !isPhone;
+
   // ---- Hold-to-speak (TTS) ----
   const ttsEnabledSetting = useSettingsStore((s) => s.ttsEnabled);
   const ttsApiKey = useSettingsStore((s) => s.googleTtsApiKey);
   const ttsVoiceEn = useSettingsStore((s) => s.ttsVoiceEn);
   const ttsVoiceZh = useSettingsStore((s) => s.ttsVoiceZh);
   const ttsRate = useSettingsStore((s) => s.ttsSpeakingRate);
-  // Effective enable: requires both the toggle AND a configured per-user key
-  const ttsEnabled = ttsEnabledSetting && ttsApiKey.trim().length > 0;
+  // Effective enable: requires both the toggle AND a configured per-user key. The Lite desktop shares
+  // Full's settings but has no way to turn voice off, so there it stays off, Space-hold included.
+  const ttsEnabled = ttsEnabledSetting && ttsApiKey.trim().length > 0 && !liteDesktop;
   const [ttsActive, setTtsActive] = useState(false);
   const ttsActiveRef = useRef(false);
   const ttsLastAbsRef = useRef<number>(-1);
@@ -281,7 +287,6 @@ export default memo(function TerminalContainer({
   // an actions sheet. The wrap/pan toggle is only offered where panning is the
   // default — a desktop terminal already fits its container, so there is
   // nothing to pan to.
-  const isPhone = useIsMobile();
   const showWrapToggle = isPhone;
   const [phoneActionsOpen, setPhoneActionsOpen] = useState(false);
   const openPhoneActions = useCallback(() => setPhoneActionsOpen(true), []);
@@ -420,7 +425,7 @@ export default memo(function TerminalContainer({
   }, [originSessionId, toggleAiPopup]);
 
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && aiPopupEnabled,
+    enabled: translationEnabled && !!originSessionId && aiPopupEnabled && !liteDesktop,
     trigger: translationTrigger,
     containerRef: rootRef,
     extract: popupExtract,
@@ -500,19 +505,19 @@ export default memo(function TerminalContainer({
         onPaste={pasteToTerminal}
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
-        onRefreshOutput={refreshOutput}
-        onClearOutput={clearOutput}
+        onRefreshOutput={liteDesktop ? undefined : refreshOutput}
+        onClearOutput={liteDesktop ? undefined : clearOutput}
         aiPopupEnabled={aiPopupEnabled}
-        onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
+        onToggleAiPopup={originSessionId && !liteDesktop ? handleToggleAiPopup : undefined}
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
         wrapMode={showWrapToggle ? widthMode : undefined}
         onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
-        onFork={onFork}
-        onClone={onClone}
+        onFork={liteDesktop ? undefined : onFork}
+        onClone={liteDesktop ? undefined : onClone}
         onRestart={onRestart}
         restartPending={restartPending}
-        onPopOut={onPopOut}
+        onPopOut={liteDesktop ? undefined : onPopOut}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (terminalIsClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
@@ -637,15 +642,15 @@ export default memo(function TerminalContainer({
               onPaste={pasteToTerminal}
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
-              onRefreshOutput={refreshOutput}
-              onClearOutput={clearOutput}
+              onRefreshOutput={liteDesktop ? undefined : refreshOutput}
+              onClearOutput={liteDesktop ? undefined : clearOutput}
                           aiPopupEnabled={aiPopupEnabled}
-              onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
+              onToggleAiPopup={originSessionId && !liteDesktop ? handleToggleAiPopup : undefined}
               autoScrollEnabled={autoScrollEnabled}
               onToggleAutoScroll={toggleAutoScroll}
               wrapMode={showWrapToggle ? widthMode : undefined}
               onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
-              onFork={onFork}
+              onFork={liteDesktop ? undefined : onFork}
               onRestart={onRestart}
               restartPending={restartPending}
               isFullscreen={isFullscreen}

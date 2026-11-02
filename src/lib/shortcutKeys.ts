@@ -1,6 +1,7 @@
 /**
  * shortcutKeys — default shortcut definitions and KeyCombo utilities.
  */
+import { IS_LITE, liteAllowsShortcut } from '@/lib/edition';
 import type { KeyCombo, ShortcutActionId, ShortcutBinding } from '@/types/shortcut';
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,10 @@ export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'Floa
 export function buildBindings(
   overrides?: Partial<Record<ShortcutActionId, KeyCombo>>,
 ): ShortcutBinding[] {
-  return ACTION_IDS.map((actionId) => {
+  // Lite has no binding at all for an action it leaves out: the key passes through to the terminal,
+  // and the shortcut lists skip it.
+  const actions = IS_LITE ? ACTION_IDS.filter(liteAllowsShortcut) : ACTION_IDS;
+  return actions.map((actionId) => {
     const def = DEFAULTS[actionId];
     return {
       actionId,

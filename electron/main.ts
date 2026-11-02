@@ -11,6 +11,9 @@ import { registerRemoteHandlers } from './ipc/remoteHandlers.js'
 import { disposeAll as disposePtyHost } from './ptyHost.js'
 import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
+import { desktopAppName, readDesktopEdition } from './edition.js'
+import { chooseLitePort, portMovedMessage, resolveServerPort } from './portPreflight.js'
+import { claimSingleInstance } from './singleInstance.js'
 import {
   POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
 } from './popoutBounds.js'
@@ -21,12 +24,18 @@ import type { PopoutKind, WindowBounds } from './popoutBounds.js'
 // Chromium's autoplay policy silently blocks AudioContext.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
+const isDev = !app.isPackaged
+const edition = readDesktopEdition(app.getAppPath())
+
+// Packaged only: `electron:dev` keeps working beside the installed app, as it always has.
+// app.exit before `ready` only takes effect once the message loop starts, so whenReady checks this too.
+const isSecondInstance = !isDev && !claimSingleInstance(app, showRunningWindow)
+if (isSecondInstance) app.exit(0)
+
 // Register as early as possible so startup crashes are covered too -- see
 // crashLogger.ts for why this exists (nothing previously observed a renderer/GPU
 // crash or wrote any log to disk once the loading screen was dismissed).
 initCrashLogger()
-
-const isDev = !app.isPackaged
 
 // Reference to server shutdown function (set after server starts in production)
 let serverShutdown: (() => Promise<void>) | null = null
@@ -104,6 +113,15 @@ async function createWindow(): Promise<BrowserWindow> {
 
 // ── Pop-out floating terminal windows (draggable to another monitor) ──
 let mainWindowRef: BrowserWindow | null = null
+
+/** Another launch (of either edition) found this app running: bring its window forward. */
+function showRunningWindow(): void {
+  if (!mainWindowRef || mainWindowRef.isDestroyed()) return
+  if (mainWindowRef.isMinimized()) mainWindowRef.restore()
+  mainWindowRef.show()
+  mainWindowRef.focus()
+  if (process.platform === 'darwin') app.focus({ steal: true })
+}
 const popoutWindows = new Map<string, BrowserWindow>()
 
 // Last-used popout window bounds, persisted per KIND (see popoutBounds.ts) so
@@ -515,6 +533,7 @@ function captureLogsToLoadingScreen(win: BrowserWindow): () => void {
 }
 
 app.whenReady().then(async () => {
+  if (isSecondInstance) return
   adoptExistingInstall()
   // Register IPC handlers first so renderer can call them on load
   registerSetupHandlers()
@@ -530,7 +549,7 @@ app.whenReady().then(async () => {
   // Create window immediately — shows loading screen in production
   const win = await createWindow()
   mainWindowRef = win
-  setupTray(win)
+  setupTray(win, desktopAppName(edition))
   buildAppMenu(win)
 
   if (!isDev) {
@@ -538,6 +557,31 @@ app.whenReady().then(async () => {
     // In dev mode the server is already running via `tsx watch server/index.ts`
     sendLoadingUpdate(win, 10, 'Starting server')
     process.env.APP_USER_DATA = app.getPath('userData')
+
+    // Lite only: the port it chose. Undefined leaves the choice to the server, as Full always does.
+    let litePort: number | undefined
+    if (edition === 'lite') {
+      const name = JSON.stringify(desktopAppName(edition))
+      js(win, `document.title = ${name}; document.querySelector('.title').textContent = ${name}`)
+      process.env.AASC_NO_PORT_KILL = '1'
+      const configPath = path.join(app.getPath('userData'), 'server-config.json')
+      const wanted = resolveServerPort(
+        process.argv.slice(2),
+        process.env,
+        existsSync(configPath) ? readFileSync(configPath, 'utf8') : null,
+      )
+      const choice = await chooseLitePort(wanted)
+      if ('stop' in choice) {
+        js(win, `window.showError && window.showError(${JSON.stringify(choice.stop)})`)
+        return
+      }
+      litePort = choice.port
+      if (litePort !== wanted) {
+        const moved = portMovedMessage(wanted, litePort)
+        sendLog(win, moved)
+        logMainError(moved)
+      }
+    }
 
     // Mirror all stdout/stderr to the loading screen
     const restoreLogs = captureLogsToLoadingScreen(win)
@@ -566,7 +610,7 @@ app.whenReady().then(async () => {
       sendLoadingUpdate(win, 30, 'Starting server')
       // The cloud device token is encrypted with the OS keychain. Linux's
       // 'basic_text' backend is plain obfuscation, so it counts as unavailable.
-      const port = await serverModule.startServer(undefined, {
+      const port = await serverModule.startServer(litePort, {
         cloudEncryption: {
           isAvailable: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
           encrypt: (value) => safeStorage.encryptString(value),

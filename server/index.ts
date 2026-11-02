@@ -1026,7 +1026,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   return new Promise<number>((resolve, reject) => {
     let retried = false;
     server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && !retried) {
+      if (err.code === 'EADDRINUSE' && process.env.AASC_NO_PORT_KILL === '1') {
+        // The Lite desktop never kills: the holder may be a running Full app and all its terminals.
+        reject(new Error(`Port ${PORT} is in use. Quit what is using it, then open the app again.`));
+      } else if (err.code === 'EADDRINUSE' && !retried) {
         retried = true;
         log.info('server', `Port ${PORT} in use -- killing existing process...`);
         killPortProcess(PORT);

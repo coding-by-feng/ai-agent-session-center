@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { SettingsButton } from '@/components/settings/SettingsPanel';
 import DevicePresenceChip from './DevicePresenceChip';
 import MemoryChip from './MemoryChip';
+import { APP_DISPLAY_NAME, IS_LITE } from '@/lib/edition';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -245,7 +246,7 @@ function ExitButton() {
 export default function Header() {
   return (
     <header className={styles.header}>
-      <div className={styles.title}>AI AGENT SESSION CENTER</div>
+      <div className={styles.title}>{APP_DISPLAY_NAME.toUpperCase()}</div>
 
       {/* All icon-only controls live in this one cluster. The `?` shortcuts
           button and the device-presence chip moved here out of NavBar, which
@@ -260,11 +261,11 @@ export default function Header() {
             That shift was previously absorbed by NavBar's flex spacer. */}
         <DevicePresenceChip />
         {/* What macOS charges AASC for: mostly the CLIs in its terminals (Oct 28 2026). */}
-        <MemoryChip />
+        {!IS_LITE && <MemoryChip />}
         {/* Workspace export/import: a desktop file-system workflow (OS file
             dialogs, snapshot files). A phone never gets this header: it has the
             phone app (AASC-48). */}
-        <WorkspaceButtons />
+        {!IS_LITE && <WorkspaceButtons />}
         <SettingsButton />
         <ExitButton />
       </div>

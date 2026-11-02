@@ -1,5 +1,6 @@
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
 import { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription, type RobotModelType } from '@/lib/robotModelMeta';
+import { IS_LITE } from '@/lib/edition';
 import styles from '@/styles/modules/Settings.module.css';
 
 export default function ThemeSettings() {
@@ -40,8 +41,8 @@ export default function ThemeSettings() {
         </div>
       </div>
 
-      {/* Character Model Picker */}
-      <div className={styles.section}>
+      {/* Character Model Picker (Lite has no 3D scene to show it in) */}
+      {!IS_LITE && <div className={styles.section}>
         <h4>3D Character Model</h4>
         <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
           Choose the robot model shown in the Cyberdrome
@@ -91,7 +92,7 @@ export default function ThemeSettings() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Font Size */}
       <div className={styles.section}>
@@ -136,8 +137,8 @@ export default function ThemeSettings() {
         </label>
       </div>
 
-      {/* Animation Controls */}
-      <div className={styles.section}>
+      {/* Animation Controls (both drive the 3D robots) */}
+      {!IS_LITE && <div className={styles.section}>
         <h4>Animation</h4>
         <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', display: 'block' }}>
           Intensity (range of 3D robot movement)
@@ -170,7 +171,7 @@ export default function ThemeSettings() {
           />
           <span style={{ minWidth: '40px', textAlign: 'right' }}>{animationSpeed}%</span>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

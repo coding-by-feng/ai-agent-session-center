@@ -33,6 +33,7 @@ import {
   currentChainStep,
   queueHoldReason,
 } from '@/lib/queueScheduler';
+import { IS_LITE } from '@/lib/edition';
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
@@ -321,7 +322,7 @@ export default function QueueTab({
   const fixedOpen = floating || isMobile;
   const collapsed = fixedOpen ? false : dockedCollapsed;
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
-  const canFloat = !floating && !isMobile;
+  const canFloat = !IS_LITE && !floating && !isMobile;
   /** List and Card are a desktop density choice; a phone has one layout (list rows, actions always shown). */
   const viewMode = isMobile ? 'list' : queueViewMode;
   /** Phone: the row whose "More" sheet is open, and the row waiting on a delete confirmation. */

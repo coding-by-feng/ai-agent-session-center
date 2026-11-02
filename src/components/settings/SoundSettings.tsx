@@ -10,6 +10,7 @@ import {
 import { ambientEngine } from '@/lib/ambientEngine';
 import { ttsEngine, checkTTSStatus } from '@/lib/ttsEngine';
 import { TTS_EN_VOICES, TTS_SAMPLE_TEXT, TTS_ZH_VOICES } from '@/lib/ttsVoices';
+import { IS_LITE } from '@/lib/edition';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -167,8 +168,8 @@ export default function SoundSettings() {
         </div>
       </div>
 
-      {/* Voice (TTS) */}
-      <div className={styles.section}>
+      {/* Voice (TTS): Lite has no Speak button, and its API key tab is hidden */}
+      {!IS_LITE && <div className={styles.section}>
         <h4>Cloud Voice (Google · English + 中文)</h4>
         <p style={{ margin: '4px 0 10px', fontSize: 12, opacity: 0.75 }}>
           Hold <kbd>Space</kbd> while focused on a session terminal to hear the latest output read aloud.
@@ -291,7 +292,7 @@ export default function SoundSettings() {
             </span>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Per-CLI Tabs */}
       <div className={styles.section}>

@@ -12,6 +12,7 @@
 import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { hookQueueDir } from './hookQueueDir.js';
 import log from './logger.js';
 import { getWaitingLabel, sanitizeModelInCommand, extractModelFromCommand } from './config.js';
 import { stripCentralLaunch } from './mcp/launch.js';
@@ -145,9 +146,7 @@ export function getEventSeq(): number {
 // fall back to /tmp only for non-Electron (standalone server) usage.
 const SNAPSHOT_DIR = process.env.APP_USER_DATA
   ? join(process.env.APP_USER_DATA, 'data')
-  : process.platform === 'win32'
-    ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
-    : '/tmp/claude-session-center';
+  : hookQueueDir();
 const SNAPSHOT_FILE = join(SNAPSHOT_DIR, 'sessions-snapshot.json');
 const SNAPSHOT_INTERVAL_MS = 10_000; // Save every 10s
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;

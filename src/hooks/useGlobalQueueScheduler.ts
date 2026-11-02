@@ -71,6 +71,7 @@ import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubm
 import { isEffortCommand } from '@/lib/queueEffort';
 import { isModelCommand } from '@/lib/queueModel';
 import { firesQueue } from '@/stores/presenceStore';
+import { IS_LITE, liteAllowsAutoResume } from '@/lib/edition';
 import { isStartReleased, setReleaseWindow } from '@/stores/startReleaseStore';
 import {
   decideResume,
@@ -161,13 +162,14 @@ export function useGlobalQueueScheduler(): void {
       terminalId: string,
       config: QueueAutomationConfig,
       now: number,
+      queueCount: number,
     ): Promise<boolean> => {
       const prev = resumeRefs.current.get(sessionId);
       const decision = decideResume(prev, {
         interruption: session.interruption ?? null,
         status: session.status,
         now,
-        enabled: config.autoResume,
+        enabled: config.autoResume && (!IS_LITE || liteAllowsAutoResume(queueCount)),
         maxRetries: config.resumeMaxRetries,
         // Fresh spread per evaluation so sessions that faulted together in a
         // provider-wide outage don't retry in lockstep.
@@ -381,12 +383,12 @@ export function useGlobalQueueScheduler(): void {
       // sit above the `items.length === 0` bail-out below. It shares
       // `firingRefs` / `coolDownRefs` with the queue so a resume and a queue
       // fire can never interleave into the same PTY.
+      const items = queueState.queues.get(sessionId);
       const resumed = hold
         ? false
-        : await maybeAutoResume(sessionId, session, terminalId, automationConfig, now);
+        : await maybeAutoResume(sessionId, session, terminalId, automationConfig, now, items?.length ?? 0);
       if (resumed || cancelled) return;
 
-      const items = queueState.queues.get(sessionId);
       if (!items || items.length === 0) return;
 
       // Auto-send OFF halts all AUTOMATIC firing, but a manual force-start and

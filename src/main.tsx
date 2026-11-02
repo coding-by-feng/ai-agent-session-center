@@ -8,6 +8,7 @@ import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { installClientIdentityHeaders } from '@/lib/presenceClient';
 import { resolveWindowRole } from '@/lib/windowRole';
+import { APP_DISPLAY_NAME, IS_LITE } from '@/lib/edition';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -25,6 +26,8 @@ import '@/styles/themes/light-overrides.css';
 // workspace restore and who holds each session's write baton from these
 // headers, and an unstamped request reads as an anonymous device.
 installClientIdentityHeaders();
+
+if (IS_LITE) document.title = APP_DISPLAY_NAME;
 
 // Block Cmd+R / Ctrl+R / F5 to prevent accidental page reload
 // (losing all terminal sessions and in-memory state)

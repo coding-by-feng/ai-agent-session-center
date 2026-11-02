@@ -2,7 +2,7 @@ import { Tray, Menu, app, BrowserWindow, nativeImage, shell } from 'electron'
 import path from 'path'
 import { getCrashLogPath } from './crashLogger.js'
 
-export function setupTray(win: BrowserWindow) {
+export function setupTray(win: BrowserWindow, appName: string) {
   const iconName = process.platform === 'win32' ? 'tray.ico' : 'tray.png'
   const iconPath = path.join(__dirname, '..', 'icon', iconName)
 
@@ -26,7 +26,7 @@ export function setupTray(win: BrowserWindow) {
   const rebuild = () => {
     tray.setContextMenu(Menu.buildFromTemplate([
       {
-        label: 'AI Agent Session Center',
+        label: appName,
         enabled: false,
       },
       { type: 'separator' },
@@ -66,7 +66,7 @@ export function setupTray(win: BrowserWindow) {
   }
 
   rebuild()
-  tray.setToolTip('AI Agent Session Center')
+  tray.setToolTip(appName)
   tray.on('double-click', () => {
     win.show()
     rebuild()
