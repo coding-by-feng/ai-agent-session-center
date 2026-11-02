@@ -11,6 +11,7 @@
  * width, so turning the phone doesn't read as a keyboard.
  */
 import { useSyncExternalStore } from 'react';
+import { PHONE_SPLIT_MIN_HEIGHT, PHONE_SPLIT_MIN_WIDTH } from '@/lib/platform';
 
 /** Shrinking by more than this is a keyboard, not a toolbar. */
 const KEYBOARD_MIN_PX = 150;
@@ -39,6 +40,19 @@ function snapshot(): boolean {
   return windowShrunk || viewportShrunk;
 }
 
+/**
+ * Does the keyboard hold the split view up? On an iPad in landscape the shell shrinks
+ * the WebView for the keyboard (1180 × 820 → ~420 tall), under the split's 600 px
+ * minimum: the layout dropped to one pane, the field lost focus, the keyboard closed,
+ * the height came back, and the keyboard flickered open and shut (Nov 2 2026). While
+ * the keyboard is up, the window's full height at this width decides instead.
+ */
+function keyboardKeepsSplitSnapshot(): boolean {
+  if (!snapshot()) return false;
+  const w = window.innerWidth;
+  return w >= PHONE_SPLIT_MIN_WIDTH && (fullHeight.get(w) ?? 0) >= PHONE_SPLIT_MIN_HEIGHT;
+}
+
 function subscribe(onChange: () => void): () => void {
   document.addEventListener('focusin', onChange);
   document.addEventListener('focusout', onChange);
@@ -54,4 +68,8 @@ function subscribe(onChange: () => void): () => void {
 
 export function useSoftKeyboardOpen(): boolean {
   return useSyncExternalStore(subscribe, snapshot, () => false);
+}
+
+export function useKeyboardKeepsSplit(): boolean {
+  return useSyncExternalStore(subscribe, keyboardKeepsSplitSnapshot, () => false);
 }

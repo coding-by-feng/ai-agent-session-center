@@ -55,7 +55,10 @@ export const MOBILE_MEDIA_QUERY =
  * screen on the right. Wide AND tall, so a big phone in landscape (~930 × 430)
  * keeps one column; an iPad in landscape (1180 × 820) splits, in portrait it doesn't.
  */
-export const PHONE_SPLIT_MEDIA_QUERY = '(min-width: 900px) and (min-height: 600px)';
+export const PHONE_SPLIT_MIN_WIDTH = 900;
+export const PHONE_SPLIT_MIN_HEIGHT = 600;
+export const PHONE_SPLIT_MEDIA_QUERY =
+  `(min-width: ${PHONE_SPLIT_MIN_WIDTH}px) and (min-height: ${PHONE_SPLIT_MIN_HEIGHT}px)`;
 
 /**
  * True on a phone-sized viewport, and always inside the AASC phone app: its UI

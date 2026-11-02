@@ -34,7 +34,7 @@ import RouteScreen from './RouteScreen';
 import { ListPaneContext } from './listPane';
 import { InboxTabIcon, MoreTabIcon, QueueTabIcon, SessionsTabIcon } from '../kit/kitIcons';
 import PhoneStack from './PhoneStack';
-import { useSoftKeyboardOpen } from './useSoftKeyboardOpen';
+import { useKeyboardKeepsSplit, useSoftKeyboardOpen } from './useSoftKeyboardOpen';
 import { useLiveActivityFeed } from './useLiveActivityFeed';
 import ToastContainer, { showToast } from '@/components/ui/ToastContainer';
 import NewSessionModal from '@/components/modals/NewSessionModal';
@@ -211,7 +211,10 @@ function ListPane({ path, registerScroller }: { path: string; registerScroller: 
 
 /** Tell the nav store whether the split view shows, before a tap can push. */
 function useSplitView(): boolean {
-  const split = useMediaQuery(PHONE_SPLIT_MEDIA_QUERY);
+  // The keyboard shrinks the WebView under the split's minimum height: it must not
+  // collapse the split, or the remount blurs the field and the keyboard flickers.
+  const keyboardKeepsSplit = useKeyboardKeepsSplit();
+  const split = useMediaQuery(PHONE_SPLIT_MEDIA_QUERY) || keyboardKeepsSplit;
   useLayoutEffect(() => {
     usePhoneNavStore.getState().setSplit(split);
   }, [split]);

@@ -445,6 +445,32 @@ describe('PhoneAppFrame split view (iPad, Nov 1 2026)', () => {
     await waitFor(() => expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings/voice']));
   });
 
+  // Nov 2: the keyboard shrinks the iPad's WebView under the split's 600 px; collapsing
+  // the split then blurred the composer and the keyboard flickered open and shut.
+  it('keeps the split while the keyboard shrinks the window under a focused composer', async () => {
+    const size = (w: number, h: number) => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: h });
+    };
+    size(1180, 820);
+    try {
+      const user = userEvent.setup();
+      render(<PhoneAppFrame />);
+      await user.click(await screen.findByRole('button', { name: /Working one/ }));
+      const sessionEl = await screen.findByTestId('phone-session');
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      const field = within(sessionEl).getAllByRole('textbox')[0];
+      act(() => field.focus());
+      act(() => { size(1180, 420); window.dispatchEvent(new Event('resize')); });
+      rotate(false); // the media query now fails on height
+      expect(screen.getByTestId('phone-app')).toHaveAttribute('data-split');
+      expect(screen.getByTestId('phone-list-pane')).toBeTruthy();
+      expect(document.activeElement).toBe(field);
+    } finally {
+      size(1024, 768);
+    }
+  });
+
   it('keeps the open session mounted across the split line, both ways', async () => {
     const user = userEvent.setup();
     render(<PhoneAppFrame />);

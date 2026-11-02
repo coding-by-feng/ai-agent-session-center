@@ -1517,6 +1517,42 @@ export function clearPendingRequest(sessionId: string, requestId: string): Sessi
   return { ...session };
 }
 
+/** Is the session on this terminal waiting for the user? No copy: runs per keystroke (dialogCloseWatch). */
+export function isAwaitingAnswerOnTerminal(terminalId: string): boolean {
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) {
+      return s.status === SESSION_STATUS.APPROVAL || s.status === SESSION_STATUS.INPUT;
+    }
+  }
+  return false;
+}
+
+/**
+ * The user answered the dialog in the terminal and the agent is working again
+ * (dialogCloseWatch saw its spinner come back): leave approval/input now, so the "!"
+ * and the alarm stop, instead of waiting for the hook that would have ended it.
+ * Clears the subagent-dialog hold too, or the next event would put approval back.
+ * pendingTool stays: the robot still shows the running tool.
+ */
+export function releaseAnsweredDialog(terminalId: string): boolean {
+  let session: Session | undefined;
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) { session = s; break; }
+  }
+  if (!session) return false;
+  if (session.status !== SESSION_STATUS.APPROVAL && session.status !== SESSION_STATUS.INPUT) return false;
+  session.status = SESSION_STATUS.WORKING;
+  session.animationState = ANIMATION_STATE.RUNNING;
+  session.pendingRequest = null;
+  session.waitingDetail = null;
+  session.approvalSource = null;
+  statusUnderSubagentDialog.delete(session);
+  log.info('session', `Dialog answered in terminal: ${session.sessionId.slice(0, 8)} back to working`);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+  return true;
+}
+
 export function getSession(sessionId: string): Session | null {
   const resolved = resolveSessionId(sessionId);
   const session = resolved ? sessions.get(resolved) : null;

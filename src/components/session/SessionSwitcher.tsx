@@ -14,7 +14,7 @@ import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
-import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
+import { RECENT_LIMIT } from '@/lib/recentSessions';
 import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import CentralBadge from './CentralBadge';
@@ -65,7 +65,7 @@ const RECENT_FRAME_KEY = 'builtin:recent';
 /** Where a built-in frame's cards are listed again: their room, or in the Projects view their project. */
 const alsoListedIn = (mode: SessionSortMode) => `Each is also listed in its own ${mode === 'project' ? 'project' : 'room'}.`;
 const recentFrameTitle = (mode: SessionSortMode) =>
-  `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. ${alsoListedIn(mode)}`;
+  `Recent: the ${RECENT_LIMIT} most recently active sessions. ${alsoListedIn(mode)}`;
 const PINNED_FRAME_KEY = 'builtin:pinned';
 const pinnedFrameTitle = (mode: SessionSortMode) => `Pinned: every pinned session. ${alsoListedIn(mode)}`;
 const CENTRAL_FRAME_KEY = 'builtin:central';

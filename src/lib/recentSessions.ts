@@ -6,18 +6,22 @@
  * "Recent" is read from work, never from `lastActivityAt`. The server stamps
  * that field on every hook event, SessionStart included, and a workspace
  * restore resumes every session at once, so it would put the whole workspace
- * in RECENT for a full window after each launch. A restored session has only
- * a SessionStart and prompts from before the restart, and neither counts.
+ * at the top of RECENT after each launch. A restored session has only a
+ * SessionStart and prompts from before the restart: its old prompts rank it by
+ * when it really worked, and the SessionStart doesn't count.
  *
  * Dependency-free (type imports only), like sessionSort / sessionDisplayTitle.
  */
 import type { PromptEntry, Session, SessionEvent } from '@/types/session';
 
-/** How long after its last work a session stays in RECENT. */
-export const RECENT_WINDOW_MS = 30 * 60_000;
+/**
+ * RECENT always shows the sessions that worked most recently, this many at most
+ * (Nov 2 2026). It used to keep only the last 30 minutes, so after a quiet hour
+ * it shrank to a card or two.
+ */
+export const RECENT_LIMIT = 10;
 
-/** How often the rail re-checks, so a session leaves RECENT when it goes quiet
- *  even though no update arrives to say so. */
+/** How often the rail re-ranks, so the order follows time even though no update arrives to say so. */
 export const RECENT_TICK_MS = 60_000;
 
 /**
@@ -88,15 +92,20 @@ export function lastWorkAt(session: RecentCandidate): number {
   return Math.max(lastPromptAt(session), lastWorkEventAt(session));
 }
 
-export function isRecentlyActive(session: RecentCandidate, now: number): boolean {
-  if (session.status === 'ended') return false;
-  if (TURN_RUNNING.has(session.status)) return true;
-  const at = lastWorkAt(session);
-  return at > 0 && now - at <= RECENT_WINDOW_MS;
+/**
+ * How recently the session worked, for RECENT's membership: `now` while a turn
+ * runs (however long ago it started), else its last work; 0 when it never
+ * worked or has ended, and then it is never listed.
+ */
+export function recencyOf(session: RecentCandidate, now: number): number {
+  if (session.status === 'ended') return 0;
+  if (TURN_RUNNING.has(session.status)) return now;
+  return lastWorkAt(session);
 }
 
 /**
- * The RECENT frame's contents: pinned first (as in every session ordering
+ * The RECENT frame's contents: the `RECENT_LIMIT` sessions that worked most
+ * recently (`recencyOf`), listed pinned first (as in every session ordering
  * here), then newest prompt first. Deliberately not ordered by the latest
  * event: two working sessions fire tool events every few seconds, and cards
  * that swap places on each one cannot be clicked. A prompt only changes when
@@ -105,8 +114,11 @@ export function isRecentlyActive(session: RecentCandidate, now: number): boolean
  */
 export function pickRecentSessions<T extends RecentCandidate>(sessions: readonly T[], now: number): T[] {
   return sessions
-    .filter((s) => isRecentlyActive(s, now))
-    .map((s) => ({ s, promptAt: lastPromptAt(s) }))
+    .map((s) => ({ s, at: recencyOf(s, now) }))
+    .filter(({ at }) => at > 0)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, RECENT_LIMIT)
+    .map(({ s }) => ({ s, promptAt: lastPromptAt(s) }))
     .sort((a, b) => {
       if (!!a.s.pinned !== !!b.s.pinned) return a.s.pinned ? -1 : 1;
       if (a.promptAt !== b.promptAt) return b.promptAt - a.promptAt;

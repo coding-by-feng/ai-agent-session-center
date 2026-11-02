@@ -25,7 +25,7 @@ import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
 import { reorderOpFor } from '@/lib/chat/roomsListModel';
 import { killSharedRoomSessions, roomKillSummary, sharedRoomTargets } from '@/lib/chat/phoneRoomKill';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
+import { RECENT_LIMIT } from '@/lib/recentSessions';
 import type { RoomOp } from '@/types';
 import styles from '@/styles/modules/mobile/SessionRooms.module.css';
 
@@ -144,7 +144,6 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
  * where ≡ sits keeps its title in line with the rooms' titles.
  */
 export function RecentGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
-  const minutes = RECENT_WINDOW_MS / 60_000;
   return (
     <BuiltinGroupHeader
       title="Recent"
@@ -152,7 +151,7 @@ export function RecentGroupHeader({ count, collapsed, onToggle }: { count: numbe
       count={count}
       collapsed={collapsed}
       onToggle={onToggle}
-      describe={`active in the last ${minutes} minutes`}
+      describe={`the ${RECENT_LIMIT} most recently active`}
     />
   );
 }

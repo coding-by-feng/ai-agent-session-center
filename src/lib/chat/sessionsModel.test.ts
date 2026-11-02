@@ -218,31 +218,33 @@ describe('groupSessions', () => {
     ];
     const byRoom = (over: Partial<GroupInput> = {}) => groupSessions(input(list, { groupBy: 'room', rooms, now: N, ...over }));
 
-    it('lists the sessions with a running turn or work in the last 30 min: pinned first, then newest prompt', () => {
+    it('lists the most recently worked live sessions: pinned first, then newest prompt', () => {
       const recent = byRoom().find((g) => g.kind === 'recent')!;
       expect(recent).toMatchObject({ key: 'recent', kind: 'recent', title: 'Recent' });
-      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'loose']);
+      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
     });
 
     it('keeps each of them in its own room as well', () => {
       const groups = byRoom();
       expect(groups.map((g) => [g.title, g.sessions.map((s) => s.sessionId)])).toEqual([
         ['Pinned', ['pin']],
-        ['Recent', ['pin', 'fresh', 'run', 'loose']],
+        ['Recent', ['pin', 'fresh', 'run', 'quiet', 'loose']],
         ['First', ['pin', 'run', 'fresh', 'quiet']], // the room's own order: pinned first
         ['No room', ['loose']],
       ]);
     });
 
-    it('lets a session go when it has been quiet for the whole window, pinned or not', () => {
-      // 6 min on, pin's last prompt is 31 min old; a running turn stays however old.
-      expect(byRoom({ now: N + 6 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['fresh', 'run', 'loose']);
+    it('keeps quiet sessions however long ago they worked, never an ended one (RECENT_LIMIT, Nov 2)', () => {
+      const later = byRoom({ now: N + 600 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId);
+      expect(later).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
+      expect(later).not.toContain('gone');
     });
 
     it('narrows with the filter and the search, and is left out when none is recent', () => {
       expect(byRoom({ filter: 'needs-you' })[0].sessions.map((s) => s.sessionId)).toEqual(['loose']);
       expect(byRoom({ query: 'fresh' }).map((g) => g.title)).toEqual(['Recent', 'First']);
-      expect(byRoom({ query: 'quiet' }).map((g) => g.title)).toEqual(['First']);
+      expect(byRoom({ query: 'quiet' }).map((g) => g.title)).toEqual(['Recent', 'First']);
+      expect(byRoom({ query: 'gone' }).map((g) => g.title)).toEqual([]);
     });
 
     it('is only in the By room view, as on the desktop', () => {

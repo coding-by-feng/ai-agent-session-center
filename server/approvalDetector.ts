@@ -22,7 +22,7 @@ import type { Session } from '../src/types/session.js';
  * It is NEVER shown at an approval prompt (which has no elapsed-time spinner) or
  * when idle, so it cleanly distinguishes "still busy" from "needs approval".
  */
-const BUSY_SPINNER_RE = /\((?:\s*\d+\s*h)?(?:\s*\d+\s*m)?\s*\d+\s*s\b[^)\n]*?(?:esc to interrupt|tokens?|thinking)/i;
+export const BUSY_SPINNER_RE = /\((?:\s*\d+\s*h)?(?:\s*\d+\s*m)?\s*\d+\s*s\b[^)\n]*?(?:esc to interrupt|tokens?|thinking)/i;
 
 /**
  * True when the recent terminal output shows an active thinking/working spinner —

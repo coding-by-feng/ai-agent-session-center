@@ -1275,12 +1275,12 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     expect(recentOf(container)).toBeNull();
   });
 
-  it('lets a session go once it has been quiet for the whole window, with no update arriving', () => {
-    const nearlyStale = makeSession({ sessionId: 'n', title: 'Nearly stale', ...worked(40, 29) });
-    const { container } = renderSwitcher([qa, nearlyStale], [makeRoom({ id: 'r', name: 'R', sessionIds: ['qa', 'n'] })]);
-    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Nearly stale']);
-    act(() => { vi.advanceTimersByTime(2 * MIN); });
-    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A']);
+  it('keeps a session that went quiet, however much time passes (RECENT_LIMIT, Nov 2)', () => {
+    const quiet = makeSession({ sessionId: 'n', title: 'Long quiet', ...worked(40, 29) });
+    const { container } = renderSwitcher([qa, quiet], [makeRoom({ id: 'r', name: 'R', sessionIds: ['qa', 'n'] })]);
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Long quiet']);
+    act(() => { vi.advanceTimersByTime(120 * MIN); });
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Long quiet']);
   });
 
   it('shows in the top-bar layout too, first', () => {
