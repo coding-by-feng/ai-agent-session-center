@@ -199,3 +199,28 @@ describe('Combobox rows break at path separators', () => {
     expect(option.querySelectorAll('wbr')).toHaveLength(4);
   });
 });
+
+// Nov 2 2026: the Working Directory list blanked the desktop app. The unplaced popover was
+// `visibility: hidden` (ignored by the accessibility tree); flipping it shown while focus moved into
+// its search box tripped a fatal Chromium 132 check (ax_object.cc:3471) when a macOS accessibility
+// client was on. Before it is placed it must be see-through and unclickable, never hidden.
+describe('Combobox popover before placement', () => {
+  it('is never visibility:hidden, and cannot catch clicks until placed', () => {
+    const styles: string[] = [];
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+    render(<Combobox value="" onChange={vi.fn()} items={['/a', '/b']} searchable searchLabel="Search folders" />);
+    press(screen.getByRole('button', { name: 'Toggle dropdown' }), 'mouse');
+    for (const r of observer.takeRecords()) {
+      if (r.type === 'attributes' && r.oldValue) styles.push(r.oldValue);
+      if (r.type === 'childList') {
+        r.addedNodes.forEach((n) => { if (n instanceof HTMLElement && n.firstElementChild instanceof HTMLElement) styles.push(n.firstElementChild.getAttribute('style') ?? ''); });
+      }
+    }
+    observer.disconnect();
+    const unplaced = styles.filter((s) => s.includes('opacity'));
+    expect(unplaced.length).toBeGreaterThan(0);
+    expect(unplaced.every((s) => /pointer-events:\s*none/.test(s))).toBe(true);
+    expect(styles.some((s) => s.includes('visibility'))).toBe(false);
+  });
+});

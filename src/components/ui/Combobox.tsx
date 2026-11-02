@@ -18,6 +18,15 @@ import { placeMenu, type MenuPosition } from '@/lib/menuPlacement';
 import { matchesQuery, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 import styles from '@/styles/modules/Combobox.module.css';
 
+/**
+ * The popover before it is placed: see-through and unclickable, never `visibility: hidden`. A hidden
+ * container is ignored by the accessibility tree, and flipping it shown while focus moves into its
+ * search box tripped a fatal Chromium 132 check (ax_object.cc:3471, "Stale values" on an ignored <div>
+ * with 2 children) whenever a macOS accessibility client was on: the renderer died and the window went
+ * blank (crash dumps Oct 28, Oct 29, Nov 2 2026). The layout effect places it before the first paint.
+ */
+const UNPLACED_STYLE: CSSProperties = { opacity: 0, pointerEvents: 'none', top: 0, left: 0 };
+
 /** Fallback for the list's cap when --cb-cap can't be read (Combobox.module.css owns it). */
 const LIST_MAX_HEIGHT = 200;
 
@@ -113,8 +122,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
     };
   }, [isOpen, visibleItems.length]);
 
-  // Once placed: until then the popover is `visibility: hidden`, and a hidden input can't take focus
-  // (jsdom doesn't care, a browser does — the first try ran in that window).
+  // Once placed: focus waits for the real position (the first try ran before the popover was placed).
   useEffect(() => {
     if (!isOpen || !pos || !focusSearchRef.current) return;
     focusSearchRef.current = false;
@@ -251,7 +259,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
         <div
           ref={popRef}
           className={`${styles.popover}${searchable ? ` ${styles.popoverSearchable}` : ''}`}
-          style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { visibility: 'hidden', top: 0, left: 0 }}
+          style={pos ? { top: pos.top, left: pos.left, width: pos.width } : UNPLACED_STYLE}
         >
           {searchable && (
             <div ref={searchRowRef} className={styles.search}>
