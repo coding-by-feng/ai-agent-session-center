@@ -1433,7 +1433,11 @@ export default function QueueTab({
             <button
               className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
               {...{ [SNIPPET_TRIGGER_ATTR]: 'compose' }}
-              onClick={(e) => setSnippetAnchor((prev) => (prev ? null : e.currentTarget))}
+              onClick={(e) => {
+                // Read it now: React clears currentTarget after the click, and the updater can run later than that.
+                const trigger = e.currentTarget;
+                setSnippetAnchor((prev) => (prev ? null : trigger));
+              }}
               aria-haspopup="dialog"
               aria-expanded={snippetAnchor !== null}
               title="Insert a saved prompt"
