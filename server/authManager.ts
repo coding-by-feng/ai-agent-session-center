@@ -2,6 +2,8 @@
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
 import { isLocalRequest } from './requestLocality.js';
+import { getHostedConfig } from './hostedConfig.js';
+import { authorizeHosted, currentHostedOwner, type HostedIdentity } from './hostedAuthority.js';
 import log from './logger.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
@@ -124,7 +126,7 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // 2026): it signs in with a device key like a phone, but its session is a password
 // session's in every other respect (no phone allow-list, no phone-only limits), so
 // it never carries `deviceId`; revoking it ends its sessions all the same.
-type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string };
+type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string; hosted?: HostedIdentity };
 const tokens = new Map<string, TokenEntry>();
 
 /**
@@ -170,6 +172,21 @@ export function createToken(deviceId?: string): string {
  */
 export function createComputerToken(computerId: string): string {
   return issueToken(`computer:${computerId}`, undefined, computerId);
+}
+
+/** Hosted customer identity survives new iframe sessions and token rotation. Never a local identity. */
+export function createHostedToken(orderId: string, principalHash: string, authority?: HostedIdentity): string {
+  const token = issueToken(`hosted:${orderId}:${principalHash}`);
+  if (authority) tokens.get(token)!.hosted = authority;
+  return token;
+}
+export function getTokenHostedIdentity(token: string | null): HostedIdentity | null {
+  return token && validateToken(token) ? tokens.get(token)?.hosted ?? null : null;
+}
+
+/** An authoritative order claim ends all previous hosted owner sessions. */
+export function revokeHostedTokens(orderId: string): void {
+  for (const [token, entry] of tokens) if (entry.lineage.startsWith(`hosted:${orderId}:`)) tokens.delete(token);
 }
 
 function issueToken(lineage: string, deviceId?: string, computerId?: string): string {
@@ -235,7 +252,9 @@ export function refreshToken(oldToken: string | null): string | null {
   const entry = tokens.get(oldToken);
   const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return issueToken(lineage, entry?.deviceId, entry?.computerId);
+  const token = issueToken(lineage, entry?.deviceId, entry?.computerId);
+  if (entry?.hosted) tokens.get(token)!.hosted = entry.hosted;
+  return token;
 }
 
 /**
@@ -376,6 +395,22 @@ function isRemoteRequest(req: Request): boolean {
  * configured to log in *with*.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const hosted = getHostedConfig();
+  if (hosted) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== hosted.runtimeOrigin) {
+      res.status(403).json({ error: 'Same origin required' }); return;
+    }
+    const token = extractToken(req);
+    if (!validateToken(token) || !(getTokenLineage(token)?.startsWith(`hosted:${hosted.orderId}:`) || getTokenDeviceId(token))) {
+      res.status(401).json({ error: 'Open this order on xclaude.dev to connect.' }); return;
+    }
+    const identity = getTokenHostedIdentity(token) ?? (getTokenDeviceId(token) ? currentHostedOwner(hosted) : null);
+    void authorizeHosted(hosted, identity).then((allowed) => {
+      if (allowed && validateToken(token)) next();
+      else { removeToken(token ?? ''); res.status(401).json({ error: 'Order access is no longer authorized. Open xclaude.dev.' }); }
+    });
+    return;
+  }
   if (!isPasswordEnabled()) {
     if (isRemoteRequest(req)) {
       log.warn('auth', `Blocked remote request (no password configured): ${req.method} ${req.originalUrl} from ${req.ip || req.socket?.remoteAddress}`);

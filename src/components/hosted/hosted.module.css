@@ -1,0 +1,79 @@
+.toolbar {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 900;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  max-width: calc(100vw - 24px);
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 8px;
+  color: var(--text-primary, #eee);
+  background: var(--bg-primary, #17171f);
+  font-size: 12px;
+}
+.panel::backdrop {
+  background: #0009;
+}
+.panel,
+.error {
+  color: var(--text-primary, #eee);
+  background: var(--bg-primary, #17171f);
+  padding: 24px;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 12px;
+}
+.panel {
+  max-width: 560px;
+  width: calc(100vw - 32px);
+  margin: auto;
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.panel h2,
+.error h2 {
+  font-size: 20px;
+  margin-top: 0;
+}
+.panel p,
+.error p {
+  margin: 12px 0;
+  line-height: 1.5;
+}
+.panel a,
+.error a {
+  color: var(--text-primary, #eee);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.qr {
+  display: block;
+  width: 216px;
+  max-width: 100%;
+  margin-top: 16px;
+}
+.phone {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #555);
+}
+.error {
+  max-width: 560px;
+  margin: 40px auto;
+}
+@media (max-width: 600px) {
+  .toolbar {
+    left: 12px;
+    right: 12px;
+    justify-content: space-between;
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .panel {
+    padding: 18px;
+  }
+}
