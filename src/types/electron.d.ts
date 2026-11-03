@@ -170,7 +170,7 @@ export interface RemoteComputersAPI {
   list(): Promise<RemoteComputer[]>
   /** Pair from the link the remote's devices panel shows (https://aasc.work/pair#…); `label` is this computer's name there. */
   add(link: string): Promise<RemoteResult<RemoteComputer>>
-  /** Sign in (or ask while pending) and report; updates status, tailnet and lastSeenAt. */
+  /** Sign in (or ask while pending) and report; updates status, tailnet and lastSeenAt. With its window open and signed in, asks with that window's session and updates nothing. */
   check(id: string): Promise<RemoteResult<RemoteComputerCheck>>
   /** Sign in and open the remote's own UI in its own window. */
   open(id: string): Promise<RemoteResult<null>>

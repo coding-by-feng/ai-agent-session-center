@@ -85,8 +85,7 @@ export interface RemoteComputersClient {
   /**
    * The app brought this list back on screen; returns how to stop listening. It waits hidden behind a dashboard, so it
    * could otherwise say Offline for a computer that has long returned. Chromium doesn't say: on macOS a hidden window
-   * stays "visible" and fires no visibilitychange. No Full or Lite panel gets this: each check there signs in again, and
-   * the remote keeps just four of those.
+   * stays "visible" and fires no visibilitychange. A Full or Lite panel needs none of this: it is only mounted while open.
    */
   onShown?: (listener: () => void) => () => void;
 }

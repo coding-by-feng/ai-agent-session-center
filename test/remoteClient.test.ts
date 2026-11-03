@@ -303,6 +303,11 @@ describe('remoteSessionState (asks without signing in, so no session is spent)',
     expect(await remoteSessionState(deps(fetch), LAN, SESSION_TOKEN)).toBe('signed-out');
   });
 
+  it('says no password when the remote has none: it calls everyone authenticated, then refuses them', async () => {
+    const { fetch } = fakeFetch(() => ({ status: 200, body: { passwordRequired: false, authenticated: true } }));
+    expect(await remoteSessionState(deps(fetch), LAN, SESSION_TOKEN)).toBe('no-password');
+  });
+
   it('asks with no cookie when it has none', async () => {
     const { fetch, calls } = fakeFetch(() => ({ status: 200, body: { authenticated: false } }));
     expect(await remoteSessionState(deps(fetch), LAN, null)).toBe('signed-out');

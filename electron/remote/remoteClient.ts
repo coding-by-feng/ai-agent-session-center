@@ -349,17 +349,19 @@ export async function countShared(deps: RemoteClientDeps, origin: string, sessio
   }
 }
 
-export type RemoteSessionState = 'signed-in' | 'signed-out' | 'no-answer'
+export type RemoteSessionState = 'signed-in' | 'signed-out' | 'no-password' | 'no-answer'
 
 /**
  * Is this session still good? Asks without signing in: a sign-in mints a session, and the remote keeps only the newest
  * few per computer, so asking that way would end the very session being asked about. Anything but a clear answer from
- * AASC is `no-answer`, never `signed-out`. Never throws.
+ * AASC is `no-answer`, never `signed-out`. `no-password`: the remote calls everyone authenticated, yet refuses remote
+ * requests until it has one, so no session can be good. Never throws.
  */
 export async function remoteSessionState(deps: RemoteClientDeps, origin: string, sessionToken: string | null): Promise<RemoteSessionState> {
   try {
     const a = await call(deps, 'GET', `${origin}/api/auth/status`, sessionToken ? { cookie: `auth_token=${sessionToken}` } : {})
     if (a.status !== 200) return 'no-answer'
+    if (field(a.data, ['passwordRequired']) === false) return 'no-password'
     const authenticated = field(a.data, ['authenticated'])
     if (authenticated === true) return 'signed-in'
     return authenticated === false ? 'signed-out' : 'no-answer'

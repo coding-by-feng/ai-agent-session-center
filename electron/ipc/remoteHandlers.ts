@@ -41,8 +41,9 @@ export interface RemoteHandlerOptions {
   /** A remote's window opened, or an open one was focused. */
   onOpened?: (id: string) => void
   /**
-   * A Client's dashboard is the whole app, and it never asked anyone for a password, so a dead session must not end on
-   * that password form: `check` spends no session on an open window, and `open` and keepOpenWindowsSignedIn revive one.
+   * A Client's dashboard is the whole app, so a dead session must not wait for anyone: keepOpenWindowsSignedIn revives
+   * one unasked, and `check` leaves that to it. In Full and Lite it can be a log-out the person chose, so only pressing
+   * Open revives it.
    */
   keepSignedIn?: boolean
 }
@@ -146,17 +147,29 @@ async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
 }
 
 /**
- * Check on a computer whose window is open. A sign-in mints a session and the remote keeps only the newest four per
- * computer, so the list's 30-second check would end the dashboard's own session within two minutes.
+ * Check on a computer whose window is open, with that window's own session. A sign-in mints a session and the remote
+ * keeps only the newest four per computer, so the list's 30-second check would end the dashboard's session within two
+ * minutes. Asking mints nothing, so the computer's other addresses get asked too when the window's goes quiet: it may
+ * only have left the home network.
+ *
+ * Null when a sign-in is the only way to learn more, and costs the window nothing: its session has died and nothing here
+ * will revive it (this is how the row learns the remote removed this computer), or the remote has no password.
  */
-async function checkOpenWindow(r: RemoteComputer, origin: string): Promise<RemoteResult<RemoteComputerCheck>> {
+async function checkOpenWindow(r: RemoteComputer, windowOrigin: string): Promise<RemoteResult<RemoteComputerCheck> | null> {
   const target = targetOf(r)
-  const state = await remoteSessionState(clientDeps, origin, await remoteSessionToken(r.id, origin))
-  if (state === 'no-answer') {
-    return { ok: true, data: { state: 'offline', via: null, sharedSessions: null, message: unreachableMessage(target) } }
+  const token = await remoteSessionToken(r.id, windowOrigin)
+  // new URL drops :80, so an address is compared by what it parses to, not how the plan spells it.
+  const plan = addressPlan(target).map(({ via, origin }) => ({ via, origin: new URL(origin).origin }))
+  const origins = [windowOrigin, ...plan.map((address) => address.origin).filter((origin) => origin !== windowOrigin)]
+  for (const origin of origins) {
+    const state = await remoteSessionState(clientDeps, origin, token)
+    if (state === 'no-answer') continue
+    if (state === 'no-password' || (state === 'signed-out' && !handlerOptions.keepSignedIn)) return null
+    const via = plan.find((address) => address.origin === origin)?.via ?? null
+    const sharedSessions = state === 'signed-in' && token ? await countShared(clientDeps, origin, token) : null
+    return { ok: true, data: { state: 'online', via, sharedSessions, message: null } }
   }
-  const via = addressPlan(target).find((address) => address.origin === origin)?.via ?? null
-  return { ok: true, data: { state: 'online', via, sharedSessions: null, message: null } }
+  return { ok: true, data: { state: 'offline', via: null, sharedSessions: null, message: unreachableMessage(target) } }
 }
 
 /** Sign an open dashboard back in if its session has died: a long sleep, or the remote restarting (tokens are in memory). */
@@ -192,8 +205,9 @@ async function check(id: unknown): Promise<RemoteResult<RemoteComputerCheck>> {
   const r = s.get(id)
   const creds = s.credentials(id)
   if (!r || !creds) return fail(NOT_PAIRED)
-  const openAt = handlerOptions.keepSignedIn ? openRemoteOrigin(id) : null
-  if (openAt) return checkOpenWindow(r, openAt)
+  const openAt = openRemoteOrigin(id)
+  const answered = openAt ? await checkOpenWindow(r, openAt) : null
+  if (answered) return answered
   const result = await signIn(clientDeps, targetOf(r), creds)
   recordSignIn(id, result, Date.now())
   switch (result.state) {
@@ -218,7 +232,7 @@ async function check(id: unknown): Promise<RemoteResult<RemoteComputerCheck>> {
 async function open(id: unknown): Promise<RemoteResult<null>> {
   if (!validId(id)) return fail(NOT_PAIRED)
   if (focusRemoteWindow(id)) {
-    if (handlerOptions.keepSignedIn) await revive(id)
+    await revive(id)
     handlerOptions.onOpened?.(id)
     return { ok: true, data: null }
   }

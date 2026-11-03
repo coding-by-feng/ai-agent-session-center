@@ -1,6 +1,6 @@
 // remoteHandlersOpenWindow.test.ts — what the remote:* handlers do once a computer's window is open. Every sign-in
-// mints a session and the server keeps only the newest four per computer, so a Client's list checking on an open
-// dashboard used to sign that dashboard out within two minutes.
+// mints a session and the server keeps only the newest four per computer, so a list checking on an open dashboard used
+// to sign that dashboard out within two minutes, in every edition.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 
@@ -19,6 +19,8 @@ vi.mock('electron', () => ({
 
 const COMPUTER = { id: 'abc', name: 'Studio', lan: '192.168.1.20', tailnet: null, port: 3334, status: 'active' };
 const ORIGIN = 'http://192.168.1.20:3334';
+const TAILNET_IP = '100.64.0.20';
+const TAILNET_ORIGIN = `http://${TAILNET_IP}:3334`;
 const store = {
   get: vi.fn(() => COMPUTER),
   list: vi.fn(() => [COMPUTER]),
@@ -70,56 +72,123 @@ beforeEach(() => {
   vi.clearAllMocks();
   client.signIn.mockResolvedValue(SIGNED_IN);
   client.remoteSessionState.mockResolvedValue('signed-in');
+  store.get.mockReturnValue(COMPUTER);
   windows.focusRemoteWindow.mockReturnValue(false);
   windows.openRemoteOrigin.mockReturnValue(null);
 });
 
-describe('checking on a computer', () => {
+// Full and Lite pass nothing; a Client passes keepSignedIn.
+describe.each([
+  ['Full and Lite', {}],
+  ['a Client', { keepSignedIn: true }],
+])('checking on a computer in %s', (_edition, options) => {
   it('signs in when no window is open, as ever', async () => {
-    const { check } = await setUp({ keepSignedIn: true });
+    const { check } = await setUp(options);
     const res = await check();
     expect(client.signIn).toHaveBeenCalledOnce();
     expect(res.data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3 });
   });
 
-  it('spends no session while its window is open', async () => {
+  it('spends no session while its window is open and signed in', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
-    const { check } = await setUp({ keepSignedIn: true });
+    const { check } = await setUp(options);
     for (let i = 0; i < 6; i++) await check();
     expect(client.signIn).not.toHaveBeenCalled();
     expect(client.fetchPaths).not.toHaveBeenCalled();
-    expect(client.countShared).not.toHaveBeenCalled();
   });
 
-  it('still tells the truth about it: online, and over which address', async () => {
+  it('asks with the window\'s own cookie', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
-    const { check } = await setUp({ keepSignedIn: true });
-    expect((await check()).data).toEqual({ state: 'online', via: 'lan', sharedSessions: null, message: null });
+    const { check } = await setUp(options);
+    await check();
+    expect(windows.remoteSessionToken).toHaveBeenCalledWith('abc', ORIGIN);
+    expect(client.remoteSessionState).toHaveBeenCalledWith(expect.anything(), ORIGIN, 'cookie-token');
   });
 
-  it('still tells the truth about it: offline, with the reason', async () => {
+  it('still tells the truth about it: online, over which address, and how many it shares', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    const { check } = await setUp(options);
+    expect((await check()).data).toEqual({ state: 'online', via: 'lan', sharedSessions: 3, message: null });
+    expect(client.countShared).toHaveBeenCalledWith(expect.anything(), ORIGIN, 'cookie-token');
+  });
+
+  it('says offline, with the reason, and spends no session when no address answers', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    store.get.mockReturnValue({ ...COMPUTER, tailnet: TAILNET_IP });
     client.remoteSessionState.mockResolvedValue('no-answer');
-    const { check } = await setUp({ keepSignedIn: true });
+    const { check } = await setUp(options);
     const { data } = await check();
     expect(data).toMatchObject({ state: 'offline', sharedSessions: null });
     expect(String(data?.message)).toMatch(/No answer from/);
-  });
-
-  it('reports a dead session as online: it answered, and keeping it signed in is another job', async () => {
-    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
-    client.remoteSessionState.mockResolvedValue('signed-out');
-    const { check } = await setUp({ keepSignedIn: true });
-    expect((await check()).data).toMatchObject({ state: 'online' });
+    expect(client.remoteSessionState.mock.calls.map(([, origin]) => origin)).toEqual([ORIGIN, TAILNET_ORIGIN]);
     expect(client.signIn).not.toHaveBeenCalled();
   });
 
-  it('is unchanged in Full and Lite, which pass nothing', async () => {
+  // Left home with Tailscale up: the row must not call the computer offline because the window's address went quiet.
+  it('finds the computer on another address, still with the window\'s session and no sign-in', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    store.get.mockReturnValue({ ...COMPUTER, tailnet: TAILNET_IP });
+    client.remoteSessionState.mockImplementation(async (_deps: unknown, origin: string) => (origin === ORIGIN ? 'no-answer' : 'signed-in'));
+    const { check } = await setUp(options);
+    expect((await check()).data).toEqual({ state: 'online', via: 'tailnet', sharedSessions: 3, message: null });
+    expect(client.remoteSessionState).toHaveBeenLastCalledWith(expect.anything(), TAILNET_ORIGIN, 'cookie-token');
+    expect(client.countShared).toHaveBeenCalledWith(expect.anything(), TAILNET_ORIGIN, 'cookie-token');
+    expect(client.signIn).not.toHaveBeenCalled();
+  });
+
+  // new URL drops :80, so the window's origin isn't spelled the way the address plan spells it.
+  it('still names the address on port 80, or a public address would lose its "unencrypted" warning', async () => {
+    windows.openRemoteOrigin.mockReturnValue('http://192.168.1.20');
+    store.get.mockReturnValue({ ...COMPUTER, port: 80 });
+    const { check } = await setUp(options);
+    expect((await check()).data).toMatchObject({ state: 'online', via: 'lan' });
+  });
+
+  // The remote answers authenticated: true, then refuses every remote request: only a sign-in hears why.
+  it('hears the refusal when the remote has dropped its password', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    client.remoteSessionState.mockResolvedValue('no-password');
+    client.signIn.mockResolvedValue({ state: 'error', message: 'That computer has no password.' });
+    const { check } = await setUp(options);
+    expect(await check()).toEqual({ ok: false, error: 'That computer has no password.' });
+    expect(client.signIn).toHaveBeenCalledOnce();
+  });
+});
+
+describe('a dead session behind an open window', () => {
+  it('a Client reports it as online: it answered, and keeping it signed in is another job', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    client.remoteSessionState.mockResolvedValue('signed-out');
+    const { check } = await setUp({ keepSignedIn: true });
+    expect((await check()).data).toMatchObject({ state: 'online', sharedSessions: null });
+    expect(client.signIn).not.toHaveBeenCalled();
+    expect(client.countShared).not.toHaveBeenCalled();
+  });
+
+  it('Full and Lite sign in as ever: there is nothing left to evict', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    client.remoteSessionState.mockResolvedValue('signed-out');
+    const { check } = await setUp();
+    expect((await check()).data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3 });
+    expect(client.signIn).toHaveBeenCalledOnce();
+  });
+
+  it('Full and Lite leave the window on its login form: it may be a log-out the person chose', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    client.remoteSessionState.mockResolvedValue('signed-out');
     const { check } = await setUp();
     await check();
-    expect(client.signIn).toHaveBeenCalledOnce();
-    expect(client.remoteSessionState).not.toHaveBeenCalled();
+    expect(windows.signBackIn).not.toHaveBeenCalled();
+    expect(windows.closeRemoteWindows).not.toHaveBeenCalled();
+  });
+
+  it('is how Full and Lite still learn the remote removed this computer', async () => {
+    windows.openRemoteOrigin.mockReturnValue(ORIGIN);
+    client.remoteSessionState.mockResolvedValue('signed-out');
+    client.signIn.mockResolvedValue({ state: 'revoked', verified: true, origin: ORIGIN, via: 'lan' });
+    const { check } = await setUp();
+    expect((await check()).data).toMatchObject({ state: 'revoked' });
+    expect(store.update).toHaveBeenCalledWith('abc', expect.objectContaining({ status: 'revoked' }));
   });
 });
 
@@ -172,14 +241,14 @@ describe('opening a computer', () => {
     expect(windows.signBackIn).not.toHaveBeenCalled();
   });
 
-  it('never asks in Full and Lite, which pass nothing', async () => {
+  // Pairing asks for no password, so the person may not have one to type. Pressing Open is them asking to be signed in.
+  it('signs a dead dashboard back in on Open in Full and Lite too, which never do it unasked', async () => {
     windows.focusRemoteWindow.mockReturnValue(true);
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
     client.remoteSessionState.mockResolvedValue('signed-out');
     const { open } = await setUp();
     await open();
-    expect(client.remoteSessionState).not.toHaveBeenCalled();
-    expect(windows.signBackIn).not.toHaveBeenCalled();
+    expect(windows.signBackIn).toHaveBeenCalledWith('abc', ORIGIN, 'fresh-token', 3600);
   });
 });
 
