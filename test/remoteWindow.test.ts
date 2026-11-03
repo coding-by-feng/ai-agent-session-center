@@ -46,9 +46,13 @@ describe('classifyRemoteUrl', () => {
     ['http://192.168.1.20:3000/', 'same host, other port'],
     ['https://192.168.1.20:3333/', 'same host and port, https'],
     ['http://192.168.1.21:3333/', 'other LAN host'],
-    ['http://localhost:3333/', 'this computer’s own dashboard'],
     ['https://github.com/anthropics', 'a website'],
     ['http://192.168.1.20.evil.example:3333/', 'host merely starting with the remote’s'],
+    ['http://localhost.evil.example/', 'host merely starting with localhost'],
+    ['http://notlocalhost/', 'host merely ending in localhost'],
+    ['http://127.0.0.1.evil.example/', 'host merely starting with a loopback address'],
+    ['http://128.0.0.1/', 'the address after the loopback block'],
+    ['http://[::ffff:8.8.8.8]/', 'a mapped address that isn’t loopback'],
   ])('sends %s to the system browser (%s)', (url) => {
     expect(classifyRemoteUrl(url, ORIGIN)).toBe('external');
   });
@@ -65,6 +69,37 @@ describe('classifyRemoteUrl', () => {
     [''],
   ])('drops %s', (url) => {
     expect(classifyRemoteUrl(url, ORIGIN)).toBe('drop');
+  });
+
+  // A browser navigation to this computer counts as local on its own AASC (namesThisMachine), so a remote page must
+  // not get a route into it. The spellings are what `new URL` leaves of them: 127.1 and 2130706433 reach it as 127.0.0.1.
+  it.each([
+    ['http://localhost:3333/', 'this computer’s own dashboard'],
+    ['https://localhost/', 'https'],
+    ['http://LOCALHOST:3333/', 'upper case'],
+    ['http://user:pw@localhost:3333/', 'with a user name'],
+    ['http://localhost.:3333/', 'a trailing dot'],
+    ['http://app.localhost:3333/', 'a subdomain'],
+    ['http://app.localhost.:3333/', 'a subdomain and a trailing dot'],
+    ['http://127.0.0.1:3333/', 'IPv4'],
+    ['http://127.0.0.1.:3333/', 'IPv4 and a trailing dot'],
+    ['http://127.8.9.10/', 'anywhere in the loopback block'],
+    ['http://127.1:3333/', 'short form'],
+    ['http://2130706433:3333/', 'decimal'],
+    ['http://0x7f.0.0.1:3333/', 'hex'],
+    ['http://0.0.0.0:3333/', 'the any address'],
+    ['http://0:3333/', 'the any address, short form'],
+    ['http://[::1]:3333/', 'IPv6'],
+    ['http://[0:0:0:0:0:0:0:1]:3333/', 'IPv6, long form'],
+    ['http://[::]:3333/', 'the IPv6 any address'],
+    ['http://[::ffff:127.0.0.1]:3333/', 'IPv4 mapped into IPv6'],
+    ['http://[::ffff:0.0.0.0]:3333/', 'the any address mapped into IPv6'],
+  ])('drops a link to this computer: %s (%s)', (url) => {
+    expect(classifyRemoteUrl(url, ORIGIN)).toBe('drop');
+  });
+
+  it('keeps a remote that really is on this computer in the app', () => {
+    expect(classifyRemoteUrl('http://127.0.0.1:3333/history', 'http://127.0.0.1:3333')).toBe('same-origin');
   });
 
   it('drops everything when the origin itself is malformed', () => {

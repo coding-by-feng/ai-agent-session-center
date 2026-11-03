@@ -35,10 +35,21 @@ export function remoteWindowWebPreferences(id: string): WebPreferences {
 export type RemoteUrlClass = 'same-origin' | 'external' | 'drop'
 
 /**
+ * This computer, as a URL's hostname can spell it. `new URL` has already lowercased it and turned 127.1, 0x7f.0.0.1 and
+ * 2130706433 into dotted IPv4, and [::ffff:127.0.0.1] into [::ffff:7f00:1].
+ */
+const THIS_COMPUTER_HOST = /^(?:(?:.+\.)?localhost\.?|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1?\]|\[::ffff:(?:7f[0-9a-f]{2}:[0-9a-f]{1,4}|0:0)\])$/
+
+/**
  * Where a link or `window.open` from a remote page goes: the remote's own origin
  * (scheme, host AND port) stays in the app; any other http(s) URL goes to the system
- * browser; everything else (javascript:, file:, data:, blob:, custom schemes,
- * malformed) is dropped.
+ * browser, unless it names this computer; everything else (javascript:, file:, data:,
+ * blob:, custom schemes, malformed) is dropped.
+ *
+ * A browser navigation to this computer counts as local on its own AASC
+ * (`namesThisMachine`), so handing one over would give the remote's page a route into the
+ * service the origin check protects. Such a link would be wrong anyway: `localhost` on a
+ * remote's page means the remote, and the browser would open this computer.
  */
 export function classifyRemoteUrl(url: string, origin: string): RemoteUrlClass {
   let parsed: URL
@@ -50,7 +61,8 @@ export function classifyRemoteUrl(url: string, origin: string): RemoteUrlClass {
     return 'drop'
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'drop'
-  return parsed.origin === home.origin ? 'same-origin' : 'external'
+  if (parsed.origin === home.origin) return 'same-origin'
+  return THIS_COMPUTER_HOST.test(parsed.hostname) ? 'drop' : 'external'
 }
 
 /** Only writing to the clipboard (the UI's copy buttons); no camera, mic, notifications, location… */
