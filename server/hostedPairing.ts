@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { HostedConfig } from './hostedConfig.js';
 import { authMiddleware, extractToken, getTokenLineage } from './authManager.js';
 import { hostedSessionAllowed } from './hostedAccess.js';
+import { authorizeHosted, currentHostedOwner } from './hostedAuthority.js';
 import type { createDeviceAuth } from './mobile/deviceAuth.js';
 import { TooManyPairingCodesError } from './mobile/deviceAuth.js';
 
@@ -12,6 +13,20 @@ export function createHostedPairingRouter(
   offered = () => true,
 ) {
   const router = Router();
+  // Mobile routes are mounted before generic /api auth. Pairing proof alone cannot keep a
+  // cancelled/disabled order or an unavailable website authority alive.
+  router.use('/api/mobile', async (_req, res, next) => {
+    if (!(await authorizeHosted(config, currentHostedOwner(config)))) {
+      res
+        .status(403)
+        .json({
+          error: 'Order access is unavailable. Open xclaude.dev.',
+          code: 'HOSTED_AUTHORITY_REQUIRED',
+        });
+      return;
+    }
+    next();
+  });
   // This adapter pairs a restricted phone browser. A code from it cannot be redeemed into
   // the paired-computer profile (which intentionally has broader access in native AASC).
   router.post('/api/mobile/pair', (req, res, next) => {

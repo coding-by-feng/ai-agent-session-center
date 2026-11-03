@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, request, type Server } from 'node:http';
@@ -11,10 +11,14 @@ import { createHostedAccess, hostedSocketAllowed } from '../server/hostedAccess.
 import {
   authMiddleware,
   getTokenLineage,
+  getTokenHostedIdentity,
+  extractToken,
   parseCookieToken,
   refreshToken,
+  bearerSession,
 } from '../server/authManager.js';
 import { isLocalRequest } from '../server/requestLocality.js';
+import { authorizeHosted, currentHostedOwner } from '../server/hostedAuthority.js';
 import { createHostedPairingRouter } from '../server/hostedPairing.js';
 import {
   createDeviceAuth,
@@ -42,6 +46,7 @@ function ticket(patch: Record<string, unknown> = {}, key = env.AASC_HOSTED_LAUNC
     aud: 'https://order.example.com',
     sub: 'customer:opaque-a',
     ownerEpoch: 0,
+    accessMode: 'use',
     orderId,
     jti: randomUUID(),
     iat: now,
@@ -59,6 +64,7 @@ function call(
     cookie?: string;
     method?: string;
     json?: unknown;
+    bearer?: string;
   } = {},
 ): Promise<{ status: number; body: string; headers: import('node:http').IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
@@ -78,6 +84,7 @@ function call(
           origin: options.origin ?? 'https://xclaude.dev',
           'content-type': options.json ? 'application/json' : 'application/x-www-form-urlencoded',
           ...(options.cookie ? { cookie: options.cookie } : {}),
+          ...(options.bearer ? { authorization: `Bearer ${options.bearer}` } : {}),
         },
       },
       (res) => {
@@ -126,7 +133,9 @@ beforeEach(async () => {
       deviceAuth: devices,
       isPasswordEnabled: () => true,
       requireSession: authMiddleware,
-      createSessionToken: createToken,
+      createSessionToken: (deviceId) =>
+        createToken(deviceId, currentHostedOwner(config) ?? undefined),
+      sessionOf: bearerSession,
       sessionTtlSeconds: 3600,
       pairingTarget: () => ({ name: 'Hosted', lan: null, tailnet: null, port: 3333 }),
       rateLimit: {
@@ -139,8 +148,14 @@ beforeEach(async () => {
   app.get('/api/private', authMiddleware, (req, res) => res.json({ local: isLocalRequest(req) }));
   server = createServer(app);
   const wss = new WebSocketServer({ server });
-  wss.on('connection', (ws, req) => {
-    if (!hostedSocketAllowed(config, req)) {
+  wss.on('connection', async (ws, req) => {
+    if (
+      !hostedSocketAllowed(config, req) ||
+      !(await authorizeHosted(
+        config,
+        getTokenHostedIdentity(extractToken(req)) ?? currentHostedOwner(config),
+      ))
+    ) {
       ws.close(4001);
       return;
     }
@@ -153,10 +168,23 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   rmSync(dir, { recursive: true, force: true });
 });
 
 describe('strict opt-in configuration', () => {
+  it('durably binds the data directory before launch and fails closed when another order reuses it', () => {
+    const otherOrder = loadHostedConfig({
+      ...env,
+      APP_USER_DATA: dir,
+      AASC_HOSTED_ORDER_ID: '38b956f9-a9c2-46bc-ad32-005ea9253188',
+    })!;
+    expect(() => createHostedAccess(otherOrder)).toThrow(/order/i);
+    expect(readFileSync(join(dir, 'hosted-launch', 'order'), 'utf8')).toBe(orderId);
+    expect(() =>
+      createHostedAccess(loadHostedConfig({ ...env, APP_USER_DATA: dir })!),
+    ).not.toThrow();
+  });
   it('leaves native mode absent and refuses partial or insecure config', () => {
     expect(loadHostedConfig({})).toBeNull();
     for (const bad of [
@@ -170,15 +198,95 @@ describe('strict opt-in configuration', () => {
       expect(() => loadHostedConfig(bad)).toThrow();
     }
   });
+  it('rejects an owner receipt from a different order before startup and phone authority lookup', async () => {
+    expect((await call('/hosted/launch', { ticket: ticket() })).status).toBe(303);
+    const file = join(dir, 'hosted-launch', 'principal');
+    const receipt = JSON.parse(readFileSync(file, 'utf8'));
+    receipt.orderId = '38b956f9-a9c2-46bc-ad32-005ea9253188';
+    writeFileSync(file, JSON.stringify(receipt));
+    expect(JSON.parse(readFileSync(file, 'utf8')).orderId).toBe(receipt.orderId);
+    const config = loadHostedConfig({ ...env, APP_USER_DATA: dir })!;
+    expect(() => createHostedAccess(config)).toThrow(/order/i);
+    expect(currentHostedOwner(config)).toBeNull();
+  });
 });
 describe('launch exchange through real HTTP and WS sessions', () => {
+  it('revokes a prior verification session immediately when an authorized use launch replaces its mode', async () => {
+    const verify = await call('/hosted/launch', { ticket: ticket({ accessMode: 'verify' }) });
+    expect(verify.status).toBe(303);
+    const oldCookie = verify.headers['set-cookie']![0];
+    expect(getTokenHostedIdentity(parseCookieToken(oldCookie))?.accessMode).toBe('verify');
+    const use = await call('/hosted/launch', { ticket: ticket({ accessMode: 'use' }) });
+    expect(use.status).toBe(303);
+    expect(getTokenHostedIdentity(parseCookieToken(oldCookie))).toBeNull();
+    expect((await call('/api/private', { cookie: oldCookie })).status).toBe(401);
+    expect((await call('/api/private', { cookie: use.headers['set-cookie']![0] })).status).toBe(
+      200,
+    );
+  });
+  it('keeps verification and fulfilled use authority separate across real HTTP and WS startup', async () => {
+    let phase = 'verifying';
+    vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+      const { assertion } = JSON.parse(options.body as string);
+      const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString());
+      const authorized =
+        phase === 'verifying' ? claims.accessMode === 'verify' : claims.accessMode === 'use';
+      return new Response(JSON.stringify({ authorized }), { status: authorized ? 200 : 403 });
+    });
+    expect((await call('/hosted/launch', { ticket: ticket({ accessMode: 'use' }) })).status).toBe(
+      403,
+    );
+    const verify = await call('/hosted/launch', { ticket: ticket({ accessMode: 'verify' }) });
+    expect(verify.status).toBe(303);
+    const verifyCookie = verify.headers['set-cookie']![0];
+    expect(getTokenHostedIdentity(parseCookieToken(verifyCookie))?.accessMode).toBe('verify');
+    expect((await call('/api/private', { cookie: verifyCookie })).status).toBe(200);
+    const message = await new Promise<string>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: {
+          host: 'order.example.com',
+          origin: env.AASC_HOSTED_RUNTIME_ORIGIN,
+          cookie: verifyCookie,
+        },
+      });
+      ws.once('message', (data) => {
+        resolve(data.toString());
+        ws.close();
+      });
+      ws.once('error', reject);
+    });
+    expect(JSON.parse(message)).toEqual({ local: false });
+    phase = 'fulfilled';
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_001);
+    expect((await call('/api/private', { cookie: verifyCookie })).status).toBe(401);
+    const use = await call('/hosted/launch', { ticket: ticket({ accessMode: 'use' }) });
+    expect(use.status).toBe(303);
+    expect(
+      getTokenHostedIdentity(parseCookieToken(use.headers['set-cookie']![0]))?.accessMode,
+    ).toBe('use');
+    expect(currentHostedOwner(loadHostedConfig({ ...env, APP_USER_DATA: dir })!)?.accessMode).toBe(
+      'use',
+    );
+    expect((await call('/api/private', { cookie: use.headers['set-cookie']![0] })).status).toBe(
+      200,
+    );
+    expect(
+      (await call('/hosted/launch', { ticket: ticket({ accessMode: 'verify' }) })).status,
+    ).toBe(403);
+  });
   it('refuses a cryptographically valid launch when website authorization is disabled', async () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ authorized: false })));
     expect((await call('/hosted/launch', { ticket: ticket() })).status).toBe(403);
   });
   it('launches cold and warm with one stable identity, private cookie and refresh', async () => {
-    const first = await call('/hosted/launch', { ticket: ticket() });
+    const firstTicket = ticket();
+    const first = await call('/hosted/launch', { ticket: firstTicket });
     expect(first.status).toBe(303);
+    const { jti } = JSON.parse(Buffer.from(firstTicket.split('.')[1], 'base64url').toString());
+    expect(JSON.parse(readFileSync(join(dir, 'hosted-launch', jti), 'utf8')).orderId).toBe(orderId);
+    expect(JSON.parse(readFileSync(join(dir, 'hosted-launch', 'principal'), 'utf8')).orderId).toBe(
+      orderId,
+    );
     const cookie = first.headers['set-cookie']![0];
     expect(cookie).toMatch(/HttpOnly; Secure; SameSite=None/);
     expect(cookie).not.toContain('Domain=');
@@ -222,6 +330,8 @@ describe('launch exchange through real HTTP and WS sessions', () => {
     ['wrong issuer', { iss: 'https://evil.example' }],
     ['wrong audience', { aud: 'https://other.example.com' }],
     ['missing subject', { sub: '' }],
+    ['missing access mode', { accessMode: undefined }],
+    ['invalid access mode', { accessMode: 'admin' }],
     ['bad nonce', { jti: 'nonce' }],
     ['long lifetime', { exp: Math.floor(Date.now() / 1000) + 3600 }],
   ])('rejects %s', async (_name, patch) => {
@@ -249,7 +359,7 @@ describe('launch exchange through real HTTP and WS sessions', () => {
     const old = await call('/hosted/launch', { ticket: guestTicket });
     expect(old.status).toBe(303);
     const claimed = await call('/hosted/launch', {
-      ticket: ticket({ sub: 'customer:opaque', ownerEpoch: 1 }),
+      ticket: ticket({ sub: 'customer:opaque', ownerEpoch: 1, accessMode: 'use' as const }),
     });
     expect(claimed.status).toBe(303);
     expect((await call('/api/private', { cookie: old.headers['set-cookie']![0] })).status).toBe(
@@ -262,13 +372,44 @@ describe('launch exchange through real HTTP and WS sessions', () => {
       403,
     );
     expect(
-      (await call('/hosted/launch', { ticket: ticket({ sub: 'customer:opaque', ownerEpoch: 0 }) }))
-        .status,
+      (
+        await call('/hosted/launch', {
+          ticket: ticket({ sub: 'customer:opaque', ownerEpoch: 0, accessMode: 'use' as const }),
+        })
+      ).status,
     ).toBe(403);
   });
 });
 
 describe('hosted phone browser', () => {
+  it.each(['cancelled', 'disabled', 'unavailable'])(
+    'denies every mounted mobile authentication/bearer route when site authority is %s',
+    async (state) => {
+      expect((await call('/hosted/launch', { ticket: ticket() })).status).toBe(303);
+      const clock = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(clock + 20_001);
+      vi.stubGlobal('fetch', async () => {
+        if (state === 'unavailable') throw new Error('website unavailable');
+        return new Response(JSON.stringify({ authorized: false }), { status: 403 });
+      });
+      for (const route of [
+        'pair',
+        'challenge',
+        'identify',
+        'session',
+        'backend-code',
+        'paths',
+        'unpair',
+      ]) {
+        const result = await call(`/api/mobile/${route}`, {
+          json: { deviceId: 'synthetic', nonce: 'a'.repeat(32), proof: '0'.repeat(64) },
+          origin: env.AASC_HOSTED_RUNTIME_ORIGIN,
+        });
+        expect(result.status, route).toBe(403);
+        expect(JSON.parse(result.body).code, route).toBe('HOSTED_AUTHORITY_REQUIRED');
+      }
+    },
+  );
   it('never grants localhost privileges to a hosted session when a proxy rewrites Host', async () => {
     const result = await call('/hosted/launch', { ticket: ticket() });
     expect(
@@ -338,6 +479,8 @@ describe('hosted phone browser', () => {
     const signedIn = await signIn();
     expect(signedIn.status).toBe(200);
     expect(getTokenDeviceId(parseCookieToken(signedIn.headers['set-cookie']![0]))).toBe(deviceId);
+    const phoneToken = parseCookieToken(signedIn.headers['set-cookie']![0])!;
+    expect(getTokenHostedIdentity(phoneToken)?.accessMode).toBe('use');
     expect(
       (
         await call('/api/hosted/phones', {
@@ -346,6 +489,24 @@ describe('hosted phone browser', () => {
         })
       ).status,
     ).toBe(403);
+    const challenge = await call('/api/mobile/challenge', json({ deviceId }));
+    expect(challenge.status).toBe(200);
+    const { nonce } = JSON.parse(challenge.body).data;
+    expect(nonce).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_001);
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response(JSON.stringify({ authorized: false }), { status: 403 }),
+    );
+    for (const [route, payload] of [
+      ['session', { deviceId, nonce, proof: proofForToken(deviceToken, nonce) }],
+      ['backend-code', {}],
+      ['paths', { nonce: 'b'.repeat(64) }],
+    ] as const) {
+      const denied = await call(`/api/mobile/${route}`, { ...json(payload), bearer: phoneToken });
+      expect(denied.status, route).toBe(403);
+      expect(JSON.parse(denied.body).code, route).toBe('HOSTED_AUTHORITY_REQUIRED');
+    }
   });
   it('rejects another order token and a generic password token on hosted HTTP and WS', async () => {
     for (const token of [createHostedToken(randomUUID(), 'other'), createToken()]) {

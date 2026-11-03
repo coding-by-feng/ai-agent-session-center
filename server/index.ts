@@ -172,6 +172,8 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
   const hosted = getHostedConfig(); // Validate before startup side effects; incomplete configuration is fatal.
+  let hostedOwnerChanged = (): void => {};
+  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged()) : null;
   // npm 11 runs no install scripts until approved, which left node-pty's spawn-helper at 0644 and
   // every terminal failing with "posix_spawnp failed" in an npx install (ptySpawnHelper.ts).
   if (process.env.ELECTRON !== '1') {
@@ -201,7 +203,6 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const app = express();
   const server = createServer(app);
   const hostedSockets = new Map<string, Set<WebSocket>>();
-  let hostedOwnerChanged = (): void => {};
   let hostedAccessRevoked = (): void => {};
   const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
 
@@ -279,7 +280,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     : null;
   if (mcpRouter) app.use('/mcp', mcpRouter, mcpErrorHandler);
 
-  if (hosted) app.use(createHostedAccess(hosted, () => hostedOwnerChanged()).router);
+  if (hostedAccess) app.use(hostedAccess.router);
 
   // -- Auth endpoints (no auth required) --
   const loginClientIp = (req: express.Request): string => req.ip || req.socket?.remoteAddress || 'unknown';
@@ -293,7 +294,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     const authenticated = hosted ? hostedSessionAllowed(hosted, req) : passwordRequired ? validateToken(token) : true;
     // So a reloaded login page still shows its countdown.
     const lockedFor = passwordRequired && !authenticated ? checkLoginRateLimit(loginClientIp(req)) : 0;
-    res.json({ passwordRequired, authenticated, ...(lockedFor > 0 ? { lockedFor } : {}) });
+    res.json({ passwordRequired, authenticated, ...(hosted && authenticated ? { expiresIn: Math.floor(getTokenTTL(token) / 1000) } : {}), ...(lockedFor > 0 ? { lockedFor } : {}) });
   });
 
   app.post('/api/auth/login', (req, res) => {
@@ -354,8 +355,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     }
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     const secureSuffix = isSecure ? '; Secure' : '';
-    res.setHeader('Set-Cookie', hosted ? hostedCookie(newToken) : `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
-    res.json({ success: true, expiresIn: TOKEN_TTL_SECONDS });
+    const expiresIn = hosted ? Math.max(1, Math.floor(getTokenTTL(newToken) / 1000)) : TOKEN_TTL_SECONDS;
+    res.setHeader('Set-Cookie', hosted ? hostedCookie(newToken, expiresIn) : `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
+    res.json({ success: true, expiresIn });
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -450,7 +452,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
-    createSessionToken: (deviceId) => createToken(deviceId),
+    createSessionToken: (deviceId) => createToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
     createComputerSessionToken: (deviceId) => createComputerToken(deviceId),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: createPairingTarget({
@@ -764,8 +766,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       expiry.unref();
       const identity = getTokenHostedIdentity(token) ?? currentHostedOwner(hosted);
       const authority = setInterval(() => {
-        void authorizeHosted(hosted, identity).then((allowed) => { if (!allowed) { removeToken(token); ws.terminate(); } });
-      }, 20_000);
+        void authorizeHosted(hosted, identity, true).then((allowed) => { if (!allowed) { removeToken(token); ws.terminate(); } });
+      }, 10_000);
       authority.unref();
       ws.once('close', () => { clearTimeout(expiry); clearInterval(authority); sockets.delete(ws); if (!sockets.size) hostedSockets.delete(lineage); });
     }

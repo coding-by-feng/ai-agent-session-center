@@ -6,19 +6,24 @@ import type { HostedConfig } from './hostedConfig.js';
 export interface HostedIdentity {
   sub: string;
   ownerEpoch: number;
+  accessMode: 'verify' | 'use';
 }
 const positive = new Map<string, number>();
 /** Opaque subject is private durable authority state, never sent to browser code. */
 export function currentHostedOwner(config: HostedConfig): HostedIdentity | null {
   try {
+    if (readFileSync(join(config.dataDir, 'hosted-launch', 'order'), 'utf8') !== config.orderId)
+      return null;
     const value = JSON.parse(
       readFileSync(join(config.dataDir, 'hosted-launch', 'principal'), 'utf8'),
     );
-    return typeof value.subject === 'string' &&
+    return value.orderId === config.orderId &&
+      typeof value.subject === 'string' &&
       value.subject.length > 0 &&
       Number.isSafeInteger(value.epoch) &&
-      value.epoch >= 0
-      ? { sub: value.subject, ownerEpoch: value.epoch }
+      value.epoch >= 0 &&
+      (value.accessMode === 'verify' || value.accessMode === 'use')
+      ? { sub: value.subject, ownerEpoch: value.epoch, accessMode: value.accessMode }
       : null;
   } catch {
     return null;
@@ -30,10 +35,12 @@ export async function authorizeHosted(
   identity: HostedIdentity | null,
   fresh = false,
 ): Promise<boolean> {
-  if (!identity) return false;
-  const key = `${config.dataDir}:${config.orderId}:${identity.sub}:${identity.ownerEpoch}`;
+  if (!identity || (identity.accessMode !== 'verify' && identity.accessMode !== 'use'))
+    return false;
+  const key = `${config.dataDir}:${config.orderId}:${identity.sub}:${identity.ownerEpoch}:${identity.accessMode}`;
   if (!fresh && (positive.get(key) ?? 0) > Date.now()) return true;
-  const now = Math.floor(Date.now() / 1000);
+  const checkedAt = Date.now();
+  const now = Math.floor(checkedAt / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(
     JSON.stringify({
@@ -42,6 +49,7 @@ export async function authorizeHosted(
       orderId: config.orderId,
       sub: identity.sub,
       ownerEpoch: identity.ownerEpoch,
+      accessMode: identity.accessMode,
       purpose: 'authorize',
       iat: now,
       exp: now + 30,
@@ -60,7 +68,7 @@ export async function authorizeHosted(
     });
     const result = await response.json();
     if (response.ok && result.authorized === true) {
-      positive.set(key, Date.now() + 20_000);
+      positive.set(key, checkedAt + 20_000);
       return true;
     }
   } catch {

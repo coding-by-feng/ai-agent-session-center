@@ -7,6 +7,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+it('never reuses a verification approval as fulfilled-use authority for the same owner', async () => {
+  const hosted = config();
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    const { assertion } = JSON.parse(options.body as string);
+    const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString());
+    return new Response(JSON.stringify({ authorized: claims.accessMode === 'verify' }));
+  });
+  expect(
+    await authorizeHosted(hosted, { sub: 'customer:opaque', ownerEpoch: 1, accessMode: 'verify' }),
+  ).toBe(true);
+  expect(
+    await authorizeHosted(hosted, { sub: 'customer:opaque', ownerEpoch: 1, accessMode: 'use' }),
+  ).toBe(false);
+});
 function config(): HostedConfig {
   return {
     orderId: '63d17688-d822-4387-b876-9d081278849d',
@@ -38,17 +52,24 @@ it('signs an exact runtime-to-website assertion without forwarding customer cook
       aud: 'https://xclaude.dev',
       sub: 'customer:opaque',
       ownerEpoch: 1,
+      accessMode: 'use',
       orderId: hosted.orderId,
     });
     expect(claims.exp - claims.iat).toBe(30);
     return new Response(JSON.stringify({ authorized: true }));
   });
-  expect(await authorizeHosted(hosted, { sub: 'customer:opaque', ownerEpoch: 1 })).toBe(true);
+  expect(
+    await authorizeHosted(hosted, {
+      sub: 'customer:opaque',
+      ownerEpoch: 1,
+      accessMode: 'use' as const,
+    }),
+  ).toBe(true);
 });
 it('bounds positive caching, forces fresh launch/refresh checks and denies revoked authority', async () => {
   vi.useFakeTimers();
   const hosted = config();
-  const identity = { sub: 'guest:opaque', ownerEpoch: 0 };
+  const identity = { sub: 'guest:opaque', ownerEpoch: 0, accessMode: 'use' as const };
   let calls = 0;
   let allowed = true;
   vi.stubGlobal('fetch', async () => {
@@ -68,7 +89,7 @@ it('bounds positive caching, forces fresh launch/refresh checks and denies revok
   expect(await authorizeHosted(hosted, identity)).toBe(false);
 });
 it('fails closed on network failure, malformed JSON, a non-success response and missing identity', async () => {
-  const identity = { sub: 'guest:opaque', ownerEpoch: 0 };
+  const identity = { sub: 'guest:opaque', ownerEpoch: 0, accessMode: 'use' as const };
   for (const response of [
     () => {
       throw new Error('offline');

@@ -62,6 +62,28 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
   const directory = join(config.dataDir, 'hosted-launch');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const principalFile = join(directory, 'principal');
+  if (existsSync(principalFile)) {
+    const previous = JSON.parse(readFileSync(principalFile, 'utf8'));
+    if (
+      previous.orderId !== config.orderId ||
+      (previous.accessMode !== 'verify' && previous.accessMode !== 'use')
+    )
+      throw new Error('Hosted owner receipt belongs to another order or lacks an order binding');
+  }
+  const orderFile = join(directory, 'order');
+  // Bind even before the first launch: reusing a writable data directory for a new order
+  // must fail before the process opens its listener or cloud connection.
+  try {
+    durableCreate(orderFile, config.orderId);
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code !== 'EEXIST' ||
+      readFileSync(orderFile, 'utf8') !== config.orderId
+    )
+      throw new Error(
+        'Hosted data directory belongs to another order or has an invalid order binding',
+      );
+  }
   function inspect(ticket: unknown) {
     if (typeof ticket !== 'string' || ticket.length > 4096) throw new Error('Invalid launch');
     const parts = ticket.split('.');
@@ -81,6 +103,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       claims.iss !== config.websiteOrigin ||
       claims.aud !== config.runtimeOrigin ||
       claims.orderId !== config.orderId ||
+      (claims.accessMode !== 'verify' && claims.accessMode !== 'use') ||
       typeof claims.sub !== 'string' ||
       claims.sub.length < 1 ||
       claims.sub.length > 256 ||
@@ -100,15 +123,24 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
   }
   function consume(ticket: unknown) {
     const claims = inspect(ticket);
+    if (readFileSync(orderFile, 'utf8') !== config.orderId)
+      throw new Error('Hosted order binding changed');
     const principal = createHash('sha256').update(claims.sub).digest('hex');
     // The website may claim a guest order for a customer. A signed monotonically increasing epoch
     // permits that transition without letting an unused older ticket take ownership back.
     const previous = existsSync(principalFile)
-      ? (JSON.parse(readFileSync(principalFile, 'utf8')) as { epoch: number; principal: string })
+      ? (JSON.parse(readFileSync(principalFile, 'utf8')) as {
+          orderId: string;
+          accessMode: 'verify' | 'use';
+          epoch: number;
+          principal: string;
+        })
       : null;
     if (
       previous &&
-      (!Number.isSafeInteger(previous.epoch) ||
+      (previous.orderId !== config.orderId ||
+        (previous.accessMode !== 'verify' && previous.accessMode !== 'use') ||
+        !Number.isSafeInteger(previous.epoch) ||
         previous.epoch < 0 ||
         !/^[0-9a-f]{64}$/.test(previous.principal))
     )
@@ -119,17 +151,32 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         (claims.ownerEpoch === previous.epoch && previous.principal !== principal))
     )
       throw new Error('Order principal mismatch');
-    durableCreate(join(directory, claims.jti.toLowerCase()), String(claims.exp));
+    durableCreate(
+      join(directory, claims.jti.toLowerCase()),
+      JSON.stringify({ orderId: config.orderId, accessMode: claims.accessMode, exp: claims.exp }),
+    );
     if (!previous)
       durableCreate(
         principalFile,
-        JSON.stringify({ epoch: claims.ownerEpoch, principal, subject: claims.sub }),
+        JSON.stringify({
+          orderId: config.orderId,
+          epoch: claims.ownerEpoch,
+          accessMode: claims.accessMode,
+          principal,
+          subject: claims.sub,
+        }),
       );
-    else if (claims.ownerEpoch > previous.epoch) {
+    else if (claims.ownerEpoch > previous.epoch || claims.accessMode !== previous.accessMode) {
       const next = join(directory, `${claims.jti}.owner`);
       durableCreate(
         next,
-        JSON.stringify({ epoch: claims.ownerEpoch, principal, subject: claims.sub }),
+        JSON.stringify({
+          orderId: config.orderId,
+          epoch: claims.ownerEpoch,
+          accessMode: claims.accessMode,
+          principal,
+          subject: claims.sub,
+        }),
       );
       renameSync(next, principalFile);
       const parent = openSync(directory, 'r');
@@ -141,7 +188,12 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       revokeHostedTokens(config.orderId);
       onOwnerChanged();
     }
-    return { principal, sub: claims.sub as string, ownerEpoch: claims.ownerEpoch as number };
+    return {
+      principal,
+      sub: claims.sub as string,
+      ownerEpoch: claims.ownerEpoch as number,
+      accessMode: claims.accessMode as 'verify' | 'use',
+    };
   }
   const router = express.Router();
   router.get('/hosted/launch-error.js', (_req, res) => {
