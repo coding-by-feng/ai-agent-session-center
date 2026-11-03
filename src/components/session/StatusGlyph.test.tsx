@@ -31,6 +31,10 @@ describe('StatusGlyph', () => {
     expect(markup('mystery')).toBe(markup('idle'));
   });
 
+  it('draws a compaction with the working spinner: the session is busy, not idle', () => {
+    expect(markup('compacting')).toBe(markup('working'));
+  });
+
   it('takes its colour from the surrounding text (currentColor)', () => {
     expect(markup('approval')).toContain('currentColor');
   });

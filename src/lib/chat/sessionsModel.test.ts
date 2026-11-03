@@ -87,6 +87,37 @@ describe('statusSection', () => {
   });
 });
 
+// Nov 3 2026: the row's ring spins while compacting, so its section and filter must agree with it.
+describe('a compacting session', () => {
+  const compacting = { since: Date.now(), trigger: 'auto' as const };
+
+  it('sits under Working and in the Working filter, even when its status is idle', () => {
+    const row = mk('a', { status: 'idle', compacting });
+    expect(statusSection(row)).toBe('working');
+    expect(matchesFilter(row, 'working')).toBe(true);
+    expect(matchesFilter(row, 'needs-you')).toBe(false);
+  });
+
+  it('leaves Needs you while it compacts, and the proceed reminder returns after', () => {
+    const owing = { status: 'idle' as const, pendingProceedAt: 5 };
+    expect(statusSection(mk('a', { ...owing, compacting }))).toBe('working');
+    expect(matchesFilter(mk('a', { ...owing, compacting }), 'needs-you')).toBe(false);
+    expect(statusSection(mk('a', { ...owing, compacting: null }))).toBe('needs-you');
+  });
+
+  it('never takes a session that is blocked out of Needs you', () => {
+    for (const over of [{ status: 'approval' as const }, { status: 'input' as const }, { status: 'idle' as const, interruption: { kind: 'overloaded', line: 'x', at: 1 } }]) {
+      const row = mk('a', { ...over, compacting } as Partial<Session>);
+      expect(statusSection(row)).toBe('needs-you');
+      expect(matchesFilter(row, 'working')).toBe(false);
+    }
+  });
+
+  it('does not outlive a lost end hook', () => {
+    expect(statusSection(mk('a', { status: 'idle', compacting: { since: 0, trigger: null } }))).toBe('idle');
+  });
+});
+
 describe('nowLine', () => {
   it('says the pending ask for a waiting session', () => {
     expect(nowLine(mk('a', { status: 'approval', pendingToolDetail: 'npm run build' }))).toBe('Wants to run: npm run build');

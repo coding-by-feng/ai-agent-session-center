@@ -66,6 +66,15 @@ describe('SessionJumpOverlay', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('previews a compacting session as Compacting', () => {
+    const t = setup();
+    const sessions = new Map(useSessionStore.getState().sessions);
+    sessions.set('id01', { ...sessions.get('id01'), compacting: { since: Date.now(), trigger: 'auto' } } as Session);
+    act(() => { useSessionStore.setState({ sessions }); });
+    press(t, '1'); // "1" waits for a second digit (10–19), so it previews #1
+    expect(screen.getByRole('dialog')).toHaveTextContent('Compacting');
+  });
+
   it('keeps the digits out of the terminal and never takes focus', () => {
     const t = setup();
     press(t, '1');

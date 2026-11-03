@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
+import { detectCli } from '@/lib/cliDetect';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS } from '@/lib/recentSessions';
 import { buildStripItems, filterByRooms, type StripItem } from '@/lib/sessionStrip';
@@ -62,7 +63,9 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       // whose directory changes (an SSH session follows its hook's cwd) has to
       // move frames without waiting for some other field to change.
       // pendingProceedAt: the card's P (its answer asks you to proceed) comes and goes with no other change.
-      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
+      // compacting: so does its spinner, since a compaction leaves the status alone.
+      // detectCli: the card's Claude/Codex mark, when the CLI is identified after the card first drew.
+      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.compacting?.since ?? ''}|${detectCli(s) ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');

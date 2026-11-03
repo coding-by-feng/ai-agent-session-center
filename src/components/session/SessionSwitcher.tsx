@@ -55,7 +55,9 @@ import Tooltip from '@/components/ui/Tooltip';
 import SessionPromptPeek from './SessionPromptPeek';
 import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
-import { ASLEEP, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, statusLabel as statusWords } from '@/lib/sessionStatusStyle';
+import { ASLEEP, COMPACTING, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, showsCompacting, statusColor, statusLabel as statusWords, statusOrCompacting } from '@/lib/sessionStatusStyle';
+import { detectCli } from '@/lib/cliDetect';
+import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
@@ -600,7 +602,7 @@ export default function SessionSwitcher({
           {/* The shared status mark — the same glyph and words as the LIVE card (AASC-11). */}
           {statusLabel && (
             <StatusBadge
-              status={currentSession.asleepAt ? ASLEEP : isDisconnected ? 'ended' : currentSession.status}
+              status={currentSession.asleepAt ? ASLEEP : isDisconnected ? 'ended' : statusOrCompacting(currentSession)}
               className={styles.switcherStatus}
             />
           )}
@@ -958,14 +960,20 @@ function SessionTabCard({
   index: number;
   needsAttention?: boolean;
 }) {
-  const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
-  const railStatus = session.asleepAt ? ASLEEP : session.status;
+  // A compaction is busy whatever the status says, so it shows over the P and the ✓ below.
+  const compacting = showsCompacting(session);
+  const color = compacting ? statusColor(COMPACTING) : STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+  const railStatus = session.asleepAt ? ASLEEP : compacting ? COMPACTING : session.status;
   const statusTitle = session.asleepAt
     ? `${statusWords(ASLEEP)} — open to resume`
-    : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
+    : compacting
+      ? statusWords(COMPACTING)
+      : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
+  const detectedCli = detectCli(session);
+  const cliMark = CLI_LAUNCHERS.find((c) => c.command === detectedCli);
   const label = useLabelStore((s) => s.labels[session.sessionId]);
   const labelColor = useLabelStore((s) => s.labelColor);
   // Client queueStore is the source of truth for pending prompts — `session.queueCount`
@@ -1063,7 +1071,7 @@ function SessionTabCard({
           shows the green ✓ "completed" badge; otherwise it shows a distinct
           per-status glyph (approval "!", input "?", working spinner, etc.) so
           statuses are tellable apart by icon, not colour alone. */}
-      {owesProceed(session) ? (
+      {!compacting && owesProceed(session) ? (
         // Its last answer asks you to reply "proceed" (Oct 23 2026): outranks the ✓, and shows on
         // the current card too, since looking at it is not the reply.
         <span
@@ -1074,7 +1082,7 @@ function SessionTabCard({
         >
           <StatusGlyph status={PROCEED} />
         </span>
-      ) : needsAttention ? (
+      ) : !compacting && needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
           role="img"
@@ -1141,7 +1149,13 @@ function SessionTabCard({
           onDoubleClick={beginEdit}
           title={isCurrent ? 'Double-click to rename' : undefined}
         >
-          {/* A central session (server/mcp): the star first, before the queue chip; the card's hover names its scope. */}
+          {/* Claude or Codex, always first: on a compact card the marks form one column to scan. */}
+          {cliMark && (
+            <span className={styles.sessionTabCli} role="img" aria-label={cliMark.label} title={cliMark.label}>
+              <cliMark.Icon size={11} />
+            </span>
+          )}
+          {/* A central session (server/mcp): the star next, before the queue chip; the card's hover names its scope. */}
           {session.central && <CentralBadge central={session.central} bare className={styles.sessionTabCentral} />}
           {queueLen > 0 && (
             <span

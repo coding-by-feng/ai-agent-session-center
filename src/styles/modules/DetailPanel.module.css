@@ -1617,6 +1617,16 @@
   word-break: break-word;
 }
 
+/* Claude/Codex brand mark, inline at the very START of the title. Compact titles are left-aligned,
+   so there the marks form one column; a detailed title is centred, and its mark goes with it.
+   Brand colours come from CliBrandIcons. */
+.sessionTabCli {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 3px;
+}
+
 /* Queue-hint badge — a cyan list-glyph + count shown inline at the START of the
    title when the session has queued prompts (source: client queueStore, mirroring
    the QueueTab's "QUEUE (N)" header). Inline-flex so it flows with the title text

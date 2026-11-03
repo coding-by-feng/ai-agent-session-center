@@ -48,13 +48,49 @@ export const ASLEEP = 'asleep';
 const ASLEEP_LABEL = 'Asleep';
 const ASLEEP_COLOR = 'var(--text-dim)';
 
+/**
+ * "Compacting" (Nov 3 2026): the CLI is compacting its context (`Session.compacting`,
+ * server/compactingState.ts). Display only: the status itself stays, because an idle compaction
+ * is still idle to the queue. It reads like work, in the working colour and with the working glyph.
+ */
+export const COMPACTING = 'compacting';
+const COMPACTING_LABEL = 'Compacting';
+/** `Session.compacting`, spelled out because this module stays import-free. */
+interface CompactingMark { since: number; trigger?: string | null }
+/** A compaction never shows over these: a blocked session still needs you, an ended one is gone. */
+export const OUTRANK_COMPACTING: ReadonlySet<string> = new Set(['approval', 'input', 'ended']);
+/** How long a compaction may show without its end hook: a lost hook must not leave it up for good. */
+export const COMPACTING_STALE_MS = 10 * 60_000;
+
+/** Is the session compacting its context right now (PreCompact seen, no end yet, not stale)? */
+export function isCompacting(session: { compacting?: CompactingMark | null }, now = Date.now()): boolean {
+  const c = session.compacting;
+  return !!c && now - c.since < COMPACTING_STALE_MS;
+}
+
+/** Should the session's status mark say so? Outranks the proceed reminder and the rail's ✓, which come back after. */
+export function showsCompacting(session: { status: string; compacting?: CompactingMark | null }, now = Date.now()): boolean {
+  return isCompacting(session, now) && !OUTRANK_COMPACTING.has(session.status);
+}
+
+/** The status with only the compaction swapped in, for a mark that shows neither the P nor asleep. */
+export function statusOrCompacting(session: { status: string; compacting?: CompactingMark | null }): string {
+  return showsCompacting(session) ? COMPACTING : session.status;
+}
+
 export function owesProceed(session: { status: string; pendingProceedAt?: number | null }): boolean {
   return !!session.pendingProceedAt && (session.status === 'waiting' || session.status === 'idle');
 }
 
-/** The status to draw: `ASLEEP` while asleep, `PROCEED` while a reply is owed, else the session's own. */
-export function displayStatus(session: { status: string; pendingProceedAt?: number | null; asleepAt?: number }): string {
+/** The status to draw: `ASLEEP` while asleep, `COMPACTING` while compacting, `PROCEED` while a reply is owed, else the session's own. */
+export function displayStatus(session: {
+  status: string;
+  pendingProceedAt?: number | null;
+  asleepAt?: number;
+  compacting?: CompactingMark | null;
+}): string {
   if (session.asleepAt) return ASLEEP;
+  if (showsCompacting(session)) return COMPACTING;
   return owesProceed(session) ? PROCEED : session.status;
 }
 
@@ -62,6 +98,7 @@ export function displayStatus(session: { status: string; pendingProceedAt?: numb
 export function statusLabel(status: string): string {
   if (status === PROCEED) return PROCEED_LABEL;
   if (status === ASLEEP) return ASLEEP_LABEL;
+  if (status === COMPACTING) return COMPACTING_LABEL;
   return STATUS_LEGEND.find((s) => s.status === status)?.label ?? status;
 }
 
@@ -69,5 +106,6 @@ export function statusLabel(status: string): string {
 export function statusColor(status: string): string {
   if (status === PROCEED) return PROCEED_COLOR;
   if (status === ASLEEP) return ASLEEP_COLOR;
+  if (status === COMPACTING) return STATUS_COLORS.working;
   return STATUS_COLORS[status] ?? 'var(--text-dim)';
 }

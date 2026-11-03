@@ -61,6 +61,7 @@ describe('the board filters', () => {
   it.each<[string, BoardFilter, boolean]>([
     ['working', 'working', true],
     ['prompting', 'working', true],
+    ['compacting', 'working', true],
     ['waiting', 'working', false],
     ['idle', 'working', false],
     ['approval', 'working', false],
@@ -84,6 +85,12 @@ describe('the board filters', () => {
     ];
     expect(boardCounts(list)).toEqual({ all: 5, working: 2, 'needs-you': 2 });
     expect(boardCounts([])).toEqual({ all: 0, working: 0, 'needs-you': 0 });
+  });
+
+  it('counts a compacting session under Working, even when its status is idle', () => {
+    const compacting = { since: Date.now(), trigger: 'auto' as const };
+    const list = [s('a', { status: 'idle', compacting }), s('b', { status: 'working', compacting }), s('c', { status: 'idle' })];
+    expect(boardCounts(list)).toEqual({ all: 3, working: 2, 'needs-you': 0 });
   });
 
   it('counts a session that asks you to proceed under Needs you, as the phone does', () => {
@@ -286,6 +293,12 @@ describe('quietFor — how long a quiet session has been quiet', () => {
     [3 * 86_400_000 + 5 * 3_600_000, '3d'],
   ])('%i ms after its last work reads %s', (agoMs, text) => {
     expect(quietFor(stoppedAgo(agoMs), NOW)).toBe(text);
+  });
+
+  it('is not shown while the session compacts: it is busy, whatever its status says', () => {
+    const compacting = { since: NOW - 1_000, trigger: 'auto' as const };
+    expect(quietFor(stoppedAgo(5 * 60_000, { compacting }), NOW)).toBeNull();
+    expect(quietFor(stoppedAgo(5 * 60_000, { status: 'approval', compacting }), NOW)).toBe('5m');
   });
 
   it.each(['idle', 'waiting', 'approval', 'input'])('is shown for a %s session', (status) => {

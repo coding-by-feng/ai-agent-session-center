@@ -18,7 +18,7 @@ import { useState } from 'react';
 import type { Session } from '@/types';
 import { PEEK_PROMPT_COUNT, promptAge, typedPrompts } from '@/lib/promptPeek';
 import { quietFor } from '@/lib/liveBoard';
-import { statusLabel } from '@/lib/sessionStatusStyle';
+import { statusLabel, statusOrCompacting } from '@/lib/sessionStatusStyle';
 import { centralTooltip, workersText } from '@/lib/centralChoice';
 import { useMcpStore } from '@/stores/mcpStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
@@ -30,7 +30,7 @@ export default function SessionPromptPeek({ session }: { session: Session }) {
   const [now] = useState(() => Date.now());
   const prompts = typedPrompts(session, PEEK_PROMPT_COUNT, 'full');
   const quiet = quietFor(session, now);
-  const meta = [session.projectName, statusLabel(session.status), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
+  const meta = [session.projectName, statusLabel(statusOrCompacting(session)), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
   const remark = typeof session.remark === 'string' ? session.remark.trim() : '';
   // No ★ line while central sessions are off (centralFeatureStore); the marker stays.
   const central = useCentralSessionsShown() ? session.central : undefined;

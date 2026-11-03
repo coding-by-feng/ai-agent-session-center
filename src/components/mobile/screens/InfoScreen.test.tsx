@@ -101,6 +101,11 @@ describe('InfoScreen', () => {
     expect(screen.queryByText(/baton|PTY/i)).toBeNull();
   });
 
+  it('while compacting, the ring and the words agree: it spins, even on an idle session', () => {
+    setup({ status: 'idle', compacting: { since: Date.now(), trigger: 'auto' } });
+    expect(screen.getByRole('img', { name: 'Compacting' })).toHaveAttribute('data-spin');
+  });
+
   it('never offers Pin or Share', () => {
     setup();
     expect(screen.queryByText(/Pin/)).toBeNull();

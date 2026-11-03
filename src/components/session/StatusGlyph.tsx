@@ -46,6 +46,7 @@ export default function StatusGlyph({ status }: { status: string }) {
           <circle cx="7" cy="11" r="0.75" fill="currentColor" stroke="none" />
         </svg>
       );
+    case 'compacting': // compacting its context: busy, whatever its status says (sessionStatusStyle.COMPACTING)
     case 'working': // tool running — spinner
       return (
         <svg {...GLYPH_PROPS}>

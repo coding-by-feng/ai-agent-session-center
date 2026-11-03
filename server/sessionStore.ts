@@ -1028,7 +1028,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   );
   if (pendingRequest !== (session.pendingRequest ?? null)) session.pendingRequest = pendingRequest;
 
-  // A context compaction in progress, for the phone's "Compacting" hint.
+  // A context compaction in progress, for the status marks and the phone's "Compacting" hint.
   const compacting = nextCompacting(
     session.compacting ?? null, hook_event_name, hookData as unknown as Record<string, unknown>, Date.now(),
   );
