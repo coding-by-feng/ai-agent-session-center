@@ -431,6 +431,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     for (const device of deviceAuth.list()) revokeTokensForDevice(device.id);
   };
   hostedOwnerChanged = () => {
+    deviceAuth.clearPairingCodes();
     hostedAccessRevoked();
     for (const device of deviceAuth.list()) {
       if (!deviceAuth.deny(device.id)) deviceAuth.revoke(device.id);
@@ -444,7 +445,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // How each phone last connected (home network or Tailscale), in memory (AASC-60):
   // written by the mobile router below, read by Remote access.
   const phonePathLog = createPhonePathLog();
-  if (hosted) app.use(createHostedPairingRouter(hosted, deviceAuth, () => isPhonePairingOffered(config, process.env)));
+  if (hosted) app.use(createHostedPairingRouter(hosted, deviceAuth, () => isPhonePairingOffered(config, process.env), hostedAccess!));
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled: () => hosted !== null || isPasswordEnabled(),

@@ -241,6 +241,14 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
 
 
   return {
+    hasPairingCode(code: string): boolean {
+      pruneCodes();
+      return codes.has(hashSecret(normalizePairingCode(code)));
+    },
+    invalidatePairingCode(code: string): void {
+      codes.delete(hashSecret(normalizePairingCode(code)));
+    },
+    clearPairingCodes(): void { codes.clear(); },
     createPairingCode(): { code: string; expiresAt: number } {
       pruneCodes();
       if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();

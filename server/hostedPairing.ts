@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { HostedConfig } from './hostedConfig.js';
 import { authMiddleware, extractToken, getTokenLineage } from './authManager.js';
-import { hostedSessionAllowed } from './hostedAccess.js';
+import { type createHostedAccess, hostedSessionAllowed } from './hostedAccess.js';
 import { authorizeHosted, currentHostedOwner } from './hostedAuthority.js';
 import type { createDeviceAuth } from './mobile/deviceAuth.js';
 import { TooManyPairingCodesError } from './mobile/deviceAuth.js';
@@ -11,8 +11,48 @@ export function createHostedPairingRouter(
   config: HostedConfig,
   devices: ReturnType<typeof createDeviceAuth>,
   offered = () => true,
+  bridge?: Pick<ReturnType<typeof createHostedAccess>, 'inspectPairing' | 'consumePairing'>,
 ) {
   const router = Router();
+  let current: {owner: string; code: string; expiresAt: number} | null = null;
+  let lastRegenerated = 0;
+  let windowStart = 0, requests = 0;
+  router.post('/hosted/order-pairing', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!bridge || req.headers.origin !== config.websiteOrigin || !req.is('application/json')) {
+      res.status(403).json({ error: 'Pairing access refused' }); return;
+    }
+    if (!req.body || typeof req.body !== 'object' || Object.keys(req.body).some(k => k !== 'ticket')) {
+      res.status(400).json({ error: 'Invalid pairing request' }); return;
+    }
+    try {
+      const claims = bridge.inspectPairing(req.body.ticket);
+      const now = Date.now();
+      if (now - windowStart >= 60000) { windowStart = now; requests = 0; }
+      if (++requests > 30) { res.status(429).json({ error: 'Pairing requests too frequent' }); return; }
+      if (!(await authorizeHosted(config, claims, true))) {
+        res.status(403).json({ error: 'Pairing access refused' }); return;
+      }
+      const identity = bridge.consumePairing(req.body.ticket);
+      if (!offered()) { res.status(409).json({ error: 'Pairing unavailable' }); return; }
+      const owner = `${identity.sub}:${identity.ownerEpoch}`;
+      // No awaits from ownership check through code creation: concurrent requests
+      // share one current code; a replaced code is never left outstanding.
+      if (current && current.owner !== owner) {
+        devices.clearPairingCodes(); current = null; lastRegenerated = 0;
+      }
+      if (identity.pairingAction === 'regenerate') {
+        if (Date.now() - lastRegenerated < 2000) { res.status(429).json({ error: 'Wait before regenerating' }); return; }
+        if (current) devices.invalidatePairingCode(current.code);
+        current = null; lastRegenerated = Date.now();
+      }
+      if (!current) current = {owner, ...devices.createPairingCode()};
+      const state = current.expiresAt <= Date.now() ? 'expired' : devices.hasPairingCode(current.code) ? 'active' : 'used';
+      res.json({kind: 'phone-browser', state, link: `${config.runtimeOrigin}/hosted/pair#${current.code}`, expiresAt: current.expiresAt});
+    } catch (error) {
+      res.status(error instanceof TooManyPairingCodesError ? 429 : 403).json({ error: 'Pairing access refused' });
+    }
+  });
   // Mobile routes are mounted before generic /api auth. Pairing proof alone cannot keep a
   // cancelled/disabled order or an unavailable website authority alive.
   router.use('/api/mobile', async (_req, res, next) => {

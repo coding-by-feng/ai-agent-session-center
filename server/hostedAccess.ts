@@ -6,6 +6,8 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
+  unlinkSync,
   renameSync,
   writeFileSync,
 } from 'node:fs';
@@ -84,7 +86,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         'Hosted data directory belongs to another order or has an invalid order binding',
       );
   }
-  function inspect(ticket: unknown) {
+  function inspect(ticket: unknown, pairing = false) {
     if (typeof ticket !== 'string' || ticket.length > 4096) throw new Error('Invalid launch');
     const parts = ticket.split('.');
     if (parts.length !== 3 || parts.some((p) => !/^[A-Za-z0-9_-]+$/.test(p)))
@@ -101,7 +103,8 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       header.alg !== 'HS256' ||
       header.typ !== 'JWT' ||
       claims.iss !== config.websiteOrigin ||
-      claims.aud !== config.runtimeOrigin ||
+      claims.aud !== config.runtimeOrigin + (pairing ? '/hosted/order-pairing' : '') ||
+      (pairing && (claims.accessMode !== 'use' || !['get', 'regenerate'].includes(claims.pairingAction))) ||
       claims.orderId !== config.orderId ||
       (claims.accessMode !== 'verify' && claims.accessMode !== 'use') ||
       typeof claims.sub !== 'string' ||
@@ -121,8 +124,17 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       throw new Error('Invalid launch');
     return claims;
   }
-  function consume(ticket: unknown) {
-    const claims = inspect(ticket);
+  function consume(ticket: unknown, pairing = false) {
+    const claims = inspect(ticket, pairing);
+    // Expired proofs are already rejected above. Remove only their UUID receipts,
+    // preserving durable order/principal binding and malformed receipts fail-closed.
+    for (const name of readdirSync(directory).filter(name => UUID.test(name)).slice(0, 512)) {
+      try {
+        const receipt = JSON.parse(readFileSync(join(directory, name), 'utf8'));
+        if (Number.isSafeInteger(receipt.exp) && receipt.exp <= Math.floor(Date.now() / 1000))
+          unlinkSync(join(directory, name));
+      } catch { /* Keep unreadable receipts; they must never allow replay. */ }
+    }
     if (readFileSync(orderFile, 'utf8') !== config.orderId)
       throw new Error('Hosted order binding changed');
     const principal = createHash('sha256').update(claims.sub).digest('hex');
@@ -193,6 +205,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       sub: claims.sub as string,
       ownerEpoch: claims.ownerEpoch as number,
       accessMode: claims.accessMode as 'verify' | 'use',
+      ...(pairing ? { pairingAction: claims.pairingAction as 'get' | 'regenerate' } : {}),
     };
   }
   const router = express.Router();
@@ -249,5 +262,5 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       owner: getTokenLineage(extractToken(req))?.startsWith('hosted:') === true,
     });
   });
-  return { router, consume };
+  return { router, consume, inspectPairing: (ticket: unknown) => inspect(ticket, true), consumePairing: (ticket: unknown) => consume(ticket, true) };
 }

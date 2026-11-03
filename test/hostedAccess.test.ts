@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, request, type Server } from 'node:http';
@@ -106,7 +106,8 @@ beforeEach(async () => {
   );
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
   const config = loadHostedConfig({ ...env, APP_USER_DATA: dir })!;
-  access = createHostedAccess(config);
+  let ownerChanged = () => {};
+  access = createHostedAccess(config, () => ownerChanged());
   const app = express();
   app.use(access.router);
   app.use(express.json());
@@ -126,7 +127,8 @@ beforeEach(async () => {
       listLive: () => [...rows.values()].filter((r) => r.status !== 'revoked'),
     },
   });
-  app.use(createHostedPairingRouter(config, devices));
+  ownerChanged = () => devices.clearPairingCodes();
+  app.use(createHostedPairingRouter(config, devices, () => true, access));
   app.use(
     '/api/mobile',
     createMobileRouter({
@@ -521,5 +523,68 @@ describe('hosted phone browser', () => {
       });
       expect(code).toBe(4001);
     }
+  });
+});
+
+
+describe('order-panel pairing bridge', () => {
+  const pairingTicket = (action = 'get', patch: Record<string, unknown> = {}) => ticket({ aud: env.AASC_HOSTED_RUNTIME_ORIGIN + '/hosted/order-pairing', pairingAction: action, ...patch });
+  it('issues and reuses a short-lived code without creating a terminal session; used code stays used', async () => {
+    const first = await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } });
+    expect(first.status).toBe(200);
+    expect(first.headers['set-cookie']).toBeUndefined();
+    const pairing = JSON.parse(first.body);
+    expect(pairing.kind).toBe('phone-browser');
+    expect(pairing.state).toBe('active');
+    expect(pairing.link).toMatch(/^https:\/\/order\.example\.com\/hosted\/pair#[A-Z2-9]{10}$/);
+    const second = await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } });
+    expect(second.status).toBe(200);
+    expect(JSON.parse(second.body).link).toBe(pairing.link);
+    const paired = await call('/api/mobile/pair', { origin: env.AASC_HOSTED_RUNTIME_ORIGIN, json: { code: pairing.link.split('#')[1], label: 'Fixture phone', platform: 'ios' } });
+    expect(paired.status).toBe(201);
+    expect(JSON.parse(paired.body).data.status).toBe('pending');
+    const used = await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } });
+    expect(JSON.parse(used.body).state).toBe('used');
+    expect(JSON.parse(used.body).link).toBe(pairing.link);
+  });
+  it('regeneration invalidates previous codes and ticket replay cannot regenerate again', async () => {
+    const first = JSON.parse((await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } })).body);
+    const proof = pairingTicket('regenerate');
+    const next = await call('/hosted/order-pairing', { json: { ticket: proof } });
+    expect(next.status).toBe(200);expect(JSON.parse(next.body).link).not.toBe(first.link);
+    expect((await call('/hosted/order-pairing', { json: { ticket: proof } })).status).toBe(403);
+    const old = await call('/api/mobile/pair', { origin: env.AASC_HOSTED_RUNTIME_ORIGIN, json: { code: first.link.split('#')[1], label: 'Old code', platform: 'ios' } });
+    expect(old.status).toBe(401);
+  });
+
+  it('reports expiration without silently replacing a code and prunes expired replay receipts', async () => {
+    const first = JSON.parse((await call('/hosted/order-pairing', {json:{ticket:pairingTicket()}})).body);
+    const oldReceipt=join(dir,'hosted-launch',randomUUID());
+    const validReceipt=join(dir,'hosted-launch',randomUUID());
+    const later=Date.now()+601000;
+    writeFileSync(oldReceipt,JSON.stringify({exp:Math.floor(Date.now()/1000)-1}));
+    writeFileSync(validReceipt,JSON.stringify({exp:Math.floor(later/1000)+60}));
+    const clock=vi.spyOn(Date,'now').mockReturnValue(later);
+    try {
+      const expired=JSON.parse((await call('/hosted/order-pairing',{json:{ticket:pairingTicket()}})).body);
+      expect(expired.state).toBe('expired');expect(expired.link).toBe(first.link);
+      expect(existsSync(oldReceipt)).toBe(false);expect(existsSync(validReceipt)).toBe(true);
+      expect(existsSync(join(dir,'hosted-launch','principal'))).toBe(true);
+    } finally {clock.mockRestore();}
+  });
+  it('owner change through launch invalidates outstanding codes before another pairing request',async()=>{
+    const first=JSON.parse((await call('/hosted/order-pairing',{json:{ticket:pairingTicket()}})).body);
+    expect((await call('/hosted/launch',{ticket:ticket({sub:'customer:next-owner',ownerEpoch:1})})).status).toBe(303);
+    const old=await call('/api/mobile/pair',{origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:{code:first.link.split('#')[1],label:'Old owner',platform:'ios'}});
+    expect(old.status).toBe(401);
+  });
+  it('refuses launch/pairing ticket interchange, verification mode, bad actions, extra fields and revoked authority', async () => {
+    expect((await call('/hosted/order-pairing', { json: { ticket: ticket() } })).status).toBe(403);
+    expect((await call('/hosted/launch', { ticket: pairingTicket() })).status).toBe(403);
+    for (const proof of [pairingTicket('other'), pairingTicket('get', {accessMode:'verify'}), pairingTicket('get',{orderId:randomUUID()}), pairingTicket('get',{exp:Math.floor(Date.now()/1000)-1})])
+      expect((await call('/hosted/order-pairing', {json:{ticket:proof}})).status).toBe(403);
+    expect((await call('/hosted/order-pairing', {json:{ticket:pairingTicket(), extra:true}})).status).toBe(400);
+    const assertion = vi.fn(async () => new Response(JSON.stringify({authorized:false}),{status:403}));vi.stubGlobal('fetch',assertion);
+    expect((await call('/hosted/order-pairing', {json:{ticket:pairingTicket()}})).status).toBe(403);expect(assertion).toHaveBeenCalledOnce();
   });
 });
