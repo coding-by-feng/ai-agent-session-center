@@ -219,6 +219,24 @@ export interface OpenRemoteOptions {
   token: string
   expiresIn: number
   now?: () => number
+  /** Runs on this remote's session before the first request. A Client edition serves its own UI from here. */
+  beforeLoad?: (ses: Session, origin: string) => void | Promise<void>
+}
+
+const AUTH_COOKIE = 'auth_token'
+
+/** The same httpOnly cookie the remote's own /session sets, on that remote's partition only. */
+function setSessionCookie(ses: Session, origin: string, token: string, expiresIn: number, now: () => number): Promise<void> {
+  return ses.cookies.set({
+    url: `${origin}/`,
+    name: AUTH_COOKIE,
+    value: token,
+    path: '/',
+    httpOnly: true,
+    secure: false,
+    sameSite: 'strict',
+    expirationDate: Math.floor(now() / 1000) + expiresIn,
+  })
 }
 
 /**
@@ -230,17 +248,8 @@ export async function openRemoteWindow(opts: OpenRemoteOptions): Promise<void> {
   if (focusRemoteWindow(opts.id)) return
   const ses = session.fromPartition(remotePartition(opts.id))
   prepareSession(ses)
-  const now = opts.now ?? Date.now
-  await ses.cookies.set({
-    url: `${opts.origin}/`,
-    name: 'auth_token',
-    value: opts.token,
-    path: '/',
-    httpOnly: true,
-    secure: false,
-    sameSite: 'strict',
-    expirationDate: Math.floor(now() / 1000) + opts.expiresIn,
-  })
+  await opts.beforeLoad?.(ses, opts.origin)
+  await setSessionCookie(ses, opts.origin, opts.token, opts.expiresIn, opts.now ?? Date.now)
   const title = `${opts.name} — AASC`
   const win = newRemoteWindow(opts.id, opts.origin, title)
   remoteWindows.set(opts.id, win)
@@ -248,6 +257,39 @@ export async function openRemoteWindow(opts: OpenRemoteOptions): Promise<void> {
     if (remoteWindows.get(opts.id) === win) remoteWindows.delete(opts.id)
   })
   await win.loadURL(`${opts.origin}/`)
+}
+
+/** The address this remote's open windows show, or null when none is open or has loaded yet. Asks the server nothing. */
+export function openRemoteOrigin(id: string): string | null {
+  for (const win of windowsOf(id)) {
+    try {
+      const { protocol, origin } = new URL(win.webContents.getURL())
+      if (protocol === 'http:' || protocol === 'https:') return origin
+    } catch {
+      // Nothing loaded in this one yet.
+    }
+  }
+  return null
+}
+
+/** The session an open window of this remote is using, or null when it has none. */
+export async function remoteSessionToken(id: string, origin: string): Promise<string | null> {
+  try {
+    const [cookie] = await session.fromPartition(remotePartition(id)).cookies.get({ url: `${origin}/`, name: AUTH_COOKIE })
+    return cookie?.value ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Put a fresh session into this remote's open windows. Each reloads, since a page already on its login form stays there. */
+export async function signBackIn(id: string, origin: string, token: string, expiresIn: number): Promise<void> {
+  await setSessionCookie(session.fromPartition(remotePartition(id)), origin, token, expiresIn, Date.now)
+  for (const win of windowsOf(id)) win.webContents.reload()
+}
+
+export function closeRemoteWindows(id: string): void {
+  for (const win of windowsOf(id)) win.close()
 }
 
 /** Forget a remote here: close its windows and wipe its partition (cookie, storage, cache). */

@@ -47,10 +47,13 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The live check wins; before the first one, the stored status says what it can. */
+/**
+ * The live check wins; before the first one, the stored status says what it can. Removed is the exception: a removed
+ * row is never checked again, so its last check is out of date for good.
+ */
 function rowState(c: RemoteComputer, check: RemoteComputerCheck | undefined): RowState {
-  if (check) return check.state;
   if (c.status === 'revoked') return 'revoked';
+  if (check) return check.state;
   return c.status === 'pending' ? 'pending' : 'checking';
 }
 
@@ -71,10 +74,27 @@ function rowDetail(c: RemoteComputer, check: RemoteComputerCheck | undefined): s
   return 'Checking…';
 }
 
-export default function RemoteComputers() {
+/** A Client edition's home page (src/client-home), where this list is the whole app. Keep these callbacks stable. */
+export interface RemoteComputersClient {
+  /** Open with the link box showing: nothing is paired yet. */
+  startAdding: boolean;
+  /** A computer just answered Allow, or needed none. */
+  onAllowed: (id: string) => void;
+  /** A row's Open worked. */
+  onOpened: (id: string) => void;
+  /**
+   * The app brought this list back on screen; returns how to stop listening. It waits hidden behind a dashboard, so it
+   * could otherwise say Offline for a computer that has long returned. Chromium doesn't say: on macOS a hidden window
+   * stays "visible" and fires no visibilitychange. No Full or Lite panel gets this: each check there signs in again, and
+   * the remote keeps just four of those.
+   */
+  onShown?: (listener: () => void) => () => void;
+}
+
+export default function RemoteComputers({ client }: { client?: RemoteComputersClient } = {}) {
   const api = window.electronAPI?.remotes;
   if (!api) return null;
-  return <RemoteComputersSection api={api} />;
+  return <RemoteComputersSection api={api} client={client} />;
 }
 
 interface Waiting {
@@ -84,7 +104,7 @@ interface Waiting {
   gaveUp: boolean;
 }
 
-function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
+function RemoteComputersSection({ api, client }: { api: RemoteComputersAPI; client?: RemoteComputersClient }) {
   const [computers, setComputers] = useState<RemoteComputer[] | null>(null);
   const [checks, setChecks] = useState<Record<string, RemoteComputerCheck>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -121,6 +141,8 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
     return next;
   }, [api]);
 
+  const onShown = client?.onShown;
+
   useEffect(() => {
     let alive = true;
     const round = async () => {
@@ -132,14 +154,17 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
     };
     void round();
     const timer = setInterval(() => void round(), CHECK_EVERY_MS);
+    const stopListening = onShown?.(() => void round());
     return () => {
       alive = false;
       clearInterval(timer);
+      stopListening?.();
     };
-  }, [reload, checkOne]);
+  }, [reload, checkOne, onShown]);
 
   const waitingId = waiting && !waiting.gaveUp ? waiting.id : null;
   const waitingName = waiting?.name ?? '';
+  const onAllowed = client?.onAllowed;
   useEffect(() => {
     if (!waitingId) return undefined;
     let alive = true;
@@ -156,17 +181,21 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
         setWaiting((w) => (w?.id === waitingId ? null : w));
         void reload();
         showToast(res.state === 'online' ? `${waitingName} is paired` : `${waitingName} refused this computer`, 'info', 3000);
+        if (res.state === 'online') onAllowed?.(waitingId);
       });
     }, WAIT_POLL_MS);
     return () => {
       alive = false;
       clearInterval(timer);
     };
-  }, [waitingId, waitingName, checkOne, reload]);
+  }, [waitingId, waitingName, onAllowed, checkOne, reload]);
 
   const handleAdded = (c: RemoteComputer) => {
     if (c.status === 'pending') setWaiting({ id: c.id, name: c.name, code: c.confirmCode, gaveUp: false });
-    else showToast(`${c.name} is paired`, 'info', 3000);
+    else {
+      showToast(`${c.name} is paired`, 'info', 3000);
+      onAllowed?.(c.id);
+    }
     void reload().then(() => checkOne(c.id));
   };
 
@@ -180,8 +209,8 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
   const waitingCheck = waiting ? checks[waiting.id] : undefined;
 
   return (
-    <section className={styles.section} aria-label="Remote computers">
-      <AddComputer api={api} buttonRef={addButtonRef} onAdded={handleAdded} />
+    <section className={client ? `${styles.section} ${styles.clientSection}` : styles.section} aria-label="Remote computers">
+      <AddComputer api={api} buttonRef={addButtonRef} onAdded={handleAdded} client={client} />
 
       {waiting && (
         <div className={styles.waiting} role="status">
@@ -214,12 +243,13 @@ function RemoteComputersSection({ api }: { api: RemoteComputersAPI }) {
               onChanged={() => void reload()}
               onRecheck={() => void checkOne(c.id).then(() => reload())}
               onRemoved={handleRemoved}
+              onOpened={client?.onOpened}
             />
           ))}
         </ul>
       )}
 
-      {computers !== null && list.length === 0 && !waiting && (
+      {computers !== null && list.length === 0 && !waiting && !client && (
         <p className={styles.note}>No remote computers yet.</p>
       )}
 
@@ -232,11 +262,12 @@ interface AddComputerProps {
   api: RemoteComputersAPI;
   buttonRef: RefObject<HTMLButtonElement | null>;
   onAdded: (c: RemoteComputer) => void;
+  client?: RemoteComputersClient;
 }
 
 /** The section's head: its title, "Add a computer", and the pairing-link form it opens. */
-function AddComputer({ api, buttonRef, onAdded }: AddComputerProps) {
-  const [open, setOpen] = useState(false);
+function AddComputer({ api, buttonRef, onAdded, client }: AddComputerProps) {
+  const [open, setOpen] = useState(client?.startAdding ?? false);
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -271,7 +302,7 @@ function AddComputer({ api, buttonRef, onAdded }: AddComputerProps) {
   return (
     <>
       <div className={styles.head}>
-        <span className={styles.title}>Remote computers</span>
+        <span className={styles.title}>{client ? 'Computers' : 'Remote computers'}</span>
         {!open && (
           <Button ref={buttonRef} size="sm" onClick={() => setOpen(true)}>+ Add a computer</Button>
         )}
@@ -308,7 +339,7 @@ function AddComputer({ api, buttonRef, onAdded }: AddComputerProps) {
           {error && <p className={styles.error} role="alert">{error}</p>}
           <span className={styles.actions}>
             <Button type="submit" size="sm" variant="primary" disabled={!link.trim()} aria-busy={busy || undefined}>
-              {busy ? 'Pairing…' : 'Pair'}
+              {client ? (busy ? 'Connecting…' : 'Connect') : (busy ? 'Pairing…' : 'Pair')}
             </Button>
             <Button size="sm" variant="quiet" onClick={close}>Cancel</Button>
           </span>
@@ -327,9 +358,10 @@ interface RemoteRowProps {
   /** Check this row again now (a failed Open usually means its state changed). */
   onRecheck: () => void;
   onRemoved: (id: string) => void;
+  onOpened?: (id: string) => void;
 }
 
-function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRecheck, onRemoved }: RemoteRowProps) {
+function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRecheck, onRemoved, onOpened }: RemoteRowProps) {
   const [opening, setOpening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +382,8 @@ function RemoteRow({ api, computer: c, check, fallbackFocus, onChanged, onRechec
         setError(res.error);
         // Revoked, back to pending or gone offline: without this the row reads "Online" until the 30 s check.
         onRecheck();
+      } else {
+        onOpened?.(c.id);
       }
     } catch (err) {
       setError(errorText(err));

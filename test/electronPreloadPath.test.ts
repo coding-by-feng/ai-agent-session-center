@@ -44,6 +44,14 @@ describe('Electron preload path vs. the CJS rename step', () => {
     }
   });
 
+  it("a Client's preload path names the extension the rename step emits", () => {
+    const client = read('electron/clientMain.ts');
+    const m = client.match(/const PRELOAD_PATH = path\.join\(__dirname, '([^']+)'\)/);
+    expect(m, 'clientMain.ts must define PRELOAD_PATH via path.join(__dirname, …)').not.toBeNull();
+    expect(m![1]).toBe(`preloadClient${emitted}`);
+    expect(client.split('\n').filter((line) => /^\s*preload:/.test(line)).map((line) => line.trim())).toEqual(['preload: PRELOAD_PATH,']);
+  });
+
   it("no 'preload.js' literal survives anywhere under electron/", () => {
     for (const file of walkTs(join(root, 'electron'))) {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/['"]preload\.js['"]/);

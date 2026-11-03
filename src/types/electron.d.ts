@@ -127,6 +127,8 @@ export interface ElectronAPI {
 
   /** Remote computers: other AASC desktops this app is paired with (Oct 28 2026). Electron-only. */
   remotes?: RemoteComputersAPI
+  /** A Client's home page only: the app brought this window back on screen. Returns how to stop listening. */
+  onHomeShown?: (listener: () => void) => () => void
 }
 
 /** One paired remote AASC, as the local UI sees it. Never its device token. */

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  addressPlan, countShared, deviceProof, fetchPaths, pair, signIn, unpair,
+  addressPlan, countShared, deviceProof, fetchPaths, pair, remoteSessionState, signIn, unpair,
   PATHS_PROOF_PREFIX, HANDSHAKE_MAX_BYTES, SESSIONS_MAX_BYTES, type FetchLike, type RemoteClientDeps,
 } from '../electron/remote/remoteClient.js';
 import type { RemotePairingLink } from '../electron/remote/pairingLinkRules.js';
@@ -287,6 +287,36 @@ describe('unpair', () => {
   it('is false when the remote can’t be reached or refuses', async () => {
     expect(await unpair(deps(fakeFetch(() => 'network-error').fetch), target, creds)).toBe(false);
     expect(await unpair(deps(fakeFetch(() => ({ status: 401, body: {} })).fetch), target, creds)).toBe(false);
+  });
+});
+
+describe('remoteSessionState (asks without signing in, so no session is spent)', () => {
+  it('sends the session as the cookie the status route reads', async () => {
+    const { fetch, calls } = fakeFetch(() => ({ status: 200, body: { passwordRequired: true, authenticated: true } }));
+    expect(await remoteSessionState(deps(fetch), LAN, SESSION_TOKEN)).toBe('signed-in');
+    expect(calls[0]).toMatchObject({ url: `${LAN}/api/auth/status`, method: 'GET', redirect: 'manual' });
+    expect(calls[0].headers.Cookie).toBe(`auth_token=${SESSION_TOKEN}`);
+  });
+
+  it('says signed out when the session has died', async () => {
+    const { fetch } = fakeFetch(() => ({ status: 200, body: { passwordRequired: true, authenticated: false } }));
+    expect(await remoteSessionState(deps(fetch), LAN, SESSION_TOKEN)).toBe('signed-out');
+  });
+
+  it('asks with no cookie when it has none', async () => {
+    const { fetch, calls } = fakeFetch(() => ({ status: 200, body: { authenticated: false } }));
+    expect(await remoteSessionState(deps(fetch), LAN, null)).toBe('signed-out');
+    expect(calls[0].headers.Cookie).toBeUndefined();
+  });
+
+  it.each<[string, Parameters<typeof fakeFetch>[0]]>([
+    ['a network failure', () => 'network-error'],
+    ['a refusal', () => ({ status: 500, body: { authenticated: false } })],
+    ['something other than AASC', () => ({ status: 200, body: '<html></html>' })],
+    ['a redirect', () => ({ status: 302 })],
+    ['an answer with no field', () => ({ status: 200, body: {} })],
+  ])('never treats %s as signed out, which would spend a session on nothing', async (_name, answer) => {
+    expect(await remoteSessionState(deps(fakeFetch(answer).fetch), LAN, SESSION_TOKEN)).toBe('no-answer');
   });
 });
 
