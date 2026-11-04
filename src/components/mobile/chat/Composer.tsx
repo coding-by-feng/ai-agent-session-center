@@ -295,10 +295,14 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   };
 
   // Return is a new line (a phone chat); Cmd/Ctrl+Return sends from a hardware keyboard.
+  // Tab in the empty box takes Claude's suggestion, as the desktop Queue tab does (iPad keyboard).
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
+    } else if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && suggestion) {
+      e.preventDefault();
+      setDraft(sessionId, suggestion);
     }
   };
 
