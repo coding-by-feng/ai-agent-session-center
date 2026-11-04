@@ -35,6 +35,17 @@ describe('SessionPromptPeek — central sessions', () => {
     expect(screen.getByText('★ Global central: can reach every session. · 2 workers')).toBeInTheDocument();
   });
 
+  it('says Compacting while the session compacts, with no quiet time beside it', () => {
+    render(<SessionPromptPeek session={session({
+      status: 'idle',
+      compacting: { since: Date.now(), trigger: 'auto' },
+      events: [{ type: 'Stop', timestamp: Date.now() - 5 * 60_000, detail: '' }],
+    } as never)} />);
+    expect(screen.getByText(/Compacting/)).toBeInTheDocument();
+    expect(screen.queryByText(/quiet/)).toBeNull();
+    expect(screen.queryByText(/Idle/)).toBeNull();
+  });
+
   it('says nothing of centrals for a plain session', () => {
     render(<SessionPromptPeek session={session()} />);
 

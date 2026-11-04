@@ -55,6 +55,11 @@ describe('compacting', () => {
     }
   });
 
+  it('reads the display status too, so a ring handed it spins like work', () => {
+    expect(phoneStatus('compacting')).toEqual({ tone: 'working', label: 'Compacting', glyph: 'working' });
+    expect(phoneStatus('compacting', true)).toMatchObject({ label: 'Interrupted' });
+  });
+
   it('never hides a question, an approval, an interruption or the end', () => {
     expect(phoneStatus('approval', false, true)).toMatchObject({ label: 'Waiting for approval' });
     expect(phoneStatus('input', false, true)).toMatchObject({ label: 'Has a question' });

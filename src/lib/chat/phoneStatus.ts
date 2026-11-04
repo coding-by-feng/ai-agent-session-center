@@ -5,12 +5,15 @@
  * one of six tones the kit colours: amber approval, violet question, blue
  * working, green finished, red interrupted, grey otherwise. An interruption
  * (`session.interruption`) outranks the status: the turn stopped and waits.
- * A context compaction in progress (`session.compacting`) reads "Compacting" over
- * an idle, finished or working status, never over a question, an approval or the end.
+ * A context compaction in progress (`session.compacting`, see sessionStatusStyle) reads
+ * "Compacting" over an idle, finished or working status, never over a question, an approval or the end.
  */
 
 import { formatModelLabel } from '@/lib/modelLabel';
+import { COMPACTING, OUTRANK_COMPACTING, isCompacting } from '@/lib/sessionStatusStyle';
 import type { Session } from '@/types';
+
+export { COMPACTING_STALE_MS, isCompacting } from '@/lib/sessionStatusStyle';
 
 export type PhoneStatusTone = 'approval' | 'question' | 'working' | 'finished' | 'error' | 'idle';
 
@@ -34,20 +37,12 @@ const STATUS: Record<string, { tone: PhoneStatusTone; label: string }> = {
   ended: { tone: 'idle', label: 'Ended' },
 };
 
-/** How long a compaction may show without its end hook: a lost hook must not leave it up for good. */
-export const COMPACTING_STALE_MS = 10 * 60_000;
-
-/** Is the session compacting its context right now (PreCompact seen, no end yet, not stale)? */
-export function isCompacting(session: Pick<Session, 'compacting'>, now = Date.now()): boolean {
-  const c = session.compacting;
-  return !!c && now - c.since < COMPACTING_STALE_MS;
-}
-
-const OUTRANK_COMPACTING = new Set(['approval', 'input', 'ended']);
-
 export function phoneStatus(status: string, interrupted = false, compacting = false): PhoneStatus {
   if (interrupted && status !== 'ended') return { tone: 'error', label: 'Interrupted', glyph: 'interrupted' };
-  if (compacting && !OUTRANK_COMPACTING.has(status)) return { tone: 'working', label: 'Compacting', glyph: 'working' };
+  // `status` may already be the display status (a row or a ring handed `displayStatus()`).
+  if (status === COMPACTING || (compacting && !OUTRANK_COMPACTING.has(status))) {
+    return { tone: 'working', label: 'Compacting', glyph: 'working' };
+  }
   const known = STATUS[status];
   return known ? { ...known, glyph: status } : { tone: 'idle', label: status || 'Unknown', glyph: 'idle' };
 }

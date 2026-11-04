@@ -10,18 +10,29 @@
 // are children of the codex on the PTY (verified against Codex 0.162.1 in a tmux probe with
 // an isolated CODEX_HOME: ppid = the TUI, tty = the pane, AGENT_MANAGER_TERMINAL_ID = the
 // pane's). These tests pin the line rewrite and the capability probe that gates it.
+//
+// Nov 4 2026: `--no-alt-screen` joins it. Codex 0.166 draws its TUI on the alternate screen,
+// which keeps no xterm scrollback, so a dashboard Codex terminal could not scroll back to
+// earlier turns: xterm turned the wheel into arrow keys typed into Codex. `--no-alt-screen`
+// ("Runs the TUI in inline mode, preserving terminal scrollback history") puts the history
+// in the scrollback, as CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 does for Claude.
 import { describe, it, expect, vi } from 'vitest';
 import {
   CODEX_NO_DAEMON_FLAG,
-  applyCodexNoDaemon,
-  stripCodexNoDaemon,
+  CODEX_NO_ALT_SCREEN_FLAG,
+  CODEX_LAUNCH_FLAGS,
+  applyCodexLaunchFlags,
+  stripCodexLaunchFlags,
   hasCodexLaunch,
-  helpAdvertisesNoDaemon,
-  isCodexNoDaemonEnabled,
-  createCodexNoDaemonProbe,
+  helpAdvertises,
+  isCodexLaunchFlagEnabled,
+  createCodexLaunchFlagProbe,
 } from '../server/codexNoDaemon.js';
 
 const ID = '01a1431a-6dbc-7fd2-9f87-00175b7a838a';
+
+/** The AASC-59 cases below were written for `--no-daemon` alone; they still pin where a flag goes. */
+const applyCodexNoDaemon = (line: string) => applyCodexLaunchFlags(line, { add: [CODEX_NO_DAEMON_FLAG] });
 
 describe('applyCodexNoDaemon', () => {
   it('puts the flag right after a bare codex', () => {
@@ -86,21 +97,63 @@ describe('applyCodexNoDaemon', () => {
   });
 });
 
-describe('stripCodexNoDaemon', () => {
-  it('removes the flag wherever it sits, leaving no stray whitespace', () => {
-    expect(stripCodexNoDaemon('codex --no-daemon --yolo')).toBe('codex --yolo');
-    expect(stripCodexNoDaemon(`codex --yolo resume --no-daemon '${ID}' || codex --no-daemon --yolo\r`))
+describe('applyCodexLaunchFlags', () => {
+  const BOTH = { add: [CODEX_NO_DAEMON_FLAG, CODEX_NO_ALT_SCREEN_FLAG] };
+
+  it('types the flags in one fixed order, after codex or after resume / fork', () => {
+    expect(CODEX_NO_ALT_SCREEN_FLAG).toBe('--no-alt-screen');
+    expect(CODEX_LAUNCH_FLAGS).toEqual(['--no-daemon', '--no-alt-screen']);
+    expect(applyCodexLaunchFlags('codex --yolo', BOTH)).toBe('codex --no-daemon --no-alt-screen --yolo');
+    // `codex resume --help` and `codex fork --help` both list --no-alt-screen
+    expect(applyCodexLaunchFlags(`codex --yolo resume '${ID}' || codex --yolo\r`, BOTH))
+      .toBe(`codex --yolo resume --no-daemon --no-alt-screen '${ID}' || codex --no-daemon --no-alt-screen --yolo\r`);
+    expect(applyCodexLaunchFlags(`codex fork '${ID}'`, { add: [CODEX_NO_ALT_SCREEN_FLAG, CODEX_NO_DAEMON_FLAG] }))
+      .toBe(`codex fork --no-daemon --no-alt-screen '${ID}'`);
+  });
+
+  it('moves stored flags instead of doubling them (the stored command is the live CLI\'s ps args)', () => {
+    const stored = `codex --no-daemon --no-alt-screen --model gpt-6 resume '${ID}'`;
+    expect(applyCodexLaunchFlags(stored, BOTH)).toBe(`codex --model gpt-6 resume --no-daemon --no-alt-screen '${ID}'`);
+    const once = applyCodexLaunchFlags(`codex --yolo resume '${ID}' || codex --yolo`, BOTH);
+    expect(applyCodexLaunchFlags(once, BOTH)).toBe(once);
+  });
+
+  it('adds one flag and removes another (a Codex that has --no-daemon but not --no-alt-screen)', () => {
+    expect(applyCodexLaunchFlags('codex --no-alt-screen --yolo', { add: [CODEX_NO_DAEMON_FLAG], remove: [CODEX_NO_ALT_SCREEN_FLAG] }))
+      .toBe('codex --no-daemon --yolo');
+  });
+
+  it('leaves a flag it was not asked about where it is', () => {
+    expect(applyCodexLaunchFlags('codex --yolo --no-daemon', { add: [CODEX_NO_ALT_SCREEN_FLAG] }))
+      .toBe('codex --no-alt-screen --yolo --no-daemon');
+    expect(applyCodexLaunchFlags('codex --no-alt-screen --yolo', {})).toBe('codex --no-alt-screen --yolo');
+  });
+
+  it('leaves alone anything that is not an interactive bare codex', () => {
+    for (const line of ['claude --dangerously-skip-permissions', 'codex exec "do it"', '/opt/homebrew/bin/codex', 'echo codex']) {
+      expect(applyCodexLaunchFlags(line, BOTH)).toBe(line);
+    }
+  });
+});
+
+describe('stripCodexLaunchFlags', () => {
+  it('removes both flags wherever they sit, leaving no stray whitespace', () => {
+    expect(stripCodexLaunchFlags('codex --no-daemon --yolo')).toBe('codex --yolo');
+    expect(stripCodexLaunchFlags('codex --no-alt-screen --yolo')).toBe('codex --yolo');
+    expect(stripCodexLaunchFlags(`codex --yolo resume --no-daemon --no-alt-screen '${ID}' || codex --no-alt-screen --no-daemon --yolo\r`))
       .toBe(`codex --yolo resume '${ID}' || codex --yolo\r`);
   });
 
   it('leaves other commands and a quoted mention alone', () => {
-    expect(stripCodexNoDaemon('claude -n "--no-daemon"')).toBe('claude -n "--no-daemon"');
-    expect(stripCodexNoDaemon('codex --yolo')).toBe('codex --yolo');
+    expect(stripCodexLaunchFlags('claude -n "--no-daemon"')).toBe('claude -n "--no-daemon"');
+    expect(stripCodexLaunchFlags(`codex '--no-alt-screen'`)).toBe(`codex '--no-alt-screen'`);
+    expect(stripCodexLaunchFlags('codex --yolo')).toBe('codex --yolo');
   });
 
-  it('undoes applyCodexNoDaemon', () => {
+  it('undoes applyCodexLaunchFlags', () => {
     const line = `codex --yolo resume '${ID}' || codex --yolo`;
-    expect(stripCodexNoDaemon(applyCodexNoDaemon(line))).toBe(line);
+    expect(stripCodexLaunchFlags(applyCodexLaunchFlags(line, { add: CODEX_LAUNCH_FLAGS }))).toBe(line);
+    expect(stripCodexLaunchFlags(applyCodexNoDaemon(line))).toBe(line);
   });
 });
 
@@ -115,47 +168,64 @@ describe('hasCodexLaunch', () => {
   });
 });
 
-describe('helpAdvertisesNoDaemon', () => {
-  it('reads the option from `codex --help`', () => {
-    const v0162 = 'Options:\n      --no-alt-screen\n          Runs the TUI in inline mode\n\n      --no-daemon\n          Run without the shared background server, even if it is already running\n';
-    expect(helpAdvertisesNoDaemon(v0162)).toBe(true);
-    expect(helpAdvertisesNoDaemon('Options:\n  -m, --model <MODEL>\n      --no-alt-screen\n')).toBe(false);
-    expect(helpAdvertisesNoDaemon('')).toBe(false);
+describe('helpAdvertises', () => {
+  const v0166 = 'Options:\n      --no-alt-screen\n          Runs the TUI in inline mode, preserving terminal scrollback history.\n\n      --no-daemon\n          Run without the shared background server, even if it is already running\n';
+
+  it('reads each option from `codex --help` on its own', () => {
+    expect(helpAdvertises(v0166, CODEX_NO_DAEMON_FLAG)).toBe(true);
+    expect(helpAdvertises(v0166, CODEX_NO_ALT_SCREEN_FLAG)).toBe(true);
+    const onlyAltScreen = 'Options:\n  -m, --model <MODEL>\n      --no-alt-screen\n';
+    expect(helpAdvertises(onlyAltScreen, CODEX_NO_DAEMON_FLAG)).toBe(false);
+    expect(helpAdvertises(onlyAltScreen, CODEX_NO_ALT_SCREEN_FLAG)).toBe(true);
+    expect(helpAdvertises('', CODEX_NO_ALT_SCREEN_FLAG)).toBe(false);
+  });
+
+  it('needs the whole word, not a longer option that starts with it', () => {
+    expect(helpAdvertises('      --no-alt-screen-ever\n', CODEX_NO_ALT_SCREEN_FLAG)).toBe(false);
   });
 });
 
-describe('isCodexNoDaemonEnabled (the opt-out)', () => {
-  it('is on unless AASC_DISABLE_CODEX_NO_DAEMON=1', () => {
-    expect(isCodexNoDaemonEnabled({})).toBe(true);
-    expect(isCodexNoDaemonEnabled({ AASC_DISABLE_CODEX_NO_DAEMON: '1' })).toBe(false);
-    expect(isCodexNoDaemonEnabled({ AASC_DISABLE_CODEX_NO_DAEMON: '0' })).toBe(true);
+describe('isCodexLaunchFlagEnabled (the opt-outs)', () => {
+  it('turns each flag off with its own variable', () => {
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_DAEMON_FLAG, {})).toBe(true);
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_DAEMON_FLAG, { AASC_DISABLE_CODEX_NO_DAEMON: '1' })).toBe(false);
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_DAEMON_FLAG, { AASC_DISABLE_CODEX_NO_DAEMON: '0' })).toBe(true);
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_ALT_SCREEN_FLAG, {})).toBe(true);
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_ALT_SCREEN_FLAG, { AASC_DISABLE_CODEX_NO_ALT_SCREEN: '1' })).toBe(false);
+    // one variable never switches off the other flag
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_ALT_SCREEN_FLAG, { AASC_DISABLE_CODEX_NO_DAEMON: '1' })).toBe(true);
+    expect(isCodexLaunchFlagEnabled(CODEX_NO_DAEMON_FLAG, { AASC_DISABLE_CODEX_NO_ALT_SCREEN: '1' })).toBe(true);
   });
 });
 
-describe('createCodexNoDaemonProbe', () => {
-  const HELP_NEW = 'Usage: codex [OPTIONS] [PROMPT]\n      --no-daemon\n          Run without the shared background server\n';
+describe('createCodexLaunchFlagProbe', () => {
+  const HELP_NEW = 'Usage: codex [OPTIONS] [PROMPT]\n      --no-alt-screen\n          Runs the TUI in inline mode\n      --no-daemon\n          Run without the shared background server\n';
+  const HELP_NO_ALT = 'Usage: codex [OPTIONS] [PROMPT]\n      --no-daemon\n          Run without the shared background server\n';
   const HELP_OLD = 'Usage: codex [OPTIONS] [PROMPT]\n  -m, --model <MODEL>\n';
+  const all = (answer: string) => ({ '--no-daemon': answer, '--no-alt-screen': answer });
 
-  it('says supported / unsupported from the help text', async () => {
-    expect(await createCodexNoDaemonProbe(async () => HELP_NEW)()).toBe('supported');
-    expect(await createCodexNoDaemonProbe(async () => HELP_OLD)()).toBe('unsupported');
+  it('answers for each flag from the help text', async () => {
+    expect(await createCodexLaunchFlagProbe(async () => HELP_NEW)()).toEqual(all('supported'));
+    expect(await createCodexLaunchFlagProbe(async () => HELP_OLD)()).toEqual(all('unsupported'));
+    expect(await createCodexLaunchFlagProbe(async () => HELP_NO_ALT)())
+      .toEqual({ '--no-daemon': 'supported', '--no-alt-screen': 'unsupported' });
   });
 
   it('says unknown when codex cannot be run (missing, timed out) — the caller then changes nothing', async () => {
-    const probe = createCodexNoDaemonProbe(async () => { throw new Error('spawn codex ENOENT'); });
-    expect(await probe()).toBe('unknown');
+    const probe = createCodexLaunchFlagProbe(async () => { throw new Error('spawn codex ENOENT'); });
+    expect(await probe()).toEqual(all('unknown'));
   });
 
   it('runs codex once for concurrent launches (a workspace restore) and caches the answer', async () => {
     let clock = 1_000;
     const run = vi.fn(async () => HELP_NEW);
-    const probe = createCodexNoDaemonProbe(run, { ttlMs: 60_000, unknownTtlMs: 5_000, now: () => clock });
+    const probe = createCodexLaunchFlagProbe(run, { ttlMs: 60_000, unknownTtlMs: 5_000, now: () => clock });
     const answers = await Promise.all([probe(), probe(), probe()]);
-    expect(answers).toEqual(['supported', 'supported', 'supported']);
-    expect(await probe()).toBe('supported');
+    expect(answers).toEqual([all('supported'), all('supported'), all('supported')]);
+    expect(await probe()).toEqual(all('supported'));
     expect(run).toHaveBeenCalledTimes(1);
     clock += 60_001; // codex may have been upgraded or downgraded since
-    expect(await probe()).toBe('supported');
+    expect(await probe()).toEqual(all('supported'));
     expect(run).toHaveBeenCalledTimes(2);
   });
 
@@ -164,11 +234,11 @@ describe('createCodexNoDaemonProbe', () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error('timed out'))
       .mockResolvedValue(HELP_NEW);
-    const probe = createCodexNoDaemonProbe(run, { ttlMs: 60_000, unknownTtlMs: 5_000, now: () => clock });
-    expect(await probe()).toBe('unknown');
-    expect(await probe()).toBe('unknown');
+    const probe = createCodexLaunchFlagProbe(run, { ttlMs: 60_000, unknownTtlMs: 5_000, now: () => clock });
+    expect(await probe()).toEqual(all('unknown'));
+    expect(await probe()).toEqual(all('unknown'));
     clock += 5_001;
-    expect(await probe()).toBe('supported');
+    expect(await probe()).toEqual(all('supported'));
     expect(run).toHaveBeenCalledTimes(2);
   });
 });

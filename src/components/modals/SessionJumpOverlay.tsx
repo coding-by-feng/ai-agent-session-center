@@ -20,20 +20,10 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { numberedSessions } from '@/lib/sessionSort';
 import { resolveJumpInput, jumpToSessionNumber } from '@/lib/sessionJump';
+import { statusColor, statusOrCompacting } from '@/lib/sessionStatusStyle';
 import styles from '@/styles/modules/SessionSwitchOverlay.module.css';
 
 // Same maps as SessionSwitchOverlay, so the preview row looks like its rows.
-const STATUS_COLORS: Record<string, string> = {
-  idle: 'var(--accent-green)',
-  prompting: 'var(--accent-cyan)',
-  working: 'var(--accent-orange)',
-  waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-yellow)',
-  input: 'var(--accent-purple)',
-  ended: 'var(--accent-red)',
-  connecting: 'var(--text-dim)',
-};
-
 const STATUS_LABELS: Record<string, string> = {
   idle: 'Idle',
   prompting: 'Prompting',
@@ -43,6 +33,7 @@ const STATUS_LABELS: Record<string, string> = {
   input: 'Input',
   ended: 'Disconnected',
   connecting: 'Connecting',
+  compacting: 'Compacting',
 };
 
 /** Keys that are only modifiers: pressing them neither types nor cancels. */
@@ -159,14 +150,14 @@ function JumpBox() {
             <div className={`${styles.row} ${styles.jumpPreview}`}>
               <span
                 className={styles.dot}
-                style={{ background: STATUS_COLORS[target.status] ?? 'var(--text-dim)' }}
+                style={{ background: statusColor(statusOrCompacting(target)) }}
                 aria-hidden="true"
               />
               <span className={styles.title}>{target.title || target.projectName || target.sessionId.slice(0, 8)}</span>
               {target.projectName && target.projectName !== target.title && (
                 <span className={styles.project}>{target.projectName}</span>
               )}
-              <span className={styles.status}>{STATUS_LABELS[target.status] ?? target.status}</span>
+              <span className={styles.status}>{STATUS_LABELS[statusOrCompacting(target)] ?? target.status}</span>
             </div>
           )}
           <div className={styles.jumpHint}>

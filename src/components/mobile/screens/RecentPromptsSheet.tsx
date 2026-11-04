@@ -12,7 +12,7 @@ import { ListRow, ListSection, Sheet } from '../kit';
 import { useSessionStore } from '@/stores/sessionStore';
 import { promptAge, typedPrompts, type PeekPrompt } from '@/lib/promptPeek';
 import { quietFor } from '@/lib/liveBoard';
-import { statusLabel } from '@/lib/sessionStatusStyle';
+import { statusLabel, statusOrCompacting } from '@/lib/sessionStatusStyle';
 import styles from '@/styles/modules/mobile/RecentPrompts.module.css';
 
 const FIT = ['fit'] as const;
@@ -34,7 +34,7 @@ export default function RecentPromptsSheet({ sessionId, onClose, onOpenPrompt, o
   if (!session) return null;
   const prompts = typedPrompts(session);
   const quiet = quietFor(session, now);
-  const meta = [session.projectName, statusLabel(session.status), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
+  const meta = [session.projectName, statusLabel(statusOrCompacting(session)), quiet && `quiet ${quiet}`].filter(Boolean).join(' · ');
   const remark = typeof session.remark === 'string' ? session.remark.trim() : '';
   return (
     <Sheet open heldOpen onClose={onClose} title="Recent prompts" detents={FIT} testId="recent-prompts-sheet">

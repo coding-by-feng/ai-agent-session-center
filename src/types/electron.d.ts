@@ -127,6 +127,8 @@ export interface ElectronAPI {
 
   /** Remote computers: other AASC desktops this app is paired with (Oct 28 2026). Electron-only. */
   remotes?: RemoteComputersAPI
+  /** A Client's home page only: the app brought this window back on screen. Returns how to stop listening. */
+  onHomeShown?: (listener: () => void) => () => void
 }
 
 /** One paired remote AASC, as the local UI sees it. Never its device token. */
@@ -168,7 +170,7 @@ export interface RemoteComputersAPI {
   list(): Promise<RemoteComputer[]>
   /** Pair from the link the remote's devices panel shows (https://aasc.work/pair#…); `label` is this computer's name there. */
   add(link: string): Promise<RemoteResult<RemoteComputer>>
-  /** Sign in (or ask while pending) and report; updates status, tailnet and lastSeenAt. */
+  /** Sign in (or ask while pending) and report; updates status, tailnet and lastSeenAt. With its window open and signed in, asks with that window's session and updates nothing. */
   check(id: string): Promise<RemoteResult<RemoteComputerCheck>>
   /** Sign in and open the remote's own UI in its own window. */
   open(id: string): Promise<RemoteResult<null>>

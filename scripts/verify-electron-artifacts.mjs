@@ -7,13 +7,14 @@ const platform = process.argv[2] ?? { darwin: 'mac', win32: 'win', linux: 'linux
 const directory = path.resolve(process.argv[3] ?? 'dist');
 const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 const edition = process.argv[4] ?? 'full';
-if (edition !== 'full' && edition !== 'lite') {
-  throw new Error('Choose full or lite: npm run electron:verify -- <platform> [artifact-directory] [edition]');
+const EDITIONS = { full: '', lite: 'Lite', 'full-client': 'Full Client', 'lite-client': 'Lite Client' };
+if (!Object.hasOwn(EDITIONS, edition)) {
+  throw new Error('Choose full, lite, full-client or lite-client: npm run electron:verify -- <platform> [artifact-directory] [edition]');
 }
-const lite = edition === 'lite';
+const suffix = edition === 'full' ? '' : `-${edition}`;
 const { productName: fullName } = JSON.parse(await readFile('electron-builder.json', 'utf8'));
-const productName = lite ? `${fullName} Lite` : fullName;
-const packageName = lite ? `${pkg.name}-lite` : pkg.name;
+const productName = EDITIONS[edition] ? `${fullName} ${EDITIONS[edition]}` : fullName;
+const packageName = `${pkg.name}${suffix}`;
 const artifacts = {
   mac: [`${productName}-${pkg.version}-arm64.dmg`, `${productName}-${pkg.version}-arm64-mac.zip`],
   win: [`${productName} Setup ${pkg.version}.exe`],
@@ -24,7 +25,7 @@ if (!Object.hasOwn(artifacts, platform)) {
   throw new Error('Choose mac, win or linux: npm run electron:verify -- <platform> [artifact-directory] [edition]');
 }
 
-const checksumPath = path.join(directory, `SHA256SUMS-${platform}${lite ? '-lite' : ''}.txt`);
+const checksumPath = path.join(directory, `SHA256SUMS-${platform}${suffix}.txt`);
 // A failed re-verification must not leave a previous success manifest behind.
 await rm(checksumPath, { force: true });
 const lines = [];

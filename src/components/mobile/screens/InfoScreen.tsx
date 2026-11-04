@@ -31,6 +31,7 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
+import { statusOrCompacting } from '@/lib/sessionStatusStyle';
 import { infoPath, sessionHasChat, type InfoPage } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { faultLabel } from '@/lib/resumeWatchdog';
@@ -101,7 +102,7 @@ function InfoBody({ session }: { session: Session }) {
       )}
       <ListSection header="Session">
         <ListRow
-          leading={<StatusRing status={session.status} interrupted={!!session.interruption} />}
+          leading={<StatusRing status={statusOrCompacting(session)} interrupted={!!session.interruption} />}
           title={phoneStatus(session.status, !!session.interruption, isCompacting(session)).label}
           value={formatRunTime(session, now)}
         />

@@ -24,6 +24,13 @@
   z-index: 10070;
 }
 
+/* A Client edition's home page: the list is the whole window, with nothing above it to divide from. */
+.clientSection {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .head {
   display: flex;
   align-items: center;

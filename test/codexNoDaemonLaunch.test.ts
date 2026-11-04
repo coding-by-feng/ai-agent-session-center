@@ -7,14 +7,20 @@
 // change nothing when it does not (an unknown flag stops an older Codex from starting),
 // on a remote host (its Codex was never probed), or for Claude.
 //
+// Nov 4 2026: `--no-alt-screen` rides along, so Codex keeps its history in the terminal's
+// scrollback instead of the alternate screen. Each flag is decided on its own: one Codex
+// can have --no-daemon and not --no-alt-screen, and each has its own opt-out.
+//
 // No real process is reached: node-pty is a stand-in that records what is typed, and the
 // capability probe (which would run `codex --help`) is replaced.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+type Answer = 'supported' | 'unsupported' | 'unknown';
 const { typed, support } = vi.hoisted(() => ({
   typed: [] as string[],
-  support: { value: 'supported' as 'supported' | 'unsupported' | 'unknown', calls: 0 },
+  support: { value: {} as Record<'--no-daemon' | '--no-alt-screen', Answer>, calls: 0 },
 }));
+const answer = (noDaemon: Answer, noAltScreen: Answer = noDaemon) => ({ '--no-daemon': noDaemon, '--no-alt-screen': noAltScreen });
 
 vi.mock('node-pty', () => ({
   default: {
@@ -33,7 +39,7 @@ vi.mock('../server/codexNoDaemon.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../server/codexNoDaemon.js')>();
   return {
     ...mod,
-    codexNoDaemonSupport: vi.fn(async () => { support.calls += 1; return support.value; }),
+    codexLaunchFlagSupport: vi.fn(async () => { support.calls += 1; return support.value; }),
   };
 });
 
@@ -58,9 +64,10 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
 
   beforeEach(() => {
     typed.length = 0;
-    support.value = 'supported';
+    support.value = answer('supported');
     support.calls = 0;
     delete process.env.AASC_DISABLE_CODEX_NO_DAEMON;
+    delete process.env.AASC_DISABLE_CODEX_NO_ALT_SCREEN;
     vi.useFakeTimers();
   });
 
@@ -70,6 +77,7 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
     vi.clearAllTimers();
     vi.useRealTimers();
     delete process.env.AASC_DISABLE_CODEX_NO_DAEMON;
+    delete process.env.AASC_DISABLE_CODEX_NO_ALT_SCREEN;
   });
 
   const config = (over: Record<string, unknown> = {}) => ({
@@ -83,7 +91,15 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
   });
 
   describe('auto-launch (createTerminal) — the phone and desktop "start a session" path', () => {
-    it('starts a local Codex with --no-daemon so its hooks come from the PTY', async () => {
+    it('starts a local Codex with --no-daemon (hooks from the PTY) and --no-alt-screen (history in the scrollback)', async () => {
+      const { createTerminal } = await import('../server/sshManager.js');
+      await createTerminal(config(), null);
+      await settle();
+      expect(typed).toEqual(['codex --no-daemon --no-alt-screen --dangerously-bypass-approvals-and-sandbox\r']);
+    });
+
+    it('adds only the flag the installed Codex has', async () => {
+      support.value = answer('supported', 'unsupported');
       const { createTerminal } = await import('../server/sshManager.js');
       await createTerminal(config(), null);
       await settle();
@@ -95,7 +111,7 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       await createTerminal(config({ command: 'codex', model: 'gpt-6', effortLevel: 'high' }), null);
       await settle();
       expect(typed).toHaveLength(1);
-      expect(typed[0].startsWith('codex --no-daemon ')).toBe(true);
+      expect(typed[0].startsWith('codex --no-daemon --no-alt-screen ')).toBe(true);
       expect(typed[0]).toContain('--model gpt-6');
     });
 
@@ -107,12 +123,12 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       // The card's id is exported inside tmux: a tmux server gives the CLI its own environment (Ruling P4-59).
       expect(typed[0]).toBe(
         `tmux new-session -s '${/^tmux new-session -s '([^']+)'/.exec(typed[0])?.[1]}' ` +
-          `'export AGENT_MANAGER_TERMINAL_ID='\\''${id}'\\'' && codex --no-daemon --dangerously-bypass-approvals-and-sandbox'\r`,
+          `'export AGENT_MANAGER_TERMINAL_ID='\\''${id}'\\'' && codex --no-daemon --no-alt-screen --dangerously-bypass-approvals-and-sandbox'\r`,
       );
     });
 
-    it('types the plain command when the installed Codex has no --no-daemon (older Codex)', async () => {
-      support.value = 'unsupported';
+    it('types the plain command when the installed Codex has neither flag (older Codex)', async () => {
+      support.value = answer('unsupported');
       const { createTerminal } = await import('../server/sshManager.js');
       await createTerminal(config(), null);
       await settle();
@@ -120,7 +136,7 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
     });
 
     it('types the plain command when the probe could not tell', async () => {
-      support.value = 'unknown';
+      support.value = answer('unknown');
       const { createTerminal } = await import('../server/sshManager.js');
       await createTerminal(config(), null);
       await settle();
@@ -134,6 +150,7 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       expect(typed).toHaveLength(1);
       expect(typed[0]).toContain('codex --dangerously-bypass-approvals-and-sandbox');
       expect(typed[0]).not.toContain('--no-daemon');
+      expect(typed[0]).not.toContain('--no-alt-screen');
       expect(support.calls).toBe(0);
     });
 
@@ -143,11 +160,29 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       await settle();
       expect(typed).toHaveLength(1);
       expect(typed[0]).not.toContain('--no-daemon');
+      expect(typed[0]).not.toContain('--no-alt-screen');
       expect(support.calls).toBe(0);
     });
 
-    it('honours the opt-out AASC_DISABLE_CODEX_NO_DAEMON=1', async () => {
+    it('honours AASC_DISABLE_CODEX_NO_DAEMON=1 for --no-daemon only', async () => {
       process.env.AASC_DISABLE_CODEX_NO_DAEMON = '1';
+      const { createTerminal } = await import('../server/sshManager.js');
+      await createTerminal(config(), null);
+      await settle();
+      expect(typed).toEqual(['codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox\r']);
+    });
+
+    it('honours AASC_DISABLE_CODEX_NO_ALT_SCREEN=1 for --no-alt-screen only', async () => {
+      process.env.AASC_DISABLE_CODEX_NO_ALT_SCREEN = '1';
+      const { createTerminal } = await import('../server/sshManager.js');
+      await createTerminal(config(), null);
+      await settle();
+      expect(typed).toEqual(['codex --no-daemon --dangerously-bypass-approvals-and-sandbox\r']);
+    });
+
+    it('never runs the probe when both are switched off', async () => {
+      process.env.AASC_DISABLE_CODEX_NO_DAEMON = '1';
+      process.env.AASC_DISABLE_CODEX_NO_ALT_SCREEN = '1';
       const { createTerminal } = await import('../server/sshManager.js');
       await createTerminal(config(), null);
       await settle();
@@ -163,23 +198,23 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       const written = writeWhenReady(id, `codex --yolo resume '${ID}' || codex --yolo\r`);
       await settle();
       expect(await written).toBe(true);
-      expect(typed).toEqual([`codex --yolo resume --no-daemon '${ID}' || codex --no-daemon --yolo\r`]);
+      expect(typed).toEqual([`codex --yolo resume --no-daemon --no-alt-screen '${ID}' || codex --no-daemon --no-alt-screen --yolo\r`]);
     });
 
     it('moves a stored root-level flag (the hook stores the live CLI\'s ps args) instead of doubling it', async () => {
       const { createTerminal, writeWhenReady } = await import('../server/sshManager.js');
       const id = await createTerminal(config({ command: '', deferredLaunch: true }), null);
-      const written = writeWhenReady(id, `codex --no-daemon --yolo resume '${ID}' || codex --no-daemon --yolo\r`);
+      const written = writeWhenReady(id, `codex --no-daemon --no-alt-screen --yolo resume '${ID}' || codex --no-daemon --yolo\r`);
       await settle();
       await written;
-      expect(typed).toEqual([`codex --yolo resume --no-daemon '${ID}' || codex --no-daemon --yolo\r`]);
+      expect(typed).toEqual([`codex --yolo resume --no-daemon --no-alt-screen '${ID}' || codex --no-daemon --no-alt-screen --yolo\r`]);
     });
 
     it('drops a stored flag the installed Codex no longer accepts', async () => {
-      support.value = 'unsupported';
+      support.value = answer('unsupported');
       const { createTerminal, writeWhenReady } = await import('../server/sshManager.js');
       const id = await createTerminal(config({ command: '', deferredLaunch: true }), null);
-      const written = writeWhenReady(id, `codex --no-daemon --yolo resume '${ID}'\r`);
+      const written = writeWhenReady(id, `codex --no-daemon --no-alt-screen --yolo resume '${ID}'\r`);
       await settle();
       await written;
       expect(typed).toEqual([`codex --yolo resume '${ID}'\r`]);

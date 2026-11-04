@@ -6,18 +6,21 @@
  * reaches the store or the network. Every answer is `{ ok, data } | { ok: false, error }`
  * with a plain sentence: never a stack, a device token or a session token.
  */
-import { app, ipcMain, safeStorage, type IpcMainInvokeEvent } from 'electron'
+import { app, ipcMain, safeStorage, type IpcMainInvokeEvent, type Session } from 'electron'
 import { randomBytes } from 'crypto'
 import os from 'os'
 import path from 'path'
 import type { RemoteComputer, RemoteComputerCheck, RemoteResult } from '../../src/types/electron.js'
 import { readRemotePairingLink } from '../remote/pairingLinkRules.js'
 import {
-  countShared, fetchPaths, pair, signIn, unpair, unreachableMessage,
+  addressPlan, countShared, fetchPaths, pair, remoteSessionState, signIn, unpair, unreachableMessage,
   type FetchLike, type RemoteClientDeps, type RemoteTarget, type SignInResult,
 } from '../remote/remoteClient.js'
 import { createRemoteStore, REMOTE_ID, type RemoteStore } from '../remote/remoteStore.js'
-import { focusRemoteWindow, forgetRemoteWindow, isLocalAppSenderUrl, openRemoteWindow } from '../remote/remoteWindow.js'
+import {
+  closeRemoteWindows, focusRemoteWindow, forgetRemoteWindow, isLocalAppSenderUrl, openRemoteOrigin, openRemoteWindow,
+  remoteSessionToken, signBackIn,
+} from '../remote/remoteWindow.js'
 import { logMainError } from '../crashLogger.js'
 
 const MAX_LINK = 2048
@@ -26,7 +29,27 @@ const SOMETHING_WENT_WRONG = 'Something went wrong talking to that computer. Try
 const NOT_PAIRED = 'That computer isn’t paired here any more.'
 const NOT_THIS_APP = 'Only this app’s own window can manage remote computers.'
 
+/**
+ * What a Client edition (clientMain.ts) changes. Nothing is passed in Full and Lite, so they keep the local dashboard
+ * rule and show the remote's own UI.
+ */
+export interface RemoteHandlerOptions {
+  /** Who may call these channels. The default is the local dashboard, which a Client doesn't have. */
+  isAppSender?: (url: string) => boolean
+  /** Runs on the remote's session before its window's first request. */
+  beforeLoad?: (ses: Session, origin: string) => void | Promise<void>
+  /** A remote's window opened, or an open one was focused. */
+  onOpened?: (id: string) => void
+  /**
+   * A Client's dashboard is the whole app, so a dead session must not wait for anyone: keepOpenWindowsSignedIn revives
+   * one unasked, and `check` leaves that to it. In Full and Lite it can be a log-out the person chose, so only pressing
+   * Open revives it.
+   */
+  keepSignedIn?: boolean
+}
+
 let store: RemoteStore | null = null
+let handlerOptions: RemoteHandlerOptions = {}
 
 function remoteStore(): RemoteStore {
   if (!store) {
@@ -123,12 +146,68 @@ async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
   }, paired.deviceToken)
 }
 
+/**
+ * Check on a computer whose window is open, with that window's own session. A sign-in mints a session and the remote
+ * keeps only the newest four per computer, so the list's 30-second check would end the dashboard's session within two
+ * minutes. Asking mints nothing, so the computer's other addresses get asked too when the window's goes quiet: it may
+ * only have left the home network.
+ *
+ * Null when a sign-in is the only way to learn more, and costs the window nothing: its session has died and nothing here
+ * will revive it (this is how the row learns the remote removed this computer), or the remote has no password.
+ */
+async function checkOpenWindow(r: RemoteComputer, windowOrigin: string): Promise<RemoteResult<RemoteComputerCheck> | null> {
+  const target = targetOf(r)
+  const token = await remoteSessionToken(r.id, windowOrigin)
+  // new URL drops :80, so an address is compared by what it parses to, not how the plan spells it.
+  const plan = addressPlan(target).map(({ via, origin }) => ({ via, origin: new URL(origin).origin }))
+  const origins = [windowOrigin, ...plan.map((address) => address.origin).filter((origin) => origin !== windowOrigin)]
+  for (const origin of origins) {
+    const state = await remoteSessionState(clientDeps, origin, token)
+    if (state === 'no-answer') continue
+    if (state === 'no-password' || (state === 'signed-out' && !handlerOptions.keepSignedIn)) return null
+    const via = plan.find((address) => address.origin === origin)?.via ?? null
+    const sharedSessions = state === 'signed-in' && token ? await countShared(clientDeps, origin, token) : null
+    return { ok: true, data: { state: 'online', via, sharedSessions, message: null } }
+  }
+  return { ok: true, data: { state: 'offline', via: null, sharedSessions: null, message: unreachableMessage(target) } }
+}
+
+/** Sign an open dashboard back in if its session has died: a long sleep, or the remote restarting (tokens are in memory). */
+async function revive(id: string): Promise<void> {
+  const origin = openRemoteOrigin(id)
+  if (!origin) return
+  if (await remoteSessionState(clientDeps, origin, await remoteSessionToken(id, origin)) !== 'signed-out') return
+  const s = remoteStore()
+  const r = s.get(id)
+  const creds = s.credentials(id)
+  if (!r || !creds) return
+  const result = await signIn(clientDeps, targetOf(r), creds)
+  recordSignIn(id, result, Date.now())
+  // Closing brings the list back, whose row says what happened.
+  if (result.state === 'revoked') closeRemoteWindows(id)
+  // On the window's own address: its session is good at any of them, and this one just answered.
+  if (result.state === 'ok') await signBackIn(id, origin, result.token, result.expiresIn)
+}
+
+/** One round of `revive` over every computer. Never throws, so a timer can keep calling it. */
+export async function keepOpenWindowsSignedIn(): Promise<void> {
+  for (const r of remoteStore().list()) {
+    await guarded('revive', async () => {
+      await revive(r.id)
+      return { ok: true, data: null }
+    })
+  }
+}
+
 async function check(id: unknown): Promise<RemoteResult<RemoteComputerCheck>> {
   if (!validId(id)) return fail(NOT_PAIRED)
   const s = remoteStore()
   const r = s.get(id)
   const creds = s.credentials(id)
   if (!r || !creds) return fail(NOT_PAIRED)
+  const openAt = openRemoteOrigin(id)
+  const answered = openAt ? await checkOpenWindow(r, openAt) : null
+  if (answered) return answered
   const result = await signIn(clientDeps, targetOf(r), creds)
   recordSignIn(id, result, Date.now())
   switch (result.state) {
@@ -152,7 +231,11 @@ async function check(id: unknown): Promise<RemoteResult<RemoteComputerCheck>> {
 
 async function open(id: unknown): Promise<RemoteResult<null>> {
   if (!validId(id)) return fail(NOT_PAIRED)
-  if (focusRemoteWindow(id)) return { ok: true, data: null }
+  if (focusRemoteWindow(id)) {
+    await revive(id)
+    handlerOptions.onOpened?.(id)
+    return { ok: true, data: null }
+  }
   const s = remoteStore()
   const r = s.get(id)
   const creds = s.credentials(id)
@@ -161,7 +244,15 @@ async function open(id: unknown): Promise<RemoteResult<null>> {
   recordSignIn(id, result, Date.now())
   switch (result.state) {
     case 'ok':
-      await openRemoteWindow({ id, name: r.name, origin: result.origin, token: result.token, expiresIn: result.expiresIn })
+      await openRemoteWindow({
+        id,
+        name: r.name,
+        origin: result.origin,
+        token: result.token,
+        expiresIn: result.expiresIn,
+        beforeLoad: handlerOptions.beforeLoad,
+      })
+      handlerOptions.onOpened?.(id)
       return { ok: true, data: null }
     case 'pending':
       return fail(pendingMessage(r))
@@ -172,6 +263,18 @@ async function open(id: unknown): Promise<RemoteResult<null>> {
     case 'error':
       return fail(result.message)
   }
+}
+
+const opening = new Map<string, Promise<RemoteResult<null>>>()
+
+/** A second ask while one is under way joins it: both would pass the focus check and open two windows. */
+function openOnce(id: unknown): Promise<RemoteResult<null>> {
+  if (!validId(id)) return Promise.resolve(fail(NOT_PAIRED))
+  const running = opening.get(id)
+  if (running) return running
+  const run = open(id).finally(() => opening.delete(id))
+  opening.set(id, run)
+  return run
 }
 
 async function remove(id: unknown): Promise<RemoteResult<{ unpairedRemotely: boolean }>> {
@@ -195,16 +298,17 @@ async function rename(id: unknown, name: unknown): Promise<RemoteResult<RemoteCo
   return updated ? { ok: true, data: updated } : fail(NOT_PAIRED)
 }
 
-/** Only the local dashboard may drive remote computers. */
+/** Only this app's own page may drive remote computers: the local dashboard, unless a Client says otherwise. */
 function fromLocalApp(e: IpcMainInvokeEvent): boolean {
-  return isLocalAppSenderUrl(e.senderFrame?.url ?? '')
+  return (handlerOptions.isAppSender ?? isLocalAppSenderUrl)(e.senderFrame?.url ?? '')
 }
 
 function local<T>(e: IpcMainInvokeEvent, run: () => Promise<RemoteResult<T>>): Promise<RemoteResult<T>> {
   return fromLocalApp(e) ? run() : Promise.resolve(fail(NOT_THIS_APP))
 }
 
-export function registerRemoteHandlers(): void {
+export function registerRemoteHandlers(options: RemoteHandlerOptions = {}): void {
+  handlerOptions = options
   ipcMain.handle('remote:list', (e) => {
     if (!fromLocalApp(e)) return []
     try {
@@ -216,7 +320,7 @@ export function registerRemoteHandlers(): void {
   })
   ipcMain.handle('remote:add', (e, link: unknown) => local(e, () => guarded('add', () => add(link))))
   ipcMain.handle('remote:check', (e, id: unknown) => local(e, () => guarded('check', () => check(id))))
-  ipcMain.handle('remote:open', (e, id: unknown) => local(e, () => guarded('open', () => open(id))))
+  ipcMain.handle('remote:open', (e, id: unknown) => local(e, () => guarded('open', () => openOnce(id))))
   ipcMain.handle('remote:remove', (e, id: unknown) => local(e, () => guarded('remove', () => remove(id))))
   ipcMain.handle('remote:rename', (e, id: unknown, name: unknown) => local(e, () => guarded('rename', () => rename(id, name))))
 }
