@@ -5,7 +5,7 @@
 // route-built lines are in relaunchRoutes.test.ts). Pure: nothing here reaches a process.
 import { describe, expect, it, vi } from 'vitest';
 import { applyClaudeLaunchFlags, appendSessionName, reconstructPermissionFlags } from '../../server/config.js';
-import { applyCodexNoDaemon } from '../../server/codexNoDaemon.js';
+import { applyCodexLaunchFlags, CODEX_LAUNCH_FLAGS } from '../../server/codexNoDaemon.js';
 import { applyCentralLaunch } from '../../server/mcp/launch.js';
 import { workerCommandFor } from '../../server/mcp/openWorker.js';
 import { MODE_RANK } from '../../server/mcp/permissionCap.js';
@@ -49,7 +49,8 @@ function builtLines(): string[] {
     `${applyClaudeLaunchFlags('codex', 'gpt-5', null)} fork '${ID}'`,
     'codex fork --last',
   ];
-  return [...claude, ...named, ...codex, ...codex.map(applyCodexNoDaemon)];
+  // A local launch is typed with --no-daemon and --no-alt-screen (codexNoDaemon.ts).
+  return [...claude, ...named, ...codex, ...codex.map((line) => applyCodexLaunchFlags(line, { add: CODEX_LAUNCH_FLAGS }))];
 }
 
 describe('relaunchCommandRefusal', () => {
@@ -103,6 +104,8 @@ describe('relaunchCommandRefusal', () => {
       "claude --permission-mode plan -n 'My title'",
       'codex --model gpt-5 -c model_reasoning_effort="high"',
       `codex --no-daemon --model gpt-5 -c model_reasoning_effort=high resume ${ID}`,
+      // Nov 4 2026: a dashboard Codex also runs with --no-alt-screen, so its stored ps args carry it
+      `codex --no-daemon --no-alt-screen --model gpt-5 resume ${ID}`,
       '  claude --resume abc-123',
     ]) {
       expect(relaunchCommandRefusal(ok), ok).toBeNull();
@@ -157,7 +160,7 @@ describe('relaunchCommandRefusal', () => {
     for (const bad of ['claude hello', 'claude --model opus fix-it', 'codex exec ls', 'codex resume a b', 'codex review', 'codex fork --last x']) {
       expect(relaunchCommandRefusal(bad), bad).toBe(RELAUNCH_REFUSAL);
     }
-    for (const ok of ['codex resume', `codex resume ${ID}`, 'codex resume --last', `codex fork ${ID} --no-daemon`]) {
+    for (const ok of ['codex resume', `codex resume ${ID}`, 'codex resume --last', `codex fork ${ID} --no-daemon`, `codex resume --no-daemon --no-alt-screen ${ID}`]) {
       expect(relaunchCommandRefusal(ok), ok).toBeNull();
     }
   });

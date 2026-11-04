@@ -16,7 +16,7 @@
 //               title of more words would come back as positionals, and `claude -n x mcp add …` runs `mcp add`);
 //       Codex:  `--model`/`-m`, `-c`/`--config` with `model_reasoning_effort=<level>` only, `--sandbox`/`-s`,
 //               `--ask-for-approval`/`-a`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`,
-//               `--no-daemon`, and one `resume` or `fork` subcommand with an id or `--last`.
+//               `--no-daemon`, `--no-alt-screen`, and one `resume` or `fork` subcommand with an id or `--last`.
 //     Any other word that starts with `-` (`--allowedTools`, `--add-dir`, `--mcp-config`, `--settings`, Codex's
 //     `--profile`, a `-c` with another key) is refused, and so is any other positional word (an initial prompt).
 // An empty command is no refusal: the route then runs its own `claude`. Every command a route may type for the card is
@@ -77,6 +77,7 @@ const CODEX_FLAGS: ReadonlyMap<string, ValueRule | null> = new Map([
   ['--dangerously-bypass-approvals-and-sandbox', null],
   ['--yolo', null],
   ['--no-daemon', null],
+  ['--no-alt-screen', null],
 ]);
 const CLAUDE_NAME_FLAGS: ReadonlySet<string> = new Set(['-n', '--name']);
 const CODEX_SUBCOMMANDS: ReadonlySet<string> = new Set(['resume', 'fork']);
@@ -194,7 +195,7 @@ function claudeArgsPass(args: readonly string[]): boolean {
 
 /**
  * Codex's arguments: its flags anywhere, and at most one `resume` / `fork`, after which one id or `--last` may come
- * (codexNoDaemon.ts puts `--no-daemon` between the subcommand and its id).
+ * (codexNoDaemon.ts puts `--no-daemon` and `--no-alt-screen` between the subcommand and its id).
  */
 function codexArgsPass(args: readonly string[]): boolean {
   let subcommand: 'none' | 'open' | 'done' = 'none';

@@ -66,7 +66,7 @@ import {
 } from './mcp/centralLaunch.js';
 import type { SessionCentralMarker } from '../src/types/central.js';
 import type { Session } from '../src/types/session.js';
-import { stripCodexNoDaemon } from './codexNoDaemon.js';
+import { stripCodexLaunchFlags } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
@@ -321,10 +321,11 @@ function stripClaudeSessionFlags(command: string): string {
 
 function stripCodexSessionSubcommand(command: string): string {
   // AASC-59: the stored command is the live CLI's `ps` args, so a dashboard-launched Codex
-  // brings back its `--no-daemon`. Drop it here (sshManager re-applies it when the line is
-  // typed, if the installed Codex takes it): left after `resume`, the strip below would eat
-  // `resume --no-daemon` and leave the old thread id behind as a stray prompt.
-  return stripCodexNoDaemon(command.replace(/^(\S*\/)codex/, 'codex'))
+  // brings back its `--no-daemon` (and, since Nov 4 2026, `--no-alt-screen`). Drop them here
+  // (sshManager re-applies them when the line is typed, if the installed Codex takes them):
+  // left after `resume`, the strip below would eat `resume --no-daemon` and leave the old
+  // thread id behind as a stray prompt.
+  return stripCodexLaunchFlags(command.replace(/^(\S*\/)codex/, 'codex'))
     .replace(/\s+(?:resume|fork)(?:\s+--last)?(?:\s+'[^']*'|\s+"[^"]*"|\s+[a-zA-Z0-9_-]+)?/g, '')
     .trim();
 }
