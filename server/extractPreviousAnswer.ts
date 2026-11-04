@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import { stripCodexMemoryCitation } from './codexMemoryCitation.js';
 import log from './logger.js';
 
 interface JsonlLine {
@@ -257,14 +258,16 @@ export function readCodexLastAssistant(rolloutPath: string): string | null {
       const p = record.payload;
       if (!p) continue;
       if (record.type === 'response_item' && p.type === 'message' && p.role === 'assistant' && Array.isArray(p.content)) {
-        const text = (p.content as ContentBlock[])
+        // Never translate or explain Codex's memory citation (codexMemoryCitation.ts).
+        const text = stripCodexMemoryCitation((p.content as ContentBlock[])
           .map((b) => (typeof b?.text === 'string' ? b.text : ''))
           .filter((t) => t.trim())
-          .join('\n');
-        if (text) return text;
+          .join('\n'));
+        if (text.trim()) return text;
       }
-      if (!eventAnswer && record.type === 'event_msg' && p.type === 'agent_message' && typeof p.message === 'string' && p.message.trim()) {
-        eventAnswer = p.message;
+      if (!eventAnswer && record.type === 'event_msg' && p.type === 'agent_message' && typeof p.message === 'string') {
+        const message = stripCodexMemoryCitation(p.message);
+        if (message.trim()) eventAnswer = message;
       }
     }
     return eventAnswer;

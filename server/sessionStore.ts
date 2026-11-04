@@ -35,6 +35,7 @@ import { checkTurnInterrupted, readTranscriptTail, TYPED_PROMPT_MARKER_MS, type 
 import { emitTerminalHook } from './hookSignals.js';
 import { asksForProceed, lastAnswerAsksForProceed } from './proceedRequest.js';
 import { isCodexSession } from './sessionKillPolicy.js';
+import { stripCodexMemoryCitation } from './codexMemoryCitation.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -1229,11 +1230,16 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       eventEntry.detail = wasHeavyWork ? 'Heavy work done — ready for input' : 'Ready for your input';
 
       // Store response if present — try multiple possible field names
-      const responseText = ('response' in hookData ? hookData.response : undefined)
+      const rawResponse = ('response' in hookData ? hookData.response : undefined)
         || ('last_assistant_message' in hookData ? hookData.last_assistant_message : undefined)
         || ('message' in hookData ? hookData.message : undefined)
         || ('stop_reason_str' in hookData ? hookData.stop_reason_str : undefined)
         || '';
+      // Codex ends a reply with a memory citation (codexMemoryCitation.ts): out of the log, and
+      // out of the proceed check's tail, where a long one hides the ask.
+      const responseText = isCodexSession(session) && typeof rawResponse === 'string'
+        ? stripCodexMemoryCitation(rawResponse)
+        : rawResponse;
       // Does the answer end by asking for "proceed" (the P reminder, proceedRequest.ts)? Read
       // from the full text: the excerpt below keeps its start, and the ask is at the end. No
       // text in the hook: the transcript says.

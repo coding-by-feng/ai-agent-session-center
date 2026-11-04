@@ -32,6 +32,12 @@ describe('readCodexLastAssistant', () => {
     expect(readCodexLastAssistant(file)).toBe('new\nanswer');
   });
 
+  it('leaves out the memory citation Codex appends, so a popup never translates it', () => {
+    const citation = '<oai-mem-citation>\n<citation_entries>\nMEMORY.md:1-1|note=[x]\n</citation_entries>\n<rollout_ids>\n</rollout_ids>\n</oai-mem-citation>';
+    expect(readCodexLastAssistant(rollout([assistant(`the answer\n\n${citation}`)]))).toBe('the answer');
+    expect(readCodexLastAssistant(rollout([{ type: 'event_msg', payload: { type: 'agent_message', message: `from the event ${citation}` } }]))).toBe('from the event');
+  });
+
   it('skips torn lines and tool calls after the answer', () => {
     const file = rollout([assistant('the answer'), '{"type":"respo',
       { type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: '{}' } }]);
