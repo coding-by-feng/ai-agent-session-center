@@ -8,13 +8,15 @@
  *
  * Stop is Esc, written to the session's terminal the way the phone's key bar
  * writes keys (`writeTerminal`, POST /api/terminals/:id/write). It is the phone's
- * only Stop (Oct 20 2026: the composer had a second, which asked first where this
- * one didn't): while a tool runs it asks first, since stopping interrupts the tool.
+ * only Stop (Oct 20 2026: the composer had a second). One tap writes Esc at once,
+ * a running tool included (Nov 5 2026: a confirm sheet while a tool ran made Stop
+ * two taps; Esc on the desktop never asked either).
  *
  * Oct 28 2026: once Esc is written the button holds "Stopping…" (busy) and the strip
  * reads "Stopping", until the turn ends or a new one starts, or STOP_PENDING_MS
  * passes with the agent still working (then Stop can be pressed again). Before, it
- * was busy only for the write itself, so a tap looked like it did nothing.
+ * was busy only for the write itself, so a tap looked like it did nothing. Never a
+ * second Esc on its own: at Claude's idle prompt a second Esc opens its rewind menu.
  */
 import { useEffect, useId, useState } from 'react';
 import type { Session } from '@/types';
@@ -22,17 +24,15 @@ import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
 import { isCompacting } from '@/lib/chat/phoneStatus';
-import { runningTool } from '@/lib/chat/composerAction';
-import { detectCli } from '@/lib/cliDetect';
 import { readPeekOpen, writePeekOpen } from '@/lib/chat/peekPreference';
-import { Button, ConfirmSheet } from '../kit';
+import { Button } from '../kit';
 import TerminalPeek from './TerminalPeek';
 import { ChevronIcon, SquareStopIcon } from './chatViewIcons';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
 const TICK_MS = 1000;
 /** How long a written Stop holds "Stopping…" before Stop is offered again. */
-export const STOP_PENDING_MS = 10_000;
+export const STOP_PENDING_MS = 5_000;
 
 /** When the current turn began: the last prompt, else the last activity. */
 function turnStart(session: Session): number {
@@ -63,10 +63,6 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   /** When Esc was written, and for which turn (its start). */
   const [stopSent, setStopSent] = useState<{ at: number; turn: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The tool a confirmed Stop would interrupt, while its confirm is open. */
-  const [confirmTool, setConfirmTool] = useState<string | null>(null);
-  const cli = detectCli(session);
-  const cliName = cli === 'codex' ? 'Codex' : cli === 'claude' ? 'Claude' : 'the agent';
   const [peekOpen, setPeekOpen] = useState(readPeekOpen);
   const peekId = useId();
   const togglePeek = () => {
@@ -107,11 +103,6 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
       setError(result.message);
     }
   };
-  const askStop = () => {
-    const running = runningTool(session);
-    if (running) setConfirmTool(running);
-    else void stop();
-  };
 
   const disabledReason = !terminalId
     ? 'No terminal to stop'
@@ -146,7 +137,7 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           small
           variant="secondary"
           icon={<SquareStopIcon size={16} />}
-          onClick={askStop}
+          onClick={() => { void stop(); }}
           loading={stopping || stopPending}
           loadingLabel="Stopping…"
           disabledReason={disabledReason}
@@ -162,15 +153,6 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
         </div>
       )}
-      <ConfirmSheet
-        open={confirmTool !== null}
-        title={`Stop ${cliName}?`}
-        message={`It is running ${confirmTool ?? 'a tool'}. Stopping interrupts it.`}
-        confirmLabel="Stop"
-        danger
-        onConfirm={() => { setConfirmTool(null); void stop(); }}
-        onCancel={() => setConfirmTool(null)}
-      />
     </div>
   );
 }

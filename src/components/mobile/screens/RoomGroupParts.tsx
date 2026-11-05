@@ -12,10 +12,15 @@
  * Every change goes through `requestRoomChange`: applied on the device that owns
  * the rooms, asked of the Mac anywhere else. Kill-room stops only the sessions
  * shared with this phone (lib/chat/phoneRoomKill.ts).
+ *
+ * A project group (By project, Nov 4 2026) wears the same header with its ＋ in
+ * the ⋯'s place: ≡ ▾ ■ AGENT-MANAGER · 5  ＋. A project isn't a Mac record, so its
+ * fold and order stay on this phone and nothing goes through `requestRoomChange`.
  */
 import { useCallback, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { ConfirmSheet, ListRow, ListSection, Sheet } from '../kit';
 import { EllipsisIcon } from '../kit/kitIcons';
+import { PlusIcon } from '../phoneIcons';
 import { DeleteRoomConfirm, RoomEditSheet } from '../RoomSheets';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useRoomStore, type Room } from '@/stores/roomStore';
@@ -94,17 +99,27 @@ export interface RoomGroupHeaderProps {
   onGripDown: (e: PointerEvent, roomId: string) => void;
 }
 
-export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle, onMenu, onGripDown }: RoomGroupHeaderProps) {
+/** ≡ ▾ ■ NAME · N, then the header's one action: what a room and a project share. */
+function DraggableGroupHeader({ gripTestId, title, count, color, collapsed, onToggle, onGripDown, children }: {
+  gripTestId: string;
+  title: string;
+  count: number;
+  color?: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  onGripDown: (e: PointerEvent) => void;
+  children?: ReactNode;
+}) {
   return (
     <div className={styles.header}>
-      {/* Not a button: the drag hook ignores presses on buttons. Its keyboard
-          and one-handed path is Move up / Move down in the room's ⋯ sheet. */}
+      {/* Not a button: the drag hook ignores presses on buttons. A room's keyboard
+          and one-handed path is Move up / Move down in its ⋯ sheet. */}
       <span
         className={styles.roomGrip}
         aria-hidden="true"
-        data-testid={`room-grip-${room.id}`}
-        onPointerDown={(e) => onGripDown(e, room.id)}
-        // The list's pull-to-refresh listens to touch events: a room carried down
+        data-testid={gripTestId}
+        onPointerDown={onGripDown}
+        // The list's pull-to-refresh listens to touch events: a group carried down
         // from the top must not also pull the list (and shift every measured box).
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
@@ -116,7 +131,7 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
         <button
           type="button"
           className={styles.toggle}
-          onClick={() => onToggle(room.id)}
+          onClick={onToggle}
           aria-expanded={!collapsed}
           aria-label={`${title}, ${count} ${count === 1 ? 'session' : 'sessions'}, ${collapsed ? 'folded' : 'open'}`}
         >
@@ -125,6 +140,22 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
           <span className={styles.titleText}>{title} · {count}</span>
         </button>
       </h2>
+      {children}
+    </div>
+  );
+}
+
+export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle, onMenu, onGripDown }: RoomGroupHeaderProps) {
+  return (
+    <DraggableGroupHeader
+      gripTestId={`room-grip-${room.id}`}
+      title={title}
+      count={count}
+      color={color}
+      collapsed={collapsed}
+      onToggle={() => onToggle(room.id)}
+      onGripDown={(e) => onGripDown(e, room.id)}
+    >
       <button
         type="button"
         className={styles.menuButton}
@@ -134,7 +165,40 @@ export function RoomGroupHeader({ room, title, count, color, collapsed, onToggle
       >
         <EllipsisIcon />
       </button>
-    </div>
+    </DraggableGroupHeader>
+  );
+}
+
+export interface ProjectGroupHeaderProps {
+  projectKey: string;
+  title: string;
+  count: number;
+  color?: string;
+  collapsed: boolean;
+  onToggle: (projectKey: string) => void;
+  /** Starts the project's reorder drag (useRoomDragReorder's onPointerDown). */
+  onGripDown: (e: PointerEvent, projectKey: string) => void;
+  /** A new session in this folder; left out for a project on another machine. */
+  onNew?: () => void;
+}
+
+export function ProjectGroupHeader({ projectKey, title, count, color, collapsed, onToggle, onGripDown, onNew }: ProjectGroupHeaderProps) {
+  return (
+    <DraggableGroupHeader
+      gripTestId={`project-grip-${projectKey}`}
+      title={title}
+      count={count}
+      color={color}
+      collapsed={collapsed}
+      onToggle={() => onToggle(projectKey)}
+      onGripDown={(e) => onGripDown(e, projectKey)}
+    >
+      {onNew && (
+        <button type="button" className={styles.menuButton} onClick={onNew} aria-label={`New session in ${title}`} aria-haspopup="dialog">
+          <PlusIcon />
+        </button>
+      )}
+    </DraggableGroupHeader>
   );
 }
 

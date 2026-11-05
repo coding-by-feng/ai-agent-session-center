@@ -50,6 +50,12 @@ export interface StoppedTurn {
   turnId: string | null;
   /** When Claude wrote the marker (ms); null without a timestamp, and for Codex, whose abort names its turn exactly. */
   at: number | null;
+  /**
+   * Claude, after a declined tool ("… for tool use]"): the calls whose rejected
+   * `tool_result` (is_error) came straight before the marker, in the same turn. A dialog
+   * card is keyed on its call's id, so this names the dialog the Esc closed.
+   */
+  rejectedToolUseIds?: string[];
 }
 
 /**
@@ -140,9 +146,38 @@ export function stoppedTurn(lines: readonly string[]): StoppedTurn | null {
     if (!isMainUserEntry(e)) continue;
     if (!isInterruptEntry(e)) return null;
     const turnId = idOf(e.promptId);
-    return turnId && isTypedPromptMarker(lines, i, turnId, e) ? null : { turnId, at: timeOf(e) };
+    if (turnId && isTypedPromptMarker(lines, i, turnId, e)) return null;
+    const rejectedToolUseIds = rejectedCallsBefore(lines, i, e, turnId);
+    return { turnId, at: timeOf(e), ...(rejectedToolUseIds.length > 0 ? { rejectedToolUseIds } : {}) };
   }
   return null;
+}
+
+const DECLINED_TOOL_MARKER = '[Request interrupted by user for tool use]';
+
+/**
+ * The calls a declined-tool marker declined: the `is_error` results of the main-thread
+ * tool-result entries straight before it (parallel calls write several), in its own turn.
+ * An assistant entry, a typed entry or another turn's ends the run: an older failure is
+ * not what the Esc declined.
+ */
+function rejectedCallsBefore(lines: readonly string[], index: number, marker: TranscriptEntry, turnId: string | null): string[] {
+  if (onlyText(marker.message?.content)?.trim() !== DECLINED_TOOL_MARKER) return [];
+  const ids: string[] = [];
+  for (let i = index - 1; i >= 0; i--) {
+    const e = parse(lines[i]);
+    if (!e || e.isSidechain === true) continue;
+    if (e.type === 'assistant') break;
+    if (!isMainUserEntry(e)) continue;
+    const content = e.message?.content;
+    if (!Array.isArray(content) || isTypedEntry(e) || idOf(e.promptId) !== turnId) break;
+    for (const block of content) {
+      const b = block as { type?: unknown; is_error?: unknown; tool_use_id?: unknown } | null;
+      const id = b?.type === 'tool_result' && b.is_error === true ? idOf(b.tool_use_id) : null;
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 /**

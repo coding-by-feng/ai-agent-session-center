@@ -171,7 +171,9 @@ export default function PhoneFileView({
         fill
         title={text.title}
         hint={text.hint}
-        action={<Button onClick={() => { setStreamFailed(false); setAttempt((n) => n + 1); }}>Try again</Button>}
+        action={text.retryable
+          ? <Button onClick={() => { setStreamFailed(false); setAttempt((n) => n + 1); }}>Try again</Button>
+          : undefined}
       />
     );
   }

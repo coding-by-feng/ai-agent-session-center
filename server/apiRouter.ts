@@ -69,6 +69,7 @@ import type { Session } from '../src/types/session.js';
 import { stripCodexLaunchFlags } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
+import { parseByteRange, refusesStreamSize } from './fileStreamPolicy.js';
 import { getCommandIndex } from './commandIndex.js';
 import { createCommandUsage, usageForEntries, usageScope } from './commandUsage.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
@@ -3216,7 +3217,6 @@ const TEXT_NAMES = new Set([
 ]);
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
 
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
 const STREAMABLE_EXTENSIONS = new Set([
@@ -3354,9 +3354,10 @@ router.get('/files/read', (req: Request, res: Response) => {
     const name = basename(fullPath);
     const fileExt = extname(name).toLowerCase();
 
-    // PDFs and other streamable files: return metadata with streamable flag (no size limit)
+    // PDFs, images, Office and media: metadata with the streamable flag. Whole-file types are capped
+    // at 100 MB; video/audio are played by Range request, so any size (fileStreamPolicy.ts).
     if (STREAMABLE_EXTENSIONS.has(fileExt)) {
-      if (stat.size > MAX_STREAMABLE_SIZE) {
+      if (refusesStreamSize(fileExt, stat.size)) {
         res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 100 MB)` });
         return;
       }
@@ -3399,10 +3400,9 @@ router.get('/files/stream', (req: Request, res: Response) => {
 
     const stat = statSync(fullPath);
     if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
-    if (stat.size > MAX_STREAMABLE_SIZE) { res.status(413).json({ error: 'File too large' }); return; }
-
     const fileExt = extname(fullPath).toLowerCase();
     if (!STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
+    if (refusesStreamSize(fileExt, stat.size)) { res.status(413).json({ error: 'File too large' }); return; }
 
     const mimeMap: Record<string, string> = {
       '.pdf': 'application/pdf',
@@ -3429,11 +3429,15 @@ router.get('/files/stream', (req: Request, res: Response) => {
     const isMedia = contentType.startsWith('video/') || contentType.startsWith('audio/');
     if (isMedia) {
       res.setHeader('Accept-Ranges', 'bytes');
-      const rangeHeader = req.headers.range;
-      if (rangeHeader) {
-        const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parseInt(startStr, 10);
-        const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+      // With no size cap on media, the Range header is all that bounds a read: parsed strictly.
+      const range = parseByteRange(req.headers.range, stat.size);
+      if (range === 'unsatisfiable') {
+        res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
+        res.end();
+        return;
+      }
+      if (range) {
+        const { start, end } = range;
         const chunkSize = end - start + 1;
         res.status(206);
         res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);

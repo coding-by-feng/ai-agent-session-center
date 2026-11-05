@@ -91,6 +91,11 @@ describe('fileErrorText', () => {
     expect(fileErrorText(0, 'folder').title).toMatch(/could not be reached/);
     expect(fileErrorText(500, 'folder').title).toMatch(/could not be opened/);
   });
+
+  it('offers no retry for a file too large to open: trying again cannot change it (Nov 5 2026)', () => {
+    expect(fileErrorText(413, 'file')).toMatchObject({ title: 'This file is too large to open', retryable: false });
+    for (const status of [0, 404, 429, 500]) expect(fileErrorText(status, 'file').retryable).toBe(true);
+  });
 });
 
 describe('pinch and drag', () => {

@@ -199,16 +199,7 @@
   color: var(--ph-text-secondary);
 }
 
-.swatch {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--swatch);
-}
-
 .groupAction,
-.groupIcon,
 .foldedButton {
   appearance: none;
   margin: 0;
@@ -230,28 +221,15 @@
   font-weight: 600;
 }
 
-.groupIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ph-target);
-  height: var(--ph-target);
-  margin-right: calc(-1 * var(--ph-space-3));
-  border-radius: var(--ph-radius);
-}
-
 @media (hover: hover) {
   .groupAction:hover,
-  .groupIcon:hover,
   .foldedButton:hover { background: var(--ph-fill); }
 }
 
 .groupAction:active,
-.groupIcon:active,
 .foldedButton:active { background: var(--ph-fill-strong); }
 
 .groupAction:focus-visible,
-.groupIcon:focus-visible,
 .foldedButton:focus-visible {
   outline: 2px solid var(--ph-focus);
   outline-offset: -2px;

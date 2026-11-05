@@ -13,7 +13,10 @@
  * "Already answered on your Mac"; the Mac can't tell the choices → only "Open
  * terminal". The card is server state, so it comes back after a reconnect.
  * While the chat shows the question as its own card (items/QuestionCard, Nov 2 2026), the
- * choices are there and this card says so instead of repeating them.
+ * choices are there and this card says so instead of repeating them. Since Nov 5 2026 it also
+ * drops what is asked (the chat card shows it whole): repeating it made this card a third of the
+ * screen and covered the chat's answers. Its header then points up: "Answer above"
+ * scrolls the chat to the open question.
  */
 import { useId } from 'react';
 import type { Session } from '@/types';
@@ -91,6 +94,15 @@ export function CardDetailView({ detail }: { detail: CardDetail }) {
   }
 }
 
+/** Scroll the chat to its open question card (the newest when several are open). */
+function scrollToChatQuestion(): void {
+  const open = document.querySelectorAll('[data-chat-question][data-open]');
+  const target = open[open.length - 1] ?? null;
+  if (!target) return;
+  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+}
+
 export default function WaitingCard({ session, card, onTerminal, onTell }: WaitingCardProps) {
   const titleId = useId();
   const { busy, outcome, confirm, cancelConfirm, answer, spectator, driver } = useRequestAnswer(session.sessionId, card.requestId, card.cliName);
@@ -103,6 +115,8 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
   const inChat = useAnsweredInChat(session.sessionId, isQuestion ? card.requestId : null);
   const answerable = !terminalOnly && !settled && card.choices.length > 0;
   const showChoices = answerable && !inChat;
+  /** The chat shows this question whole: keep the title, Other… and the terminal, nothing it repeats. */
+  const compact = answerable && inChat;
   const { offered, reasons } = offeredChoices(card.choices);
 
   const choices = showChoices && offered.length > 0 && (
@@ -136,18 +150,25 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
   // by ChatFooter). A question's options are part of what scrolls: there may be nine.
   return (
     <section className={styles.card} data-tone={tone} aria-labelledby={titleId} data-testid="waiting-card">
-      <header className={styles.header}>
+      <header className={styles.header} data-compact={compact ? '' : undefined}>
         <span className={styles.icon}>{isQuestion ? <QuestionIcon /> : <WarningIcon />}</span>
         <h3 id={titleId} className={styles.title}>{card.title}</h3>
+        {compact && (
+          <button type="button" className={styles.jump} onClick={scrollToChatQuestion} data-testid="waiting-card-in-chat">
+            Answer above
+            <ChevronRightIcon className={styles.jumpIcon} aria-hidden="true" />
+          </button>
+        )}
       </header>
-      <div className={styles.scroll} data-testid="waiting-card-body">
-        <div className={styles.body}>
-          <CardDetailView detail={card.detail} />
-          {card.where && <p className={styles.where}>{card.where}</p>}
+      {!compact && (
+        <div className={styles.scroll} data-testid="waiting-card-body">
+          <div className={styles.body}>
+            <CardDetailView detail={card.detail} />
+            {card.where && <p className={styles.where}>{card.where}</p>}
+          </div>
+          {isQuestion && choices}
         </div>
-        {isQuestion && choices}
-        {answerable && inChat && <p className={styles.note} data-testid="waiting-card-in-chat">Pick an answer in the chat above.</p>}
-      </div>
+      )}
 
       <div className={styles.fixed}>
         {outcome?.kind === 'stale' && <p className={styles.state} role="status">Already answered on your Mac</p>}

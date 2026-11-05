@@ -210,6 +210,69 @@ describe('an Esc ends the turn without a hook', () => {
   });
 });
 
+describe('a dialog declined under a turn id the hooks never named', () => {
+  // Nov 5 2026, Claude 2.1.318: a prompt typed while a slow Stop hook still ran was queued.
+  // Its UserPromptSubmit fired at once; Claude gave it a new promptId when it dequeued it.
+  // The phone's "Deny and tell" Esc declined the AskUserQuestion, and the marker (new id)
+  // was dropped as another turn's: the card sat in approval, every send came back "Not sent".
+  const rejected = (promptId: string, toolUseId: string) => line({
+    type: 'user', promptId,
+    message: { role: 'user', content: [{ type: 'tool_result', is_error: true, tool_use_id: toolUseId, content: 'The user doesn\'t want to proceed with this tool use.' }] },
+  });
+  const askUser = { questions: [{ question: 'How?', header: 'tag', multiSelect: false, options: [{ label: 'A' }, { label: 'B' }] }] };
+
+  function queuedTurnAtDialog(id: string, toolUseId: string): string {
+    const file = join(dir, `${id}.jsonl`);
+    writeFileSync(file, claudePrompt('p-dequeued') + claudeThinking());
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.SESSION_START, transcript_path: file });
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT, prompt: 'remove it', prompt_id: 'p-enqueued', transcript_path: file });
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.PRE_TOOL_USE, tool_name: 'AskUserQuestion', tool_input: askUser, tool_use_id: toolUseId, prompt_id: 'p-dequeued' });
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.PERMISSION_REQUEST, tool_name: 'AskUserQuestion', tool_input: askUser, tool_use_id: toolUseId, prompt_id: 'p-dequeued' });
+    return file;
+  }
+
+  it('the declined call is the open request: the turn ends, the request clears', async () => {
+    const id = 'esc-claude-q001';
+    const file = queuedTurnAtDialog(id, 'toolu_ask_1');
+    expect(getSession(id)?.status).toBe('approval');
+    expect(getSession(id)?.pendingRequest?.toolUseId).toBe('toolu_ask_1');
+
+    appendFileSync(file, rejected('p-dequeued', 'toolu_ask_1') + claudeMarker('p-dequeued', '[Request interrupted by user for tool use]'));
+    expect(await waitFor(() => getSession(id)?.status === 'waiting')).toBe(true);
+    expect(getSession(id)?.pendingRequest ?? null).toBeNull();
+  });
+
+  it('REGRESSION GUARD: a prompt typed while a call is open stamps the marker with ITS id: it runs, nothing stops', async () => {
+    // The open call ran under p-run; Claude cuts it off for the typed prompt and stamps the
+    // cut-off result and the marker with the new prompt's id, before that prompt's hook lands.
+    const id = 'esc-claude-q003';
+    const file = join(dir, `${id}.jsonl`);
+    writeFileSync(file, claudePrompt('p-run') + claudeThinking());
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.SESSION_START, transcript_path: file });
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT, prompt: 'go', prompt_id: 'p-run', transcript_path: file });
+    handleEvent({ session_id: id, hook_event_name: EVENT_TYPES.PERMISSION_REQUEST, tool_name: 'Bash', tool_input: { command: 'make' }, tool_use_id: 'toolu_open', prompt_id: 'p-run' });
+    expect(getSession(id)?.status).toBe('approval');
+
+    appendFileSync(file, rejected('p-typed', 'toolu_open') + claudeMarker('p-typed', '[Request interrupted by user for tool use]'));
+    await settled();
+    expect(getSession(id)?.status).toBe('approval');
+    expect(getSession(id)?.userCancelledAt ?? null).toBeNull();
+  });
+
+  // Known gap (Nov 5 2026): with no dialog open, a plain Esc of a prompt Claude renamed at
+  // dequeue is still dropped, since the marker's turn id matches no hook's UserPromptSubmit.
+  it.todo('a plain Esc of a prompt Claude renamed when it dequeued it ends the turn');
+
+  it('REGRESSION GUARD: another turn\'s declined call that is not the open request stops nothing', async () => {
+    const id = 'esc-claude-q002';
+    const file = queuedTurnAtDialog(id, 'toolu_ask_2');
+    appendFileSync(file, rejected('p-dequeued', 'toolu_someone_else') + claudeMarker('p-dequeued', '[Request interrupted by user for tool use]'));
+    await settled();
+    expect(getSession(id)?.status).toBe('approval');
+    expect(getSession(id)?.pendingRequest?.toolUseId).toBe('toolu_ask_2');
+  });
+});
+
 describe('only the turn that was stopped', () => {
   it('REGRESSION GUARD: a Claude marker from the turn before does not stop the prompt that runs now', async () => {
     const id = 'esc-claude-0004';

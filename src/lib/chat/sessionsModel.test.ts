@@ -368,6 +368,36 @@ describe('groupSessions', () => {
     expect(groups[0].launchPath).toBe('/w/app');
     expect(groups[0].local).toBe(true);
   });
+
+  describe('a phone’s own project order (Nov 4 2026)', () => {
+    const list = [
+      mk('a', { projectPath: '/w/app' }),
+      mk('b', { projectPath: '/w/site' }),
+      mk('c', { projectPath: '/w/web' }),
+      mk('d', { projectPath: '' }),
+    ];
+    const titles = (projectOrder?: readonly string[]) =>
+      groupSessions(input(list, { groupBy: 'project', projectOrder })).map((g) => g.title);
+
+    it('lists projects A to Z until one is dragged', () => {
+      expect(titles()).toEqual(['app', 'site', 'web', 'No project']);
+    });
+
+    it('follows the stored order, and No project stays last', () => {
+      expect(titles(['localhost|/w/web', 'localhost|/w/app', 'localhost|/w/site'])).toEqual(['web', 'app', 'site', 'No project']);
+    });
+
+    it('says which project each group is, and No project is none', () => {
+      const groups = groupSessions(input(list, { groupBy: 'project' }));
+      expect(groups.map((g) => g.projectKey)).toEqual(['localhost|/w/app', 'localhost|/w/site', 'localhost|/w/web', undefined]);
+    });
+
+    it('does not touch the rooms’ order', () => {
+      const rooms = [room('r1', 'Zed', ['a'], 0), room('r2', 'Abe', ['b'], 1)];
+      const groups = groupSessions(input(list, { groupBy: 'room', rooms, projectOrder: ['localhost|/w/site'] }));
+      expect(groups.filter((g) => g.kind === 'room').map((g) => g.title)).toEqual(['Zed', 'Abe']);
+    });
+  });
 });
 
 describe('connection', () => {

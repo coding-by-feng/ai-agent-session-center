@@ -9,13 +9,15 @@
  * Ended sessions are not listed: they live in History. Group by Room and Project
  * use the desktop strip's own grouping (lib/sessionStrip.ts) on the desktop's
  * status order (numberedSessions), so a session sits in the same frame, in the
- * same place, on both. Pure: no store, no DOM.
+ * same place, on both. By project, a phone may list the frames in its own dragged
+ * order (projectsListModel.ts). Pure: no store, no DOM.
  */
 import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { needsYou, waitingLine } from './inboxModel';
 import { buildStripItems } from '@/lib/sessionStrip';
 import { pickRecentSessions } from '@/lib/recentSessions';
+import { applyProjectOrder } from './projectsListModel';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
@@ -161,6 +163,8 @@ export interface SessionGroup {
   room?: Room;
   /** Room and project groups: the frame colour. */
   color?: string;
+  /** Project groups: `host|path`, what this phone's fold and order are kept by. */
+  projectKey?: string;
   /** Project groups: where a new session starts, and whether it can start here. */
   launchPath?: string;
   local?: boolean;
@@ -177,6 +181,8 @@ export interface GroupInput {
   now: number;
   /** Draw the Central group (By room). False while central sessions are off (centralFeatureStore). */
   showCentral?: boolean;
+  /** By project: the order this phone keeps (project keys); A to Z without one. */
+  projectOrder?: readonly string[];
 }
 
 const byRecent = (a: Session, b: Session) =>
@@ -187,7 +193,7 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true, projectOrder = [] }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
   const listed = numberedSessions(sessions).filter(
     (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
@@ -253,6 +259,7 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
         title: group.label,
         sessions: group.sessions,
         color: item.color,
+        projectKey: group.key,
         launchPath: group.launchPath,
         local: group.local,
       });
@@ -261,10 +268,10 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     }
   }
   placeEmptyBefore(null);
-  if (loose.length > 0) {
-    groups.push({ key: `none:${groupBy}`, kind: 'none', title: groupBy === 'room' ? 'No room' : 'No project', sessions: loose });
-  }
-  return groups;
+  const drawn = groupBy === 'project' ? applyProjectOrder(groups, (g) => g.projectKey ?? '', projectOrder) : groups;
+  return loose.length > 0
+    ? [...drawn, { key: `none:${groupBy}`, kind: 'none', title: groupBy === 'room' ? 'No room' : 'No project', sessions: loose }]
+    : drawn;
 }
 
 /** How many listed sessions a filter chip would show (its count). */

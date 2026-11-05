@@ -113,6 +113,44 @@ describe('stoppedTurn', () => {
     expect(stoppedTurn(lines)).toEqual({ turnId: P, at: null });
   });
 
+  describe('the calls a declined tool declined', () => {
+    const DECLINED = '[Request interrupted by user for tool use]';
+    const rejected = (promptId: string, ...ids: string[]) => j({
+      type: 'user', promptId,
+      message: { role: 'user', content: ids.map((id) => ({ type: 'tool_result', is_error: true, tool_use_id: id, content: 'The user doesn\'t want to proceed with this tool use.' })) },
+    });
+    const plain = (promptId: string, text: string) => j({ type: 'user', promptId, message: { role: 'user', content: [{ type: 'text', text }] } });
+
+    it('names the declined call (real 2.1.318 shape: is_error result, then the marker, no interruptedMessageId)', () => {
+      expect(stoppedTurn([prompt(P), assistant('tool_use'), rejected(P, 'toolu_01W6yhUjLLt6sLP5YwmgQdfG'), plain(P, DECLINED)])).toEqual({
+        turnId: P, at: null, rejectedToolUseIds: ['toolu_01W6yhUjLLt6sLP5YwmgQdfG'],
+      });
+    });
+
+    it('names every call of a parallel batch it declined', () => {
+      const lines = [prompt(P), assistant('tool_use'), rejected(P, 'toolu_b'), rejected(P, 'toolu_a'), plain(P, DECLINED)];
+      expect(stoppedTurn(lines)?.rejectedToolUseIds?.sort()).toEqual(['toolu_a', 'toolu_b']);
+    });
+
+    it('a result that was not an error names nothing', () => {
+      expect(stoppedTurn([prompt(P), assistant('tool_use'), toolResult(P), marker(P, DECLINED)])).toEqual({ turnId: P, at: null });
+    });
+
+    it('a plain Esc after a failed call names nothing: Claude replied in between', () => {
+      const lines = [prompt(P), assistant('tool_use'), rejected(P, 'toolu_failed'), assistant('text'), plain(P, '[Request interrupted by user]')];
+      expect(stoppedTurn(lines)).toEqual({ turnId: P, at: null });
+    });
+
+    it('a declined-tool marker after Claude replied names nothing either', () => {
+      expect(stoppedTurn([prompt(P), rejected(P, 'toolu_old'), assistant('tool_use'), plain(P, DECLINED)])).toEqual({ turnId: P, at: null });
+    });
+
+    it('another turn\'s failed call names nothing', () => {
+      const lines = [prompt(P2), assistant('tool_use'), rejected(P2, 'toolu_other'), plain(P, DECLINED)];
+      expect(stoppedTurn(lines)?.rejectedToolUseIds).toBeUndefined();
+    });
+  });
+
   it('Claude: meta entries written after the marker are skipped', () => {
     const meta = j({ type: 'user', isMeta: true, promptId: P, message: { role: 'user', content: 'Caveat: local command output' } });
     expect(stoppedTurn([prompt(P), marker(P), meta])).toEqual({ turnId: P, at: null });

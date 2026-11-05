@@ -348,9 +348,25 @@ export function useWebSocket(token: string | null): WsClient | null {
       }
     }
 
+    // Has this socket connected before? The first connect follows boot's own queue pull
+    // (`main.tsx` → `syncFromServer`, which also seeds); only a REconnect re-pulls.
+    let hasConnected = false;
+    let dropped = false;
+
     function handleStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
       setConnected(status === 'connected');
       setReconnecting(status === 'reconnecting');
+      if (status !== 'connected') dropped = hasConnected;
+      // The shared queues on every reconnect: a `queue_update` sent while the socket was down
+      // (phone locked, Mac asleep, server restart) is never replayed, so this window would keep
+      // a stale queue until it reloads. A pull only — seeding mid-run would resurrect a queue
+      // deleted on purpose from this window's stale IndexedDB copy. Edits this window made
+      // while offline are still unsent, so `applyRemoteQueue` merges and pushes them.
+      if (status === 'connected') {
+        if (dropped) void useQueueStore.getState().syncFromServer({ seed: false });
+        hasConnected = true;
+        dropped = false;
+      }
       // Every window reads the room list on each (re)connect: a paired phone may
       // not read the workspace snapshot, and the server may have restarted.
       if (status === 'connected') onRoomsSocketConnected();

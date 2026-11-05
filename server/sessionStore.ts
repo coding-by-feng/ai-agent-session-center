@@ -1399,7 +1399,23 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       break;
     }
 
-    case EVENT_TYPES.SESSION_END:
+    case EVENT_TYPES.SESSION_END: {
+      const endReason = 'reason' in hookData ? hookData.reason : undefined;
+      // `/clear` is not a death: the same process fires SessionStart with a new id 2–5 s later,
+      // and Priority 1b re-keys this card. Ending it here let pinnedRespawn (2 s backoff) relaunch
+      // the old conversation first: one duplicate pinned card per /clear. The pid stays cached, so
+      // the process monitor still ends the card if the CLI really dies in between.
+      if (endReason === 'clear') {
+        session.status = SESSION_STATUS.IDLE;
+        session.animationState = ANIMATION_STATE.IDLE;
+        session.waitingDetail = null;
+        session.pendingProceedAt = null;
+        session.subagentCount = 0;
+        session.backgroundTaskCount = 0;
+        session.backgroundTasks = null;
+        eventEntry.detail = 'Conversation cleared (/clear)';
+        break;
+      }
       session.status = SESSION_STATUS.ENDED;
       // A session AASC put to sleep (sessionSleep.ts) ends quietly: it is resting, not dead.
       session.animationState = session.asleepAt ? ANIMATION_STATE.IDLE : ANIMATION_STATE.DEATH;
@@ -1408,7 +1424,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.subagentCount = 0;
       session.backgroundTaskCount = 0;
       session.backgroundTasks = null;
-      eventEntry.detail = `Session ended (${('reason' in hookData ? hookData.reason : undefined) || 'unknown'})`;
+      eventEntry.detail = `Session ended (${endReason || 'unknown'})`;
 
       // Release PID cache for this session
       if (session.cachedPid) {
@@ -1429,6 +1445,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       }
       // Non-SSH sessions are also kept (no auto-delete)
       break;
+    }
   }
 
   holdForSubagentDialog(session, hook_event_name, requestBefore, statusBefore);
@@ -2751,6 +2768,14 @@ const turnIds = new WeakMap<Session, string>();
 const turnPromptedAt = new WeakMap<Session, number>();
 /** The turn the transcript already ended (`endTurnStoppedByUser`): it is ended once. */
 const endedTurns = new WeakMap<Session, string>();
+/**
+ * The turn each recent main-thread tool call ran under (`tool_use_id` → `prompt_id`), as
+ * its PreToolUse / PermissionRequest said. Claude renames a prompt queued behind a slow
+ * Stop hook when it runs it, so `turnIds` (from UserPromptSubmit) can be stale; the call's
+ * own hook names the turn the transcript will stamp. Capped, newest last.
+ */
+const callTurns = new WeakMap<Session, Map<string, string>>();
+const CALL_TURNS_MAX = 16;
 
 function noteTurnId(session: Session, event: string, hookData: HookPayload): void {
   const id = ('prompt_id' in hookData && typeof hookData.prompt_id === 'string' && hookData.prompt_id)
@@ -2760,12 +2785,25 @@ function noteTurnId(session: Session, event: string, hookData: HookPayload): voi
     turnIds.delete(session);
     turnPromptedAt.delete(session);
     endedTurns.delete(session);
+    callTurns.delete(session);
   } else if (event === EVENT_TYPES.USER_PROMPT_SUBMIT) {
     if (id) turnIds.set(session, id);
     else turnIds.delete(session);
     turnPromptedAt.set(session, Date.now());
     endedTurns.delete(session);
   } else if (id && !turnIds.has(session)) turnIds.set(session, id);
+  if (id && (event === EVENT_TYPES.PRE_TOOL_USE || event === EVENT_TYPES.PERMISSION_REQUEST)) noteCallTurn(session, hookData, id);
+}
+
+function noteCallTurn(session: Session, hookData: HookPayload, turnId: string): void {
+  const toolUseId = 'tool_use_id' in hookData && typeof hookData.tool_use_id === 'string' ? hookData.tool_use_id : '';
+  // A subagent's calls run in its own transcript, never under a main-thread marker.
+  if (!toolUseId || subagentIdentity(hookData as unknown as Record<string, unknown>)) return;
+  const calls = new Map(callTurns.get(session) ?? []);
+  calls.delete(toolUseId);
+  calls.set(toolUseId, turnId);
+  while (calls.size > CALL_TURNS_MAX) calls.delete(calls.keys().next().value as string);
+  callTurns.set(session, calls);
 }
 
 /**
@@ -2857,10 +2895,22 @@ const STOPPABLE_STATUSES: ReadonlySet<string> = new Set([
  * interrupt, a central's task). A stop of another turn is stale, and a turn is
  * ended once: a later read of the same line changes nothing.
  */
+/**
+ * The marker follows the open dialog's own call, declined, in the turn that call ran under.
+ * Claude gives a prompt queued behind a slow Stop hook a new promptId when it runs it, so
+ * `turnIds` (its UserPromptSubmit's) misses it; the call's own hook named the right turn.
+ * A prompt typed into a busy turn stamps its marker with the NEW prompt's id: no match.
+ */
+function declinedOpenDialog(session: Session, stopped: StoppedTurn): boolean {
+  const toolUseId = session.pendingRequest?.toolUseId;
+  if (!toolUseId || !stopped.turnId || !stopped.rejectedToolUseIds?.includes(toolUseId)) return false;
+  return callTurns.get(session)?.get(toolUseId) === stopped.turnId;
+}
+
 function endTurnStoppedByUser(session: Session, stopped: StoppedTurn): void {
   if (!STOPPABLE_STATUSES.has(session.status)) return;
   const running = turnIds.get(session);
-  if (running && stopped.turnId && stopped.turnId !== running) return;
+  if (running && stopped.turnId && stopped.turnId !== running && !declinedOpenDialog(session, stopped)) return;
   // Stamped as its prompt arrived: the marker Claude writes for a prompt typed into a busy
   // turn, in whichever order it reached the file.
   const promptedAt = turnPromptedAt.get(session);

@@ -93,13 +93,55 @@ describe('QuestionCard — Claude', () => {
     expect(within(screen.getByTestId('chat-question')).getByText('Layout')).toBeInTheDocument();
     // One set of buttons: the chat's. The waiting card keeps Other… and the terminal.
     expect(screen.getAllByRole('button', { name: /^List/ })).toHaveLength(1);
-    expect(screen.getByTestId('waiting-card-in-chat')).toHaveTextContent('Pick an answer in the chat above.');
+    expect(screen.getByTestId('waiting-card-in-chat')).toHaveTextContent('Answer above');
     expect(screen.getByRole('button', { name: /Other…/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /^List/ }));
     await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'option', optionIndex: 1 }));
     expect(calls[0]?.url).toContain('/api/sessions/s1/requests/toolu_q/answer');
     expect(await screen.findByText('Answered. Waiting for Claude to go on…')).toBeInTheDocument();
+  });
+
+  // Nov 5 2026: the pinned card repeated the whole question under the chat's own copy, grew to a
+  // third of the screen and covered the chat's answer buttons.
+  it('shrinks the waiting card while the chat shows the question: no second copy of what is asked', () => {
+    stubAnswer();
+    const s = setSession({ pendingRequest: request });
+    render(
+      <>
+        <QuestionCard item={questionOf(entries, true)} sessionId="s1" />
+        <WaitingCard session={s} card={waitingCardModel(s)!} onTerminal={vi.fn()} onTell={vi.fn()} />
+      </>,
+    );
+    const pinned = screen.getByTestId('waiting-card');
+    expect(within(pinned).queryByText('Which layout?')).toBeNull();
+    expect(within(pinned).queryByText('Layout')).toBeNull();
+    expect(within(pinned).queryByText(/in agent-manager/)).toBeNull();
+    expect(within(screen.getByTestId('chat-question')).getByText('Which layout?')).toBeInTheDocument();
+    // Still there: the title, the pointer to the chat, Other… and the terminal.
+    expect(within(pinned).getByRole('heading', { name: 'Claude asks' })).toBeInTheDocument();
+    expect(within(pinned).getByRole('button', { name: /Other…/ })).toBeInTheDocument();
+    expect(within(pinned).getByTestId('waiting-card-terminal')).toBeInTheDocument();
+  });
+
+  it('"Answer above" scrolls the chat to the question', () => {
+    stubAnswer();
+    const s = setSession({ pendingRequest: request });
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+    try {
+      render(
+        <>
+          <QuestionCard item={questionOf(entries, true)} sessionId="s1" />
+          <WaitingCard session={s} card={waitingCardModel(s)!} onTerminal={vi.fn()} onTell={vi.fn()} />
+        </>,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Answer above' }));
+      expect(scrolled).toEqual([screen.getByTestId('chat-question')]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it('leaves the waiting card its buttons when no chat card answers', () => {

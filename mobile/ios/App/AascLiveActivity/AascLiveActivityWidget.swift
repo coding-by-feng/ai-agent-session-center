@@ -1,6 +1,6 @@
 // AascLiveActivityWidget.swift — draws the Live Activity the app starts (LiveActivityBridge.swift). Lock screen and
 // expanded island: the Mac's name and task count, the lead session (bold title, timer, a preview line), then the
-// latest others. Compact island: the glyph and the lead's timer. Timers are `Text(timerInterval:)`, which iOS keeps
+// latest others. Compact island (also the Mac menu bar): the glyph alone, ringed amber when a session needs you. Timers are `Text(timerInterval:)`, which iOS keeps
 // counting while the app is suspended; everything else is what the content state holds (LiveActivityRules clamped it).
 import ActivityKit
 import SwiftUI
@@ -32,13 +32,15 @@ private struct Mark: View {
 
 private struct AppGlyph: View {
     var size: CGFloat = 30
+    /// Amber ring: a session waits on you (the compact island's only cue since it lost its timer).
+    var needsYou = false
 
     var body: some View {
         Image(systemName: "apple.terminal")
             .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(.white.opacity(0.85))
             .frame(width: size, height: size)
-            .background(Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1.5))
+            .background(Circle().strokeBorder(needsYou ? Palette.needs : .white.opacity(0.5), lineWidth: needsYou ? 2 : 1.5))
     }
 }
 
@@ -176,24 +178,6 @@ private struct LockScreenCard: View {
     }
 }
 
-/// The compact island's trailing side: the lead's timer ("!" first when it waits on you), else the resting mark.
-private struct CompactTrailing: View {
-    let card: LiveActivityCard
-
-    var body: some View {
-        if let lead = card.rows.first, let start = lead.startedAt {
-            HStack(spacing: 4) {
-                if lead.mark == "needs" { Mark(mark: "needs") }
-                Elapsed(start: start, color: lead.mark == "needs" ? Palette.needs : .white.opacity(0.75))
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(maxWidth: 58, alignment: .trailing)
-            }
-        } else {
-            Mark(mark: restingMark(card))
-        }
-    }
-}
-
 struct AascLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AascActivityAttributes.self) { context in
@@ -219,9 +203,12 @@ struct AascLiveActivityWidget: Widget {
                     CardBody(card: context.state).padding(.top, 6)
                 }
             } compactLeading: {
-                AppGlyph(size: 22)
+                AppGlyph(size: 22, needsYou: context.state.needs > 0)
             } compactTrailing: {
-                CompactTrailing(card: context.state)
+                // One icon, no timer (Nov 2 2026): macOS 26 mirrors this compact island in the menu bar, where
+                // "glyph + 15:43" was too wide. WidgetKit can't tell the menu bar from the iPhone, so both lose it;
+                // the expanded view still shows every timer.
+                EmptyView()
             } minimal: {
                 Mark(mark: restingMark(context.state))
             }

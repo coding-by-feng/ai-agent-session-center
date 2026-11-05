@@ -50,7 +50,7 @@ function Shell({ item, children }: { item: QuestionItem; children: ReactNode }) 
   const cliName = item.cli === 'codex' ? 'Codex' : 'Claude';
   const header = item.questions.length === 1 ? item.questions[0].header : undefined;
   return (
-    <section className={styles.question} aria-labelledby={titleId} data-open={item.open ? '' : undefined} data-testid="chat-question">
+    <section className={styles.question} aria-labelledby={titleId} data-open={item.open ? '' : undefined} data-chat-question="" data-testid="chat-question">
       <header className={styles.questionHead}>
         <span className={styles.questionIcon}><QuestionIcon /></span>
         <h3 id={titleId} className={styles.questionTitle}>{item.open ? `${cliName} asks` : `${cliName} asked`}</h3>
