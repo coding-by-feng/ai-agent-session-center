@@ -454,7 +454,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
-    createComputerSessionToken: (deviceId) => createComputerToken(deviceId),
+    createComputerSessionToken: (deviceId) => createComputerToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: createPairingTarget({
       name: () => hostname().replace(/\.local$/, ''),

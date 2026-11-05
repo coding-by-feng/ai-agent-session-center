@@ -428,14 +428,14 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       res.status(401).json({ error: 'Pairing code is wrong or expired', code: 'INVALID_PAIRING_CODE' });
       return;
     }
-    log.info('mobile', `${platform === 'desktop' ? 'Computer' : 'Phone'} paired, waiting for approval: ${result.device.label} (${result.device.platform})`);
+    log.info('mobile', `${platform === 'desktop' ? 'Computer' : 'Phone'} paired (${result.device.status}): ${result.device.label} (${result.device.platform})`);
     res.status(201).json({
       success: true,
       data: {
         deviceId: result.device.id,
         deviceToken: result.deviceToken,
         confirmCode: result.device.confirmCode,
-        status: 'pending',
+        status: result.device.status,
       },
     });
   });

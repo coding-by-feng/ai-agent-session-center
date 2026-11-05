@@ -20,6 +20,8 @@ import {
   extractToken,
   getTokenLineage,
   getTokenDeviceId,
+  getTokenComputerId,
+  getTokenHostedIdentity,
   validateToken,
   revokeHostedTokens,
   TOKEN_TTL_SECONDS,
@@ -35,7 +37,8 @@ export function hostedSessionAllowed(config: HostedConfig, req: IncomingMessage)
   return (
     validateToken(token) &&
     (getTokenLineage(token)?.startsWith(`hosted:${config.orderId}:`) === true ||
-      getTokenDeviceId(token) !== null)
+      getTokenDeviceId(token) !== null ||
+      (getTokenComputerId(token) !== null && getTokenHostedIdentity(token) !== null))
   );
 }
 export function hostedSocketAllowed(config: HostedConfig, req: IncomingMessage): boolean {
@@ -104,7 +107,9 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       header.typ !== 'JWT' ||
       claims.iss !== config.websiteOrigin ||
       claims.aud !== config.runtimeOrigin + (pairing ? '/hosted/order-pairing' : '') ||
-      (pairing && (claims.accessMode !== 'use' || !['get', 'regenerate'].includes(claims.pairingAction))) ||
+      (pairing && ((!['phone-browser', 'desktop'].includes(claims.pairingKind ?? 'phone-browser')) ||
+        (claims.accessMode !== 'use' && claims.pairingKind !== 'desktop') ||
+        !['get', 'regenerate'].includes(claims.pairingAction))) ||
       claims.orderId !== config.orderId ||
       (claims.accessMode !== 'verify' && claims.accessMode !== 'use') ||
       typeof claims.sub !== 'string' ||
@@ -205,7 +210,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       sub: claims.sub as string,
       ownerEpoch: claims.ownerEpoch as number,
       accessMode: claims.accessMode as 'verify' | 'use',
-      ...(pairing ? { pairingAction: claims.pairingAction as 'get' | 'regenerate' } : {}),
+      ...(pairing ? { pairingAction: claims.pairingAction as 'get' | 'regenerate', pairingKind: (claims.pairingKind ?? 'phone-browser') as 'desktop' | 'phone-browser' } : {}),
     };
   }
   const router = express.Router();

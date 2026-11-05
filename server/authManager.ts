@@ -172,8 +172,10 @@ export function createToken(deviceId?: string, hosted?: HostedIdentity): string 
  * `deviceId`, so every phone rule (phoneProfile, the phone's terminal limits, phone
  * push confirms) leaves it alone and it reaches what a password sign-in reaches.
  */
-export function createComputerToken(computerId: string): string {
-  return issueToken(`computer:${computerId}`, undefined, computerId);
+export function createComputerToken(computerId: string, hosted?: HostedIdentity): string {
+  const token = issueToken(`computer:${computerId}`, undefined, computerId);
+  if (hosted) tokens.get(token)!.hosted = hosted;
+  return token;
 }
 
 /** Hosted customer identity survives new iframe sessions and token rotation. Never a local identity. */
@@ -405,7 +407,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
       res.status(403).json({ error: 'Same origin required' }); return;
     }
     const token = extractToken(req);
-    if (!validateToken(token) || !(getTokenLineage(token)?.startsWith(`hosted:${hosted.orderId}:`) || getTokenDeviceId(token))) {
+    if (!validateToken(token) || !(getTokenLineage(token)?.startsWith(`hosted:${hosted.orderId}:`) || getTokenDeviceId(token) || (getTokenComputerId(token) && getTokenHostedIdentity(token)))) {
       res.status(401).json({ error: 'Open this order on xclaude.dev to connect.' }); return;
     }
     const identity = getTokenHostedIdentity(token) ?? (getTokenDeviceId(token) ? currentHostedOwner(hosted) : null);

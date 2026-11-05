@@ -14,8 +14,9 @@ export function createHostedPairingRouter(
   bridge?: Pick<ReturnType<typeof createHostedAccess>, 'inspectPairing' | 'consumePairing'>,
 ) {
   const router = Router();
-  let current: {owner: string; code: string; expiresAt: number} | null = null;
-  let lastRegenerated = 0;
+  let ownerIdentity = '';
+  const codes = new Map<string, {code: string; expiresAt: number}>();
+  const regenerated = new Map<string, number>();
   let windowStart = 0, requests = 0;
   router.post('/hosted/order-pairing', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -35,20 +36,27 @@ export function createHostedPairingRouter(
       }
       const identity = bridge.consumePairing(req.body.ticket);
       if (!offered()) { res.status(409).json({ error: 'Pairing unavailable' }); return; }
-      const owner = `${identity.sub}:${identity.ownerEpoch}`;
-      // No awaits from ownership check through code creation: concurrent requests
-      // share one current code; a replaced code is never left outstanding.
-      if (current && current.owner !== owner) {
-        devices.clearPairingCodes(); current = null; lastRegenerated = 0;
+      const owner = `${identity.sub}:${identity.ownerEpoch}:${identity.accessMode}`;
+      const kind = identity.pairingKind ?? 'phone-browser';
+      // Each owner/mode gets separate phone and desktop codes. Phone codes never
+      // grant the broader computer profile, even if the caller changes platform.
+      if (ownerIdentity !== owner) {
+        devices.clearPairingCodes(); codes.clear(); regenerated.clear(); ownerIdentity = owner;
       }
+      let current = codes.get(kind);
       if (identity.pairingAction === 'regenerate') {
-        if (Date.now() - lastRegenerated < 2000) { res.status(429).json({ error: 'Wait before regenerating' }); return; }
+        if (Date.now() - (regenerated.get(kind) ?? 0) < 2000) { res.status(429).json({ error: 'Wait before regenerating' }); return; }
         if (current) devices.invalidatePairingCode(current.code);
-        current = null; lastRegenerated = Date.now();
+        current = undefined; regenerated.set(kind, Date.now());
       }
-      if (!current) current = {owner, ...devices.createPairingCode()};
+      if (!current) {
+        current = devices.createPairingCode(kind === 'desktop' ? {platform:'desktop',autoApprove:true} : {platform:'phone'});
+        codes.set(kind,current);
+      }
       const state = current.expiresAt <= Date.now() ? 'expired' : devices.hasPairingCode(current.code) ? 'active' : 'used';
-      res.json({kind: 'phone-browser', state, link: `${config.runtimeOrigin}/hosted/pair#${current.code}`, expiresAt: current.expiresAt});
+      const fragment = new URLSearchParams({v:'2',name:`VPS ${config.orderId.slice(0,8)}`,https:config.runtimeOrigin,p:'443',mc:current.code});
+      const link = kind === 'desktop' ? `https://aasc.work/pair#${fragment}` : `${config.runtimeOrigin}/hosted/pair#${current.code}`;
+      res.json({kind, state, link, expiresAt: current.expiresAt});
     } catch (error) {
       res.status(error instanceof TooManyPairingCodesError ? 429 : 403).json({ error: 'Pairing access refused' });
     }
@@ -63,15 +71,6 @@ export function createHostedPairingRouter(
           error: 'Order access is unavailable. Open xclaude.dev.',
           code: 'HOSTED_AUTHORITY_REQUIRED',
         });
-      return;
-    }
-    next();
-  });
-  // This adapter pairs a restricted phone browser. A code from it cannot be redeemed into
-  // the paired-computer profile (which intentionally has broader access in native AASC).
-  router.post('/api/mobile/pair', (req, res, next) => {
-    if (req.body?.platform === 'desktop') {
-      res.status(400).json({ error: 'Hosted pairing supports phone browsers only.' });
       return;
     }
     next();
@@ -104,7 +103,7 @@ export function createHostedPairingRouter(
       return;
     }
     try {
-      const code = devices.createPairingCode();
+      const code = devices.createPairingCode({platform:'phone'});
       res.json({ ...code, link: `${config.runtimeOrigin}/hosted/pair#${code.code}` });
     } catch (error) {
       if (error instanceof TooManyPairingCodesError) res.status(429).json({ error: error.message });

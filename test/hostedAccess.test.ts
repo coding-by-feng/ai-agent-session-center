@@ -26,7 +26,7 @@ import {
   type MobileDeviceRecord,
 } from '../server/mobile/deviceAuth.js';
 import { createMobileRouter } from '../server/mobile/mobileRouter.js';
-import { createToken, createHostedToken, getTokenDeviceId } from '../server/authManager.js';
+import { createToken, createComputerToken, createHostedToken, getTokenDeviceId } from '../server/authManager.js';
 
 const orderId = '63d17688-d822-4387-b876-9d081278849d';
 const env = {
@@ -137,6 +137,7 @@ beforeEach(async () => {
       requireSession: authMiddleware,
       createSessionToken: (deviceId) =>
         createToken(deviceId, currentHostedOwner(config) ?? undefined),
+      createComputerSessionToken: (id) => createComputerToken(id, currentHostedOwner(config) ?? undefined),
       sessionOf: bearerSession,
       sessionTtlSeconds: 3600,
       pairingTarget: () => ({ name: 'Hosted', lan: null, tailnet: null, port: 3333 }),
@@ -444,7 +445,7 @@ describe('hosted phone browser', () => {
     expect(
       (await call('/api/mobile/pair', json({ code, label: 'Computer', platform: 'desktop' })))
         .status,
-    ).toBe(400);
+    ).toBe(401);
     const paired = await call(
       '/api/mobile/pair',
       json({ code, label: 'My phone', platform: 'ios' }),
@@ -529,6 +530,30 @@ describe('hosted phone browser', () => {
 
 describe('order-panel pairing bridge', () => {
   const pairingTicket = (action = 'get', patch: Record<string, unknown> = {}) => ticket({ aud: env.AASC_HOSTED_RUNTIME_ORIGIN + '/hosted/order-pairing', pairingAction: action, ...patch });
+  it('pairs an owner-authorized desktop during verification and authenticates its HTTPS session', async () => {
+    const response = await call('/hosted/order-pairing', {json:{ticket:pairingTicket('get',{pairingKind:'desktop',accessMode:'verify'})}});
+    expect(response.status).toBe(200);
+    const data=JSON.parse(response.body);
+    expect(data.kind).toBe('desktop');
+    const link=new URL(data.link), fields=new URLSearchParams(link.hash.slice(1));
+    expect(link.origin).toBe('https://aasc.work');
+    expect(fields.get('https')).toBe(env.AASC_HOSTED_RUNTIME_ORIGIN);
+    const json=(body:unknown)=>({origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:body});
+    expect((await call('/api/mobile/pair',json({code:fields.get('mc'),label:'Phone',platform:'ios'}))).status).toBe(401);
+    const paired=await call('/api/mobile/pair',json({code:fields.get('mc'),label:'Owner desktop',platform:'desktop'}));
+    expect(paired.status).toBe(201);
+    const device=JSON.parse(paired.body).data;
+    expect(device.status).toBe('active');
+    const challenge=JSON.parse((await call('/api/mobile/challenge',json({deviceId:device.deviceId}))).body).data;
+    const session=await call('/api/mobile/session',json({deviceId:device.deviceId,nonce:challenge.nonce,proof:proofForToken(device.deviceToken,challenge.nonce)}));
+    expect(session.status).toBe(200);
+    const token=JSON.parse(session.body).data.token;
+    expect(getTokenHostedIdentity(token)?.accessMode).toBe('verify');
+    expect((await call('/api/private',{bearer:token})).status).toBe(200);
+    expect((await call('/api/mobile/pair',json({code:fields.get('mc'),label:'Replay',platform:'desktop'}))).status).toBe(401);
+    vi.stubGlobal('fetch',async()=>new Response(JSON.stringify({authorized:false}),{status:403}));
+    expect((await call('/hosted/order-pairing',{json:{ticket:pairingTicket('get',{pairingKind:'desktop',accessMode:'verify'})}})).status).toBe(403);
+  });
   it('issues and reuses a short-lived code without creating a terminal session; used code stays used', async () => {
     const first = await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } });
     expect(first.status).toBe(200);

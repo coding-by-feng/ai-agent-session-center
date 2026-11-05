@@ -23,6 +23,7 @@ export interface RemotePairingLink {
   tailnet: string | null
   /** A public IPv4 from `pub=`; absent when the link names none. */
   publicAddress?: string
+  httpsOrigin?: string
   port: number
   macCode: string
 }
@@ -79,6 +80,16 @@ export function isPublicAddress(raw: string | null): boolean {
   return !isPrivateLanAddress(raw) && !isTailnetAddress(raw)
 }
 
+/** Only dedicated order runtimes; no credentials, ports, paths or redirects. */
+export function isHostedOrigin(raw: unknown): raw is string {
+  if (typeof raw !== 'string') return false
+  try {
+    const u = new URL(raw)
+    return u.origin === raw && u.protocol === 'https:' && !u.username && !u.password
+      && !u.port && /^order-[a-z0-9]+(?:-[a-z0-9]+)*\.(?:(?:lite\.)?xclaude\.dev|aasc\.work)$/.test(u.hostname)
+  } catch { return false }
+}
+
 function fragmentOf(input: string): string | null {
   const trimmed = input.trim()
   if (trimmed.startsWith('v=')) return trimmed // a bare fragment pasted on its own
@@ -119,12 +130,18 @@ export function readRemotePairingLink(input: string): RemotePairingLinkRead {
   const lan = p.get('lan')
   const tailnet = p.get('ts')
   const pub = p.get('pub')
+  const httpsOrigin = p.get('https')
   const port = Number(p.get('p'))
   const macCode = p.get('mc') ?? ''
 
   if (!name) return notALink
   if (!Number.isInteger(port) || port < 1 || port > 65535) return notALink
   if (!MAC_CODE.test(macCode)) return notALink
+  if (httpsOrigin !== null) {
+    if (!isHostedOrigin(httpsOrigin) || port !== 443 || lan !== null || tailnet !== null || pub !== null
+      || ['https','mc','name','p','v'].some(k => p.getAll(k).length !== 1)) return notALink
+    return { ok: true, link: { version: 2, name, lan: null, tailnet: null, port, macCode, httpsOrigin } }
+  }
   // Link-local, but the cloud metadata address: a link never sends this computer's name there.
   const lanOk = lan !== null && isPrivateLanAddress(lan) && lan !== CLOUD_METADATA_ADDRESS
   const tsOk = tailnet !== null && isTailnetAddress(tailnet)
