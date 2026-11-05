@@ -15,6 +15,11 @@ describe('CLAUDE_TUI_ENV_DEFAULTS', () => {
     // DISABLE_UPDATE_PROMPT=true means update_mode=auto: a git pull on every due shell start.
     expect(CLAUDE_TUI_ENV_DEFAULTS).not.toHaveProperty('DISABLE_UPDATE_PROMPT');
   });
+
+  it("keeps Claude's next-prompt suggestions on (no 'Showing fewer' back-off)", () => {
+    // A suggestion used from the app is typed into the PTY, so Claude counts it unused and backs off.
+    expect(CLAUDE_TUI_ENV_DEFAULTS.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION).toBe('true');
+  });
 });
 
 describe('withClaudeTuiEnvDefaults', () => {
@@ -24,6 +29,7 @@ describe('withClaudeTuiEnvDefaults', () => {
       AGENT_MANAGER_TERMINAL_ID: 'term-1',
       CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
       DISABLE_AUTO_UPDATE: 'true',
+      CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'true',
     });
   });
 
@@ -40,6 +46,11 @@ describe('withClaudeTuiEnvDefaults', () => {
   it("respects the user's own oh-my-zsh auto-update setting", () => {
     const env = { DISABLE_AUTO_UPDATE: 'false' };
     expect(withClaudeTuiEnvDefaults(env).DISABLE_AUTO_UPDATE).toBe('false');
+  });
+
+  it("respects the user's own prompt-suggestion setting", () => {
+    const env = { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'false' };
+    expect(withClaudeTuiEnvDefaults(env).CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION).toBe('false');
   });
 
   it('does not mutate the input env', () => {

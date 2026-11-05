@@ -106,6 +106,20 @@ describe('SessionSwitchOverlay — hold-to-cycle session switcher', () => {
     expect(rows.map((r) => r.textContent).join('|')).toMatch(/Newer.*Older/);
   });
 
+  it('says Compacting on a session that is compacting, in the working colour', () => {
+    const store = useSessionStore.getState();
+    store.addSession(makeSession({ sessionId: 'current', title: 'Current', lastActivityAt: 1000 }));
+    store.addSession(makeSession({ sessionId: 'busy', title: 'Busy', lastActivityAt: 900, compacting: { since: Date.now(), trigger: 'auto' } }));
+    store.selectSession('current');
+
+    render(<SessionSwitchOverlay />);
+    tapE();
+
+    const row = screen.getByRole('button', { name: /Busy/ });
+    expect(row).toHaveTextContent('Compacting');
+    expect(row.querySelector('[class*="dot"]')).toHaveStyle({ background: 'var(--accent-orange)' });
+  });
+
   it('does not open when there is no other live session to switch to', () => {
     useSessionStore.getState().addSession(makeSession({ sessionId: 'only', title: 'Only' }));
     useSessionStore.getState().selectSession('only');

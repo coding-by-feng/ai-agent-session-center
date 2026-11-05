@@ -295,6 +295,10 @@ export function sanitizeModelInCommand(command: string): string {
 export const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
   DISABLE_AUTO_UPDATE: 'true',
+  // Claude's next-prompt suggestion feeds the app's input boxes (promptSuggestionCapture.ts). Claude
+  // backs off ("Showing fewer prompt suggestions") after a run it counts as unused, and one taken
+  // from the app is typed into the PTY, so it reads as unused. "true" turns the back-off off.
+  CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'true',
 };
 
 /**

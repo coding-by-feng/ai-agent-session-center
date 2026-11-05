@@ -98,6 +98,16 @@ describe('LiveBoard — the cards', () => {
     expect(cards()).toHaveLength(1);
   });
 
+  it('a compacting session reads Compacting, even though its status is idle', () => {
+    renderBoard([s('a', { status: 'idle', compacting: { since: Date.now(), trigger: 'auto' } })]);
+    const card = cards()[0];
+    expect(within(card).getByText('Compacting')).toBeInTheDocument();
+    expect(card.getAttribute('data-status')).toBe('idle'); // the real status is still there
+    expect(card.getAttribute('aria-label')).toContain('Compacting');
+    fireEvent.click(screen.getByRole('button', { name: /Working 1/ })); // counted, and kept by the filter
+    expect(cards()).toHaveLength(1);
+  });
+
   it('an approval outranks the proceed reminder', () => {
     renderBoard([s('a', { status: 'approval', pendingProceedAt: 5 })]);
     const card = cards()[0];

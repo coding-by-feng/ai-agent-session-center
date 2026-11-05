@@ -45,12 +45,16 @@ vi.mock('node-pty', () => ({
   },
 }));
 
-// A Codex launch line asks whether the installed Codex takes --no-daemon (AASC-59), which would
+// A Codex launch line asks whether the installed Codex takes --no-daemon (AASC-59) and
+// --no-alt-screen, which would
 // run `codex --help`. This suite is about the Claude tap: answer "unknown", so Codex lines are
 // typed exactly as built and no real process is started (codexNoDaemonLaunch.test.ts covers it).
 vi.mock('../server/codexNoDaemon.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../server/codexNoDaemon.js')>();
-  return { ...mod, codexNoDaemonSupport: vi.fn(async () => 'unknown' as const) };
+  return {
+    ...mod,
+    codexLaunchFlagSupport: vi.fn(async () => ({ '--no-daemon': 'unknown', '--no-alt-screen': 'unknown' }) as const),
+  };
 });
 
 // sessionStore opens better-sqlite3 at module scope; stub the few functions it calls so the

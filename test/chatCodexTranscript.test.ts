@@ -53,6 +53,12 @@ describe('Codex records → chat entries', () => {
     ]);
   });
 
+  it('drops the memory citation Codex appends to a reply, and a reply that is only one', async () => {
+    const citation = '<oai-mem-citation>\n<citation_entries>\nMEMORY.md:208-208|note=[x]\n</citation_entries>\n<rollout_ids>\n</rollout_ids>\n</oai-mem-citation>';
+    const entries = await entriesOf([codex.assistant(`Reply **proceed** to create it.\n\n${citation}`), codex.assistant(citation)]);
+    expect(bare(entries)).toEqual([{ kind: 'assistant', text: 'Reply **proceed** to create it.' }]);
+  });
+
   it('counts a prompt’s images without sending them', async () => {
     const entries = await entriesOf([
       codex.userBlocks([

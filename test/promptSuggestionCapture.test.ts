@@ -54,6 +54,11 @@ describe('parseSuggestionScreen', () => {
     expect(parseSuggestionScreen([row(RULE), row(`❯ ${hint}`, dimAfter(2)), row(RULE)])).toBeNull();
   });
 
+  it('ignores Claude’s “Showing fewer prompt suggestions” notice', () => {
+    const notice = 'Showing fewer prompt suggestions · use one to bring them back';
+    expect(parseSuggestionScreen([row(RULE), row(`❯ ${notice}`, dimAfter(2)), row(RULE)])).toBeNull();
+  });
+
   it('is null with no input box on screen', () => {
     expect(parseSuggestionScreen([row('just output', () => true)])).toBeNull();
   });

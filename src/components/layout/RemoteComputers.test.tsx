@@ -52,6 +52,19 @@ afterEach(() => {
 });
 
 describe('RemoteComputers', () => {
+  // A Client finds out with its dashboard open, so the row's last check still says Online, and a removed row is never
+  // checked again. Without this it would say Online for good.
+  it('says a computer was removed even when its last check said Online', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    stored = [computer({})];
+    render(<RemoteComputers />);
+    expect(await screen.findByText(/^Online/)).toBeTruthy();
+    stored = [computer({ status: 'revoked' })];
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(screen.getByText('Removed on that computer')).toBeTruthy();
+    expect(screen.queryByText(/^Online/)).toBeNull();
+  });
+
   it('renders nothing without the remotes API (a browser, an older app)', () => {
     delete window.electronAPI;
     const { container } = render(<RemoteComputers />);

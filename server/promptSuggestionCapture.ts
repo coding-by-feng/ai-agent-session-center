@@ -45,7 +45,7 @@ const RULE_RE = /^\s*─{10,}\s*$/;
 /** The prompt glyph that starts the box's first row. */
 const PROMPT_RE = /^\s*[❯>]\s?/u;
 /** Claude's own dim hints in an empty box, which are not suggestions. */
-const HINT_RE = /^(Press up to |Message @|Try ")/;
+const HINT_RE = /^(Press up to |Message @|Try "|Showing fewer prompt suggestions)/;
 
 export interface SuggestionCaptureDeps {
   /** The terminal's output ring and size, or null once it is gone. */

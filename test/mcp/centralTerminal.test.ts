@@ -71,11 +71,14 @@ vi.mock('../../server/processMonitor.js', async () => {
   };
 });
 
-// A Codex launch line asks whether the installed Codex takes --no-daemon, which would run
+// A Codex launch line asks whether the installed Codex takes --no-daemon and --no-alt-screen, which would run
 // `codex --help`. Answer "unknown": the line is typed as built and no process starts.
 vi.mock('../../server/codexNoDaemon.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../server/codexNoDaemon.js')>();
-  return { ...mod, codexNoDaemonSupport: vi.fn(async () => 'unknown' as const) };
+  return {
+    ...mod,
+    codexLaunchFlagSupport: vi.fn(async () => ({ '--no-daemon': 'unknown', '--no-alt-screen': 'unknown' }) as const),
+  };
 });
 
 /** The mcp-tagged warnings logged so far (the shell-ready fallback warns under 'pty' as well). */

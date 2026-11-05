@@ -89,6 +89,20 @@ describe('buildResumeCommand — resume fallback', () => {
     expect(buildResumeCommand({ startupCommand: `codex --no-daemon 'explain --no-daemon here'`, title: 't' }, VALID_UUID))
       .toBe(`codex 'explain --no-daemon here' resume '${VALID_UUID}' || codex 'explain --no-daemon here'`);
   });
+
+  // Nov 4 2026: `--no-alt-screen` is typed with it and comes back in the stored ps args the same way.
+  it('codex: drops a stored --no-alt-screen too, so it never takes the old id\'s place after resume', () => {
+    const resumed = buildResumeCommand(
+      { startupCommand: 'codex --dangerously-bypass-approvals-and-sandbox resume --no-daemon --no-alt-screen 01a1431a-6dbc-7fd2-9f87-00175b7a838a', title: 't' },
+      VALID_UUID,
+    );
+    expect(resumed).toBe(
+      `codex --dangerously-bypass-approvals-and-sandbox resume '${VALID_UUID}' || codex --dangerously-bypass-approvals-and-sandbox`,
+    );
+    expect(resumed).not.toContain('01a1431a');
+    expect(buildResumeCommand({ startupCommand: 'codex --no-alt-screen --no-daemon --yolo', title: 't' }, VALID_UUID))
+      .toBe(`codex --yolo resume '${VALID_UUID}' || codex --yolo`);
+  });
 });
 
 describe('buildResumeCommand — effort/model re-application on resume', () => {

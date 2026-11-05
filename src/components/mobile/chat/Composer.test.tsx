@@ -414,6 +414,24 @@ describe('Claude’s suggested next prompt (Oct 26 2026)', () => {
     expect(screen.getByTestId('composer-input').getAttribute('placeholder')).not.toBe('run the tests again');
   });
 
+  it('Tab from a hardware keyboard (iPad) fills the empty box with it', () => {
+    presence();
+    stubMac();
+    renderComposer(suggested());
+    const box = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    const notCancelled = fireEvent.keyDown(box, { key: 'Tab' });
+    expect(notCancelled).toBe(false);
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('run the tests again');
+  });
+
+  it('leaves Tab alone with no suggestion to use, so focus can move on', () => {
+    presence();
+    stubMac();
+    renderComposer(session());
+    expect(fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Tab' })).toBe(true);
+    expect(fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Tab', shiftKey: true })).toBe(true);
+  });
+
   it('shows nothing without a suggestion', () => {
     presence();
     stubMac();

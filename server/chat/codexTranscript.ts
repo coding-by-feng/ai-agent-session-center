@@ -28,6 +28,7 @@ import {
   type ChatEntryDraft,
 } from './chatEntries.js';
 import { readChatPage, type LineReader, type PageOptions, type TranscriptPage } from './transcriptPager.js';
+import { stripCodexMemoryCitation } from '../codexMemoryCitation.js';
 import type { RawCall } from './secretMarks.js';
 
 type Rec = Record<string, unknown>;
@@ -77,8 +78,9 @@ function userMessage(content: unknown): ChatEntryDraft[] {
 
 function assistantMessage(content: unknown, cap: number): ChatEntryDraft[] {
   if (!Array.isArray(content)) return [];
-  const text = content.filter(isRec).map((b) => str(b.text)).filter((t) => t.trim()).join('\n');
-  return text ? [{ kind: 'assistant', ...cappedText(text, cap) }] : [];
+  // Codex's memory citation (codexMemoryCitation.ts) is for its own terminal to hide, not to read.
+  const text = stripCodexMemoryCitation(content.filter(isRec).map((b) => str(b.text)).filter((t) => t.trim()).join('\n'));
+  return text.trim() ? [{ kind: 'assistant', ...cappedText(text, cap) }] : [];
 }
 
 /** A function call's arguments: parsed JSON, or the raw value when it isn't JSON. */

@@ -28,7 +28,7 @@ import { lastWorkEventAt } from '@/lib/recentSessions';
 import { roomColor } from '@/lib/roomColor';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { isListedSession, numberedSessions } from '@/lib/sessionSort';
-import { PROCEED, displayStatus } from '@/lib/sessionStatusStyle';
+import { COMPACTING, PROCEED, displayStatus, showsCompacting } from '@/lib/sessionStatusStyle';
 import type { Room } from '@/stores/roomStore';
 import type { LiveBoardSort } from '@/stores/uiStore';
 import type { Session } from '@/types';
@@ -41,8 +41,8 @@ export const BOARD_FILTERS: ReadonlyArray<{ id: BoardFilter; label: string }> = 
   { id: 'needs-you', label: 'Needs you' },
 ];
 
-/** Busy: a tool is running, or a prompt was just submitted. */
-const WORKING = new Set(['working', 'prompting']);
+/** Busy: a tool is running, a prompt was just submitted, or it is compacting (`displayStatus` → `COMPACTING`). */
+const WORKING = new Set(['working', 'prompting', COMPACTING]);
 /**
  * Blocked on the user: a tool approval, a question to answer, or (Oct 23 2026) an answer that asks
  * you to reply "proceed" (`displayStatus` → `PROCEED`), so the reminder is counted and filtered
@@ -186,7 +186,7 @@ const QUIET_STATUSES = new Set(['idle', 'waiting', 'approval', 'input']);
  * has none until it does something: its prompts are older than the restart).
  */
 export function quietFor(session: Session, now: number): string | null {
-  if (!QUIET_STATUSES.has(session.status)) return null;
+  if (!QUIET_STATUSES.has(session.status) || showsCompacting(session, now)) return null;
   const at = lastWorkEventAt(session);
   if (!at) return null;
   const minutes = Math.floor((now - at) / 60_000);
