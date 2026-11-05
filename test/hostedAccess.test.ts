@@ -554,6 +554,11 @@ describe('order-panel pairing bridge', () => {
     vi.stubGlobal('fetch',async()=>new Response(JSON.stringify({authorized:false}),{status:403}));
     expect((await call('/hosted/order-pairing',{json:{ticket:pairingTicket('get',{pairingKind:'desktop',accessMode:'verify'})}})).status).toBe(403);
   });
+  it('allows bounded issuer clock skew without accepting substantially future tickets', async () => {
+    const now=Math.floor(Date.now()/1000);
+    expect((await call('/hosted/order-pairing',{json:{ticket:pairingTicket('get',{iat:now+2,exp:now+60})}})).status).toBe(200);
+    expect((await call('/hosted/order-pairing',{json:{ticket:pairingTicket('get',{iat:now+10,exp:now+60})}})).status).toBe(403);
+  });
   it('issues and reuses a short-lived code without creating a terminal session; used code stays used', async () => {
     const first = await call('/hosted/order-pairing', { json: { ticket: pairingTicket() } });
     expect(first.status).toBe(200);

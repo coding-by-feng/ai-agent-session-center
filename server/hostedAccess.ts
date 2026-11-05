@@ -121,7 +121,8 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       claims.ownerEpoch < 0 ||
       !Number.isSafeInteger(claims.iat) ||
       !Number.isSafeInteger(claims.exp) ||
-      claims.iat > now ||
+      // Bound issuer clock skew; expiration remains strict.
+      claims.iat > now + 5 ||
       claims.exp <= now ||
       claims.exp <= claims.iat ||
       claims.exp - claims.iat > 60
