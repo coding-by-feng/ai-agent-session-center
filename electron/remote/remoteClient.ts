@@ -212,7 +212,7 @@ export function unreachableMessage(target: RemoteTarget): string {
 }
 
 export type PairResult =
-  | { ok: true; deviceId: string; deviceToken: string; confirmCode: string; via: Via }
+  | { ok: true; deviceId: string; deviceToken: string; confirmCode: string; via: Via; approved?: boolean }
   | { ok: false; error: string }
 
 /** Redeem the link's one-time code: the remote makes a pending device for this computer. */
@@ -240,7 +240,7 @@ export async function pair(deps: RemoteClientDeps, link: RemotePairingLink, labe
     || typeof confirmCode !== 'string' || !/^\d{6}$/.test(confirmCode)) {
     return { ok: false, error: 'That computer sent an unexpected answer.' }
   }
-  return { ok: true, deviceId, deviceToken, confirmCode, via: hit.via }
+  return { ok: true, deviceId, deviceToken, confirmCode, via: hit.via, ...(field(a.data, ['data', 'status']) === 'active' ? { approved: true } : {}) }
 }
 
 /** Ask for a nonce and answer it: the body for /session or /unpair. Null with a reason when the challenge is refused. */
