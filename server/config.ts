@@ -183,7 +183,7 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
  * permission) and the flag silently falls back to the default when given it.
  * Instead, ultracode launches at its valid base level `--effort xhigh` (see
  * `applyClaudeLaunchFlags`) and is upgraded to true ultracode via a post-startup
- * `/effort ultracode` slash command (see sshManager / ptyHost auto-inject).
+ * `/effort ultracode` slash command (see sshManager auto-inject).
  */
 export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 

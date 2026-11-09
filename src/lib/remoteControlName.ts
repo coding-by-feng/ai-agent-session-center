@@ -162,8 +162,8 @@ export function loadSessionPrefs(): SessionPrefs {
 
 export function saveSessionPrefs(prefs: SessionPrefs): void {
   try {
-    // Both session modals share this key. Merge so a Claude-only save from the
-    // orphaned QuickSessionModal cannot erase NewSessionModal's Codex choice.
+    // Merge, never replace: a save that carries one CLI's choice must not erase
+    // the other's.
     localStorage.setItem(SESSION_PREFS_KEY, JSON.stringify({
       ...loadSessionPrefs(),
       ...prefs,

@@ -198,7 +198,7 @@ describe('FloatingTerminalPanel — pop-out to a native window', () => {
     // anything it can't place to the system browser, so falling back here would
     // pop Chrome open on localhost. A preload missing openTerminalWindow is a
     // build problem; do nothing rather than leave the app.
-    vi.stubGlobal('electronAPI', { createPty: vi.fn() });
+    vi.stubGlobal('electronAPI', { getPort: vi.fn() });
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     renderPanel();
 

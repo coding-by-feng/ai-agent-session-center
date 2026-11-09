@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
 import {
   encodeQueue,
   decodeQueueRow,
+  isStaleQueueWrite,
+  nextQueueVersion,
   type SessionQueueRow,
 } from '../server/sessionQueueCodec.js';
 
@@ -142,5 +144,28 @@ describe('decodeQueueRow — malformed input', () => {
       updated_at: undefined as unknown as number,
     });
     expect(decoded?.updatedAt).toBe(0);
+  });
+});
+
+// A queue write names the version it was built on; the server refuses it once the stored list has moved on.
+// Without it the whole-list PUT is last-write-wins, and a device holding an old copy brings back a prompt
+// the Mac's queue already sent, which is then sent twice.
+describe('queue versions', () => {
+  it('a new version is the clock, but always past the one it replaces', () => {
+    expect(nextQueueVersion(null, 1000)).toBe(1000);
+    expect(nextQueueVersion(500, 1000)).toBe(1000);
+    // Two writes in one millisecond, or a clock that stepped back, must still get distinct versions.
+    expect(nextQueueVersion(1000, 1000)).toBe(1001);
+    expect(nextQueueVersion(2000, 1000)).toBe(2001);
+  });
+
+  it('a write is stale only when it names a version and the stored one differs', () => {
+    expect(isStaleQueueWrite(5, 5)).toBe(false);
+    expect(isStaleQueueWrite(6, 5)).toBe(true);
+    // A writer that names no version (an older window, a server-side tool) writes as before.
+    expect(isStaleQueueWrite(6, undefined)).toBe(false);
+    expect(isStaleQueueWrite(6, null)).toBe(false);
+    // Nothing stored: nothing to overwrite.
+    expect(isStaleQueueWrite(null, 5)).toBe(false);
   });
 });

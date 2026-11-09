@@ -174,6 +174,14 @@ const RenameBody = z.object({
   label: z.string().trim().min(1).max(80),
 }).strict();
 
+/**
+ * Nov 6 2026: Allow may name older pairings of the same phone to revoke once it is approved (a phone that lost its
+ * key can't unpair them itself). deviceAuth.replaceTwins decides which really are the same phone.
+ */
+const ApproveBody = z.object({
+  replaces: z.array(z.string().uuid()).max(20).optional(),
+}).strict();
+
 /** The session token says which phone asks; the body says nothing. */
 const BackendCodeBody = z.object({}).strict();
 
@@ -341,13 +349,23 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   });
 
   router.post('/devices/:id/approve', (req, res) => {
+    const parsed = ApproveBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid approve request' });
+      return;
+    }
     const view = deps.deviceAuth.approve(String(req.params.id));
     if (!view) {
       res.status(404).json({ error: 'No pending phone with that id' });
       return;
     }
     log.info('mobile', `Phone approved: ${view.label} (${view.platform})`);
-    res.json({ success: true, data: { device: view } });
+    // Approved first: a replace that goes wrong never keeps the new phone out.
+    const { replaced, skipped } = deps.deviceAuth.replaceTwins(view.id, parsed.data.replaces ?? []);
+    if (replaced.length || skipped.length) {
+      log.info('mobile', `It replaces ${replaced.length} older pairing(s) of ${view.label}; ${skipped.length} skipped`);
+    }
+    res.json({ success: true, data: { device: view, replaced, skipped } });
   });
 
   router.delete('/devices/:id', (req, res) => {

@@ -8,7 +8,8 @@
  *   re-synced from the session list rather than tied to the many teardown paths a session has).
  *
  * Each transcript read also says whether the user stopped the newest turn (Esc, a declined
- * tool), which no hook reports (`stoppedTurn`, transcriptInterrupt.ts).
+ * tool), which no hook reports (`stoppedTurn`, transcriptInterrupt.ts), and whether Claude's
+ * Stop hooks have finished (`stopHooksSettled`, stopHooksState.ts).
  *
  * The directory is shared /tmp ground: it is read only while it passes the same check
  * as the plan-usage directory (`checkUsageDirectory`: a real directory, ours, not
@@ -20,6 +21,7 @@ import { dirname, join } from 'path';
 import log from './logger.js';
 import { USAGE_DIR, checkUsageDirectory } from './planUsageSources.js';
 import { readTranscriptTail, stoppedTurn, type StoppedTurn } from './transcriptInterrupt.js';
+import { stopHooksSettled } from './stopHooksState.js';
 import { readingFromStatusLine, readingFromTranscript, type RuntimeReading } from './sessionRuntime.js';
 
 /** `<queue dir>/runtime/<session-id>.json` — beside `usage/`, same hard-coded path as the tap.
@@ -44,6 +46,8 @@ export interface RuntimeWatchHost {
   applyToTranscript(path: string, reading: RuntimeReading): void;
   /** This transcript's newest turn was stopped by the user, reported on every read that still sees it. */
   applyToStoppedTurn?(path: string, stopped: StoppedTurn): void;
+  /** On every read: have this transcript's Stop hooks finished? Lazy, so only a session waiting on them parses. */
+  applyToStopHooks?(path: string, settled: () => boolean): void;
 }
 
 export interface RuntimeWatch {
@@ -157,6 +161,8 @@ export function createRuntimeWatch(
     if (reading.modelAt !== undefined || reading.effortAt !== undefined) host.applyToTranscript(path, reading);
     const stopped = stoppedTurn(lines);
     if (stopped) host.applyToStoppedTurn?.(path, stopped);
+    let settled: boolean | undefined; // parsed once, and only if some session waits on it
+    host.applyToStopHooks?.(path, () => (settled ??= stopHooksSettled(lines)));
   }
 
   const dropTranscript = (path: string): void => {

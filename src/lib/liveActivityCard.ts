@@ -8,6 +8,9 @@
  * flagged `idle` (Nov 2 2026), not a mark of its own: the app already on a phone drops rows with an
  * unknown mark and cards with an unknown headline, so it keeps drawing these as ✓ while a newer app
  * draws them as idle and says "Idle" when every live session is (`idle` against rows + more).
+ * A session whose last answer asks the user to reply "proceed" (`pendingProceedAt`, the amber P) is a
+ * done row flagged `proceed` (Nov 8 2026) for the same reason, timed from when it asked; it leads after
+ * a real request and counts in `needs`, as it does on the phone's Sessions list.
  *
  * The Mac page builds it and hands it to the native app (`useLiveActivityFeed`), which adds the
  * Mac's name from its own saved pairing and draws it. Import-free apart from the title rule, so it
@@ -32,6 +35,8 @@ export interface LiveActivityRow {
   detail?: string;
   /** A done row whose session is idle rather than freshly finished. */
   idle?: true;
+  /** A done row whose last answer asks the user to reply "proceed"; it carries `startedAt` (when it asked). */
+  proceed?: true;
 }
 
 export interface LiveActivityCard {
@@ -59,11 +64,18 @@ export interface LiveActivitySession {
   pendingTool?: string | null;
   pendingToolDetail?: string | null;
   waitingDetail?: string | null;
+  pendingProceedAt?: number | null;
 }
 
 interface LiveEntry {
   s: LiveActivitySession;
   mark: LiveActivityMark;
+  /** Owes a "proceed" reply: = owesProceed() in sessionStatusStyle.ts (kept import-free here). */
+  proceed: boolean;
+}
+
+function owesProceed(s: LiveActivitySession, mark: LiveActivityMark | null): boolean {
+  return mark === 'done' && validTime(s.pendingProceedAt ?? undefined) !== undefined;
 }
 
 function markOf(status: string): LiveActivityMark | null {
@@ -86,7 +98,8 @@ function turnStart(s: LiveActivitySession): number | undefined {
   return validTime(s.promptHistory?.at(-1)?.timestamp) ?? validTime(s.lastActivityAt);
 }
 
-function startedAt({ s, mark }: LiveEntry): number | undefined {
+function startedAt({ s, mark, proceed }: LiveEntry): number | undefined {
+  if (proceed) return validTime(s.pendingProceedAt ?? undefined);
   if (mark === 'needs') return validTime(s.pendingRequest?.raisedAt) ?? turnStart(s);
   return mark === 'working' ? turnStart(s) : undefined;
 }
@@ -113,9 +126,10 @@ function detailOf({ s, mark }: LiveEntry): string | undefined {
   return line || undefined;
 }
 
-/** Waiting on you first, then working, then done; the newest of each. */
+/** Waiting on you first (a request, then a "proceed" owed), then working, then done; the newest of each. */
 function leadOf(live: LiveEntry[]): LiveEntry | undefined {
-  return live.find((x) => x.mark === 'needs') ?? live.find((x) => x.mark === 'working') ?? live[0];
+  return live.find((x) => x.mark === 'needs') ?? live.find((x) => x.proceed)
+    ?? live.find((x) => x.mark === 'working') ?? live[0];
 }
 
 function rowOf(entry: LiveEntry, lead: boolean): LiveActivityRow {
@@ -126,7 +140,7 @@ function rowOf(entry: LiveEntry, lead: boolean): LiveActivityRow {
     ...row,
     ...(start !== undefined && { startedAt: start }),
     ...(detail !== undefined && { detail }),
-    ...(entry.s.status === 'idle' && { idle: true as const }),
+    ...(entry.proceed ? { proceed: true as const } : entry.s.status === 'idle' && { idle: true as const }),
   };
 }
 
@@ -134,10 +148,10 @@ function rowOf(entry: LiveEntry, lead: boolean): LiveActivityRow {
 export function buildLiveActivityCard(sessions: Iterable<LiveActivitySession>): LiveActivityCard {
   const live = [...sessions]
     .filter((s) => !s.muted)
-    .map((s) => ({ s, mark: markOf(s.status) }))
+    .map((s) => { const mark = markOf(s.status); return { s, mark, proceed: owesProceed(s, mark) }; })
     .filter((x): x is LiveEntry => x.mark !== null)
     .sort((a, b) => b.s.lastActivityAt - a.s.lastActivityAt);
-  const needs = live.filter((x) => x.mark === 'needs').length;
+  const needs = live.filter((x) => x.mark === 'needs' || x.proceed).length;
   const working = live.filter((x) => x.mark === 'working').length;
   const lead = leadOf(live);
   const ordered = lead ? [lead, ...live.filter((x) => x !== lead)] : [];
@@ -148,7 +162,7 @@ export function buildLiveActivityCard(sessions: Iterable<LiveActivitySession>): 
     more: Math.max(0, live.length - LIVE_ACTIVITY_ROWS),
     needs,
     working,
-    idle: live.filter((x) => x.s.status === 'idle').length,
+    idle: live.filter((x) => x.s.status === 'idle' && !x.proceed).length,
   };
 }
 

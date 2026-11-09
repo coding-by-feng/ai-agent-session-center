@@ -64,3 +64,14 @@ export function parseByteRange(header: string | undefined, size: number): ByteRa
   if (start > last || start > end) return 'unsatisfiable';
   return { start, end };
 }
+
+/**
+ * `Content-Disposition` for `/api/files/stream?download=1` (Nov 7 2026: the phone's Download button).
+ * `attachment` makes a browser save instead of play; the quoted name is an ASCII stand-in for old
+ * clients, `filename*` carries the real one (RFC 6266 / 5987), so a CJK or spaced name survives.
+ */
+export function attachmentDisposition(name: string): string {
+  const ascii = name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'download';
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}

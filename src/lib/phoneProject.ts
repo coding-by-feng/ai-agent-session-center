@@ -64,6 +64,21 @@ export function relInProject(filePath: string, projectPath: string): string | nu
   return path.startsWith(`${root}/`) ? normalizeRel(path.slice(root.length)) : null;
 }
 
+/**
+ * An agent sometimes names files from the project's parent folder: in
+ * `~/Documents/second-brain`, "second-brain/02-study/x.md" (Nov 6 2026). Read
+ * as written that is `/second-brain/02-study/x.md`, which isn't there. This is
+ * the other reading, `/02-study/x.md`, or null when the path doesn't start with
+ * the project folder's name. Only a guess: a project may hold a folder of its
+ * own name (`mypkg/mypkg/`), so the caller tries the path as written first.
+ */
+export function withoutProjectName(rel: string, projectPath: string): string | null {
+  const name = baseName(projectPath);
+  const parts = normalizeRel(rel).split('/').filter(Boolean);
+  if (!name || parts.length < 2 || parts[0] !== name) return null;
+  return `/${parts.slice(1).join('/')}`;
+}
+
 // ── Viewers ──────────────────────────────────────────────────────────────────
 
 export type PhoneViewerKind = 'markdown' | 'tex' | 'pdf' | 'image' | 'media' | 'text' | 'none';

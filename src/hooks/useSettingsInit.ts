@@ -60,21 +60,15 @@ export function useSettingsInit(): void {
     soundEngine.setVolume(volume);
   }, [volume]);
 
-  // Push the terminal replay-buffer size to BOTH backends whenever it changes
-  // (and once on mount / after settings load). Electron mode has both an IPC PTY
-  // host AND the embedded server, so we push to both channels unconditionally —
-  // each is best-effort. Backends clamp + default, so a failed push is harmless.
+  // Push the terminal replay-buffer size to the server whenever it changes (and
+  // once on mount / after settings load). Best-effort: the server clamps and
+  // defaults, so a failed push is harmless.
   // It is the Mac's setting: the route answers this machine only (another device
   // gets a 404), and the phone app, whose routes are an allow-list, doesn't send
   // it at all (e2e run 5, F4).
   const replayBufferBytes = useSettingsStore((s) => s.terminalReplayBufferBytes);
   useEffect(() => {
     if (isNativeMobileApp()) return;
-    try {
-      window.electronAPI?.setPtyReplayBuffer?.(replayBufferBytes);
-    } catch {
-      // Electron bridge unavailable (browser mode) — ignore.
-    }
     fetch('/api/config/terminal-buffer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

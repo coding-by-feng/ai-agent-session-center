@@ -189,6 +189,32 @@ describe('pendingRequest is cleared', () => {
     expect(pendingOf(id)).toBeNull();
   });
 
+  // Nov 8 2026, replayed: the main agent asked at 11:04; an in-process teammate kept working
+  // on the same session and compacted at 11:23. Its SessionStart(compact) used to clear the
+  // question, so the phone card said "Answer in Terminal" until the answer at 12:47.
+  it('not by a teammate’s compaction while the main agent’s question is open', () => {
+    const id = newSession();
+    hook(id, 'PreToolUse', QUESTION);
+    hook(id, 'PermissionRequest', QUESTION);
+    const TEAMMATE = { claude_agent_id: 'agent-port-recent' };
+    hook(id, 'PreToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_t1' });
+    hook(id, 'PostToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_use_id: 'toolu_t1' });
+    hook(id, 'PreCompact', { trigger: 'auto' });
+    hook(id, 'SubagentStop', TEAMMATE);
+    const result = hook(id, 'SessionStart', { source: 'compact' });
+    expect(result?.session.pendingRequest).toMatchObject({ id: 'toolu_ask', kind: 'question' });
+    hook(id, 'PreToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_t2' });
+    expect(pendingOf(id)?.id).toBe('toolu_ask');
+    hook(id, 'PostToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'toolu_ask' });
+    expect(pendingOf(id)).toBeNull();
+  });
+
+  it('by a SessionStart that is not a compaction', () => {
+    const id = waiting();
+    hook(id, 'SessionStart', { source: 'resume' });
+    expect(pendingOf(id)).toBeNull();
+  });
+
   it('not by the PostToolUse of another call', () => {
     const id = waiting();
     hook(id, 'PostToolUse', { tool_name: 'Read', tool_use_id: 'toolu_read' });

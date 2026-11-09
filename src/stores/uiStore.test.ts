@@ -108,6 +108,40 @@ describe('uiStore', () => {
     });
   });
 
+  // Nov 10 2026: the session list starts as the left rail; a saved choice is kept.
+  describe('navPosition (loaded at module init)', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('nav-position');
+      if (stored !== null) localStorage.setItem('nav-position', stored);
+      vi.resetModules();
+      return (await import('./uiStore')).useUiStore;
+    }
+    afterEach(() => localStorage.removeItem('nav-position'));
+
+    it('starts on the left when nothing is saved', async () => {
+      expect((await freshStore(null)).getState().navPosition).toBe('left');
+      expect((await freshStore('nonsense')).getState().navPosition).toBe('left');
+    });
+
+    it('keeps a saved choice, on top included', async () => {
+      expect((await freshStore('top')).getState().navPosition).toBe('top');
+      expect((await freshStore('left')).getState().navPosition).toBe('left');
+    });
+
+    it('starts on the left when storage cannot be read', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      try {
+        vi.resetModules();
+        const store = (await import('./uiStore')).useUiStore;
+        expect(store.getState().navPosition).toBe('left');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   // RESOURCES → Projects, Oct 29 2026: the same rule as the queue's.
   describe('projectViewMode (loaded at module init)', () => {
     async function freshStore(stored: string | null) {

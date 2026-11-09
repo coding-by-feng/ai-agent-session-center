@@ -36,7 +36,7 @@ export function liteSessionTabs<T extends { id: string }>(tabs: readonly T[], ha
 
 const LITE_SHORTCUTS: ReadonlySet<string> = new Set([
   'toggleFullscreen', 'scrollToBottom', 'terminalToggleAutoScroll',
-  'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabQueue',
+  'switchLatestSession', 'jumpToSession', 'searchSessions', 'switchTabProject', 'switchTabTerminal', 'switchTabQueue',
   // An AI popup window's keys, named on its buttons. Only a focused window reacts.
   'floatMinimize', 'floatMaximize', 'floatClose',
 ]);

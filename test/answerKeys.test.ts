@@ -12,6 +12,31 @@ function request(over: Partial<PendingRequest> = {}): PendingRequest {
 const question = (over: Partial<PendingRequest> = {}) =>
   request({ kind: 'question', tool: 'AskUserQuestion', source: 'pre_tool_use', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }], ...over });
 
+// Probed on Claude Code 2.1.318 (Nov 6 2026): a digit per question, then "1. Submit answers";
+// keys in one burst are dropped, so each is its own step.
+describe('Claude Code: several questions in one call', () => {
+  const several = () => question({
+    options: undefined,
+    questions: [
+      { question: 'Color?', header: 'Color', options: [{ label: 'Red' }, { label: 'Green' }, { label: 'Blue' }] },
+      { question: 'Size?', header: 'Size', options: [{ label: 'Small' }, { label: 'Large' }] },
+    ],
+  });
+
+  it('types each pick as its own step, then Submit', () => {
+    expect(answerKeysFor(several(), { choice: 'options', optionIndexes: [2, 1] }, {})).toEqual(['3', '2', '1']);
+  });
+
+  it('refuses a missing, short, long or out-of-range set, and a single pick', () => {
+    expect(answerKeysFor(several(), { choice: 'options' }, {})).toBeNull();
+    expect(answerKeysFor(several(), { choice: 'options', optionIndexes: [0] }, {})).toBeNull();
+    expect(answerKeysFor(several(), { choice: 'options', optionIndexes: [0, 0, 0] }, {})).toBeNull();
+    expect(answerKeysFor(several(), { choice: 'options', optionIndexes: [0, 2] }, {})).toBeNull();
+    expect(answerKeysFor(several(), { choice: 'option', optionIndex: 0 }, {})).toBeNull();
+    expect(answerKeysFor(question(), { choice: 'options', optionIndexes: [0] }, {})).toBeNull();
+  });
+});
+
 describe('Claude Code', () => {
   it('permission: allow once = 1, always allow = 2, deny = Esc', () => {
     expect(answerKeysFor(request(), { choice: 'allow_once' }, {})).toBe('1');

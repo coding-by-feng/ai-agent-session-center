@@ -1478,6 +1478,55 @@
   display: none;
 }
 
+/* ---- Session search (Nov 9 2026) ----
+   The rail: its own row between the header and the scrolling list, so it never
+   scrolls away. The top bar: the strip's first item, held at the left edge while
+   the cards scroll under it (opaque, or the cards show through). z-index 5 is
+   local: above the cards' number badges and status marks (up to 4 in this file),
+   which otherwise painted over the box mid-scroll; .convToolbar's sticky uses 5 too. */
+.stripSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.switcherBarVertical .stripSearch {
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--border-faint);
+}
+.sessionTabStrip > .stripSearch {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding-right: 8px;
+  background: var(--bg-panel);
+}
+.stripSearchField {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Wide enough for the whole "Search sessions (/)" placeholder past the 32px glyph and clear insets. */
+.sessionTabStrip > .stripSearch .stripSearchField {
+  width: 208px;
+}
+.stripSearchCount {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.stripSearchEmpty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.switcherBarVertical .stripSearchEmpty {
+  white-space: normal;
+}
+
 /* Status is signalled by the coloured corner badge (StatusGlyph / green ✓) and
    the mini status dot — NOT by the card frame. Frames stay neutral and static:
    the old per-status conic-gradient spinner + pulse animations repainted every
@@ -2328,7 +2377,7 @@
 
   /* ---- Reachable session controls on a phone --------------------------------
    * `.switcherMeta` is the row holding status / model / duration /
-   * `SessionControlLock` / KILL-MUTE-ALERT / room select / minimize. It is
+   * KILL-MUTE-ALERT / room select / minimize (once also the control lock). It is
    * `flex-shrink: 0` and does not wrap, so at 390px the lock chip ("🔒 Driven
    * by Mac · Chrome" + Ask/Take, itself added long after this breakpoint was
    * written) consumed the row and pushed EVERYTHING after it past the right
@@ -2351,7 +2400,7 @@
   /* Give the session controls their own full-width line rather than letting
      them wrap mid-group and split KILL from MUTE from ALERT.
      `.switcherControls` wraps `SessionControlBar`'s `.ctrlBar`, which itself
-     contains SessionControlLock ("🔒 Driven by …" + Ask/Take) FIRST, then
+     contained the control lock ("🔒 Driven by …" + Ask/Take, since removed) FIRST, then
      KILL/MUTE/ALERT, then the room select — so widening this one container is
      what makes the whole group reachable; the lock is nested inside it, not a
      sibling needing its own rule. `.ctrlBar` already sets `flex-wrap: wrap`,

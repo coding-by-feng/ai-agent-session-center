@@ -148,12 +148,13 @@ export function cleanPromptText(text: string): string {
 /** A request key: what the phone names a prompt by, to retry it and to ask what became of it. */
 const PROMPT_KEY_RE = /^[A-Za-z0-9._:-]+$/;
 
+// Text may be empty when images ride along (Nov 8 2026: a photo is a prompt on its own); a message with neither is refused.
 const promptBodySchema = z.object({
-  text: z.string().min(1).max(MAX_PROMPT_TEXT).transform(cleanPromptText).refine((t) => t.trim() !== '', 'Type a prompt'),
+  text: z.string().max(MAX_PROMPT_TEXT).default('').transform(cleanPromptText),
   images: z.array(z.string().max(80)).max(MAX_PROMPT_IMAGES).default([]),
   mode: z.enum(['now', 'interrupt']).default('now'),
   key: z.string().min(8).max(64).regex(PROMPT_KEY_RE, 'Letters, digits and . _ : - only'),
-});
+}).refine((b) => b.text.trim() !== '' || b.images.length > 0, { message: 'Type a prompt', path: ['text'] });
 
 const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typeof v === 'string' ? v : '');
 

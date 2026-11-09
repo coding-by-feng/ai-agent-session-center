@@ -1,6 +1,6 @@
 // phoneStatus.test.ts — a session status in the phone's plain words and tones (AASC-38).
 import { describe, it, expect } from 'vitest';
-import { COMPACTING_STALE_MS, isCompacting, phoneStatus, sessionSubtitle } from './phoneStatus';
+import { COMPACTING_STALE_MS, STOP_HOOKS_STALE_MS, isCompacting, isFinishingUp, phoneStatus, sessionSubtitle } from './phoneStatus';
 
 describe('phoneStatus', () => {
   it('names every status in plain words with its tone', () => {
@@ -71,5 +71,34 @@ describe('compacting', () => {
     const live = { compacting: { since: Date.now(), trigger: 'manual' as const } };
     expect(sessionSubtitle({ status: 'idle', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', ...live }))
       .toBe('Compacting · Opus 5.5 · high');
+  });
+});
+
+describe('Finishing up (Claude still running its Stop hooks)', () => {
+  const now = 1_800_000_000_000;
+
+  it('holds only for a finished turn whose Stop hooks are fresh', () => {
+    expect(isFinishingUp({ status: 'waiting', stopHooksSince: now - 5_000 }, now)).toBe(true);
+    expect(isFinishingUp({ status: 'waiting', stopHooksSince: null }, now)).toBe(false);
+    expect(isFinishingUp({ status: 'waiting' }, now)).toBe(false);
+    // A turn that went back to work, or a dialog, is not "finishing".
+    expect(isFinishingUp({ status: 'working', stopHooksSince: now - 5_000 }, now)).toBe(false);
+    expect(isFinishingUp({ status: 'approval', stopHooksSince: now - 5_000 }, now)).toBe(false);
+    // A summary the server never saw must not leave it up for good.
+    expect(isFinishingUp({ status: 'waiting', stopHooksSince: now - STOP_HOOKS_STALE_MS }, now)).toBe(false);
+  });
+
+  it('says "Finishing up" in the working tone instead of "Finished"', () => {
+    expect(phoneStatus('waiting', false, false, true)).toEqual({ tone: 'working', label: 'Finishing up', glyph: 'working' });
+  });
+
+  it('never hides an interruption or a compaction', () => {
+    expect(phoneStatus('waiting', true, false, true)).toMatchObject({ label: 'Interrupted' });
+    expect(phoneStatus('waiting', false, true, true)).toMatchObject({ label: 'Compacting' });
+  });
+
+  it('shows in the session subtitle', () => {
+    expect(sessionSubtitle({ status: 'waiting', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', stopHooksSince: Date.now() }))
+      .toBe('Finishing up · Opus 5.5 · high');
   });
 });

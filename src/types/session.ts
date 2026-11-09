@@ -277,6 +277,13 @@ export interface PendingRequestOption {
   description?: string;
 }
 
+/** One of several single-select questions asked in one AskUserQuestion call (Nov 6 2026). */
+export interface PendingRequestQuestion {
+  header?: string;
+  question: string;
+  options: PendingRequestOption[];
+}
+
 /**
  * What the CLI is waiting on, structured (`server/pendingRequests.ts`): set by the
  * PermissionRequest hook and by PreToolUse of AskUserQuestion / ExitPlanMode, cleared by
@@ -301,6 +308,9 @@ export interface PendingRequest {
   /** AskUserQuestion's choices, present only when the answer route can pick one:
    *  a single, single-select question with at most 9 choices. */
   options?: PendingRequestOption[];
+  /** Nov 6 2026: 2–4 single-select questions in one call, each with 1–9 choices: one pick per
+   *  question, then Claude's "Submit answers". Absent when `options` is set. */
+  questions?: PendingRequestQuestion[];
   /** The dialog has an "always allow" line: its PermissionRequest suggested a rule to save.
    *  Without one, Claude's option 2 is "Yes, and switch to auto mode", so Always allow is
    *  neither offered nor answered. */
@@ -477,6 +487,12 @@ export interface Session {
   promptSuggestion?: PromptSuggestion | null;
   /** A context compaction in progress (see `SessionCompacting`); absent or null otherwise. */
   compacting?: SessionCompacting | null;
+  /**
+   * Claude's Stop hooks are still running (epoch ms of the Stop; server/stopHooksState.ts): a
+   * prompt sent now is held by Claude until they finish. Live-only, display only; the phone
+   * ignores one older than `STOP_HOOKS_STALE_MS`.
+   */
+  stopHooksSince?: number | null;
   /**
    * How the session came to need approval (AASC-16 push): a PermissionRequest hook,
    * a permission_prompt Notification, or the approval timeout guess. Live-only;

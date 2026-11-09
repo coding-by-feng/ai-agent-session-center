@@ -55,6 +55,17 @@ function ArrowDownIcon() {
   );
 }
 
+/** Magnifier: find in the terminal's output. */
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
 /** Maximize/fullscreen SVG icon. */
 function MaximizeIcon() {
   return (
@@ -278,6 +289,9 @@ interface TerminalToolbarProps {
   restartPending?: boolean;
   /** Pop this terminal out into its own OS window (Electron only). */
   onPopOut?: () => void;
+  /** Open / close find-in-terminal (Nov 6 2026); no button without it. */
+  onToggleSearch?: () => void;
+  searchOpen?: boolean;
   isFullscreen: boolean;
   showReconnect?: boolean;
   /** Show hold-to-speak mic button (TTS enabled in settings). */
@@ -312,6 +326,8 @@ export default function TerminalToolbar({
   onRestart,
   restartPending = false,
   onPopOut,
+  onToggleSearch,
+  searchOpen = false,
   isFullscreen,
   showReconnect = false,
   ttsEnabled = false,
@@ -522,6 +538,19 @@ export default function TerminalToolbar({
             aria-label={tooltips.termSpeak.label}
           >
             <MicIcon active={ttsActive} />
+          </button>
+        </Tooltip>
+      )}
+
+      {onToggleSearch && (
+        <Tooltip {...tooltips.termSearch}>
+          <button
+            className={`${styles.toolbarBtn} ${searchOpen ? styles.autoScrollActiveBtn : ''}`}
+            onClick={onToggleSearch}
+            aria-label={tooltips.termSearch.label}
+            aria-pressed={searchOpen}
+          >
+            <SearchIcon />
           </button>
         </Tooltip>
       )}

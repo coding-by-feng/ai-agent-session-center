@@ -5,6 +5,7 @@
 // strictly.
 import { describe, expect, it } from 'vitest';
 import {
+  attachmentDisposition,
   MAX_STREAMABLE_SIZE,
   isRangeStreamedExt,
   parseByteRange,
@@ -67,5 +68,20 @@ describe('parseByteRange', () => {
     expect(parseByteRange('bytes=-', SIZE)).toBe('unsatisfiable');
     expect(parseByteRange('bytes=-0', SIZE)).toBe('unsatisfiable');
     expect(parseByteRange('bytes=0-1', 0)).toBe('unsatisfiable');
+  });
+});
+
+describe('attachmentDisposition', () => {
+  it('keeps an ASCII stand-in and the real name in filename*', () => {
+    expect(attachmentDisposition("a b's (1).mp4")).toBe(
+      `attachment; filename="a_b_s__1_.mp4"; filename*=UTF-8''a%20b%27s%20%281%29.mp4`,
+    );
+    expect(attachmentDisposition('笔记.md')).toContain(`filename*=UTF-8''${encodeURIComponent('笔记.md')}`);
+  });
+
+  it('never lets a quote or CR/LF into the header', () => {
+    const value = attachmentDisposition('x"\r\nSet-Cookie: a=b.txt');
+    expect(value).not.toMatch(/[\r\n]/);
+    expect(value.split('"').length).toBe(3);
   });
 });

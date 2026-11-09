@@ -28,7 +28,7 @@ describe('server/index.ts wiring', () => {
 
     expect(at("app.use(express.json({ limit: '50mb' }))")).toBeLessThan(mount);
     expect(mount).toBeLessThan(at("app.use('/api', authMiddleware"));
-    expect(mount).toBeLessThan(at('app.use(express.static(clientDir))'));
+    expect(mount).toBeLessThan(at('mountClientStatic(app, clientDir)'));
     expect(mount).toBeLessThan(at("app.get('/{*splat}'"));
   });
 

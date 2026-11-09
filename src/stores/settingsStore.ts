@@ -216,6 +216,8 @@ interface SettingsState extends BrowserSettings {
   // UI
   scene3dEnabled: boolean;
   toastEnabled: boolean;
+  /** Desktop app: a system notification when a session's answer asks the user to reply "proceed" (Nov 8 2026). */
+  proceedNotifyEnabled: boolean;
   autoSendQueue: boolean;
   defaultTerminalTheme: string;
 
@@ -297,6 +299,7 @@ interface SettingsState extends BrowserSettings {
   setTerminalScrollbackLines: (lines: number) => void;
   setScene3dEnabled: (enabled: boolean) => void;
   setToastEnabled: (enabled: boolean) => void;
+  setProceedNotifyEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
   setDefaultTerminalTheme: (theme: string) => void;
   setSoundAction: (action: string, sound: string) => void;
@@ -363,6 +366,7 @@ const defaultSettings: SettingsData = {
   hookDensity: 'medium',
   scene3dEnabled: false,
   toastEnabled: true,
+  proceedNotifyEnabled: true,
   autoSendQueue: false,
   defaultTerminalTheme: 'auto',
   anthropicApiKey: '',
@@ -605,6 +609,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setToastEnabled: (toastEnabled) => {
     set({ toastEnabled });
     get().persistSetting('toastEnabled', toastEnabled);
+  },
+
+  setProceedNotifyEnabled: (proceedNotifyEnabled) => {
+    set({ proceedNotifyEnabled });
+    get().persistSetting('proceedNotifyEnabled', proceedNotifyEnabled);
   },
 
   setAutoSendQueue: (autoSendQueue) => {

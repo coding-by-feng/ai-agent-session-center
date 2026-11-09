@@ -6,9 +6,8 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
 import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
-import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { registerRemoteHandlers } from './ipc/remoteHandlers.js'
-import { disposeAll as disposePtyHost } from './ptyHost.js'
+import { registerNotifyHandlers } from './ipc/notifyHandlers.js'
 import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
 import { desktopAppName, readDesktopEdition } from './edition.js'
@@ -538,8 +537,8 @@ app.whenReady().then(async () => {
   // Register IPC handlers first so renderer can call them on load
   registerSetupHandlers()
   registerAppHandlers()
-  registerTerminalHandlers()
   registerRemoteHandlers()
+  registerNotifyHandlers(() => mainWindowRef)
   registerPopoutHandler()
   registerDirectoryPickerHandler()
   registerProjectWindowHandler()
@@ -727,9 +726,6 @@ app.on('before-quit', async (e) => {
       // best effort — don't block quit
     }
   }
-
-  // Kill all PTY host terminals
-  disposePtyHost()
 
   // Shut down server (save SQLite snapshot, close DB)
   if (serverShutdown) {

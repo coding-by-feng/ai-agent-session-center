@@ -47,6 +47,16 @@ async function writeToTerminalApi(terminalId: string, data: string): Promise<boo
 }
 
 /**
+ * What a prompt with attached images types: the text, then one image path per line. With no
+ * text (an image-only prompt, Nov 8 2026) just the paths — a leading "\n" would be a stray
+ * blank line first. Mirrors the server's phone path (`server/promptSubmit.ts`).
+ */
+export function withImagePaths(text: string, paths: readonly string[]): string {
+  if (paths.length === 0) return text;
+  return [...(text ? [text] : []), ...paths].join('\n');
+}
+
+/**
  * Write `text` to the terminal, then — when `autoEnter` is set — submit it with a
  * SEPARATE Enter keystroke (`\r`) after `delayMs`. The submit `\r` is never
  * concatenated onto the text (that is the bug this avoids). Returns true only if

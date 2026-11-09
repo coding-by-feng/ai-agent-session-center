@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import TerminalCommandMenu from './TerminalCommandMenu';
+import TerminalSearchBar, { type TerminalSearchState } from './TerminalSearchBar';
 import { detectCli } from '@/lib/cliDetect';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -100,6 +101,29 @@ export default memo(function TerminalContainer({
 
   const fsContainerRef = useRef<HTMLDivElement | null>(null);
 
+  const isPhone = useIsMobile();
+
+  // ---- Find in terminal (Nov 6 2026; desktop only: the phone has its own terminal screen) ----
+  /** The bar's query and toggles live here: fullscreen remounts the bar elsewhere. `seq`
+   *  refocuses an open bar on every request. */
+  const [search, setSearch] = useState<TerminalSearchState & { open: boolean; seq: number }>(
+    { open: false, seq: 0, query: '', caseSensitive: false, regex: false },
+  );
+  const selectionForSearchRef = useRef<() => string | null>(() => null);
+  const openSearch = useCallback(() => {
+    // Opening: a one-line selection becomes the query, as in an editor's find; otherwise
+    // the last query comes back. Already open: only refocus, because the selection is now
+    // the addon's own current match and would overwrite a regex with its literal text.
+    const picked = selectionForSearchRef.current()?.trim() ?? '';
+    const seed = picked && !picked.includes('\n') && picked.length <= 200 ? picked : null;
+    setSearch((cur) => (cur.open
+      ? { ...cur, seq: cur.seq + 1 }
+      : { ...cur, open: true, seq: cur.seq + 1, query: seed ?? cur.query }));
+  }, []);
+  const changeSearch = useCallback((patch: Partial<TerminalSearchState>) => {
+    setSearch((cur) => ({ ...cur, ...patch }));
+  }, []);
+
   const {
     containerRef,
     attach,
@@ -137,7 +161,34 @@ export default memo(function TerminalContainer({
     hasXtermSelection,
     setInputTap,
     getCaretRect,
-  } = useTerminal({ ws, themeName, projectPath });
+    getSearchAddon,
+    focusTerminal,
+    clearXtermSelection,
+    activeTerminalId,
+  } = useTerminal({ ws, themeName, projectPath, onFindRequest: isPhone ? undefined : openSearch });
+
+  useEffect(() => { selectionForSearchRef.current = getXtermSelection; }, [getXtermSelection]);
+  const closeSearch = useCallback(() => {
+    setSearch((cur) => ({ ...cur, open: false }));
+    clearXtermSelection(); // the addon leaves its last match selected
+    focusTerminal();
+  }, [clearXtermSelection, focusTerminal]);
+  const toggleSearch = useCallback(() => {
+    if (search.open) closeSearch();
+    else openSearch();
+  }, [search.open, closeSearch, openSearch]);
+  const searchBar = search.open && !isPhone ? (
+    <TerminalSearchBar
+      getAddon={getSearchAddon}
+      terminalId={activeTerminalId}
+      openSeq={search.seq}
+      query={search.query}
+      caseSensitive={search.caseSensitive}
+      regex={search.regex}
+      onChange={changeSearch}
+      onClose={closeSearch}
+    />
+  ) : null;
 
   // The CLI running in this terminal, for its `/` list: null for an ops shell or
   // any terminal no live session owns (a `cd /usr` there must not open a menu).
@@ -150,7 +201,6 @@ export default memo(function TerminalContainer({
     return null;
   });
 
-  const isPhone = useIsMobile();
   // A phone paired to Lite loads this same bundle and keeps its whole terminal.
   const liteDesktop = IS_LITE && !isPhone;
 
@@ -255,8 +305,8 @@ export default memo(function TerminalContainer({
     }
   }, [terminalId, attach, detach]);
 
-  // IPC subscription failures and PTY exits are reported by useTerminal. The
-  // WebSocket transport reaches the same state through terminal_closed below.
+  // Closed when this container saw terminal_closed (below) or useTerminal
+  // reported a close for this terminal.
   const terminalIsClosed = isClosed || terminalClosed?.terminalId === terminalId;
 
   // Move xterm element between inline and fullscreen containers
@@ -518,6 +568,8 @@ export default memo(function TerminalContainer({
         onRestart={onRestart}
         restartPending={restartPending}
         onPopOut={liteDesktop ? undefined : onPopOut}
+        onToggleSearch={toggleSearch}
+        searchOpen={search.open}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (terminalIsClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
@@ -561,6 +613,7 @@ export default memo(function TerminalContainer({
             )}
           </div>
         )}
+        {!isFullscreen && searchBar}
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}
@@ -653,11 +706,14 @@ export default memo(function TerminalContainer({
               onFork={liteDesktop ? undefined : onFork}
               onRestart={onRestart}
               restartPending={restartPending}
+              onToggleSearch={toggleSearch}
+              searchOpen={search.open}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
                                     />}
           </div>
           <div className={styles.fullscreenArea}>
+            {isFullscreen && searchBar}
             <div ref={fsContainerRef} className={`${styles.fullscreenContainer}${isPhone ? ` ${styles.touchSurface}` : ''}`} />
             <div className={styles.mobileScrollOverlay}>
               <button

@@ -59,6 +59,31 @@ describe('buildLiveActivityCard', () => {
     expect(card.headline).toBe('working');
   });
 
+  it('flags a session owed a "proceed" reply (still mark done for an older app), timed from when it asked', () => {
+    const card = buildLiveActivityCard([
+      s('waiting', 9), s('idle', 4, 'KTS', { pendingProceedAt: 3_000 }), s('working', 5),
+    ]);
+    expect(card.rows.map((r) => [r.title, r.mark, r.proceed, r.idle, r.startedAt])).toEqual([
+      ['KTS', 'done', true, undefined, 3_000], ['t9', 'done', undefined, undefined, undefined], ['t5', 'working', undefined, undefined, 5],
+    ]);
+  });
+
+  it('a proceed owed leads after a real request and before working, and counts as needing you, not idle', () => {
+    const card = buildLiveActivityCard([s('working', 9), s('idle', 2, 'P', { pendingProceedAt: 1 }), s('waiting', 8)]);
+    expect(card.rows[0].title).toBe('P');
+    expect(card.headline).toBe('needs');
+    expect(card.needs).toBe(1);
+    expect(card.idle).toBe(0);
+    expect(buildLiveActivityCard([s('approval', 1), s('waiting', 9, 'P', { pendingProceedAt: 1 })]).rows[0].mark).toBe('needs');
+  });
+
+  it('a proceed mark is ignored unless the session is waiting or idle (it is being answered)', () => {
+    const card = buildLiveActivityCard([s('working', 2, 'w', { pendingProceedAt: 1 })]);
+    expect(card.rows[0]).toMatchObject({ mark: 'working' });
+    expect(card.rows[0].proceed).toBeUndefined();
+    expect(card.needs).toBe(0);
+  });
+
   it('an all-idle card stays headline finished (the native side reads the idle count)', () => {
     const card = buildLiveActivityCard([s('idle', 2), s('idle', 1)]);
     expect(card.headline).toBe('finished');

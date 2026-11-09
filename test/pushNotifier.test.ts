@@ -147,6 +147,36 @@ describe('createPushNotifier', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('a finished turn that asks for "proceed" is sent as waiting for your input, without a tool name', () => {
+    update({ status: 'waiting', pendingProceedAt: clock });
+    advance(8_000);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'input', sessionRef: 's1', title: 'Fix login bug', ttlSeconds: 600 });
+    expect(sent[0].toolName).toBeUndefined(); // pendingTool is a leftover from the turn, not what it waits on
+  });
+
+  it('a proceed reply owed is still noticed when the answer was read after the Stop (transcript retry)', () => {
+    update({ status: 'waiting' });
+    advance(600);
+    update({ pendingProceedAt: clock });
+    advance(8_000);
+    expect(sent.map((m) => m.kind)).toEqual(['input']);
+  });
+
+  it('a proceed answered within the settle sends nothing', () => {
+    update({ status: 'waiting', pendingProceedAt: clock });
+    advance(3_000);
+    update({ status: 'prompting', pendingProceedAt: null });
+    advance(10_000);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a plain finished turn is still "finished"', () => {
+    update({ status: 'waiting', pendingProceedAt: null });
+    advance(8_000);
+    expect(sent.map((m) => m.kind)).toEqual(['finished']);
+  });
+
   it('a 529 ends with interrupted, not finished', () => {
     update({ status: 'waiting' });
     advance(1_000);

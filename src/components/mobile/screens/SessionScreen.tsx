@@ -36,6 +36,7 @@ import SessionPromptsSegment from './SessionPromptsSegment';
 import SessionAgentsSegment from './SessionAgentsSegment';
 import ChatFooter from '../chat/ChatFooter';
 import ConnectionBanner from './ConnectionBanner';
+import RestartBanner from './RestartBanner';
 import ChatView from '../chat/ChatView';
 import ChangesView, { ChangesBadge } from '../chat/ChangesView';
 import { useSessionChangesTotal } from '@/stores/changesStore';
@@ -286,6 +287,8 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
       banner={(
         <>
           <ConnectionBanner />
+          {/* The phone's Restart, step by step (Nov 8 2026). */}
+          <RestartBanner sessionId={sessionId} />
           {next && (
             <button type="button" className={styles.nextWaiting} onClick={() => replaceSession(sessionId, sessionPath(next, 'chat'))}>
               <span>{others} more {others === 1 ? 'needs' : 'need'} you</span>

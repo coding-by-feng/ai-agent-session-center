@@ -287,6 +287,8 @@ interface QueueState {
     items: QueueItem[],
     automation: QueueAutomationConfig | null,
     originClientId: string | null,
+    /** The version the server stored this list as (`updatedAt`), when the message carried one. */
+    updatedAt?: number | null,
   ) => void;
 }
 
@@ -425,6 +427,35 @@ const _syncedBase = new Map<string, QueueItem[]>();
 const _syncedAutomation = new Map<string, QueueAutomationConfig>();
 
 /**
+ * Per session, the version (`updatedAt`) of the newest list this window has heard the server
+ * hold: from a pull, a broadcast or its own save's answer. Each save names it as its base
+ * (`baseUpdatedAt`), and the server refuses one whose base is no longer the stored version — a
+ * window that missed an update would otherwise put back an item another window's queue already
+ * sent, to be sent again (Nov 7 2026). Unknown until heard: the save then names none and is
+ * written as before.
+ */
+const _syncedVersion = new Map<string, number>();
+
+/** Versions only move forward: an answer that arrives late must not move one back. */
+function noteVersion(sessionId: string, updatedAt: unknown): void {
+  if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt) || updatedAt <= 0) return;
+  if (updatedAt > (_syncedVersion.get(sessionId) ?? 0)) _syncedVersion.set(sessionId, updatedAt);
+}
+
+/**
+ * Per session, refusals in a row. A refusal is merged and saved again; this bounds that loop
+ * when another writer keeps moving the list on (`MAX_STALE_RETRIES`). Past it the window keeps
+ * its own list and stays unsynced. A save that is not such a retry (the person's next edit)
+ * starts a fresh count, so that edit is refused, merged and saved again; a pull or broadcast
+ * merges too.
+ */
+const _staleStreak = new Map<string, number>();
+const MAX_STALE_RETRIES = 3;
+
+/** Sessions whose next save is the merged retry of a refused one: it keeps the refusal count. */
+const _mergedRetry = new Set<string>();
+
+/**
  * Per session, how many remote lists this window has applied. A push that finished
  * after one was applied says nothing about what the server holds now, so it must not
  * overwrite the base the newer list set.
@@ -482,6 +513,9 @@ function forgetSessionIfGone(sessionId: string): void {
   _newestPush.delete(sessionId);
   _syncedBase.delete(sessionId);
   _syncedAutomation.delete(sessionId);
+  _syncedVersion.delete(sessionId);
+  _staleStreak.delete(sessionId);
+  _mergedRetry.delete(sessionId);
   _remoteEpoch.delete(sessionId);
   _installedByRemote.delete(sessionId);
   _installedAutomationByRemote.delete(sessionId);
@@ -516,7 +550,13 @@ function putQueue(
   keepalive: boolean,
 ): void {
   // Built first: a body that cannot be (a value JSON has no form for) must not leave a push counted as on the wire.
-  const body = JSON.stringify({ items, automation, originClientId: getWindowOriginId() });
+  const baseUpdatedAt = _syncedVersion.get(sessionId);
+  const body = JSON.stringify({
+    items,
+    automation,
+    originClientId: getWindowOriginId(),
+    ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+  });
   const epoch = _remoteEpoch.get(sessionId) ?? 0;
   const push = ++_pushCount;
   _newestPush.set(sessionId, push);
@@ -526,18 +566,57 @@ function putQueue(
     headers: { 'Content-Type': 'application/json' },
     body,
     ...(keepalive ? { keepalive: true } : {}),
-  }).then((res) => {
+  }).then(async (res) => {
+    const answer = (await res.json().catch(() => null)) as StaleAnswer | { updatedAt?: unknown } | null;
+    if (res.status === 409) {
+      settlePush(sessionId, push, false);
+      applyStaleAnswer(sessionId, answer as StaleAnswer | null);
+      return;
+    }
     // The server holds exactly this list now — unless another window's list was
     // applied while the request was out, in which case the base it set is newer.
     if (res.ok && (_remoteEpoch.get(sessionId) ?? 0) === epoch) {
       _syncedBase.set(sessionId, items);
       if (automation) _syncedAutomation.set(sessionId, automation);
     }
+    if (res.ok) {
+      noteVersion(sessionId, (answer as { updatedAt?: unknown } | null)?.updatedAt);
+      _staleStreak.delete(sessionId);
+    }
     settlePush(sessionId, push, res.ok);
   }, () => {
     // offline — local copy remains the source of truth
     settlePush(sessionId, push, false);
   });
+}
+
+/** The route's 409: the save was built on an older list than the one stored, which it carries. */
+interface StaleAnswer {
+  code?: string;
+  queue?: { items?: unknown; automation?: unknown; updatedAt?: unknown };
+}
+
+/**
+ * A save was refused as stale. Take the list the server holds as the newer remote one: this
+ * window's unsent edits (it is unsynced now) are merged into it and the merged list is saved
+ * again, naming its version. A list older than one this window already heard (a newer save of
+ * its own landed since) says nothing new and is skipped.
+ */
+function applyStaleAnswer(sessionId: string, answer: StaleAnswer | null): void {
+  const queue = answer?.queue;
+  if (!queue || !Array.isArray(queue.items) || typeof queue.updatedAt !== 'number') return;
+  if (queue.updatedAt < (_syncedVersion.get(sessionId) ?? 0)) return;
+  const streak = (_staleStreak.get(sessionId) ?? 0) + 1;
+  _staleStreak.set(sessionId, streak);
+  if (streak > MAX_STALE_RETRIES) return;
+  _mergedRetry.add(sessionId);
+  useQueueStore.getState().applyRemoteQueue(
+    sessionId,
+    queue.items as QueueItem[],
+    (queue.automation ?? null) as QueueAutomationConfig | null,
+    null,
+    queue.updatedAt,
+  );
 }
 
 /**
@@ -553,6 +632,8 @@ function pushQueueToServer(
   if (existing) clearTimeout(existing.timer);
   const timer = setTimeout(() => {
     _pending.delete(sessionId);
+    // Anything but the merged retry of a refusal is a new save: its refusals are counted afresh.
+    if (!_mergedRetry.delete(sessionId)) _staleStreak.delete(sessionId);
     try {
       putQueue(sessionId, items, automation, false);
     } catch {
@@ -802,6 +883,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       // The merge base is keyed by session too. Carried across even when the queue
       // itself is empty: a window that has removed everything still needs to know what
       // it removed. An id that already has a base keeps it.
+      // A version is not carried: it names the old id's stored record, not the new id's, so
+      // the first save under the new id names none (or the one heard for it).
+      _syncedVersion.delete(oldSessionId);
+      _staleStreak.delete(oldSessionId);
+      _mergedRetry.delete(oldSessionId);
       const base = _syncedBase.get(oldSessionId);
       if (base) {
         _syncedBase.delete(oldSessionId);
@@ -995,6 +1081,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           // No origin: this is a pull, not an echo of our own push, so it
           // must apply even though we are the one who asked for it.
           null,
+          rec.updatedAt,
         );
       }
 
@@ -1020,8 +1107,10 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     }
   },
 
-  applyRemoteQueue: (sessionId, items, automation, originClientId) =>
+  applyRemoteQueue: (sessionId, items, automation, originClientId, updatedAt) =>
     set((state) => {
+      // Even our own echo says which version the server stored.
+      noteVersion(sessionId, updatedAt);
       // Our own echo. Applying it would be harmless data-wise but would mark
       // the store dirty and trigger another push, ping-ponging forever
       // between two devices. Keyed per WINDOW, not per device: another window

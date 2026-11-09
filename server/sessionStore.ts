@@ -60,6 +60,7 @@ import {
 import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
 import { nextPendingRequest, guessPendingRequest, requestCliOf } from './pendingRequests.js';
 import { nextCompacting } from './compactingState.js';
+import { nextStopHooksSince, stopHooksSettled } from './stopHooksState.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
 import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
@@ -771,7 +772,34 @@ const runtimeWatch = createRuntimeWatch({
       if (tracksRuntime(session) && runtimeSourcePath(session) === path) endTurnStoppedByUser(session, stopped);
     }
   },
+  applyToStopHooks(path, settled) {
+    for (const session of sessions.values()) {
+      if (session.stopHooksSince && runtimeSourcePath(session) === path && settled()) endStopHooks(session);
+    }
+  },
 });
+
+/** Claude's Stop hooks have finished: a prompt sent now starts at once. */
+function endStopHooks(session: Session): void {
+  if (!session.stopHooksSince) return;
+  session.stopHooksSince = null;
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+}
+
+/**
+ * After a Stop: the hooks may already be done (fast hooks finish before AASC's own MQ read),
+ * and then the transcript watcher saw the summary before there was a mark to clear.
+ */
+function checkStopHooksNow(session: Session, transcriptPath: string | undefined): void {
+  const since = session.stopHooksSince;
+  if (!since || !transcriptPath) return;
+  void readTranscriptTail(transcriptPath)
+    .then((lines) => {
+      if (lines && session.stopHooksSince === since && stopHooksSettled(lines)) endStopHooks(session);
+    })
+    .catch(() => undefined);
+}
 
 /**
  * Watch exactly the transcripts (Claude) and rollouts (Codex) of live sessions. Called
@@ -948,9 +976,11 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${session.startupCommand.slice(0,80)}`);
   }
 
-  if (hookData.cli_source) {
+  // Only a string names a CLI (a crafted POST /api/hooks can send anything): every reader below,
+  // isCodexSession among them, calls string methods on it.
+  if (typeof hookData.cli_source === 'string' && hookData.cli_source) {
     session.cliSource = hookData.cli_source;
-  } else if (!session.cliSource) {
+  } else if (!session.cliSource || typeof session.cliSource !== 'string') {
     session.cliSource = inferCliSource(session.startupCommand || session.sshCommand || session.sshConfig?.command);
   }
 
@@ -1034,6 +1064,13 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     session.compacting ?? null, hook_event_name, hookData as unknown as Record<string, unknown>, Date.now(),
   );
   if (compacting !== (session.compacting ?? null)) session.compacting = compacting;
+
+  // Claude's Stop hooks still running after Stop: a prompt sent now is held (the phone's "Finishing up").
+  const stopHooksSince = nextStopHooksSince(
+    session.stopHooksSince ?? null, hook_event_name,
+    isCodexSession(session) ? 'codex' : session.cliSource?.toLowerCase() || 'claude', Date.now(),
+  );
+  if (stopHooksSince !== (session.stopHooksSince ?? null)) session.stopHooksSince = stopHooksSince;
 
   // Every hook names the transcript, not only SessionStart: `EnterWorktree` moves a running
   // session's file into the worktree's projects folder, and a path kept from the start pointed
@@ -1289,6 +1326,11 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
           ?? session.transcriptPath,
         'prompt_id' in hookData && typeof hookData.prompt_id === 'string' ? hookData.prompt_id : undefined,
+      );
+      checkStopHooksNow(
+        session,
+        ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
+          ?? session.transcriptPath,
       );
       break;
     }
@@ -2930,6 +2972,7 @@ function endTurnStoppedByUser(session: Session, stopped: StoppedTurn): void {
   session.lastActivityAt = now;
   session.pendingRequest = nextPendingRequest(requestBefore, EVENT_TYPES.STOP, {}, requestCliOf(session.cliSource), now);
   session.compacting = nextCompacting(session.compacting ?? null, EVENT_TYPES.STOP, {}, now);
+  session.stopHooksSince = null; // the user ended the turn: no Stop hooks follow an Esc
   holdForSubagentDialog(session, EVENT_TYPES.STOP, requestBefore, statusBefore);
   session.events.push({ type: EVENT_TYPES.STOP, timestamp: now, detail: 'Stopped by you' });
   if (session.events.length > 50) session.events.shift();

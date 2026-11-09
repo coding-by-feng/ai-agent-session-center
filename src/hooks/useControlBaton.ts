@@ -1,8 +1,7 @@
 /**
  * useControlBaton — one session's control baton as seen from this device, and
- * the actions on it. Shared by the desktop lock (`SessionControlLock`) and the
- * phone's control banner (AASC-18), so the two can never disagree about who is
- * driving or when "Take control" opens.
+ * the actions on it. Shared by the phone's control banner (AASC-18) and its Chat,
+ * so they can never disagree about who is driving or when "Take control" opens.
  *
  * Modes:
  *  - `solo`       one device connected: the baton means nothing, show nothing

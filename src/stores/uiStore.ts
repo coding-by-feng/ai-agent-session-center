@@ -240,11 +240,12 @@ function loadProjectViewMode(): ProjectViewMode {
   }
 }
 
+// The session list starts as the left rail (Nov 10 2026); only a saved 'top' puts it on top.
 function loadNavPosition(): NavPosition {
   try {
-    return localStorage.getItem('nav-position') === 'left' ? 'left' : 'top';
+    return localStorage.getItem('nav-position') === 'top' ? 'top' : 'left';
   } catch {
-    return 'top';
+    return 'left';
   }
 }
 

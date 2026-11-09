@@ -18,6 +18,7 @@
   "asar": true,
   "npmRebuild": false,
   "asarUnpack": [
+    "dist/client/**",
     "node_modules/better-sqlite3/**",
     "node_modules/node-pty/**"
   ],

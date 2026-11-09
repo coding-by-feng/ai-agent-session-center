@@ -82,9 +82,21 @@ export async function listPairedPhones(signal?: AbortSignal): Promise<PairedPhon
   return (await loadPhonePairing(signal)).devices;
 }
 
-export async function approvePhone(id: string): Promise<void> {
-  const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}/approve`, { method: 'POST', headers: JSON_HEADERS });
-  await readJson(res, 'Could not approve the phone');
+export interface ApproveResult {
+  /** Older pairings of the same phone revoked with this Allow (Nov 6 2026). */
+  replaced: string[];
+  /** Named but kept: the server found them not the same phone (or gone already). */
+  skipped: string[];
+}
+
+/** Allow a pending phone; `replaces` names older pairings of the same phone to revoke once it is in. */
+export async function approvePhone(id: string, replaces: readonly string[] = []): Promise<ApproveResult> {
+  const res = await fetch(`/api/mobile/devices/${encodeURIComponent(id)}/approve`, {
+    method: 'POST', headers: JSON_HEADERS, ...(replaces.length ? { body: JSON.stringify({ replaces }) } : {}),
+  });
+  const body = await readJson<{ data?: { replaced?: unknown; skipped?: unknown } }>(res, 'Could not approve the phone');
+  const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  return { replaced: ids(body.data?.replaced), skipped: ids(body.data?.skipped) };
 }
 
 /** Deny a pending phone or revoke an approved one. */

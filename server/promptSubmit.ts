@@ -355,7 +355,8 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     // Checked again before each keystroke: an interrupt or a previous prompt may have
     // waited seconds, and the pause before Enter is one or two more.
     if (!mayType(req)) return 'stopped';
-    const typed = imagePaths.length > 0 ? `${text}\n${imagePaths.join('\n')}` : text;
+    // No text (an image-only prompt): just the paths — a leading "\n" would be a stray blank line first.
+    const typed = imagePaths.length === 0 ? text : [...(text ? [text] : []), ...imagePaths].join('\n');
     if (!deps.write(terminalId, typed)) return 'failed';
     progress.typed = true;
     await sleep(submitDelayFor(imagePaths.length));

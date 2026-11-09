@@ -30,7 +30,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
+import { isCompacting, isFinishingUp, phoneStatus } from '@/lib/chat/phoneStatus';
 import { displayStatus } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
@@ -107,7 +107,7 @@ export default function SessionListRow({
   const clock = useClock();
   const title = sessionDisplayTitle(session);
   const shown = displayStatus(session); // the P while the last answer asks you to proceed
-  const status = phoneStatus(shown, !!session.interruption, isCompacting(session)).label;
+  const status = phoneStatus(shown, !!session.interruption, isCompacting(session), isFinishingUp(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
   const cli = detectCli(session);

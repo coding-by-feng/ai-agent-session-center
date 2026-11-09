@@ -1,11 +1,16 @@
 package work.aasc.mobile;
 
+import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.WebView;
+import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
@@ -28,6 +33,10 @@ public class MainActivity extends BridgeActivity {
         // The app switcher never shows a terminal (AASC-22, RELEASE row 7). Android 13+ has a switch
         // for exactly that (screenshots still work); older versions are covered in onPause.
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false);
+        // The file view's Download button (Nov 7 2026): the Mac's file route goes to Downloads (DownloadRules).
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().setDownloadListener(this::onDownload);
+        }
         // Added after the plugins (super), so it is asked first: on a Mac's page the page decides
         // (BackRules, AASC-48); the shell and an older Mac UI get Capacitor's own back.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -45,6 +54,27 @@ public class MainActivity extends BridgeActivity {
                 });
             }
         });
+    }
+
+    /** A download from the WebView: only a Mac page's own file route, saved by DownloadManager with the page's cookie. */
+    private void onDownload(String url, String userAgent, String contentDisposition, String mimeType, long length) {
+        WebView web = getBridge() == null ? null : getBridge().getWebView();
+        if (web == null || !DownloadRules.INSTANCE.accepts(url, web.getUrl(), getBridge().getLocalUrl())) return;
+        String name = DownloadRules.INSTANCE.fileName(contentDisposition, "download");
+        try {
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null) request.addRequestHeader("Cookie", cookie);
+            if (userAgent != null) request.addRequestHeader("User-Agent", userAgent);
+            if (mimeType != null && !mimeType.isEmpty()) request.setMimeType(mimeType);
+            request.setTitle(name);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            manager.enqueue(request);
+        } catch (Exception e) {
+            Toast.makeText(this, "Couldn't save " + name, Toast.LENGTH_LONG).show();
+        }
     }
 
     /** Hand a back to the handler under `own` (Capacitor's App plugin: the WebView's history). */

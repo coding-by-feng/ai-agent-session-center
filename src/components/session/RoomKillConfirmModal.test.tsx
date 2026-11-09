@@ -132,23 +132,20 @@ describe('RoomKillConfirmModal', () => {
     expect(deletes).toEqual(['/api/terminals/t-a']); // only the one with a terminalId
   });
 
-  it('closes the canonical Electron PTY returned for a stale aliased card', async () => {
-    const killPty = vi.fn().mockResolvedValue({ ok: true });
-    window.electronAPI = { killPty } as unknown as typeof window.electronAPI;
-    const fetchMock = stubFetch(new Set(), new Set(), new Map([['stale', 'pty-current']]));
+  it('closes the canonical terminal returned for a stale aliased card', async () => {
+    const fetchMock = stubFetch(new Set(), new Set(), new Map([['stale', 'term-current']]));
     vi.stubGlobal('fetch', fetchMock);
     seed({
-      sessions: [mk({ sessionId: 'stale', terminalId: 'pty-old' })],
+      sessions: [mk({ sessionId: 'stale', terminalId: 'term-old' })],
       roomSessionIds: ['stale'],
     });
     render(<RoomKillConfirmModal />);
     await clickAndSettle('KILL 1');
 
-    expect(killPty).toHaveBeenCalledWith('pty-current');
     const deletes = fetchMock.mock.calls
       .filter(([, options]) => (options as RequestInit)?.method === 'DELETE')
       .map(([url]) => url);
-    expect(deletes).toEqual(['/api/terminals/pty-current']);
+    expect(deletes).toEqual(['/api/terminals/term-current']);
   });
 
   it('reports a success summary when all die', async () => {

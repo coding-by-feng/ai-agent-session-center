@@ -11,11 +11,8 @@
  * Electron main process. Rings now start at INITIAL_RING_BYTES and double toward
  * the cap only as output actually arrives.
  *
- * NOTE: duplicated verbatim in `electron/ptyRing.ts`. The Electron main process
- * (tsconfig rootDir `electron`) and the server bundle (tsconfig include
- * `server`) cannot import across each other's roots, and `src/types` is not
- * visible to the Electron build either. `test/ptyRing.test.ts` runs one suite
- * against both copies so they cannot drift.
+ * The only copy since the Electron IPC PTY host and its `electron/ptyRing.ts`
+ * twin were removed (Nov 2026). `test/ptyRing.test.ts` covers it.
  */
 
 export interface RingState {

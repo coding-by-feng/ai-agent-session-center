@@ -33,6 +33,9 @@ import { useComposerDraftStore, type ComposerSheetRequest } from '@/stores/compo
 import { DEFAULT_AUTOMATION, useQueueStore, type QueueImageAttachment, type QueueItem } from '@/stores/queueStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useSessionStore } from '@/stores/sessionStore';
+import { agentProgress, type AgentProgress } from '@/lib/agentFlow';
 import { getClientId } from '@/lib/deviceIdentity';
 import { detectCli } from '@/lib/cliDetect';
 import { entryToken, type CommandEntry } from '@/lib/commandIndex';
@@ -64,7 +67,7 @@ import { sendStatusLine, usePromptSender, type OutgoingMessage } from './useProm
 import { useDriverName } from './useDriverName';
 import { useComposerVideos } from './useComposerVideos';
 import ComposerVideoChip from './ComposerVideoChip';
-import { AtIcon, CameraIcon, CommandsIcon, VideoIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
+import { AgentsDoneIcon, AgentsIcon, AtIcon, CameraIcon, CommandsIcon, VideoIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ComposerProps {
@@ -115,6 +118,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const windowOpen = macWindowOpen({ received, workspaceWriter, devices }, getClientId());
   const queueItems = useQueueStore((s) => s.queues.get(sessionId) ?? NO_ITEMS);
   const queued = queueItems.length;
+  // This turn's subagents and live teammates, for the agents chip (Nov 8 2026).
+  const agents = useSessionStore(useShallow((s) => agentProgress(s.sessions.get(sessionId), s.sessions)));
   const automation = useQueueStore((s) => s.automation.get(sessionId) ?? DEFAULT_AUTOMATION);
   const waiting = queueWaiting(queueItems, automation);
   const sender = usePromptSender(sessionId);
@@ -157,7 +162,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     macWindowOpen: windowOpen,
     queueWaiting: waiting,
   };
-  const decision = composerAction({ ...actionInput, hasContent: text.trim() !== '' });
+  // A photo is a prompt on its own (Nov 8 2026): it types just the image path. Videos still need text.
+  const hasContent = text.trim() !== '' || images.length > 0;
+  const decision = composerAction({ ...actionInput, hasContent });
   const sending = sender.state.phase === 'sending';
   // The quick reply always has text: it goes the way the main button would send it, but never as a
   // card's answer ("Deny and tell Claude" would deny the tool call with a "proceed").
@@ -243,7 +250,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   }, [sender, session.pendingRequest, sessionId, setDraft, cli]);
 
   const submit = useCallback((how: 'send' | 'send-now' | 'queue' | 'deny-and-tell' = decision.action) => {
-    if (sending || fieldOff || text.trim() === '') return;
+    if (sending || fieldOff || !hasContent) return;
     if (how === decision.action && !decision.canSend) return;
     if (media.uploading) {
       showToast('Wait for the video to finish uploading.', 'info');
@@ -258,7 +265,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     setDraft(sessionId, '');
     setImages([]);
     void deliver(message, how);
-  }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, media, sessionId, setDraft, deliver]);
+  }, [decision.action, decision.canSend, sending, fieldOff, hasContent, text, cli, images, media, sessionId, setDraft, deliver]);
 
   // While another device drives, or the session has ended or is still starting,
   // the Mac would refuse a /model too: the chip is off and says why.
@@ -389,6 +396,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     if (parsePhonePath(path)) nav.push(path);
     else nav.switchTab('queue');
   };
+  const openAgents = () => usePhoneNavStore.getState().showSegment(sessionId, 'agents', true);
 
   // Stable handlers for the sheets (they re-render with every session update).
   const triggerStart = sheet && (sheet.type === 'command' || sheet.type === 'file') ? sheet.start : null;
@@ -568,7 +576,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
       {/* Under the box (Oct 30 2026): queue count, model and usage sit in the strip above the
           home indicator instead of between the working line and the box. */}
-      {(queued > 0 || modelLabel || usage.chip) && (
+      {(queued > 0 || agents.total > 0 || modelLabel || usage.chip) && (
         <div className={styles.chips}>
           {queued > 0 && (
             // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
@@ -576,6 +584,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
               <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
             </button>
           )}
+          {agents.total > 0 && <AgentsChip progress={agents} onOpen={openAgents} />}
           {modelLabel && (
             <button
               type="button"
@@ -691,5 +700,34 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         onCancel={cancelConfirm}
       />
     </div>
+  );
+}
+
+/**
+ * The agents chip (Nov 8 2026): "⟳ 2 · 1/3 ›" while agents work (running, then finished of this
+ * turn's total), "✓ 3 ›" once all have finished. Opens the session's Agents tab.
+ */
+function AgentsChip({ progress, onOpen }: { progress: AgentProgress; onOpen: () => void }) {
+  const { running, finished, total } = progress;
+  const working = running > 0;
+  const label = working
+    ? `${running} agent${running === 1 ? '' : 's'} running, ${finished} of ${total} finished: open Agents`
+    : `${total === 1 ? 'The agent' : `All ${total} agents`} finished: open Agents`;
+  return (
+    <button
+      type="button"
+      className={`${styles.chip} ${styles.agentsChip}`}
+      data-state={working ? 'running' : 'done'}
+      onClick={onOpen}
+      aria-label={label}
+    >
+      {working ? (
+        <span className={styles.agentsGlyph}><AgentsIcon /><span className={styles.agentsSpin} aria-hidden="true" /></span>
+      ) : (
+        <AgentsDoneIcon />
+      )}
+      <span>{working ? `${running} · ${finished}/${total}` : total}</span>
+      <ChevronRightIcon />
+    </button>
   );
 }

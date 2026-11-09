@@ -1,16 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import * as serverRing from '../server/ptyRing.js';
-import * as electronRing from '../electron/ptyRing.js';
 
-/**
- * The ring is duplicated across the Electron main process and the server bundle
- * because their tsconfig roots cannot see each other. Running the same suite
- * against both copies is what stops them drifting — change one and this fails
- * until you change the other.
- */
+/** One copy since the Electron IPC PTY host (and its `electron/ptyRing.ts`) went in Nov 2026. */
 const IMPLS = [
   ['server/ptyRing', serverRing],
-  ['electron/ptyRing', electronRing],
 ] as const;
 
 const KB = 1024;
@@ -209,39 +202,5 @@ describe.each(IMPLS)('%s', (_name, ring) => {
       ringReset(r, preload);
       expect(ringSnapshot(r).equals(preload.subarray(preload.length - cap))).toBe(true);
     });
-  });
-});
-
-describe('ring parity across the two copies', () => {
-  it('agrees on capacity for every sampled input', () => {
-    const caps = [16 * KB, 256 * KB, 2 * MB, 32 * MB];
-    const sizes = [0, 1, 64 * KB, 128 * KB, 1 * MB, 32 * MB];
-    for (const cap of caps) {
-      expect(electronRing.initialRingBytes(cap)).toBe(serverRing.initialRingBytes(cap));
-      for (const current of sizes) {
-        for (const needed of sizes) {
-          expect(electronRing.nextRingCapacity(current, needed, cap))
-            .toBe(serverRing.nextRingCapacity(current, needed, cap));
-        }
-      }
-    }
-  });
-
-  it('produces identical buffers for an identical write sequence', () => {
-    const s = serverRing.createRing(128 * KB);
-    const e = electronRing.createRing(128 * KB);
-    for (let i = 0; i < 60; i++) {
-      const c = fill(5 * KB, i);
-      serverRing.ringWrite(s, c);
-      electronRing.ringWrite(e, c);
-    }
-    expect(e.buf.length).toBe(s.buf.length);
-    expect(e.offset).toBe(s.offset);
-    expect(e.wrapped).toBe(s.wrapped);
-    expect(electronRing.ringSnapshot(e).equals(serverRing.ringSnapshot(s))).toBe(true);
-  });
-
-  it('shares the same starting size', () => {
-    expect(electronRing.INITIAL_RING_BYTES).toBe(serverRing.INITIAL_RING_BYTES);
   });
 });

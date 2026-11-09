@@ -30,33 +30,6 @@ export interface InstallResult {
   error?: string
 }
 
-export interface PtyCreateConfig {
-  workingDir?: string
-  command?: string
-  label?: string
-  sessionTitle?: string
-  apiKey?: string
-  enableOpsTerminal?: boolean
-  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
-  effortLevel?: string
-  /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
-  model?: string
-  /** Run `/remote-control <name>` automatically after Claude Code starts. */
-  remoteControlName?: string
-}
-
-export interface PtyCreateResult {
-  ok: boolean
-  terminalId?: string
-  error?: string
-}
-
-export interface PtySubscribeResult {
-  ok: boolean
-  buffer?: string | null
-  error?: string
-}
-
 export interface ElectronAPI {
   platform: 'darwin' | 'win32'
 
@@ -77,20 +50,6 @@ export interface ElectronAPI {
   onBeforeClose(cb: () => Promise<void>): () => void
   closeReady():       void
   quitApp():          void
-
-  // PTY terminal IPC (VS Code-style direct PTY management)
-  // Optional — only available when Electron ptyHost is active
-  createPty?(config: PtyCreateConfig):                    Promise<PtyCreateResult>
-  writePty?(terminalId: string, data: string):            void
-  resizePty?(terminalId: string, cols: number, rows: number): void
-  killPty?(terminalId: string):                           Promise<{ ok: boolean }>
-  subscribePty?(terminalId: string):                      Promise<PtySubscribeResult>
-  unsubscribePty?(terminalId: string):                    void
-  hasPty?(terminalId: string):                            Promise<boolean>
-  /** Set the scrollback replay buffer size (bytes) for newly created PTYs. */
-  setPtyReplayBuffer?(bytes: number):                     void
-  onPtyData?(cb: (terminalId: string, base64Data: string) => void): () => void
-  onPtyExit?(cb: (terminalId: string, exitCode: number, signal: number) => void): () => void
 
   // Pop a floating terminal out into its own native window (draggable to another
   // monitor). Optional — only present under Electron.
@@ -119,6 +78,12 @@ export interface ElectronAPI {
    *  so the main window can deselect back to the session list. Returns an
    *  unsubscribe fn. Electron-only. */
   onReturnToList?(cb: () => void): () => void
+
+  /** Show a system notification for one session (Nov 8 2026: a "proceed" owed). Clicking it brings the
+   *  main window forward and fires `onOpenSession` there. Main window only; Electron-only. */
+  notify?(notice: { sessionId: string; title: string; body: string }): Promise<{ ok: boolean }>
+  /** Fires (in the main window) when one of its notifications is clicked. Returns an unsubscribe fn. */
+  onOpenSession?(cb: (sessionId: string) => void): () => void
 
   /** Open the native OS folder picker and resolve to the chosen absolute
    *  directory path, or null if the user cancelled. Electron-only — the browser

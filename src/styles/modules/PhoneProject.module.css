@@ -429,12 +429,18 @@
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
+  /* 4px, not 8: a Markdown file's Source bar (Find, Rendered/Source, Wrap, Download, Full screen)
+     must fit a 390px phone. Narrower than that it scrolls sideways rather than cut a button off. */
+  gap: 4px;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-panel);
 }
+.fileBar::-webkit-scrollbar { display: none; }
+.fileBar .segmentBtn { padding: 0 8px; }
 .fileMeta {
   flex: 1 1 auto;
   min-width: 0;

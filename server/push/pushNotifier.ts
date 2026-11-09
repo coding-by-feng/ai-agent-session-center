@@ -97,16 +97,20 @@ export function createPushNotifier(deps: PushNotifierDeps) {
     if (!stillApplies(kind, viewOf(live))) return;
     if (live.muted) return;
     if (!deps.canNotify(live)) return;
-    const sentAt = lastSent.get(key);
-    if (sentAt !== undefined && now() - sentAt < cooldownMs(kind)) return;
+    // A turn whose answer asks for "proceed" (the amber P) is waiting on the user, not just finished. Decided on the
+    // live session, so a proceed read off the transcript after the Stop (150 / 600 ms retries) still counts.
+    const sendAs: PushKind = kind === 'finished' && live.pendingProceedAt ? 'input' : kind;
+    const sentKey = `${sessionId}:${sendAs}`;
+    const sentAt = lastSent.get(sentKey);
+    if (sentAt !== undefined && now() - sentAt < cooldownMs(sendAs)) return;
     const sink = deps.sink();
     if (!sink) return;
-    const message = buildPushMessage(kind, live, randomUUID());
+    const message = buildPushMessage(sendAs, sendAs === kind ? live : { ...live, pendingTool: null }, randomUUID());
     if (!message) return;
-    lastSent.set(key, now());
+    lastSent.set(sentKey, now());
     sink.notify(message).catch((err: unknown) => {
       // Never the title or session content in a log line.
-      deps.onError?.(`push ${kind} failed: ${err instanceof Error ? err.message : String(err)}`);
+      deps.onError?.(`push ${sendAs} failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   }
 
