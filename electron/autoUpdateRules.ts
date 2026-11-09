@@ -13,7 +13,30 @@ export const UPDATE_REPO = { owner: 'coding-by-feng', repo: 'ai-agent-session-ce
 export const FIRST_CHECK_DELAY_MS = 30_000
 export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
-export const UPDATE_PREFS_FILE = 'auto-update.json'
+/** Per edition: Lite shares Full's data folder, so one shared file would let Lite's switch turn Full's off. */
+export function updatePrefsFile(edition: DesktopEdition): string {
+  return edition === 'lite' ? 'auto-update-lite.json' : 'auto-update.json'
+}
+
+/**
+ * The download cache folder (under ~/Library/Caches). electron-builder derives it from the package name, which
+ * Lite shares with Full on purpose, so both would use one folder and each edition's check would empty the
+ * other's pending download (a checksum mismatch clears it). Each edition gets its own.
+ */
+export function updaterCacheDirName(edition: DesktopEdition): string {
+  return edition === 'lite' ? 'ai-agent-session-center-lite-updater' : 'ai-agent-session-center-updater'
+}
+
+/** The `app-update.yml` the updater reads for its cache folder (the feed itself is set in code). */
+export function updateConfigYaml(edition: DesktopEdition): string {
+  return [
+    'provider: github',
+    `owner: ${UPDATE_REPO.owner}`,
+    `repo: ${UPDATE_REPO.repo}`,
+    `updaterCacheDirName: ${updaterCacheDirName(edition)}`,
+    '',
+  ].join('\n')
+}
 
 export type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'error'
 
@@ -37,9 +60,12 @@ export function updateChannel(edition: DesktopEdition): 'latest' | 'lite' {
   return edition === 'lite' ? 'lite' : 'latest'
 }
 
-/** Only a packaged Mac app can update itself: Squirrel.Mac needs a signed .app; Windows and Linux builds are unsigned. */
-export function updaterSupported(isPackaged: boolean, platform: NodeJS.Platform): boolean {
-  return isPackaged && platform === 'darwin'
+/**
+ * Only a packaged Apple-silicon Mac app updates itself: Squirrel.Mac needs a signed .app (Windows and Linux builds
+ * are unsigned), and releases publish only the arm64 zip, so an Intel build would fail every check.
+ */
+export function updaterSupported(isPackaged: boolean, platform: NodeJS.Platform, arch: string): boolean {
+  return isPackaged && platform === 'darwin' && arch === 'arm64'
 }
 
 /**

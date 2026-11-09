@@ -15,7 +15,6 @@ import type { DesktopEdition } from './edition.js'
 import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
-  UPDATE_PREFS_FILE,
   UPDATE_REPO,
   parseUpdatePrefs,
   readyNotice,
@@ -23,6 +22,8 @@ import {
   serializeUpdatePrefs,
   testFeedUrl,
   updateChannel,
+  updateConfigYaml,
+  updatePrefsFile,
   updaterSupported,
   type UpdateState,
 } from './autoUpdateRules.js'
@@ -34,6 +35,8 @@ interface StartOptions {
   shutdown: () => Promise<void>
   /** Called whenever the state changes, e.g. to rebuild the app menu. */
   onChange: () => void
+  /** Shows and focuses the main window (it may be hidden in the tray) so a dialog on it can be seen. */
+  showMainWindow: () => BrowserWindow | null
 }
 
 type Updater = typeof import('electron-updater').autoUpdater
@@ -44,8 +47,10 @@ let state: UpdateState = { status: 'idle', autoCheck: true }
 let timer: NodeJS.Timeout | null = null
 /** Set while a check started from the menu runs, so its result is shown in a dialog. */
 let manualCheck = false
+/** Set once Restart Now is confirmed: a second confirmation must not run the install twice. */
+let installing = false
 
-const prefsPath = (): string => path.join(app.getPath('userData'), UPDATE_PREFS_FILE)
+const prefsPath = (): string => path.join(app.getPath('userData'), updatePrefsFile(options?.edition ?? 'full'))
 
 function readPrefs() {
   try {
@@ -63,12 +68,14 @@ function setState(next: Partial<UpdateState>): void {
   options?.onChange()
 }
 
-function mainWindow(): BrowserWindow | undefined {
-  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+/** The window to attach a dialog to, shown first: a dialog on a window hidden in the tray can't be answered. */
+function dialogWindow(): BrowserWindow | null {
+  const win = options?.showMainWindow() ?? null
+  return win && !win.isDestroyed() && win.isVisible() ? win : null
 }
 
 async function showMessage(message: string, detail?: string, type: 'info' | 'error' = 'info'): Promise<void> {
-  const win = mainWindow()
+  const win = dialogWindow()
   const box = { type, message, detail, buttons: ['OK'] }
   await (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box))
 }
@@ -98,7 +105,9 @@ export async function checkForUpdates(manual: boolean): Promise<void> {
   }
   manualCheck = manual
   try {
-    await updater.checkForUpdates()
+    // The download runs on after the check resolves; its failure is reported by the 'error' listener.
+    const result = await updater.checkForUpdates()
+    result?.downloadPromise?.catch(() => {})
   } catch (err) {
     // The 'error' listener reports it.
     logMainError(`[update] check failed: ${errorText(err)}`)
@@ -107,14 +116,21 @@ export async function checkForUpdates(manual: boolean): Promise<void> {
 
 /** Ask, save the workspace, then quit and install. "Later" leaves the update to install on the next quit. */
 export async function restartToUpdate(): Promise<void> {
-  if (!updater || !options || state.status !== 'ready' || !state.version) return
+  if (!updater || !options || installing || state.status !== 'ready' || !state.version) return
   const { message, detail } = restartPrompt(options.appName, state.version)
-  const win = mainWindow()
+  const win = dialogWindow()
   const box = { type: 'question' as const, message, detail, buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1 }
   const { response } = await (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box))
-  if (response !== 0) return
+  if (response !== 0 || installing) return
+  installing = true
   await options.shutdown()
-  updater.quitAndInstall()
+  try {
+    updater.quitAndInstall()
+  } catch (err) {
+    // The server and terminals are already stopped: quit rather than sit in the tray with nothing behind it.
+    logMainError(`[update] install failed: ${errorText(err)}`)
+    app.quit()
+  }
 }
 
 function setAutoCheck(autoCheck: boolean): void {
@@ -180,6 +196,11 @@ function attachListeners(u: Updater, appName: string): void {
   })
   u.on('error', (err) => {
     logMainError(`[update] ${errorText(err)}`)
+    if (installing) {
+      // Squirrel refused the install after the shutdown (e.g. a signature mismatch): don't leave a dead app.
+      app.quit()
+      return
+    }
     setState({ status: 'error', error: errorText(err), percent: undefined })
     if (manualCheck) void showMessage('Couldn’t check for updates.', errorText(err), 'error')
     manualCheck = false
@@ -206,7 +227,7 @@ export function startAutoUpdate(opts: StartOptions): void {
   state = { status: 'idle', autoCheck: readPrefs().autoCheck }
   // Registered everywhere so the window's update banner gets an answer (always idle) in dev and off-Mac.
   registerIpc()
-  if (!updaterSupported(app.isPackaged, process.platform)) return
+  if (!updaterSupported(app.isPackaged, process.platform, process.arch)) return
 
   try {
     const { autoUpdater } = require('electron-updater') as typeof import('electron-updater')
@@ -221,6 +242,15 @@ export function startAutoUpdate(opts: StartOptions): void {
     debug: () => {},
     warn: (m: unknown) => logMainError(`[update] ${String(m)}`),
     error: (m: unknown) => logMainError(`[update] ${String(m)}`),
+  }
+  // electron-builder's app-update.yml names one cache folder for both editions (they share the package
+  // name); point each edition at its own config so neither empties the other's download.
+  try {
+    const configPath = path.join(app.getPath('userData'), `app-update-${opts.edition}.yml`)
+    writeFileSync(configPath, updateConfigYaml(opts.edition))
+    u.updateConfigPath = configPath
+  } catch (err) {
+    logMainError(`[update] could not write the update config: ${errorText(err)}`)
   }
   const feed = testFeedUrl(process.env)
   const channel = updateChannel(opts.edition)

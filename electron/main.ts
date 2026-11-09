@@ -558,6 +558,12 @@ app.whenReady().then(async () => {
     appName: desktopAppName(edition),
     shutdown: gracefulShutdown,
     onChange: () => { if (!win.isDestroyed()) buildAppMenu(win) },
+    showMainWindow: () => {
+      if (win.isDestroyed()) return null
+      win.show()
+      win.focus()
+      return win
+    },
   })
 
   if (!isDev) {
@@ -715,6 +721,7 @@ function buildAppMenu(win: BrowserWindow) {
 // Graceful shutdown: notify renderer to save workspace, then shut down server.
 // This runs BEFORE windows close, so the server is still alive.
 let isQuitting = false
+let shutdownPromise: Promise<void> | null = null
 app.on('before-quit', async (e) => {
   if (isQuitting) return
   e.preventDefault()
@@ -727,8 +734,13 @@ app.on('before-quit', async (e) => {
  * before-quit; "Restart to Install" calls it before handing the quit to the updater, after which
  * before-quit sees `isQuitting` and lets the quit through.
  */
-async function gracefulShutdown(): Promise<void> {
-  if (isQuitting) return
+function gracefulShutdown(): Promise<void> {
+  // A second caller waits for the shutdown already running instead of racing past the workspace save.
+  shutdownPromise ??= runShutdown()
+  return shutdownPromise
+}
+
+async function runShutdown(): Promise<void> {
   isQuitting = true
 
   // Tell renderer to save workspace — wait up to 5s for it to finish
