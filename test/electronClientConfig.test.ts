@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { CLIENT_DATA_FOLDER } from '../electron/clientEdition.js';
 import viteHome from '../vite.config.client-home';
 
@@ -136,12 +137,13 @@ describe('what a Client may ask of the system', () => {
 
 describe('which file the fuses are set on', () => {
   const packager = { appInfo: { productFilename: 'AI Agent Session Center Full Client' }, executableName: 'ai-agent-session-center-full-client' };
+  // path.join gives `\` on a Windows runner (the release workflow runs this test there too).
   it.each([
-    ['darwin', 'out/AI Agent Session Center Full Client.app'],
-    ['win32', 'out/AI Agent Session Center Full Client.exe'],
-    ['linux', 'out/ai-agent-session-center-full-client'],
-  ])('on %s', (electronPlatformName, expected) => {
-    expect(electronBinary({ appOutDir: 'out', electronPlatformName, packager })).toBe(expected);
+    ['darwin', 'AI Agent Session Center Full Client.app'],
+    ['win32', 'AI Agent Session Center Full Client.exe'],
+    ['linux', 'ai-agent-session-center-full-client'],
+  ])('on %s', (electronPlatformName, file) => {
+    expect(electronBinary({ appOutDir: 'out', electronPlatformName, packager })).toBe(join('out', file));
   });
 });
 
