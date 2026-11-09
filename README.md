@@ -26,6 +26,8 @@ Download from the [latest release](https://github.com/coding-by-feng/ai-agent-se
 
 **Full or Lite?** Each comes in two editions. Lite is the focused one: terminals, session switching, history, project files, the prompt queue, AI popups, status and alerts, plus sign-in and phone access. Full adds everything under [Features](#features). Both use the same data, so quit one before opening the other.
 
+**Only connecting to another computer?** Install **Full Client** or **Lite Client** instead. They run no server, terminals or hooks: they pair with another computer's AASC and show its dashboard with the Full or Lite look. Same file types as above, with `Full.Client` or `Lite.Client` in the name, and they can run beside Full or Lite.
+
 - **macOS:** drag the app into **Applications** and open it. It is signed with a Developer ID and notarized by Apple, so macOS asks once whether to open an app downloaded from the internet: click **Open**. Versions before v2.10.73 weren't, and macOS called them **"damaged"**; for one of those, click **Cancel**, then run `xattr -cr "/Applications/AI Agent Session Center.app"` in Terminal. On an Intel Mac, run AASC [from source](#from-source-any-os-with-nodejs-2212).
 - **Windows:** run the installer. It isn't code-signed, so if SmartScreen says *Windows protected your PC*, choose **More info → Run anyway**.
 - **Linux:** `chmod +x` the AppImage and run it; if it doesn't start, install FUSE 2 (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04). On Debian or Ubuntu you can install the package instead: `sudo apt install ./<file>.deb`.

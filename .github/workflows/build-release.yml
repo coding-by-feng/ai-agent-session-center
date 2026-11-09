@@ -57,6 +57,48 @@ jobs:
             edition: lite
             output: dist/lite
             artifact: release-lite-linux
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:full-client:mac
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:full-client:win
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:full-client:linux
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-linux
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:lite-client:mac
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:lite-client:win
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:lite-client:linux
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-linux
     runs-on: ${{ matrix.runner }}
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -85,7 +127,7 @@ jobs:
         run: npm run typecheck:all
 
       - name: Test release artifact verification
-        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts test/electronEdition.test.ts test/electronLiteConfig.test.ts test/liteBundleCheck.test.ts test/electronOpenAppHelper.test.ts
+        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts test/electronEdition.test.ts test/electronLiteConfig.test.ts test/electronClientConfig.test.ts test/liteBundleCheck.test.ts test/electronOpenAppHelper.test.ts
 
       - name: Build without publishing
         run: npm run ${{ matrix.command }} -- --publish never

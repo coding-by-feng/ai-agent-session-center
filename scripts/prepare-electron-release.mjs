@@ -4,14 +4,16 @@ import { createReadStream } from 'node:fs';
 import { readFile, mkdir, link, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-if (!process.argv[2]) throw new Error('Usage: node scripts/prepare-electron-release.mjs <build-directory-with-mac-win-linux-and-lite-mac-win-linux>');
+if (!process.argv[2]) throw new Error('Usage: node scripts/prepare-electron-release.mjs <build-directory with <edition->mac|win|linux folders for full, lite, full-client and lite-client>');
 const root = path.resolve(process.argv[2]);
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const platforms = ['mac', 'win', 'linux'];
-const sets = platforms.flatMap(platform => [
-  { platform, edition: 'full', folder: platform, checksums: `SHA256SUMS-${platform}.txt` },
-  { platform, edition: 'lite', folder: `lite-${platform}`, checksums: `SHA256SUMS-${platform}-lite.txt` },
-]);
+// Every release ships four editions on three platforms. Full's folder and checksum file carry no edition name.
+const editions = ['full', 'lite', 'full-client', 'lite-client'];
+const sets = editions.flatMap(edition => platforms.map(platform => edition === 'full'
+  ? { platform, edition, folder: platform, checksums: `SHA256SUMS-${platform}.txt` }
+  : { platform, edition, folder: `${edition}-${platform}`, checksums: `SHA256SUMS-${platform}-${edition}.txt` }));
+const BINARIES = editions.length * 5; // per edition: Mac dmg + zip, Windows exe, Linux AppImage + deb
 const verified = [];
 // Verify the entire set before creating an upload directory; a missing platform or edition cannot become a partial release.
 for (const { platform, edition, folder, checksums } of sets) {
@@ -24,7 +26,7 @@ for (const { platform, edition, folder, checksums } of sets) {
     verified.push({ platform, edition, checksums, source: path.join(directory, match[2]), name: match[2].replaceAll(' ', '.'), sha256: match[1] });
   }
 }
-if (verified.length !== 10 || new Set(verified.map(file => file.name)).size !== 10) throw new Error('Expected ten distinct release binaries');
+if (verified.length !== BINARIES || new Set(verified.map(file => file.name)).size !== BINARIES) throw new Error(`Expected ${BINARIES} distinct release binaries`);
 const upload = path.join(root, 'upload');
 await mkdir(upload); // A version's staged assets are immutable; never silently mix in a previous run.
 const assets = [];
@@ -37,7 +39,7 @@ for (const { checksums } of sets) {
   await writeFile(path.join(upload, checksums), verified.filter(file => file.checksums === checksums).map(file => `${file.sha256}  ${file.name}\n`).join(''));
 }
 
-// The Mac auto-updater (electron/autoUpdate.ts) reads `latest-mac.yml` (Full) or `lite-mac.yml` (Lite) from the
+// The Mac auto-updater (electron/autoUpdate.ts, Full and Lite only: the Clients have none) reads `latest-mac.yml` (Full) or `lite-mac.yml` (Lite) from the
 // latest release and downloads the zip it names. Written here, not taken from electron-builder: its copy names the
 // zip with dashes, but GitHub serves it with dots, and the DMG is stapled after the build, so only the staged bytes
 // and public names are trustworthy.
@@ -66,4 +68,4 @@ for (const { edition, file } of [{ edition: 'full', file: 'latest-mac.yml' }, { 
   updateFiles.push({ edition, file, zip: zip.name, sha512: digest });
 }
 await writeFile(path.join(root, 'release-assets.json'), JSON.stringify({ version, upload, assets, updateFiles }, null, 2) + '\n');
-console.log(`Ready to publish ${version}: ten binaries, six checksum files and two Mac update files in ${upload}`);
+console.log(`Ready to publish ${version}: ${BINARIES} binaries, ${sets.length} checksum files and two Mac update files in ${upload}`);
