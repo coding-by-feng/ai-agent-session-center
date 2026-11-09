@@ -6,7 +6,7 @@
 //   node scripts/notarize-mac-dmg.mjs <file.dmg> [more.dmg…]
 //
 // Credentials: the notarytool keychain profile in APPLE_KEYCHAIN_PROFILE (default `aasc-notary`).
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 const dmgs = process.argv.slice(2);
@@ -15,12 +15,10 @@ if (process.platform !== 'darwin') throw new Error('Notarization needs macOS (xc
 const profile = process.env.APPLE_KEYCHAIN_PROFILE || 'aasc-notary';
 
 const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+// codesign, spctl and stapler report on stderr even when they succeed, so read both streams.
 const runAll = (cmd, args) => {
-  try {
-    return run(cmd, args);
-  } catch (err) {
-    return `${err.stdout ?? ''}${err.stderr ?? ''}`;
-  }
+  const result = spawnSync(cmd, args, { encoding: 'utf8' });
+  return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 };
 
 for (const dmg of dmgs) {
