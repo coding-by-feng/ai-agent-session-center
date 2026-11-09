@@ -1,0 +1,83 @@
+/* "Update ready" card (UpdateReadyBanner.tsx): bottom-right, clear of the top-right toasts. Fixed, so it
+   never shifts the layout; capped to the viewport so a narrow window can't push it off-screen. */
+.card {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: update-in 0.2s ease;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.body {
+  margin: 0 0 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.primary,
+.secondary {
+  min-height: 32px;
+  padding: 4px 16px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.primary {
+  background: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
+  color: var(--bg-panel);
+}
+
+.primary:hover { filter: brightness(1.1); }
+.primary:active { filter: brightness(0.9); }
+
+.secondary {
+  background: transparent;
+  border: 1px solid var(--border-subtle-strong);
+  color: var(--text-secondary);
+}
+
+.secondary:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.secondary:active { background: var(--bg-accent); }
+
+.primary:focus-visible,
+.secondary:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+
+@media (pointer: coarse) {
+  .primary,
+  .secondary { min-height: 44px; }
+}
+
+@keyframes update-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; }
+}

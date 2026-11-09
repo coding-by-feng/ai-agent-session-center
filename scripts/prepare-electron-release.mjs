@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readFile, mkdir, link, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -34,5 +36,34 @@ for (const file of verified) {
 for (const { checksums } of sets) {
   await writeFile(path.join(upload, checksums), verified.filter(file => file.checksums === checksums).map(file => `${file.sha256}  ${file.name}\n`).join(''));
 }
-await writeFile(path.join(root, 'release-assets.json'), JSON.stringify({ version, upload, assets }, null, 2) + '\n');
-console.log(`Ready to publish ${version}: ten binaries and six checksum files in ${upload}`);
+
+// The Mac auto-updater (electron/autoUpdate.ts) reads `latest-mac.yml` (Full) or `lite-mac.yml` (Lite) from the
+// latest release and downloads the zip it names. Written here, not taken from electron-builder: its copy names the
+// zip with dashes, but GitHub serves it with dots, and the DMG is stapled after the build, so only the staged bytes
+// and public names are trustworthy.
+async function sha512(file) {
+  const hash = createHash('sha512');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('base64');
+}
+const updateFiles = [];
+for (const { edition, file } of [{ edition: 'full', file: 'latest-mac.yml' }, { edition: 'lite', file: 'lite-mac.yml' }]) {
+  const zip = assets.find(asset => asset.platform === 'mac' && asset.edition === edition && asset.name.endsWith('-arm64-mac.zip'));
+  if (!zip) throw new Error(`No Mac zip for ${edition}: the auto-update file needs one`);
+  const digest = await sha512(zip.path);
+  const yml = [
+    `version: ${version}`,
+    'files:',
+    `  - url: ${zip.name}`,
+    `    sha512: ${digest}`,
+    `    size: ${zip.bytes}`,
+    `path: ${zip.name}`,
+    `sha512: ${digest}`,
+    `releaseDate: '${new Date().toISOString()}'`,
+    '',
+  ].join('\n');
+  await writeFile(path.join(upload, file), yml);
+  updateFiles.push({ edition, file, zip: zip.name, sha512: digest });
+}
+await writeFile(path.join(root, 'release-assets.json'), JSON.stringify({ version, upload, assets, updateFiles }, null, 2) + '\n');
+console.log(`Ready to publish ${version}: ten binaries, six checksum files and two Mac update files in ${upload}`);

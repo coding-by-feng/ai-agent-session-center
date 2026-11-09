@@ -1,4 +1,4 @@
-import { Tray, Menu, app, BrowserWindow, nativeImage, shell } from 'electron'
+import { Tray, Menu, app, BrowserWindow, nativeImage, shell, autoUpdater } from 'electron'
 import path from 'path'
 import { getCrashLogPath } from './crashLogger.js'
 
@@ -22,6 +22,9 @@ export function setupTray(win: BrowserWindow, appName: string) {
   // Track whether a real quit is in progress (Cmd+Q, tray Quit, etc.)
   let isQuitting = false
   app.on('before-quit', () => { isQuitting = true })
+  // "Restart to Install" closes every window BEFORE before-quit fires; a window that only hid would
+  // stall the install. Squirrel.Mac exists only on the Mac.
+  if (process.platform === 'darwin') autoUpdater.on('before-quit-for-update', () => { isQuitting = true })
 
   const rebuild = () => {
     tray.setContextMenu(Menu.buildFromTemplate([

@@ -51,6 +51,7 @@ const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 const ResourcesView = /* @__PURE__ */ lazy(() => import('@/routes/ResourcesView'));
 // Only after a restore that cut sessions off mid-turn (lib/interruptedRestore.ts).
 const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
+const UpdateReadyBanner = lazy(() => import('@/components/layout/UpdateReadyBanner'));
 // The phone app (AASC-38, every phone since AASC-48): its own chunk, never part
 // of the desktop's first download (phoneChunkBoundary.test.ts).
 const PhoneAppFrame = lazy(() => import('@/components/mobile/app/PhoneAppFrame'));
@@ -121,6 +122,11 @@ function AppLayout() {
       <SessionJumpOverlay />
       <FloatingTerminalRoot />
       <FileOpenChooser />
+      {window.electronAPI?.updates && (
+        <Suspense fallback={null}>
+          <UpdateReadyBanner />
+        </Suspense>
+      )}
     </div>
   );
 }

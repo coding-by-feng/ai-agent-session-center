@@ -17,13 +17,9 @@
 ### Desktop app (macOS, Apple Silicon)
 
 1. Download `AI.Agent.Session.Center-<version>-arm64.dmg` from the [latest release](https://github.com/coding-by-feng/ai-agent-session-center/releases/latest) and drag the app into **Applications**.
-2. The app is **not notarized by Apple**, so macOS says it is **"damaged and can't be opened"**. It isn't damaged — click **Cancel** (not *Move to Trash*), then clear the download quarantine flag in Terminal:
+2. Open it. The app is signed with a Developer ID and notarized by Apple, so macOS asks once whether to open an app downloaded from the internet: click **Open**. From then on the app updates itself: a new version downloads in the background and installs the next time you quit (**AI Agent Session Center → Check for Updates…** checks now).
 
-   ```bash
-   xattr -cr "/Applications/AI Agent Session Center.app"
-   ```
-
-   Then open the app normally. (Or double-click **Open App (Start Here).command** in the DMG, which does the same.) You need to repeat this after installing each new version.
+   Versions before v2.10.73 were not notarized, and macOS called them **"damaged"**. For one of those, click **Cancel**, then run `xattr -cr "/Applications/AI Agent Session Center.app"` in Terminal.
 3. Follow the setup wizard and set a password — it keeps other devices on your network out.
 
 ### From source (any OS with Node.js 22.12+)
@@ -95,7 +91,7 @@ npm run electron:build   # build the desktop installer
 
 | Problem | Fix |
 |---|---|
-| macOS: "damaged and can't be opened" | `xattr -cr "/Applications/AI Agent Session Center.app"` (see [Install](#desktop-app-macos-apple-silicon)) |
+| macOS: "damaged and can't be opened" | Only versions before v2.10.73: install the latest release, or run `xattr -cr "/Applications/AI Agent Session Center.app"` (see [Install](#desktop-app-macos-apple-silicon)) |
 | Sessions don't appear | `grep dashboard-hook ~/.claude/settings.json`, then `npm run install-hooks`; make sure `jq` is installed |
 | "compiled against a different Node.js version" | `npm rebuild better-sqlite3 node-pty` |
 | Port 3333 in use | The server kills whatever holds it; to run a second copy use `--port 4444` |

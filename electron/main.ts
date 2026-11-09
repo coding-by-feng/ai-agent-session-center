@@ -14,6 +14,7 @@ import { isInternalAppUrl } from './internalUrl.js'
 import { desktopAppName, readDesktopEdition } from './edition.js'
 import { chooseLitePort, portMovedMessage, resolveServerPort } from './portPreflight.js'
 import { claimSingleInstance } from './singleInstance.js'
+import { startAutoUpdate, updateMenuItems } from './autoUpdate.js'
 import {
   POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
 } from './popoutBounds.js'
@@ -551,6 +552,13 @@ app.whenReady().then(async () => {
   mainWindowRef = win
   setupTray(win, desktopAppName(edition))
   buildAppMenu(win)
+  // Packaged Mac only (a no-op elsewhere): downloads in the background, installs on the next quit.
+  startAutoUpdate({
+    edition,
+    appName: desktopAppName(edition),
+    shutdown: gracefulShutdown,
+    onChange: () => { if (!win.isDestroyed()) buildAppMenu(win) },
+  })
 
   if (!isDev) {
     // Production: start Express server in-process, stream logs to loading UI, then navigate
@@ -638,6 +646,7 @@ function buildAppMenu(win: BrowserWindow) {
       label: app.name,
       submenu: [
         { role: 'about' as const },
+        ...updateMenuItems(),
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
@@ -709,6 +718,17 @@ let isQuitting = false
 app.on('before-quit', async (e) => {
   if (isQuitting) return
   e.preventDefault()
+  await gracefulShutdown()
+  app.quit()
+})
+
+/**
+ * Save the workspace, kill the terminals and stop the server. Runs once: a normal quit calls it from
+ * before-quit; "Restart to Install" calls it before handing the quit to the updater, after which
+ * before-quit sees `isQuitting` and lets the quit through.
+ */
+async function gracefulShutdown(): Promise<void> {
+  if (isQuitting) return
   isQuitting = true
 
   // Tell renderer to save workspace — wait up to 5s for it to finish
@@ -741,8 +761,7 @@ app.on('before-quit', async (e) => {
       // best effort
     }
   }
-  app.quit()
-})
+}
 
 app.on('window-all-closed', () => {
   // Do nothing — tray keeps app alive.

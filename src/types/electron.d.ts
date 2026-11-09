@@ -57,6 +57,24 @@ export interface PtySubscribeResult {
   error?: string
 }
 
+/** Mirrors `UpdateState` in electron/autoUpdateRules.ts. */
+export interface AppUpdateState {
+  status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error'
+  version?: string
+  percent?: number
+  error?: string
+  autoCheck: boolean
+}
+
+export interface AppUpdatesAPI {
+  getState(): Promise<AppUpdateState>
+  /** Check now and show the result in a dialog (like the app menu's Check for Updates…). */
+  check(): Promise<void>
+  /** Ask to restart and install a downloaded update; Later leaves it for the next quit. */
+  install(): Promise<void>
+  onState(cb: (state: AppUpdateState) => void): () => void
+}
+
 export interface ElectronAPI {
   platform: 'darwin' | 'win32'
 
@@ -127,6 +145,10 @@ export interface ElectronAPI {
 
   /** Remote computers: other AASC desktops this app is paired with (Oct 28 2026). Electron-only. */
   remotes?: RemoteComputersAPI
+
+  /** Mac auto-update (electron/autoUpdate.ts). Present in every desktop window; only a packaged Mac app
+   *  ever leaves `idle`. */
+  updates?: AppUpdatesAPI
   /** A Client's home page only: the app brought this window back on screen. Returns how to stop listening. */
   onHomeShown?: (listener: () => void) => () => void
 }

@@ -99,6 +99,18 @@ const api: ElectronAPI = {
     return () => { ipcRenderer.removeListener('popout:return-to-list', handler) }
   },
 
+  // ── Mac auto-update (packaged app only; always idle elsewhere) ──
+  updates: {
+    getState: ()   => ipcRenderer.invoke('update:get-state'),
+    check:    ()   => ipcRenderer.invoke('update:check'),
+    install:  ()   => ipcRenderer.invoke('update:install'),
+    onState:  (cb) => {
+      const handler = (_: unknown, state: Parameters<typeof cb>[0]) => cb(state)
+      ipcRenderer.on('update:state', handler)
+      return () => { ipcRenderer.removeListener('update:state', handler) }
+    },
+  },
+
   // ── Remote computers: other AASC desktops paired like a phone ──
   remotes: {
     list:   ()         => ipcRenderer.invoke('remote:list'),

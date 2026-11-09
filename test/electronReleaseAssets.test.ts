@@ -32,13 +32,13 @@ function prepare(missing?: string) {
 }
 
 describe('complete two-edition, three-platform release asset staging', () => {
-  it('requires ten binaries and stages sixteen assets with public filenames and matching checksums', () => {
+  it('requires ten binaries and stages eighteen assets with public filenames and matching checksums', () => {
     const { root, result } = prepare();
     try {
       expect(result.status, result.stderr).toBe(0);
       const upload = join(root, 'builds', 'upload');
       const assets = readdirSync(upload);
-      expect(assets).toHaveLength(16);
+      expect(assets).toHaveLength(18);
       for (const [folder, files] of Object.entries(names)) {
         const checksums = readFileSync(join(upload, checksumFile(folder)), 'utf8');
         for (const name of files) {
@@ -47,6 +47,23 @@ describe('complete two-edition, three-platform release asset staging', () => {
           expect(bytes.toString()).toBe(`bytes of ${name}`);
           expect(checksums).toContain(`${createHash('sha256').update(bytes).digest('hex')}  ${publicName}\n`);
         }
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('writes one Mac update file per edition naming the public zip and its SHA-512', () => {
+    const { root, result } = prepare();
+    try {
+      expect(result.status, result.stderr).toBe(0);
+      const upload = join(root, 'builds', 'upload');
+      for (const [file, zip] of [['latest-mac.yml', 'Test.App-1.2.3-arm64-mac.zip'], ['lite-mac.yml', 'Test.App.Lite-1.2.3-arm64-mac.zip']]) {
+        const yml = readFileSync(join(upload, file), 'utf8');
+        const bytes = readFileSync(join(upload, zip));
+        const digest = createHash('sha512').update(bytes).digest('base64');
+        expect(yml).toContain('version: 1.2.3\n');
+        expect(yml).toContain(`  - url: ${zip}\n    sha512: ${digest}\n    size: ${bytes.length}\n`);
+        expect(yml).toContain(`path: ${zip}\nsha512: ${digest}\n`);
+        expect(yml).not.toMatch(/url: .* /); // a space in the name would 404 on GitHub
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
