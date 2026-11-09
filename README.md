@@ -18,17 +18,17 @@
 
 Download from the [latest release](https://github.com/coding-by-feng/ai-agent-session-center/releases/latest) or [aasc.work/download](https://aasc.work/download), which picks your system.
 
-| System | Download | First open |
-|---|---|---|
-| macOS, Apple silicon | `.dmg` | Drag the app into **Applications**, open it, and click **Open** once |
-| Windows 10/11, x64 | `Setup <version>.exe` | If SmartScreen says *Windows protected your PC*: **More info → Run anyway** |
-| Linux, x64 | `.AppImage` or `.deb` | `chmod +x` the AppImage and run it, or `sudo apt install ./<file>.deb` |
+| System | Download |
+|---|---|
+| macOS, Apple silicon | `.dmg` |
+| Windows 10/11, x64 | `Setup <version>.exe` |
+| Linux, x64 | `.AppImage` or `.deb` |
 
 **Full or Lite?** Each comes in two editions. Lite is the focused one: terminals, session switching, history, project files, the prompt queue, AI popups, status and alerts, plus sign-in and phone access. Full adds everything under [Features](#features). Both use the same data, so quit one before opening the other.
 
-- **macOS:** the app is signed with a Developer ID and notarized by Apple. Versions before v2.10.73 weren't, and macOS called them **"damaged"**; for one of those, click **Cancel**, then run `xattr -cr "/Applications/AI Agent Session Center.app"` in Terminal. On an Intel Mac, run AASC [from source](#from-source-any-os-with-nodejs-2212).
-- **Windows:** the installer isn't code-signed, which is why SmartScreen warns.
-- **Linux:** if the AppImage doesn't start, install FUSE 2 (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04) or use the `.deb`.
+- **macOS:** drag the app into **Applications** and open it. It is signed with a Developer ID and notarized by Apple, so macOS asks once whether to open an app downloaded from the internet: click **Open**. Versions before v2.10.73 weren't, and macOS called them **"damaged"**; for one of those, click **Cancel**, then run `xattr -cr "/Applications/AI Agent Session Center.app"` in Terminal. On an Intel Mac, run AASC [from source](#from-source-any-os-with-nodejs-2212).
+- **Windows:** run the installer. It isn't code-signed, so if SmartScreen says *Windows protected your PC*, choose **More info → Run anyway**.
+- **Linux:** `chmod +x` the AppImage and run it; if it doesn't start, install FUSE 2 (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04). On Debian or Ubuntu you can install the package instead: `sudo apt install ./<file>.deb`.
 
 Then follow the setup wizard: it checks your tools, installs the hooks and asks for a password, which keeps other devices on your network out.
 
