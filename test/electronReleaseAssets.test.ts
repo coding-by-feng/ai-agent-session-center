@@ -87,15 +87,17 @@ describe('complete four-edition, three-platform release asset staging', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('does not stage a release without the Client editions', () => {
-    for (const missing of [names['full-client-win'][0], names['lite-client-linux'][1], names['lite-client-mac'][0]]) {
+  // One staging run per case: each spawns the verifier twelve times, too slow to loop inside one test under load.
+  it.each([names['full-client-win'][0], names['lite-client-linux'][1], names['lite-client-mac'][0]])(
+    'does not stage a release without the Client package %s',
+    (missing) => {
       const { root, result } = prepare(missing);
       try {
-        expect(result.status, missing).not.toBe(0);
+        expect(result.status).not.toBe(0);
         expect(() => readdirSync(join(root, 'builds', 'upload'))).toThrow();
       } finally { rmSync(root, { recursive: true, force: true }); }
-    }
-  });
+    },
+  );
 
   it('does not stage a release with Full alone when a Lite package is absent', () => {
     const { root, result } = prepare(names['lite-win'][0]);

@@ -52,7 +52,7 @@ import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import ImagePreview from '@/components/ui/ImagePreview';
 import { useIsMobile } from '@/lib/platform';
-import { withVideoPaths } from '@/lib/chat/videoAttach';
+import { withVideoPaths } from '@/lib/videoPaths';
 import styles from '@/styles/modules/Terminal.module.css';
 import dress from '@/styles/modules/PhoneDress.module.css';
 

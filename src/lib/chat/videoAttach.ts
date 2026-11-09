@@ -77,12 +77,8 @@ export async function uploadVideo(file: File, fetchImpl: typeof fetch = fetch): 
   return { ok: true, path: reply.path, id: reply.id };
 }
 
-/** The message text with each video's path on its own line under it. */
-export function withVideoPaths(text: string, paths: readonly string[]): string {
-  if (paths.length === 0) return text;
-  const body = text.replace(/\s+$/, '');
-  return body === '' ? paths.join('\n') : `${body}\n${paths.join('\n')}`;
-}
+/** The message text with each video's path on its own line under it (lives in lib/videoPaths for the desktop). */
+export { withVideoPaths } from '@/lib/videoPaths';
 
 /** A clip's length as `m:ss` (or `h:mm:ss`); null when the length isn't known. */
 export function formatVideoLength(seconds: number | null): string | null {
