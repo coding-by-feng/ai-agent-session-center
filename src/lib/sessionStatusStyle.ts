@@ -68,6 +68,21 @@ export function isCompacting(session: { compacting?: CompactingMark | null }, no
   return !!c && now - c.since < COMPACTING_STALE_MS;
 }
 
+/**
+ * "Finishing up" (Nov 6 2026): the turn's answer is in, but Claude is still running its Stop
+ * hooks (`Session.stopHooksSince`, server/stopHooksState.ts), and a prompt sent now waits
+ * unseen until they finish. Display only, like a compaction; shown on a finished turn only.
+ */
+export const FINISHING_UP_LABEL = 'Finishing up';
+/** How long it may show without the server seeing the hooks end (the slowest seen took 124 s). */
+export const STOP_HOOKS_STALE_MS = 3 * 60_000;
+
+/** Is Claude still running this finished turn's Stop hooks (and not for implausibly long)? */
+export function isFinishingUp(session: { status: string; stopHooksSince?: number | null }, now = Date.now()): boolean {
+  const since = session.stopHooksSince;
+  return !!since && session.status === 'waiting' && now - since < STOP_HOOKS_STALE_MS;
+}
+
 /** Should the session's status mark say so? Outranks the proceed reminder and the rail's ✓, which come back after. */
 export function showsCompacting(session: { status: string; compacting?: CompactingMark | null }, now = Date.now()): boolean {
   return isCompacting(session, now) && !OUTRANK_COMPACTING.has(session.status);

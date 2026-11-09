@@ -121,6 +121,12 @@ describe('a prompt sent now', () => {
     expect(enters()).toEqual([2_800]);
   });
 
+  // Nov 8 2026: an image-only prompt types just the paths — a leading newline would be a stray line first.
+  it('types only the image paths when there is no text', async () => {
+    track(makeSubmitter().submit(req({ text: '', imagePaths: ['/tmp/q/a.png', '/tmp/q/b.jpg'], mode: 'now' })));
+    expect(writes[0]).toEqual({ at: 0, data: '/tmp/q/a.png\n/tmp/q/b.jpg' });
+  });
+
   it('presses Enter again at 3, 8, 15, 30 and 60 s while nothing acknowledges it, then gives up', async () => {
     const result = track(makeSubmitter().submit(req({ text: 'run the tests', mode: 'now' })));
     await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + LAST_RETRY);

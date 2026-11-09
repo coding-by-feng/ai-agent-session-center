@@ -15,6 +15,8 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { RECENT_LIMIT } from '@/lib/recentSessions';
+import { SESSION_SEARCH_FOCUS_EVENT, stripSessionOrder } from '@/lib/sessionStrip';
+import SearchInput from '@/components/ui/SearchInput';
 import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import CentralBadge from './CentralBadge';
@@ -161,14 +163,39 @@ export default function SessionSwitcher({
 
   // The list itself (numbers, room filter, RECENT, the view's frames) is
   // useSessionStrip.
+  // The search box above the list (Nov 9 2026): narrows the cards as you type.
+  const [stripQuery, setStripQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
   const {
     sessionIndexMap,
     currentIndex,
     activeSessionIds,
     availableRooms,
     filteredSessions,
+    matchedSessions,
+    searching,
     items: tabRenderItems,
-  } = useSessionStrip(sessions, currentSession.sessionId);
+  } = useSessionStrip(sessions, currentSession.sessionId, stripQuery);
+
+  // The `searchSessions` shortcut (`/`): bring the list back if it is folded or
+  // hidden behind a maximized panel, then focus the box once it is drawn.
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
+  useEffect(() => {
+    const onFocusSearch = () => {
+      const ui = useUiStore.getState();
+      if (ui.maximized) ui.toggleMaximized();
+      if (ui.navPosition === 'left' && ui.navRailCollapsed) ui.toggleNavRailCollapsed();
+      setSearchFocusRequest((n) => n + 1);
+    };
+    document.addEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocusSearch);
+    return () => document.removeEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocusSearch);
+  }, []);
+  useEffect(() => {
+    if (searchFocusRequest === 0) return;
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }, [searchFocusRequest]);
 
   // How to get back here from the keyboard: the user's own binding for "Switch to
   // session N" (1–9), else "Go to session by number". A string, so the selector is stable.
@@ -239,7 +266,10 @@ export default function SessionSwitcher({
     ? currentSession.projectName
     : null;
   const pinCopy = currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin;
-  const pinnedFrameListed = tabRenderItems.some((i) => i.type === 'pinned');
+  // A search hides the PINNED frame, which is not the same as nothing being pinned.
+  const pinnedFrameListed = searching
+    ? filteredSessions.some((s) => s.pinned)
+    : tabRenderItems.some((i) => i.type === 'pinned');
   const pinnedCopy = pinnedRoomHidden
     ? tooltips.pinnedRoomHidden
     : pinnedFrameListed ? tooltips.pinnedRoomShown : tooltips.pinnedRoomEmpty;
@@ -385,6 +415,51 @@ export default function SessionSwitcher({
         /* ignore — session stays in-app */
       });
   }, [currentSession]);
+
+  // Enter opens the first match that is not already open (so Enter again goes
+  // back: two matches toggle); Escape clears the box, then leaves it.
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // An IME's Enter commits a candidate and its Escape cancels one (pinyin, kana):
+    // Chromium flags it isComposing, WebKit only keyCode 229. Same guard as TerminalSearchBar.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') {
+      if (!searching) return;
+      e.preventDefault();
+      const target = stripSessionOrder(tabRenderItems).find((id) => id !== currentSession.sessionId);
+      if (target) handleSwitch(target);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (stripQuery) setStripQuery('');
+      else e.currentTarget.blur();
+    }
+  };
+  const searchShortcut = useShortcutStore((st) => {
+    const combo = st.bindings.find((b) => b.actionId === 'searchSessions')?.combo ?? null;
+    return combo ? keyComboToString(combo) : '';
+  });
+  const stripSearchBox = (
+    <div className={styles.stripSearch} role="search">
+      <SearchInput
+        variant="field"
+        className={styles.stripSearchField}
+        value={stripQuery}
+        onChange={setStripQuery}
+        debounceMs={0}
+        placeholder={searchShortcut ? `Search sessions (${searchShortcut})` : 'Search sessions'}
+        ariaLabel="Search sessions by name, project, remark, label or #number"
+        inputRef={searchInputRef}
+        onKeyDown={handleSearchKeyDown}
+      />
+      {searching && (
+        <span className={styles.stripSearchCount} aria-live="polite">
+          <span aria-hidden="true">{matchedSessions.length}/{filteredSessions.length}</span>
+          <span className={chipStyles.srOnly}>
+            {matchedSessions.length} of {filteredSessions.length} sessions match
+          </span>
+        </span>
+      )}
+    </div>
+  );
 
   // ── Folded left rail: a thin strip with just the expand affordance + count ──
   if (isRailCollapsed) {
@@ -696,9 +771,19 @@ export default function SessionSwitcher({
         />
       )}
 
+      {/* ── Search box ── the rail's own row, above the scrolling list. The top
+          bar has no row to spare: there it leads the strip (stickily). */}
+      {!maximized && filteredSessions.length > 0 && isVertical && stripSearchBox}
+
       {/* ── Session tab strip ── (hidden when the panel is maximized) */}
       {!maximized && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
+          {!isVertical && stripSearchBox}
+          {searching && matchedSessions.length === 0 && (
+            <p className={styles.stripSearchEmpty}>
+              No session matches “{stripQuery.trim()}”{selectedRoomIds.size > 0 ? ' in the rooms shown' : ''}.
+            </p>
+          )}
           {tabRenderItems.map((item) => {
             if (item.type === 'central') {
               return (
@@ -747,7 +832,8 @@ export default function SessionSwitcher({
             }
             if (item.type === 'project') {
               const { group } = item;
-              const collapsed = collapsedProjects.has(group.key);
+              // A search opens every frame: a match must not hide in a folded one.
+              const collapsed = collapsedProjects.has(group.key) && !searching;
               return (
                 <div
                   key={group.key}
@@ -762,6 +848,7 @@ export default function SessionSwitcher({
                     group={group}
                     collapsed={collapsed}
                     onToggleCollapse={() => toggleProjectCollapsed(group.key)}
+                    foldable={!searching}
                   />
                   {!collapsed &&
                     group.sessions.map((s) => (
@@ -779,7 +866,7 @@ export default function SessionSwitcher({
               );
             }
             if (item.type === 'room') {
-              const collapsed = item.room.collapsed;
+              const collapsed = item.room.collapsed && !searching;
               // Live (killable) sessions in this room, independent of the room
               // filter — ended cards and dropped ids don't count. The kill icon
               // is hidden when there's nothing to kill.
@@ -829,7 +916,9 @@ export default function SessionSwitcher({
                         only, so a drag there could never land where it was
                         released — and the carry preview's vertical slides
                         would visibly break the row. ▲▼ still reorder there. */}
-                    {isVertical && (
+                    {/* No reordering while a search hides rooms: ▲▼ would hop over
+                        the hidden ones and renumber only the rooms shown. */}
+                    {isVertical && !searching && (
                       <span
                         className={styles.roomDragHandle}
                         title="Drag to reorder this room"
@@ -839,6 +928,10 @@ export default function SessionSwitcher({
                         <RoomDragHandleIcon />
                       </span>
                     )}
+                    {/* A search draws every frame open, so the fold would only flip the
+                        hidden stored state (seen once the box is cleared): no fold then. */}
+                    {!searching && (
+                    <>
                     <button
                       type="button"
                       className={styles.roomCollapseToggle}
@@ -879,6 +972,8 @@ export default function SessionSwitcher({
                     >
                       <MoveRoomDownIcon />
                     </button>
+                    </>
+                    )}
                     {roomLiveCount > 0 && (
                       <>
                       <span className={styles.roomHeaderDivider} aria-hidden="true" />

@@ -164,6 +164,23 @@ describe('createRuntimeWatch — transcripts', () => {
     expect(stopped[0]).toEqual([t, { turnId: 'p-1', at: null }]);
   });
 
+  it('says when Claude\'s Stop hooks finish: the summary line lands after the answer', async () => {
+    const t = join(root, 'session.jsonl');
+    writeFileSync(t, JSON.stringify({ type: 'assistant', message: { stop_reason: 'end_turn', content: [] } }) + '\n');
+    const settled: boolean[] = [];
+    watch = createRuntimeWatch(
+      { applyToSession: () => undefined, applyToTranscript: () => undefined, applyToStopHooks: (_p, s) => { settled.push(s()); } },
+      { dir, debounceMs: 20 },
+    );
+    watch.start();
+    watch.syncTranscripts([t]);
+    expect(await waitFor(() => settled.length >= 1)).toBe(true);
+    expect(settled.at(-1)).toBe(false);
+
+    appendFileSync(t, JSON.stringify({ type: 'system', subtype: 'stop_hook_summary', hookErrors: [] }) + '\n');
+    expect(await waitFor(() => settled.at(-1) === true)).toBe(true);
+  });
+
   it('a host that does not listen for stopped turns is fine', async () => {
     const t = join(root, 'session.jsonl');
     writeFileSync(t, JSON.stringify({

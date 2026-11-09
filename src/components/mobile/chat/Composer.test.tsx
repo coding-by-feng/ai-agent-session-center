@@ -20,6 +20,7 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { waitingCardModel } from '@/lib/chat/waitingCardModel';
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
@@ -333,6 +334,47 @@ describe('Composer', () => {
     renderComposer(session());
     const chip = screen.getByRole('button', { name: /1 queued/ });
     expect(chip).toHaveTextContent(/^1$/);
+  });
+
+  describe('agents chip (Nov 8 2026): this turn\'s subagents at a glance', () => {
+    const PROMPT_AT = 1_000;
+    const run = (agentId: string, status: 'working' | 'done') => ({
+      agentId, agentType: 'Explore', description: 'look', descriptionConfirmed: true, status,
+      startedAt: PROMPT_AT + 1, endedAt: status === 'done' ? PROMPT_AT + 2 : null, lastActivityAt: PROMPT_AT + 2,
+      toolCount: 3, currentTool: null, currentTarget: null,
+    });
+    const withRuns = (runs: ReturnType<typeof run>[]) =>
+      session({ promptHistory: [{ text: 'go', timestamp: PROMPT_AT }], subagents: runs } as Partial<Session>);
+
+    it('is hidden when no agent ran this turn', () => {
+      stubMac();
+      renderComposer(session());
+      expect(screen.queryByRole('button', { name: /agent/i })).not.toBeInTheDocument();
+    });
+
+    it('shows running and finished-of-total while agents work, and spins', () => {
+      stubMac();
+      renderComposer(withRuns([run('a', 'working'), run('b', 'working'), run('c', 'done')]));
+      const chip = screen.getByRole('button', { name: '2 agents running, 1 of 3 finished: open Agents' });
+      expect(chip).toHaveTextContent('2 · 1/3');
+      expect(chip).toHaveAttribute('data-state', 'running');
+    });
+
+    it('shows a done tick with the total once every agent has finished', () => {
+      stubMac();
+      renderComposer(withRuns([run('a', 'done'), run('b', 'done')]));
+      const chip = screen.getByRole('button', { name: 'All 2 agents finished: open Agents' });
+      expect(chip).toHaveTextContent(/^2$/);
+      expect(chip).toHaveAttribute('data-state', 'done');
+    });
+
+    it('opens the session\'s Agents tab', () => {
+      stubMac();
+      const showSegment = vi.spyOn(usePhoneNavStore.getState(), 'showSegment').mockImplementation(() => {});
+      renderComposer(withRuns([run('a', 'working')]));
+      fireEvent.click(screen.getByRole('button', { name: /agent running/ }));
+      expect(showSegment).toHaveBeenCalledWith('s1', 'agents', true);
+    });
   });
 
   describe('usage (Oct 20 2026): context window and plan limits', () => {

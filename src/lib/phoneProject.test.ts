@@ -19,6 +19,7 @@ import {
   pinchView,
   relInProject,
   viewerKindFor,
+  withoutProjectName,
   PHONE_LINE_WINDOW,
 } from './phoneProject';
 
@@ -49,6 +50,16 @@ describe('paths', () => {
     expect(relInProject('/Users/me/project2/x.md', '/Users/me/proj')).toBeNull();
     expect(relInProject('~/.ssh/id_rsa', '/Users/me/proj')).toBeNull();
     expect(relInProject('  ', '/Users/me/proj')).toBeNull();
+  });
+
+  // Nov 6 2026: an agent wrote "second-brain/02-study/x.md" from the project's parent folder.
+  it('reads a path that starts with the project folder\'s own name as one inside it', () => {
+    expect(withoutProjectName('/proj/docs/x.md', '/Users/me/proj')).toBe('/docs/x.md');
+    expect(withoutProjectName('/proj/docs/x.md', '/Users/me/proj/')).toBe('/docs/x.md');
+    expect(withoutProjectName('/docs/x.md', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/proj', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/projX/a.md', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/proj/a.md', '')).toBeNull();
   });
 });
 

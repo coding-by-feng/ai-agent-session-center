@@ -30,6 +30,7 @@ import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
+import { databaseDirectory } from '../dbPaths.js';
 import { browsableFolder, expandHome, inside, realOrNull, touchesSecret, writtenFolder } from './homeFolders.js';
 import {
   filterPhoneChangesAnswer,
@@ -203,13 +204,16 @@ function realTarget(p: string): string | null {
 /**
  * May a phone read `target` (absolute)? Only inside a shared session's project,
  * after links are followed (a link in the project to ~/.ssh is still ~/.ssh),
- * and never a secrets folder or secret-looking file.
+ * and never a secrets folder, a secret-looking file or the server's own data folder.
  */
 export function phoneMayRead(target: string, sharedProjects: readonly string[], home: string): boolean {
   if (!isAbsolute(target)) return false;
   const real = realTarget(resolve(target));
   const realHome = realOrNull(home);
   if (!real || !realHome || !inside(real, realHome) || touchesSecret(relative(realHome, real))) return false;
+  // The server's own data (sessions.db, server-config.json, backups), wherever it sits.
+  const dataDir = realOrNull(databaseDirectory()) ?? resolve(databaseDirectory());
+  if (inside(real, dataDir)) return false;
   return sharedProjects.some((projectPath) => {
     const root = phoneProjectRoot(projectPath, home);
     return root !== null && inside(real, root);

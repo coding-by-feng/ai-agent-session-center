@@ -46,6 +46,7 @@ import {
 import { chosenAddresses, readPairingChoice } from '@/lib/pairingAddressChoice';
 import PairingAddressChoice from './PairingAddressChoice';
 import { pairedDeviceKind, pairedDeviceNoun } from '@/lib/deviceKind';
+import { findReplaceCandidates, type ReplaceCandidate } from '@/lib/phoneReplaceCandidates';
 import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
@@ -195,6 +196,8 @@ export default function PhonePairing() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  /** Replace boxes the user changed, keyed `<pending id> <old id>`; untouched ones follow their default. */
+  const [replaceTicks, setReplaceTicks] = useState<Record<string, boolean>>({});
   /** The phone being renamed and the name typed so far; the 2-second refresh leaves it alone. */
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   /** Backend phone devices no paired phone holds (AASC-52); 0 with no cloud or when the check fails. */
@@ -291,11 +294,11 @@ export default function PhonePairing() {
     }
   };
 
-  const act = async (fn: () => Promise<void>, done: string) => {
+  const act = async (fn: () => Promise<void>, done: string | (() => string)) => {
     setError(null);
     try {
       await fn();
-      showToast(done, 'info', 3000);
+      showToast(typeof done === 'string' ? done : done(), 'info', 3000);
       setConfirmRevoke(null);
       await refresh();
     } catch (err) {
@@ -330,6 +333,22 @@ export default function PhonePairing() {
 
   const pending = phones.filter((p) => p.status === 'pending');
   const active = phones.filter((p) => p.status === 'active');
+
+  const tickKey = (p: PairedPhone, c: ReplaceCandidate) => `${p.id} ${c.device.id}`;
+  const isTicked = (p: PairedPhone, c: ReplaceCandidate) => replaceTicks[tickKey(p, c)] ?? c.preselected;
+
+  /** Allow, revoking the ticked older pairings of the same phone once it is in (Nov 6 2026). */
+  const allow = (p: PairedPhone, candidates: readonly ReplaceCandidate[]) => {
+    const replaces = candidates.filter((c) => isTicked(p, c)).map((c) => c.device.id);
+    let result = { replaced: [] as string[], skipped: [] as string[] };
+    void act(async () => {
+      result = await approvePhone(p.id, replaces);
+    }, () => {
+      const n = result.replaced.length;
+      const kept = result.skipped.length ? ` · ${result.skipped.length} kept (no longer the same ${pairedDeviceNoun(p)})` : '';
+      return `${p.label} can now connect${n ? ` · replaced ${n} older pairing${n === 1 ? '' : 's'}` : ''}${kept}`;
+    });
+  };
 
   // Not offered and nothing paired or left over: a release without the phone app shows nothing about phones.
   if (offered !== true && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
@@ -376,8 +395,26 @@ export default function PhonePairing() {
             Allow only if your {pairedDeviceNoun(p)} shows the same code.
           </span>
           {p.platform === 'desktop' && <span className={styles.note}>{DESKTOP_ALLOW_WARNING}</span>}
+          {findReplaceCandidates(p, phones, now).map((c) => (
+            <label key={c.device.id} className={styles.replaceRow}>
+              <input
+                type="checkbox"
+                checked={isTicked(p, c)}
+                onChange={(e) => {
+                  const ticked = e.currentTarget.checked;
+                  setReplaceTicks((t) => ({ ...t, [tickKey(p, c)]: ticked }));
+                }}
+              />
+              <span>
+                Replaces {c.device.label}
+                {/* Each phrase keeps its words together (no-break spaces); only the " · " seams wrap. */}
+                {[c.device.approvedAt ? `paired ${shortDate(c.device.approvedAt)}` : '', `last seen ${relative(c.device.lastSeenAt)}`]
+                  .filter(Boolean).map((part) => ` · ${part.replace(/ /g, ' ')}`).join('')}
+              </span>
+            </label>
+          ))}
           <span className={styles.actions}>
-            <Button size="sm" variant="primary" onClick={() => act(() => approvePhone(p.id), `${p.label} can now connect`)}>
+            <Button size="sm" variant="primary" onClick={() => allow(p, findReplaceCandidates(p, phones, now))}>
               Allow
             </Button>
             <Button size="sm" variant="danger" onClick={() => act(() => removePhone(p.id), `${p.label} was refused`)}>

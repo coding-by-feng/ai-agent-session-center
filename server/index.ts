@@ -3,6 +3,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+import { WS_SERVER_OPTIONS } from './wsServerOptions.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { mkdir, realpath } from 'fs/promises';
@@ -100,6 +101,7 @@ import { watchCentralLifecycle } from './mcp/lifecycle.js';
 import { isMcpEnabled, recordMcpPort } from './mcp/runtime.js';
 import { bareCliCommand, discardCentralTerminal } from './mcp/centralLaunch.js';
 import { spawnRespawnTerminal } from './mcp/respawn.js';
+import { mountClientStatic } from './clientStatic.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -194,7 +196,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
+  // 512 KB max message; large frames deflated (the snapshot and whole-session updates, Nov 7 2026).
+  const wss = new WebSocketServer({ server, ...WS_SERVER_OPTIONS });
 
   // Sign in with Google (AASC-61): one pending sign-in per process. The callback is a cross-site
   // browser navigation that can't carry the session cookie, so it is mounted before authMiddleware
@@ -351,7 +354,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   // -- Static files (Vite-built React SPA) --
   const clientDir = join(__dirname, '..', 'dist', 'client');
-  app.use(express.static(clientDir));
+  mountClientStatic(app, clientDir); // missing /assets/* → 404, not index.html
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);

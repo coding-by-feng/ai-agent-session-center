@@ -65,7 +65,7 @@ import {
   type OnceGate,
   type StatusSeen,
 } from '@/lib/queueScheduler';
-import { sendPromptToTerminal, pressEnterInTerminal, submitDelayFor } from '@/lib/terminalSend';
+import { sendPromptToTerminal, pressEnterInTerminal, submitDelayFor, withImagePaths } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
 import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { isEffortCommand } from '@/lib/queueEffort';
@@ -115,9 +115,11 @@ async function sendToTerminal(
   let imageCount = 0;
   if (item.images && item.images.length > 0) {
     const paths = await uploadImages(item.images);
-    if (paths.length > 0) textToSend += '\n' + paths.join('\n');
+    textToSend = withImagePaths(textToSend, paths);
     imageCount = paths.length;
   }
+  // An image-only item whose upload failed has nothing to type: keep it queued rather than press Enter on nothing.
+  if (textToSend === '') return false;
   // Auto-Enter submits with a SEPARATE Enter keystroke — concatenating "\r" onto
   // the text makes the TUI insert a newline instead of submitting. See
   // sendPromptToTerminal; image paths need the longer pause (submitDelayFor).

@@ -68,22 +68,61 @@ export function messageFor(status: number, serverError?: string, what = 'the con
   return serverError || `The Mac couldn’t read ${what} (HTTP ${status}).`;
 }
 
-/** GET a JSON `{ success, data }` route and hand back `data`. */
+/**
+ * How long one read may take, body included. A read on a dead connection has no end of its
+ * own, and the chat refreshes one read at a time, so a hung read used to hold back every
+ * later poll until iOS gave up on the socket, minutes later (Nov 7 2026). A page is about
+ * 200 KB: well under a second on the LAN.
+ */
+export const CHAT_READ_TIMEOUT_MS = 20_000;
+
+const TIMED_OUT = 'Your Mac didn’t answer in time. Check the connection and try again.';
+
+/**
+ * GET a JSON `{ success, data }` route and hand back `data`.
+ *
+ * A body that fails while it is read is the connection's fault (status 0), not the Mac's:
+ * WebKit errors the body stream when the network drops mid-answer, and calling that "an
+ * answer this phone can't read" sent people looking for a version mismatch. Only a whole
+ * answer that isn't the envelope is unreadable. The caller's own abort is passed on.
+ */
 export async function getData(url: string, signal?: AbortSignal, what?: string): Promise<ApiResult<unknown>> {
-  let res: Response;
+  if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+  const timer = new AbortController();
+  const passOn = () => timer.abort();
+  signal?.addEventListener('abort', passOn, { once: true });
+  const timeout = setTimeout(() => timer.abort(), CHAT_READ_TIMEOUT_MS);
+  // Our abort and the caller's look alike to fetch; only the caller's is rethrown.
+  const failed = (err: unknown): ApiResult<unknown> => {
+    if (signal?.aborted) throw err;
+    return { ok: false, status: 0, message: timer.signal.aborted ? TIMED_OUT : messageFor(0, undefined, what) };
+  };
   try {
-    res = await fetch(url, { signal });
-  } catch (err) {
-    if ((err as { name?: string })?.name === 'AbortError') throw err;
-    return { ok: false, status: 0, message: messageFor(0, undefined, what) };
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(url, { signal: timer.signal });
+      text = await res.text();
+    } catch (err) {
+      return failed(err);
+    }
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+    if (!res.ok) {
+      const error = (body as { error?: unknown } | null)?.error;
+      return { ok: false, status: res.status, message: messageFor(res.status, typeof error === 'string' ? error : undefined, what) };
+    }
+    const parsed = envelope.safeParse(body);
+    if (!parsed.success) return { ok: false, status: res.status, message: 'The Mac sent an answer this phone can’t read.' };
+    return { ok: true, data: parsed.data.data };
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', passOn);
   }
-  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-  if (!res.ok) {
-    return { ok: false, status: res.status, message: messageFor(res.status, typeof body?.error === 'string' ? body.error : undefined, what) };
-  }
-  const parsed = envelope.safeParse(body);
-  if (!parsed.success) return { ok: false, status: res.status, message: 'The Mac sent an answer this phone can’t read.' };
-  return { ok: true, data: parsed.data.data };
 }
 
 export interface PageCursor {

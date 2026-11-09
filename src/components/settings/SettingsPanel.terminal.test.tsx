@@ -12,7 +12,6 @@ vi.mock('./ThemeSettings', () => ({ default: () => null }));
 vi.mock('./SoundSettings', () => ({ default: () => null }));
 vi.mock('./HookSettings', () => ({ default: () => null }));
 vi.mock('./ApiKeySettings', () => ({ default: () => null }));
-vi.mock('./SummaryPromptSettings', () => ({ default: () => null }));
 vi.mock('@/components/ui/Modal', () => ({
   default: ({ modalId, children }: { modalId: string; children: React.ReactNode }) => {
     // eslint-disable-next-line react-hooks/rules-of-hooks

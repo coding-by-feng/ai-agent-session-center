@@ -12,6 +12,7 @@
 import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
 import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
 import { roomsInListOrder } from '@/lib/roomOrder';
+import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { Room } from '@/stores/roomStore';
 import type { SessionSortMode } from '@/stores/uiStore';
 import type { Session } from '@/types';
@@ -48,6 +49,46 @@ export function filterByRooms(
     if (room) room.sessionIds.forEach((id) => allowedIds.add(id));
   }
   return sorted.filter((s) => allowedIds.has(s.sessionId));
+}
+
+/** Document event the `searchSessions` shortcut fires: SessionSwitcher focuses its search box. */
+export const SESSION_SEARCH_FOCUS_EVENT = 'sessionStrip:focusSearch';
+
+/** What the strip search reads beside the session itself. */
+export interface StripSearchContext {
+  /** The number the session's card carries (useSessionStrip's index map). */
+  numberOf: (sessionId: string) => number | undefined;
+  /** The session's client-side label (labelStore), if any. */
+  labelOf: (sessionId: string) => string | undefined;
+}
+
+const CARD_NUMBER_RE = /^(#)?(\d+)$/;
+
+/**
+ * The strip search box: sessions whose name, project, path, remark or label
+ * holds every typed word (ignoring case), in their strip order. `#12` is card
+ * number 12 exactly; a bare `12` is that card or any text holding "12". An
+ * empty query returns `sorted` itself, so a memo downstream does not rerun.
+ */
+export function filterBySearch(sorted: Session[], query: string, ctx: StripSearchContext): Session[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return sorted;
+  return sorted.filter((session) => {
+    const haystack = [
+      sessionDisplayTitle(session),
+      session.projectName,
+      session.projectPath,
+      session.remark,
+      ctx.labelOf(session.sessionId),
+    ].filter(Boolean).join('\n').toLowerCase();
+    const number = ctx.numberOf(session.sessionId);
+    return words.every((word) => {
+      const asNumber = CARD_NUMBER_RE.exec(word);
+      if (asNumber && number === Number(asNumber[2])) return true;
+      if (asNumber?.[1]) return false;
+      return haystack.includes(word);
+    });
+  });
 }
 
 export interface StripItemsInput {

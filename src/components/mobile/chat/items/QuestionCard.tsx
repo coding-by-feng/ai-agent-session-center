@@ -14,7 +14,9 @@
  * - Claude: live while this call is the session's open, answerable request (one single-select
  *   question, at most nine options): the answer goes through the Mac's checked route, as the
  *   waiting card's does (useRequestAnswer), and the waiting card then stops repeating the choices.
- *   A question only the terminal can answer (several questions, multi-select) says so.
+ *   Several single-select questions (Nov 6 2026): pick one each, then Send answers; the Mac types
+ *   a digit per question and Claude's Submit. A question only the terminal can answer (multi-select,
+ *   more than nine choices) says so.
  * - Codex asks without waiting and reads your next message as the answer, so a tap sends the
  *   option as that message (with several questions: pick one each, then Send answers). It closes
  *   once you send anything.
@@ -38,6 +40,7 @@ import { choiceKey, useRequestAnswer } from '../useRequestAnswer';
 import { sendStatusLine, usePromptSender } from '../usePromptSender';
 import { useDriverName } from '../useDriverName';
 import { useAnswerInChat, useChatTerminal } from '../chatQuestions';
+import MultiQuestionPicker from '../MultiQuestionPicker';
 import styles from '@/styles/modules/mobile/ChatItems.module.css';
 
 export interface QuestionCardProps {
@@ -146,7 +149,8 @@ function OptionButton({ label, description, onClick, loading, chosen }: {
 function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { request: PendingRequest }) {
   useAnswerInChat(sessionId, request.id);
   const { busy, outcome, confirm, cancelConfirm, answer, spectator, driver } = useRequestAnswer(sessionId, request.id, 'Claude');
-  const [picked, setPicked] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const several = !!request.questions?.length;
   const settled = outcome?.kind === 'sent' || outcome?.kind === 'stale';
   const choices: CardChoice[] = (request.options ?? []).map((option, optionIndex) => ({
     answer: { choice: 'option', optionIndex },
@@ -159,10 +163,12 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
   if (settled || outcome?.kind === 'terminal-only') {
     return (
       <Shell item={item}>
-        <div className={styles.questionBlock}>
-          <QuestionText question={question} several={false} />
-          <StaticOptions question={question} picked={outcome?.kind === 'sent' && picked ? [picked] : null} />
-        </div>
+        {item.questions.map((q, i) => (
+          <div key={i} className={styles.questionBlock}>
+            <QuestionText question={q} several={several} />
+            <StaticOptions question={q} picked={outcome?.kind === 'sent' && picked?.[i] ? [picked[i]] : null} />
+          </div>
+        ))}
         {outcome?.kind === 'sent' && <p className={styles.questionState} role="status">Answered. Waiting for Claude to go on…</p>}
         {outcome?.kind === 'stale' && <p className={styles.questionState} role="status">Already answered on your Mac</p>}
         {outcome?.kind === 'terminal-only' && (
@@ -175,8 +181,17 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
     );
   }
 
+  const sendAll = (optionIndexes: number[]) => {
+    const questions = request.questions ?? [];
+    setPicked(optionIndexes.map((pick, i) => questions[i]?.options[pick]?.label ?? ''));
+    answer({ answer: { choice: 'options', optionIndexes }, label: 'Send answers', tone: 'primary' });
+  };
+
   return (
     <Shell item={item}>
+      {several ? (
+        <MultiQuestionPicker questions={request.questions ?? []} onSend={sendAll} loading={busy?.startsWith('options:')} />
+      ) : (
       <div className={styles.questionBlock}>
         <QuestionText question={question} several={false} />
         <div className={styles.questionOptions} role="group" aria-label="Answers">
@@ -187,13 +202,14 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
               description={choice.description}
               loading={busy === choiceKey(choice.answer)}
               onClick={() => {
-                setPicked(choice.label);
+                setPicked([choice.label]);
                 answer(choice);
               }}
             />
           ))}
         </div>
       </div>
+      )}
       {spectator && <p className={styles.questionState}>{driver} is driving. Answering takes control.</p>}
       {outcome?.kind === 'error' && <p className={styles.questionError} role="alert">{outcome.message}</p>}
       <ConfirmSheet

@@ -70,6 +70,13 @@ export const QueueIcon = (p: IconProps) => (
   <Svg size={18} {...p}><rect x="4" y="4" width="12" height="12" rx="2" /><path d="M8 20h10a2 2 0 0 0 2-2V8" /></Svg>
 );
 
+/** The agents chip (Nov 8 2026): a small robot head; its running ring is drawn by the chip. */
+export const AgentsIcon = (p: IconProps) => (
+  <Svg size={18} {...p}><rect x="5" y="8" width="14" height="11" rx="3" /><path d="M12 8V5M9.5 13h.01M14.5 13h.01M3 13v2M21 13v2" /></Svg>
+);
+
+export const AgentsDoneIcon = (p: IconProps) => <Svg size={18} strokeWidth="2.2" {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>;
+
 export const TerminalIcon = (p: IconProps) => (
   <Svg size={20} {...p}><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="M7 10l3 2.5L7 15M12.5 15H17" /></Svg>
 );

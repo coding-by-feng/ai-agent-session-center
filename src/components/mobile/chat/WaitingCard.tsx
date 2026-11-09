@@ -26,6 +26,7 @@ import { offeredChoices, type CardDetail, type WaitingCard as WaitingCardData } 
 import { choiceKey, useRequestAnswer } from './useRequestAnswer';
 import { useAnsweredInChat } from './chatQuestions';
 import { QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
+import MultiQuestionPicker from './MultiQuestionPicker';
 import styles from '@/styles/modules/mobile/WaitingCard.module.css';
 
 export interface WaitingCardProps {
@@ -113,7 +114,8 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
   // A question card in the chat offers the same choices (items/QuestionCard): the card here keeps
   // what is asked, "Other…" and the terminal, not a second set of buttons.
   const inChat = useAnsweredInChat(session.sessionId, isQuestion ? card.requestId : null);
-  const answerable = !terminalOnly && !settled && card.choices.length > 0;
+  const several = !!card.questions?.length;
+  const answerable = !terminalOnly && !settled && (card.choices.length > 0 || several);
   const showChoices = answerable && !inChat;
   /** The chat shows this question whole: keep the title, Other… and the terminal, nothing it repeats. */
   const compact = answerable && inChat;
@@ -167,6 +169,13 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
             {card.where && <p className={styles.where}>{card.where}</p>}
           </div>
           {isQuestion && choices}
+          {showChoices && several && (
+            <MultiQuestionPicker
+              questions={card.questions ?? []}
+              loading={busy?.startsWith('options:')}
+              onSend={(optionIndexes) => answer({ answer: { choice: 'options', optionIndexes }, label: 'Send answers', tone: 'primary' })}
+            />
+          )}
         </div>
       )}
 

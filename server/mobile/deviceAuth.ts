@@ -324,6 +324,33 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       return toView({ ...rec, status: 'active', approvedAt });
     },
 
+    /**
+     * Nov 6 2026: the desktop allowed `id` and said it replaces these older
+     * pairings of the same phone (a phone that lost its key can't unpair them
+     * itself). Only an active row with the same platform and name (case and
+     * outer spaces aside) goes, through `revokeRecord` like any revoke, so its
+     * sessions, sockets and backend device go too; anything else is skipped.
+     * Nothing goes unless `id` itself is approved.
+     */
+    replaceTwins(id: string, ids: readonly string[]): { replaced: string[]; skipped: string[] } {
+      const fresh = store.get(id);
+      const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+      const replaced: string[] = [];
+      const skipped: string[] = [];
+      for (const oldId of ids) {
+        const rec = oldId === id ? null : store.get(oldId);
+        const twin = fresh?.status === 'active' && rec?.status === 'active'
+          && rec.platform === fresh.platform && sameName(rec.label, fresh.label);
+        if (!twin || !rec) {
+          skipped.push(oldId);
+          continue;
+        }
+        revokeRecord(rec);
+        replaced.push(oldId);
+      }
+      return { replaced, skipped };
+    },
+
     /** Refuse a pending phone. Its row is deleted; it never had access. */
     deny(id: string): boolean {
       const rec = store.get(id);

@@ -8,7 +8,7 @@ import { join } from 'path';
 import { databaseDirectory } from './dbPaths.js';
 import log from './logger.js';
 import { sanitizeModelId, extractModelFromCommand } from './config.js';
-import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
+import { encodeQueue, decodeQueueRow, nextQueueVersion } from './sessionQueueCodec.js';
 import { migrateMobileDeviceCodeRefs } from './mobile/deviceCodeRefMigration.js';
 import { MOBILE_DEVICES_DDL, migrateMobileDevicePlatforms } from './mobile/devicePlatformMigration.js';
 import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
@@ -651,7 +651,10 @@ export function upsertSessionQueue(
   items: unknown[],
   automation: unknown | null,
 ): SessionQueueRecord {
-  const updatedAt = Date.now();
+  // The stored version, which a save from a window names as its base (PUT /sessions/:id/queue):
+  // never reused, so a stale save can't pass as current.
+  const previous = stmts.getSessionQueue.get(sessionId) as SessionQueueRow | undefined;
+  const updatedAt = nextQueueVersion(previous?.updated_at, Date.now());
   const encoded = encodeQueue(items, automation);
   stmts.upsertSessionQueue.run({
     session_id: sessionId,
@@ -971,8 +974,8 @@ export function closeDb(): void {
 }
 
 // SSH Resource Transfers were retired for the cloud (AASC-51): resource_transfer_state
-// is neither created nor dropped here; its rows stay as recovery data (server/cloud/
-// legacyHistory.ts), and Project Sync imports its saved servers once. Project Sync's own
+// is neither created nor dropped here; its rows stay as recovery data, and Project
+// Sync imports its saved servers once. Project Sync's own
 // tables (project_sync_*) are created by server/projectSync/store.ts.
 
 /** The open handle, for feature stores that keep their own tables (queueSent.ts, promptSnippets.ts). */

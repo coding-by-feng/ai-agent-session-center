@@ -5,11 +5,11 @@ import Foundation
 
 /// One session line on the card.
 struct LiveActivityRow: Codable, Hashable {
-    /// "needs" (approval / input), "working" (prompting / working), "done" (waiting) or "idle" (idle; LiveActivityRules
-    /// turns the Mac's flagged done row into it).
+    /// "needs" (approval / input), "working" (prompting / working), "done" (waiting), "idle" (idle) or "proceed" (its
+    /// answer asks the user to reply "proceed"); LiveActivityRules turns the Mac's flagged done rows into the last two.
     let mark: String
     let title: String
-    /// When the turn (working) or request (needs) began: the widget draws a timer from it, which iOS keeps counting
+    /// When the turn (working), request (needs) or "proceed" ask (proceed) began: the widget draws a timer from it, which iOS keeps counting
     /// while the app is suspended. Nil on done rows and on cards from a Mac that predates it.
     var startedAt: Date? = nil
     /// The lead (first) row only: its latest response, tool call or question, one line.

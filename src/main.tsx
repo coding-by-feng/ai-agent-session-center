@@ -9,6 +9,8 @@ import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { installClientIdentityHeaders } from '@/lib/presenceClient';
 import { resolveWindowRole } from '@/lib/windowRole';
 import { APP_DISPLAY_NAME, IS_LITE } from '@/lib/edition';
+import { installBrowserChunkReloadGuard } from '@/lib/chunkReload';
+import AppErrorBoundary from '@/components/AppErrorBoundary';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -26,6 +28,11 @@ import '@/styles/themes/light-overrides.css';
 // workspace restore and who holds each session's write baton from these
 // headers, and an unstamped request reads as an anonymous device.
 installClientIdentityHeaders();
+
+// A page open for hours still runs its old index.js; after the Mac's AASC is updated its lazy
+// chunks are gone. Reload once to pick up the new names (lib/chunkReload.ts); AppErrorBoundary
+// below catches what a reload can't fix, so the page is never left empty and white.
+installBrowserChunkReloadGuard();
 
 if (IS_LITE) document.title = APP_DISPLAY_NAME;
 
@@ -86,7 +93,9 @@ async function bootstrap(): Promise<void> {
   void useQueueStore.getState().syncFromServer();
   createRoot(root!).render(
     <StrictMode>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </StrictMode>,
   );
 }
@@ -109,15 +118,17 @@ if (popoutKind === 'terminal') {
   const PopoutTerminalView = lazy(() => import('@/components/session/PopoutTerminalView'));
   createRoot(root).render(
     <StrictMode>
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <PopoutTerminalView
-            terminalId={popoutParams.get('terminalId') || ''}
-            originSessionId={popoutParams.get('originSessionId') || undefined}
-            label={popoutParams.get('label') || undefined}
-          />
-        </Suspense>
-      </BrowserRouter>
+      <AppErrorBoundary>
+        <BrowserRouter>
+          <Suspense fallback={null}>
+            <PopoutTerminalView
+              terminalId={popoutParams.get('terminalId') || ''}
+              originSessionId={popoutParams.get('originSessionId') || undefined}
+              label={popoutParams.get('label') || undefined}
+            />
+          </Suspense>
+        </BrowserRouter>
+      </AppErrorBoundary>
     </StrictMode>,
   );
 } else if (popoutKind === 'project') {
@@ -125,11 +136,13 @@ if (popoutKind === 'terminal') {
   const PopoutProjectView = lazy(() => import('@/components/session/PopoutProjectView'));
   createRoot(root).render(
     <StrictMode>
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <PopoutProjectView />
-        </Suspense>
-      </BrowserRouter>
+      <AppErrorBoundary>
+        <BrowserRouter>
+          <Suspense fallback={null}>
+            <PopoutProjectView />
+          </Suspense>
+        </BrowserRouter>
+      </AppErrorBoundary>
     </StrictMode>,
   );
 } else if (popoutKind === 'session') {
@@ -142,11 +155,13 @@ if (popoutKind === 'terminal') {
     const PopoutSessionView = lazy(() => import('@/components/session/PopoutSessionView'));
     createRoot(root!).render(
       <StrictMode>
-        <BrowserRouter>
-          <Suspense fallback={null}>
-            <PopoutSessionView />
-          </Suspense>
-        </BrowserRouter>
+        <AppErrorBoundary>
+          <BrowserRouter>
+            <Suspense fallback={null}>
+              <PopoutSessionView />
+            </Suspense>
+          </BrowserRouter>
+        </AppErrorBoundary>
       </StrictMode>,
     );
   })();
@@ -167,11 +182,13 @@ if (popoutKind === 'terminal') {
     const PopoutQueueView = lazy(() => import('@/components/session/PopoutQueueView'));
     createRoot(root!).render(
       <StrictMode>
-        <BrowserRouter>
-          <Suspense fallback={null}>
-            <PopoutQueueView />
-          </Suspense>
-        </BrowserRouter>
+        <AppErrorBoundary>
+          <BrowserRouter>
+            <Suspense fallback={null}>
+              <PopoutQueueView />
+            </Suspense>
+          </BrowserRouter>
+        </AppErrorBoundary>
       </StrictMode>,
     );
   })();
@@ -182,9 +199,11 @@ if (popoutKind === 'terminal') {
   const UnknownPopoutNotice = lazy(() => import('@/components/session/UnknownPopoutNotice'));
   createRoot(root).render(
     <StrictMode>
-      <Suspense fallback={null}>
-        <UnknownPopoutNotice kind={windowRole.kind} />
-      </Suspense>
+      <AppErrorBoundary>
+        <Suspense fallback={null}>
+          <UnknownPopoutNotice kind={windowRole.kind} />
+        </Suspense>
+      </AppErrorBoundary>
     </StrictMode>,
   );
 } else {

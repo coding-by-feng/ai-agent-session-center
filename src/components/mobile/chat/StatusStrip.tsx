@@ -1,7 +1,9 @@
 /**
  * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop",
  * or compacts its context: "● Compacting context · auto · 0:23  ■ Stop" (timed from
- * PreCompact; Esc cancels a compaction too). The terminal's last lines sit under it
+ * PreCompact; Esc cancels a compaction too), or, once the answer is in, while Claude still runs
+ * its Stop hooks: "● Finishing up · Stop hooks · 0:12" (timed from Stop; Nov 6 2026). A prompt
+ * sent then waits, unseen, until they finish, so the strip stays up to say why. The terminal's last lines sit under it
  * only once ⌄ asks for them (Oct 19 2026, remembered per phone: peekPreference).
  * and the terminal peek under it, whose opened face has "Open terminal" (AASC-56). Status and tool come from the session object
  * (hook-driven, instant), not from the transcript.
@@ -23,7 +25,7 @@ import type { Session } from '@/types';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
-import { isCompacting } from '@/lib/chat/phoneStatus';
+import { isCompacting, isFinishingUp } from '@/lib/chat/phoneStatus';
 import { readPeekOpen, writePeekOpen } from '@/lib/chat/peekPreference';
 import { Button } from '../kit';
 import TerminalPeek from './TerminalPeek';
@@ -77,16 +79,21 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   }, []);
 
   const compacting = isCompacting(session, now) ? session.compacting : null;
-  const since = compacting ? compacting.since : turnStart(session);
-  const tool = compacting ? null : currentTool(session, since);
+  const finishingSince = !compacting && isFinishingUp(session, now) ? session.stopHooksSince ?? null : null;
+  const since = compacting ? compacting.since : finishingSince ?? turnStart(session);
+  const tool = compacting || finishingSince ? null : currentTool(session, since);
   const elapsed = formatDuration(Math.max(0, now - since));
   // Worked out on each tick, never set by an effect: a new turn or the timeout ends it.
   const stopPending = !!stopSent && stopSent.turn === since && now - stopSent.at < STOP_PENDING_MS;
+  // Nothing left to show: a mark gone stale with no update to unmount the strip (the session
+  // sits waiting) must not fall back to "Working · <the turn's last tool>".
+  const live = session.status === 'working' || session.status === 'prompting' || !!compacting || finishingSince !== null;
   const label = stopPending
     ? 'Stopping'
     : compacting
       ? ['Compacting context', compacting.trigger].filter(Boolean).join(' · ')
-      : session.status === 'prompting' ? 'Starting' : 'Working';
+      : finishingSince ? 'Finishing up · Stop hooks'
+        : session.status === 'prompting' ? 'Starting' : 'Working';
 
   const stop = async () => {
     if (!terminalId) return;
@@ -109,6 +116,8 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
     : baton.mode === 'spectator'
       ? `${baton.holder?.label ?? 'Another device'} is driving`
       : undefined;
+
+  if (!live) return null;
 
   return (
     <div className={styles.strip} data-testid="chat-status-strip">
@@ -133,7 +142,9 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
         >
           <ChevronIcon size={18} />
         </button>
-        <Button
+        {/* No Stop while finishing up: Esc there cancels the user's own Stop hooks (claude-mem's
+            summary of the turn is lost), and the answer is already in. */}
+        {finishingSince === null && <Button
           small
           variant="secondary"
           icon={<SquareStopIcon size={16} />}
@@ -145,7 +156,7 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           className={styles.stripStop}
         >
           {stopping || stopPending ? 'Stopping…' : 'Stop'}
-        </Button>
+        </Button>}
       </div>
       {error && <p className={styles.stripError} role="alert">{error}</p>}
       {peekOpen && (

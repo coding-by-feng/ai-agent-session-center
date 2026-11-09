@@ -7,8 +7,7 @@
  * out: ask the driver to hand over, or take it once they have been idle a minute.
  * When this phone drives and another device asks for it, it offers the hand-over.
  *
- * Presentational: the state and actions come from `useControlBaton`, the same
- * hook behind the desktop's `SessionControlLock`.
+ * Presentational: the state and actions come from `useControlBaton`.
  */
 import type { ControlBaton } from '@/hooks/useControlBaton';
 import styles from '@/styles/modules/PhoneSession.module.css';

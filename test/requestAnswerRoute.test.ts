@@ -48,7 +48,7 @@ const killGuard = vi.spyOn(process, 'kill').mockImplementation(((pid: number, si
   throw new Error(`requestAnswerRoute.test must never signal a real process (pid ${pid}, ${String(signal ?? 'SIGTERM')})`);
 }) as typeof process.kill);
 
-const { createRequestAnswerRouter, ANSWERS_PER_MINUTE } = await import('../server/requestAnswer.js');
+const { createRequestAnswerRouter, ANSWERS_PER_MINUTE, ANSWER_KEY_GAP_MS } = await import('../server/requestAnswer.js');
 const store = await import('../server/sessionStore.js');
 const presence = await import('../server/presenceManager.js');
 const auth = await import('../server/authManager.js');
@@ -185,6 +185,31 @@ describe('answering a waiting request', () => {
     expect(pty.write).not.toHaveBeenCalled();
     expect((await answer(plain.id, plain.requestId, { choice: 'allow_once' })).status).toBe(202);
     expect(pty.write).toHaveBeenLastCalledWith(plain.id, '1');
+  });
+
+  it('several questions type a digit each, then Submit, one step at a time (Nov 6 2026)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const { id, requestId } = await waitingSession({
+        events: [['PreToolUse', {
+          tool_name: 'AskUserQuestion',
+          tool_use_id: 'toolu_2q',
+          tool_input: { questions: [
+            { question: 'Theme?', header: 'Theme', multiSelect: false, options: [{ label: 'Warm' }, { label: 'Clean' }] },
+            { question: 'Scope?', header: 'Scope', multiSelect: false, options: [{ label: 'AASC' }, { label: 'General' }] },
+          ] },
+        }]],
+      });
+      expect((await answer(id, requestId, { choice: 'options', optionIndexes: [1, 0] })).status).toBe(202);
+      expect(pty.write.mock.calls).toEqual([[id, '2']]);
+      vi.advanceTimersByTime(ANSWER_KEY_GAP_MS);
+      expect(pty.write.mock.calls).toEqual([[id, '2'], [id, '1']]);
+      vi.advanceTimersByTime(ANSWER_KEY_GAP_MS);
+      expect(pty.write.mock.calls).toEqual([[id, '2'], [id, '1'], [id, '1']]);
+      expect(store.getSession(id)?.pendingRequest).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a question’s option types its digit', async () => {

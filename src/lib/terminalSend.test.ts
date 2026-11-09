@@ -6,6 +6,7 @@ import {
   SUBMIT_ENTER_DELAY_MS,
   IMAGE_SUBMIT_ENTER_DELAY_MS,
   EXTRA_IMAGE_ENTER_DELAY_MS,
+  withImagePaths,
 } from './terminalSend';
 
 describe('sendPromptToTerminal', () => {
@@ -102,5 +103,18 @@ describe('pressEnterInTerminal', () => {
   it('reports a failed write', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false });
     expect(await pressEnterInTerminal('term-9')).toBe(false);
+  });
+});
+
+// Nov 8 2026: a photo is a prompt on its own — an image-only prompt types just the paths.
+describe('withImagePaths', () => {
+  it('lists the image paths under the text', () => {
+    expect(withImagePaths('what is this?', ['/q/a.png', '/q/b.jpg'])).toBe('what is this?\n/q/a.png\n/q/b.jpg');
+  });
+  it('types only the paths when there is no text: no blank first line', () => {
+    expect(withImagePaths('', ['/q/a.png'])).toBe('/q/a.png');
+  });
+  it('leaves the text alone when there are no images', () => {
+    expect(withImagePaths('hello', [])).toBe('hello');
   });
 });

@@ -66,7 +66,8 @@ enum LiveActivityRules {
     /// session as a done row flagged `idle` and counts them in `idle` (Nov 2 2026), so an older app still draws it as
     /// done: here it becomes the "idle" mark, and a finished card whose every live session (rows + more) is idle
     /// becomes the "idle" headline (counted against the rows as posted: one dropped here may be a finished session).
-    /// Neither is accepted as posted.
+    /// A done row flagged `proceed` (its answer asks the user to reply "proceed", Nov 8 2026) becomes the "proceed"
+    /// mark, which beats idle and keeps its timer (when it asked). None of these is accepted as posted.
     static func card(_ body: Any?, mac: String, now: Date = Date()) -> LiveActivityCard? {
         guard let object = body as? [String: Any], (object["v"] as? Int) == 1,
               let posted = object["headline"] as? String, headlines.contains(posted) else { return nil }
@@ -74,8 +75,8 @@ enum LiveActivityRules {
         let rows = postedRows.compactMap { raw -> LiveActivityRow? in
             guard let row = raw as? [String: Any], let posted = row["mark"] as? String, marks.contains(posted),
                   let title = clean(row["title"], max: titleMax) else { return nil }
-            let mark = posted == "done" && flag(row["idle"]) ? "idle" : posted
-            return LiveActivityRow(mark: mark, title: title, startedAt: posted == "done" ? nil : startTime(row["startedAt"], now: now),
+            let mark = posted != "done" ? posted : flag(row["proceed"]) ? "proceed" : flag(row["idle"]) ? "idle" : posted
+            return LiveActivityRow(mark: mark, title: title, startedAt: mark == "done" || mark == "idle" ? nil : startTime(row["startedAt"], now: now),
                                    detail: clean(row["detail"], max: detailMax))
         }.enumerated().map { index, row in
             index == 0 ? row : LiveActivityRow(mark: row.mark, title: row.title, startedAt: row.startedAt)

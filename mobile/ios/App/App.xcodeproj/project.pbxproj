@@ -27,6 +27,8 @@
 		A1F0C0020000000000000001 /* LiveActivityRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000001 /* LiveActivityRules.swift */; };
 		A1F0C0020000000000000002 /* AascActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000002 /* AascActivityAttributes.swift */; };
 		A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000003 /* LiveActivityBridge.swift */; };
+		A1F0C002000000000000000A /* FileSaveRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000009 /* FileSaveRules.swift */; };
+		A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000A /* FileSaveBridge.swift */; };
 		A1F0C0020000000000000004 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
 		A1F0C0020000000000000009 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
 		A1F0C0020000000000000005 /* AascActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000002 /* AascActivityAttributes.swift */; };
@@ -59,6 +61,8 @@
 		A1F0C0010000000000000008 /* LiveActivityCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityCard.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000002 /* AascActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascActivityAttributes.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000003 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
+		A1F0C0010000000000000009 /* FileSaveRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveRules.swift; sourceTree = "<group>"; };
+		A1F0C001000000000000000A /* FileSaveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveBridge.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityBundle.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000005 /* AascLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityWidget.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -145,6 +149,8 @@
 				A1F0C0010000000000000008 /* LiveActivityCard.swift */,
 				A1F0C0010000000000000002 /* AascActivityAttributes.swift */,
 				A1F0C0010000000000000003 /* LiveActivityBridge.swift */,
+				A1F0C0010000000000000009 /* FileSaveRules.swift */,
+				A1F0C001000000000000000A /* FileSaveBridge.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -291,6 +297,8 @@
 				A1F0C0020000000000000009 /* LiveActivityCard.swift in Sources */,
 				A1F0C0020000000000000002 /* AascActivityAttributes.swift in Sources */,
 				A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */,
+				A1F0C002000000000000000A /* FileSaveRules.swift in Sources */,
+				A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

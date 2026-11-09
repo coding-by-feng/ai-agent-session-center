@@ -23,7 +23,7 @@
  * Renders as a self-contained overlay (not using the global Modal store) so
  * QueueTab can carry per-item state in its own component scope.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   QueueItem,
@@ -52,6 +52,7 @@ import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import ImagePreview from '@/components/ui/ImagePreview';
 import { useIsMobile } from '@/lib/platform';
+import { withVideoPaths } from '@/lib/chat/videoAttach';
 import styles from '@/styles/modules/Terminal.module.css';
 import dress from '@/styles/modules/PhoneDress.module.css';
 
@@ -79,6 +80,9 @@ let nextStepId = Date.now();
 function newStepId(): number {
   return nextStepId++;
 }
+
+/** The phone's photo library and camera (the queue compose box's own pair), loaded on a phone only. */
+const PhotoPickButtons = lazy(() => import('@/components/mobile/QueuePhotoButtons').then((m) => ({ default: m.PhotoPickButtons })));
 
 /** Read up to 5 dropped/pasted/picked files into base64 image attachments. */
 function filesToImages(files: File[]): Promise<QueueImageAttachment[]> {
@@ -291,6 +295,18 @@ export default function QueueItemEditModal({
     },
     [addImages],
   );
+
+  // The phone picker reads photos asynchronously: it asks for the images as they are then
+  // (one removed meanwhile stays removed), as the compose box reads its draft again.
+  const imagesRef = useRef(images);
+  useEffect(() => { imagesRef.current = images; }, [images]);
+  const getImages = useCallback(() => imagesRef.current, []);
+  const addPickedImages = useCallback((picked: QueueImageAttachment[]) => {
+    setImages((prev) => addImagesToPrompt(prev, picked).images);
+  }, []);
+  const addVideoPath = useCallback((path: string) => {
+    setMainText((prev) => withVideoPaths(prev, [path]));
+  }, []);
 
   const handleRemoveImage = useCallback((idx: number) => {
     setImages((prev) => prev.filter((_, i) => i !== idx));
@@ -683,6 +699,18 @@ export default function QueueItemEditModal({
               onChange={handleImageFiles}
             />
             <div className={styles.queueEditImageRow}>
+              {isMobile ? (
+                // Nov 7 2026: the desktop paperclip read a phone photo at full size and had no camera.
+                <Suspense fallback={null}>
+                  <PhotoPickButtons
+                    count={images.length}
+                    buttonClassName={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+                    getImages={getImages}
+                    onImages={addPickedImages}
+                    onVideoPath={addVideoPath}
+                  />
+                </Suspense>
+              ) : (
               <button
                 type="button"
                 className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
@@ -693,6 +721,7 @@ export default function QueueItemEditModal({
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
+              )}
               <button
                 type="button"
                 className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${isKept(mainText) ? ` ${styles.queueSnippetBtnOn}` : ''}`}

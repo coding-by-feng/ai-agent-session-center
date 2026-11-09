@@ -36,6 +36,7 @@ import { InboxTabIcon, MoreTabIcon, QueueTabIcon, SessionsTabIcon } from '../kit
 import PhoneStack from './PhoneStack';
 import { useKeyboardKeepsSplit, useSoftKeyboardOpen } from './useSoftKeyboardOpen';
 import { useLiveActivityFeed } from './useLiveActivityFeed';
+import { usePhoneReroute } from './usePhoneReroute';
 import ToastContainer, { showToast } from '@/components/ui/ToastContainer';
 import NewSessionModal from '@/components/modals/NewSessionModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
@@ -233,6 +234,7 @@ export default function PhoneAppFrame() {
   useSelectionBridge();
   // The lock-screen Live Activity (iOS app only).
   useLiveActivityFeed();
+  usePhoneReroute();
   const split = useSplitView();
 
   const tab = usePhoneNavStore((s) => s.tab);

@@ -120,6 +120,8 @@ export function answerableRequest(item: QuestionItem, request: PendingRequest | 
   if (item.cli !== 'claude' || !item.open || !request || request.kind !== 'question') return null;
   if (request.toolUseId !== item.id && request.id !== item.id) return null;
   if (request.source === 'timer' || request.source === 'notification' || request.ambiguous) return null;
-  if (!request.options?.length || item.questions.length !== 1) return null;
-  return request;
+  if (request.options?.length && item.questions.length === 1) return request;
+  // Several single-select questions (Nov 6 2026): one pick each, then Send answers.
+  if (request.questions?.length && request.questions.length === item.questions.length) return request;
+  return null;
 }

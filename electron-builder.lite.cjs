@@ -19,6 +19,10 @@ module.exports = {
     ...LEFT_OUT.map((library) => `!node_modules/${library}/**`),
     { from: 'dist/client-lite', to: 'dist/client' },
   ],
+  // The server serves the UI with express.static; inside app.asar each file is copied to $TMPDIR, which macOS
+  // purges after 3 days, and a long-running app then 404s every page. asarUnpack matches the SOURCE path, so
+  // Full's 'dist/client/**' misses Lite's copied folder (test/electronClientUnpacked.test.ts).
+  asarUnpack: [...base.asarUnpack, 'dist/client-lite/**'],
   afterPack: 'scripts/verify-lite-package.cjs',
   dmg: { ...base.dmg, title: productName },
   // The same robot as Full with a green keyboard, so the two can be told apart when both are installed.

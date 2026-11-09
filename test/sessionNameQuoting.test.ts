@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import {
   appendSessionName,
   extractSessionName,
@@ -132,30 +130,5 @@ describe('round-trip through extract / strip', () => {
 
   it('still extracts a legacy unquoted multi-word name', () => {
     expect(extractSessionName('claude -n KTS Deployment')).toBe('KTS Deployment');
-  });
-});
-
-/**
- * `electron/ptyHost.ts` cannot import from `server/` (separate tsconfig roots —
- * same constraint as `ptyRing.ts` and the CLAUDE_CODE_CHILD_SESSION scrub), so
- * it carries its own copy of this logic. Assert the mirror's source text so the
- * two cannot silently drift apart.
- */
-describe('electron/ptyHost.ts mirror', () => {
-  const src = readFileSync(join(process.cwd(), 'electron/ptyHost.ts'), 'utf8');
-
-  it('escapes backslash, $, backtick and " — not just "', () => {
-    // Character class must be exactly [\\$`"] — the four chars the shell still
-    // treats as special inside double quotes.
-    expect(src).toContain('replace(/[\\\\$`"]/g');
-  });
-
-  it('strips control characters from the title', () => {
-    expect(src).toContain('CONTROL_CHARS_RE');
-  });
-
-  it('normalizes an existing -n rather than bailing out', () => {
-    expect(src).toContain('STRIP_SESSION_NAME_RE');
-    expect(src).not.toMatch(/if \(\/ -n\[ =\]\/\.test\(cmd\)\) return cmd/);
   });
 });

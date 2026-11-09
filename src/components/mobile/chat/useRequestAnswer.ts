@@ -30,7 +30,7 @@ export type AnswerOutcome =
 
 /** One answer's key, to tell which button is busy (a question's options share a choice). */
 export function choiceKey(answer: Answer): string {
-  return `${answer.choice}:${answer.optionIndex ?? ''}`;
+  return `${answer.choice}:${answer.optionIndex ?? answer.optionIndexes?.join(',') ?? ''}`;
 }
 
 export interface AnswerConfirm {

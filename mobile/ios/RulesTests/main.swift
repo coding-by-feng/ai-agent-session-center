@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -197,6 +197,42 @@ expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark":
        "nor as a mark")
 expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "done", "title": "x", "idle": "yes"]]], mac: "m")?.rows.first?.mark == "done",
        "a non-boolean idle flag is ignored")
+
+// A "proceed" owed (Nov 8 2026): a done row flagged proceed becomes the proceed mark and keeps its timer
+let askedAt = Date().timeIntervalSince1970 * 1000 - 60_000
+let proceedCard = LiveActivityRules.card(["v": 1, "headline": "needs", "needs": 1, "rows": [
+    ["mark": "done", "title": "p", "proceed": true, "startedAt": askedAt], ["mark": "done", "title": "d", "startedAt": askedAt],
+    ["mark": "done", "title": "both", "proceed": true, "idle": true]]], mac: "m")
+expect(proceedCard?.rows.map(\.mark) == ["proceed", "done", "proceed"], "proceed flag turns a done row proceed, and beats idle")
+expect(proceedCard?.rows.first?.startedAt != nil, "a proceed row keeps when it asked")
+expect(proceedCard?.rows[1].startedAt == nil, "a plain done row still has no timer")
+expect(LiveActivityRules.card(["v": 1, "headline": "working", "rows": [["mark": "working", "title": "w", "proceed": true]]], mac: "m")?.rows.first?.mark == "working",
+       "proceed only turns a done row")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "proceed", "title": "x"]]], mac: "m")?.rows.isEmpty == true,
+       "the Mac never posts proceed as a mark")
+
+// FileSaveRules: the Download button downloads only the page's own file route, under a clean name (Nov 7 2026)
+let macPage = "http://192.168.4.20:3333"
+let goodPath = "/api/files/stream?root=%2FUsers%2Fk%2Fp&path=a%2Fv.mp4&download=1"
+let saveReq = FileSaveRules.request(["id": "lx2-1", "url": goodPath, "name": "v.mp4"], page: macPage)
+expect(saveReq?.url.absoluteString == macPage + goodPath && saveReq?.name == "v.mp4" && saveReq?.id == "lx2-1", "good request")
+expect(FileSaveRules.request(["id": "a", "url": "/api/files/stream?root=x&path=y", "name": "v"], page: macPage) == nil, "no download=1")
+expect(FileSaveRules.request(["id": "a", "url": "/api/sessions?download=1", "name": "v"], page: macPage) == nil, "another route")
+expect(FileSaveRules.request(["id": "a", "url": "//evil.example/api/files/stream?download=1", "name": "v"], page: macPage) == nil, "another host")
+expect(FileSaveRules.request(["id": "a", "url": "https://evil.example/api/files/stream?download=1", "name": "v"], page: macPage) == nil, "absolute url")
+expect(FileSaveRules.request(["id": "a b", "url": goodPath, "name": "v"], page: macPage) == nil, "bad id")
+expect(FileSaveRules.request(["id": "a", "url": goodPath, "name": "..."], page: macPage) == nil, "name of dots")
+expect(FileSaveRules.request("nope", page: macPage) == nil, "not an object")
+expect(FileSaveRules.fileName("../../etc/passwd") == "_.._etc_passwd", "separators replaced, leading dots dropped")
+expect(FileSaveRules.fileName("笔记 1.md") == "笔记 1.md", "unicode kept")
+expect(FileSaveRules.fileName("a\nb.txt") == "a_b.txt", "control characters replaced")
+let longName = FileSaveRules.fileName(String(repeating: "x", count: 300) + ".mp4")
+expect(longName?.utf8.count == FileSaveRules.nameMaxBytes && longName?.hasSuffix(".mp4") == true, "long name keeps its extension")
+let longCjk = FileSaveRules.fileName(String(repeating: "笔", count: 100) + ".md")
+expect((longCjk?.utf8.count ?? 999) <= FileSaveRules.nameMaxBytes && longCjk?.hasSuffix("笔.md") == true, "a CJK name is cut by bytes, whole characters")
+expect(FileSaveRules.postedId(["id": "a-1", "url": "x"]) == "a-1" && FileSaveRules.postedId(["id": "a b"]) == nil, "a refused request is still answered by id")
+let script = FileSaveRules.outcomeScript(id: "a", state: "failed", message: "x')); alert(1); ('")
+expect(script?.contains("\"message\":\"x')); alert(1); ('\"") == true, "message JSON-encoded inside the detail")
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

@@ -73,6 +73,14 @@ export function searchText(root: string, query: string, signal?: AbortSignal): P
   return getJson(`/api/files/grep?${q({ root, q: query })}`, signal);
 }
 
+/**
+ * Is anything at this absolute path that the phone may read? `/files/resolve`
+ * only stats it; a missing path and a refused one are both a 404.
+ */
+export function resolvePath(absolute: string, signal?: AbortSignal): Promise<FilesResult<{ kind: 'file' | 'dir' }>> {
+  return getJson(`/api/files/resolve?${q({ path: absolute })}`, signal);
+}
+
 /** Bytes of an image, PDF or media file, for `<img src>` / PDF.js (same-origin, the session cookie rides along). */
 export function streamUrl(root: string, path: string): string {
   return `/api/files/stream?${q({ root, path })}`;

@@ -1,7 +1,7 @@
 // test/filesStreamRoute.test.ts — the real /api/files/read and /api/files/stream routes over sparse
 // files (no 150 MB is written to disk): media past 100 MB opens and streams by Range, a PDF past
 // 100 MB is still refused, and a Range that names no byte gets 416 (fileStreamPolicy.ts, Nov 5 2026).
-import { closeSync, mkdtempSync, openSync, realpathSync, rmSync, ftruncateSync, writeSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readdirSync, realpathSync, rmSync, ftruncateSync, writeSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +39,8 @@ beforeAll(async () => {
   sparse(join(tmp, 'big.mp4'), BIG);
   sparse(join(tmp, 'big.pdf'), BIG);
   sparse(join(tmp, 'small.mp4'), 1000);
+  sparse(join(tmp, 'notes 笔记.md'), 12, '# hi');
+  sparse(join(tmp, 'big.zip'), BIG);
   // A shell here can inherit the desktop app's APP_USER_DATA: never let an import write the real one.
   process.env.APP_USER_DATA = join(tmp, 'user-data');
   const { default: apiRouter } = await import('../server/apiRouter.js');
@@ -85,5 +87,53 @@ describe('/api/files over 100 MB', () => {
   it('still refuses a 150 MB PDF on both routes', async () => {
     expect((await fetch(url('read', '/big.pdf'))).status).toBe(413);
     expect((await fetch(url('stream', '/big.pdf'))).status).toBe(413);
+  });
+});
+
+// Nov 7 2026: the phone's Download button asks for `download=1`, which saves any file under the root
+// (not only the viewable types), whole and uncapped (it is streamed), as an attachment with its real name.
+describe('/api/files/stream?download=1', () => {
+  const download = (path: string) => `${url('stream', path)}&download=1`;
+
+  it('sends a Markdown file as an attachment with its UTF-8 name', async () => {
+    const res = await fetch(download('/notes 笔记.md'));
+    expect(res.status).toBe(200);
+    const disposition = res.headers.get('content-disposition') ?? '';
+    expect(disposition.startsWith('attachment;')).toBe(true);
+    expect(disposition).toContain(`filename*=UTF-8''${encodeURIComponent('notes 笔记.md')}`);
+    expect((await res.arrayBuffer()).byteLength).toBe(12);
+  });
+
+  it('saves a 150 MB file of a type it would not stream, by Range too', async () => {
+    const head = await fetch(download('/big.zip'), { headers: { Range: 'bytes=0-3' } });
+    expect(head.status).toBe(206);
+    expect(await head.text()).toBe('AASC');
+    expect((await fetch(url('stream', '/big.zip'))).status).toBe(400);
+  });
+
+  it('keeps media inline without the flag', async () => {
+    const res = await fetch(url('stream', '/small.mp4'));
+    expect(res.headers.get('content-disposition')).toBe('inline; filename="small.mp4"');
+    await res.arrayBuffer();
+  });
+
+  // The review (Nov 7 2026) found `stream.pipe(res)` kept the file open when the client hung up, and the
+  // Android WebView drops its own GET as soon as headers arrive (DownloadManager fetches again): one leaked
+  // descriptor per tap, until EMFILE.
+  it('closes the file when the client hangs up mid-transfer', async () => {
+    const openFds = () => readdirSync('/dev/fd').length;
+    const before = openFds();
+    for (let i = 0; i < 10; i++) {
+      const ac = new AbortController();
+      const res = await fetch(download('/big.zip'), { signal: ac.signal });
+      expect(res.status).toBe(200);
+      ac.abort();
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    expect(openFds() - before).toBeLessThan(3);
+  });
+
+  it('still refuses a path outside the root', async () => {
+    expect((await fetch(download('/../etc/passwd'))).status).toBe(400);
   });
 });

@@ -17,7 +17,8 @@ import { ManageRoomsSheet, MoveToRoomSheet } from '../../RoomSheets';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { requestSessionRestart, restartNeedsConfirm } from '@/lib/restartSession';
+import { restartNeedsConfirm } from '@/lib/restartSession';
+import { useRestartProgressStore } from '@/stores/restartProgressStore';
 import { requestSessionKill } from '@/lib/sessionActions';
 import { killMessage, restartBlocker, restartMessage } from '@/lib/chat/sessionInfoModel';
 import { forkBlocker, useSessionActions } from './useSessionActions';
@@ -242,20 +243,16 @@ export function RemarkSheet({ session, onClose }: { session: Session; onClose: (
 // Confirms
 // ---------------------------------------------------------------------------
 
+/**
+ * Restart closes at once and hands the work to restartProgressStore (Nov 8 2026): the
+ * session's screen shows each step in RestartBanner, and an end nobody sees is a toast.
+ */
 function RestartConfirm({ session, open, onClose }: { session: Session; open: boolean; onClose: () => void }) {
-  const [busy, setBusy] = useState(false);
   const name = sessionDisplayTitle(session);
-  const confirm = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const result = await requestSessionRestart(session.sessionId);
-      showToast(result.ok ? `Restarting ${name}` : `${name}: ${result.error}`, result.ok ? 'info' : 'error');
-    } finally {
-      setBusy(false);
-      onClose();
-    }
-  }, [busy, session.sessionId, name, onClose]);
+  const confirm = useCallback(() => {
+    useRestartProgressStore.getState().start(session);
+    onClose();
+  }, [session, onClose]);
   return (
     <ConfirmSheet
       open={open}
@@ -263,8 +260,7 @@ function RestartConfirm({ session, open, onClose }: { session: Session; open: bo
       message={restartMessage(name, session.status)}
       confirmLabel="Restart"
       danger={restartNeedsConfirm(session.status)}
-      busy={busy}
-      onConfirm={() => void confirm()}
+      onConfirm={confirm}
       onCancel={onClose}
     />
   );

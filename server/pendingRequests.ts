@@ -16,9 +16,14 @@
 // works, stops and takes the next prompt (Oct 21: one sat open seven hours, cleared
 // from the phone by the main agent's Stop). Its request ends only on that subagent's
 // own events: its call's end, its next call, its SubagentStop.
+//
+// A compaction never closes a dialog: the agent that asked is blocked on it, so a
+// SessionStart with source `compact` belongs to someone else, an in-process teammate
+// or subagent whose hooks come on this session (Nov 8: a teammate's compaction sent an
+// open question to "Answer in Terminal" for 1h 24m). It leaves any request as it is.
 
 import { createHash, randomUUID } from 'crypto';
-import type { PendingRequest, PendingRequestOption } from '../src/types/session.js';
+import type { PendingRequest, PendingRequestOption, PendingRequestQuestion } from '../src/types/session.js';
 import { subagentIdentity } from './subagentTracker.js';
 
 type Kind = PendingRequest['kind'];
@@ -41,6 +46,11 @@ const ASKING_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanM
 const CLEARING_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit', 'Stop', 'SessionStart', 'SessionEnd']);
 const CALL_ENDS: ReadonlySet<string> = new Set(['PostToolUse', 'PostToolUseFailure']);
 const MAX_ID_CHARS = 200;
+
+/** A context compaction's SessionStart: the session goes on, and no dialog closed. */
+function isCompaction(event: string, hook: Record<string, unknown>): boolean {
+  return event === 'SessionStart' && hook.source === 'compact';
+}
 const MAX_LABEL_CHARS = 200;
 const MAX_DESCRIPTION_CHARS = 1_000;
 
@@ -121,14 +131,45 @@ function optionOf(raw: unknown): PendingRequestOption | null {
  * question with 1–9 choices, which one digit key answers. Anything else is undefined
  * (the card shows the input and sends the user to the terminal).
  */
-export function answerableOptions(input: unknown): PendingRequestOption[] | undefined {
-  const questions = questionsOf(input);
-  if (questions.length !== 1 || !questions[0] || typeof questions[0] !== 'object') return undefined;
-  const { multiSelect, options } = questions[0] as Record<string, unknown>;
+/** Most questions one AskUserQuestion call carries (Claude's tool allows 1–4). */
+export const MAX_ANSWERABLE_QUESTIONS = 4;
+
+/** One single-select question's 1–9 choices, or undefined. */
+function singleSelectOptions(raw: unknown): PendingRequestOption[] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { multiSelect, options } = raw as Record<string, unknown>;
   if (multiSelect === true || !Array.isArray(options)) return undefined;
   if (options.length < 1 || options.length > MAX_ANSWERABLE_OPTIONS) return undefined;
   const parsed = options.map(optionOf);
   return parsed.every((option): option is PendingRequestOption => option !== null) ? parsed : undefined;
+}
+
+/**
+ * Several single-select questions in one call (Nov 6 2026): Claude shows them as tabs, a
+ * digit picks and moves to the next, and a review screen ends in "1. Submit answers".
+ * Undefined unless there are 2–4 and every one is single-select with 1–9 choices.
+ */
+export function answerableQuestions(input: unknown): PendingRequestQuestion[] | undefined {
+  const questions = questionsOf(input);
+  if (questions.length < 2 || questions.length > MAX_ANSWERABLE_QUESTIONS) return undefined;
+  const out: PendingRequestQuestion[] = [];
+  for (const raw of questions) {
+    const options = singleSelectOptions(raw);
+    const { question, header } = (raw ?? {}) as Record<string, unknown>;
+    if (!options || typeof question !== 'string' || question === '') return undefined;
+    out.push({
+      question: question.slice(0, MAX_DESCRIPTION_CHARS),
+      ...(typeof header === 'string' && header !== '' ? { header: header.slice(0, MAX_LABEL_CHARS) } : {}),
+      options,
+    });
+  }
+  return out;
+}
+
+export function answerableOptions(input: unknown): PendingRequestOption[] | undefined {
+  const questions = questionsOf(input);
+  if (questions.length !== 1) return undefined;
+  return singleSelectOptions(questions[0]);
 }
 
 function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, now: number, ambiguous: boolean): PendingRequest {
@@ -137,6 +178,7 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
   const kind = requestKindOf(tool);
   const { input, truncated } = capRequestInput(tool, hook.tool_input);
   const options = kind === 'question' ? answerableOptions(hook.tool_input) : undefined;
+  const questions = kind === 'question' && !options ? answerableQuestions(hook.tool_input) : undefined;
   // A call the CLI can't save as a rule comes with no suggestions, and then Claude's
   // option 2 is "switch to auto mode", not "always allow" (probed on 2.1.300).
   const suggestions = hook.permission_suggestions;
@@ -152,6 +194,7 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
     ...(input !== undefined ? { input } : {}),
     ...(truncated ? { inputTruncated: true } : {}),
     ...(options ? { options } : {}),
+    ...(questions ? { questions } : {}),
     ...(canAlwaysAllow ? { canAlwaysAllow: true } : {}),
     ...(ambiguous ? { ambiguous: true } : {}),
     raisedAt: now,
@@ -230,6 +273,7 @@ export function nextPendingRequest(
   cli: Cli | null,
   now: number,
 ): PendingRequest | null {
+  if (isCompaction(event, hook)) return current;
   if (current?.agentId) {
     const subagent = nextForSubagent(current, event, hook);
     if (subagent === null) return nextPendingRequest(null, event, hook, cli, now);

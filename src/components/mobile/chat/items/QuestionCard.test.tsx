@@ -178,6 +178,54 @@ describe('QuestionCard — Claude', () => {
   });
 });
 
+// Nov 6 2026: Claude asked two questions at once and the phone said "Answer it in the terminal".
+describe('QuestionCard — Claude, several questions in one call', () => {
+  const twoAsk = {
+    questions: [
+      { question: 'Which theme?', header: 'Theme', multiSelect: false, options: [{ label: 'Warm' }, { label: 'Clean' }] },
+      { question: 'What scope?', header: 'Scope', multiSelect: false, options: [{ label: 'AASC' }, { label: 'General' }] },
+    ],
+  };
+  const twoRequest: PendingRequest = {
+    id: 'toolu_2q', toolUseId: 'toolu_2q', kind: 'question', cli: 'claude', tool: 'AskUserQuestion', raisedAt: 1, source: 'pre_tool_use',
+    input: twoAsk, questions: twoAsk.questions.map(({ question, header, options }) => ({ question, header, options })),
+  };
+  const twoEntries = stream({ kind: 'user', text: 'draw it' }, { kind: 'tool_use', id: 'toolu_2q', name: 'AskUserQuestion', input: twoAsk });
+
+  it('picks one per question in the chat, sends them together, and the waiting card points up', async () => {
+    const calls = stubAnswer();
+    const s = setSession({ pendingRequest: twoRequest });
+    render(
+      <>
+        <QuestionCard item={questionOf(twoEntries, true)} sessionId="s1" />
+        <WaitingCard session={s} card={waitingCardModel(s)!} onTerminal={vi.fn()} onTell={vi.fn()} />
+      </>,
+    );
+    expect(screen.queryByText(/takes several picks|more than one pick/)).toBeNull();
+    expect(screen.getByTestId('waiting-card-in-chat')).toHaveTextContent('Answer above');
+    const send = screen.getByRole('button', { name: 'Send answers' });
+    expect(send).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /^Clean/ }));
+    fireEvent.click(send);
+    expect(calls).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /^AASC/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'options', optionIndexes: [1, 0] }));
+    expect(calls[0]?.url).toContain('/api/sessions/s1/requests/toolu_2q/answer');
+    expect(await screen.findByText('Answered. Waiting for Claude to go on…')).toBeInTheDocument();
+  });
+
+  it('the waiting card answers on its own when the chat isn’t showing the question', async () => {
+    const calls = stubAnswer();
+    const s = setSession({ pendingRequest: twoRequest });
+    render(<WaitingCard session={s} card={waitingCardModel(s)!} onTerminal={vi.fn()} onTell={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Warm/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^General/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'options', optionIndexes: [0, 1] }));
+  });
+});
+
 describe('QuestionCard — Codex', () => {
   const codexAsk = { questions: [{ title: 'Deploy which?', options: ['Current (recommended)', 'Local'] }] };
   const asked = stream(

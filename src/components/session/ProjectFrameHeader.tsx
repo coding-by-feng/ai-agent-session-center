@@ -61,6 +61,8 @@ interface Props {
   group: ProjectGroup;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** False while the strip search holds every frame open: the fold would change only the hidden, stored state. */
+  foldable?: boolean;
 }
 
 /** The "new" in "new session". Beside a brand mark it keeps the button from
@@ -77,7 +79,7 @@ function PlusGlyph() {
 /** Keeps a click on a chip, or on its portaled menu, from reaching the frame around it. */
 const stopClick = (e: MouseEvent) => e.stopPropagation();
 
-export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse }: Props) {
+export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse, foldable = true }: Props) {
   const [pending, setPending] = useState<CliCommand | null>(null);
   // `pending` only changes on the next render; this closes the gap for a second
   // click that arrives before it.
@@ -105,19 +107,21 @@ export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse 
 
   return (
     <div className={styles.roomHeaderRow}>
-      <button
-        type="button"
-        className={styles.roomCollapseToggle}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleCollapse();
-        }}
-        title={collapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
-        aria-label={collapsed ? `Expand project ${group.label}` : `Collapse project ${group.label}`}
-        aria-expanded={!collapsed}
-      >
-        <FrameCollapseIcon collapsed={collapsed} />
-      </button>
+      {foldable && (
+        <button
+          type="button"
+          className={styles.roomCollapseToggle}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse();
+          }}
+          title={collapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
+          aria-label={collapsed ? `Expand project ${group.label}` : `Collapse project ${group.label}`}
+          aria-expanded={!collapsed}
+        >
+          <FrameCollapseIcon collapsed={collapsed} />
+        </button>
+      )}
       {group.local && onHostMachine && (
         <>
           <span className={styles.roomHeaderDivider} aria-hidden="true" />

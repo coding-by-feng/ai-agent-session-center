@@ -4,6 +4,7 @@ import {
   buildAgentFlow,
   teammatesOf,
   countLiveAgents,
+  agentProgress,
   columnsFor,
   chunkRows,
   AGENT_CARD_MIN_PX,
@@ -299,6 +300,61 @@ describe('teammatesOf + countLiveAgents', () => {
     const withRuns = { ...leader, subagents: [makeRun(), makeRun({ agentId: 'd', status: 'done' })] };
     expect(countLiveAgents(withRuns, sessions)).toBe(3);
     expect(countLiveAgents(undefined, sessions)).toBe(0);
+  });
+});
+
+describe('agentProgress (the phone Chat agents chip)', () => {
+  const PROMPT_AT = T0 + 1_000;
+  const solo = (over: Partial<Session>) =>
+    makeSession('S', { promptHistory: [{ text: 'go', timestamp: PROMPT_AT }], ...over });
+  const only = (s: Session) => new Map([[s.sessionId, s]]);
+
+  it('is nothing when no agent ran this turn', () => {
+    expect(agentProgress(undefined, new Map())).toEqual({ running: 0, finished: 0, total: 0 });
+    const s = solo({ subagents: [makeRun({ status: 'done', startedAt: T0 + 10, endedAt: T0 + 20 })] });
+    expect(agentProgress(s, only(s))).toEqual({ running: 0, finished: 0, total: 0 });
+  });
+
+  it('counts this turn\'s runs: running, finished, total', () => {
+    const s = solo({
+      subagents: [
+        makeRun({ agentId: 'old', status: 'done', startedAt: T0 + 10, endedAt: T0 + 20 }),
+        makeRun({ agentId: 'w1', startedAt: PROMPT_AT + 1 }),
+        makeRun({ agentId: 'w2', startedAt: PROMPT_AT + 2 }),
+        makeRun({ agentId: 'd1', status: 'done', startedAt: PROMPT_AT + 3, endedAt: PROMPT_AT + 9 }),
+      ],
+    });
+    expect(agentProgress(s, only(s))).toEqual({ running: 2, finished: 1, total: 3 });
+  });
+
+  it('keeps a background run from an earlier turn while it still works', () => {
+    const s = solo({ subagents: [makeRun({ agentId: 'bg', startedAt: T0 + 10 })] });
+    expect(agentProgress(s, only(s))).toEqual({ running: 1, finished: 0, total: 1 });
+  });
+
+  it('agrees with the Agents tab badge, teammates included', () => {
+    const leader = makeSession('L', {
+      teamId: 'team-L', teamRole: 'leader', promptHistory: [{ text: 'go', timestamp: PROMPT_AT }],
+      subagents: [makeRun({ startedAt: PROMPT_AT + 1 })],
+    });
+    const sessions = new Map<string, Session>([
+      ['L', leader],
+      ['T1', makeSession('T1', { teamId: 'team-L', teamRole: 'member', status: 'working' })],
+    ]);
+    const p = agentProgress(leader, sessions);
+    expect(p.running).toBe(countLiveAgents(leader, sessions));
+    expect(p).toEqual({ running: 2, finished: 0, total: 2 });
+  });
+
+  it('shows an ended leader\'s runs as finished, never running', () => {
+    const s = solo({ status: 'ended', endedAt: PROMPT_AT + 50, subagents: [makeRun({ startedAt: PROMPT_AT + 1 })] });
+    expect(agentProgress(s, only(s))).toEqual({ running: 0, finished: 1, total: 1 });
+  });
+
+  it('leaves out helper-fork ghosts', () => {
+    const ghost = makeRun({ agentType: 'unknown', toolCount: 0, description: null, status: 'done', startedAt: PROMPT_AT + 1, endedAt: PROMPT_AT + 2 });
+    const s = solo({ subagents: [ghost] });
+    expect(agentProgress(s, only(s)).total).toBe(0);
   });
 });
 

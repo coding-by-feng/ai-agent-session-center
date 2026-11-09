@@ -11,6 +11,7 @@ import { ambientEngine } from '@/lib/ambientEngine';
 import { ttsEngine, checkTTSStatus } from '@/lib/ttsEngine';
 import { TTS_EN_VOICES, TTS_SAMPLE_TEXT, TTS_ZH_VOICES } from '@/lib/ttsVoices';
 import { IS_LITE } from '@/lib/edition';
+import { useIsDesktopApp } from '@/lib/platform';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -83,6 +84,9 @@ export default function SoundSettings() {
   // Notifications
   const toastEnabled = useSettingsStore((s) => s.toastEnabled);
   const setToastEnabled = useSettingsStore((s) => s.setToastEnabled);
+  const proceedNotifyEnabled = useSettingsStore((s) => s.proceedNotifyEnabled);
+  const setProceedNotifyEnabled = useSettingsStore((s) => s.setProceedNotifyEnabled);
+  const isDesktopApp = useIsDesktopApp();
 
   const activeCliConfig = perCli[activeCliTab];
 
@@ -484,6 +488,17 @@ export default function SoundSettings() {
           <span className={styles.toggleSwitch} />
           <span>Show toast notifications</span>
         </label>
+        {isDesktopApp && (
+          <label className={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={proceedNotifyEnabled}
+              onChange={(e) => setProceedNotifyEnabled(e.target.checked)}
+            />
+            <span className={styles.toggleSwitch} />
+            <span>System notification when a session waits for &ldquo;proceed&rdquo;</span>
+          </label>
+        )}
       </div>
     </div>
   );

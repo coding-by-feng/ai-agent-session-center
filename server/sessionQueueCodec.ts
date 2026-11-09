@@ -82,6 +82,25 @@ export function decodeQueueRow(row: SessionQueueRow | undefined | null): Session
 }
 
 /**
+ * The version a write stores (`updated_at`): the clock, but always past the version it
+ * replaces. A save names the version it was built on (`isStaleQueueWrite`), so two writes
+ * in one millisecond — or a clock that stepped back — must never share one, or a stale
+ * save would pass as current.
+ */
+export function nextQueueVersion(previous: number | null | undefined, now: number): number {
+  return typeof previous === 'number' && previous >= now ? previous + 1 : now;
+}
+
+/**
+ * Is a save built on an older copy than the server holds? Only when it names the version
+ * it was built on and the stored one has moved on. A save that names none (an older
+ * window, a server-side write) and a queue with no record yet are written as before.
+ */
+export function isStaleQueueWrite(stored: number | null | undefined, base: number | null | undefined): boolean {
+  return typeof base === 'number' && typeof stored === 'number' && stored !== base;
+}
+
+/**
  * Append one prompt to a stored queue, PAUSED (AASC-20/21: "share to a session's
  * queue" from the phone). The item is `disabled`, so the scheduler skips it until
  * someone on a device that holds the session turns it on: text shared from

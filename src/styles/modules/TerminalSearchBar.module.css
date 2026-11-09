@@ -1,0 +1,163 @@
+/* TerminalSearchBar — find in the terminal's output (Nov 6 2026).
+   Floats over the terminal's top-right corner: it must never change the terminal's
+   size (a re-fit resizes the PTY and re-wraps its scrollback). */
+
+/* Covers the terminal without taking part in its layout, so the bar can ask how wide the
+   terminal is (container query) and clicks still reach xterm everywhere else. */
+.anchor {
+  position: absolute;
+  inset: 0;
+  z-index: 10; /* dropdown tier: above xterm's layers, below modals */
+  pointer-events: none;
+  container: terminal-area / inline-size;
+}
+
+.bar {
+  position: absolute;
+  top: 8px;
+  right: 24px; /* clear of the terminal's scrollbar */
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 32px);
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--bg-card, #14142a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.35));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 200px;
+  min-width: 96px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.1);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  color: var(--text-secondary, #888);
+}
+
+.field:focus-within {
+  border-color: var(--accent-cyan, #00e5ff);
+}
+
+.fieldInvalid,
+.fieldInvalid:focus-within {
+  border-color: var(--accent-red, #ff4d6d);
+}
+
+.fieldIcon {
+  display: inline-flex;
+  flex: none;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary, #e0e0e0);
+  font: inherit;
+  font-size: 12px;
+}
+
+.count {
+  flex: none;
+  min-width: 56px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  white-space: nowrap;
+}
+
+.btn,
+.toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.btn:hover:not(:disabled),
+.toggle:hover {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.btn:active:not(:disabled),
+.toggle:active {
+  background: rgba(128, 128, 128, 0.25);
+}
+
+.btn:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toggle[aria-pressed='true'] {
+  color: var(--accent-cyan, #00e5ff);
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 14%, transparent);
+}
+
+/* A docked or narrow panel: the toggles fold first; the field, count and ↑ ↓ ✕ stay. */
+@container terminal-area (max-width: 420px) {
+  .toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .toggle {
+    display: none;
+  }
+  .count {
+    min-width: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .toggle {
+    transition: none;
+  }
+}
+
+/* The current match. The addon also selects it (stepping resumes from the selection), and
+   the canvas paints the theme's selection tint over its orange: cyan at 30% turns it olive,
+   duller than the other matches. Its outline element sits above the canvas, so the
+   emphasis lives there, where no selection colour reaches it. */
+:global(.xterm .xterm-find-active-result-decoration) {
+  outline: 2px solid #ff8a2a !important;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(255, 138, 42, 0.35);
+  border-radius: 2px;
+}

@@ -2,7 +2,8 @@
 // UI, a home page and the small main process that shows another computer's AASC.
 const base = require('./electron-builder.json');
 
-// The local app's own modules, which a Client never loads. tsc builds them all into dist/electron.
+// The local app's own modules, which a Client never loads. tsc builds them all into dist/electron. ptyHost, ptyRing and
+// ipc/terminalHandlers were removed in Nov 2026; they stay listed so a stale build output in dist/electron never ships.
 const LOCAL_MODULES = ['main', 'preload', 'ptyHost', 'tray', 'ptyRing', 'portPreflight', 'edition', 'popoutBounds', 'internalUrl', 'ipc/setupHandlers', 'ipc/appHandlers', 'ipc/terminalHandlers'];
 
 module.exports = function clientConfig({ edition, productName, uiFolder, icon }) {

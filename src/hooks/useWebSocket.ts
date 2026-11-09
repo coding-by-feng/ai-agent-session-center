@@ -220,6 +220,7 @@ export function useWebSocket(token: string | null): WsClient | null {
             items?: unknown;
             automation?: unknown;
             originClientId?: string | null;
+            updatedAt?: number;
           };
           if (typeof m.sessionId === 'string' && Array.isArray(m.items)) {
             useQueueStore.getState().applyRemoteQueue(
@@ -227,6 +228,7 @@ export function useWebSocket(token: string | null): WsClient | null {
               m.items as QueueItem[],
               (m.automation ?? null) as QueueAutomationConfig | null,
               m.originClientId ?? null,
+              m.updatedAt,
             );
           }
           break;

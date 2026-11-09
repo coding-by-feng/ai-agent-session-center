@@ -25,7 +25,7 @@ import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects, rankProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
-import { appendPausedItem } from './sessionQueueCodec.js';
+import { appendPausedItem, isStaleQueueWrite } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
@@ -48,6 +48,7 @@ import { getMqStats } from './mqReader.js';
 import * as presence from './presenceManager.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
+import { pipeline } from 'stream';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
@@ -69,7 +70,7 @@ import type { Session } from '../src/types/session.js';
 import { stripCodexLaunchFlags } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
-import { parseByteRange, refusesStreamSize } from './fileStreamPolicy.js';
+import { attachmentDisposition, parseByteRange, refusesStreamSize } from './fileStreamPolicy.js';
 import { getCommandIndex } from './commandIndex.js';
 import { createCommandUsage, usageForEntries, usageScope } from './commandUsage.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
@@ -649,6 +650,10 @@ const sessionQueueSchema = z.object({
    *  ignore its own update instead of re-saving it in a loop. Per window rather
    *  than per device: two windows of one device must not drop each other's updates. */
   originClientId: z.string().max(200).nullish(),
+  /** The stored version (`updatedAt`) the window built this list on. A save that names one is
+   *  refused (409 + the current list) once the stored list has moved on; one that names none is
+   *  written as before. */
+  baseUpdatedAt: z.number().int().nonnegative().nullish(),
 }).refine(
   (v) => JSON.stringify(v.items).length <= MAX_QUEUE_PAYLOAD_BYTES,
   { message: 'Queue payload too large to sync (over 8MB — likely oversized image attachments)' },
@@ -1984,6 +1989,25 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
     return;
   }
 
+  // A list built on an older copy than the one stored would put back whatever changed since: a
+  // phone that slept through the Mac's queue sending a prompt saves its old list and the prompt
+  // returns, to be sent again (Nov 7 2026). Refuse it with the current list; the window merges its
+  // own edit into that and saves again. The read and the write run in one tick, so nothing lands
+  // between them.
+  const current = body.baseUpdatedAt == null ? null : db.getSessionQueue(sessionId);
+  if (current && isStaleQueueWrite(current.updatedAt, body.baseUpdatedAt)) {
+    // Not recorded as a refused save (`recordQueuePut`): the server is not missing anything this
+    // window holds — it holds newer. A mark here could also never clear: a window that is closing
+    // sends its last save as it goes and never sends another.
+    res.status(409).json({
+      success: false,
+      code: 'stale',
+      error: 'The queue changed since this list was loaded',
+      queue: { items: current.items, automation: current.automation, updatedAt: current.updatedAt },
+    });
+    return;
+  }
+
   const record = db.upsertSessionQueue(sessionId, body.items, body.automation ?? null);
   recordQueuePut(sessionId, true, body.originClientId ?? undefined);
 
@@ -2225,7 +2249,8 @@ export const SUMMARIZE_CLAUDE_ARGS: readonly string[] = ['-p', '--model', 'haiku
 
 /**
  * Summarize session using Claude CLI.
- * The frontend sends { context, promptTemplate } from IndexedDB data.
+ * The one caller is the central MCP tool `session_summarize` (the in-app Summary UI was removed Nov 6 2026);
+ * a body may still carry { context, promptTemplate }.
  * If custom_prompt is provided, use it directly as the prompt template. A central's (`mcp:` caller's) custom_prompt is
  * added to AASC's own template instead, never in place of it, and its promptTemplate is not read (Ruling P3-25).
  */
@@ -2635,9 +2660,10 @@ router.get('/terminals', (req: Request, res: Response) => {
   res.json({ terminals });
 });
 
-// Register an externally-created terminal (e.g. Electron ptyHost) with the
-// session store.  Creates a session card and pending link WITHOUT spawning a
-// PTY — the caller already owns the PTY process.
+// Register an externally-created terminal with the session store. Creates a
+// session card and pending link WITHOUT spawning a PTY — the caller already owns
+// the PTY process. Its one caller, the Electron IPC PTY host, was removed in
+// Nov 2026; the route stays for API compatibility.
 const terminalRegisterSchema = z.object({
   terminalId: z.string().min(1),
   host: z.string().default('localhost'),
@@ -2660,7 +2686,7 @@ router.post('/terminals/register', requireLocalOnly, async (req: Request, res: R
       sessionTitle: body.sessionTitle,
     };
 
-    // Create the session card (no PTY spawn — ptyHost owns the process)
+    // Create the session card (no PTY spawn — the caller owns the process)
     const session = await createTerminalSession(body.terminalId, config);
 
     log.info('api', `Registered external terminal ${body.terminalId} → ${body.host}:${body.workingDir}`);
@@ -3382,7 +3408,21 @@ router.get('/files/read', (req: Request, res: Response) => {
   }
 });
 
-/** GET /api/files/stream?root=<projectPath>&path=<relative> — stream a file (PDF, images) */
+/**
+ * Pipe a file to the response and close it however the response ends: `stream.pipe(res)` left the file
+ * open when the client hung up mid-transfer (Nov 7 2026 review: one descriptor per Android download tap).
+ */
+function sendFileStream(res: Response, stream: ReturnType<typeof createReadStream>): void {
+  pipeline(stream, res, (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: 'Stream error' });
+  });
+}
+
+/**
+ * GET /api/files/stream?root=<projectPath>&path=<relative>[&download=1] — stream a file (PDF, images, media).
+ * `download=1` (the phone's Download button, Nov 7 2026) saves any file under the root as an attachment,
+ * whole and uncapped (streamed, Range-resumable): the viewer's type and size limits are for showing it.
+ */
 router.get('/files/stream', (req: Request, res: Response) => {
   const root = str(req.query.root);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
@@ -3401,8 +3441,9 @@ router.get('/files/stream', (req: Request, res: Response) => {
     const stat = statSync(fullPath);
     if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
     const fileExt = extname(fullPath).toLowerCase();
-    if (!STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
-    if (refusesStreamSize(fileExt, stat.size)) { res.status(413).json({ error: 'File too large' }); return; }
+    const download = str(req.query.download) === '1';
+    if (!download && !STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
+    if (!download && refusesStreamSize(fileExt, stat.size)) { res.status(413).json({ error: 'File too large' }); return; }
 
     const mimeMap: Record<string, string> = {
       '.pdf': 'application/pdf',
@@ -3423,11 +3464,11 @@ router.get('/files/stream', (req: Request, res: Response) => {
     const contentType = mimeMap[fileExt] || 'application/octet-stream';
 
     const safeName = basename(fullPath).replace(/[^a-zA-Z0-9._-]/g, '_');
-    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    res.setHeader('Content-Disposition', download ? attachmentDisposition(basename(fullPath)) : `inline; filename="${safeName}"`);
 
-    // Video/audio: support HTTP Range requests so browsers can seek
+    // Video/audio: support HTTP Range requests so browsers can seek; a download resumes by Range too.
     const isMedia = contentType.startsWith('video/') || contentType.startsWith('audio/');
-    if (isMedia) {
+    if (isMedia || download) {
       res.setHeader('Accept-Ranges', 'bytes');
       // With no size cap on media, the Range header is all that bounds a read: parsed strictly.
       const range = parseByteRange(req.headers.range, stat.size);
@@ -3443,9 +3484,7 @@ router.get('/files/stream', (req: Request, res: Response) => {
         res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
         res.setHeader('Content-Length', chunkSize);
         res.setHeader('Content-Type', contentType);
-        const rangeStream = createReadStream(fullPath, { start, end });
-        rangeStream.pipe(res);
-        rangeStream.on('error', () => { if (!res.headersSent) res.status(500).json({ error: 'Stream error' }); });
+        sendFileStream(res, createReadStream(fullPath, { start, end }));
         return;
       }
     }
@@ -3453,11 +3492,7 @@ router.get('/files/stream', (req: Request, res: Response) => {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', stat.size);
 
-    const stream = createReadStream(fullPath);
-    stream.pipe(res);
-    stream.on('error', () => {
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
+    sendFileStream(res, createReadStream(fullPath));
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `File stream failed: ${msg}`);

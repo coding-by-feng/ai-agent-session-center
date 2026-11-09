@@ -195,10 +195,6 @@ const TerminalContent = memo(function TerminalContent({
         .then((r) => {
           if (r?.ok !== false) {
             useFloatingSessionsStore.getState().setPoppedOut(terminalId, true);
-            // The in-app TerminalContainer unmounts to a placeholder; explicitly
-            // release its PTY-host subscription (unmount alone doesn't) so the
-            // popout window is the sole subscriber. No-op for WS terminals.
-            try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
           }
         })
         .catch(() => {});
@@ -353,7 +349,6 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
         .then((r) => {
           if (r?.ok !== false) {
             useFloatingSessionsStore.getState().setPoppedOut(opsTerminalId, true);
-            try { window.electronAPI?.unsubscribePty?.(opsTerminalId); } catch { /* ignore */ }
           }
         })
         .catch(() => {});

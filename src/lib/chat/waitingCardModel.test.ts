@@ -186,6 +186,24 @@ describe('a question', () => {
   });
 });
 
+// Nov 6 2026: "Theme" + "Scope" in one call said "takes more than one pick" and offered only the terminal.
+describe('several questions in one call', () => {
+  const questions = [
+    { header: 'Theme', question: 'Which theme?', options: [{ label: 'Warm' }, { label: 'Clean' }] },
+    { header: 'Scope', question: 'What scope?', options: [{ label: 'AASC' }, { label: 'General' }] },
+  ];
+  const several = request({ kind: 'question', tool: 'AskUserQuestion', source: 'pre_tool_use', input: { questions }, questions });
+
+  it('offers a pick for each question, not the terminal, and no repeated detail', () => {
+    const card = waitingCardModel(session({ status: 'input', pendingRequest: several }))!;
+    expect(card.terminalOnly).toBe(false);
+    expect(card.questions).toEqual(questions);
+    expect(card.choices).toEqual([]);
+    expect(card.detail).toEqual({ type: 'none' });
+    expect(card.tell?.label).toBe('Other…');
+  });
+});
+
 describe('only "Open terminal"', () => {
   it('for a guess with no request: the Mac can’t see what the agent asks', () => {
     const card = waitingCardModel(session({ status: 'approval', pendingTool: 'Bash', pendingToolDetail: 'npm test' }))!;

@@ -22,6 +22,9 @@ private struct Mark: View {
             Image(systemName: "exclamationmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(Palette.needs)
         case "working":
             Image(systemName: "circle.fill").font(.system(size: 9)).foregroundStyle(Palette.working)
+        case "proceed":
+            // The amber P the app shows on a session whose answer asks the user to reply "proceed".
+            Text("P").font(.system(size: 15, weight: .heavy, design: .rounded)).foregroundStyle(Palette.needs)
         case "idle":
             Image(systemName: "moon.zzz").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.idle)
         default:
@@ -51,9 +54,10 @@ private func headerText(_ card: LiveActivityCard) -> String {
     return card.headline == "idle" ? "Idle" : "Finished"
 }
 
-/// The island's mark when no timer runs: "!" if anything waits on you, else working, else idle or done.
+/// The island's mark when no timer runs: "!" if anything waits on you (P when that is only a "proceed" owed, which the
+/// Mac counts in `needs` and leads with only when no real request waits), else working, else idle or done.
 private func restingMark(_ card: LiveActivityCard) -> String {
-    if card.needs > 0 { return "needs" }
+    if card.needs > 0 { return card.rows.first?.mark == "proceed" ? "proceed" : "needs" }
     if card.working > 0 { return "working" }
     return card.headline == "idle" ? "idle" : "done"
 }
@@ -92,7 +96,7 @@ private struct Header: View {
 }
 
 /// The lead session: bold title with its timer, then a grey preview line. A working lead has no mark, like the
-/// title of a running task; one that waits on you keeps its "!", a finished one its ✓, an idle one its moon.
+/// title of a running task; one that waits on you keeps its "!" (or P), a finished one its ✓, an idle one its moon.
 private struct Lead: View {
     let row: LiveActivityRow
 
@@ -108,7 +112,7 @@ private struct Lead: View {
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if let start = row.startedAt {
-                        Elapsed(start: start, color: row.mark == "needs" ? Palette.needs : .white.opacity(0.6))
+                        Elapsed(start: start, color: row.mark == "needs" || row.mark == "proceed" ? Palette.needs : .white.opacity(0.6))
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: 70, alignment: .trailing)
                     }

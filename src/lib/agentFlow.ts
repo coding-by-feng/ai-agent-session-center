@@ -318,6 +318,31 @@ export function countLiveAgents(session: Session | undefined, sessions: Readonly
   return runs + mates;
 }
 
+/** The phone Chat's agents chip (Nov 8 2026): how this turn's agents are getting on. */
+export interface AgentProgress {
+  /** Working now: the same number as the Agents tab badge ({@link countLiveAgents}). */
+  running: number;
+  /** This turn's subagent runs that have finished. */
+  finished: number;
+  total: number;
+}
+
+/**
+ * Running agents plus the subagent runs finished since the latest prompt, so a done chip
+ * stays until the next prompt and no earlier turn's runs pile up in it. A run started in an
+ * earlier turn still counts while it works (a background agent).
+ */
+export function agentProgress(session: Session | undefined, sessions: ReadonlyMap<string, Session>): AgentProgress {
+  if (!session) return { running: 0, finished: 0, total: 0 };
+  const running = countLiveAgents(session, sessions);
+  const turnStart = (session.promptHistory ?? []).reduce((max, p) => Math.max(max, p.timestamp), 0);
+  const leaderEnded = session.status === 'ended';
+  const finished = (session.subagents ?? [])
+    .filter((r) => !isGhostRun(r) && r.startedAt >= turnStart && (leaderEnded || r.status !== 'working'))
+    .length;
+  return { running, finished, total: running + finished };
+}
+
 export function columnsFor(width: number): number {
   return Math.max(1, Math.floor((width + AGENT_GAP_PX) / (AGENT_CARD_MIN_PX + AGENT_GAP_PX)));
 }

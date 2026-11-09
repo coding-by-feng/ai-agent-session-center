@@ -12,7 +12,7 @@
  * question taking several picks), the card keeps only "Open terminal" and says
  * why, rather than guess.
  */
-import type { PendingRequest, Session } from '@/types';
+import type { PendingRequest, PendingRequestQuestion, Session } from '@/types';
 import type { Answer } from './answerApi';
 
 export interface DiffLine {
@@ -54,8 +54,10 @@ export interface WaitingCard {
   detail: CardDetail;
   /** "in agent-manager" */
   where?: string;
-  /** Empty when only the terminal can answer. */
+  /** Empty when only the terminal can answer, or when `questions` asks several at once. */
   choices: CardChoice[];
+  /** Several single-select questions in one call (Nov 6 2026): one pick each, sent together. */
+  questions?: PendingRequestQuestion[];
   /** Deny with a message (a permission), or answer in your own words (a question). */
   tell: { label: string } | null;
   terminalOnly: boolean;
@@ -86,7 +88,7 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'NotebookEdit']);
 const GUESS_REASON = 'Your Mac can’t see exactly what the agent is asking. Answer it in the terminal.';
 const AMBIGUOUS_REASON = 'More than one request is waiting at once. Answer them in the terminal.';
 const PLAN_REASON = 'Plan approval changes between versions, so answer it in the terminal.';
-const MULTI_PICK_REASON = 'This question takes more than one pick. Answer it in the terminal.';
+const MULTI_PICK_REASON = 'This question takes several picks or has too many choices. Answer it in the terminal.';
 const TRUNCATED_REASON = 'Too long to show in full: allow it in the terminal.';
 
 // ---------------------------------------------------------------------------
@@ -366,6 +368,10 @@ export function waitingCardModel(session: CardSession, opts: CardOptions = {}): 
     const card = { ...base, kind: 'question' as const, title: `${cliName} asks`, detail: questionDetail(request, session.waitingDetail) };
     if (guess) return terminalOnly(card, GUESS_REASON);
     if (request.ambiguous) return terminalOnly(card, AMBIGUOUS_REASON);
+    if (request.questions?.length) {
+      // The picker shows every question; the detail would repeat the first one.
+      return { ...card, detail: { type: 'none' }, questions: request.questions, choices: [], tell: { label: 'Other…' }, terminalOnly: false };
+    }
     if (!request.options || request.options.length === 0) return terminalOnly(card, MULTI_PICK_REASON);
     const choices = request.options.map((option, optionIndex): CardChoice => ({
       answer: { choice: 'option', optionIndex },
