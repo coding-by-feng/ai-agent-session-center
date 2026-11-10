@@ -14,6 +14,7 @@ vi.mock('../server/db.js', () => ({
 
 const term = vi.hoisted(() => ({
   owner: new Map<string, string>([['t-shared', 'tv-shared'], ['t-hidden', 'tv-hidden']]),
+  ops: [] as string[],
   write: vi.fn(),
   close: vi.fn(),
   prefill: vi.fn(() => true),
@@ -23,7 +24,7 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/sshManager.js')>();
   return {
     ...actual,
-    getTerminals: () => [...term.owner.keys(), 't-orphan'].map((terminalId) => ({ terminalId })),
+    getTerminals: () => [...term.owner.keys(), 't-orphan', ...term.ops].map((terminalId) => ({ terminalId })),
     getTerminalSessionId: (id: string) => term.owner.get(id) ?? null,
     getTerminalOutputBuffer: (id: string) => (id.startsWith('t-') ? Buffer.from(`output of ${id}`).toString('base64') : null),
     writeToTerminal: term.write,
@@ -67,6 +68,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  term.ops.length = 0;
   term.write.mockClear();
   term.close.mockClear();
   term.prefill.mockClear();
@@ -94,6 +96,22 @@ describe('remote device', () => {
     expect((await call('GET', '/terminals/t-hidden/output', REMOTE)).status).toBe(404);
     expect((await call('GET', '/terminals/t-orphan/output', REMOTE)).status).toBe(404); // unattributable fails closed
     expect((await call('GET', '/terminals/t-shared/output', REMOTE)).status).toBe(200);
+  });
+
+  it('resolves attributed ops shells through session visibility while keeping hidden and orphan shells denied', async () => {
+    term.ops.push('t-ops-shared', 't-ops-hidden');
+    store.reconnectOpsTerminal('tv-shared', 't-ops-shared');
+    store.reconnectOpsTerminal('tv-hidden', 't-ops-hidden');
+    expect(store.getSessionIdByTerminalId('t-ops-shared')).toBe('tv-shared');
+    expect((await call('GET', '/terminals/t-ops-shared/output', REMOTE)).status).toBe(200);
+    expect((await call('POST', '/terminals/t-ops-shared/write', { ...REMOTE, 'X-AASC-Client-Id': 'desk-ops' }, { data: 'echo proof\r' })).status).toBe(200);
+    expect(term.write).toHaveBeenCalledWith('t-ops-shared', 'echo proof\r');
+    expect((await call('GET', '/terminals/t-ops-hidden/output', REMOTE)).status).toBe(404);
+    expect((await call('GET', '/terminals/t-ops-orphan/output', REMOTE)).status).toBe(404);
+    for (const terminalId of ['t-ops-hidden', 't-ops-orphan']) {
+      expect((await call('POST', `/terminals/${terminalId}/write`, { ...REMOTE, 'X-AASC-Client-Id': 'desk-ops' }, { data: 'must-not-write\r' })).status).toBe(404);
+    }
+    expect(term.write).toHaveBeenCalledTimes(1);
   });
 
   it('cannot type into a hidden session’s terminal', async () => {

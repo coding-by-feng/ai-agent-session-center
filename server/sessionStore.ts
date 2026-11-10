@@ -1652,7 +1652,7 @@ export function getSessionByTerminalId(terminalId: string): Session | null {
 }
 
 /**
- * Same lookup, id only and without copying the session.
+ * Owning session for a primary or explicitly attached ops terminal, without copying it.
  *
  * Exists for the `terminal_input` hot path (the multi-device write gate runs per
  * keystroke), where the `{ ...s }` clone above would allocate a whole session
@@ -1661,7 +1661,7 @@ export function getSessionByTerminalId(terminalId: string): Session | null {
  */
 export function getSessionIdByTerminalId(terminalId: string): string | null {
   for (const s of sessions.values()) {
-    if (s.terminalId === terminalId) return s.sessionId;
+    if (s.terminalId === terminalId || s.opsTerminalId === terminalId) return s.sessionId;
   }
   return null;
 }
