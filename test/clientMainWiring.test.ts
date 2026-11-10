@@ -55,7 +55,7 @@ vi.mock('../electron/ipc/remoteHandlers.js', () => ({
 }));
 vi.mock('../electron/remote/clientUi.js', async (actual) => ({ ...await actual<object>(), serveBundledUi: remote.serveBundledUi }));
 vi.mock('../electron/crashLogger.js', () => ({ initCrashLogger: vi.fn(), logMainError: vi.fn() }));
-vi.mock('../electron/singleInstance.js', () => ({ claimSingleInstance: () => true }));
+vi.mock('../electron/singleInstance.js', () => ({ claimSingleInstance: () => true, revealRunningWindow: () => undefined }));
 vi.mock('../electron/clientEdition.js', async (actual) => ({ ...await actual<object>(), readClientEdition: () => 'full-client' }));
 
 async function launch() {
