@@ -129,6 +129,7 @@ export interface RemoteComputer {
   tailnet: string | null
   /** A public IPv4 from the link's `pub=` (Oct 28 2026), reached over plain HTTP; absent when none. */
   publicAddress?: string
+  httpsOrigin?: string
   port: number
   /** pending: waiting for Allow on the remote; active: allowed; revoked: the remote removed it. */
   status: 'pending' | 'active' | 'revoked'
@@ -144,7 +145,7 @@ export interface RemoteComputerCheck {
   /** online: signed in; pending: reachable, not allowed yet; revoked; offline: no address answered. */
   state: 'online' | 'pending' | 'revoked' | 'offline'
   /** The address that answered: 'lan', 'tailnet' or 'public' (unencrypted, over the Internet). */
-  via: 'lan' | 'tailnet' | 'public' | null
+  via: 'lan' | 'tailnet' | 'public' | 'https' | null
   /** Sessions the remote shares (GET /api/sessions), when online. */
   sharedSessions: number | null
   /** A short reason when offline or refused. */

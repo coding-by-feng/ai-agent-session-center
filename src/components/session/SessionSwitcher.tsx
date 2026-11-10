@@ -1,3 +1,4 @@
+import HostedConnectionMenu from '@/components/hosted/HostedConnectionMenu';
 /**
  * SessionSwitcher — bar at the top of the DetailPanel.
  * Top row: current session name + status badge + duration + display toggle + minimize button
@@ -693,6 +694,7 @@ export default function SessionSwitcher({
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}
+          <HostedConnectionMenu />
           {controls && (
             <span className={styles.switcherControls}>{controls}</span>
           )}

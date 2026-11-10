@@ -2,7 +2,12 @@
 // Quick start: npm start -> auto-installs hooks, starts server, opens browser
 import express from 'express';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { readFileSync } from 'node:fs';
+import { getHostedConfig } from './hostedConfig.js';
+import { createHostedAccess, hostedCookie, hostedSessionAllowed, hostedSocketAllowed } from './hostedAccess.js';
+import { createHostedPairingRouter } from './hostedPairing.js';
+import { authorizeHosted, currentHostedOwner } from './hostedAuthority.js';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { WS_SERVER_OPTIONS } from './wsServerOptions.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -78,7 +83,7 @@ import {
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, loginLockedMessage, LOGIN_MAX_ATTEMPTS, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, getTokenComputerId, revokeTokensForDevice, createComputerToken,
-  bearerSession,
+  bearerSession, getTokenHostedIdentity, revokeHostedTokens,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
@@ -168,6 +173,9 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 }
 
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
+  const hosted = getHostedConfig(); // Validate before startup side effects; incomplete configuration is fatal.
+  let hostedOwnerChanged = (): void => {};
+  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged()) : null;
   // npm 11 runs no install scripts until approved, which left node-pty's spawn-helper at 0644 and
   // every terminal failing with "posix_spawnp failed" in an npx install (ptySpawnHelper.ts).
   if (process.env.ELECTRON !== '1') {
@@ -196,7 +204,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   const app = express();
   const server = createServer(app);
-  // 512 KB max message; large frames deflated (the snapshot and whole-session updates, Nov 7 2026).
+  const hostedSockets = new Map<string, Set<WebSocket>>();
+  let hostedAccessRevoked = (): void => {};
+  // Keep the current AASC frame limit and compression for hosted and local clients.
   const wss = new WebSocketServer({ server, ...WS_SERVER_OPTIONS });
 
   // Sign in with Google (AASC-61): one pending sign-in per process. The callback is a cross-site
@@ -220,7 +230,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // -- Security headers --
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+    if (!hosted) res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
@@ -247,7 +257,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     // 'unsafe-eval'. Verify the real consumer before removing it.
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
+      "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:" + (hosted ? `; frame-ancestors ${hosted.websiteOrigin}` : "; frame-ancestors 'none'"),
     );
     next();
   });
@@ -273,6 +283,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     : null;
   if (mcpRouter) app.use('/mcp', mcpRouter, mcpErrorHandler);
 
+  if (hostedAccess) app.use(hostedAccess.router);
+
   // -- Auth endpoints (no auth required) --
   const loginClientIp = (req: express.Request): string => req.ip || req.socket?.remoteAddress || 'unknown';
   const sendLoginLocked = (res: express.Response, seconds: number): void => {
@@ -280,15 +292,16 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     res.status(429).json({ error: loginLockedMessage(seconds), retryAfter: seconds });
   };
   app.get('/api/auth/status', (req, res) => {
-    const passwordRequired = isPasswordEnabled();
+    const passwordRequired = hosted !== null || isPasswordEnabled();
     const token = parseCookieToken(req.headers.cookie);
-    const authenticated = passwordRequired ? validateToken(token) : true;
+    const authenticated = hosted ? hostedSessionAllowed(hosted, req) : passwordRequired ? validateToken(token) : true;
     // So a reloaded login page still shows its countdown.
     const lockedFor = passwordRequired && !authenticated ? checkLoginRateLimit(loginClientIp(req)) : 0;
-    res.json({ passwordRequired, authenticated, ...(lockedFor > 0 ? { lockedFor } : {}) });
+    res.json({ passwordRequired, authenticated, ...(hosted && authenticated ? { expiresIn: Math.floor(getTokenTTL(token) / 1000) } : {}), ...(lockedFor > 0 ? { lockedFor } : {}) });
   });
 
   app.post('/api/auth/login', (req, res) => {
+    if (hosted) { res.status(403).json({ error: 'Open your order on xclaude.dev to sign in.' }); return; }
     if (!isPasswordEnabled()) {
       res.json({ success: true });
       return;
@@ -328,32 +341,46 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     res.json({ success: true, expiresIn: TOKEN_TTL_SECONDS });
   });
 
-  app.post('/api/auth/refresh', (req, res) => {
-    if (!isPasswordEnabled()) {
+  app.post('/api/auth/refresh', async (req, res) => {
+    if (hosted && (!hostedSessionAllowed(hosted, req) || req.headers.origin !== hosted.runtimeOrigin)) { res.status(401).json({ error: 'Hosted session expired or wrong origin' }); return; }
+    if (hosted && !await authorizeHosted(hosted, getTokenHostedIdentity(extractToken(req)) ?? currentHostedOwner(hosted), true)) {
+      hostedAccessRevoked(); res.status(401).json({ error: 'Order access is no longer authorized.' }); return;
+    }
+    if (!hosted && !isPasswordEnabled()) {
       res.json({ success: true });
       return;
     }
     const oldToken = parseCookieToken(req.headers.cookie) ?? extractToken(req);
-    const newToken = refreshToken(oldToken);
+    const newToken = refreshToken(oldToken, Boolean(hosted));
     if (!newToken) {
       res.status(401).json({ error: 'Token expired or invalid — please login again' });
       return;
     }
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     const secureSuffix = isSecure ? '; Secure' : '';
-    res.setHeader('Set-Cookie', `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
-    res.json({ success: true, expiresIn: TOKEN_TTL_SECONDS });
+    const expiresIn = hosted ? Math.max(1, Math.floor(getTokenTTL(newToken) / 1000)) : TOKEN_TTL_SECONDS;
+    res.setHeader('Set-Cookie', hosted ? hostedCookie(newToken, expiresIn) : `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
+    res.json({ success: true, expiresIn });
   });
 
   app.post('/api/auth/logout', (req, res) => {
+    if (hosted && req.headers.origin !== hosted.runtimeOrigin) { res.status(403).json({ error: 'Same origin required' }); return; }
     const token = parseCookieToken(req.headers.cookie);
+    const lineage = getTokenLineage(token);
     removeToken(token ?? '');
-    res.setHeader('Set-Cookie', 'auth_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+    if (hosted && lineage) for (const ws of hostedSockets.get(lineage) ?? []) ws.terminate();
+    res.setHeader('Set-Cookie', hosted ? hostedCookie('', 0) : 'auth_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
     res.json({ success: true });
   });
 
   // -- Static files (Vite-built React SPA) --
-  const clientDir = join(__dirname, '..', 'dist', 'client');
+  const clientDir = join(__dirname, '..', 'dist', hosted ? 'client-lite' : 'client');
+  const sendIndex = (_req: express.Request, res: express.Response): void => {
+    if (!hosted) { res.sendFile(join(clientDir, 'index.html')); return; }
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('html').send(readFileSync(join(clientDir, 'index.html'), 'utf8').replace('<head>', `<head><meta name="aasc-hosted-parent" content="${hosted.websiteOrigin}">`));
+  };
+  if (hosted) app.get(['/', '/index.html', '/hosted/pair'], sendIndex);
   mountClientStatic(app, clientDir); // missing /assets/* → 404, not index.html
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
@@ -401,6 +428,18 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       disconnectDevice(device.id);
     },
   });
+  hostedAccessRevoked = () => {
+    if (hosted) revokeHostedTokens(hosted.orderId);
+    for (const sockets of hostedSockets.values()) for (const ws of sockets) ws.terminate();
+    for (const device of deviceAuth.list()) revokeTokensForDevice(device.id);
+  };
+  hostedOwnerChanged = () => {
+    deviceAuth.clearPairingCodes();
+    hostedAccessRevoked();
+    for (const device of deviceAuth.list()) {
+      if (!deviceAuth.deny(device.id)) deviceAuth.revoke(device.id);
+    }
+  };
   // The password is read at startup: a changed one revokes every phone paired
   // under the old one now, backend devices included (AASC-52), not at its next sign-in.
   revokePhonesFromOldPassword(deviceAuth, (message) => log.info('mobile', message));
@@ -409,15 +448,16 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // How each phone last connected (home network or Tailscale), in memory (AASC-60):
   // written by the mobile router below, read by Remote access.
   const phonePathLog = createPhonePathLog();
+  if (hosted) app.use(createHostedPairingRouter(hosted, deviceAuth, () => isPhonePairingOffered(config, process.env), hostedAccess!));
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
-    isPasswordEnabled,
+    isPasswordEnabled: () => hosted !== null || isPasswordEnabled(),
     // On unless server-config.json "phonePairing": false or AASC_PHONE_PAIRING=0.
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
-    createSessionToken: (deviceId) => createToken(deviceId),
-    createComputerSessionToken: (deviceId) => createComputerToken(deviceId),
+    createSessionToken: (deviceId) => createToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
+    createComputerSessionToken: (deviceId) => createComputerToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: createPairingTarget({
       name: () => hostname().replace(/\.local$/, ''),
@@ -666,13 +706,13 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   }
 
   // -- SPA fallback: serve index.html for all non-API routes (React Router) --
-  app.get('/{*splat}', (_req, res) => {
-    res.sendFile(join(clientDir, 'index.html'));
-  });
+  app.get('/{*splat}', sendIndex);
 
   // -- WebSocket with origin validation + auth --
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     // Origin validation: only allow same-host connections to prevent CSWSH
+    if (hosted && !hostedSocketAllowed(hosted, req)) { ws.close(4001, 'Unauthorized hosted connection'); return; }
+    if (hosted && !await authorizeHosted(hosted, getTokenHostedIdentity(extractToken(req)) ?? currentHostedOwner(hosted))) { ws.close(4001, 'Order access revoked'); return; }
     const origin = req.headers.origin;
     const host = req.headers.host;
     if (origin && host) {
@@ -701,7 +741,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     let wsLineage: string | null = null;
     let wsDeviceId: string | null = null;
     let wsPairedId: string | null = null;
-    if (isPasswordEnabled()) {
+    if (hosted || isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
       if (!validateToken(token)) {
@@ -720,6 +760,20 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       log.warn('auth', `Blocked remote WebSocket (no password configured) from ${wsAddress}`);
       ws.close(4003, 'Forbidden: set a password to allow remote devices');
       return;
+    }
+    if (hosted) {
+      const token = extractToken(req)!;
+      const lineage = getTokenLineage(token)!;
+      const sockets = hostedSockets.get(lineage) ?? new Set<WebSocket>();
+      sockets.add(ws); hostedSockets.set(lineage, sockets);
+      const expiry = setTimeout(() => ws.terminate(), getTokenTTL(token));
+      expiry.unref();
+      const identity = getTokenHostedIdentity(token) ?? currentHostedOwner(hosted);
+      const authority = setInterval(() => {
+        void authorizeHosted(hosted, identity, true).then((allowed) => { if (!allowed) { removeToken(token); ws.terminate(); } });
+      }, 10_000);
+      authority.unref();
+      ws.once('close', () => { clearTimeout(expiry); clearInterval(authority); sockets.delete(ws); if (!sockets.size) hostedSockets.delete(lineage); });
     }
     // Identity travels on the upgrade URL rather than a post-connect handshake:
     // `handleConnection` sends the snapshot and registers presence immediately,
@@ -872,7 +926,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     if (localIP) {
       log.info('server', `Network: http://${localIP}:${PORT}`);
     }
-    if (isPasswordEnabled()) {
+    if (hosted) {
+      log.info('server', `Hosted Lite: ${hosted.runtimeOrigin}; order ticket sessions required (1h TTL).`);
+    } else if (isPasswordEnabled()) {
       log.info('server', 'Password protection ENABLED -- login required (1h token TTL)');
     } else {
       // Bound to all interfaces with no password: remote clients are now
