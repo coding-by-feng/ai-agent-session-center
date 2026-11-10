@@ -51,6 +51,7 @@ vi.mock('@/hooks/useTerminal', () => ({
     scrollToBottom: mockScrollToBottom,
     getSearchAddon: () => mockSearchAddon,
     focusTerminal: mockFocusTerminal,
+    getTerminal: () => null,
     getXtermSelection: () => mockSelection,
     clearXtermSelection: mockClearSelection,
     activeTerminalId: 'term-1',

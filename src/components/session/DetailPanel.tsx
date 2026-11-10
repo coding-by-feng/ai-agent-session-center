@@ -946,16 +946,16 @@ export default function DetailPanel() {
           }
           commandsContent={
             // A paired phone never opens a plain shell on the Mac (AASC-28): say so
-            // instead of a terminal that can never connect.
-            IS_LITE ? undefined :
-            isNativeMobileApp() ? <Suspense fallback={null}><CommandsUnavailable /></Suspense> :
-            (displaySession.opsTerminalId || displaySession.hadOpsTerminal) ? (
+            // instead of a terminal that can never connect. Lite and Full alike (Nov 10 2026): a
+            // session launched without the shell gets CONNECT TERMINAL, never a blank tab, and
+            // the shell opens only on that click (each one is a PTY).
+            isNativeMobileApp() ? <Suspense fallback={null}><CommandsUnavailable /></Suspense> : (
               <OpsTerminalContent
                 sessionId={displaySession.sessionId}
                 opsTerminalId={displaySession.opsTerminalId ?? null}
                 projectPath={displaySession.projectPath}
               />
-            ) : undefined
+            )
           }
           onTabChange={setActiveTab}
           sessionId={displaySession.sessionId}

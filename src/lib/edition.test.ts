@@ -24,12 +24,12 @@ describe('edition', () => {
 });
 
 describe('liteSessionTabs', () => {
-  it('opens with TERMINAL, then PROJECT, AI POPUPS and QUEUE, and leaves the rest out', () => {
-    expect(liteSessionTabs(TABS).map((t) => t.id)).toEqual(['terminal', 'project', 'aiPopups', 'queue']);
+  it('opens with TERMINAL and COMMANDS, then PROJECT, AI POPUPS and QUEUE, and leaves the rest out', () => {
+    expect(liteSessionTabs(TABS).map((t) => t.id)).toEqual(['terminal', 'commands', 'project', 'aiPopups', 'queue']);
   });
 
   it('adds CONVERSATION for a session with no terminal, which has nothing else to read', () => {
-    expect(liteSessionTabs(TABS, false).map((t) => t.id)).toEqual(['terminal', 'conversation', 'project', 'aiPopups', 'queue']);
+    expect(liteSessionTabs(TABS, false).map((t) => t.id)).toEqual(['terminal', 'commands', 'conversation', 'project', 'aiPopups', 'queue']);
   });
 });
 
@@ -37,14 +37,14 @@ describe('liteSessionTabs', () => {
 describe('liteAllowsShortcut', () => {
   it.each([
     'toggleFullscreen', 'scrollToBottom', 'terminalToggleAutoScroll', 'switchSession1', 'switchSession9',
-    'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabQueue', 'fileBrowserSearch',
-    'floatMinimize', 'floatMaximize', 'floatClose',
+    'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabQueue',
+    'fileBrowserSearch', 'floatMinimize', 'floatMaximize', 'floatClose',
   ])('keeps %s', (actionId) => {
     expect(liteAllowsShortcut(actionId)).toBe(true);
   });
 
   it.each([
-    'terminalRefresh', 'terminalClone', 'terminalFork', 'terminalPopOut', 'switchTabCommands', 'switchTabPrompts',
+    'terminalRefresh', 'terminalClone', 'terminalFork', 'terminalPopOut', 'switchTabPrompts',
     'switchTabNotes', 'someFutureShortcut',
   ])('leaves out %s', (actionId) => {
     expect(liteAllowsShortcut(actionId)).toBe(false);

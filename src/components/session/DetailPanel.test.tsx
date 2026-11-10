@@ -30,9 +30,11 @@ vi.mock('./DetailTabs', () => ({
     terminalContent,
     promptsContent,
     notesContent,
+    commandsContent,
   }: Record<string, React.ReactNode>) => (
     <div data-testid="detail-tabs">
       <div data-testid="terminal-tab">{terminalContent}</div>
+      <div data-testid="commands-tab">{commandsContent}</div>
       <div data-testid="prompts-tab">{promptsContent}</div>
       <div data-testid="notes-tab">{notesContent}</div>
     </div>
@@ -109,6 +111,14 @@ describe('DetailPanel', () => {
     useSessionStore.setState({ selectedSessionId: 'nonexistent' });
     const { container } = render(<DetailPanel />);
     expect(container.innerHTML).toBe('');
+  });
+
+  // A session launched without "Commands Terminal" used to get a blank COMMANDS tab (Nov 10 2026).
+  it('offers to open the COMMANDS shell for a session started without one', () => {
+    useSessionStore.setState({ sessions: new Map([['sess-1', makeSession()]]), selectedSessionId: 'sess-1' });
+    render(<DetailPanel />);
+    expect(screen.getByTestId('commands-tab')).toHaveTextContent('No terminal connected');
+    expect(screen.getByRole('button', { name: 'CONNECT TERMINAL' })).toBeInTheDocument();
   });
 
   it('renders panel when session is selected', () => {

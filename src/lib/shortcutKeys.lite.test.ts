@@ -13,7 +13,7 @@ describe('buildBindings in the Lite build', () => {
   const ids = buildBindings().map((binding) => binding.actionId as string);
 
   it('binds what Lite keeps', () => {
-    for (const id of ['switchTabTerminal', 'switchTabProject', 'switchTabQueue', 'terminalToggleAutoScroll', 'switchSession1']) {
+    for (const id of ['switchTabTerminal', 'switchTabCommands', 'switchTabProject', 'switchTabQueue', 'terminalToggleAutoScroll', 'switchSession1']) {
       expect(ids).toContain(id);
     }
   });

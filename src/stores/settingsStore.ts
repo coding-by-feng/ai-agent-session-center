@@ -202,6 +202,8 @@ interface SettingsState extends BrowserSettings {
   themeName: ThemeName;
   fontSize: number;
   scanlineEnabled: boolean;
+  /** Draw typed keys before the program echoes them (mosh-style local echo, `LocalEchoOverlay`). */
+  instantTyping: boolean;
   animationIntensity: number;
   animationSpeed: number;
   characterModel: string;
@@ -306,6 +308,7 @@ interface SettingsState extends BrowserSettings {
   setMovementAction: (action: string, effect: string) => void;
   setApiKey: (provider: 'anthropic' | 'openai' | 'googleTts', key: string) => void;
   setTtsEnabled: (enabled: boolean) => void;
+  setInstantTyping: (enabled: boolean) => void;
   setTtsVoiceEn: (voice: string) => void;
   setTtsVoiceZh: (voice: string) => void;
   setTtsSpeakingRate: (rate: number) => void;
@@ -358,6 +361,7 @@ const defaultSettings: SettingsData = {
   themeName: 'windows-xp',
   fontSize: 13,
   scanlineEnabled: true,
+  instantTyping: true,
   animationIntensity: 100,
   animationSpeed: 100,
   characterModel: 'robot',
@@ -653,6 +657,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setTtsEnabled: (enabled) => { set({ ttsEnabled: enabled }); get().persistSetting('ttsEnabled', enabled); },
+  setInstantTyping: (enabled) => { set({ instantTyping: enabled }); get().persistSetting('instantTyping', enabled); },
   setTtsVoiceEn: (voice) => { set({ ttsVoiceEn: voice }); get().persistSetting('ttsVoiceEn', voice); },
   setTtsVoiceZh: (voice) => { set({ ttsVoiceZh: voice }); get().persistSetting('ttsVoiceZh', voice); },
   setTtsSpeakingRate: (rate) => { set({ ttsSpeakingRate: rate }); get().persistSetting('ttsSpeakingRate', rate); },

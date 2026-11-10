@@ -14,7 +14,8 @@
  *     session `$` stays inert (prompts are full of `$HOME`-style text and a
  *     dropdown on every one of them would be noise).
  *   - Typing `@foo` does the same for project files (debounced 150 ms).
- *   - ArrowUp / ArrowDown navigate; Enter inserts; Escape closes.
+ *   - ArrowUp / ArrowDown navigate; Tab or Enter inserts; Escape closes.
+ *     Shift+Tab and other modified Tabs still move focus.
  *   - Cmd/Ctrl+Enter and other modifier-keys fall through to the parent's
  *     `onKeyDown` so existing keyboard shortcuts keep working.
  *   - Dropdown direction auto-detects: opens DOWN if there's enough room
@@ -68,8 +69,8 @@ interface AutocompleteTextareaProps {
   autoFocus?: boolean;
   className?: string;
   /** Forwarded to the underlying <textarea> AFTER the autocomplete has had
-   *  its turn. The autocomplete only intercepts ArrowUp/Down/Enter/Escape
-   *  while its dropdown is open. Cmd/Ctrl+Enter, Tab, etc. fall through. */
+   *  its turn. The autocomplete only intercepts ArrowUp/Down/Tab/Enter/Escape
+   *  while its dropdown is open. Cmd/Ctrl+Enter, Shift+Tab, etc. fall through. */
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
@@ -288,7 +289,10 @@ export default function AutocompleteTextarea({
           );
           return;
         }
-        if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        // Tab completes like the terminal `/` list; with the menu shut it reaches the parent (QueueTab's
+        // next-prompt suggestion), and a modified Tab still moves focus.
+        const plainTab = e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+        if (plainTab || (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey)) {
           const item = acMenu.items[acMenu.selectedIdx];
           if (item) {
             e.preventDefault();
@@ -366,7 +370,7 @@ export default function AutocompleteTextarea({
           selectedIdx={acMenu.selectedIdx}
           style={dropdownStyle}
           onPick={insertItem}
-          keysHint="↑↓ navigate · Enter select · Esc close"
+          keysHint="↑↓ navigate · Tab/Enter select · Esc close"
         />
       )}
     </>
