@@ -50,6 +50,8 @@ const writeSchema = z
     selectedSessionId: id.nullable(),
     drafts: z.array(z.object({ sessionId: id, draft }).strict()).max(100),
     revision: z.number().int().nonnegative(),
+    handoff: z.boolean().optional(),
+    resumeSourceId: id.optional(),
     adopt: z
       .array(z.object({ sourceId: id, revision: z.number().int().positive() }).strict())
       .max(100)
@@ -76,7 +78,10 @@ export function createWorkspaceContinuationRouter(options: ContinuationOptions):
       const data: unknown = JSON.parse(readFileSync(fileFor(scope), 'utf8'));
       if (!Array.isArray(data)) throw new Error('Invalid continuation storage');
       return data.map((row) =>
-        writeSchema.omit({ adopt: true }).extend({ updatedAt: z.number().finite() }).parse(row),
+        writeSchema
+          .omit({ adopt: true, handoff: true, resumeSourceId: true })
+          .extend({ updatedAt: z.number().finite(), handoffUntil: z.number().finite().optional() })
+          .parse(row),
       );
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -109,7 +114,12 @@ export function createWorkspaceContinuationRouter(options: ContinuationOptions):
               : null,
           drafts: record.drafts.filter((item) => options.visible(req, item.sessionId)),
         }))
-        .filter((record) => record.selectedSessionId || record.drafts.length)
+        .filter(
+          (record) =>
+            record.selectedSessionId ||
+            record.drafts.length ||
+            (record.handoffUntil ?? 0) > Date.now(),
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt);
       res.json({ records });
     } catch {
@@ -140,11 +150,9 @@ export function createWorkspaceContinuationRouter(options: ContinuationOptions):
       const records = load(res.locals.continuationScope);
       const previous = records.find((record) => record.sourceId === input.sourceId);
       if ((previous?.revision ?? 0) !== input.revision) {
-        res
-          .status(409)
-          .json({
-            error: 'Continuation changed. Keep this draft and reconnect to review saved copies.',
-          });
+        res.status(409).json({
+          error: 'Continuation changed. Keep this draft and reconnect to review saved copies.',
+        });
         return;
       }
       const current: WorkspaceContinuation = {
@@ -153,6 +161,7 @@ export function createWorkspaceContinuationRouter(options: ContinuationOptions):
         drafts: input.drafts,
         revision: input.revision + 1,
         updatedAt: Date.now(),
+        ...(input.handoff ? { handoffUntil: Date.now() + 60_000 } : {}),
       };
       const next = records
         .filter((record) => record.sourceId !== input.sourceId)
@@ -167,16 +176,21 @@ export function createWorkspaceContinuationRouter(options: ContinuationOptions):
                 JSON.stringify(copy.draft) === JSON.stringify(item.draft),
             ),
           );
+          const canAdopt =
+            !record.handoffUntil ||
+            record.handoffUntil <= Date.now() ||
+            input.resumeSourceId === record.sourceId;
+          // A switching window needs its row until the destination has read it.
           // Leave a revision tombstone: an original window may still be open.
-          return adoption && copied ? { ...record, selectedSessionId: null, drafts: [] } : record;
+          return adoption && copied && canAdopt
+            ? { ...record, selectedSessionId: null, drafts: [], handoffUntil: undefined }
+            : record;
         });
       next.push(current);
       if (next.filter((record) => record.selectedSessionId || record.drafts.length).length > 100) {
-        res
-          .status(507)
-          .json({
-            error: 'Too many saved window drafts. Review the saved copies before continuing.',
-          });
+        res.status(507).json({
+          error: 'Too many saved window drafts. Review the saved copies before continuing.',
+        });
         return;
       }
       save(res.locals.continuationScope, next);

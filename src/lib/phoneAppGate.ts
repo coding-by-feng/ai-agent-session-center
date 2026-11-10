@@ -11,5 +11,6 @@
 export const PROJECT_BROWSER_PATH = '/project-browser';
 
 export function showsPhoneApp(isMobile: boolean, pathname: string): boolean {
-  return isMobile && pathname !== PROJECT_BROWSER_PATH;
+  const appPath = pathname.replace(/^\/ui\/(?:lite|full)(?=\/|$)/, '');
+  return isMobile && appPath !== PROJECT_BROWSER_PATH;
 }

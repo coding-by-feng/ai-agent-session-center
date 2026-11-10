@@ -12,8 +12,14 @@ export interface WorkspaceContinuation {
   drafts: Array<{ sessionId: string; draft: ContinuationDraft }>;
   revision: number;
   updatedAt: number;
+  handoffUntil?: number;
 }
-export type ContinuationWrite = Omit<WorkspaceContinuation, 'revision' | 'updatedAt'> & {
+export type ContinuationWrite = Omit<
+  WorkspaceContinuation,
+  'revision' | 'updatedAt' | 'handoffUntil'
+> & {
   revision: number;
   adopt?: Array<{ sourceId: string; revision: number }>;
+  handoff?: boolean;
+  resumeSourceId?: string;
 };

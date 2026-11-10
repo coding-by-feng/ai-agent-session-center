@@ -7,9 +7,11 @@ import type { ContinuationWrite, WorkspaceContinuation } from '@/types/workspace
 type State = { error?: string; conflicts?: WorkspaceContinuation['drafts'] };
 export interface ContinuationController {
   flush: () => Promise<void>;
+  prepareSwitch: () => Promise<void>;
   stop: () => void;
 }
 const endpoint = '/api/workspace/continuation';
+const resumeKey = 'aasc.workspace-continuation.resume';
 
 export async function startContinuation(
   signal: AbortSignal,
@@ -30,10 +32,18 @@ export async function startContinuation(
   if (!Array.isArray(data.records)) throw new Error('接续信息格式无效。');
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
   const sessions = useSessionStore.getState();
+  let resumeSourceId: string | undefined;
+  try {
+    const saved = sessionStorage.getItem(resumeKey);
+    if (data.records.some((record) => record.sourceId === saved)) resumeSourceId = saved!;
+  } catch {
+    /* Ordinary startup also works when browser storage is disabled. */
+  }
   const merged = mergeContinuation(
     useQueueStore.getState().composeDrafts,
     data.records,
     new Set(sessions.sessions.keys()),
+    resumeSourceId,
   );
   for (const [id, draft] of merged.drafts) useQueueStore.getState().setComposeDraft(id, draft);
   if (!sessions.selectedSessionId && merged.selectedSessionId)
@@ -45,6 +55,7 @@ export async function startContinuation(
     dirty = true,
     stopped = false;
   let adopt = merged.adopt;
+  let handoff = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inflight: Promise<void> | null = null;
   const capture = (): ContinuationWrite => {
@@ -58,6 +69,8 @@ export async function startContinuation(
         .filter(([id, draft]) => state.sessions.has(id) && hasContinuationDraft(draft))
         .map(([sessionId, draft]) => ({ sessionId, draft })),
       adopt,
+      ...(handoff ? { handoff: true } : {}),
+      ...(resumeSourceId ? { resumeSourceId } : {}),
     };
   };
   const flush = (): Promise<void> => {
@@ -82,6 +95,15 @@ export async function startContinuation(
           if (!Number.isSafeInteger(result.revision)) throw new Error('保存确认无效。');
           revision = result.revision;
           adopt = [];
+          if (resumeSourceId) {
+            try {
+              if (sessionStorage.getItem(resumeKey) === resumeSourceId)
+                sessionStorage.removeItem(resumeKey);
+            } catch {
+              /* The durable save succeeded; storage cleanup is optional. */
+            }
+            resumeSourceId = undefined;
+          }
           if (!stopped) onChange({ error: '' });
         } catch (error) {
           dirty = true;
@@ -123,6 +145,18 @@ export async function startContinuation(
   schedule();
   return {
     flush,
+    prepareSwitch: async () => {
+      // Even a clean window may have been overtaken or adopted by another one.
+      // Refresh its own record and protect it until the destination takes over.
+      handoff = true;
+      dirty = true;
+      try {
+        await flush();
+        sessionStorage.setItem(resumeKey, sourceId);
+      } finally {
+        handoff = false;
+      }
+    },
     stop: () => {
       stopped = true;
       clearTimeout(timer);

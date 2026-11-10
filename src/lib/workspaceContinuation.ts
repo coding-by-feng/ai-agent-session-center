@@ -3,22 +3,35 @@ export function mergeContinuation(
   current: Map<string, ContinuationDraft>,
   records: WorkspaceContinuation[],
   visible: Set<string>,
+  preferredSourceId?: string,
 ) {
   const drafts = new Map(current);
   const conflicts: WorkspaceContinuation['drafts'] = [];
   const adopt: Array<{ sourceId: string; revision: number }> = [];
   let selectedSessionId: string | null = null;
-  for (const record of [...records].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    if (!selectedSessionId && record.selectedSessionId && visible.has(record.selectedSessionId))
+  const preferred = records.find((record) => record.sourceId === preferredSourceId);
+  const ordered = [...records].sort((a, b) => b.updatedAt - a.updatedAt);
+  if (preferred) ordered.splice(ordered.indexOf(preferred), 1);
+  for (const record of preferred ? [preferred, ...ordered] : ordered) {
+    const canRestore = !preferred || record === preferred;
+    if (
+      canRestore &&
+      !selectedSessionId &&
+      record.selectedSessionId &&
+      visible.has(record.selectedSessionId)
+    )
       selectedSessionId = record.selectedSessionId;
-    let copied = true;
+    let copied = canRestore;
     for (const item of record.drafts) {
       if (!visible.has(item.sessionId)) {
         copied = false;
         continue;
       }
       const existing = drafts.get(item.sessionId);
-      if (!existing || !hasContinuationDraft(existing)) drafts.set(item.sessionId, item.draft);
+      // A switching window's empty draft is intentional. Other windows remain
+      // available as alternatives, but must not refill it or change selection.
+      if (canRestore && (!existing || !hasContinuationDraft(existing)))
+        drafts.set(item.sessionId, item.draft);
       else if (JSON.stringify(existing) !== JSON.stringify(item.draft)) {
         if (
           !conflicts.some(

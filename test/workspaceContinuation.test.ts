@@ -125,3 +125,28 @@ it('adopts an unchanged predecessor atomically but preserves a newer draft', asy
     ).status,
   ).toBe(400);
 });
+
+it('protects an edition handoff from another window adopting it before the destination reads it', async () => {
+  const f = await fixture();
+  expect((await f.call({ ...snapshot('switching', 'own draft'), handoff: true })).status).toBe(200);
+  const adoption = {
+    ...snapshot('other', 'own draft'),
+    adopt: [{ sourceId: 'switching', revision: 1 }],
+  };
+  expect((await f.call(adoption)).status).toBe(200);
+  expect(
+    (await f.call()).data.records.some((r: { sourceId: string }) => r.sourceId === 'switching'),
+  ).toBe(true);
+  expect(
+    (
+      await f.call({
+        ...snapshot('destination', 'own draft'),
+        adopt: adoption.adopt,
+        resumeSourceId: 'switching',
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (await f.call()).data.records.some((r: { sourceId: string }) => r.sourceId === 'switching'),
+  ).toBe(false);
+});

@@ -36,3 +36,17 @@ it('preserves a local draft and leaves conflicting windows available; never sele
   expect(hidden.drafts.size).toBe(0);
   expect(hidden.conflicts).toEqual([]);
 });
+
+it('prioritizes the switching window and keeps newer windows as alternates, including an intentionally empty draft', () => {
+  const own = record('own', 'own draft', 1),
+    other = record('other', 'other draft', 100);
+  other.selectedSessionId = 'b';
+  const merged = mergeContinuation(new Map(), [other, own], new Set(['a', 'b']), 'own');
+  expect(merged.selectedSessionId).toBe('a');
+  expect(merged.drafts.get('a')?.text).toBe('own draft');
+  expect(merged.conflicts[0].draft.text).toBe('other draft');
+  own.drafts = [];
+  const cleared = mergeContinuation(new Map(), [other, own], new Set(['a', 'b']), 'own');
+  expect(cleared.drafts.has('a')).toBe(false);
+  expect(cleared.conflicts[0].draft.text).toBe('other draft');
+});
