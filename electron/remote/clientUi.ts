@@ -75,7 +75,7 @@ export const HEADER_GUARD_SCRIPT = `(() => {
 
 /** The page, loading the guard first. A plain script runs before the bundle's deferred module. */
 export function withHeaderGuard(html: string): string {
-  const tag = `<script src="${HEADER_GUARD_PATH}"></script>`
+  const tag = `<meta name="aasc-remote-client" content="true"><script src="${HEADER_GUARD_PATH}"></script>`
   return html.includes('<head>') ? html.replace('<head>', `<head>${tag}`) : `${tag}${html}`
 }
 

@@ -107,6 +107,8 @@ import { isMcpEnabled, recordMcpPort } from './mcp/runtime.js';
 import { bareCliCommand, discardCentralTerminal } from './mcp/centralLaunch.js';
 import { spawnRespawnTerminal } from './mcp/respawn.js';
 import { mountClientStatic } from './clientStatic.js';
+import { mountHostedUi } from './hostedUi.js';
+import { createHostedContinuationRouter } from './hostedContinuation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -381,6 +383,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     res.type('html').send(readFileSync(join(clientDir, 'index.html'), 'utf8').replace('<head>', `<head><meta name="aasc-hosted-parent" content="${hosted.websiteOrigin}">`));
   };
   if (hosted) app.get(['/', '/index.html', '/hosted/pair'], sendIndex);
+  if (hosted) mountHostedUi(app, { root: join(__dirname, '..', 'dist', 'hosted'), websiteOrigin: hosted.websiteOrigin });
   mountClientStatic(app, clientDir); // missing /assets/* → 404, not index.html
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
@@ -687,6 +690,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
     closeTerminal: closeTerminalAndWait,
   });
+  if (hosted) app.use('/api/workspace/continuation', authMiddleware, phoneProfile, createHostedContinuationRouter(hosted, (_req, id) => canSeeSession(false, getSession(id))));
   app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');

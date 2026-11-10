@@ -3,10 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import HostedWorkspace from './HostedWorkspace';
 import { useHostedControls } from './HostedConnectionMenu';
 import { useWsStore } from '@/stores/wsStore';
+import { useContinuationState } from '@/hooks/useWorkspaceContinuation';
 
 beforeEach(() => {
   document.head.innerHTML = '<meta name="aasc-hosted-parent" content="https://xclaude.dev">';
   useWsStore.setState({ connected: false, snapshotReceived: false });
+  useContinuationState.setState({ready:false});
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -30,8 +32,10 @@ it('announces ready only after authenticated API status and a live server snapsh
   act(() => useWsStore.setState({ connected: true }));
   expect(parent).not.toHaveBeenCalled();
   act(() => useWsStore.setState({ snapshotReceived: true }));
+  expect(parent).not.toHaveBeenCalled();
+  act(() => useContinuationState.setState({ready:true}));
   await waitFor(() =>
-    expect(parent).toHaveBeenCalledWith({ type: 'aasc:hosted-ready' }, 'https://xclaude.dev'),
+    expect(parent).toHaveBeenCalledWith({ type: 'aasc:hosted-ready', edition:'full', editions:['lite','full'] }, 'https://xclaude.dev'),
   );
 });
 it('reports cookie/auth failure and provides an actionable order reentry link', async () => {

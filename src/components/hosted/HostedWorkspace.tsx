@@ -1,4 +1,7 @@
 import { useHostedControls } from './HostedConnectionMenu';
+import { useContinuationState, flushWorkspaceContinuation } from '@/hooks/useWorkspaceContinuation';
+import { handleHostedSwitch, checkHostedEdition } from '@/lib/hostedSwitch';
+import { IS_LITE } from '@/lib/edition';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useEffect, useRef, useState } from 'react';
 import { useWsStore } from '@/stores/wsStore';
@@ -147,6 +150,7 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
   const parent = hostedParent();
   const connected = useWsStore((s) => s.connected);
   const snapshot = useWsStore((s) => s.snapshotReceived);
+  const continuationReady = useContinuationState(s => s.ready);
   const [owner, setOwner] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState('');
@@ -164,6 +168,12 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
       }
     };
     const receive = (event: MessageEvent) => {
+      if (event.data?.type === 'aasc:hosted-switch') {
+        void handleHostedSwitch(event, { origin:parent, parent:window.parent,
+          check:checkHostedEdition, flush:flushWorkspaceContinuation, navigate:path=>window.location.assign(path),
+          reply:message=>window.parent.postMessage(message,parent) });
+        return;
+      }
       if (event.origin === parent && event.source === window.parent && event.data?.type === 'aasc:hosted-expanded') {
         expanded = event.data.expanded === true;
         return;
@@ -228,27 +238,31 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
     };
   }, [parent, needsLogin]);
   useEffect(() => {
-    if (parent && authenticated && connected && snapshot && !sent.current) {
+    if (parent && authenticated && connected && snapshot && continuationReady && !sent.current) {
       sent.current = true;
-      window.parent.postMessage({ type: 'aasc:hosted-ready' }, parent);
+      window.parent.postMessage({ type: 'aasc:hosted-ready', edition:IS_LITE?'lite':'full', editions:['lite','full'] }, parent);
     }
-  }, [parent, authenticated, connected, snapshot]);
+  }, [parent, authenticated, connected, snapshot, continuationReady]);
   useEffect(() => {
-    if (!authenticated || !owner || !connected || !snapshot) return;
+    if (!authenticated || !owner || !connected || !snapshot || !continuationReady) return;
     let active = true;
     setSetupError('');
     void api('/api/hosted/default-sessions', 'POST').then(data => {
-      if (active && !selectedDefault.current && typeof data.sessions?.claude === 'string') {
+      if (active && !selectedDefault.current && !useSessionStore.getState().selectedSessionId && typeof data.sessions?.claude === 'string') {
         selectedDefault.current = true;
         useSessionStore.getState().selectSession(data.sessions.claude);
       }
     }).catch(() => { if (active) setSetupError('Claude / Codex 会话启动失败。终端连接仍可使用。'); });
     return () => { active = false; };
-  }, [authenticated, owner, connected, snapshot, setupAttempt]);
+  }, [authenticated, owner, connected, snapshot, continuationReady, setupAttempt]);
   useEffect(() => {
-    useHostedControls.setState({ pair: authenticated && owner && !needsLogin ? () => setPairing(true) : null });
-    return () => { useHostedControls.setState({ pair: null }); };
-  }, [authenticated, owner, needsLogin]);
+    useHostedControls.setState({ pair: authenticated && owner && !needsLogin ? () => setPairing(true) : null,
+      switchEdition: authenticated && continuationReady && !needsLogin ? async edition => {
+        try { await checkHostedEdition(edition); await flushWorkspaceContinuation(); window.location.assign(`/ui/${edition}/`); }
+        catch (error) { setSetupError(error instanceof Error && error.message==='unsaved_files' ? '请先保存项目文件，再切换版本。' : '未能完成切换，已保留当前界面。请确认文件已保存并重试。'); }
+      } : null });
+    return () => { useHostedControls.setState({ pair: null, switchEdition:null }); };
+  }, [authenticated, owner, needsLogin, continuationReady]);
   if (!parent) return null;
   if (needsLogin || error)
     return (

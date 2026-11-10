@@ -40,9 +40,10 @@ import { useUiStore } from '@/stores/uiStore';
 import { getInterruptedOffer, subscribeInterrupted } from '@/lib/interruptedRestore';
 import { IS_LITE } from '@/lib/edition';
 import appLayout from '@/styles/modules/AppLayout.module.css';
-import { hostedParent } from '@/lib/hosted';
+import { hostedParent, hostedBase } from '@/lib/hosted';
 const HostedWorkspace = lazy(() => import('@/components/hosted/HostedWorkspace'));
 const HostedPhonePair = lazy(() => import('@/components/hosted/HostedPhonePair'));
+const WorkspaceContinuation = lazy(() => import('@/components/hosted/WorkspaceContinuation'));
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
@@ -198,6 +199,7 @@ function Dashboard({ token }: { token: string | null }) {
   return (
     <>
       <DesktopAutomationGate />
+      {(hostedParent() || document.querySelector('meta[name="aasc-remote-client"]')) && <Suspense fallback={null}><WorkspaceContinuation /></Suspense>}
       {saving && (
         <SavingOverlay
           progress={saveProgress}
@@ -217,7 +219,7 @@ function Dashboard({ token }: { token: string | null }) {
           <PhoneAppFrame />
         </Suspense>
       ) : (
-        <BrowserRouter>
+        <BrowserRouter basename={hostedBase() || undefined}>
           <Routes>
             {/* Standalone route — no AppLayout chrome */}
             <Route path={PROJECT_BROWSER_PATH} element={

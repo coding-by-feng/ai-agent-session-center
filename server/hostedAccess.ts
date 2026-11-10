@@ -113,6 +113,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         (claims.accessMode !== 'use' && claims.pairingKind !== 'desktop') ||
         !['get', 'regenerate'].includes(claims.pairingAction))) ||
       claims.orderId !== config.orderId ||
+      (claims.edition !== undefined && claims.edition !== 'lite' && claims.edition !== 'full') ||
       (claims.accessMode !== 'verify' && claims.accessMode !== 'use') ||
       typeof claims.sub !== 'string' ||
       claims.sub.length < 1 ||
@@ -252,7 +253,8 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
           'Set-Cookie',
           hostedCookie(createHostedToken(config.orderId, identity.principal, identity)),
         );
-        res.redirect(303, req.body?.pair === '1' ? '/?hostedPair=1' : '/');
+        const entry = claims.edition ? `/ui/${claims.edition}/` : '/';
+        res.redirect(303, entry + (req.body?.pair === '1' ? '?hostedPair=1' : ''));
       } catch {
         refused();
       }

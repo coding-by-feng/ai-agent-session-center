@@ -11,6 +11,7 @@
     "dev": "concurrently \"vite --open\" \"tsx watch server/index.ts --no-open\"",
     "build": "vite build",
     "build:lite": "vite build --config vite.config.lite.ts && node scripts/verify-lite-bundle.mjs",
+    "build:hosted": "AASC_HOSTED_UI=lite vite build --config vite.config.hosted.ts && AASC_HOSTED_UI=full vite build --config vite.config.hosted.ts",
     "prepack": "npm run build",
     "start": "tsx server/index.ts",
     "start:no-open": "tsx server/index.ts --no-open",

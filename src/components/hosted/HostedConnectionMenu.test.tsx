@@ -7,9 +7,9 @@ beforeEach(()=>{meta=document.createElement('meta');meta.name='aasc-hosted-paren
 afterEach(()=>{cleanup();meta.remove();useHostedControls.setState({pair:null});});
 it('keeps status and pairing inside a header menu until opened',()=>{
  const pair=vi.fn();useHostedControls.setState({pair});render(<header><HostedConnectionMenu /></header>);
- expect(screen.queryByText('Hosted Lite connected')).toBeNull();expect(screen.queryByText('配对手机')).toBeNull();
+ expect(screen.queryByText('Hosted Full connected')).toBeNull();expect(screen.queryByText('配对手机')).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'工作区连接：已连接'}));
- expect(screen.getByRole('menu')).toBeTruthy();expect(screen.getByRole('status').textContent).toBe('Hosted Lite connected');
+ expect(screen.getByRole('menu')).toBeTruthy();expect(screen.getByRole('status').textContent).toBe('Hosted Full connected');
  fireEvent.click(screen.getByRole('menuitem',{name:'配对手机'}));expect(pair).toHaveBeenCalledTimes(1);expect(screen.queryByRole('menu')).toBeNull();
 });
 it('shows recovery when disconnected and closes on Escape',()=>{

@@ -1,3 +1,4 @@
+import { createHostedContinuationRouter } from '../server/hostedContinuation.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -39,6 +40,15 @@ let dir: string;
 let server: Server;
 let port: number;
 let access: ReturnType<typeof createHostedAccess>;
+it('selects an allowed UI without changing the hosted principal or invalidating the earlier UI', async () => {
+  const lite = await call('/hosted/launch', { ticket: ticket({ edition: 'lite' }) });
+  const full = await call('/hosted/launch', { ticket: ticket({ edition: 'full' }) });
+  expect(lite.headers.location).toBe('/ui/lite/');
+  expect(full.headers.location).toBe('/ui/full/');
+  const cookie = lite.headers['set-cookie']![0].split(';')[0];
+  expect((await call('/api/private', { cookie })).status).toBe(200);
+  expect((await call('/hosted/launch', { ticket: ticket({ edition: '../full' }) })).status).toBe(403);
+});
 function ticket(patch: Record<string, unknown> = {}, key = env.AASC_HOSTED_LAUNCH_KEY): string {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -148,7 +158,8 @@ beforeEach(async () => {
       },
     }),
   );
-  app.get('/api/private', authMiddleware, (req, res) => res.json({ local: isLocalRequest(req) }));
+  app.use('/api/workspace/continuation',authMiddleware,createHostedContinuationRouter(config,(_req,id)=>id==='visible-session'));
+  app.get('/api/private' , authMiddleware, (req, res) => res.json({ local: isLocalRequest(req) }));
   server = createServer(app);
   const wss = new WebSocketServer({ server });
   wss.on('connection', async (ws, req) => {
@@ -617,4 +628,21 @@ describe('order-panel pairing bridge', () => {
     const assertion = vi.fn(async () => new Response(JSON.stringify({authorized:false}),{status:403}));vi.stubGlobal('fetch',assertion);
     expect((await call('/hosted/order-pairing', {json:{ticket:pairingTicket()}})).status).toBe(403);expect(assertion).toHaveBeenCalledOnce();
   });
+});
+
+it('shares continuation between independent browser and paired desktop sessions and revokes the old owner',async()=>{
+ const launch=await call('/hosted/launch',{ticket:ticket({edition:'full'})});
+ const cookie=launch.headers['set-cookie']![0].split(';')[0];
+ const identity=getTokenHostedIdentity(cookie.split('=')[1])!;
+ const desktop=createComputerToken('paired-desktop',identity);
+ const endpoint='/api/workspace/continuation';
+ const input={sourceId:'browser-window',revision:0,selectedSessionId:'visible-session',drafts:[]};
+ expect((await call(endpoint,{method:'PUT',cookie,origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:input})).status).toBe(200);
+ const own=await call(endpoint,{bearer:desktop});expect(own.status).toBe(200);expect(JSON.parse(own.body).records[0].selectedSessionId).toBe('visible-session');
+ const otherBrowser=await call('/hosted/launch',{ticket:ticket({edition:'lite'})});
+ expect(JSON.parse((await call(endpoint,{cookie:otherBrowser.headers['set-cookie']![0].split(';')[0]})).body).records).toHaveLength(1);
+ expect((await call(endpoint,{method:'PUT',bearer:desktop,origin:'https://evil.test',json:{...input,sourceId:'evil'}})).status).toBe(403);
+ expect((await call(endpoint,{method:'PUT',bearer:desktop,origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:{...input,sourceId:'hidden',selectedSessionId:'private-session'}})).status).toBe(404);
+ await call('/hosted/launch',{ticket:ticket({sub:'customer:new-owner',ownerEpoch:1,edition:'full'})});
+ expect((await call(endpoint,{cookie})).status).toBe(401);expect((await call(endpoint,{bearer:desktop})).status).toBe(401);
 });

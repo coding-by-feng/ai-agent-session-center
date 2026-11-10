@@ -1,8 +1,8 @@
-# Hosted Lite workspace
+# Hosted Lite / Full workspace
 
 ## Function and scope
 
-Opt-in hosted Lite served from an isolated order VM, embedded only by `https://xclaude.dev`. Absent hosted environment variables, desktop, CLI server and native phone authentication, assets, pairing and frame policy retain their existing behavior. No npm/Electron/mobile release or infrastructure provisioning is part of this change.
+Opt-in hosted Lite and Full served from an isolated order VM, embedded only by `https://xclaude.dev`. Absent hosted environment variables, desktop, CLI server and native phone authentication, assets, pairing and frame policy retain their existing behavior. No npm/Electron/mobile release or infrastructure provisioning is part of this change.
 
 ## Configuration and isolation
 
@@ -16,7 +16,7 @@ All four variables are required together:
 | `AASC_HOSTED_LAUNCH_KEY` | 64 lower-case hex characters, used as UTF-8 HMAC key bytes |
 | `APP_USER_DATA` | Required absolute durable directory dedicated to this order |
 
-Partial/invalid configuration aborts startup. The durable `hosted-launch/order` file binds APP_USER_DATA to one exact order before cloud/listener startup. Existing owner records and every nonce receipt also carry orderId; a reused directory or inconsistent owner receipt fails closed, including phone-authority lookup. Pre-release owner ledgers without an order binding are rejected rather than silently adopted. Build with `npm run build:lite`; hosted mode serves only `dist/client-lite`, with no fallback to Full. A public TLS reverse proxy must target the existing remote-only listener (`AASC_REMOTE_LISTENER_PORT`), preserve the public `Host`, support WebSocket upgrades and prevent direct public access to the backend ports. The main loopback listener remains for CLI hooks; proxying the main listener would make header-rewriting misconfiguration dangerous.
+Partial/invalid configuration aborts startup. The durable `hosted-launch/order` file binds APP_USER_DATA to one exact order before cloud/listener startup. Existing owner records and every nonce receipt also carry orderId; a reused directory or inconsistent owner receipt fails closed, including phone-authority lookup. Pre-release owner ledgers without an order binding are rejected rather than silently adopted. Build with `npm run build:lite && npm run build:hosted`. Explicit edition tickets enter `/ui/lite/` or `/ui/full/`, backed by `dist/hosted/<edition>`; legacy tickets enter the original `dist/client-lite` root. API/WS and authority remain shared. Missing edition assets return 404 and missing entry HTML returns 503. A public TLS reverse proxy must target the existing remote-only listener (`AASC_REMOTE_LISTENER_PORT`), preserve the public `Host`, support WebSocket upgrades and prevent direct public access to the backend ports. The main loopback listener remains for CLI hooks; proxying the main listener would make header-rewriting misconfiguration dangerous.
 
 **One dedicated VM per order is the supported deployment boundary.** AASC exposes real terminals, uses an OS home, CLI credentials, processes and the machine-global `/tmp/claude-session-center` queue. Separate processes/data directories under one host account do not isolate customers. A future container deployment would require isolated OS home/credentials/process/filesystem/network namespaces; grouped/shared-OS fulfillment remains unsupported. `AASC_TEST_QUEUE_DIR` is only a test override; production hook scripts do not support a per-process queue configuration.
 
@@ -139,3 +139,16 @@ Chrome fixture at 320x568, 390x844, 390x420 and 1024x768 confirms header/input
 bounds, pairing activation and retained draft. Reduced viewport height simulates
 limited space; it is not physical iPhone keyboard evidence. Static assets deployed
 without restarting AASC or its model terminals.
+
+
+## Edition switching and continuation
+
+`edition` is an optional signed `lite|full` claim, independent of `accessMode`. The `aasc-ui-base` meta gives BrowserRouter, queue/terminal popouts and project windows an edition-specific UI base. API and WS paths remain rooted at the same runtime. Full-only data is never rewritten to switch UI. `build:hosted` produces both editions through `vite.config.hosted.ts`.
+
+`GET/PUT /api/workspace/continuation` runs behind hosted authentication and session visibility. Scope is a SHA-256 filename of order + subject + owner epoch under `APP_USER_DATA/workspace-continuation`; browser and paired desktop tokens use the same owner scope. Every continuation request also matches the current durable owner and mode, so obsolete device credentials cannot read a former scope during a cached authorization window. Files are atomically replaced (0600 in a 0700 directory). Per-window records carry sourceId, CAS revision, selectedSessionId, prompt drafts and updatedAt. Limits: 100 drafts/window, 100 active window records, 16 MB/request and 32 MB/store. All selected/draft IDs must be remote-visible; hidden IDs return 404. Drafts include text, image data URLs and queue scheduling fields. Matching older records are adopted only with an unchanged revision and complete draft copies; other windows' drafts remain intact.
+
+Clients restore after the real WebSocket snapshot, fill only empty draft slots and expose alternate drafts in cards. Saves debounce 300 ms and serialize updates. A socket outage retains the unsaved close guard. Edition switching probes the target HTML, refuses unsaved project file edits, waits for the draft save, and then navigates. Trusted iframe messages require exact parent window + origin. A ready message includes the actual edition; failure messages distinguish unsaved files, an unavailable build and a failed draft save. This module never creates/restores/kills terminals or runs queue items.
+
+Both remote-only desktop Client builds receive `aasc-remote-client` in their locally bundled HTML and use the same continuation API. Their existing shared remote-computers storage and keychain pairing are retained. This needs rebuilt Client binaries; previously published v2.10.75 installers do not gain the new UI code from a website deployment. Older/non-hosted servers return unsupported and remain usable. No phone-shell or detached-window draft sync was added.
+
+Source ownership: `server/{hostedUi,hostedContinuation,workspaceContinuation}.ts`, `src/types/workspaceContinuation.ts`, `src/lib/{hosted,hostedSwitch,workspaceContinuation,continuationClient}.ts`, `src/hooks/useWorkspaceContinuation.ts`, `src/components/hosted/{HostedWorkspace,HostedConnectionMenu,WorkspaceContinuation}.tsx`, `src/App.tsx`, `electron/remote/clientUi.ts`, `vite.config.hosted.ts`, plus the existing launch/auth and server mounting code.

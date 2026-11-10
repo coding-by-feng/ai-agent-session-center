@@ -1,3 +1,4 @@
+import { hostedUiPath } from '@/lib/hosted';
 /**
  * Browser fallback for popping a terminal out into its own window when
  * `window.electronAPI.openTerminalWindow` isn't available (a plain browser
@@ -35,7 +36,7 @@ export function openTerminalPopupFallback(opts: {
   if (originSessionId) qs.set('originSessionId', originSessionId);
   if (label) qs.set('label', label);
   const name = `aasc-terminal-${terminalId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-  return window.open(`/?${qs.toString()}`, name, popupWindowFeatures());
+  return window.open(hostedUiPath(`/?${qs.toString()}`), name, popupWindowFeatures());
 }
 
 function escapeHtml(s: string): string {
@@ -170,7 +171,7 @@ export async function openFloatWindow(opts: {
     if (opts.originSessionId) qs.set('originSessionId', opts.originSessionId);
     if (opts.label) qs.set('label', opts.label);
     try {
-      opts.preopened.location.href = `/?${qs.toString()}`;
+      opts.preopened.location.href = hostedUiPath(`/?${qs.toString()}`);
       return { placed: 'window' };
     } catch {
       // Extremely unlikely for a same-origin relative navigation, but if it
