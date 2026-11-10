@@ -24,7 +24,8 @@ vi.mock('@/hooks/useTerminal', () => ({
       widthMode: 'pan', setWidthMode: fn(), handleTerminalReady: fn(), handleTerminalClosed: fn(), handleTerminalCleared: fn(),
       reparent: fn(), scrollToBottom: fn(), refreshOutput: fn(), clearOutput: fn(), scrollPageUp: fn(), scrollPageDown: fn(),
       autoScrollEnabled: false, toggleAutoScroll: fn(), readRecentText: () => ({ text: '', absBottom: 0 }),
-      getXtermSelection: () => null, hasXtermSelection: () => false,
+      getTerminal: () => null,
+    getXtermSelection: () => null, hasXtermSelection: () => false,
     };
     return stableTerminal.value;
   },

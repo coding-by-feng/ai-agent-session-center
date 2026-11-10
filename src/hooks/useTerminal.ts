@@ -151,6 +151,9 @@ interface UseTerminalReturn {
   getCaretRect: () => CaretRect | null;
   /** The attached terminal's search addon (find-in-terminal), or null. Changes with `activeTerminalId`. */
   getSearchAddon: () => SearchAddon | null;
+  /** The attached xterm, or null. Changes with `activeTerminalId`. For overlays that add their own
+   *  listeners (`LocalEchoOverlay`); they must never write to it. */
+  getTerminal: () => Terminal | null;
   /** Put the keyboard back in the terminal (the find bar's Esc / close). */
   focusTerminal: () => void;
   /** Drop the terminal's selection: the search addon leaves its last match selected. */
@@ -1647,6 +1650,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     inputTapRef.current = tap;
   }, []);
 
+  // Stable, so an overlay can key its listeners on `activeTerminalId` alone.
+  const getTerminal = useCallback((): Terminal | null => activeRef.current?.term ?? null, []);
+
   const getCaretRect = useCallback((): CaretRect | null => {
     const t = activeRef.current?.term;
     return t ? readCaretRect(t) : null;
@@ -2064,6 +2070,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     setInputTap,
     getCaretRect,
     getSearchAddon: () => activeRef.current?.searchAddon ?? null,
+    getTerminal,
     focusTerminal: () => activeRef.current?.term.focus(),
     clearXtermSelection: () => activeRef.current?.term.clearSelection(),
   };

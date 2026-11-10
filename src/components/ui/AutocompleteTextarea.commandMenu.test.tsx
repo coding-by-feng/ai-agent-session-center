@@ -17,7 +17,7 @@ vi.mock('@/lib/commandIndex', async () => {
   return { ...actual, fetchCommandIndex: () => fetchCommandIndex() };
 });
 
-const FOOTER = '↑↓ navigate · Enter select · Esc close';
+const FOOTER = '↑↓ navigate · Tab/Enter select · Esc close';
 
 function Box({ commandMenu, onTextarea }: { commandMenu?: boolean; onTextarea?: (el: HTMLTextAreaElement | null) => void }) {
   const [value, setValue] = useState('');

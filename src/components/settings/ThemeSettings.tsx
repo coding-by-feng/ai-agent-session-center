@@ -7,6 +7,8 @@ export default function ThemeSettings() {
   const themeName = useSettingsStore((s) => s.themeName);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const scanlineEnabled = useSettingsStore((s) => s.scanlineEnabled);
+  const instantTyping = useSettingsStore((s) => s.instantTyping);
+  const setInstantTyping = useSettingsStore((s) => s.setInstantTyping);
   const animationIntensity = useSettingsStore((s) => s.animationIntensity);
   const animationSpeed = useSettingsStore((s) => s.animationSpeed);
   const characterModel = useSettingsStore((s) => s.characterModel);
@@ -134,6 +136,20 @@ export default function ThemeSettings() {
           />
           <span className={styles.toggleSwitch} />
           <span>Enable scanline overlay</span>
+        </label>
+      </div>
+
+      {/* Terminal: instant typing (LocalEchoOverlay). APPEARANCE is in Lite's allow-list, so Lite can turn it off. */}
+      <div className={styles.section}>
+        <h4>Terminal</h4>
+        <label className={styles.toggleLabel}>
+          <input
+            type="checkbox"
+            checked={instantTyping}
+            onChange={(e) => setInstantTyping(e.target.checked)}
+          />
+          <span className={styles.toggleSwitch} />
+          <span>Instant typing: show keys before the echo returns</span>
         </label>
       </div>
 

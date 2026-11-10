@@ -45,14 +45,14 @@ describe('DetailTabs in the Lite build', () => {
     expect(screen.getByRole('button', { name: /Merge with Terminal|Split/ })).toBeInTheDocument();
   });
 
-  it('opens with TERMINAL, then PROJECT, AI POPUPS and QUEUE, and nothing else', () => {
+  it('opens with TERMINAL and COMMANDS, then PROJECT, AI POPUPS and QUEUE, and nothing else', () => {
     render(<DetailTabs {...props} />);
-    expect(tabLabels()).toEqual(['TERMINAL', 'PROJECT', 'AI POPUPS', 'QUEUE']);
+    expect(tabLabels()).toEqual(['TERMINAL', 'COMMANDS', 'PROJECT', 'AI POPUPS', 'QUEUE']);
   });
 
   it('adds CONVERSATION for a session with no terminal, such as a claude started in iTerm', () => {
     render(<DetailTabs {...props} hasTerminal={false} />);
-    expect(tabLabels()).toEqual(['TERMINAL', 'CONVERSATION', 'PROJECT', 'AI POPUPS', 'QUEUE']);
+    expect(tabLabels()).toEqual(['TERMINAL', 'COMMANDS', 'CONVERSATION', 'PROJECT', 'AI POPUPS', 'QUEUE']);
   });
 
   it('counts the queued prompts on the QUEUE tab', () => {
