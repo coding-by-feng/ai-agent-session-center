@@ -1,7 +1,7 @@
 // DetailPanel.lite.test.tsx — what the session panel hands its tabs in the Lite build. The queue strip under the
 // terminal is one line while the session's queue is empty, so the terminal keeps its height.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 vi.mock('@/lib/edition', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/edition')>()),
@@ -25,7 +25,7 @@ vi.mock('./DetailTabs', () => ({
     <div>
       {terminalContent}
       {queueContent}
-      {commandsContent ? <div data-testid="commands" /> : null}
+      {commandsContent ? <div data-testid="commands">{commandsContent}</div> : null}
       <div data-testid="has-terminal">{String(hasTerminal)}</div>
     </div>
   ),
@@ -105,9 +105,26 @@ describe('DetailPanel in the Lite build', () => {
     expect((await screen.findByTestId('has-terminal')).textContent).toBe('false');
   });
 
-  it('never starts the COMMANDS shell', async () => {
+  // Lite shows COMMANDS since Nov 10 2026. Most Lite sessions are quick-launched without the extra shell, so the
+  // tab offers to open one; it never opens it by itself (each one is a PTY).
+  it('offers to open the COMMANDS shell for a session started without one, and opens it only when asked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
     render(<DetailPanel />);
-    await screen.findByTestId('terminal');
-    expect(screen.queryByTestId('commands')).not.toBeInTheDocument();
+    const commands = await screen.findByTestId('commands');
+    const open = within(commands).getByRole('button', { name: 'CONNECT TERMINAL' });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('reconnect-ops-terminal'))).toBe(false);
+
+    fireEvent.click(open);
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/sess-1/reconnect-ops-terminal', { method: 'POST' });
+  });
+
+  it('shows the COMMANDS shell a session already has', async () => {
+    useSessionStore.setState({
+      sessions: new Map([['sess-1', { ...session, opsTerminalId: 'ops-1', hadOpsTerminal: true } as unknown as Session]]),
+    });
+    render(<DetailPanel />);
+    const commands = await screen.findByTestId('commands');
+    expect(within(commands).getByTestId('terminal')).toBeInTheDocument();
   });
 });

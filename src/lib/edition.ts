@@ -26,17 +26,18 @@ export const LITE_NAV_ROUTES: ReadonlySet<string> = new Set(['/', '/history']);
 export const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(['appearance', 'sound', 'translation']);
 
 /**
- * The session tabs Lite shows, in its order (TERMINAL first). A session with no terminal, such as a
- * `claude` started in iTerm, has nothing else to read: it gets CONVERSATION.
+ * The session tabs Lite shows, in its order (TERMINAL first, then COMMANDS, the session's plain shell, since
+ * Nov 10 2026). A session with no terminal, such as a `claude` started in iTerm, has nothing else to read: it
+ * gets CONVERSATION.
  */
 export function liteSessionTabs<T extends { id: string }>(tabs: readonly T[], hasTerminal = true): T[] {
-  const ids = ['terminal', ...(hasTerminal ? [] : ['conversation']), 'project', 'aiPopups', 'queue'];
+  const ids = ['terminal', 'commands', ...(hasTerminal ? [] : ['conversation']), 'project', 'aiPopups', 'queue'];
   return ids.flatMap((id) => tabs.filter((tab) => tab.id === id));
 }
 
 const LITE_SHORTCUTS: ReadonlySet<string> = new Set([
   'toggleFullscreen', 'scrollToBottom', 'terminalToggleAutoScroll',
-  'switchLatestSession', 'jumpToSession', 'searchSessions', 'switchTabProject', 'switchTabTerminal', 'switchTabQueue',
+  'switchLatestSession', 'jumpToSession', 'searchSessions', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabQueue',
   // An AI popup window's keys, named on its buttons. Only a focused window reacts.
   'floatMinimize', 'floatMaximize', 'floatClose',
 ]);

@@ -29,6 +29,7 @@ vi.mock('@/hooks/useTerminal', () => ({
     refreshOutput: noop, clearOutput: noop, scrollPageUp: noop, scrollPageDown: noop,
     autoScrollEnabled: false, toggleAutoScroll: noop, readRecentText: () => ({ text: '', absBottom: 0 }),
     lineAtClientY: term.lineAtClientY, revealLine: term.revealLine,
+    getTerminal: () => null,
     getXtermSelection: () => null, hasXtermSelection: () => false,
   }),
 }));

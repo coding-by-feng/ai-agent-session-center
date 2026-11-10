@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import TerminalCommandMenu from './TerminalCommandMenu';
+import LocalEchoOverlay from './LocalEchoOverlay';
 import TerminalSearchBar, { type TerminalSearchState } from './TerminalSearchBar';
 import { detectCli } from '@/lib/cliDetect';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
@@ -162,6 +163,7 @@ export default memo(function TerminalContainer({
     setInputTap,
     getCaretRect,
     getSearchAddon,
+    getTerminal,
     focusTerminal,
     clearXtermSelection,
     activeTerminalId,
@@ -206,6 +208,7 @@ export default memo(function TerminalContainer({
 
   // ---- Hold-to-speak (TTS) ----
   const ttsEnabledSetting = useSettingsStore((s) => s.ttsEnabled);
+  const instantTyping = useSettingsStore((s) => s.instantTyping);
   const ttsApiKey = useSettingsStore((s) => s.googleTtsApiKey);
   const ttsVoiceEn = useSettingsStore((s) => s.ttsVoiceEn);
   const ttsVoiceZh = useSettingsStore((s) => s.ttsVoiceZh);
@@ -588,6 +591,8 @@ export default memo(function TerminalContainer({
           sendKeys={sendKeys}
         />
       )}
+      {/* Instant typing: keys drawn before their echo (LocalEchoOverlay). A phone types through its compose box. */}
+      {!isPhone && <LocalEchoOverlay getTerminal={getTerminal} terminalId={activeTerminalId} enabled={instantTyping} />}
       {popup.active && originSessionId && (
         <SelectionPopup
           selection={popup.active}
