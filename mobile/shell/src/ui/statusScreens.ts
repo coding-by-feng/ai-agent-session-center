@@ -51,6 +51,17 @@ export function renderConnecting(s: ConnectingScreen, mac: SavedMac, ctx: Screen
     actions(button('Cancel', ctx.actions.showMacs, 'quiet')));
 }
 
+/** Nov 10 2026: the Mac answered on this Wi-Fi with the home network off for it (lanOffer.ts). Asked once per Mac. */
+export function renderLanOffer(mac: SavedMac, ctx: ScreenContext): HTMLElement {
+  const a = ctx.actions;
+  return screen('Use the home network?', null,
+    para(`${mac.name} is on this Wi-Fi (${mac.lan}). Opening it over the home network is faster here than Tailscale.`),
+    para('The home network isn’t encrypted. Use it only on a network you trust. You can change this later in this Mac’s settings.', 'hint'),
+    actions(
+      button('Use the home network', () => a.useHomeNetwork(mac.id), 'primary'),
+      button('Not now', () => a.skipHomeNetwork(mac.id), 'quiet')));
+}
+
 export function renderOffline(s: OfflineScreen, mac: SavedMac, ctx: ScreenContext): HTMLElement {
   const a = ctx.actions;
   const tried = s.tried.length ? s.tried : candidates(mac);

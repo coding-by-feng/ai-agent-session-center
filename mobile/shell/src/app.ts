@@ -23,7 +23,8 @@ import { renderLocked, renderPhone, renderShare } from './ui/extraScreens.js';
 import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
 import { PATH_LABEL } from './ui/parts.js';
 import type { Actions, Screen, ScreenContext, UnpairStep } from './ui/screen.js';
-import { renderApprove, renderConnecting, renderOffline } from './ui/statusScreens.js';
+import { renderApprove, renderConnecting, renderLanOffer, renderOffline } from './ui/statusScreens.js';
+import { lanOfferDue, markLanOffered } from './lanOffer.js';
 
 /** How often the approval screen asks the Mac. */
 export const APPROVAL_POLL_MS = 3_000;
@@ -88,6 +89,8 @@ export function createShellApp(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let offLink: (() => void) | null = null;
   let chain: Promise<unknown> = Promise.resolve();
+  /** The opening the home-network offer holds back ("Not now" goes on with it). */
+  let offeredLeave: Extract<OpenOutcome, { kind: 'navigate' }> | null = null;
 
   const serial = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = chain.then(fn, fn);
@@ -177,6 +180,7 @@ export function createShellApp(
         if (!mac) return renderMacs({ name: 'macs', notice: null }, ctx);
         if (s.name === 'settings') return renderSettings(s, mac, ctx);
         if (s.name === 'connecting') return renderConnecting(s, mac, ctx);
+        if (s.name === 'lan-offer') return renderLanOffer(mac, ctx);
         return renderOffline(s, mac, ctx);
       }
     }
@@ -275,6 +279,19 @@ export function createShellApp(
     deps?.navigator.go(out.url);
   }
 
+  /** Save the home-network choice for `mac` and let the WebView reach its addresses accordingly. */
+  async function saveLanAllowed(mac: SavedMac, allowed: boolean): Promise<SavedMac> {
+    const next: SavedMac = { ...mac, lanAllowed: allowed, lastPath: !allowed && mac.lastPath === 'lan' ? null : mac.lastPath };
+    if (!deps) return next;
+    const d = deps;
+    await serial(async () => {
+      macs = withMac(macs, next);
+      await saveMacs(d.store, macs);
+      await d.navigator.allowOrigins(allowedOrigins(macs));
+    });
+    return next;
+  }
+
   async function connect(mac: SavedMac, back: string, reauth: boolean): Promise<void> {
     if (!deps) return;
     if (mac.status === 'pending') {
@@ -283,6 +300,8 @@ export function createShellApp(
     }
     show({ name: 'connecting', macId: mac.id, back, reauth, status: `Looking for ${mac.name}…` });
     const my = gen;
+    // Beside the opening, never in its way: is the phone at home with the home network off for this Mac?
+    const lanDue = lanOfferDue(deps, mac).catch(() => false);
     const out = await openMac(deps, mac, back, my, (c) => {
       if (my === gen) update({ status: tryingText(mac, c) });
     }, () => {
@@ -293,6 +312,12 @@ export function createShellApp(
       case 'navigate':
         // Push registers (or drops a retired row's credential) before the Mac's page loads.
         if (out.backendLinked || out.retired) await extras?.backendLinked();
+        if (my !== gen) return;
+        if (new URL(out.url).hostname !== out.mac.lan && (await lanDue) && my === gen) {
+          offeredLeave = out;
+          show({ name: 'lan-offer', macId: out.mac.id, back, reauth });
+          return;
+        }
         if (my === gen) leaveFor(out);
         return;
       case 'pending':
@@ -396,15 +421,25 @@ export function createShellApp(
     showMacs: () => show(homeScreen(null)),
     showPair: () => show(pairScreen()),
     showSettings: (macId) => show({ name: 'settings', macId, step: 'idle', notice: null }),
+    useHomeNetwork: (macId) => guard(async () => {
+      const mac = find(macId);
+      if (!deps || !mac || screen.name !== 'lan-offer' || screen.macId !== macId) return;
+      const { back, reauth } = screen;
+      offeredLeave = null;
+      await markLanOffered(deps.store, macId).catch(() => undefined);
+      await connect(await saveLanAllowed(mac, true), back, reauth);
+    })(),
+    skipHomeNetwork: (macId) => guard(async () => {
+      const leave = offeredLeave;
+      if (!deps || screen.name !== 'lan-offer' || !leave || leave.mac.id !== macId) return;
+      offeredLeave = null;
+      await markLanOffered(deps.store, macId).catch(() => undefined);
+      leaveFor(leave);
+    })(),
     setLanAllowed: (macId, allowed) => guard(async () => {
       const mac = find(macId);
       if (!deps || !mac) return;
-      const next: SavedMac = { ...mac, lanAllowed: allowed, lastPath: !allowed && mac.lastPath === 'lan' ? null : mac.lastPath };
-      await serial(async () => {
-        macs = withMac(macs, next);
-        await saveMacs(deps.store, macs);
-        await deps.navigator.allowOrigins(allowedOrigins(macs));
-      });
+      const next = await saveLanAllowed(mac, allowed);
       const notice = allowed
         ? 'The home network is tried first now, then Tailscale.'
         : next.tailnet ? 'Only Tailscale is used now.' : 'This Mac has no Tailscale address, so it can’t be reached until the home network is allowed again.';
