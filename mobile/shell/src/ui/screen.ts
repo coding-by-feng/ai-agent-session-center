@@ -32,6 +32,8 @@ export type Screen =
   | { name: 'macs'; notice: string | null; unpair?: { macId: string; step: Exclude<UnpairStep, 'idle'> } | null }
   | { name: 'settings'; macId: string; step: UnpairStep; notice: string | null }
   | { name: 'connecting'; macId: string; back: string; reauth: boolean; status: string }
+  /** Nov 10 2026: the Mac answered on its home address with the home network off (lanOffer.ts); asked once. */
+  | { name: 'lan-offer'; macId: string; back: string; reauth: boolean }
   | { name: 'offline'; macId: string; back: string; reauth: boolean; tried: Candidate[]; message: string | null }
   /** AASC-21: an item shared from another app, on its way to a session's queue (paused). */
   | {
@@ -69,6 +71,10 @@ export interface Actions {
   showPair(): void;
   showSettings(macId: string): void;
   setLanAllowed(macId: string, allowed: boolean): void;
+  /** The home-network offer: turn it on and open the Mac over it. */
+  useHomeNetwork(macId: string): void;
+  /** The home-network offer: keep it off and open the Mac as already found. */
+  skipHomeNetwork(macId: string): void;
   askUnpair(macId: string): void;
   unpair(macId: string, force: boolean): void;
   keepPaired(macId: string): void;
