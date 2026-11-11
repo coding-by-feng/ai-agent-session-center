@@ -1,3 +1,4 @@
+import type { HostedIdentity } from '../hostedAuthority.js';
 // deviceAuth.ts — pairing phones with this Mac (AASC-15).
 //
 // Flow: the desktop asks for a one-time pairing code (shown as a QR). The phone
@@ -23,6 +24,8 @@ export type DevicePlatform = 'ios' | 'android' | 'desktop';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
 
 export interface MobileDeviceRecord {
+  /** Undefined only for devices paired before hosted identity binding. */
+  hostedIdentity?: HostedIdentity | null;
   id: string;
   label: string;
   platform: DevicePlatform;
@@ -198,7 +201,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
   /** Open pairing codes, keyed by their hash. In memory on purpose: they live ten minutes. */
-  const codes = new Map<string, { expiresAt: number; platform?: 'phone' | 'desktop'; autoApprove?: boolean }>();
+  const codes = new Map<string, { expiresAt: number; platform?: 'phone' | 'desktop'; autoApprove?: boolean; hostedIdentity?: HostedIdentity }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
   /** Keys macProof's decoy: the same question gets the same wrong answer, as a real phone's would. */
@@ -241,6 +244,17 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
 
 
   return {
+    hostedIdentity(id:string): HostedIdentity | null | undefined {
+      const device=store.get(id); return device ? device.hostedIdentity : null;
+    },
+    identifyIdentity(tag:string,nonce:string): HostedIdentity | null | undefined {
+      if(!/^[0-9a-f]{64}$/.test(tag) || nonce.length>256) return null;
+      const rec=store.listLive().find(r=>r.status==='active' && r.credentialEpoch===currentEpoch() && sameHash(challengeProof(r.tokenHash,`${WHO_TAG_PREFIX}${nonce}`),tag));
+      return rec ? rec.hostedIdentity : null;
+    },
+    pairingIdentity(code:string): HostedIdentity | undefined {
+      pruneCodes(); return codes.get(hashSecret(normalizePairingCode(code)))?.hostedIdentity;
+    },
     hasPairingCode(code: string): boolean {
       pruneCodes();
       return codes.has(hashSecret(normalizePairingCode(code)));
@@ -249,12 +263,14 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       codes.delete(hashSecret(normalizePairingCode(code)));
     },
     clearPairingCodes(): void { codes.clear(); },
-    createPairingCode(options: { platform?: 'phone' | 'desktop'; autoApprove?: boolean } = {}): { code: string; expiresAt: number } {
+    createPairingCode(options: { platform?: 'phone' | 'desktop'; autoApprove?: boolean; hostedIdentity?: HostedIdentity } = {}): { code: string; expiresAt: number } {
       pruneCodes();
-      if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();
+      const admin=options.hostedIdentity?.accessMode === 'admin';
+      const count=[...codes.values()].filter(c=>(c.hostedIdentity?.accessMode==='admin')===admin).length;
+      if (count >= (admin ? 10 : MAX_OUTSTANDING_CODES)) throw new TooManyPairingCodesError();
       const code = newPairingCode();
       const expiresAt = now() + PAIRING_CODE_TTL_MS;
-      codes.set(hashSecret(code), { expiresAt, platform: options.platform, autoApprove: options.platform === 'desktop' && options.autoApprove === true });
+      codes.set(hashSecret(code), { expiresAt, platform: options.platform, hostedIdentity: options.hostedIdentity, autoApprove: options.platform === 'desktop' && options.autoApprove === true });
       return { code, expiresAt };
     },
 
@@ -275,6 +291,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const deviceToken = randomBytes(32).toString('base64url');
       const device: MobileDeviceRecord = {
         id: randomUUID(),
+        ...(entry.hostedIdentity ? {hostedIdentity:entry.hostedIdentity} : {}),
         label: cleanLabel(input.label) || (input.platform === 'desktop' ? 'Computer' : 'Phone'),
         platform: input.platform,
         tokenHash: hashSecret(deviceToken),

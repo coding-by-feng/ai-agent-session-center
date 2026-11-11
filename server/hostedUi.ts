@@ -1,5 +1,5 @@
 import express, { type Express, type Request, type Response } from 'express';
-import { readFile } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Both interfaces share API/WS and authentication, never a second runtime. */
@@ -41,4 +41,29 @@ export function mountHostedUi(
   app.use('/ui', (_req, res) => {
     res.status(404).end();
   });
+}
+
+/** Check each entry and the local JS/CSS it actually references; never execute a model call. */
+export async function hostedUiReadiness(root?: string): Promise<{ lite: boolean; full: boolean }> {
+  async function ready(edition: string) {
+    if (!root) return false;
+    try {
+      const html = await readFile(join(root, edition, 'index.html'), 'utf8');
+      const references = [
+        ...html.matchAll(/(?:src|href)=["']([^"']+\.(?:js|css)(?:\?[^"']*)?)["']/g),
+      ].map((m) => m[1].split('?')[0]);
+      if (!references.some((p) => p.endsWith('.js'))) return false;
+      for (const value of references) {
+        const relative = value.replace(`/ui/${edition}/`, '').replace(/^\.\//, '');
+        if (!relative.startsWith('assets/') || relative.includes('..') || relative.includes('\\'))
+          return false;
+        await access(join(root, edition, relative));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const [lite, full] = await Promise.all([ready('lite'), ready('full')]);
+  return { lite, full };
 }

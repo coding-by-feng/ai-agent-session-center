@@ -5,8 +5,13 @@ import type { MobileDeviceRecord, MobileDeviceStore } from './deviceAuth.js';
 import type { BackendCodeLedger } from './phoneBackendCode.js';
 
 function fromRow(row: db.MobileDeviceRow): MobileDeviceRecord {
+  let identity: MobileDeviceRecord['hostedIdentity'];
+  if(row.hosted_identity != null) {
+    try { identity=JSON.parse(row.hosted_identity); } catch { identity=null; }
+  }
   return {
     id: row.id,
+    ...(row.hosted_identity != null ? {hostedIdentity:identity ?? null} : {}),
     label: row.label,
     platform: row.platform,
     tokenHash: row.token_hash,
@@ -26,6 +31,7 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
   insert(rec) {
     db.insertMobileDevice({
       id: rec.id,
+      hosted_identity: rec.hostedIdentity === undefined ? null : JSON.stringify(rec.hostedIdentity),
       label: rec.label,
       platform: rec.platform,
       token_hash: rec.tokenHash,

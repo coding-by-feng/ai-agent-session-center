@@ -999,7 +999,12 @@ try {
   log.warn('db', `Mobile device platform migration skipped: ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Identity is persisted with the device key so an admin can never reconnect as the owner.
+if (!(db.prepare('PRAGMA table_info(mobile_devices)').all() as {name:string}[]).some(c=>c.name==='hosted_identity'))
+  db.exec('ALTER TABLE mobile_devices ADD COLUMN hosted_identity TEXT');
+
 export interface MobileDeviceRow {
+  hosted_identity?: string | null;
   id: string;
   label: string;
   platform: 'ios' | 'android' | 'desktop';
@@ -1018,9 +1023,9 @@ export interface MobileDeviceRow {
 
 export function insertMobileDevice(row: MobileDeviceRow): void {
   db.prepare(`INSERT INTO mobile_devices (id, label, platform, token_hash, status, confirm_code, be_code_ref,
-    be_code_ref_mac_bound, credential_epoch, created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label,
+    be_code_ref_mac_bound, credential_epoch, created_at, approved_at, last_seen_at, revoked_at, hosted_identity) VALUES (@id, @label,
     @platform, @token_hash, @status, @confirm_code, @be_code_ref, @be_code_ref_mac_bound, @credential_epoch, @created_at,
-    @approved_at, @last_seen_at, @revoked_at)`).run(row);
+    @approved_at, @last_seen_at, @revoked_at, @hosted_identity)`).run({...row,hosted_identity:row.hosted_identity ?? null});
 }
 export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;

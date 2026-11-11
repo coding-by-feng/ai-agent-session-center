@@ -1,3 +1,5 @@
+import { hostedUiReadiness } from './hostedUi.js';
+import { execFile } from 'node:child_process';
 import { defaultSessionInitializer } from './hostedDefaults.js';
 import { homedir } from 'node:os';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -65,7 +67,7 @@ function durableCreate(file: string, value: string): void {
     closeSync(parent);
   }
 }
-export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => void = () => {}) {
+export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => void = () => {}, options: {uiRoot?: string} = {}) {
   const directory = join(config.dataDir, 'hosted-launch');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const principalFile = join(directory, 'principal');
@@ -91,7 +93,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         'Hosted data directory belongs to another order or has an invalid order binding',
       );
   }
-  function inspect(ticket: unknown, pairing = false) {
+  function inspect(ticket: unknown, pairing = false, check = false) {
     if (typeof ticket !== 'string' || ticket.length > 4096) throw new Error('Invalid launch');
     const parts = ticket.split('.');
     if (parts.length !== 3 || parts.some((p) => !/^[A-Za-z0-9_-]+$/.test(p)))
@@ -108,13 +110,15 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       header.alg !== 'HS256' ||
       header.typ !== 'JWT' ||
       claims.iss !== config.websiteOrigin ||
-      claims.aud !== config.runtimeOrigin + (pairing ? '/hosted/order-pairing' : '') ||
+      claims.aud !== config.runtimeOrigin + (check ? '/hosted/admin-check' : pairing ? '/hosted/order-pairing' : '') ||
       (pairing && ((!['phone-browser', 'desktop'].includes(claims.pairingKind ?? 'phone-browser')) ||
         (claims.accessMode !== 'use' && claims.pairingKind !== 'desktop') ||
         !['get', 'regenerate'].includes(claims.pairingAction))) ||
       claims.orderId !== config.orderId ||
       (claims.edition !== undefined && claims.edition !== 'lite' && claims.edition !== 'full') ||
-      (claims.accessMode !== 'verify' && claims.accessMode !== 'use') ||
+      (!['verify','use','admin'].includes(claims.accessMode)) ||
+      (claims.accessMode === 'admin' && (!UUID.test(claims.adminGrant ?? '') || claims.ownerEpoch !== 0 || (pairing && claims.pairingKind !== 'desktop'))) ||
+      (check && claims.accessMode !== 'admin') ||
       typeof claims.sub !== 'string' ||
       claims.sub.length < 1 ||
       claims.sub.length > 256 ||
@@ -133,8 +137,8 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       throw new Error('Invalid launch');
     return claims;
   }
-  function consume(ticket: unknown, pairing = false) {
-    const claims = inspect(ticket, pairing);
+  function consume(ticket: unknown, pairing = false, check = false) {
+    const claims = inspect(ticket, pairing, check);
     // Expired proofs are already rejected above. Remove only their UUID receipts,
     // preserving durable order/principal binding and malformed receipts fail-closed.
     for (const name of readdirSync(directory).filter(name => UUID.test(name)).slice(0, 512)) {
@@ -146,7 +150,12 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
     }
     if (readFileSync(orderFile, 'utf8') !== config.orderId)
       throw new Error('Hosted order binding changed');
-    const principal = createHash('sha256').update(claims.sub).digest('hex');
+    const principal = createHash('sha256').update(claims.accessMode === 'admin' ? `admin:${claims.sub}` : claims.sub).digest('hex');
+    if(claims.accessMode === 'admin') {
+      durableCreate(join(directory,claims.jti.toLowerCase()),JSON.stringify({orderId:config.orderId,accessMode:'admin',exp:claims.exp}));
+      return {principal,sub:claims.sub as string,ownerEpoch:0,accessMode:'admin' as const,adminGrant:claims.adminGrant as string,
+        ...(pairing ? {pairingAction:claims.pairingAction as 'get'|'regenerate',pairingKind:'desktop' as const}: {})};
+    }
     // The website may claim a guest order for a customer. A signed monotonically increasing epoch
     // permits that transition without letting an unused older ticket take ownership back.
     const previous = existsSync(principalFile)
@@ -218,6 +227,21 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
     };
   }
   const router = express.Router();
+  router.post('/hosted/admin-check',express.json({limit:'8kb'}),async(req,res)=>{
+    res.setHeader('Cache-Control','no-store');
+    try {
+      if(req.headers.origin!==config.websiteOrigin || !req.is('application/json') || Object.keys(req.body??{}).some(k=>k!=='ticket'))throw Error();
+      const claims=inspect(req.body?.ticket,false,true);
+      if(!await authorizeHosted(config,claims,true))throw Error();
+      consume(req.body.ticket,false,true);
+      const modelAuthenticated=await new Promise<boolean|null>(resolve=>{
+        execFile('claude',['auth','status','--json'],{timeout:4000,maxBuffer:16384},(_error,stdout)=>{
+          try {const value=JSON.parse(stdout);resolve(typeof value.loggedIn==='boolean'?value.loggedIn:null);} catch {resolve(null);}
+        });
+      });
+      res.json({orderId:config.orderId,adminAccess:true,modelAuthenticated,interfaces:await hostedUiReadiness(options.uiRoot)});
+    } catch {res.status(403).json({error:'Management check refused'});}
+  });
   router.get('/hosted/launch-error.js', (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res
@@ -310,7 +334,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
     res.json({
       websiteOrigin: config.websiteOrigin,
       phoneBrowser: true,
-      owner: getTokenLineage(extractToken(req))?.startsWith('hosted:') === true,
+      owner: getTokenHostedIdentity(extractToken(req))?.accessMode !== 'admin' && getTokenLineage(extractToken(req))?.startsWith('hosted:') === true,
     });
   });
   return { router, consume, inspectPairing: (ticket: unknown) => inspect(ticket, true), consumePairing: (ticket: unknown) => consume(ticket, true) };

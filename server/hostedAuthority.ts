@@ -6,7 +6,8 @@ import type { HostedConfig } from './hostedConfig.js';
 export interface HostedIdentity {
   sub: string;
   ownerEpoch: number;
-  accessMode: 'verify' | 'use';
+  accessMode: 'verify' | 'use' | 'admin';
+  adminGrant?: string;
 }
 const positive = new Map<string, number>();
 /** Opaque subject is private durable authority state, never sent to browser code. */
@@ -35,9 +36,13 @@ export async function authorizeHosted(
   identity: HostedIdentity | null,
   fresh = false,
 ): Promise<boolean> {
-  if (!identity || (identity.accessMode !== 'verify' && identity.accessMode !== 'use'))
+  if (
+    !identity ||
+    !['verify', 'use', 'admin'].includes(identity.accessMode) ||
+    (identity.accessMode === 'admin' && !/^[0-9a-f-]{36}$/.test(identity.adminGrant ?? ''))
+  )
     return false;
-  const key = `${config.dataDir}:${config.orderId}:${identity.sub}:${identity.ownerEpoch}:${identity.accessMode}`;
+  const key = `${config.dataDir}:${config.orderId}:${identity.sub}:${identity.ownerEpoch}:${identity.accessMode}:${identity.adminGrant ?? ''}`;
   if (!fresh && (positive.get(key) ?? 0) > Date.now()) return true;
   const checkedAt = Date.now();
   const now = Math.floor(checkedAt / 1000);
@@ -50,6 +55,7 @@ export async function authorizeHosted(
       sub: identity.sub,
       ownerEpoch: identity.ownerEpoch,
       accessMode: identity.accessMode,
+      ...(identity.accessMode === 'admin' ? { adminGrant: identity.adminGrant } : {}),
       purpose: 'authorize',
       iat: now,
       exp: now + 30,

@@ -15,6 +15,8 @@ export function createHostedContinuationRouter(
     directory: join(config.dataDir, 'workspace-continuation'),
     scope: (req) => {
       const identity = getTokenHostedIdentity(extractToken(req));
+      if (identity?.accessMode === 'admin' && hostedSessionAllowed(config, req))
+        return JSON.stringify([config.orderId, 'admin', identity.sub]);
       const owner = currentHostedOwner(config);
       return identity &&
         owner &&

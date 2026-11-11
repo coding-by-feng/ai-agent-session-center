@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { HostedConfig } from './hostedConfig.js';
-import { authMiddleware, extractToken, getTokenLineage } from './authManager.js';
+import { authMiddleware, extractToken, getTokenLineage, getTokenHostedIdentity } from './authManager.js';
 import { type createHostedAccess, hostedSessionAllowed } from './hostedAccess.js';
 import { authorizeHosted, currentHostedOwner } from './hostedAuthority.js';
 import type { createDeviceAuth } from './mobile/deviceAuth.js';
@@ -40,18 +40,23 @@ export function createHostedPairingRouter(
       const kind = identity.pairingKind ?? 'phone-browser';
       // Each owner/mode gets separate phone and desktop codes. Phone codes never
       // grant the broader computer profile, even if the caller changes platform.
-      if (ownerIdentity !== owner) {
-        devices.clearPairingCodes(); codes.clear(); regenerated.clear(); ownerIdentity = owner;
+      const admin=identity.accessMode === 'admin';
+      if (!admin && ownerIdentity !== owner) {
+        for(const [key,value] of codes) if(!key.startsWith('admin:')) {devices.invalidatePairingCode(value.code);codes.delete(key);regenerated.delete(key);}
+        ownerIdentity = owner;
       }
-      let current = codes.get(kind);
+      const codeKey=admin ? `admin:${identity.sub}` : kind;
+      let current = codes.get(codeKey);
+      // An explicit admin connect replaces only that administrator's unused code.
+      if(admin && current) {devices.invalidatePairingCode(current.code);current=undefined;codes.delete(codeKey);}
       if (identity.pairingAction === 'regenerate') {
-        if (Date.now() - (regenerated.get(kind) ?? 0) < 2000) { res.status(429).json({ error: 'Wait before regenerating' }); return; }
+        if (Date.now() - (regenerated.get(codeKey) ?? 0) < 2000) { res.status(429).json({ error: 'Wait before regenerating' }); return; }
         if (current) devices.invalidatePairingCode(current.code);
-        current = undefined; regenerated.set(kind, Date.now());
+        current = undefined; regenerated.set(codeKey, Date.now());
       }
       if (!current) {
-        current = devices.createPairingCode(kind === 'desktop' ? {platform:'desktop',autoApprove:true} : {platform:'phone'});
-        codes.set(kind,current);
+        current = devices.createPairingCode(kind === 'desktop' ? {platform:'desktop',autoApprove:true,hostedIdentity:identity} : {platform:'phone',hostedIdentity:identity});
+        codes.set(codeKey,current);
       }
       const state = current.expiresAt <= Date.now() ? 'expired' : devices.hasPairingCode(current.code) ? 'active' : 'used';
       const fragment = new URLSearchParams({v:'2',name:`VPS ${config.orderId.slice(0,8)}`,https:config.runtimeOrigin,p:'443',mc:current.code});
@@ -63,8 +68,15 @@ export function createHostedPairingRouter(
   });
   // Mobile routes are mounted before generic /api auth. Pairing proof alone cannot keep a
   // cancelled/disabled order or an unavailable website authority alive.
-  router.use('/api/mobile', async (_req, res, next) => {
-    if (!(await authorizeHosted(config, currentHostedOwner(config)))) {
+  router.use('/api/mobile', async (req, res, next) => {
+    // Identity is looked up from the server's code/device record, never accepted from the client.
+    // Identification is a key-possession proof only; it cannot mint an authenticated session.
+    const bound=req.path === '/identify' && typeof req.body?.tag === 'string' && typeof req.body?.nonce === 'string' ? devices.identifyIdentity(req.body.tag,req.body.nonce)
+      : req.path === '/pair' && typeof req.body?.code === 'string' ? devices.pairingIdentity(req.body.code)
+      : ['/challenge','/session','/unpair'].includes(req.path) && typeof req.body?.deviceId === 'string' ? devices.hostedIdentity(req.body.deviceId)
+      : getTokenHostedIdentity(extractToken(req)) ?? undefined;
+    const identity=bound === undefined ? currentHostedOwner(config) : bound;
+    if (!(await authorizeHosted(config, identity, true))) {
       res
         .status(403)
         .json({
@@ -81,7 +93,7 @@ export function createHostedPairingRouter(
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-    if (!getTokenLineage(extractToken(req))?.startsWith(`hosted:${config.orderId}:`)) {
+    if (getTokenHostedIdentity(extractToken(req))?.accessMode === 'admin' || !getTokenLineage(extractToken(req))?.startsWith(`hosted:${config.orderId}:`)) {
       res.status(403).json({ error: 'Order owner required' });
       return;
     }

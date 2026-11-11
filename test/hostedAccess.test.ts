@@ -29,6 +29,16 @@ import {
 import { createMobileRouter } from '../server/mobile/mobileRouter.js';
 import { createToken, createComputerToken, createHostedToken, getTokenDeviceId } from '../server/authManager.js';
 
+// The CLI is an external account dependency: keep diagnostics deterministic and credential-free.
+vi.mock('node:child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:child_process')>();
+  return { ...original, execFile: (...args: any[]) => {
+    if (args[0] === 'claude' && JSON.stringify(args[1]) === JSON.stringify(['auth','status','--json'])) {
+      args.at(-1)(null, '{"loggedIn":false}', ''); return;
+    }
+    return (original.execFile as (...args: any[]) => unknown)(...args);
+  }};
+});
 const orderId = '63d17688-d822-4387-b876-9d081278849d';
 const env = {
   AASC_HOSTED_ORDER_ID: orderId,
@@ -117,7 +127,7 @@ beforeEach(async () => {
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
   const config = loadHostedConfig({ ...env, APP_USER_DATA: dir })!;
   let ownerChanged = () => {};
-  access = createHostedAccess(config, () => ownerChanged());
+  access = createHostedAccess(config, () => ownerChanged(), {uiRoot:join(dir,'ui')});
   const app = express();
   app.use(access.router);
   app.use(express.json());
@@ -146,8 +156,8 @@ beforeEach(async () => {
       isPasswordEnabled: () => true,
       requireSession: authMiddleware,
       createSessionToken: (deviceId) =>
-        createToken(deviceId, currentHostedOwner(config) ?? undefined),
-      createComputerSessionToken: (id) => createComputerToken(id, currentHostedOwner(config) ?? undefined),
+        createToken(deviceId, (devices.hostedIdentity(deviceId) === undefined ? currentHostedOwner(config) : devices.hostedIdentity(deviceId)) ?? undefined),
+      createComputerSessionToken: (id) => createComputerToken(id, (devices.hostedIdentity(id) === undefined ? currentHostedOwner(config) : devices.hostedIdentity(id)) ?? undefined),
       sessionOf: bearerSession,
       sessionTtlSeconds: 3600,
       pairingTarget: () => ({ name: 'Hosted', lan: null, tailnet: null, port: 3333 }),
@@ -645,4 +655,87 @@ it('shares continuation between independent browser and paired desktop sessions 
  expect((await call(endpoint,{method:'PUT',bearer:desktop,origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:{...input,sourceId:'hidden',selectedSessionId:'private-session'}})).status).toBe(404);
  await call('/hosted/launch',{ticket:ticket({sub:'customer:new-owner',ownerEpoch:1,edition:'full'})});
  expect((await call(endpoint,{cookie})).status).toBe(401);expect((await call(endpoint,{bearer:desktop})).status).toBe(401);
+});
+
+it('admin launch preserves customer owner and customer sessions before and after admin access',async()=>{
+ const owner=await call('/hosted/launch',{ticket:ticket()}); const cookie=owner.headers['set-cookie']![0].split(';')[0];
+ const receipt=readFileSync(join(dir,'hosted-launch','principal'),'utf8');
+ const admin=await call('/hosted/launch',{ticket:ticket({sub:'staff:one',accessMode:'admin',adminGrant:randomUUID()})});
+ expect(admin.status).toBe(303);
+ expect(readFileSync(join(dir,'hosted-launch','principal'),'utf8')).toBe(receipt);
+ expect((await call('/api/private',{cookie})).status).toBe(200);
+ expect((await call('/hosted/launch',{ticket:ticket()})).status).toBe(303);
+ const adminCookie=admin.headers['set-cookie']![0].split(';')[0];
+ expect((await call('/api/private',{cookie:adminCookie})).status).toBe(200);
+ expect((await call('/api/hosted/phones',{cookie:adminCookie})).status).toBe(403);
+});
+it('admin before first customer does not claim owner and cannot use missing or cross-order grants',async()=>{
+ const proof=ticket({sub:'staff:one',accessMode:'admin',adminGrant:randomUUID()});
+ expect((await call('/hosted/launch',{ticket:proof})).status).toBe(303);
+ expect(existsSync(join(dir,'hosted-launch','principal'))).toBe(false);
+ expect((await call('/hosted/launch',{ticket:proof})).status).toBe(403);
+ expect((await call('/hosted/launch',{ticket:ticket({accessMode:'admin'})})).status).toBe(403);
+ expect((await call('/hosted/launch',{ticket:ticket({accessMode:'admin',adminGrant:randomUUID(),orderId:randomUUID()})})).status).toBe(403);
+ expect((await call('/hosted/launch',{ticket:ticket()})).status).toBe(303);
+});
+it('admin desktop grant survives pairing without assuming owner identity and leaves owner codes usable',async()=>{
+ const owner=await call('/hosted/order-pairing',{json:{ticket:ticket({aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/order-pairing',pairingKind:'desktop',pairingAction:'get'})}});
+ const ownerCode=new URLSearchParams(new URL(JSON.parse(owner.body).link).hash.slice(1)).get('mc');
+ const grant=randomUUID();
+ const response=await call('/hosted/order-pairing',{json:{ticket:ticket({sub:'staff:one',accessMode:'admin',adminGrant:grant,aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/order-pairing',pairingKind:'desktop',pairingAction:'get'})}});
+ expect(response.status).toBe(200);
+ const code=new URLSearchParams(new URL(JSON.parse(response.body).link).hash.slice(1)).get('mc');
+ const json=(body:unknown)=>({origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:body});
+ const pair=await call('/api/mobile/pair',json({code,label:'Admin computer',platform:'desktop'}));expect(pair.status).toBe(201);
+ const d=JSON.parse(pair.body).data;
+ const c=JSON.parse((await call('/api/mobile/challenge',json({deviceId:d.deviceId}))).body).data;
+ const session=await call('/api/mobile/session',json({deviceId:d.deviceId,nonce:c.nonce,proof:proofForToken(d.deviceToken,c.nonce)}));expect(session.status).toBe(200);
+ const token=JSON.parse(session.body).data.token;
+ expect(getTokenHostedIdentity(token)).toMatchObject({sub:'staff:one',accessMode:'admin',adminGrant:grant});
+ expect((await call('/api/private',{bearer:token})).status).toBe(200);
+ expect((await call('/api/mobile/pair',json({code:ownerCode,label:'Owner computer',platform:'desktop'}))).status).toBe(201);
+ vi.stubGlobal('fetch',async()=>Response.json({authorized:false},{status:403}));
+ expect((await call('/api/mobile/challenge',json({deviceId:d.deviceId}))).status).toBe(403);
+});
+it('signed diagnostics require admin authority and do not bind an owner',async()=>{
+ const proof=ticket({sub:'staff:checker',accessMode:'admin',adminGrant:randomUUID(),aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/admin-check'});
+ const check=await call('/hosted/admin-check',{json:{ticket:proof}});
+ expect(check.status).toBe(200);
+ expect(JSON.parse(check.body)).toMatchObject({orderId,adminAccess:true});
+ expect([true,false,null]).toContain(JSON.parse(check.body).modelAuthenticated);
+ expect(existsSync(join(dir,'hosted-launch','principal'))).toBe(false);
+ expect((await call('/hosted/admin-check',{json:{ticket:proof}})).status).toBe(403);
+ expect((await call('/hosted/launch',{ticket:ticket({accessMode:'admin',adminGrant:randomUUID(),aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/admin-check'})})).status).toBe(403);
+});
+it('repeated admin connect replaces only its outstanding code and reserves customer pairing capacity',async()=>{
+ let last='';
+ for(let i=0;i<5;i++){
+  const response=await call('/hosted/order-pairing',{json:{ticket:ticket({sub:'staff:repeat',accessMode:'admin',adminGrant:randomUUID(),aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/order-pairing',pairingKind:'desktop',pairingAction:'get'})}});
+  expect(response.status).toBe(200);
+  last=new URLSearchParams(new URL(JSON.parse(response.body).link).hash.slice(1)).get('mc')!;
+ }
+ const customer=await call('/hosted/order-pairing',{json:{ticket:ticket({aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/order-pairing',pairingKind:'desktop',pairingAction:'get'})}});
+ expect(customer.status).toBe(200);
+ expect((await call('/api/mobile/pair',{origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:{code:last,label:'Admin',platform:'desktop'}})).status).toBe(201);
+});
+it('two grants for one admin keep client control while another staff identity cannot take it',async()=>{
+ const {bindRemoteClientId}=await import('../server/clientBinding.js');
+ const {isLineageAlive}=await import('../server/authManager.js');
+ const first=await call('/hosted/launch',{ticket:ticket({sub:'staff:one',accessMode:'admin',adminGrant:randomUUID()})});
+ const second=await call('/hosted/launch',{ticket:ticket({sub:'staff:one',accessMode:'admin',adminGrant:randomUUID()})});
+ const other=await call('/hosted/launch',{ticket:ticket({sub:'staff:other',accessMode:'admin',adminGrant:randomUUID()})});
+ const lineage=(r:typeof first)=>getTokenLineage(parseCookieToken(r.headers['set-cookie']![0]));
+ const client='admin-client-'+randomUUID();
+ expect(bindRemoteClientId(client,lineage(first),isLineageAlive)).toBe(true);
+ expect(bindRemoteClientId(client,lineage(second),isLineageAlive)).toBe(true);
+ expect(bindRemoteClientId(client,lineage(other),isLineageAlive)).toBe(false);
+});
+it('diagnostics distinguish absent interfaces from runnable edition entry assets',async()=>{
+ const check=()=>call('/hosted/admin-check',{json:{ticket:ticket({sub:'staff:checker',accessMode:'admin',adminGrant:randomUUID(),aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/admin-check'})}});
+ expect(JSON.parse((await check()).body).interfaces).toEqual({lite:false,full:false});
+ const {mkdirSync}=await import('node:fs');mkdirSync(join(dir,'ui','lite','assets'),{recursive:true});
+ writeFileSync(join(dir,'ui','lite','index.html'),'<head><script src="/ui/lite/assets/main.js"></script></head>');
+ expect(JSON.parse((await check()).body).interfaces.lite).toBe(false);
+ writeFileSync(join(dir,'ui','lite','assets','main.js'),'console.log("fixture")');
+ expect(JSON.parse((await check()).body).interfaces).toEqual({lite:true,full:false});
 });

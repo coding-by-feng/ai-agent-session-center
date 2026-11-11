@@ -177,7 +177,7 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
   const hosted = getHostedConfig(); // Validate before startup side effects; incomplete configuration is fatal.
   let hostedOwnerChanged = (): void => {};
-  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged()) : null;
+  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged(), {uiRoot:join(__dirname, '..', 'dist', 'hosted')}) : null;
   // npm 11 runs no install scripts until approved, which left node-pty's spawn-helper at 0644 and
   // every terminal failing with "posix_spawnp failed" in an npx install (ptySpawnHelper.ts).
   if (process.env.ELECTRON !== '1') {
@@ -346,7 +346,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   app.post('/api/auth/refresh', async (req, res) => {
     if (hosted && (!hostedSessionAllowed(hosted, req) || req.headers.origin !== hosted.runtimeOrigin)) { res.status(401).json({ error: 'Hosted session expired or wrong origin' }); return; }
     if (hosted && !await authorizeHosted(hosted, getTokenHostedIdentity(extractToken(req)) ?? currentHostedOwner(hosted), true)) {
-      hostedAccessRevoked(); res.status(401).json({ error: 'Order access is no longer authorized.' }); return;
+      if(getTokenHostedIdentity(extractToken(req))?.accessMode === 'admin') removeToken(extractToken(req) ?? ''); else hostedAccessRevoked(); res.status(401).json({ error: 'Order access is no longer authorized.' }); return;
     }
     if (!hosted && !isPasswordEnabled()) {
       res.json({ success: true });
@@ -459,8 +459,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
     requireSession: authMiddleware,
-    createSessionToken: (deviceId) => createToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
-    createComputerSessionToken: (deviceId) => createComputerToken(deviceId, hosted ? currentHostedOwner(hosted) ?? undefined : undefined),
+    createSessionToken: (deviceId) => createToken(deviceId, hosted ? (deviceAuth.hostedIdentity(deviceId) === undefined ? currentHostedOwner(hosted) : deviceAuth.hostedIdentity(deviceId)) ?? undefined : undefined),
+    createComputerSessionToken: (deviceId) => createComputerToken(deviceId, hosted ? (deviceAuth.hostedIdentity(deviceId) === undefined ? currentHostedOwner(hosted) : deviceAuth.hostedIdentity(deviceId)) ?? undefined : undefined),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: createPairingTarget({
       name: () => hostname().replace(/\.local$/, ''),
