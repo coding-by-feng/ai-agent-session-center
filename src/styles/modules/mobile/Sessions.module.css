@@ -281,7 +281,7 @@
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   transition: background-color var(--ph-motion-fast) ease;
 }
 

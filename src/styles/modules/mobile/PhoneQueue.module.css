@@ -238,7 +238,7 @@ section.group > ul {
   min-width: 0;
   padding: var(--ph-space-2) var(--ph-space-1) var(--ph-space-2) 0;
   text-align: left;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
 }
 
 .num {

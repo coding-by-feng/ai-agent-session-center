@@ -250,8 +250,15 @@ export function filterPhoneKnownProjects(body: unknown, home: string): unknown {
 
 /** Is this terminal's foreground program an agent? Unknown (null) is not. */
 export function isAgentProcessName(name: string | null | undefined): boolean {
-  if (typeof name !== 'string') return false;
-  return AGENT_PROCESS_NAMES.has(name.toLowerCase()) || isNativeClaudeBinary(name);
+  if (typeof name !== 'string' || /[\s\0]/.test(name)) return false;
+  // Linux node-pty reads argv[0] from /proc, which may be an absolute
+  // executable path. macOS reports the short process name. Do not split a
+  // command line or accept a relative path as proof of a running agent.
+  const executable = isAbsolute(name) ? basename(name) : name;
+  if (AGENT_PROCESS_NAMES.has(executable.toLowerCase())) return true;
+  if (!isNativeClaudeBinary(executable)) return false;
+  return !isAbsolute(name)
+    || resolve(name) === join(homedir(), '.local', 'share', 'claude', 'versions', executable);
 }
 
 /** Uploads (queue images, note media) one phone may make per minute. */

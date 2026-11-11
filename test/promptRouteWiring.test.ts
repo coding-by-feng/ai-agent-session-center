@@ -177,6 +177,16 @@ describe('the prompt route on the live server', () => {
     hook('Stop', SHARED, T_SHARED);
   });
 
+  it('sends a prompt when Linux reports an absolute foreground executable', async () => {
+    pty.fg.set(T_SHARED, '/usr/local/bin/claude');
+    hook('Stop', SHARED, T_SHARED);
+    const res = await prompt(SHARED);
+    expect(res.status).toBe(202);
+    await vi.waitFor(() => expect(writesTo(T_SHARED)).toEqual(['hello from the phone', '\r']), { timeout: 3_000 });
+    hook('UserPromptSubmit', SHARED, T_SHARED, { prompt: 'hello from the phone' });
+    hook('Stop', SHARED, T_SHARED);
+  });
+
   it('a phone still holding the id from before the re-key (term-*) reaches the same session', async () => {
     const res = await prompt(T_SHARED, { text: 'by the old id' });
     expect(res.status).toBe(202);

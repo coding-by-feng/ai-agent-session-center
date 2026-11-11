@@ -61,6 +61,22 @@ describe('useEdgeSwipeBack', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['touchstart', 'touchmove'])('yields to a pinch on %s after a back swipe starts without navigating', (eventType) => {
+    const onBack = vi.fn();
+    const { getByTestId } = render(<Host enabled onBack={onBack} />);
+    const host = getByTestId('host');
+    touch(host, 'touchstart', 4, 100, 0);
+    touch(host, 'touchmove', 80, 100, 100);
+    const pinch = new Event(eventType, { bubbles: true, cancelable: true });
+    Object.defineProperty(pinch, 'touches', { value: [{ clientX: 250, clientY: 100 }, { clientX: 300, clientY: 200 }] });
+    host.dispatchEvent(pinch);
+    expect(pinch.defaultPrevented).toBe(false);
+    touch(host, 'touchend', 250, 100, 300);
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(onBack).not.toHaveBeenCalled();
+    expect(host.dataset.swipe).toBeUndefined();
+  });
+
   it('slides back when let go too early', () => {
     const onBack = vi.fn();
     const { getByTestId } = render(<Host enabled onBack={onBack} />);

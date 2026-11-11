@@ -641,7 +641,7 @@
     max-height: min(50vh, 22rem);
     overflow-x: hidden;
     overflow-y: auto;
-    touch-action: pan-y;
+    touch-action: pan-y pinch-zoom;
   }
 }
 /* A list row centres its pieces on the row; once the text is several lines tall
@@ -1913,7 +1913,7 @@
   padding: 4px 8px 8px;
   border-radius: 8px;
   font-size: 13px;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   -webkit-touch-callout: none;
 }
 .queuePanelPhone .queueItem > .queueTextCol,

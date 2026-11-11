@@ -271,7 +271,7 @@ option:checked {
   .settings-tab-content,
   .modal-panel {
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    touch-action: pan-y pinch-zoom;
     overflow-y: auto;
   }
 
