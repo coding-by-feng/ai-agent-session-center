@@ -84,7 +84,9 @@ export function ensureHooksInstalled(config) {
     const hookName = isWindows ? 'dashboard-hook.ps1' : 'dashboard-hook.sh';
     const hookCommand = isWindows
       ? `powershell -NoProfile -ExecutionPolicy Bypass -File "~/.claude/hooks/${hookName}"`
-      : '~/.claude/hooks/dashboard-hook.sh';
+      // Replace Claude's sh -c wrapper so the relay's PPID is the agent, not a
+      // short-lived shell with no TTY (which the session matcher must reject).
+      : 'exec ~/.claude/hooks/dashboard-hook.sh';
     const src = join(__dirname, '..', 'hooks', hookName);
     const hooksDir = join(homedir(), '.claude', 'hooks');
     const dest = join(hooksDir, hookName);
@@ -127,6 +129,14 @@ export function ensureHooksInstalled(config) {
         const hasHook = settings.hooks[event].some(g =>
           g.hooks?.some(h => h.command?.includes(hookPattern))
         );
+        if (!isWindows) for (const group of settings.hooks[event]) {
+          for (const hook of group.hooks || []) {
+            if (hook.command === '~/.claude/hooks/dashboard-hook.sh') {
+              hook.command = hookCommand;
+              changed = true;
+            }
+          }
+        }
         if (!hasHook) {
           settings.hooks[event].push({
             _source: hookSource,

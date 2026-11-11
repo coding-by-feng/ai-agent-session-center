@@ -43,6 +43,25 @@ const tapDest = () => join(hooksDir(), 'dashboard-statusline.sh');
 const mode = (path: string) => statSync(path).mode & 0o777;
 const settings = () => JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
 
+describe.skipIf(realPlatform === 'win32')('Claude hook process identity', () => {
+  it.each(['startup', 'manual'])('upgrades the %s registration to replace the intermediate shell', async (installer) => {
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    const foreign = { hooks: [{ type: 'command', command: 'my-unrelated-hook' }] };
+    writeFileSync(join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: {
+      SessionStart: [foreign, { hooks: [{ type: 'command', command: '~/.claude/hooks/dashboard-hook.sh', async: true }] }],
+    } }));
+    if (installer === 'startup') ensureHooksInstalled({ enabledClis: ['claude'] });
+    else await installHooks({ projectRoot: REPO, enabledClis: ['claude'], onLog: () => {} });
+    expect(settings().hooks.SessionStart).toContainEqual(foreign);
+    for (const entries of Object.values(settings().hooks) as { hooks: { command: string }[] }[][]) {
+      for (const entry of entries) for (const hook of entry.hooks) {
+        if (hook.command.includes('dashboard-hook.sh'))
+          expect(hook.command).toBe('exec ~/.claude/hooks/dashboard-hook.sh');
+      }
+    }
+  });
+});
+
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'aasc-installer-home-'));
   previousHome = process.env.HOME;
