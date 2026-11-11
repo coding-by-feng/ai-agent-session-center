@@ -7,6 +7,16 @@ export interface HostedConfig {
   launchKey: string;
   dataDir: string;
 }
+
+/** During brand migration only this order's exact twin hostname is trusted. */
+export function hostedRuntimeOrigins(config: HostedConfig): string[] {
+  const prefix = `https://order-${config.orderId.replaceAll('-', '')}.`;
+  const pair = [prefix + 'xclaude.dev', prefix + 'aasc.work'];
+  return pair.includes(config.runtimeOrigin) ? pair : [config.runtimeOrigin];
+}
+export function hostedOriginAllowed(config: HostedConfig, origin: unknown): boolean {
+  return typeof origin === 'string' && hostedRuntimeOrigins(config).includes(origin);
+}
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const KEYS = [
   'AASC_HOSTED_ORDER_ID',

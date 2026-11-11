@@ -1,3 +1,4 @@
+import { hostedOriginAllowed } from './hostedConfig.js';
 // index.ts — Express + WS server entry point (thin orchestrator)
 // Quick start: npm start -> auto-installs hooks, starts server, opens browser
 import express from 'express';
@@ -344,7 +345,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
 
   app.post('/api/auth/refresh', async (req, res) => {
-    if (hosted && (!hostedSessionAllowed(hosted, req) || req.headers.origin !== hosted.runtimeOrigin)) { res.status(401).json({ error: 'Hosted session expired or wrong origin' }); return; }
+    if (hosted && (!hostedSessionAllowed(hosted, req) || !hostedOriginAllowed(hosted, req.headers.origin))) { res.status(401).json({ error: 'Hosted session expired or wrong origin' }); return; }
     if (hosted && !await authorizeHosted(hosted, getTokenHostedIdentity(extractToken(req)) ?? currentHostedOwner(hosted), true)) {
       if(getTokenHostedIdentity(extractToken(req))?.accessMode === 'admin') removeToken(extractToken(req) ?? ''); else hostedAccessRevoked(); res.status(401).json({ error: 'Order access is no longer authorized.' }); return;
     }
@@ -366,7 +367,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
 
   app.post('/api/auth/logout', (req, res) => {
-    if (hosted && req.headers.origin !== hosted.runtimeOrigin) { res.status(403).json({ error: 'Same origin required' }); return; }
+    if (hosted && !hostedOriginAllowed(hosted, req.headers.origin)) { res.status(403).json({ error: 'Same origin required' }); return; }
     const token = parseCookieToken(req.headers.cookie);
     const lineage = getTokenLineage(token);
     removeToken(token ?? '');

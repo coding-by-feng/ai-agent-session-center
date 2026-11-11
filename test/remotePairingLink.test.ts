@@ -5,6 +5,16 @@ import { readPairingLink } from '../mobile/shell/src/pairingLink.js';
 const MC = 'ABCDEFGH23';
 const link = (frag: string): string => `https://aasc.work/pair#${frag}`;
 
+it('accepts hosted xclaude.dev pairing links while retaining legacy links and rejecting lookalikes', () => {
+  const fields=new URLSearchParams({v:'2',name:'VPS',https:'https://order-0123456789abcdef0123456789abcdef.xclaude.dev',p:'443',mc:'ABCDEFGHJK'});
+  for(const base of ['https://xclaude.dev','https://aasc.work']) {
+    expect(readRemotePairingLink(`${base}/pair#${fields}`).ok).toBe(true);
+  }
+  for(const base of ['https://xclaude.dev.evil.example','http://xclaude.dev','https://user@xclaude.dev']) {
+    expect(readRemotePairingLink(`${base}/pair#${fields}`).ok).toBe(false);
+  }
+});
+
 describe('readRemotePairingLink', () => {
   it('reads a full link', () => {
     const read = readRemotePairingLink(link(`v=2&name=Studio%20Mac&lan=192.168.1.20&ts=100.101.102.103&p=3333&mc=${MC}`));

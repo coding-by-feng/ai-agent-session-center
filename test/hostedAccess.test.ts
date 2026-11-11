@@ -50,6 +50,14 @@ let dir: string;
 let server: Server;
 let port: number;
 let access: ReturnType<typeof createHostedAccess>;
+
+it('generates desktop pairing links under xclaude.dev', async () => {
+  const response=await call('/hosted/order-pairing',{json:{ticket:ticket({aud:env.AASC_HOSTED_RUNTIME_ORIGIN+'/hosted/order-pairing',pairingKind:'desktop',pairingAction:'get'})}});
+  expect(response.status).toBe(200);
+  const url=new URL(JSON.parse(response.body).link);
+  expect(url.origin).toBe('https://xclaude.dev');
+  expect(new URLSearchParams(url.hash.slice(1)).get('https')).toBe(env.AASC_HOSTED_RUNTIME_ORIGIN);
+});
 it('selects an allowed UI without changing the hosted principal or invalidating the earlier UI', async () => {
   const lite = await call('/hosted/launch', { ticket: ticket({ edition: 'lite' }) });
   const full = await call('/hosted/launch', { ticket: ticket({ edition: 'full' }) });
@@ -557,7 +565,7 @@ describe('order-panel pairing bridge', () => {
     const data=JSON.parse(response.body);
     expect(data.kind).toBe('desktop');
     const link=new URL(data.link), fields=new URLSearchParams(link.hash.slice(1));
-    expect(link.origin).toBe('https://aasc.work');
+    expect(link.origin).toBe('https://xclaude.dev');
     expect(fields.get('https')).toBe(env.AASC_HOSTED_RUNTIME_ORIGIN);
     const json=(body:unknown)=>({origin:env.AASC_HOSTED_RUNTIME_ORIGIN,json:body});
     expect((await call('/api/mobile/pair',json({code:fields.get('mc'),label:'Phone',platform:'ios'}))).status).toBe(401);

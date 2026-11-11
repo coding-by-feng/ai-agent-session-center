@@ -1,3 +1,4 @@
+import { hostedOriginAllowed } from './hostedConfig.js';
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
@@ -403,7 +404,7 @@ function isRemoteRequest(req: Request): boolean {
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const hosted = getHostedConfig();
   if (hosted) {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== hosted.runtimeOrigin) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !hostedOriginAllowed(hosted, req.headers.origin)) {
       res.status(403).json({ error: 'Same origin required' }); return;
     }
     const token = extractToken(req);

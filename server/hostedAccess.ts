@@ -1,3 +1,4 @@
+import { hostedOriginAllowed, hostedRuntimeOrigins } from './hostedConfig.js';
 import { hostedUiReadiness } from './hostedUi.js';
 import { execFile } from 'node:child_process';
 import { defaultSessionInitializer } from './hostedDefaults.js';
@@ -47,7 +48,7 @@ export function hostedSessionAllowed(config: HostedConfig, req: IncomingMessage)
 }
 export function hostedSocketAllowed(config: HostedConfig, req: IncomingMessage): boolean {
   return (
-    (req.headers.origin === undefined || req.headers.origin === config.runtimeOrigin) &&
+    (req.headers.origin === undefined || hostedOriginAllowed(config, req.headers.origin)) &&
     hostedSessionAllowed(config, req)
   );
 }
@@ -110,7 +111,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       header.alg !== 'HS256' ||
       header.typ !== 'JWT' ||
       claims.iss !== config.websiteOrigin ||
-      claims.aud !== config.runtimeOrigin + (check ? '/hosted/admin-check' : pairing ? '/hosted/order-pairing' : '') ||
+      !hostedRuntimeOrigins(config).some(origin => claims.aud === origin + (check ? '/hosted/admin-check' : pairing ? '/hosted/order-pairing' : '')) ||
       (pairing && ((!['phone-browser', 'desktop'].includes(claims.pairingKind ?? 'phone-browser')) ||
         (claims.accessMode !== 'use' && claims.pairingKind !== 'desktop') ||
         !['get', 'regenerate'].includes(claims.pairingAction))) ||
@@ -309,7 +310,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
   });
   router.post('/api/hosted/default-sessions', authMiddleware, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (req.headers.origin !== config.runtimeOrigin || !hostedSessionAllowed(config, req) ||
+    if (!hostedOriginAllowed(config, req.headers.origin) || !hostedSessionAllowed(config, req) ||
         !getTokenLineage(extractToken(req))?.startsWith('hosted:')) {
       res.status(403).json({ error: 'Owner workspace required' }); return;
     }

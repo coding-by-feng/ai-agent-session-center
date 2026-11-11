@@ -33,7 +33,7 @@ export type RemotePairingLinkRead =
   | { ok: false; why: 'not-a-pairing-link'; error: string }
   | { ok: false; why: 'no-usable-address'; address: string | null; error: string }
 
-const LINK_ORIGIN = 'https://aasc.work'
+const LINK_ORIGINS = ['https://xclaude.dev', 'https://aasc.work']
 const LINK_PATH = '/pair'
 const MAC_CODE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/
 
@@ -99,7 +99,7 @@ function fragmentOf(input: string): string | null {
   } catch {
     return null
   }
-  if (url.origin !== LINK_ORIGIN || url.pathname !== LINK_PATH || !url.hash) return null
+  if (!LINK_ORIGINS.includes(url.origin) || url.username || url.password || url.search || url.pathname !== LINK_PATH || !url.hash) return null
   return url.hash.slice(1)
 }
 

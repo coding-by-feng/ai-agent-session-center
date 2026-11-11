@@ -1,3 +1,4 @@
+import { hostedOriginAllowed } from './hostedConfig.js';
 import { Router } from 'express';
 import type { HostedConfig } from './hostedConfig.js';
 import { authMiddleware, extractToken, getTokenLineage, getTokenHostedIdentity } from './authManager.js';
@@ -59,8 +60,9 @@ export function createHostedPairingRouter(
         codes.set(codeKey,current);
       }
       const state = current.expiresAt <= Date.now() ? 'expired' : devices.hasPairingCode(current.code) ? 'active' : 'used';
-      const fragment = new URLSearchParams({v:'2',name:`VPS ${config.orderId.slice(0,8)}`,https:config.runtimeOrigin,p:'443',mc:current.code});
-      const link = kind === 'desktop' ? `https://aasc.work/pair#${fragment}` : `${config.runtimeOrigin}/hosted/pair#${current.code}`;
+      const requestedOrigin = String(claims.aud).slice(0, -'/hosted/order-pairing'.length);
+      const fragment = new URLSearchParams({v:'2',name:`VPS ${config.orderId.slice(0,8)}`,https:requestedOrigin,p:'443',mc:current.code});
+      const link = kind === 'desktop' ? `https://xclaude.dev/pair#${fragment}` : `${requestedOrigin}/hosted/pair#${current.code}`;
       res.json({kind, state, link, expiresAt: current.expiresAt});
     } catch (error) {
       res.status(error instanceof TooManyPairingCodesError ? 429 : 403).json({ error: 'Pairing access refused' });
@@ -99,7 +101,7 @@ export function createHostedPairingRouter(
     }
     if (
       req.method !== 'GET' &&
-      (req.headers.origin !== config.runtimeOrigin || !req.is('application/json'))
+      (!hostedOriginAllowed(config, req.headers.origin) || !req.is('application/json'))
     ) {
       res.status(403).json({ error: 'Same-origin JSON required' });
       return;
