@@ -19,6 +19,7 @@
  * WebSocket snapshot instead of rebuilding it.
  */
 import { useEffect, useRef } from 'react';
+import { hostedParent } from '@/lib/hosted';
 import { useWsStore } from '@/stores/wsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
@@ -37,6 +38,14 @@ export function useWorkspaceAutoLoad(): void {
   const loaded = useRef(false);
 
   useEffect(() => {
+    // Hosted runtimes own session recovery. Reopening a browser must attach to
+    // the live workspace, never clear it and recreate an older saved snapshot.
+    // WorkspaceContinuation restores this browser's drafts and selection.
+    if (hostedParent()) {
+      setRestorePending(false);
+      return;
+    }
+
     // Only run once, on first connection
     if (!connected || loaded.current) return;
 

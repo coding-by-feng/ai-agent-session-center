@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorkspaceSnapshot, SessionSnapshot } from '@/lib/workspaceSnapshot';
+import { detectCli } from '@/lib/cliDetect';
 import type { Room } from '@/stores/roomStore';
 import styles from '@/styles/modules/RestorePickerModal.module.css';
 
@@ -71,6 +72,9 @@ function resolveAndClose(result: PickerResult): void {
 function looksLikeRealSessionId(id: string | undefined): boolean {
   if (!id) return false;
   return !id.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+function startsFreshConversation(session: SessionSnapshot): boolean {
+  return !!detectCli({ ...session, events: [] }) && !looksLikeRealSessionId(session.originalSessionId);
 }
 function isForkCommand(cmd: string | undefined): boolean {
   return !!cmd && (/--fork-session\b/.test(cmd) || /(?:^|\s|\/)codex(?:\s|$).*?\bfork\b/.test(cmd));
@@ -195,7 +199,7 @@ export default function RestorePickerModal() {
     const forkTitles: string[] = [];
     for (const s of snapshot.sessions) {
       if (!selected.has(s.originalSessionId)) continue;
-      if (!looksLikeRealSessionId(s.originalSessionId)) freshTitles.push(s.title || s.originalSessionId);
+      if (startsFreshConversation(s)) freshTitles.push(s.title || s.originalSessionId);
       if (isForkCommand(s.sshConfig?.command)) forkTitles.push(s.title || s.originalSessionId);
     }
     return {
@@ -269,10 +273,8 @@ export default function RestorePickerModal() {
 
   if (!snapshot) return null;
 
-  const visibleCount = filteredGroups.reduce((n, g) => n + g.sessions.length, 0);
-
   return (
-    <div className={styles.overlay} role="dialog" aria-label="Restore workspace">
+    <div className={styles.overlay} role="dialog" aria-label="Restore workspace" aria-modal="true">
       <div className={styles.panel}>
         <div className={styles.header}>
           <div>
@@ -299,87 +301,90 @@ export default function RestorePickerModal() {
             placeholder="Search title or workdir…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            autoFocus
+            aria-label="Search saved sessions"
           />
           <button type="button" className={styles.toolBtn} onClick={selectAll}>All</button>
           <button type="button" className={styles.toolBtn} onClick={selectNone}>None</button>
           <button type="button" className={styles.toolBtn} onClick={selectPinned}>★ Pinned</button>
         </div>
 
-        <div className={styles.list}>
-          {filteredGroups.length === 0 ? (
-            <div className={styles.empty}>No sessions match.</div>
-          ) : (
-            filteredGroups.map((g) => {
-              const groupSelected = g.sessions.filter((s) => selected.has(s.originalSessionId)).length;
-              return (
-                <div key={g.key} className={styles.group}>
-                  <div className={styles.groupHeader}>
-                    <span className={styles.groupName}>{g.name}</span>
-                    <span className={styles.groupCount}>
-                      ({groupSelected}/{g.sessions.length})
-                    </span>
+        <div className={styles.scrollBody}>
+          <div className={styles.list}>
+            {filteredGroups.length === 0 ? (
+              <div className={styles.empty}>No sessions match.</div>
+            ) : (
+              filteredGroups.map((g) => {
+                const groupSelected = g.sessions.filter((s) => selected.has(s.originalSessionId)).length;
+                return (
+                  <div key={g.key} className={styles.group}>
+                    <div className={styles.groupHeader}>
+                      <span className={styles.groupName}>{g.name}</span>
+                      <span className={styles.groupCount}>
+                        ({groupSelected}/{g.sessions.length})
+                      </span>
+                    </div>
+                    {g.sessions.length === 0 ? (
+                      <div className={styles.groupEmpty}>(empty room — restored without sessions)</div>
+                    ) : (
+                      g.sessions.map((s) => {
+                        const id = s.originalSessionId;
+                        const checked = selected.has(id);
+                        const fresh = startsFreshConversation(s);
+                        const fork = isForkCommand(s.sshConfig?.command);
+                        return (
+                          <label key={id} className={`${styles.row} ${checked ? styles.rowOn : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggle(id)}
+                            />
+                            {s.pinned && <span className={styles.pinned} title="Pinned">★</span>}
+                            <span className={styles.rowTitle}>{s.title || '(untitled)'}</span>
+                            <span className={styles.rowCmd} title={s.sshConfig?.command || ''}>
+                              {s.sshConfig?.command || ''}
+                            </span>
+                            <span className={styles.rowDir} title={s.sshConfig?.workingDir || ''}>
+                              {shortPath(s.sshConfig?.workingDir)}
+                            </span>
+                            {fresh && (
+                              <span className={`${styles.badge} ${styles.badgeWarn}`} title="Will start a fresh conversation">
+                                ⚠ new
+                              </span>
+                            )}
+                            {fork && (
+                              <span className={`${styles.badge} ${styles.badgeFork}`} title="Fork session — risk re-forking from ancestor">
+                                ⚠ fork
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
-                  {g.sessions.length === 0 ? (
-                    <div className={styles.groupEmpty}>(empty room — restored without sessions)</div>
-                  ) : (
-                    g.sessions.map((s) => {
-                      const id = s.originalSessionId;
-                      const checked = selected.has(id);
-                      const fresh = !looksLikeRealSessionId(id);
-                      const fork = isForkCommand(s.sshConfig?.command);
-                      return (
-                        <label key={id} className={`${styles.row} ${checked ? styles.rowOn : ''}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggle(id)}
-                          />
-                          {s.pinned && <span className={styles.pinned} title="Pinned">★</span>}
-                          <span className={styles.rowTitle}>{s.title || '(untitled)'}</span>
-                          <span className={styles.rowCmd} title={s.sshConfig?.command || ''}>
-                            {s.sshConfig?.command || ''}
-                          </span>
-                          <span className={styles.rowDir} title={s.sshConfig?.workingDir || ''}>
-                            {shortPath(s.sshConfig?.workingDir)}
-                          </span>
-                          {fresh && (
-                            <span className={`${styles.badge} ${styles.badgeWarn}`} title="Will start a fresh conversation">
-                              ⚠ new
-                            </span>
-                          )}
-                          {fork && (
-                            <span className={`${styles.badge} ${styles.badgeFork}`} title="Fork session — risk re-forking from ancestor">
-                              ⚠ fork
-                            </span>
-                          )}
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {(warnings.freshCount > 0 || warnings.forkCount > 0) && (
-          <div className={styles.warnStrip}>
-            <div className={styles.warnTitle}>⚠ Conversation continuity</div>
-            {warnings.freshCount > 0 && (
-              <div className={styles.warnLine}>
-                • {warnings.freshCount} session{warnings.freshCount === 1 ? '' : 's'} will start a fresh conversation
-                {warnings.freshTitles.length > 0 && ` (${warnings.freshTitles.slice(0, 3).join(', ')}${warnings.freshTitles.length > 3 ? '…' : ''})`}
-              </div>
-            )}
-            {warnings.forkCount > 0 && (
-              <div className={styles.warnLine}>
-                • {warnings.forkCount} fork session{warnings.forkCount === 1 ? '' : 's'} — risk losing post-fork history
-                {warnings.forkTitles.length > 0 && ` (${warnings.forkTitles.slice(0, 3).join(', ')}${warnings.forkTitles.length > 3 ? '…' : ''})`}
-              </div>
+                );
+              })
             )}
           </div>
-        )}
+
+          {(warnings.freshCount > 0 || warnings.forkCount > 0) && (
+            <div className={styles.warnStrip}>
+              <div className={styles.warnTitle}>⚠ Conversation continuity</div>
+              {warnings.freshCount > 0 && (
+                <div className={styles.warnLine}>
+                  • {warnings.freshCount} session{warnings.freshCount === 1 ? '' : 's'} will start a fresh conversation
+                  {warnings.freshTitles.length > 0 && ` (${warnings.freshTitles.slice(0, 3).join(', ')}${warnings.freshTitles.length > 3 ? '…' : ''})`}
+                </div>
+              )}
+              {warnings.forkCount > 0 && (
+                <div className={styles.warnLine}>
+                  • {warnings.forkCount} fork session{warnings.forkCount === 1 ? '' : 's'} — risk losing post-fork history
+                  {warnings.forkTitles.length > 0 && ` (${warnings.forkTitles.slice(0, 3).join(', ')}${warnings.forkTitles.length > 3 ? '…' : ''})`}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
 
         <label className={styles.rememberRow}>
           <input
@@ -405,7 +410,7 @@ export default function RestorePickerModal() {
             disabled={selected.size === 0}
             title="⌘/Ctrl+Enter"
           >
-            Resume selected ({selected.size}/{visibleCount})
+            Resume selected ({selected.size}/{totalSessions})
           </button>
           <button
             type="button"
