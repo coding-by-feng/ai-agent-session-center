@@ -15,7 +15,7 @@ import { CLIENT_DATA_FOLDER, clientAppName, readClientEdition } from './clientEd
 import { initCrashLogger } from './crashLogger.js'
 import { keepOpenWindowsSignedIn, registerRemoteHandlers } from './ipc/remoteHandlers.js'
 import { CLIENT_HOME_SCHEME, CLIENT_HOME_URL, createHomeHandler, isClientHomeSenderUrl, serveBundledUi } from './remote/clientUi.js'
-import { claimSingleInstance } from './singleInstance.js'
+import { claimSingleInstance, revealRunningWindow } from './singleInstance.js'
 
 // Before anything reads it. The packaged name already says this; an unpackaged run would otherwise take the repo's
 // `ai-agent-session-center`, a running AASC's real data folder. `--user-data-dir` keeps a test away from the real one.
@@ -42,7 +42,7 @@ let homeWindow: BrowserWindow | null = null
 let homeCreatedThisLaunch = false
 let quitting = false
 
-const isSecondInstance = !claimSingleInstance(app, showRunningWindow)
+const isSecondInstance = !claimSingleInstance(app, revealOnSecondLaunch)
 if (isSecondInstance) app.exit(0)
 
 initCrashLogger()
@@ -83,7 +83,7 @@ function showHome(): void {
   void win.loadURL(url)
 }
 
-/** Another launch found this app running: bring its dashboard forward, or the list. */
+/** A Dock click (`activate`): bring the dashboard forward, or the list. */
 function showRunningWindow(): void {
   const remote = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== homeWindow)
   if (!remote) {
@@ -93,6 +93,14 @@ function showRunningWindow(): void {
   if (remote.isMinimized()) remote.restore()
   remote.show()
   remote.focus()
+}
+
+/** Another launch found this app running: show it without taking the keyboard (revealRunningWindow). */
+function revealOnSecondLaunch(): void {
+  const remote = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== homeWindow)
+  const target = remote ?? (homeWindow && !homeWindow.isDestroyed() ? homeWindow : null)
+  if (target) revealRunningWindow(target, process.platform, () => { app.dock?.bounce('informational') })
+  else if (app.isReady()) showHome()
 }
 
 function buildMenu(): void {

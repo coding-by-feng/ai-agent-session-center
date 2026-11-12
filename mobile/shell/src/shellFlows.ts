@@ -6,7 +6,7 @@
 // native cookie and nowhere else (not the screen, Preferences, a URL or a log).
 import { linkBackend } from './backendLink.js';
 import { findViaCloud } from './cloudFind.js';
-import { candidates, isAllowedNavigation, pickReachable, type Candidate } from './connectionPlan.js';
+import { candidates, isAllowedNavigation, pickPreferred, type Candidate } from './connectionPlan.js';
 import { rediscover } from './lanRescan.js';
 import {
   fetchMacPaths, openSession, pairWithMac, PATHS_BUDGET_MS, unpairSelf, type MacCredentials, type MacPaths, type SessionResult,
@@ -66,16 +66,14 @@ async function within<T>(work: (signal: AbortSignal) => Promise<T>, ms: number, 
   }
 }
 
-/** The first path that answers; `onTry` names each one as it is tried (for the status line). */
+/**
+ * The path to use: every saved path at once, the home network first when it answers in time (pickPreferred).
+ * `onTry` names the path it is waiting on (for the status line).
+ */
 export async function reach(
   deps: Pick<ShellDeps, 'requester'>, mac: SavedMac, onTry?: (c: Candidate) => void,
 ): Promise<Candidate | null> {
-  const probe = probeWith(deps);
-  return pickReachable(candidates(mac), (origin) => {
-    const c = candidates(mac).find((x) => x.origin === origin);
-    if (c) onTry?.(c);
-    return probe(origin);
-  });
+  return pickPreferred(candidates(mac), probeWith(deps), onTry);
 }
 
 // ── Pairing ──────────────────────────────────────────────────────────────

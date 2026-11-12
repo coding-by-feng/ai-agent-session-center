@@ -12,7 +12,7 @@ import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
 import { desktopAppName, readDesktopEdition } from './edition.js'
 import { chooseLitePort, portMovedMessage, resolveServerPort } from './portPreflight.js'
-import { claimSingleInstance } from './singleInstance.js'
+import { claimSingleInstance, revealRunningWindow } from './singleInstance.js'
 import { startAutoUpdate, updateMenuItems } from './autoUpdate.js'
 import {
   POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
@@ -117,10 +117,7 @@ let mainWindowRef: BrowserWindow | null = null
 /** Another launch (of either edition) found this app running: bring its window forward. */
 function showRunningWindow(): void {
   if (!mainWindowRef || mainWindowRef.isDestroyed()) return
-  if (mainWindowRef.isMinimized()) mainWindowRef.restore()
-  mainWindowRef.show()
-  mainWindowRef.focus()
-  if (process.platform === 'darwin') app.focus({ steal: true })
+  revealRunningWindow(mainWindowRef, process.platform, () => { app.dock?.bounce('informational') })
 }
 const popoutWindows = new Map<string, BrowserWindow>()
 

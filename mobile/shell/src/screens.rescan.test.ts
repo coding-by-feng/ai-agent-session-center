@@ -139,11 +139,16 @@ describe('LAN rescan', () => {
     expect(new Set(probes.map((c) => c.timeoutMs))).toEqual(new Set([SWEEP_PROBE_MS]));
   });
 
+  // Nov 10 2026: the one exception is the home-network offer's check (lanOffer.ts): a single plain GET of the status
+  // route at the saved address, carrying no key, token or cookie. No sweep, no identify, nothing signed.
   it('never searches for a Mac the home network isn\'t allowed for', async () => {
     const t = await open({ mac: { reachable: [MOVED] } }, { ...KASON_MBP, lanAllowed: false });
     await until(t.root, () => heading(t.root) === 'Can’t reach Kason-MBP');
     expect(identifyCalls(t)).toEqual([]);
-    expect(t.mac.calls.some((c) => c.url.startsWith('http://192.168.1.'))).toBe(false);
+    const home = t.mac.calls.filter((c) => c.url.startsWith('http://192.168.1.'));
+    expect(home.map((c) => `${c.method} ${c.url}`)).toEqual(['GET http://192.168.1.20:3333/api/auth/status']);
+    expect(Object.keys(home[0].headers ?? {}).map((k) => k.toLowerCase())).not.toContain('authorization');
+    expect(home[0].body ?? null).toBeNull();
   });
 
   it('never searches for a Mac still waiting for approval', async () => {
