@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/App/App/AuthSessionRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -233,6 +233,37 @@ expect((longCjk?.utf8.count ?? 999) <= FileSaveRules.nameMaxBytes && longCjk?.ha
 expect(FileSaveRules.postedId(["id": "a-1", "url": "x"]) == "a-1" && FileSaveRules.postedId(["id": "a b"]) == nil, "a refused request is still answered by id")
 let script = FileSaveRules.outcomeScript(id: "a", state: "failed", message: "x')); alert(1); ('")
 expect(script?.contains("\"message\":\"x')); alert(1); ('\"") == true, "message JSON-encoded inside the detail")
+
+// AuthSessionRules: Google sign-in opens only api.aasc.work and returns only work.aasc.mobile://auth/google (plan 17)
+expect(AuthSessionRules.startUrl("https://api.aasc.work/v1/auth/google/start?return=x&challenge=abc")?.host == "api.aasc.work", "backend start page")
+expect(AuthSessionRules.startUrl("https://API.aasc.work/v1/x") == nil, "uppercase host (the backend sends it lowercase)")
+expect(AuthSessionRules.startUrl("http://api.aasc.work/v1/x") == nil, "http")
+expect(AuthSessionRules.startUrl("https://aasc.work/v1/x") == nil, "other host")
+expect(AuthSessionRules.startUrl("https://api.aasc.work.evil.example/v1/x") == nil, "lookalike host")
+expect(AuthSessionRules.startUrl("https://api.aasc.work@evil.example/v1/x") == nil, "userinfo trick")
+expect(AuthSessionRules.startUrl("https://user@api.aasc.work/v1/x") == nil, "userinfo")
+expect(AuthSessionRules.startUrl("https://api.aasc.work:8443/v1/x") == nil, "port")
+expect(AuthSessionRules.startUrl("https://api.aasc.work") == nil, "no path")
+expect(AuthSessionRules.startUrl("https://api.aasc.work/a b") == nil, "space")
+expect(AuthSessionRules.startUrl("https://api.aasc.work/" + String(repeating: "a", count: 5000)) == nil, "too long")
+expect(AuthSessionRules.startUrl(nil) == nil && AuthSessionRules.startUrl("") == nil, "empty")
+expect(AuthSessionRules.startUrl("javascript:alert(1)") == nil, "javascript")
+expect(AuthSessionRules.scheme(nil) == "work.aasc.mobile" && AuthSessionRules.scheme("work.aasc.mobile") == "work.aasc.mobile", "own scheme")
+expect(AuthSessionRules.scheme("https") == nil && AuthSessionRules.scheme("work.aasc.mobile.evil") == nil, "other scheme")
+expect(AuthSessionRules.prefix(nil) == "work.aasc.mobile://auth/google", "default prefix")
+expect(AuthSessionRules.prefix("work.aasc.mobile://auth/google?") == "work.aasc.mobile://auth/google?", "narrower prefix")
+expect(AuthSessionRules.prefix("work.aasc.mobile://") == nil, "wider prefix")
+expect(AuthSessionRules.prefix("https://aasc.work/auth/google") == nil, "android prefix on ios")
+expect(AuthSessionRules.prefix("work.aasc.mobile://auth/googlex") == nil, "prefix past the boundary")
+let cbPrefix = AuthSessionRules.defaultCallbackPrefix
+expect(AuthSessionRules.callbackMatches("work.aasc.mobile://auth/google?code=abc&state=x", prefix: cbPrefix), "callback with code")
+expect(AuthSessionRules.callbackMatches("work.aasc.mobile://auth/google", prefix: cbPrefix), "bare callback")
+expect(AuthSessionRules.callbackMatches("work.aasc.mobile://auth/google#x", prefix: cbPrefix), "fragment")
+expect(!AuthSessionRules.callbackMatches("work.aasc.mobile://auth/googlex?code=a", prefix: cbPrefix), "past the boundary")
+expect(!AuthSessionRules.callbackMatches("work.aasc.mobile://pair?code=a", prefix: cbPrefix), "other path")
+expect(!AuthSessionRules.callbackMatches("WORK.aasc.mobile://auth/google?code=a", prefix: cbPrefix), "byte-wise")
+expect(!AuthSessionRules.callbackMatches(nil, prefix: cbPrefix), "nil callback")
+expect(AuthSessionRules.callbackMatches("work.aasc.mobile://auth/google?code=a", prefix: "work.aasc.mobile://auth/google?"), "prefix ending in ?")
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

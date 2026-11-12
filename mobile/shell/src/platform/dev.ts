@@ -12,6 +12,8 @@
 //   ?seed=1             start with two paired Macs (Studio and Kason-MBP)
 //   ?share=text|image   an item waiting in the share inbox (AASC-21)
 //   ?lock=1             the biometric lock on; the pretend prompt always passes (AASC-21)
+//   ?google=cancel      Sign in with Google comes back cancelled (plan 17); otherwise it signs in to the
+//                       fake account, whose Mac (Kason-MBP) enrolls over its Tailscale address
 import { createFakeMac } from '../dev/fakeMac.js';
 import type { DeviceVault, RawShare, ShellDeps } from '../native.js';
 import type { KeyValueStore } from '../pushRegistration.js';
@@ -91,6 +93,13 @@ export async function devDeps(search: string): Promise<ShellDeps> {
         const taken = pendingShare;
         pendingShare = null;
         return taken;
+      },
+    },
+    // Plan 17: the sign-in sheet, through the fake backend's Google redirect.
+    authSession: {
+      start: async (url) => {
+        const back = q.get('google') === 'cancel' ? null : mac.googleRedirect(url);
+        return back ? { url: back } : { cancelled: true };
       },
     },
     biometric: q.get('lock') === '1'

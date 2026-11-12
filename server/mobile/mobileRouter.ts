@@ -12,10 +12,12 @@
 //     "loopback" also covers curl, other accounts on this Mac and header-less
 //     proxies, none of which may mint a phone.
 //
-//   Public (challenge, pair, session, unpair, identify) — the phone's own calls
+//   Public (challenge, pair, enroll, session, unpair, identify) — the phone's own calls
 //     They ARE the authentication, so authMiddleware can't sit in front of them.
 //     JSON only, no cross-site browser requests, the login rate limiter, and all
 //     refused when no dashboard password is set (remote access needs one).
+//     /enroll (plan 17) is a phone signed into this Mac's AASC Cloud account
+//     pairing without a code: accountEnroll.ts; a bad ticket costs a login strike.
 //
 //   Signed-in phone (backend-code, paths) — the same gates, plus the phone's
 //     own session token from /session as a Bearer header (never the cookie, which
@@ -32,6 +34,15 @@ import { TooManyPairingCodesError, toView, type DeviceAuth } from './deviceAuth.
 import type { BackendCodeOutcome, PhoneBackendCodes } from './phoneBackendCode.js';
 import type { CloudPhoneAudit } from './cloudPhoneAudit.js';
 import type { PhonePathLog } from './phonePathLog.js';
+import type { AccountEnroll, AccountEnrollRefusal } from './accountEnroll.js';
+
+/** Review M4: account enrolls running at once, per client address and in all. Each one may wait on the cloud. */
+export const MAX_ENROLLS_PER_IP = 1;
+export const MAX_ENROLLS_TOTAL = 3;
+/** Seconds a client is told to wait when those are full. */
+const ENROLL_BUSY_RETRY_S = 5;
+/** Seconds to wait when too many enrolled phones haven't signed in yet (deviceAuth PROVISIONAL_ACCOUNT_TTL_MS). */
+const PROVISIONAL_BUSY_RETRY_S = 120;
 import log from '../logger.js';
 
 /** Where the QR sends the phone. The code rides in the fragment, which browsers never send to a server. */
@@ -95,6 +106,13 @@ export interface MobileRouterDeps {
    * the Tailscale address it sent. Omitted: nothing is recorded.
    */
   pathLog?: PhonePathLog;
+  /**
+   * Plan 17: phones signed into this Mac's AASC Cloud account enroll without a code (POST /enroll), and the
+   * desktop reads the switch beside the devices. Omitted: account enroll is off.
+   */
+  accountEnroll?: Pick<AccountEnroll, 'enroll' | 'status'>;
+  /** The desktop's switch (PUT /pairing/account-enroll). False when the environment pins it. Omitted: no switch. */
+  setAccountEnroll?: (enabled: boolean) => boolean;
 }
 
 /** The addresses a new pairing link may carry (Oct 28 2026): the desktop ticks them per link. */
@@ -167,6 +185,45 @@ function localAddressOf(req: Request): string {
 /** This Mac's own `address:port` on the request's socket. */
 function reachedAt(req: Request): string {
   return `${localAddressOf(req)}:${req.socket.localPort ?? ''}`;
+}
+
+/**
+ * A phone signed into the account enrolling (plan 17). The address the answer is sealed over is this Mac's own
+ * (reachedAt), never a field here. All base64url is unpadded: a ticket is 32 bytes, a phone key a 65-byte point.
+ */
+const EnrollBody = z.object({
+  macDeviceId: z.string().uuid(),
+  ticket: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  phoneKey: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
+  nonce: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Older shells send one; it is ignored (the record takes the backend's phone name: review M3). */
+  label: z.string().min(1).max(200).optional(),
+  platform: z.enum(['ios', 'android']),
+}).strict();
+
+const AccountEnrollSwitchBody = z.object({ enabled: z.boolean() }).strict();
+
+const ACCOUNT_ENROLL_OFF = {
+  error: 'This Mac doesn’t let phones connect through its AASC Cloud account. Pair with the QR code instead.',
+  code: 'ACCOUNT_ENROLL_OFF',
+} as const;
+
+/** A refused enroll as status + body. (The route records its login strike before the backend call: review M4.) */
+function enrollRefusal(reason: AccountEnrollRefusal): [number, Record<string, unknown>] {
+  switch (reason) {
+    case 'off': return [403, ACCOUNT_ENROLL_OFF];
+    case 'not-this-mac': return [409, { error: 'This isn’t the Mac the ticket names', code: 'NOT_THIS_MAC' }];
+    case 'invalid':
+    case 'expired':
+    case 'used': return [401, { error: 'The enroll ticket is wrong, used or expired. Try again.', code: 'INVALID_TICKET' }];
+    case 'phone-revoked': return [401, { error: 'This phone was removed from your AASC Cloud account. Sign in again.', code: 'PHONE_REVOKED' }];
+    case 'cloud-failed': return [502, CLOUD_UNAVAILABLE];
+    case 'busy': return [429, {
+      error: 'Too many new phones are still connecting to this Mac. Try again in a few minutes.',
+      code: 'TOO_MANY_NEW_PHONES',
+      retryAfter: PROVISIONAL_BUSY_RETRY_S,
+    }];
+  }
 }
 
 /** The desktop's new name for a phone: the same 80-character cap as pairing (deviceAuth MAX_LABEL). */
@@ -345,7 +402,44 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     // `online` feeds the header chip's 📱 count (Oct 22 2026): a paired phone with its app closed has no socket.
     const isOnline = deps.isPhoneOnline ?? (() => false);
     const devices = deps.deviceAuth.list().map((d) => ({ ...d, online: isOnline(d.id) }));
-    res.json({ success: true, data: { devices, pairingOffered: pairingOffered() } });
+    res.json({
+      success: true,
+      data: {
+        devices,
+        pairingOffered: pairingOffered(),
+        // Plan 17: the "phones signed into my AASC Cloud account" switch. Absent from a build without it.
+        ...(deps.accountEnroll ? { accountEnroll: deps.accountEnroll.status() } : {}),
+      },
+    });
+  });
+
+  router.put('/pairing/account-enroll', (req, res) => {
+    const parsed = AccountEnrollSwitchBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Send { enabled: true } or { enabled: false }' });
+      return;
+    }
+    if (!deps.accountEnroll || !deps.setAccountEnroll) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    let changed: boolean;
+    try {
+      changed = deps.setAccountEnroll(parsed.data.enabled);
+    } catch (err) {
+      log.warn('mobile', `Could not save phoneAccountEnroll: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ error: 'Couldn’t save the setting. Check server-config.json.', code: 'SAVE_FAILED' });
+      return;
+    }
+    if (!changed) {
+      res.status(409).json({
+        error: 'AASC_PHONE_ACCOUNT_ENROLL is set in this Mac’s environment, so it decides this setting.',
+        code: 'SET_BY_ENVIRONMENT',
+      });
+      return;
+    }
+    log.info('mobile', `Phones signed into the AASC Cloud account ${parsed.data.enabled ? 'may' : 'may no longer'} connect`);
+    res.json({ success: true, data: { accountEnroll: deps.accountEnroll.status() } });
   });
 
   router.post('/devices/:id/approve', (req, res) => {
@@ -456,6 +550,52 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
         status: 'pending',
       },
     });
+  });
+
+  // Plan 17: a phone signed into this Mac's AASC Cloud account connects without a code or an Allow click.
+  // The answer is the device token sealed to the phone's key over the address this request reached.
+  // Review M4: one enroll at a time per address and three in all, and the login strike is recorded before the
+  // backend is asked (cleared on success), so parallel guesses can't outrun the limiter.
+  const enrollsByIp = new Map<string, number>();
+  let enrollsTotal = 0;
+
+  router.post('/enroll', async (req, res) => {
+    if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
+    const parsed = EnrollBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid enroll request' });
+      return;
+    }
+    if (!deps.accountEnroll) {
+      res.status(403).json(ACCOUNT_ENROLL_OFF);
+      return;
+    }
+    const ip = clientIp(req);
+    if ((enrollsByIp.get(ip) ?? 0) >= MAX_ENROLLS_PER_IP || enrollsTotal >= MAX_ENROLLS_TOTAL) {
+      res.status(429).json({ error: 'Another phone is connecting. Try again in a moment.', code: 'ENROLL_BUSY', retryAfter: ENROLL_BUSY_RETRY_S });
+      return;
+    }
+    enrollsByIp.set(ip, (enrollsByIp.get(ip) ?? 0) + 1);
+    enrollsTotal += 1;
+    let out: Awaited<ReturnType<typeof deps.accountEnroll.enroll>>;
+    try {
+      out = await deps.accountEnroll.enroll(
+        { ...parsed.data, reachedAt: reachedAt(req) },
+        { beforeRedeem: () => deps.rateLimit.record(ip) },
+      );
+    } finally {
+      const left = (enrollsByIp.get(ip) ?? 1) - 1;
+      if (left > 0) enrollsByIp.set(ip, left);
+      else enrollsByIp.delete(ip);
+      enrollsTotal -= 1;
+    }
+    if (!out.ok) {
+      const [status, body] = enrollRefusal(out.reason);
+      res.status(status).json(body);
+      return;
+    }
+    deps.rateLimit.clear(ip);
+    res.status(201).json({ success: true, data: out.answer });
   });
 
   router.post('/challenge', (req, res) => {

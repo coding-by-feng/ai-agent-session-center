@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		0D752FA68D905AB35097D8F7 /* LockRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3656002016EB46D914448D28 /* LockRules.swift */; };
 		2A49AAFC621845B109DA7808 /* DeviceVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88442D22271466949471B8E3 /* DeviceVaultPlugin.swift */; };
+		A17A0E5100000000000000B1 /* AuthSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17A0E5100000000000000F1 /* AuthSessionPlugin.swift */; };
+		A17A0E5100000000000000B2 /* AuthSessionRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17A0E5100000000000000F2 /* AuthSessionRules.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -53,6 +55,8 @@
 		7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellBridgePlugin.swift; sourceTree = "<group>"; };
 		9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanDiscovery.swift; sourceTree = "<group>"; };
 		88442D22271466949471B8E3 /* DeviceVaultPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceVaultPlugin.swift; sourceTree = "<group>"; };
+		A17A0E5100000000000000F1 /* AuthSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionPlugin.swift; sourceTree = "<group>"; };
+		A17A0E5100000000000000F2 /* AuthSessionRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionRules.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		98E781329F762876B66C2A9B /* ShellRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellRules.swift; sourceTree = "<group>"; };
@@ -142,6 +146,8 @@
 				98E781329F762876B66C2A9B /* ShellRules.swift */,
 				3BAE415F8D1CEEF39A299D42 /* ShellOnly.swift */,
 				88442D22271466949471B8E3 /* DeviceVaultPlugin.swift */,
+				A17A0E5100000000000000F1 /* AuthSessionPlugin.swift */,
+				A17A0E5100000000000000F2 /* AuthSessionRules.swift */,
 				7C08C5EF88C3E52EBF672E7D /* ShellBridgePlugin.swift */,
 				9B2E4C7D1A0F3E5B6C8D2A71 /* LanDiscovery.swift */,
 				F0AE731E880DE64408C3F995 /* AppViewController.swift */,
@@ -289,6 +295,8 @@
 				B4DD0BD919916BCCB27BB8AF /* ShellRules.swift in Sources */,
 				8F6A8E620C447A088CECCD7C /* ShellOnly.swift in Sources */,
 				2A49AAFC621845B109DA7808 /* DeviceVaultPlugin.swift in Sources */,
+				A17A0E5100000000000000B1 /* AuthSessionPlugin.swift in Sources */,
+				A17A0E5100000000000000B2 /* AuthSessionRules.swift in Sources */,
 				A051517B415910537BB5FF44 /* ShellBridgePlugin.swift in Sources */,
 				E3A1D0C25B7F4A9E8C61D2F4 /* LanDiscovery.swift in Sources */,
 				5ACB400F761243BDCFA6E8B7 /* AppViewController.swift in Sources */,

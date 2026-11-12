@@ -14,6 +14,8 @@ import TerminalCommandMenu from './TerminalCommandMenu';
 import LocalEchoOverlay from './LocalEchoOverlay';
 import TerminalSearchBar, { type TerminalSearchState } from './TerminalSearchBar';
 import { detectCli } from '@/lib/cliDetect';
+import { agentVoiceKind } from '@/lib/agentVoice';
+import { useAgentVoice } from '@/hooks/useAgentVoice';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { useSessionStore } from '@/stores/sessionStore';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
@@ -141,6 +143,7 @@ export default memo(function TerminalContainer({
     refitTerminal,
     setTheme,
     handleTerminalOutput,
+    handleTerminalProbe,
     handleTerminalGeometry,
     widthMode,
     setWidthMode,
@@ -205,6 +208,25 @@ export default memo(function TerminalContainer({
 
   // A phone paired to Lite loads this same bundle and keeps its whole terminal.
   const liteDesktop = IS_LITE && !isPhone;
+
+  // ---- The agent CLI's own voice input (Claude hold-to-talk, Codex /voice) ----
+  // The CLI records from the machine it runs on, so only a loopback page on a local terminal.
+  const terminalSshHost = useSessionStore((st) => {
+    if (!terminalId) return null;
+    for (const s of st.sessions.values()) {
+      if (s.terminalId === terminalId && s.status !== 'ended') return s.sshConfig?.host ?? s.sshHost ?? null;
+    }
+    return null;
+  });
+  const voiceKind = liteDesktop
+    ? null
+    : agentVoiceKind({
+        cli: terminalCli,
+        pageHost: typeof window === 'undefined' ? '' : window.location.hostname,
+        sshHost: terminalSshHost,
+        isPhone,
+      });
+  const agentVoice = useAgentVoice(voiceKind, terminalId, sendKeys);
 
   // ---- Hold-to-speak (TTS) ----
   const ttsEnabledSetting = useSettingsStore((s) => s.ttsEnabled);
@@ -407,6 +429,9 @@ export default memo(function TerminalContainer({
         const msg = JSON.parse(event.data);
         if (msg.type === 'terminal_output' && msg.terminalId) {
           handleTerminalOutput(msg.terminalId, msg.data);
+        } else if (msg.type === 'terminal_probe' && msg.terminalId
+                   && typeof msg.id === 'number' && typeof msg.serverMs === 'number') {
+          handleTerminalProbe(msg.terminalId, msg.id, msg.serverMs);
         } else if (msg.type === 'terminal_geometry' && msg.terminalId
                    && typeof msg.cols === 'number') {
           // The PTY's real width. On a narrow device this is what the canvas
@@ -434,7 +459,7 @@ export default memo(function TerminalContainer({
 
     ws.addEventListener('message', handler);
     return () => ws.removeEventListener('message', handler);
-  }, [ws, terminalId, isPhone, handleTerminalOutput, handleTerminalGeometry, handleTerminalCleared, handleTerminalReady, handleTerminalClosed]);
+  }, [ws, terminalId, isPhone, handleTerminalOutput, handleTerminalProbe, handleTerminalGeometry, handleTerminalCleared, handleTerminalReady, handleTerminalClosed]);
 
   // Refit on visibility change
   useEffect(() => {
@@ -579,6 +604,11 @@ export default memo(function TerminalContainer({
         ttsActive={ttsActive}
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
+        agentVoice={voiceKind}
+        agentVoiceActive={agentVoice.active}
+        onAgentVoiceStart={agentVoice.start}
+        onAgentVoiceStop={agentVoice.stop}
+        onAgentVoiceToggle={agentVoice.toggle}
       />}
       {/* A phone types through its compose box, which has its own suggestions. */}
       {terminalCli && !isPhone && (
@@ -715,6 +745,11 @@ export default memo(function TerminalContainer({
               searchOpen={search.open}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
+              agentVoice={voiceKind}
+              agentVoiceActive={agentVoice.active}
+              onAgentVoiceStart={agentVoice.start}
+              onAgentVoiceStop={agentVoice.stop}
+              onAgentVoiceToggle={agentVoice.toggle}
                                     />}
           </div>
           <div className={styles.fullscreenArea}>

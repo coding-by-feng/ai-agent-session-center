@@ -70,9 +70,13 @@ describe('composerAction', () => {
     expect(d.fieldDisabledReason).toBe('MacBook is driving');
   });
 
-  it('cannot send to a session that is still starting, and says why', () => {
+  // Nov 12 2026: the Mac holds a prompt for a starting agent and types it once the agent is up (promptRouter), so
+  // Send works; only the model chip and the command sheet wait, since a picker can't be opened in a CLI not yet up.
+  it('sends to a session that is still starting; the chips wait and say why', () => {
     const d = composerAction(input({ status: 'connecting' }));
-    expect(d).toMatchObject({ action: 'send', canSend: false, blockedReason: 'The agent is still starting' });
+    expect(d).toMatchObject({ action: 'send', canSend: true, chipsBlockedReason: 'The agent is still starting' });
+    expect(d.blockedReason).toBeUndefined();
+    expect(composerAction(input({ status: 'connecting', hasContent: false })).canSend).toBe(false);
   });
 
   it('cannot type into an ended session', () => {

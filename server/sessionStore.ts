@@ -3120,9 +3120,13 @@ export function failSessionRestart(sessionId: string, oldTerminalId: string): Se
 
 // Auto-idle transitions. They are made on the server's clock with no hook behind them, so each
 // changed session is broadcast here (broadcastSessionUpdate also dirties the snapshot cache).
-startAutoIdle(sessions, (changed) => {
-  for (const session of changed) void broadcastSessionUpdate(session);
-});
+startAutoIdle(
+  sessions,
+  (changed) => {
+    for (const session of changed) void broadcastSessionUpdate(session);
+  },
+  (session) => (session.terminalId ? getTerminalOutputTail(session.terminalId) : null),
+);
 
 // Process liveness monitoring
 startMonitoring(

@@ -24,6 +24,7 @@ import {
   ringReset as resetRing,
 } from './ptyRing.js';
 import { fanOutToSockets, type SubscriberSocket } from './ptySubscribers.js';
+import { flushOutputProbe } from './typingProbe.js';
 import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
 import type { FaultMatch } from './interruptionDetector.js';
@@ -1356,6 +1357,10 @@ export function getTerminalByPtyChild(childPid: number): string | null {
  */
 function sendToSubscribers(term: Terminal, message: Record<string, unknown>): void {
   if (term.wsClients.size === 0) return;
+  // The typing probe's reply goes just ahead of the output it timed (dev flag; a no-op otherwise).
+  if (message.type === 'terminal_output' && typeof message.terminalId === 'string') {
+    flushOutputProbe(message.terminalId);
+  }
   fanOutToSockets(
     term.wsClients as unknown as Set<SubscriberSocket>,
     JSON.stringify(message),

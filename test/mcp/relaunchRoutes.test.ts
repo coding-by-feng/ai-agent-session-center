@@ -396,3 +396,70 @@ describe('summarize runs with no tools (Ruling P3-25)', () => {
     expect(summarizeRuns[0].stdin.startsWith('Three bullet points.\n\n--- SESSION TRANSCRIPT ---')).toBe(true);
   });
 });
+
+// Nov 12 2026: two callers can start the same card at once — the browser's workspace restore after a server restart
+// and a phone prompt to the card (promptRouter's start) — and must get one terminal between them.
+describe('reconnect joins a start already under way', () => {
+  it('two reconnects at once open one terminal and answer the same id', async () => {
+    const terminal = await plainCard('claude -n Fix');
+    live.delete(terminal);
+    mocks.createTerminal.mockClear();
+    // A real PTY takes a moment to open: the second request arrives while the first is still opening it.
+    mocks.createTerminal.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return `term-routes-${n}-slow`;
+    });
+
+    const [a, b] = await Promise.all([
+      api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {}),
+      api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {}),
+    ]);
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(b.json.terminalId).toBe(a.json.terminalId);
+    expect(mocks.createTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.writeWhenReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('a reconnect just after one whose terminal is still live joins it; once that terminal is gone, it opens a new one', async () => {
+    const terminal = await plainCard('claude -n Fix');
+    live.delete(terminal);
+    mocks.createTerminal.mockClear();
+
+    const first = await api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {});
+    const opened = String(first.json.terminalId);
+    live.add(opened);
+    const again = await api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {});
+    expect(again.json.terminalId).toBe(opened);
+    expect(mocks.createTerminal).toHaveBeenCalledTimes(1);
+
+    live.delete(opened);
+    const after = await api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {});
+    expect(after.status).toBe(200);
+    expect(after.json.terminalId).not.toBe(opened);
+    expect(mocks.createTerminal).toHaveBeenCalledTimes(2);
+  });
+
+  // Review finding: the restore may reconnect a card by the id it saved (term-*, before the CLI re-keyed it) while the
+  // prompt route starts it by its current id. Both must join under one key.
+  it('a reconnect by the card’s old term id joins one by its current id', async () => {
+    const terminal = await plainCard('claude -n Fix');
+    expect(store.getSession(terminal)?.sessionId).toBe(UUID);
+    live.delete(terminal);
+    mocks.createTerminal.mockClear();
+    mocks.createTerminal.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return `term-routes-${n}-slow`;
+    });
+
+    const [byOld, byNew] = await Promise.all([
+      api.call('POST', `/sessions/${terminal}/reconnect-terminal`, {}),
+      api.call('POST', `/sessions/${UUID}/reconnect-terminal`, {}),
+    ]);
+
+    expect(byOld.status).toBe(200);
+    expect(byNew.json.terminalId).toBe(byOld.json.terminalId);
+    expect(mocks.createTerminal).toHaveBeenCalledTimes(1);
+  });
+});

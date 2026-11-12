@@ -422,7 +422,7 @@ describe('loadPhonePairing', () => {
   it('reads an answer without a device list as no phones, not a crash', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json(200, { ok: true, success: true, data: [] })));
     const { loadPhonePairing } = await import('@/lib/mobilePairingApi');
-    await expect(loadPhonePairing()).resolves.toEqual({ devices: [], pairingOffered: false });
+    await expect(loadPhonePairing()).resolves.toEqual({ devices: [], pairingOffered: false, accountEnroll: null });
   });
 });
 

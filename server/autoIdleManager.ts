@@ -8,6 +8,7 @@ import { AUTO_IDLE_TIMEOUTS } from './config.js';
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
 import log from './logger.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
+import { timerApprovalDisproved } from './dialogCloseWatch.js';
 import type { Session, PendingResume } from '../src/types/session.js';
 import type { ServerMessage } from '../src/types/websocket.js';
 
@@ -43,9 +44,17 @@ function dialogReportedOpen(session: Session): boolean {
   return source === 'permission_request' || source === 'pre_tool_use';
 }
 
+/**
+ * `readTail` (the session's recent terminal output) lets the tick also undo a wrong timer
+ * guess: an `approval` the PostToolUse-timeout heuristic set, while the terminal shows the
+ * working spinner, goes back to `working` and is announced (working is never sendable, so
+ * the queue can't act on it). The timer read the screen once, when it fired; without this
+ * nothing looked again until the next hook — a whole long turn of "!" and alarm.
+ */
 export function startAutoIdle(
   sessions: Map<string, Session>,
   onChange?: (changed: Session[]) => void,
+  readTail?: (session: Session) => string | null,
 ): void {
   if (idleInterval) return;
 
@@ -56,7 +65,18 @@ export function startAutoIdle(
       if (session.status === SESSION_STATUS.ENDED || session.status === SESSION_STATUS.IDLE) continue;
       const elapsed = now - session.lastActivityAt;
 
-      if (session.status === SESSION_STATUS.APPROVAL && elapsed > AUTO_IDLE_TIMEOUTS.approval
+      // Only a timer guess reads the screen: the tail is not read for any other session.
+      if (readTail && session.approvalSource === 'timer' && session.status === SESSION_STATUS.APPROVAL
+        && timerApprovalDisproved(session, readTail(session))) {
+        session.status = SESSION_STATUS.WORKING;
+        session.animationState = ANIMATION_STATE.RUNNING;
+        session.approvalSource = null;
+        session.pendingRequest = null;
+        session.waitingDetail = null;
+        // pendingTool stays: the call is still running and the robot shows it.
+        log.info('session', `Timer approval disproved by the spinner: ${session.sessionId.slice(0, 8)} back to working`);
+        announce.push(session);
+      } else if (session.status === SESSION_STATUS.APPROVAL && elapsed > AUTO_IDLE_TIMEOUTS.approval
         && !dialogReportedOpen(session)) {
         session.status = SESSION_STATUS.IDLE;
         session.animationState = ANIMATION_STATE.IDLE;

@@ -31,6 +31,11 @@ export interface ServerConfig {
    */
   phonePairing?: boolean;
   /**
+   * Let phones signed into this Mac's AASC Cloud account connect without a QR (plan 17). Absent means on;
+   * `false` turns it off. `AASC_PHONE_ACCOUNT_ENROLL=1` / `0` overrides it. The device panel's checkbox writes it.
+   */
+  phoneAccountEnroll?: boolean;
+  /**
    * A public IPv4 a pairing link names as `pub=` (Oct 28 2026), for a server another AASC desktop can only
    * reach over the Internet. Plain HTTP: open the port to that computer only. `AASC_PUBLIC_ADDRESS` overrides it.
    */

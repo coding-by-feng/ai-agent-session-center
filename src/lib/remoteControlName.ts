@@ -104,21 +104,24 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracod
 export const DEFAULT_EFFORT_LEVEL = 'high';
 
 /**
- * Claude Code `--model` options offered in the session creation modals and the phone's
- * Model and effort sheet. Aliases (fable/opus/sonnet/haiku) resolve to the newest model in
- * each tier; full IDs pin a version. Today's lineup first (Oct 2026: Fable 5.1, Opus 5.5,
+ * Claude Code `--model` options: the FALLBACK for the session creation modals, the AI
+ * popup, the queue's Set model step and the phone's Model and effort sheet. Those read
+ * the installed CLI's own `/model` list (`GET /api/claude/models`, `useClaudeModels`) and
+ * use this only until it arrives or when it can't be read. Aliases resolve to the newest
+ * model in each tier; full IDs pin a version. Nov 2026 lineup first (Fable 5.2, Opus 5.5,
  * Sonnet 5.5, Haiku 5.5), then older versions still served. The Combobox also accepts any
- * typed model ID. When a tier gets a new version, update MODEL_ALIAS_VERSIONS with it.
+ * typed model ID.
  */
 export const MODEL_OPTIONS = [
   'fable',
   'opus',
   'sonnet',
   'haiku',
-  'claude-fable-5-1',
+  'claude-fable-5-2',
   'claude-opus-5-5',
   'claude-sonnet-5-5',
   'claude-haiku-5-5',
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
@@ -127,9 +130,9 @@ export const MODEL_OPTIONS = [
   'claude-haiku-4-5',
 ] as const;
 
-/** The version each alias means today, to say it next to the alias ("Newest · Opus 5.5"). */
+/** The version each alias means (fallback; the CLI's list wins), to say next to it: "Newest · Opus 5.5". */
 export const MODEL_ALIAS_VERSIONS: Readonly<Record<string, string>> = {
-  fable: 'claude-fable-5-1',
+  fable: 'claude-fable-5-2',
   opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5-5',
   haiku: 'claude-haiku-5-5',

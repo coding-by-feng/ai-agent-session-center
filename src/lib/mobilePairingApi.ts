@@ -23,6 +23,41 @@ export interface PairedPhone {
   access?: 'sessions-only';
   /** Has an open socket right now (Oct 22 2026); absent from older servers. */
   online?: boolean;
+  /** How it was paired (plan 17): a code + Allow, or through this Mac's AASC Cloud account. Absent: code. */
+  origin?: 'code' | 'account';
+  /** The AASC Cloud account an `account` device enrolled through. */
+  accountEmail?: string | null;
+}
+
+/** Why the account switch is greyed out: phone pairing off, no dashboard password, or no usable AASC Cloud. */
+export type AccountEnrollBlock = 'pairing-off' | 'no-password' | 'no-cloud';
+const ACCOUNT_ENROLL_BLOCKS: readonly AccountEnrollBlock[] = ['pairing-off', 'no-password', 'no-cloud'];
+
+/**
+ * "Let phones signed into my AASC Cloud account connect" (plan 17). `enabled`: in force (phone pairing on and
+ * the setting on). `available`: this Mac is in an AASC Cloud account with a usable connection and has a
+ * dashboard password. `blocked`: why the switch can't be used, or null.
+ */
+export interface AccountEnrollState {
+  enabled: boolean;
+  available: boolean;
+  email: string | null;
+  blocked: AccountEnrollBlock | null;
+}
+
+/** The server's answer as an AccountEnrollState, or null when it says nothing usable (an older server). */
+export function readAccountEnroll(v: unknown): AccountEnrollState | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.enabled !== 'boolean' || typeof o.available !== 'boolean') return null;
+  const named = ACCOUNT_ENROLL_BLOCKS.find((b) => b === o.blocked) ?? null;
+  return {
+    enabled: o.enabled,
+    available: o.available,
+    email: typeof o.email === 'string' && o.email !== '' ? o.email : null,
+    // A server from before `blocked` only knew one reason.
+    blocked: named ?? (o.available ? null : 'no-cloud'),
+  };
 }
 
 export interface PhonePairing {
@@ -68,14 +103,28 @@ export interface PhonePairingState {
    * ships; a server that doesn't say counts as off.
    */
   pairingOffered: boolean;
+  /** The account switch (plan 17); null from a server without it. */
+  accountEnroll: AccountEnrollState | null;
 }
 
-/** The paired phones, and whether new ones may be paired. */
+/** The paired phones, whether new ones may be paired, and the account switch. */
 export async function loadPhonePairing(signal?: AbortSignal): Promise<PhonePairingState> {
   const res = await fetch('/api/mobile/devices', { signal });
-  const body = await readJson<{ data?: { devices?: unknown; pairingOffered?: unknown } }>(res, 'Could not load paired phones');
+  const body = await readJson<{ data?: { devices?: unknown; pairingOffered?: unknown; accountEnroll?: unknown } }>(
+    res, 'Could not load paired phones');
   const devices = Array.isArray(body.data?.devices) ? (body.data.devices as PairedPhone[]) : [];
-  return { devices, pairingOffered: body.data?.pairingOffered === true };
+  return { devices, pairingOffered: body.data?.pairingOffered === true, accountEnroll: readAccountEnroll(body.data?.accountEnroll) };
+}
+
+/** Turn the account switch on or off; answers the new state. */
+export async function setAccountEnroll(enabled: boolean): Promise<AccountEnrollState> {
+  const res = await fetch('/api/mobile/pairing/account-enroll', {
+    method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ enabled }),
+  });
+  const body = await readJson<{ data?: { accountEnroll?: unknown } }>(res, 'Could not change the setting');
+  const state = readAccountEnroll(body.data?.accountEnroll);
+  if (!state) throw new Error('Could not change the setting');
+  return state;
 }
 
 export async function listPairedPhones(signal?: AbortSignal): Promise<PairedPhone[]> {

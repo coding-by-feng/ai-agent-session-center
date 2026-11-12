@@ -7,6 +7,7 @@ import { getThemeNames } from './themes';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
 import type { TerminalWidthMode } from '@/lib/terminalGeometry';
+import type { AgentVoiceKind } from '@/lib/agentVoice';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -247,6 +248,20 @@ function MicIcon({ active }: { active?: boolean }) {
   );
 }
 
+/** Microphone with sound arcs: the agent CLI's own voice input (distinct from the TTS mic). */
+function VoiceInputIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3" fill={active ? 'currentColor' : 'none'} />
+      <path d="M6 11a6 6 0 0 0 12 0" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+      <path d="M3.5 6c-1.4 2.5-1.4 6.5 0 9" />
+      <path d="M20.5 6c1.4 2.5 1.4 6.5 0 9" />
+    </svg>
+  );
+}
+
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -299,7 +314,12 @@ interface TerminalToolbarProps {
   ttsActive?: boolean;
   onTtsPressStart?: () => void;
   onTtsPressEnd?: () => void;
-  /** Show click-to-speak speaker button (local offline voice enabled in settings). */
+  /** The agent CLI's own voice input (lib/agentVoice.ts): Claude holds, Codex toggles. Hidden when null. */
+  agentVoice?: AgentVoiceKind | null;
+  agentVoiceActive?: boolean;
+  onAgentVoiceStart?: () => void;
+  onAgentVoiceStop?: () => void;
+  onAgentVoiceToggle?: () => void;
 }
 
 export default function TerminalToolbar({
@@ -334,6 +354,11 @@ export default function TerminalToolbar({
   ttsActive = false,
   onTtsPressStart,
   onTtsPressEnd,
+  agentVoice = null,
+  agentVoiceActive = false,
+  onAgentVoiceStart,
+  onAgentVoiceStop,
+  onAgentVoiceToggle,
 }: TerminalToolbarProps) {
   const themeOptions = useMemo<SelectOption[]>(() => [
     { value: 'auto', label: 'Auto' },
@@ -538,6 +563,36 @@ export default function TerminalToolbar({
             aria-label={tooltips.termSpeak.label}
           >
             <MicIcon active={ttsActive} />
+          </button>
+        </Tooltip>
+      )}
+
+      {agentVoice === 'hold' && onAgentVoiceStart && onAgentVoiceStop && (
+        <Tooltip {...tooltips.termVoiceHold}>
+          <button
+            className={`${styles.toolbarBtn}${agentVoiceActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
+            onPointerDown={(e) => { e.preventDefault(); onAgentVoiceStart(); }}
+            onPointerUp={onAgentVoiceStop}
+            onPointerLeave={onAgentVoiceStop}
+            onPointerCancel={onAgentVoiceStop}
+            onBlur={onAgentVoiceStop}
+            aria-pressed={agentVoiceActive}
+            aria-label={tooltips.termVoiceHold.label}
+          >
+            <VoiceInputIcon active={agentVoiceActive} />
+          </button>
+        </Tooltip>
+      )}
+
+      {agentVoice === 'toggle' && onAgentVoiceToggle && (
+        <Tooltip {...(agentVoiceActive ? tooltips.termVoiceStop : tooltips.termVoiceStart)}>
+          <button
+            className={`${styles.toolbarBtn}${agentVoiceActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
+            onClick={onAgentVoiceToggle}
+            aria-pressed={agentVoiceActive}
+            aria-label={(agentVoiceActive ? tooltips.termVoiceStop : tooltips.termVoiceStart).label}
+          >
+            <VoiceInputIcon active={agentVoiceActive} />
           </button>
         </Tooltip>
       )}

@@ -1,6 +1,7 @@
 // macScreens.ts — Your Macs, and one Mac's settings (home network, unpair) (AASC-17).
 import type { DeviceNoun } from '../formFactor.js';
 import type { SavedMac } from '../savedMacs.js';
+import { renderAccountSection } from './accountScreens.js';
 import { h, icon } from './dom.js';
 import { actions, alert, button, notice, para, pathRow, pathSummary, screen, status, toggle } from './parts.js';
 import type { Actions, Screen, ScreenContext, UnpairStep } from './screen.js';
@@ -61,11 +62,15 @@ function macRow(mac: SavedMac, ctx: ScreenContext, asking: MacsScreen['unpair'])
 }
 
 export function renderMacs(s: Extract<Screen, { name: 'macs' }>, ctx: ScreenContext): HTMLElement {
+  // Plan 17: signed in with nothing saved yet, the list is only the account's Macs.
   return screen('Your Macs', null,
     notice(s.notice),
-    h('ul', { class: 'macs', attrs: { 'aria-label': 'Paired Macs' } }, ...ctx.macs.map((m) => macRow(m, ctx, s.unpair))),
+    ctx.macs.length
+      ? h('ul', { class: 'macs', attrs: { 'aria-label': 'Paired Macs' } }, ...ctx.macs.map((m) => macRow(m, ctx, s.unpair)))
+      : null,
+    renderAccountSection(s, ctx),
     actions(
-      button('Pair another Mac', ctx.actions.showPair, 'secondary'),
+      button(ctx.macs.length ? 'Pair another Mac' : 'Pair with a QR code', ctx.actions.showPair, 'secondary'),
       button(`This ${ctx.device}`, ctx.actions.showPhone, 'quiet')));
 }
 

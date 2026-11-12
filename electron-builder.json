@@ -44,7 +44,8 @@
       "NSAppleEventsUsageDescription": "Agents you run in AI Agent Session Center can use AppleScript to work with other apps. macOS asks you before each app.",
       "NSDocumentsFolderUsageDescription": "AI Agent Session Center shows the project folders you open and runs your coding agents in them.",
       "NSDesktopFolderUsageDescription": "AI Agent Session Center shows the project folders you open and runs your coding agents in them.",
-      "NSDownloadsFolderUsageDescription": "AI Agent Session Center shows the project folders you open and runs your coding agents in them."
+      "NSDownloadsFolderUsageDescription": "AI Agent Session Center shows the project folders you open and runs your coding agents in them.",
+      "NSMicrophoneUsageDescription": "Claude Code and Codex voice modes in your AASC terminals use the microphone."
     }
   },
   "dmg": {

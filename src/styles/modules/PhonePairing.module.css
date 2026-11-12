@@ -285,3 +285,111 @@
   line-height: 1.4;
   color: var(--accent-orange, #ff9100);
 }
+
+/*
+ * Plan 17: "Let phones signed into my AASC Cloud account connect" (AccountEnrollToggle). The whole row is the
+ * target; five states: default, hover, active, focus-visible on the box, disabled. The email sits under the
+ * label, indented to the label's start.
+ */
+.accountEnroll {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.accountEnrollRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 -4px;
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary, #e0e0f0);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+/* 16px box + 8px gap: the email under it starts at 24px, on the grid, under the label's first letter. */
+.accountEnrollRow input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  cursor: pointer;
+}
+
+.accountEnrollRow input[aria-busy='true'] {
+  cursor: progress;
+}
+
+.accountEnrollRow:hover {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 8%, transparent);
+}
+
+.accountEnrollRow:active {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 16%, transparent);
+}
+
+.accountEnrollRow input:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 2px;
+}
+
+.accountEnrollDisabled,
+.accountEnrollDisabled input {
+  cursor: not-allowed;
+}
+
+.accountEnrollDisabled {
+  opacity: 0.55;
+}
+
+.accountEnrollDisabled:hover,
+.accountEnrollDisabled:active {
+  background: transparent;
+}
+
+.accountEnrollDetail {
+  padding-left: 24px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #8a8aa8);
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  .accountEnrollRow {
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accountEnrollRow {
+    transition: none;
+  }
+}
+
+/*
+ * "via account · me@example.com": one more meta line, in the accent so it reads as how the phone got in. Mixed
+ * toward the primary text so 11px stays at 4.5:1 or better in light themes too (pure cyan measured 3.95:1 there).
+ */
+.accountTag {
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 60%, var(--text-primary, #e0e0f0));
+  overflow-wrap: anywhere;
+}
+
+/* Before revoking an account phone (plan 17, review H1): its own line above Revoke / Keep, in body colour,
+   because it changes what Revoke does. */
+.revokeNote {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary, #e0e0f0);
+}

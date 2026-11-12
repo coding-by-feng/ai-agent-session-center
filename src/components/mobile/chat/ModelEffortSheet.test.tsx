@@ -1,9 +1,10 @@
 // ModelEffortSheet — pick a model (with its version) and an effort in one visit, then Apply once
 // (Oct 2026, by request). Taps select; Apply sends only what changed, model first.
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { Session } from '@/types';
 import ModelEffortSheet from './ModelEffortSheet';
+import { resetClaudeModelsForTests } from '@/lib/claudeModels';
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -28,7 +29,26 @@ describe('ModelEffortSheet', () => {
     renderSheet();
     expect(row(/^Opus/)).toHaveTextContent('Newest · Opus 5.5');
     expect(row(/^Sonnet/)).toHaveTextContent('Newest · Sonnet 5.5');
-    expect(row(/^Fable/)).toHaveTextContent('Newest · Fable 5.1');
+    expect(row(/^Fable/)).toHaveTextContent('Newest · Fable 5.2');
+  });
+
+  describe('with the Mac\'s CLI list', () => {
+    afterEach(() => { resetClaudeModelsForTests(); vi.unstubAllGlobals(); });
+
+    it('names a model shipped after this build, and lets it be pinned', async () => {
+      const models = [
+        { id: 'fable', resolvedModel: 'claude-fable-5-3', displayName: 'Fable 5.3', description: '' },
+        { id: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: '' },
+      ];
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ models }) }));
+      vi.stubGlobal('fetch', fetchMock);
+      renderSheet();
+      expect(await within(sheet()).findByText('Newest · Fable 5.3')).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledWith('/api/claude/models', { cache: 'no-store' });
+      fireEvent.click(within(sheet()).getByRole('button', { name: /Fixed versions/ }));
+      const pinned = within(sheet()).getByRole('region', { name: 'Fixed versions' });
+      expect(within(pinned).getAllByRole('button')[0]).toHaveTextContent('Fable 5.3');
+    });
   });
 
   it('lists the fixed versions right under the models, today\'s first', () => {
@@ -36,7 +56,7 @@ describe('ModelEffortSheet', () => {
     fireEvent.click(within(sheet()).getByRole('button', { name: /Fixed versions/ }));
     const pinned = within(sheet()).getByRole('region', { name: 'Fixed versions' });
     const names = within(pinned).getAllByRole('button').map((b) => b.textContent);
-    expect(names.slice(0, 4)).toEqual(['Fable 5.1', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5']);
+    expect(names.slice(0, 4)).toEqual(['Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5']);
     expect(names).toContain('Opus 4.8');
   });
 

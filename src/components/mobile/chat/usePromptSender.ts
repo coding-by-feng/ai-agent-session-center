@@ -43,11 +43,16 @@ export interface OutgoingMessage {
   images?: readonly QueueImageAttachment[];
 }
 
-/** What the status line says about a send: the composer's, and a chat question card's (Nov 2 2026). */
-export function sendStatusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
+/**
+ * What the status line says about a send: the composer's, and a chat question card's (Nov 2 2026). `starting`: the
+ * session's agent isn't up yet (connecting, or no terminal), so the Mac starts it and holds the prompt (Nov 12 2026).
+ */
+export function sendStatusLine(state: SendPhase, cliName: string, windowOpen: boolean, starting = false): string | null {
   switch (state.phase) {
     case 'sending': return 'Sending…';
-    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
+    case 'pending':
+      if (starting) return state.slow ? `Still waiting for ${cliName} to start…` : `Starting ${cliName}… your message goes in when it’s ready`;
+      return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
     case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
     case 'failed': return state.message;
     case 'unsure': return state.message;

@@ -35,6 +35,7 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
 import { listPairedPhones, type PairedPhone } from '@/lib/mobilePairingApi';
 import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
+import { accountPhoneNotice, newAccountPhones } from '@/lib/accountPhoneNotice';
 import { presenceDeviceKind } from '@/lib/deviceKind';
 import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -125,6 +126,9 @@ export default function DevicePresenceChip() {
   // changes, since a phone opening its app is a presence change, and on a slow
   // poll for renames and revokes.
   const [pairedPhones, setPairedPhones] = useState<PairedPhone[] | null>(null);
+  // The last list read, for the "joined through your AASC Cloud account" toast (plan 17): an account phone
+  // connects with no Allow click, so the owner is told here. Kept across the effect's restarts.
+  const lastPhonesRef = useRef<PairedPhone[] | null>(null);
   const isMac = isLocalDevice(devices, myId);
   // Which devices are connected, not every presence update (a baton move is one too).
   const deviceKey = devices.map((d) => d.clientId).join(',');
@@ -133,7 +137,12 @@ export default function DevicePresenceChip() {
     const controller = new AbortController();
     const load = () => {
       listPairedPhones(controller.signal)
-        .then((list) => { if (!controller.signal.aborted) setPairedPhones(list); })
+        .then((list) => {
+          if (controller.signal.aborted) return;
+          for (const p of newAccountPhones(lastPhonesRef.current, list)) showToast(accountPhoneNotice(p), 'info', 8000);
+          lastPhonesRef.current = list;
+          setPairedPhones(list);
+        })
         .catch(() => { /* a background count: keep the last one */ });
     };
     load();

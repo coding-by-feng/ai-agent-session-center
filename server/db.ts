@@ -11,6 +11,7 @@ import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import { encodeQueue, decodeQueueRow, nextQueueVersion } from './sessionQueueCodec.js';
 import { migrateMobileDeviceCodeRefs } from './mobile/deviceCodeRefMigration.js';
 import { MOBILE_DEVICES_DDL, migrateMobileDevicePlatforms } from './mobile/devicePlatformMigration.js';
+import { migrateMobileDeviceOrigin } from './mobile/deviceOriginMigration.js';
 import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
 import type { ProjectActivity } from './knownProjects.js';
 import type { Session } from '../src/types/session.js';
@@ -998,6 +999,25 @@ try {
 } catch (err: unknown) {
   log.warn('db', `Mobile device platform migration skipped: ${err instanceof Error ? err.message : String(err)}`);
 }
+// Phones enrolled through the AASC Cloud account (plan 17): origin + account_email, added once.
+try {
+  if (migrateMobileDeviceOrigin(db)) log.info('db', 'mobile_devices now records how each device was paired');
+} catch (err: unknown) {
+  log.warn('db', `Mobile device origin migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+}
+// Account phones the owner removed on purpose (review H1): an explicit Revoke or Unpair of an account row lists
+// the phone's backend device id here, and account enroll refuses it (PHONE_REVOKED) even if the backend revoke
+// didn't reach the cloud. A phone that signs in with Google again is a new backend device, so it isn't listed.
+db.exec(`CREATE TABLE IF NOT EXISTS mobile_account_denied (
+  phone_device_id TEXT PRIMARY KEY,
+  denied_at INTEGER NOT NULL
+)`);
+export function denyAccountPhone(phoneDeviceId: string, at: number): void {
+  db.prepare('INSERT OR IGNORE INTO mobile_account_denied (phone_device_id, denied_at) VALUES (?, ?)').run(phoneDeviceId, at);
+}
+export function isAccountPhoneDenied(phoneDeviceId: string): boolean {
+  return db.prepare('SELECT 1 FROM mobile_account_denied WHERE phone_device_id = ?').get(phoneDeviceId) !== undefined;
+}
 
 export interface MobileDeviceRow {
   id: string;
@@ -1010,6 +1030,11 @@ export interface MobileDeviceRow {
   /** 1 when the Mac bound be_code_ref (AASC-51); 0 for every row from before. */
   be_code_ref_mac_bound: 0 | 1;
   credential_epoch: string | null;
+  /** 'code' (QR / typed code, then Allow) or 'account' (enrolled through the AASC Cloud account, plan 17). */
+  origin: 'code' | 'account';
+  account_email: string | null;
+  /** The phone's backend device id an account row enrolled as (review H1); null for code rows. */
+  account_phone_id: string | null;
   created_at: number;
   approved_at: number | null;
   last_seen_at: number | null;
@@ -1018,9 +1043,10 @@ export interface MobileDeviceRow {
 
 export function insertMobileDevice(row: MobileDeviceRow): void {
   db.prepare(`INSERT INTO mobile_devices (id, label, platform, token_hash, status, confirm_code, be_code_ref,
-    be_code_ref_mac_bound, credential_epoch, created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label,
-    @platform, @token_hash, @status, @confirm_code, @be_code_ref, @be_code_ref_mac_bound, @credential_epoch, @created_at,
-    @approved_at, @last_seen_at, @revoked_at)`).run(row);
+    be_code_ref_mac_bound, credential_epoch, origin, account_email, account_phone_id, created_at, approved_at,
+    last_seen_at, revoked_at) VALUES (@id, @label, @platform, @token_hash, @status, @confirm_code, @be_code_ref,
+    @be_code_ref_mac_bound, @credential_epoch, @origin, @account_email, @account_phone_id, @created_at, @approved_at,
+    @last_seen_at, @revoked_at)`).run(row);
 }
 export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;

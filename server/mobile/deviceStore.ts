@@ -1,8 +1,10 @@
 // deviceStore.ts — the SQLite-backed MobileDeviceStore (table mobile_devices in db.ts)
-// and BackendCodeLedger (table mobile_backend_codes, AASC-52).
+// and BackendCodeLedger (table mobile_backend_codes, AASC-52), and the account phone deny list
+// (table mobile_account_denied, plan 17 review H1).
 import * as db from '../db.js';
 import type { MobileDeviceRecord, MobileDeviceStore } from './deviceAuth.js';
 import type { BackendCodeLedger } from './phoneBackendCode.js';
+import type { AccountDenyList } from './accountPhoneRevocation.js';
 
 function fromRow(row: db.MobileDeviceRow): MobileDeviceRecord {
   return {
@@ -15,6 +17,10 @@ function fromRow(row: db.MobileDeviceRow): MobileDeviceRecord {
     beCodeRef: row.be_code_ref,
     beCodeRefMacBound: row.be_code_ref_mac_bound === 1,
     credentialEpoch: row.credential_epoch,
+    // A row read before the column existed (it can't be, after the migration) counts as code-paired.
+    origin: row.origin === 'account' ? 'account' : 'code',
+    accountEmail: row.account_email ?? null,
+    accountPhoneId: row.account_phone_id ?? null,
     createdAt: row.created_at,
     approvedAt: row.approved_at,
     lastSeenAt: row.last_seen_at,
@@ -34,6 +40,10 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
       be_code_ref: rec.beCodeRef,
       be_code_ref_mac_bound: rec.beCodeRefMacBound ? 1 : 0,
       credential_epoch: rec.credentialEpoch,
+      // The column defaults: a caller from before plan 17 that leaves them out made a code-paired row.
+      origin: rec.origin ?? 'code',
+      account_email: rec.accountEmail ?? null,
+      account_phone_id: rec.accountPhoneId ?? null,
       created_at: rec.createdAt,
       approved_at: rec.approvedAt,
       last_seen_at: rec.lastSeenAt,
@@ -61,6 +71,12 @@ export const sqliteMobileDeviceStore: MobileDeviceStore = {
   remove(id) {
     db.deleteMobileDevice(id);
   },
+};
+
+/** Account phones the owner removed on purpose (review H1), in table mobile_account_denied. */
+export const sqliteAccountDenyList: AccountDenyList = {
+  has: (phoneDeviceId) => db.isAccountPhoneDenied(phoneDeviceId),
+  add: (phoneDeviceId) => db.denyAccountPhone(phoneDeviceId, Date.now()),
 };
 
 export const sqliteBackendCodeLedger: BackendCodeLedger = {

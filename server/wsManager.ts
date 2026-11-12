@@ -33,6 +33,7 @@ import { isLoopbackAddress } from './presenceManager.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
+import { noteInputProbe } from './typingProbe.js';
 import type WebSocket from 'ws';
 
 const dialogCloseWatch = createDialogCloseWatch({
@@ -257,6 +258,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
               noticeAgentNotRunning(client, msg.terminalId);
               break;
             }
+            if (msg.probe !== undefined) noteInputProbe(msg.terminalId, client, msg.probe);
             writeToTerminal(msg.terminalId, msg.data);
             // Answering a dialog here ends the "!" and the alarm once the agent is working again.
             if (typed !== '') dialogCloseWatch.noteInput(msg.terminalId);

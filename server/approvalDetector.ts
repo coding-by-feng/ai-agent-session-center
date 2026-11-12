@@ -49,10 +49,14 @@ export function isAgentBusyOutput(output: string | null | undefined): boolean {
  * PermissionRequest plus a `permission_prompt` Notification (sessionStore), which
  * set "approval" without any guessing. So in these two modes a timer can only be
  * wrong: the reported case was a bypass-mode session an hour into "still thinking"
- * after a Read, showing the "!" badge. `auto` (a classifier, may still ask) and the
- * other modes keep the heuristic.
+ * after a Read, showing the "!" badge. `auto` joined them on Nov 12 2026: its
+ * classifier checks each call before it runs (no child process, often no spinner yet),
+ * so the timer fired mid-check and a card sat on "Approval needed" with its alarm for a
+ * whole turn; when auto mode does ask, the dialog sends PermissionRequest and the
+ * `permission_prompt` Notification like the other two. `default`, `acceptEdits` and
+ * `plan` keep the heuristic.
  */
-const NEVER_PROMPTS_MODES: ReadonlySet<string> = new Set(['bypassPermissions', 'dontAsk']);
+const NEVER_PROMPTS_MODES: ReadonlySet<string> = new Set(['bypassPermissions', 'dontAsk', 'auto']);
 
 /**
  * May the timeout heuristic turn this tool call into a wait for the user? False only

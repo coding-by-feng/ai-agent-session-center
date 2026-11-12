@@ -7,6 +7,8 @@
 //
 // Never acts on a link without a tap: a scanned, pasted, typed or opened link
 // only ever leads to "Pair with <Mac>?".
+import { isAuthCallback } from './accountSignIn.js';
+import { createAccountWiring } from './accountWiring.js';
 import type { Candidate } from './connectionPlan.js';
 import { createExtras } from './extras.js';
 import { defaultDeviceName, deviceNoun } from './formFactor.js';
@@ -18,6 +20,7 @@ import { parseReauthRequest } from './reauth.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
 import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
 import { cleanLabel } from './text.js';
+import { renderAccountMatch } from './ui/accountScreens.js';
 import { renderMacs, renderSettings } from './ui/macScreens.js';
 import { renderLocked, renderPhone, renderShare } from './ui/extraScreens.js';
 import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
@@ -32,6 +35,12 @@ export const APPROVAL_POLL_MS = 3_000;
 export const APPROVAL_POLL_MAX_MS = 11 * 60_000;
 /** AASC's default port, prefilled in the typed-code form (the Mac's code screen doesn't show it). */
 const DEFAULT_PORT = '3333';
+/** What the phone says when a saved Mac's sign-in came back 401 (OpenOutcome `revoked`). */
+const REVOKED_TEXT: Record<Extract<OpenOutcome, { kind: 'revoked' }>['why'], (mac: string) => string> = {
+  revoked: (mac) => `${mac} removed this phone. Pair again to use it.`,
+  'key-missing': (mac) => `This phone lost its key for ${mac}. Pair again to use it.`,
+  unfinished: (mac) => `${mac} didn’t finish connecting. Tap Connect to try again.`,
+};
 
 /**
  * Preferences key: a hash of the launch link already handled. The app keeps
@@ -98,7 +107,8 @@ export function createShellApp(
     return run;
   };
   const find = (id: string) => macs.find((m) => m.id === id);
-  const homeScreen = (notice: string | null = null): Screen => (macs.length ? { name: 'macs', notice } : pairScreen(notice));
+  // Plan 17: signed in to AASC Cloud, the list is home even with nothing saved yet (it shows the account's Macs).
+  const homeScreen = (notice: string | null = null): Screen => (macs.length || account?.signedIn() ? { name: 'macs', notice } : pairScreen(notice));
   const defaultPhoneName = () => defaultDeviceName(deps?.os ?? 'web', deps?.formFactor);
 
   // AASC-19 / AASC-21: share, lock, push, this phone's settings.
@@ -117,6 +127,28 @@ export function createShellApp(
         pair: (notice) => pairScreen(notice),
         serial,
         guard,
+      })
+    : null;
+  // Plan 17: AASC Cloud sign-in and the account's Macs.
+  const account = deps
+    ? createAccountWiring({
+        deps,
+        macs: () => macs,
+        setMacs: (next) => {
+          macs = next;
+        },
+        screen: () => screen,
+        show,
+        update,
+        redraw: () => render(false),
+        gen: () => gen,
+        home: homeScreen,
+        pair: (notice, accountError = null) => ({ ...pairScreen(notice), accountError }),
+        serial,
+        guard,
+        phoneName: () => defaultPhoneName(),
+        open: (mac) => connect(mac, '/', false),
+        tryingText,
       })
     : null;
   const noop = () => undefined;
@@ -164,6 +196,8 @@ export function createShellApp(
       lock: extras?.lockView() ?? null,
       pushNote: extras?.pushNote() ?? '',
       device: deviceNoun(deps?.os ?? 'web', deps?.formFactor),
+      account: account?.view() ?? null,
+      canSignIn: account?.canSignIn() ?? false,
     };
     const s = screen;
     switch (s.name) {
@@ -175,6 +209,7 @@ export function createShellApp(
       case 'confirm': return renderConfirm(s, ctx);
       case 'macs': return renderMacs(s, ctx);
       case 'approve': return renderApprove(s, ctx);
+      case 'account-match': return renderAccountMatch(s, ctx);
       default: {
         const mac = find(s.macId);
         if (!mac) return renderMacs({ name: 'macs', notice: null }, ctx);
@@ -324,9 +359,7 @@ export function createShellApp(
         showApprove(out.mac, false);
         return;
       case 'revoked':
-        show(homeScreen(out.why === 'revoked'
-          ? `${mac.name} removed this phone. Pair again to use it.`
-          : `This phone lost its key for ${mac.name}. Pair again to use it.`));
+        show(homeScreen(REVOKED_TEXT[out.why](mac.name)));
         return;
       case 'offline':
         show({ name: 'offline', macId: mac.id, back, reauth, tried: out.tried, message: null });
@@ -418,7 +451,10 @@ export function createShellApp(
       if (mac) await connect(mac, screen.back, screen.reauth);
       else show(homeScreen(null));
     }),
-    showMacs: () => show(homeScreen(null)),
+    showMacs: () => {
+      show(homeScreen(null));
+      void account?.refresh();
+    },
     showPair: () => show(pairScreen()),
     showSettings: (macId) => show({ name: 'settings', macId, step: 'idle', notice: null }),
     useHomeNetwork: (macId) => guard(async () => {
@@ -487,9 +523,13 @@ export function createShellApp(
         : `Removed ${mac.name} from this phone. Revoke it in the Mac’s devices panel too.`));
     })(),
     ...extrasActions(),
+    ...(account?.actions ?? {
+      signInWithGoogle: noop, confirmAccountMatch: noop, cancelAccountMatch: noop, signOutAccount: noop, toggleAccountMenu: noop, refreshAccount: noop, enrollMac: noop,
+    }),
   };
 
   function openLink(url: string): void {
+    if (isAuthCallback(url)) return; // plan 17: the sign-in sheet's own return, not a pairing link
     const read = readPairingLink(url);
     if (read.ok) showConfirm(read.link);
     else show(pairScreen(null, pairingLinkRefusal(read, BAD_LINK_MESSAGE)));
@@ -512,7 +552,7 @@ export function createShellApp(
       return;
     }
     const launch = await d.navigator.launchUrl().catch(() => null);
-    if (launch) {
+    if (launch && !isAuthCallback(launch)) {
       const seen = await sha256(launch);
       if (seen !== (await d.store.get(HANDLED_LAUNCH_KEY))) {
         await d.store.set(HANDLED_LAUNCH_KEY, seen);
@@ -545,6 +585,7 @@ export function createShellApp(
         return;
       }
       macs = await loadMacs(deps.store);
+      await account?.start();
       offLink = deps.navigator.onLinkOpened(openLink);
       const search = deps.navigator.search();
       const away = resumeAway(search, Date.now());

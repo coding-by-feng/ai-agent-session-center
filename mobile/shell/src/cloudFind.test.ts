@@ -23,7 +23,7 @@ const MINI = '100.88.1.7';
 const MINI_ORIGIN = `http://${MINI}:3333`;
 const BACKEND_GET = 'https://api.aasc.work/v1/mac-paths';
 
-/** Away from home: the row knows no Tailscale address, and the Mac is on the account under 'mac-dev-1'. */
+/** Away from home: the row knows no Tailscale address, and the Mac is on the account under '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f'. */
 const MAC: SavedMac = {
   id: '6f1c2a10-0000-4000-8000-000000000001', name: 'Kason-MBP', port: 3333, lan: '192.168.1.20', tailnet: null,
   lanAllowed: true, backendDeviceId: null, status: 'active', confirmCode: null, phoneName: 'Pixel', lastPath: 'lan',
@@ -70,7 +70,7 @@ const identifies = (p: Phone) => p.fake.calls.filter((c) => c.url.endsWith('/api
 const listing = (...macs: Array<Record<string, unknown>>) => ({ success: true, data: { macs } });
 
 describe('cloudHints', () => {
-  const mac: SavedMac = { ...MAC, tailnet: MINI, backendDeviceId: 'mac-dev-1' };
+  const mac: SavedMac = { ...MAC, tailnet: MINI, backendDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f' };
 
   it('tries this Mac’s backend device first and ignores other ports and non-tailnet addresses', () => {
     const raw = listing(
@@ -79,7 +79,7 @@ describe('cloudHints', () => {
       { deviceId: 'home', tailnet: '192.168.1.9', port: 3333 },
       { deviceId: 'public', tailnet: '8.8.8.8', port: 3333 },
       { deviceId: 'saved', tailnet: MINI, port: 3333 }, // the address the phone just tried
-      { deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 },
+      { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 },
     );
     expect(cloudHints(mac, raw)).toEqual([THIS_MAC, '100.77.0.1']);
   });
@@ -88,7 +88,7 @@ describe('cloudHints', () => {
   // answered at the saved home address), it never did, and it is the one address the cloud may be right about.
   describe('the saved Tailscale address', () => {
     const raw = listing(
-      { deviceId: 'mac-dev-1', tailnet: MINI, port: 3333 },
+      { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: MINI, port: 3333 },
       { deviceId: 'other-mac', tailnet: '100.77.0.1', port: 3333 },
     );
 
@@ -103,7 +103,7 @@ describe('cloudHints', () => {
     });
 
     it('is still checked like any other listed address', () => {
-      const wrongPort = listing({ deviceId: 'mac-dev-1', tailnet: MINI, port: 4000 });
+      const wrongPort = listing({ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: MINI, port: 4000 });
       expect(cloudHints(mac, wrongPort, { triedTailnet: false })).toEqual([]);
       expect(cloudHints({ ...mac, tailnet: null }, raw, { triedTailnet: false })).toEqual([MINI, '100.77.0.1']);
     });
@@ -121,7 +121,7 @@ describe('cloudHints', () => {
   it('lists an address once', () => {
     const raw = listing(
       { deviceId: 'a', tailnet: '100.77.0.1', port: 3333 },
-      { deviceId: 'mac-dev-1', tailnet: '100.77.0.1', port: 3333 },
+      { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.77.0.1', port: 3333 },
       { deviceId: 'c', tailnet: '100.77.0.1', port: 3333 },
     );
     expect(cloudHints(mac, raw)).toEqual(['100.77.0.1']);
@@ -129,7 +129,7 @@ describe('cloudHints', () => {
 
   it(`gives at most ${MAX_CLOUD_HINTS}, and never cuts this Mac’s own device to make room`, () => {
     const others = Array.from({ length: 12 }, (_, i) => ({ deviceId: `m${i}`, tailnet: `100.77.0.${i + 1}`, port: 3333 }));
-    const raw = listing(...others, { deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 });
+    const raw = listing(...others, { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 });
     const hints = cloudHints(mac, raw);
     expect(hints).toHaveLength(MAX_CLOUD_HINTS);
     expect(hints[0]).toBe(THIS_MAC);
@@ -150,17 +150,17 @@ describe('cloudHints', () => {
     ['a number', 1684300903],
     ['nothing', null],
   ])('ignores %s', (_why, tailnet) => {
-    expect(cloudHints({ ...mac, tailnet: null }, listing({ deviceId: 'mac-dev-1', tailnet, port: 3333 }))).toEqual([]);
+    expect(cloudHints({ ...mac, tailnet: null }, listing({ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet, port: 3333 }))).toEqual([]);
   });
 
   it('reads no more than the 20 Macs the backend lists', () => {
     const filler = Array.from({ length: 20 }, (_, i) => ({ deviceId: `m${i}`, tailnet: '192.168.1.9', port: 3333 })); // none usable
-    expect(cloudHints(mac, listing(...filler, { deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }))).toEqual([]);
-    expect(cloudHints(mac, listing(...filler.slice(1), { deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }))).toEqual([THIS_MAC]);
+    expect(cloudHints(mac, listing(...filler, { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }))).toEqual([]);
+    expect(cloudHints(mac, listing(...filler.slice(1), { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }))).toEqual([THIS_MAC]);
   });
 
   it('ignores a port that is only text', () => {
-    expect(cloudHints(mac, listing({ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: '3333' }))).toEqual([]);
+    expect(cloudHints(mac, listing({ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: '3333' }))).toEqual([]);
   });
 
   it.each([
@@ -176,7 +176,7 @@ describe('cloudHints', () => {
   });
 
   it('does not change the row or the answer it reads', () => {
-    const raw = listing({ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 });
+    const raw = listing({ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 });
     const before = JSON.stringify([mac, raw]);
     cloudHints(mac, raw);
     expect(JSON.stringify([mac, raw])).toBe(before);
@@ -189,7 +189,7 @@ describe('findViaCloud', () => {
       strangers: [MINI_ORIGIN],
       cloudMacs: [
         { deviceId: 'mac-mini', tailnet: MINI, port: 3333 }, // another Mac on the account
-        { deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 },
+        { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 },
         { deviceId: 'wrong-port', tailnet: '100.77.0.2', port: 4000 },
         { deviceId: 'home', tailnet: '192.168.1.9', port: 3333 },
       ],
@@ -201,7 +201,7 @@ describe('findViaCloud', () => {
   });
 
   it('asks the saved Tailscale address too when the saved paths never tried it', async () => {
-    const list = [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }];
+    const list = [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }];
     const tried = await phone({ cloudMacs: list }, { tailnet: THIS_MAC });
     expect(await find(tried)).toBeNull(); // it had just failed: not asked again
     expect(identifies(tried)).toEqual([]);
@@ -211,7 +211,7 @@ describe('findViaCloud', () => {
   });
 
   it('still opens nothing at the saved address for a box there that cannot prove the key', async () => {
-    const p = await phone({ reachable: [], strangers: [THIS_ORIGIN], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] }, { tailnet: THIS_MAC });
+    const p = await phone({ reachable: [], strangers: [THIS_ORIGIN], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] }, { tailnet: THIS_MAC });
     expect(await find(p, () => true, { triedTailnet: false })).toBeNull();
     expect(identifies(p)).toEqual([THIS_ORIGIN]);
   });
@@ -224,19 +224,19 @@ describe('findViaCloud', () => {
 
   it('never trusts a listed box that passes the question on to the real Mac', async () => {
     const relay = 'http://100.77.0.5:3333';
-    const p = await phone({ relays: [relay], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: '100.77.0.5', port: 3333 }] });
+    const p = await phone({ relays: [relay], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.77.0.5', port: 3333 }] });
     expect(await find(p)).toBeNull();
     expect(identifies(p)).toEqual([relay]);
   });
 
   it('does not take the cloud’s word for a Mac that answers nothing', async () => {
-    const p = await phone({ reachable: [], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] });
+    const p = await phone({ reachable: [], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] });
     expect(await find(p)).toBeNull();
     expect(identifies(p)).toEqual([]); // nothing answered, so no proof was asked of it
   });
 
   it('asks the backend with this Mac’s token and nothing else, and probes with its own timeouts', async () => {
-    const p = await phone({ cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] });
+    const p = await phone({ cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] });
     const held = JSON.parse(p.vault.get(`backend.${p.mac.id}`)!) as { token: string };
     await find(p);
     const [ask, ...others] = p.fake.calls;
@@ -251,13 +251,13 @@ describe('findViaCloud', () => {
   });
 
   it('asks nothing of the cloud for a Mac it holds no backend token for', async () => {
-    const p = await phone({ cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] }, {}, 'none');
+    const p = await phone({ cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] }, {}, 'none');
     expect(await find(p)).toBeNull();
     expect(p.fake.calls).toEqual([]);
   });
 
   it('never sends the token to a host outside aasc.work', async () => {
-    const p = await phone({ cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] }, {}, 'none');
+    const p = await phone({ cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] }, {}, 'none');
     const held = p.fake.seedBackendDevice();
     await writeBackendCredential(p.deps.vault, p.mac.id, { ...held, host: 'api.aasc.work.evil.example' });
     expect(await find(p)).toBeNull();
@@ -266,7 +266,7 @@ describe('findViaCloud', () => {
 });
 
 describe('what the cloud answers', () => {
-  const ONE = [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }];
+  const ONE = [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }];
 
   it('a 401 forgets the backend token; a 403 marks it for relink; a 404 does nothing', async () => {
     const revoked = await phone({ cloudMacs: ONE });
@@ -380,7 +380,7 @@ describe('listed addresses', () => {
 });
 
 describe('when the user moves on', () => {
-  const ONE = [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }];
+  const ONE = [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }];
 
   it('stops when the user moves on', async () => {
     const p = await phone({ cloudMacs: ONE });
@@ -475,7 +475,7 @@ describe('when the user moves on while the listed addresses are being asked', ()
   });
 
   it('returns at once while a proof is still being waited for', async () => {
-    const base = await phone({ cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] });
+    const base = await phone({ cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] });
     let proofs = 0;
     const http = {
       post: (url: string, body: unknown) => {
@@ -496,7 +496,7 @@ describe('when the user moves on while the listed addresses are being asked', ()
   });
 
   it('sends nothing, and so never the bearer token, when the user has already gone', async () => {
-    const p = await phone({ cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: THIS_MAC, port: 3333 }] });
+    const p = await phone({ cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: THIS_MAC, port: 3333 }] });
     expect(await find(p, () => false)).toBeNull();
     expect(p.fake.calls).toEqual([]);
     expect(await readBackendCredential(p.deps.vault, p.mac.id)).not.toBeNull(); // a token was there to be sent, and was not

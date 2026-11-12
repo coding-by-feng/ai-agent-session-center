@@ -32,6 +32,11 @@ export interface SavedMac extends PairedServer {
   phoneName: string;
   /** The path that answered last, for the list. */
   lastPath: PathKind | null;
+  /**
+   * Plan 17: an account-enrolled row that hasn't opened its first /session yet. The Mac drops such a phone after
+   * 2 minutes without one, so a 401 then means "didn't finish connecting", not "removed". Absent once it has.
+   */
+  unconfirmed?: true;
 }
 
 const ID = /^[A-Za-z0-9-]{8,64}$/;
@@ -66,6 +71,7 @@ export function parseSavedMac(raw: unknown): SavedMac | null {
     confirmCode: m.status === 'pending' && typeof m.confirmCode === 'string' && CONFIRM_CODE.test(m.confirmCode) ? m.confirmCode : null,
     phoneName: cleanLabel(m.phoneName, NAME_MAX),
     lastPath: m.lastPath === 'lan' || m.lastPath === 'tailnet' ? m.lastPath : null,
+    ...(m.unconfirmed === true ? { unconfirmed: true as const } : {}),
   };
 }
 

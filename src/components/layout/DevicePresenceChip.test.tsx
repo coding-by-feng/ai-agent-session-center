@@ -6,7 +6,7 @@
 //     `req.socket.remoteAddress` is frequently an IPv4-mapped IPv6 form
 //     (`::ffff:192.168.6.42`) or bare `::1`, neither of which reads as an IP.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DevicePresenceChip from './DevicePresenceChip';
 import { usePresenceStore } from '@/stores/presenceStore';
 import type { DevicePresence } from '@/types';
@@ -297,6 +297,27 @@ describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     expect(screen.getByRole('button')).toHaveAttribute('title', '1 device connected');
     expect(kinds(screen.getByRole('button'))).toEqual(['computer']);
+  });
+
+  it('tells the owner when a phone joins through the AASC Cloud account, but not about ones already there (plan 17)', async () => {
+    const { showToast } = await import('@/components/ui/ToastContainer');
+    const account = (id: string) => ({ ...phone(id, true), origin: 'account', accountEmail: 'me@example.com' });
+    let list: unknown[] = [account('Old Pixel')];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(
+      JSON.stringify(url === '/api/mobile/devices' ? { success: true, data: { devices: list, pairingOffered: true } } : { localIP: null }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )));
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    await waitFor(() => expect(screen.getByRole('button').title).toContain('1 paired phone'));
+    expect(showToast).not.toHaveBeenCalled();
+    // The new phone opens its socket right after enrolling: a presence change re-reads the list.
+    list = [account('Old Pixel'), account('New iPhone')];
+    act(() => seed([device({ clientId: 'me' }), device({ clientId: 'new', label: 'iPhone · AASC App', isLocal: false })]));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'New iPhone connected through your AASC Cloud account (me@example.com)', 'info', expect.any(Number),
+    ));
+    expect(showToast).toHaveBeenCalledTimes(1);
   });
 
   it('a remote device never asks for the Mac’s phones', () => {

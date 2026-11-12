@@ -4,6 +4,7 @@
 // reauth); this file orders the calls and keeps the two stores in step. No
 // outcome carries a token: tokens go from the HTTP answer into the vault or the
 // native cookie and nowhere else (not the screen, Preferences, a URL or a log).
+import { currentAccount } from './accountSignIn.js';
 import { linkBackend } from './backendLink.js';
 import { findViaCloud } from './cloudFind.js';
 import { candidates, isAllowedNavigation, pickPreferred, type Candidate } from './connectionPlan.js';
@@ -127,7 +128,9 @@ export type OpenOutcome =
   | { kind: 'navigate'; url: string; mac: SavedMac; macs: SavedMac[]; backendLinked: boolean; retired: boolean }
   | { kind: 'pending'; mac: SavedMac }
   /** Wiped from this phone: the Mac removed it, or the vault lost its key. */
-  | { kind: 'revoked'; mac: SavedMac; macs: SavedMac[]; why: 'revoked' | 'key-missing' }
+  /** `unfinished` (plan 17): an account-enrolled row the Mac dropped before its first session, with the account
+   *  still signed in here; the Mac shows again in the account list with Connect. */
+  | { kind: 'revoked'; mac: SavedMac; macs: SavedMac[]; why: 'revoked' | 'key-missing' | 'unfinished' }
   | { kind: 'offline'; mac: SavedMac; tried: Candidate[] }
   /** `macs`: the saved list, when this sign-in had already retired other rows (releasedTwins). */
   | { kind: 'error'; mac: SavedMac; message: string; macs?: SavedMac[] };
@@ -247,8 +250,11 @@ export async function signInAndOpen(
   switch (session.status) {
     case 'pending':
       return { kind: 'pending', mac };
-    case 'revoked':
-      return { kind: 'revoked', mac, macs: await forgetMac(deps, macs, saved), why: 'revoked' };
+    case 'revoked': {
+      const unfinished = saved.unconfirmed === true && saved.backendDeviceId !== null
+        && (await currentAccount(deps).catch(() => null)) !== null;
+      return { kind: 'revoked', mac, macs: await forgetMac(deps, macs, saved), why: unfinished ? 'unfinished' : 'revoked' };
+    }
     case 'unreachable':
       return { kind: 'offline', mac: saved, tried: candidates(saved) };
     case 'error':
@@ -283,8 +289,9 @@ export async function signInAndOpen(
   // Signed in over the saved Tailscale address: it works, so it stays. (Another one named now would also take the
   // origin of the page about to open out of the WebView's allowed origins.)
   const learned = reached.kind === 'tailnet' ? null : adoptTailnet(mac, paths);
+  const { unconfirmed: _first, ...signedIn } = mac; // its first session: an ordinary row from now on
   const opened: SavedMac = {
-    ...mac, status: 'active', confirmCode: null, lastPath: reached.kind, tailnet: learned ?? mac.tailnet,
+    ...signedIn, status: 'active', confirmCode: null, lastPath: reached.kind, tailnet: learned ?? mac.tailnet,
     backendDeviceId: (backend.kind === 'linked' ? backend.macDeviceId : null) ?? mac.backendDeviceId ?? null,
   };
   const next = withMac(kept, opened);

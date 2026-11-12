@@ -149,6 +149,18 @@ export const tooltips = {
     label: 'Speak latest output',
     description: 'Hold to read the most recent terminal output aloud via TTS. Hold Space when focused.',
   },
+  termVoiceHold: {
+    label: 'Talk to Claude (hold)',
+    description: "Hold to dictate with Claude Code's own voice mode; release to stop. Needs voice on in Claude (/voice) and this Mac's microphone.",
+  },
+  termVoiceStart: {
+    label: 'Start Codex voice',
+    description: "Starts Codex's own spoken conversation (/voice) on this Mac's microphone and speakers.",
+  },
+  termVoiceStop: {
+    label: 'Stop Codex voice',
+    description: 'Ends the Codex voice conversation (/voice stop).',
+  },
   termReconnect: {
     label: 'Reconnect terminal',
     description: 'Re-establish the PTY/SSH connection if it dropped. Buffer is restored on reconnect.',

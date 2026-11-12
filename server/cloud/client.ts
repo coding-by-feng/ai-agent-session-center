@@ -67,7 +67,15 @@ const RESOURCE_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
 const MAC_PATHS_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['PUT', exact('/v1/mac-paths/self')],
 ];
-const EXACT_ROUTES = [...RESOURCE_ROUTES, ...MAC_PATHS_ROUTES];
+/**
+ * Plan 17: this Mac redeems a phone's enroll ticket, the one enroll call that is the Mac's. The Mac list and the
+ * ticket mint under /v1/enroll are the phone's own calls with its own token, never this Mac's.
+ */
+const ENROLL_REDEEM_PATH = '/v1/enroll/tickets/redeem';
+const ENROLL_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['POST', exact(ENROLL_REDEEM_PATH)],
+];
+const EXACT_ROUTES = [...RESOURCE_ROUTES, ...MAC_PATHS_ROUTES, ...ENROLL_ROUTES];
 export function allowedCloudRoute(method: string, path: string): boolean {
   const [pathname] = path.split('?');
   return (
@@ -93,6 +101,22 @@ const DEVICE_STATUSES: Record<string, number> = {
   pairing_codes_outstanding: 409,
   push_collapsed: 429,
   push_unconfigured: 503,
+};
+/**
+ * The redeem route's refusals (plan 17). `phone_revoked` is a 401 about the PHONE: read only on that route, and a
+ * known domain answer, so it never reads as this Mac's own token being revoked.
+ */
+const ENROLL_MESSAGES: Record<string, string> = {
+  ticket_invalid: 'The phone’s enroll ticket is not valid for this Mac.',
+  ticket_expired: 'The phone’s enroll ticket expired.',
+  ticket_used: 'The phone’s enroll ticket was already used.',
+  phone_revoked: 'The phone was removed from the AASC Cloud account.',
+};
+const ENROLL_STATUSES: Record<string, number> = {
+  ticket_invalid: 404,
+  ticket_expired: 410,
+  ticket_used: 409,
+  phone_revoked: 401,
 };
 /** Errors the backend's resource and project services answer with. */
 const RESOURCE_MESSAGES: Record<string, string> = {
@@ -141,6 +165,7 @@ const DOMAIN_HTTP_STATUSES: Record<string, number> = {
   rate_limited: 429,
   ...Object.fromEntries(Object.keys(NOTE_MESSAGES).map((code) => [code, 409])),
   ...DEVICE_STATUSES,
+  ...ENROLL_STATUSES,
   ...RESOURCE_STATUSES,
 };
 /** A known code at its status; hash_mismatch is also a 400 (upload) as well as a 409. */
@@ -150,6 +175,7 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   ...NOTES_HTTP_MESSAGES,
   ...NOTE_MESSAGES,
   ...DEVICE_MESSAGES,
+  ...ENROLL_MESSAGES,
 };
 const RESOURCE_DOMAIN_MESSAGES: Record<string, string> = {
   ...NOTES_HTTP_MESSAGES,
@@ -295,7 +321,11 @@ export function createCloudTransport(options: {
           );
         }
         if (!response.ok) {
-          if (READ_STATUSES.has(response.status)) {
+          // A 401 body is read on the redeem route only: there it may be `phone_revoked`, about the phone.
+          if (
+            READ_STATUSES.has(response.status) ||
+            (response.status === 401 && path === ENROLL_REDEEM_PATH)
+          ) {
             const known = await domainError(response, path);
             if (known) throw known;
           } else await response.body?.cancel();

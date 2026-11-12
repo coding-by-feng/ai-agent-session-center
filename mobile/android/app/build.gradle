@@ -65,6 +65,8 @@ dependencies {
     implementation "com.google.android.gms:play-services-code-scanner:$playServicesCodeScannerVersion"
     // Biometric lock (AASC-21 M4): BiometricPrompt behind shell/src/biometricLock.ts.
     implementation "androidx.biometric:biometric:$androidxBiometricVersion"
+    // Google sign-in for the phone (plan 17): a Custom Tab, answered by the /auth/google App Link.
+    implementation "androidx.browser:browser:$androidxBrowserVersion"
     // JVM unit tests read the widget model with org.json (Android's own is a stub there).
     testImplementation "org.json:json:$orgJsonVersion"
     testImplementation "junit:junit:$junitVersion"

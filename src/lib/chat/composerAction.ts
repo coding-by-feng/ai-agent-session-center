@@ -13,7 +13,10 @@
  *                                   request is declined, then the text goes as a
  *                                   prompt; a hold offers the queue instead
  *   another device      the box is off, saying who drives
- *   connecting / ended  nothing to send to, and why
+ *   connecting          Send        the Mac holds it until the agent is up, then types it
+ *                                   (Nov 12 2026; it was refused); the model chip and the
+ *                                   command sheet wait, saying why
+ *   ended               nothing to send to, and why
  */
 import type { DevicePresence, SessionEvent } from '@/types';
 import type { CommandEntry } from '@/lib/commandIndex';
@@ -53,6 +56,8 @@ export interface ComposerDecision {
   holdAction: ComposerHold | null;
   /** Said under the box when a queued prompt can't be sent yet. */
   queueNote?: string;
+  /** Why the model chip and the command sheet are off while the main button still sends (the agent is starting). */
+  chipsBlockedReason?: string;
 }
 
 export const NO_MAC_WINDOW_NOTE = 'Sent when AASC is open on your Mac';
@@ -108,7 +113,8 @@ export function composerAction(input: ComposerInput): ComposerDecision {
     };
   }
   if (input.status === 'connecting') {
-    return { action: 'send', label: 'Send', canSend: false, blockedReason: 'The agent is still starting', placeholder: reply, holdAction: null };
+    // The Mac holds the prompt until the agent is up (server/promptRouter.ts), so Send works; a picker would not.
+    return { action: 'send', label: 'Send', canSend: input.hasContent, chipsBlockedReason: 'The agent is still starting', placeholder: reply, holdAction: null };
   }
   return { action: 'send', label: 'Send', canSend: input.hasContent, placeholder: reply, holdAction: null };
 }

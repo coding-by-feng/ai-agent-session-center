@@ -14,10 +14,25 @@ export function renderNeedsApp(): HTMLElement {
 
 export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
   const a = ctx.actions;
-  const back = ctx.macs.length ? { label: 'Your Macs', onClick: a.showMacs } : null;
+  const back = ctx.macs.length || ctx.account ? { label: 'Your Macs', onClick: a.showMacs } : null;
+
+  // Plan 17: Sign in with Google comes first where the app has the sign-in sheet; the QR is then the second way.
+  const busy = s.accountBusy === true;
+  const google = ctx.canSignIn
+    ? button(busy ? 'Signing in…' : 'Sign in with Google', a.signInWithGoogle, 'primary', {
+        disabled: busy, 'aria-busy': busy ? 'true' : null, 'aria-describedby': 'google-hint',
+      })
+    : null;
+  google?.prepend(icon('cloud'));
+  const googleBlock = google
+    ? h('div', { class: 'stack' },
+        google,
+        h('p', { class: 'hint', attrs: { id: 'google-hint' } }, 'Connects to the Macs signed in to your AASC Cloud account, without a code.'),
+        alert(s.accountError ?? null))
+    : null;
 
   const scan = ctx.scannerAvailable
-    ? button('Scan the QR code', a.scan, 'primary', { 'data-action': 'scan' })
+    ? button('Scan the QR code', a.scan, google ? 'secondary' : 'primary', { 'data-action': 'scan' })
     : null;
   scan?.prepend(icon('qr'));
 
@@ -32,7 +47,7 @@ export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
     attrs: { inputmode: 'url', placeholder: 'https://aasc.work/pair#…' },
     onInput: (linkText) => a.remember({ linkText }),
   }),
-  h('button', { class: `btn ${scan ? 'btn-secondary' : 'btn-primary'}`, attrs: { type: 'submit' } }, 'Continue'));
+  h('button', { class: `btn ${scan || google ? 'btn-secondary' : 'btn-primary'}`, attrs: { type: 'submit' } }, 'Continue'));
 
   const err = s.manualError;
   const manual = h('details', {
@@ -70,6 +85,8 @@ export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
 
   return screen('Pair with a Mac', back,
     notice(s.notice),
+    googleBlock,
+    google ? h('h2', {}, 'Or pair with a code') : null,
     para('On your Mac, open AASC, click the devices chip in the top bar and press Pair a phone or computer.'),
     scan,
     pasteForm,

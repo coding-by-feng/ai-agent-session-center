@@ -90,6 +90,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/known-projects', 'allow'),
   route('GET', '/commands', 'commands'),
   route('GET', '/codex/models', 'allow'),
+  route('GET', '/claude/models', 'allow'),
   route('GET', '/presence', 'allow'),
   route('POST', '/presence/control/(claim|release|release-all|request|grant)', 'allow'),
   route('GET|POST', '/agenda', 'allow'),

@@ -9,7 +9,10 @@
 
 import type Database from 'better-sqlite3';
 
-/** mobile_devices as it is created now; db.ts uses the same text for a fresh install. */
+/**
+ * mobile_devices as it is created now; db.ts uses the same text for a fresh install. `origin` and `account_email`
+ * came with plan 17 (deviceOriginMigration.ts adds them to an older table).
+ */
 export const MOBILE_DEVICES_DDL = `CREATE TABLE IF NOT EXISTS mobile_devices (
   id TEXT PRIMARY KEY,
   label TEXT NOT NULL,
@@ -20,6 +23,9 @@ export const MOBILE_DEVICES_DDL = `CREATE TABLE IF NOT EXISTS mobile_devices (
   be_code_ref TEXT,
   be_code_ref_mac_bound INTEGER NOT NULL DEFAULT 0,
   credential_epoch TEXT,
+  origin TEXT NOT NULL DEFAULT 'code' CHECK (origin IN ('code','account')),
+  account_email TEXT,
+  account_phone_id TEXT,
   created_at INTEGER NOT NULL,
   approved_at INTEGER,
   last_seen_at INTEGER,

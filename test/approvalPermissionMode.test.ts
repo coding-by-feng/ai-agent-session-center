@@ -87,6 +87,25 @@ describe('approval timer and the hook permission mode', () => {
     expect(statusOf(id)).toBe('working');
   });
 
+  it('auto: a Bash waiting on the auto-mode check stays "working" (Nov 12 2026, CiciNotes)', async () => {
+    const id = newSession('auto');
+    hook(id, 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'xcodebuild -version' }, permission_mode: 'auto' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(statusOf(id)).toBe('working');
+  });
+
+  it('auto: a question still becomes "input", and a real dialog still sets "approval"', async () => {
+    const asked = newSession('auto');
+    hook(asked, 'PreToolUse', { tool_name: 'AskUserQuestion', tool_input: { question: 'Which?' }, permission_mode: 'auto' });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(statusOf(asked)).toBe('input');
+
+    const blocked = newSession('auto');
+    hook(blocked, 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'git push --force' }, permission_mode: 'auto' });
+    hook(blocked, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'git push --force' }, permission_mode: 'auto' });
+    expect(statusOf(blocked)).toBe('approval');
+  });
+
   it('the mode switched mid-session is read from the event, not from SessionStart', async () => {
     const id = newSession('default'); // started in default, then Shift+Tab to bypass
     hook(id, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: '/tmp/x' }, permission_mode: 'bypassPermissions' });

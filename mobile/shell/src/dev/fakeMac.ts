@@ -6,9 +6,14 @@
 // (POST /api/mobile/backend-code, AASC-52) and is single use at the backend.
 // The backend also answers GET /v1/mac-paths (AASC-60): the Macs on the owner's account, with the auth, module and
 // scope checks in the order the real one runs them.
+// Plan 17: the backend's account routes for a phone signed in with Google (fakeAccount.ts) and the
+// Mac's POST /api/mobile/enroll, which redeems the ticket and seals the device token to the phone's
+// key with WebCrypto over the address the request reached, as the real Mac does.
 // Never bundled into a release build: only platform/dev.ts (development mode)
 // and the tests import it.
+import { b64urlDecode, b64urlEncode, enrollAad, enrollKey } from '../enrollCrypto.js';
 import type { HttpMethod, HttpRequest, HttpRequester } from '../http.js';
+import { createFakeAccount, type FakeAccountOptions } from './fakeAccount.js';
 import { deviceProof, MAC_PROOF_PREFIX, PATHS_PROOF_PREFIX, WHO_TAG_PREFIX, type HttpClient, type HttpResponse } from '../pairingClient.js';
 
 export type FakeDeviceStatus = 'pending' | 'active' | 'revoked';
@@ -61,7 +66,45 @@ export interface FakeMacOptions {
    * earlier keeps what it had; `setCloudReadForbidden(false)` is the backend upgrade.
    */
   cloudReadForbidden?: boolean;
+  /**
+   * Plan 17: the AASC Cloud account a phone signs in to with Google. Absent: the owner's account lists this Mac
+   * (`macDeviceId`, named Kason-MBP) at 100.101.102.103:3333.
+   */
+  account?: FakeAccountOptions;
+  /** The Mac's "Let phones signed into my AASC Cloud account connect" setting (default on). */
+  accountEnroll?: boolean;
+  /**
+   * Plan 17: how each stranger (by origin) answers POST /api/mobile/enroll. Default NOT_THIS_MAC (another owner's
+   * Mac). FORGE: a box that seals a token of its own to the phone's key for the dialled address, without the ticket's
+   * seal secret (it never had it).
+   */
+  strangerEnroll?: Readonly<Record<string, StrangerEnroll>>;
 }
+
+export type StrangerEnroll =
+  | 'NOT_THIS_MAC' | 'ACCOUNT_ENROLL_OFF' | 'REMOTE_PASSWORD_REQUIRED' | 'RATE_LIMITED' | 'ENROLL_BUSY' | 'TOO_MANY_NEW_PHONES' | 'FORGE';
+
+/** This fake Mac's own backend device id (a UUID, as the backend makes them). */
+export const FAKE_MAC_DEVICE_ID = '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `host:port` as the Mac's socket sees it: the URL's port, or the scheme's default (80 / 443), which URL leaves out. */
+export function socketAddress(url: URL): string {
+  return `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
+}
+
+/** The codes POST /api/mobile/enroll answers with, besides 201. */
+export type FakeEnrollRefusal =
+  | 'ACCOUNT_ENROLL_OFF' | 'NOT_THIS_MAC' | 'INVALID_TICKET' | 'PHONE_REVOKED' | 'CLOUD_UNAVAILABLE' | 'ENROLL_BUSY' | 'TOO_MANY_NEW_PHONES';
+const ENROLL_STATUS: Record<FakeEnrollRefusal, number> = {
+  ACCOUNT_ENROLL_OFF: 403, NOT_THIS_MAC: 409, INVALID_TICKET: 401, PHONE_REVOKED: 401, CLOUD_UNAVAILABLE: 502,
+  ENROLL_BUSY: 429, TOO_MANY_NEW_PHONES: 429,
+};
+/** The Mac's Retry-After hint (seconds) on its two 429s. */
+const ENROLL_RETRY_AFTER: Partial<Record<FakeEnrollRefusal, number>> = { ENROLL_BUSY: 5, TOO_MANY_NEW_PHONES: 120 };
+const B64U43 = /^[A-Za-z0-9_-]{43}$/;
+const PHONE_KEY = /^[A-Za-z0-9_-]{87}$/;
+const ENROLL_FIELDS = ['label', 'macDeviceId', 'nonce', 'phoneKey', 'platform', 'ticket'];
 
 export interface FakeCall {
   method: HttpMethod;
@@ -126,6 +169,20 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
   let strikes = 0;
   /** Items the phone appended to a queue: [sessionId, body]. */
   const queued: Array<[string, unknown]> = [];
+  /** This Mac's own backend device (its cloud connection), which a ticket must name. */
+  const thisMacDeviceId = opts.macDeviceId === undefined ? FAKE_MAC_DEVICE_ID : opts.macDeviceId;
+  const account = createFakeAccount(backendHost, {
+    macs: [{ deviceId: thisMacDeviceId ?? FAKE_MAC_DEVICE_ID, name: 'Kason-MBP', tailnet: '100.101.102.103', port: 3333, lastUsedAt: PUBLISHED_AT }],
+    ...opts.account,
+  }, (v) => {
+    issued.push(v);
+    return v;
+  });
+  let accountEnroll = opts.accountEnroll ?? true;
+  /** The next POST /api/mobile/enroll answers this (tests: each refusal's message). */
+  let forcedRefusal: FakeEnrollRefusal | null = null;
+  /** Phones this Mac enrolled through the account (device ids). */
+  const enrolled: string[] = [];
 
   const ok = (status: number, data: unknown): HttpResponse => ({ status, data });
   const issue = (value: string) => {
@@ -146,7 +203,7 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
       backendCodes.set(code, stealNextCode);
       if (cloudReadForbidden) pushOnlyCodes.add(code);
       stealNextCode = false;
-      return ok(200, { success: true, data: { host: backendHost, code, macDeviceId: opts.macDeviceId === undefined ? 'mac-dev-1' : opts.macDeviceId } });
+      return ok(200, { success: true, data: { host: backendHost, code, macDeviceId: opts.macDeviceId === undefined ? FAKE_MAC_DEVICE_ID : opts.macDeviceId } });
     }
     const listed = opts.sessions ?? [];
     if (!queue) return ok(200, Object.fromEntries(listed.map((x) => [x.sessionId, x])));
@@ -195,7 +252,82 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     return ok(200, { success: true, data: { tailnet, port, proof } });
   }
 
-  async function macRoute(path: string, method: HttpMethod, body: Record<string, unknown>, headers: Record<string, string> = {}, reachedAt = ''): Promise<HttpResponse> {
+  const refuseEnroll = (code: FakeEnrollRefusal) => ok(ENROLL_STATUS[code], {
+    error: code, code, ...(ENROLL_RETRY_AFTER[code] ? { retryAfter: ENROLL_RETRY_AFTER[code] } : {}),
+  });
+
+  /** As server/mobile/accountEnroll.ts behind POST /api/mobile/enroll (plan 17), in the same order. */
+  async function enroll(body: Record<string, unknown>, reachedAt: string): Promise<HttpResponse> {
+    const keys = Object.keys(body).sort();
+    if (keys.join() !== ENROLL_FIELDS.join() || typeof body.macDeviceId !== 'string' || !UUID.test(body.macDeviceId)
+      || typeof body.ticket !== 'string' || !B64U43.test(body.ticket)
+      || typeof body.phoneKey !== 'string' || !PHONE_KEY.test(body.phoneKey)
+      || typeof body.nonce !== 'string' || !/^[0-9a-f]{64}$/.test(body.nonce)
+      || typeof body.label !== 'string' || !body.label || (body.platform !== 'ios' && body.platform !== 'android')) {
+      return ok(400, { error: 'Invalid request' });
+    }
+    const forced = forcedRefusal;
+    forcedRefusal = null;
+    if (!accountEnroll) return refuseEnroll('ACCOUNT_ENROLL_OFF');
+    if (!cloud || !thisMacDeviceId || body.macDeviceId !== thisMacDeviceId) return refuseEnroll('NOT_THIS_MAC');
+    if (forced) return refuseEnroll(forced);
+    if (backendDown) return refuseEnroll('CLOUD_UNAVAILABLE');
+    const redeemed = account.redeem(body.ticket, thisMacDeviceId);
+    if (!redeemed.ok && redeemed.why === 'phone-revoked') return refuseEnroll('PHONE_REVOKED');
+    const phoneRaw = b64urlDecode(body.phoneKey)!;
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', phoneRaw))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    if (!redeemed.ok || hash !== redeemed.phoneKeyHash) {
+      strikes += 1;
+      return refuseEnroll('INVALID_TICKET');
+    }
+    const deviceId = uuid();
+    const deviceToken = issue(randomHex(32));
+    devices.set(deviceId, { token: deviceToken, status: 'active', confirmCode: '000000', attempts: 0 });
+    enrolled.push(deviceId);
+    return ok(201, { success: true, data: await sealFor(phoneRaw, body.nonce, reachedAt, redeemed.sealSecret, { deviceId, deviceToken }) });
+  }
+
+  /**
+   * The seal (plan 17, C1): an ephemeral Mac key, ECDH with the phone's, HKDF over ECDH ‖ the ticket's seal secret
+   * with both points in `info`, AES-256-GCM with the address reached in the AAD.
+   */
+  async function sealFor(
+    phoneRaw: Uint8Array<ArrayBuffer>, nonce: string, reachedAt: string, sealSecret: string, creds: { deviceId: string; deviceToken: string },
+  ): Promise<{ macKey: string; iv: string; sealed: string }> {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']) as CryptoKeyPair;
+    const macKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+    const key = await enrollKey(pair.privateKey, phoneRaw, nonce, { sealSecret: b64urlDecode(sealSecret)!, phoneKeyRaw: phoneRaw, macKeyRaw: macKey }, 'encrypt');
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const at = reachedAt.lastIndexOf(':');
+    const sealed = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(enrollAad(nonce, reachedAt.slice(0, at), Number(reachedAt.slice(at + 1)))), tagLength: 128 },
+      key, new TextEncoder().encode(JSON.stringify(creds)),
+    );
+    return { macKey: b64urlEncode(macKey), iv: b64urlEncode(iv), sealed: b64urlEncode(new Uint8Array(sealed)) };
+  }
+
+  /** A stranger's answer to POST /api/mobile/enroll (opts.strangerEnroll). */
+  async function strangerEnroll(origin: string, body: Record<string, unknown>, reachedAt: string): Promise<HttpResponse> {
+    switch (opts.strangerEnroll?.[origin] ?? 'NOT_THIS_MAC') {
+      case 'NOT_THIS_MAC': return refuseEnroll('NOT_THIS_MAC');
+      case 'ACCOUNT_ENROLL_OFF': return refuseEnroll('ACCOUNT_ENROLL_OFF');
+      case 'REMOTE_PASSWORD_REQUIRED': return ok(403, { error: 'Set a dashboard password first', code: 'REMOTE_PASSWORD_REQUIRED' });
+      case 'RATE_LIMITED': return ok(429, { error: 'Too many attempts. Try again later.', retryAfter: 60 });
+      case 'ENROLL_BUSY': return refuseEnroll('ENROLL_BUSY');
+      case 'TOO_MANY_NEW_PHONES': return refuseEnroll('TOO_MANY_NEW_PHONES');
+      case 'FORGE': {
+        const phoneRaw = typeof body.phoneKey === 'string' ? b64urlDecode(body.phoneKey) : null;
+        if (!phoneRaw || typeof body.nonce !== 'string') return ok(400, { error: 'Invalid request' });
+        const own = { deviceId: uuid(), deviceToken: randomHex(32) }; // the box's own token, which it could then watch
+        return ok(201, { success: true, data: await sealFor(phoneRaw, body.nonce, reachedAt, b64urlEncode(crypto.getRandomValues(new Uint8Array(32))), own) });
+      }
+    }
+  }
+
+  /** `reachedAt` as /identify and /paths have always read it (url.host); `socketAt` with the default port filled in (enroll). */
+  async function macRoute(
+    path: string, method: HttpMethod, body: Record<string, unknown>, headers: Record<string, string> = {}, reachedAt = '', socketAt = reachedAt,
+  ): Promise<HttpResponse> {
     if (method === 'GET' && path === '/api/auth/status') return ok(200, { passwordRequired: true, authenticated: false });
     const signedIn = sessionRoute(path, method, headers, body);
     if (signedIn) return signedIn;
@@ -211,6 +343,7 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
       return ok(201, { success: true, data: { deviceId, deviceToken: token, confirmCode, status: 'pending' } });
     }
     if (path === '/api/mobile/identify') return identify(body, reachedAt);
+    if (path === '/api/mobile/enroll') return enroll(body, socketAt);
     if (path === '/api/mobile/challenge') {
       const nonce = randomHex(16);
       nonces.set(nonce, String(body.deviceId));
@@ -269,8 +402,10 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     return ok(200, { success: true, data: { macs: opts.cloudMacs.map((m) => ({ ...m, name: 'Mac', updatedAt: PUBLISHED_AT })) } });
   }
 
-  function backendRoute(path: string, method: HttpMethod, headers: Record<string, string>, body: Record<string, unknown>): HttpResponse {
+  async function backendRoute(path: string, method: HttpMethod, headers: Record<string, string>, body: Record<string, unknown>): Promise<HttpResponse> {
     if (backendDown) throw new Error('backend unreachable');
+    const accountAnswer = await account.route(path, method, headers, body);
+    if (accountAnswer) return accountAnswer;
     if (method === 'POST' && path === '/v1/devices/pair') {
       const code = String(body.code ?? '');
       if (backendCodes.get(code) !== false) return ok(401, { success: false, error: { code: 'invalid_pairing_code' } });
@@ -310,9 +445,18 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
       const mac = [...reachable][0];
       return mac ? identify(body, new URL(mac).host) : strangerRoute(url.pathname, req.method);
     }
+    // Plan 17: a relay passes the enrollment on too; the Mac seals for the address it was reached at, not the relay's.
+    if (relays.has(url.origin) && req.method === 'POST' && url.pathname === '/api/mobile/enroll') {
+      const mac = [...reachable][0];
+      return mac ? enroll(body, socketAddress(new URL(mac))) : strangerRoute(url.pathname, req.method);
+    }
+    // Plan 17: another owner's Mac, or a box (opts.strangerEnroll), before any backend call.
+    if (strangers.has(url.origin) && req.method === 'POST' && url.pathname === '/api/mobile/enroll') {
+      return strangerEnroll(url.origin, body, socketAddress(url));
+    }
     if (strangers.has(url.origin) || relays.has(url.origin)) return strangerRoute(url.pathname, req.method);
     if (!reachable.has(url.origin)) throw new Error('network unreachable');
-    return macRoute(url.pathname, req.method, body, req.headers ?? {}, url.host);
+    return macRoute(url.pathname, req.method, body, req.headers ?? {}, url.host, socketAddress(url));
   }
 
   const http: HttpClient = {
@@ -405,6 +549,20 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     setCloudReadForbidden(forbidden: boolean) {
       cloudReadForbidden = forbidden;
     },
+    /** Plan 17: the owner's AASC Cloud account (Google codes, account devices, tickets, the Mac list). */
+    account,
+    /** Where the sign-in sheet lands after Google for this start URL (null: the backend refuses it). */
+    googleRedirect: (startUrl: string) => account.googleRedirect(startUrl),
+    /** The Mac's account-enroll setting. */
+    setAccountEnroll(on: boolean) {
+      accountEnroll = on;
+    },
+    /** The next POST /api/mobile/enroll that gets past the setting and the Mac check answers `code`. */
+    refuseNextEnroll(code: FakeEnrollRefusal | null) {
+      forcedRefusal = code;
+    },
+    /** Phones this Mac enrolled through the account, oldest first. */
+    enrolled: () => [...enrolled],
     /** Revoke a backend device, as "Remove them" on the Mac or the owner CLI would. */
     revokeBackendDevice(deviceId: string) {
       revokedBackend.add(deviceId);

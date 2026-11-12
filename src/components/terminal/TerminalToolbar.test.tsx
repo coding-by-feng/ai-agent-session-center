@@ -104,3 +104,32 @@ describe('TerminalToolbar — Find in terminal', () => {
     expect(screen.queryByRole('button', { name: 'Find in terminal' })).toBeNull();
   });
 });
+
+describe('TerminalToolbar — agent CLI voice', () => {
+  it('Claude: holding the button starts, releasing or leaving stops', () => {
+    const start = vi.fn();
+    const stop = vi.fn();
+    render(<TerminalToolbar {...base} agentVoice="hold" onAgentVoiceStart={start} onAgentVoiceStop={stop} />);
+    const btn = screen.getByRole('button', { name: 'Talk to Claude (hold)' });
+    fireEvent.pointerDown(btn);
+    expect(start).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(btn);
+    fireEvent.pointerLeave(btn);
+    expect(stop).toHaveBeenCalledTimes(2);
+  });
+
+  it('Codex: one click toggles, and the name says what the next click does', () => {
+    const toggle = vi.fn();
+    const { rerender } = render(<TerminalToolbar {...base} agentVoice="toggle" onAgentVoiceToggle={toggle} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Codex voice' }));
+    expect(toggle).toHaveBeenCalledTimes(1);
+    rerender(<TerminalToolbar {...base} agentVoice="toggle" agentVoiceActive onAgentVoiceToggle={toggle} />);
+    const stopBtn = screen.getByRole('button', { name: 'Stop Codex voice' });
+    expect(stopBtn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('is not offered without a kind', () => {
+    render(<TerminalToolbar {...base} onAgentVoiceStart={vi.fn()} onAgentVoiceStop={vi.fn()} onAgentVoiceToggle={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Claude|Codex voice/ })).toBeNull();
+  });
+});

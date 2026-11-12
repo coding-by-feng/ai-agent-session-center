@@ -105,6 +105,32 @@ describe('Composer', () => {
     expect(calls.some((c) => /\/api\/sessions\/s1\/prompt\/.+/.test(c.url))).toBe(true);
   });
 
+  // Nov 12 2026 (Online Lite): a card back from a server restart has no terminal, and one being started is
+  // `connecting`. Send goes to the Mac either way; it starts the agent and types the prompt once it is up.
+  it.each([
+    ['still starting', session({ status: 'connecting' })],
+    ['back without its terminal', session({ status: 'idle', terminalId: null })],
+  ])('sends when the agent is %s, and says it is starting while the Mac holds it', async (_label, s) => {
+    const calls = stubMac();
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+      calls.push({ url, method, body });
+      const reply = (status: number, json: unknown) => ({ ok: true, status, json: async () => json });
+      if (/\/prompt$/.test(url) && method === 'POST') return reply(202, { success: true, data: { accepted: true, key: body?.key } });
+      if (/\/prompt\/[^/]+$/.test(url)) return reply(200, { success: true, data: { key: 'k', state: 'pending' } });
+      return reply(200, { ok: true });
+    }));
+    renderComposer(s);
+    type('hi');
+    expect(sendButton()).not.toHaveAttribute('aria-disabled');
+    // No "still starting" note under the box any more; the model chip keeps it as its reason.
+    expect(screen.queryByText(/The agent is still starting/, { selector: 'p' })).not.toBeInTheDocument();
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/sessions/s1/prompt' && c.method === 'POST')).toBe(true));
+    expect(await screen.findByText('Starting Claude… your message goes in when it’s ready')).toBeInTheDocument();
+  });
+
   it('keeps a draft per session on this phone', () => {
     stubMac();
     renderComposer(session());

@@ -21,6 +21,11 @@ import { PHONE_ACCESS, type PhoneAccess } from './phoneProfile.js';
 /** 'desktop': another computer's AASC, paired like a phone (Oct 28 2026). */
 export type DevicePlatform = 'ios' | 'android' | 'desktop';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
+/**
+ * How a device was paired (plan 17): `code` — a QR or typed code, then Allow on the desktop; `account` —
+ * enrolled by a phone signed into this Mac's AASC Cloud account, active at once (accountEnroll.ts).
+ */
+export type DeviceOrigin = 'code' | 'account';
 
 export interface MobileDeviceRecord {
   id: string;
@@ -43,6 +48,14 @@ export interface MobileDeviceRecord {
   beCodeRefMacBound: boolean;
   /** Fingerprint of the dashboard password when the token was issued (null: none set). */
   credentialEpoch: string | null;
+  origin: DeviceOrigin;
+  /** The AASC Cloud account's email an `account` device enrolled through (null: none, or a `code` device). */
+  accountEmail: string | null;
+  /**
+   * The phone's own backend device id an `account` device enrolled as (the redeem's phoneDeviceId): what an
+   * explicit Revoke or Unpair revokes on the backend and denies here (accountPhoneRevocation.ts). Never shown.
+   */
+  accountPhoneId: string | null;
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
@@ -57,6 +70,8 @@ export interface MobileDeviceView {
   status: DeviceStatus;
   /** Only while pending: the code the phone also shows, for the approval check. */
   confirmCode: string | null;
+  origin: DeviceOrigin;
+  accountEmail: string | null;
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
@@ -87,6 +102,18 @@ const MAX_CHALLENGES_PER_DEVICE = 5;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 10;
 const MAX_LABEL = 80;
+/**
+ * Plan 17 (L2): an `account` row is provisional until its first sign-in (lastSeenAt still null). One that hasn't
+ * signed in within this window is deleted, and at most MAX_PROVISIONAL_ACCOUNT_ROWS may wait at once.
+ */
+export const PROVISIONAL_ACCOUNT_TTL_MS = 2 * 60 * 1000;
+export const MAX_PROVISIONAL_ACCOUNT_ROWS = 5;
+
+export class TooManyProvisionalPhonesError extends Error {
+  constructor() {
+    super(`At most ${MAX_PROVISIONAL_ACCOUNT_ROWS} phones can wait for their first sign-in at once`);
+  }
+}
 
 export type ExchangeResult =
   | { ok: true; device: MobileDeviceRecord }
@@ -110,6 +137,11 @@ export interface DeviceAuthOptions {
   onRevoked?: (device: MobileDeviceRecord) => void;
   /** Called when the desktop signs an approved phone out: its sessions end, its pairing stays. */
   onSignedOut?: (device: MobileDeviceRecord) => void;
+  /**
+   * Plan 17 (H1): the owner removed this device on purpose (Revoke on the desktop, or Unpair from the phone),
+   * after onRevoked. Never for a password change, a pending or provisional expiry, or a replaced twin.
+   */
+  onRemovedByOwner?: (device: MobileDeviceRecord) => void;
 }
 
 export function hashSecret(secret: string): string {
@@ -180,6 +212,8 @@ export function toView(rec: MobileDeviceRecord): MobileDeviceView {
     platform: rec.platform,
     status: rec.status,
     confirmCode: rec.status === 'pending' ? rec.confirmCode : null,
+    origin: rec.origin,
+    accountEmail: rec.accountEmail,
     createdAt: rec.createdAt,
     approvedAt: rec.approvedAt,
     lastSeenAt: rec.lastSeenAt,
@@ -239,6 +273,28 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     }
   }
 
+  const isProvisional = (rec: MobileDeviceRecord): boolean =>
+    rec.origin === 'account' && rec.status === 'active' && rec.lastSeenAt === null;
+
+  /**
+   * L2: an account row whose phone never signed in within PROVISIONAL_ACCOUNT_TTL_MS is deleted (its sessions cut
+   * like any removal, through onRevoked). Lazy: list, exchange and enroll call it. Returns the rows still waiting.
+   */
+  function sweepProvisional(): MobileDeviceRecord[] {
+    const cutoff = now() - PROVISIONAL_ACCOUNT_TTL_MS;
+    const waiting: MobileDeviceRecord[] = [];
+    for (const rec of store.listLive()) {
+      if (!isProvisional(rec)) continue;
+      if (rec.createdAt > cutoff) {
+        waiting.push(rec);
+        continue;
+      }
+      store.remove(rec.id);
+      opts.onRevoked?.({ ...rec, status: 'revoked', revokedAt: now() });
+    }
+    return waiting;
+  }
+
 
   return {
     createPairingCode(): { code: string; expiresAt: number } {
@@ -275,8 +331,49 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         beCodeRef: null,
         beCodeRefMacBound: false,
         credentialEpoch: currentEpoch(),
+        origin: 'code',
+        accountEmail: null,
+        accountPhoneId: null,
         createdAt: now(),
         approvedAt: null,
+        lastSeenAt: null,
+        revokedAt: null,
+      };
+      store.insert(device);
+      return { device, deviceToken };
+    },
+
+    /**
+     * Plan 17: a phone signed into this Mac's AASC Cloud account, whose enroll ticket the backend just redeemed
+     * for this Mac (accountEnroll.ts). No code and no Allow: the account vouched for the phone, so the record is
+     * active at once, approved now, under the current password, and its token is shown this once (sealed to the
+     * phone's key by the caller). Revoke, Unpair and a password change treat it like any phone.
+     */
+    enrollActive(input: {
+      label: string;
+      platform: 'ios' | 'android';
+      accountEmail: string | null;
+      accountPhoneId: string | null;
+    }): { device: MobileDeviceRecord; deviceToken: string } {
+      if (sweepProvisional().length >= MAX_PROVISIONAL_ACCOUNT_ROWS) throw new TooManyProvisionalPhonesError();
+      const deviceToken = randomBytes(32).toString('base64url');
+      const at = now();
+      const device: MobileDeviceRecord = {
+        id: randomUUID(),
+        label: cleanLabel(input.label) || 'Phone',
+        platform: input.platform,
+        tokenHash: hashSecret(deviceToken),
+        status: 'active',
+        // Never shown (only a pending device shows its code), but the column is required.
+        confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
+        beCodeRef: null,
+        beCodeRefMacBound: false,
+        credentialEpoch: currentEpoch(),
+        origin: 'account',
+        accountEmail: input.accountEmail,
+        accountPhoneId: input.accountPhoneId,
+        createdAt: at,
+        approvedAt: at,
         lastSeenAt: null,
         revokedAt: null,
       };
@@ -303,6 +400,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     /** Prove the device token (challenge + HMAC) for permission to open a session. */
     exchange(deviceId: string, nonce: string, proof: string): ExchangeResult {
       expirePending();
+      sweepProvisional();
       const rec = verifyProof(deviceId, nonce, proof);
       if (!rec) return { ok: false, reason: 'invalid' };
       if (rec.status === 'revoked') return { ok: false, reason: 'revoked' };
@@ -364,6 +462,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const rec = store.get(id);
       if (!rec || rec.status === 'revoked') return false;
       revokeRecord(rec);
+      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() });
       return true;
     },
 
@@ -396,11 +495,18 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const rec = verifyProof(deviceId, nonce, proof);
       if (!rec || rec.status === 'revoked') return false;
       revokeRecord(rec);
+      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() });
       return true;
+    },
+
+    /** L2: account rows still waiting for their first sign-in (sweeping the stale ones first). */
+    provisionalAccountCount(): number {
+      return sweepProvisional().length;
     },
 
     list(): MobileDeviceView[] {
       expirePending();
+      sweepProvisional();
       return store.listLive().map(toView);
     },
 

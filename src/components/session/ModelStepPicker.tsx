@@ -8,13 +8,11 @@
  * Placement, keyboard and close behaviour live in `ChainCommandPicker`, shared with
  * the "Set effort…" menu.
  */
+import { useMemo } from 'react';
 import type { HorizontalAlign } from '@/lib/queueMovePlacement';
-import {
-  MODEL_STEP_OPTIONS,
-  MODEL_TRIGGER_ATTR,
-  isModelAlias,
-  type ModelOption,
-} from '@/lib/queueModel';
+import { MODEL_TRIGGER_ATTR, isModelAlias, type ModelOption } from '@/lib/queueModel';
+import { useClaudeModels } from '@/lib/claudeModels';
+import { formatModelLabel } from '@/lib/modelLabel';
 import ChainCommandPicker, { type ChainCommandItem } from './ChainCommandPicker';
 
 interface ModelStepPickerProps {
@@ -27,11 +25,20 @@ interface ModelStepPickerProps {
   onClose: () => void;
 }
 
-const MODEL_ITEMS: readonly ChainCommandItem<ModelOption>[] = MODEL_STEP_OPTIONS.map((model) =>
-  isModelAlias(model)
-    ? { value: model, note: 'latest', title: `The newest ${model} model.` }
-    : { value: model, note: 'pinned', title: `Exactly ${model}, even after newer models ship.` },
-);
+/** One row per model of the CLI's list (static until it arrives): an alias says what it means today. */
+function modelItems(options: readonly string[], aliasVersions: Readonly<Record<string, string>>): ChainCommandItem<ModelOption>[] {
+  return options.map((model) => {
+    if (!isModelAlias(model)) {
+      return { value: model, note: 'pinned', title: `Exactly ${model}, even after newer models ship.` };
+    }
+    const today = aliasVersions[model];
+    return {
+      value: model,
+      note: 'latest',
+      title: today ? `The newest ${model} model (today ${formatModelLabel(today)}).` : `The newest ${model} model.`,
+    };
+  });
+}
 
 /**
  * Claude Code answers `/model` with "saved as your default for new sessions", so a
@@ -41,12 +48,14 @@ const MODEL_ITEMS: readonly ChainCommandItem<ModelOption>[] = MODEL_STEP_OPTIONS
 const DEFAULT_NOTE = 'Also saved as your default for new sessions.';
 
 export default function ModelStepPicker({ anchor, align = 'left', onPick, onClose }: ModelStepPickerProps) {
+  const { options, aliasVersions } = useClaudeModels();
+  const items = useMemo(() => modelItems(options, aliasVersions), [options, aliasVersions]);
   return (
     <ChainCommandPicker
       anchor={anchor}
       align={align}
       label="Set model"
-      items={MODEL_ITEMS}
+      items={items}
       triggerAttr={MODEL_TRIGGER_ATTR}
       tone="model"
       footer={DEFAULT_NOTE}

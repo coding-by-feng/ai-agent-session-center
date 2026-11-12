@@ -269,7 +269,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
 
   // While another device drives, or the session has ended or is still starting,
   // the Mac would refuse a /model too: the chip is off and says why.
-  const blocked = decision.fieldDisabledReason ?? decision.blockedReason;
+  const blocked = decision.fieldDisabledReason ?? decision.blockedReason ?? decision.chipsBlockedReason;
   const chipReasonId = useId();
   const chooseCommands = useCallback((commands: string[]) => {
     if (blocked || commands.length === 0) return;
@@ -434,7 +434,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
   }, [appendToDraft, sessionId, focusAt]);
 
-  const line = sendStatusLine(sender.state, cliName, windowOpen);
+  const line = sendStatusLine(sender.state, cliName, windowOpen, session.status === 'connecting' || !session.terminalId);
   const failed = sender.state.phase === 'failed';
   const dismissable = failed || sender.state.phase === 'unsure';
   const longLabel = decision.label.length > 8;

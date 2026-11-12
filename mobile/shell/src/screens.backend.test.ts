@@ -59,7 +59,7 @@ describe('the backend device for push (AASC-52)', () => {
     const t = await relaunch(first);
     await until(t.root, () => t.navigations.length > 0); // the launch opens the Mac used last: the next sign-in
     expect(await readBackendCredential(t.deps.vault, KASON_MBP.id)).toMatchObject({ host: 'api.aasc.work' });
-    expect((await loadMacs(t.deps.store)).find((m) => m.id === KASON_MBP.id)?.backendDeviceId).toBe('mac-dev-1');
+    expect((await loadMacs(t.deps.store)).find((m) => m.id === KASON_MBP.id)?.backendDeviceId).toBe('7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f');
   });
 
   it('a failed redeem leaves no half-stored credential and is retried at the next sign-in', async () => {

@@ -185,6 +185,23 @@ export interface CreateTerminalResponse {
   terminalId: string;
 }
 
+// GET /api/claude/models — the installed Claude CLI's `/model` list
+export interface ClaudeModelOption {
+  /** What `--model` / `/model` takes: a tier alias (`opus`) or a full ID. */
+  id: string;
+  /** The model the ID means today (`opus` → `claude-opus-5-5`). */
+  resolvedModel: string;
+  displayName: string;
+  description: string;
+}
+
+export interface ListClaudeModelsResponse {
+  models: ClaudeModelOption[];
+  refreshedAt: string;
+  source: 'claude-cli' | 'memory-cache' | 'stale-memory-cache';
+  stale: boolean;
+}
+
 // GET /api/codex/models
 export interface CodexModelOption {
   id: string;

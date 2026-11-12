@@ -35,6 +35,15 @@
                 <data android:scheme="https" android:host="aasc.work" android:path="/pair" />
             </intent-filter>
 
+            <!-- Google sign-in's answer for the phone (plan 17, security rule 6): the same verified App Link
+                 host, path /auth/google. Only AuthSessionPlugin reads it, and only while a sign-in is open. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="aasc.work" android:path="/auth/google" />
+            </intent-filter>
+
             <!-- Share to a session's queue (AASC-21 M5): text, or images (HEIC becomes JPEG).
                  The item waits in memory for the shell; it is added paused, never run unseen. -->
             <intent-filter>

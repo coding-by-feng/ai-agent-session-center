@@ -32,6 +32,9 @@
  * Before Pair, the owner picks which addresses the link carries (Oct 28 2026,
  * PairingAddressChoice). A code works once, so the card closes by itself when a
  * device that wasn't listed when it opened appears; its Allow prompt takes over.
+ *
+ * Plan 17: under the Pair button, "Let phones signed into my AASC Cloud account connect"
+ * (AccountEnrollToggle). A phone that enrolled that way is active at once and reads "via account · <email>".
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
@@ -41,8 +44,9 @@ import { qrSvg } from '@/lib/qrSvg';
 import {
   approvePhone, formatConfirmCode, formatPairingCode, loadCloudPhones, loadPairingAddresses, loadPhonePairing, removePhone,
   removeUnlinkedCloudPhones, renamePhone, signOutPhone, startPhonePairing, type PairedPhone, type PairingAddressKind,
-  type PairingAddresses, type PhonePairing as Pairing,
+  type PairingAddresses, type PhonePairing as Pairing, type AccountEnrollState,
 } from '@/lib/mobilePairingApi';
+import AccountEnrollToggle from './AccountEnrollToggle';
 import { chosenAddresses, readPairingChoice } from '@/lib/pairingAddressChoice';
 import PairingAddressChoice from './PairingAddressChoice';
 import { pairedDeviceKind, pairedDeviceNoun } from '@/lib/deviceKind';
@@ -130,6 +134,16 @@ function shortDate(at: number): string {
 /** The server's cap (deviceAuth MAX_LABEL). */
 const MAX_NAME = 80;
 
+/** "via account · me@example.com" on a phone that enrolled through the AASC Cloud account (plan 17). */
+/** Shown before revoking a phone that joined through the account (review H1): the Mac also signs it out of the cloud. */
+const ACCOUNT_REVOKE_NOTE =
+  'This also signs it out of AASC Cloud. Signing in with Google on that phone again lets it connect again unless you turn off account phones here.';
+
+function accountTag(p: Pick<PairedPhone, 'origin' | 'accountEmail'>): string | null {
+  if (p.origin !== 'account') return null;
+  return p.accountEmail ? `via account · ${p.accountEmail}` : 'via account';
+}
+
 function cloudLine(n: number): string {
   return n === 1
     ? '1 cloud phone device isn’t linked to a paired phone.'
@@ -192,6 +206,8 @@ export default function PhonePairing() {
   const [phones, setPhones] = useState<PairedPhone[]>([]);
   /** Null until the Mac says; the Pair button shows only on a clear yes. */
   const [offered, setOffered] = useState<boolean | null>(null);
+  /** The account switch (plan 17); null until the Mac says, and from a server without it. */
+  const [accountEnroll, setAccountEnrollState] = useState<AccountEnrollState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -230,6 +246,7 @@ export default function PhonePairing() {
       }
       setPhones(state.devices);
       setOffered(state.pairingOffered);
+      setAccountEnrollState(state.accountEnroll);
     } catch (err) {
       if (signal?.aborted) return;
       setError(err instanceof Error ? err.message : String(err));
@@ -350,8 +367,15 @@ export default function PhonePairing() {
     });
   };
 
+  /** Account phones may connect right now: the section stays, so its switch can turn that off. */
+  const accountOpen = accountEnroll?.enabled === true && accountEnroll.available;
+  /**
+   * The account switch, only for a Mac signed into AASC Cloud: sign-in is optional (AASC-64), so a Mac that isn't
+   * shows QR pairing exactly as before. Rows that joined through the account still show their tag.
+   */
+  const showAccountSwitch = accountEnroll !== null && accountEnroll.blocked !== 'no-cloud';
   // Not offered and nothing paired or left over: a release without the phone app shows nothing about phones.
-  if (offered !== true && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
+  if (offered !== true && !accountOpen && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
 
   return (
     <section className={styles.section} aria-label="Paired phones and computers">
@@ -366,6 +390,10 @@ export default function PhonePairing() {
 
       {offered === true && !pairingLive && choosable && (
         <PairingAddressChoice addresses={choosable} choice={choice} onChange={setChoice} />
+      )}
+
+      {accountEnroll && showAccountSwitch && !pairingLive && (
+        <AccountEnrollToggle state={accountEnroll} onChange={setAccountEnrollState} onError={setError} />
       )}
 
       {pairingLive && pairing && (
@@ -462,6 +490,7 @@ export default function PhonePairing() {
                 <span className={styles.phoneMeta}>
                   {[platformLabel(p), accessLabel(p)].filter(Boolean).join(' · ')}
                 </span>
+                {accountTag(p) && <span className={styles.accountTag}>{accountTag(p)}</span>}
                 <span className={styles.phoneMeta}>
                   {[p.approvedAt ? `paired ${shortDate(p.approvedAt)}` : null, `last seen ${relative(p.lastSeenAt)}`]
                     .filter(Boolean).join(' · ')}
@@ -470,7 +499,15 @@ export default function PhonePairing() {
                   <span className={`${styles.actions} ${styles.phoneActions}`}>
                     {confirmRevoke === p.id ? (
                       <>
-                        <Button size="sm" variant="danger" onClick={() => act(() => removePhone(p.id), `${p.label} was revoked`)}>
+                        {p.origin === 'account' && (
+                          <span id={`revoke-note-${p.id}`} className={styles.revokeNote}>{ACCOUNT_REVOKE_NOTE}</span>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          aria-describedby={p.origin === 'account' ? `revoke-note-${p.id}` : undefined}
+                          onClick={() => act(() => removePhone(p.id), `${p.label} was revoked`)}
+                        >
                           Revoke
                         </Button>
                         <Button size="sm" variant="quiet" onClick={() => setConfirmRevoke(null)}>Keep</Button>

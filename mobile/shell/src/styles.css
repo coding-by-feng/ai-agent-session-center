@@ -385,3 +385,33 @@ details.manual > form { padding: 4px 16px 16px; }
   overflow-wrap: anywhere;
 }
 select.input { appearance: auto; }
+
+/* ── AASC Cloud account in Your Macs (plan 17) ─────────────────────── */
+.account { display: flex; flex-direction: column; gap: 12px; }
+.account > h2 { margin-bottom: -4px; }
+.account-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.account-who { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted); overflow-wrap: anywhere; }
+.account-who .icon { color: var(--accent); }
+.account-menu-btn { width: auto; min-height: 44px; padding: 8px 12px; }
+.account-caret { transform: rotate(90deg); transition: transform 150ms ease; }
+.account-caret.open { transform: rotate(-90deg); }
+.account-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.mac-info { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; min-height: 64px; padding: 12px 8px 12px 14px; }
+.mac-connect { align-self: center; width: auto; min-height: 44px; margin-right: 12px; padding: 8px 16px; }
+.mac[data-enroll='offline'] { border-color: var(--warn-border); }
+.mac[data-enroll='failed'] { border-color: var(--danger-border); }
+.mac-note { display: flex; flex: 1 0 100%; flex-direction: column; padding: 0 14px 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .account-caret { transition: none; }
+}
+/* Review M2: the sign-in match code, read against the confirm page (letters, so a little more spacing). */
+.match-code { letter-spacing: 0.24em; text-indent: 0.24em; } /* the indent balances the last letter's trailing space */

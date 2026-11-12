@@ -7,7 +7,7 @@ import type { Request, Router } from 'express';
 import { getSession } from './sessionStore.js';
 import { getForegroundProcess, getTerminals, writeToTerminal } from './sshManager.js';
 import * as presence from './presenceManager.js';
-import { clientIdFromRequest, requireVisibleSession } from './apiRouter.js';
+import { centralCaller, clientIdFromRequest, reconnectCardTerminal, requireVisibleSession } from './apiRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { canSeeSession } from './sessionVisibility.js';
 import { extractToken, getTokenLineage, isLineageAlive } from './authManager.js';
@@ -63,5 +63,7 @@ export function createServerPromptRouter(): Router {
     controller: presence.getController,
     resolveImage: (id) => resolveQueueImage(id),
     submitter,
+    // A person's prompt to a card whose agent isn't running starts it the way RECONNECT does (Nov 12 2026).
+    startAgent: (sessionId, req) => reconnectCardTerminal(sessionId, centralCaller(req)).then((outcome) => outcome.ok),
   });
 }

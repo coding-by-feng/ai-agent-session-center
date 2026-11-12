@@ -32,6 +32,8 @@ import { isPasteKey, readPasteData, stripTrailingNewlines } from '@/lib/terminal
 import { isMac } from '@/lib/shortcutKeys';
 import { TERMINAL_SEARCH_HIGHLIGHT_LIMIT, isTerminalFindKey } from '@/lib/terminalSearch';
 import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
+import { grantEchoCredit, takeEchoCredit, type EchoCredit } from '@/lib/echoFastPath';
+import { createTypingProbe, isTypingProbeEnabled, type TypingProbe } from '@/lib/typingProbe';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,6 +96,8 @@ interface UseTerminalReturn {
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
   handleTerminalOutput: (terminalId: string, base64Data: string) => void;
+  /** The server's `terminal_probe` reply (typing probe, dev flag only). */
+  handleTerminalProbe: (terminalId: string, id: number, serverMs: number) => void;
   /** Server-reported PTY width; drives pan mode. */
   handleTerminalGeometry: (terminalId: string, cols: number) => void;
   /** 'pan' renders at the PTY's width and scrolls horizontally; 'wrap' fits
@@ -231,6 +235,8 @@ const MAX_ACTIVE_CHUNKS = 4000;
 /** How long a revealed bookmark stays selected (AASC-20). */
 const REVEAL_MARK_MS = 1600;
 const HIDDEN_FLUSH_MS = 250;
+/** Longest input still treated as typed keys rather than a paste (an escape sequence fits). */
+const TYPED_KEY_MAX = 16;
 
 function mergeChunks(chunks: string[]): Uint8Array {
   const decoded: string[] = new Array(chunks.length);
@@ -715,6 +721,12 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
   }, [isMobile]);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
+  /** Fast writes the last keystroke still allows for its echo (echoFastPath.ts). */
+  const echoCreditRef = useRef<EchoCredit | null>(null);
+  /** The dev-flag typing probe for the active terminal (typingProbe.ts), or null. */
+  const probeRef = useRef<TypingProbe | null>(null);
+  /** The next flush carries the probed key's echo: time its paint. */
+  const probePaintRef = useRef(false);
   /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
@@ -1296,7 +1308,13 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           if (tap && !pasting) tap.onData(data, readCaretContext(term));
           if (!wsRef.current || wsRef.current.readyState !== 1) return;
           if (data.length <= CHUNK_SIZE) {
-            wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+            // A typed key (not a paste): its echo may skip the frame batch.
+            const typed = data.length <= TYPED_KEY_MAX;
+            if (typed) echoCreditRef.current = grantEchoCredit(performance.now());
+            const probe = typed ? probeRef.current?.noteKey(performance.now()) ?? null : null;
+            wsRef.current.send(JSON.stringify(probe === null
+              ? { type: 'terminal_input', terminalId, data }
+              : { type: 'terminal_input', terminalId, data, probe }));
           } else {
             const ws = wsRef.current;
             for (let i = 0; i < data.length; i += CHUNK_SIZE) {
@@ -1382,6 +1400,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         visibilityObserver.observe(container);
 
         activeRef.current = { terminalId, term, fitAddon, searchAddon, resizeObserver, visibilityObserver, layoutReady: false, pendingScrollRestore };
+        echoCreditRef.current = null;
+        probePaintRef.current = false;
+        probeRef.current = isTypingProbeEnabled() ? createTypingProbe(terminalId) : null;
         setIsAttached(true);
         setActiveTerminalId(terminalId);
 
@@ -1493,8 +1514,14 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     // Merge all pending chunks into one Uint8Array and write once —
     // avoids N xterm parser runs + N canvas repaints + N GC allocations.
     const merged = mergeChunks(pending);
+    const timePaint = probePaintRef.current;
+    probePaintRef.current = false;
     term.write(merged, () => {
       if (activeRef.current?.term !== term) return;
+      if (timePaint) {
+        const probe = probeRef.current;
+        requestAnimationFrame(() => probe?.notePainted(performance.now()));
+      }
       if (hasPendingRestore) {
         // Apply the saved scroll from the previous session view
         const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
@@ -1539,7 +1566,26 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         activeBuf.splice(0, activeBuf.length - MAX_ACTIVE_CHUNKS);
       }
       pendingOutputRef.current.set(`__active__${terminalId}`, activeBuf);
-      scheduleOutputFlush();
+      const now = performance.now();
+      if (probeRef.current?.noteOutput(now)) probePaintRef.current = true;
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      const echo = takeEchoCredit(echoCreditRef.current, now, base64Data.length, hidden);
+      echoCreditRef.current = echo.credit;
+      if (echo.fast) {
+        // Likely the echo of a key just typed: write now, so xterm paints it on
+        // the coming frame rather than one frame later (echoFastPath.ts).
+        if (outputRafRef.current !== null) {
+          cancelAnimationFrame(outputRafRef.current);
+          outputRafRef.current = null;
+        }
+        if (outputTimerRef.current !== null) {
+          clearTimeout(outputTimerRef.current);
+          outputTimerRef.current = null;
+        }
+        flushActiveOutput();
+      } else {
+        scheduleOutputFlush();
+      }
     } else {
       // TTL-based cleanup for stale buffers (#27)
       const now = Date.now();
@@ -1557,7 +1603,13 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
       if (buf.length > 500) buf.shift();
       pendingOutputRef.current.set(terminalId, buf);
     }
-  }, [scheduleOutputFlush]);
+  }, [scheduleOutputFlush, flushActiveOutput]);
+
+  /** The server's half of the typing probe (dev flag only; server/typingProbe.ts). */
+  const handleTerminalProbe = useCallback((terminalId: string, id: number, serverMs: number) => {
+    if (activeRef.current?.terminalId !== terminalId) return;
+    probeRef.current?.noteServer(id, serverMs);
+  }, []);
 
   const handleTerminalReady = useCallback((terminalId: string) => {
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
@@ -2042,6 +2094,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     refitTerminal,
     setTheme: setThemeFn,
     handleTerminalOutput,
+    handleTerminalProbe,
     handleTerminalReady,
     handleTerminalClosed,
     reparent,

@@ -109,6 +109,18 @@ export interface HapticsPlatform {
   notify(haptic: Haptic): Promise<void>;
 }
 
+/** What the system's web sign-in sheet came back with (plan 17). */
+export type AuthSessionResult = { url: string } | { cancelled: true };
+
+/**
+ * The system's web sign-in sheet (plan 17): ASWebAuthenticationSession on iOS (callback scheme
+ * `work.aasc.mobile`, not registered in Info.plist), a Custom Tab plus the verified App Link
+ * `https://aasc.work/auth/google` on Android. Resolves with the URL it was sent back to, or cancelled.
+ */
+export interface AuthSession {
+  start(url: string, callback: { scheme?: string; prefix?: string }): Promise<AuthSessionResult>;
+}
+
 export type ShellOs = 'ios' | 'android' | 'web';
 
 export interface ShellDeps {
@@ -135,4 +147,6 @@ export interface ShellDeps {
   haptics?: HapticsPlatform;
   /** Absent in the browser build: the LAN rescan then only sweeps the saved address's network. */
   discovery?: LanDiscovery;
+  /** Absent in the browser build: no "Sign in with Google" there (plan 17). */
+  authSession?: AuthSession;
 }

@@ -189,7 +189,7 @@ describe('AASC Cloud lookup', () => {
   /** Paired at home with the home network allowed, before Tailscale was set up: no Tailscale address saved. */
   const AWAY_MAC: SavedMac = { ...KASON_MBP, tailnet: null, lanAllowed: true, lastPath: 'lan' };
   /** The account lists a Mac mini first, then this Mac (under the id it sent with its backend code). */
-  const LISTED = [{ deviceId: 'mac-mini', tailnet: '100.88.1.7', port: 3333 }, { deviceId: 'mac-dev-1', tailnet: '100.101.102.103', port: 3333 }];
+  const LISTED = [{ deviceId: 'mac-mini', tailnet: '100.88.1.7', port: 3333 }, { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.101.102.103', port: 3333 }];
   /** On mobile data, or a café's Wi-Fi: not on the saved home network. */
   const OFF_HOME = async (): Promise<BrowseResult> => ({ services: [], local: ['10.0.0.9'] });
 
@@ -233,7 +233,7 @@ describe('AASC Cloud lookup', () => {
     const MOVED_TAILNET = 'http://100.88.1.9:3333';
     let browsed = false;
     const t = launch(await phone({
-      mac: { reachable: [MOVED_TAILNET], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: '100.88.1.9', port: 3333 }] },
+      mac: { reachable: [MOVED_TAILNET], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.88.1.9', port: 3333 }] },
       discovery: async () => {
         browsed = true;
         return { services: [] };
@@ -249,7 +249,7 @@ describe('AASC Cloud lookup', () => {
   });
 
   it('shows "Looking for <name>…" while it asks the cloud', async () => {
-    const t = await phone({ mac: { reachable: ['http://100.88.1.9:3333'], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: '100.88.1.9', port: 3333 }] } }, STUDIO);
+    const t = await phone({ mac: { reachable: ['http://100.88.1.9:3333'], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.88.1.9', port: 3333 }] } }, STUDIO);
     const release = t.mac.holdNextBackendRequest();
     launch(t);
     await until(t.root, () => cloudAsks(t).length === 1);
@@ -361,7 +361,7 @@ describe('AASC Cloud lookup', () => {
 
     it('does not ask again about a saved Tailscale address the saved paths had just tried', async () => {
       const t = launch(await phone({
-        mac: { reachable: [], cloudMacs: [{ deviceId: 'mac-dev-1', tailnet: '100.88.1.7', port: 3333 }] },
+        mac: { reachable: [], cloudMacs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', tailnet: '100.88.1.7', port: 3333 }] },
       }, STUDIO));
       await until(t.root, () => heading(t.root) === 'Can’t reach Studio');
       expect(cloudAsks(t)).toHaveLength(1);

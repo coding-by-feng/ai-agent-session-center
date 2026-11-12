@@ -29,7 +29,8 @@ import { createLog } from '@/lib/translationLog';
 import { openFloatWindow, preopenTerminalPopup } from '@/lib/popoutTerminalWindow';
 import { showToast } from '@/components/ui/ToastContainer';
 import { detectCli } from '@/lib/cliDetect';
-import { EFFORT_LEVELS, MODEL_OPTIONS } from '@/lib/remoteControlName';
+import { EFFORT_LEVELS } from '@/lib/remoteControlName';
+import { useClaudeModels } from '@/lib/claudeModels';
 import type { ExtractedSelection } from '@/lib/selectionExtractors';
 import type { CodexModelOption, ListCodexModelsResponse } from '@/types/api';
 import styles from '@/styles/modules/SelectionPopup.module.css';
@@ -162,6 +163,7 @@ export default function SelectionPopup({
   const origin = sessions.get(originSessionId);
   const cli = origin ? (detectCli(origin) ?? 'claude') : 'claude';
 
+  const claudeModels = useClaudeModels(cli !== 'codex');
   const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
   const [codexModelStatus, setCodexModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
@@ -488,7 +490,7 @@ export default function SelectionPopup({
               <Combobox
                 value={spawnModel}
                 onChange={(v) => useSettingsStore.getState().setSelectionSpawnModel(v)}
-                items={[...MODEL_OPTIONS]}
+                items={[...claudeModels.options]}
                 placeholder="Model"
                 className={styles.quickSettingsModel}
               />

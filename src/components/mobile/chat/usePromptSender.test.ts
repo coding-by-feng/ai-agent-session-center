@@ -7,7 +7,7 @@ import { act, renderHook } from '@testing-library/react';
 
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 
-import { usePromptSender } from './usePromptSender';
+import { sendStatusLine, usePromptSender } from './usePromptSender';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { showToast } from '@/components/ui/ToastContainer';
 
@@ -113,5 +113,19 @@ describe('usePromptSender', () => {
     const calls = fetchMock.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(calls + 1);
+  });
+});
+
+// Nov 12 2026: a prompt to an agent that isn't up yet is held on the Mac while it starts the agent.
+describe('sendStatusLine while the agent starts', () => {
+  it('says the agent is starting and the message goes in when it is ready', () => {
+    expect(sendStatusLine({ phase: 'pending' }, 'Claude', true, true)).toBe('Starting Claude… your message goes in when it’s ready');
+    expect(sendStatusLine({ phase: 'pending', slow: true }, 'Claude', true, true)).toBe('Still waiting for Claude to start…');
+  });
+
+  it('says what it always said once the agent is up', () => {
+    expect(sendStatusLine({ phase: 'pending' }, 'Claude', true)).toBe('Sent to your Mac · waiting for Claude to take it…');
+    expect(sendStatusLine({ phase: 'sending' }, 'Claude', true, true)).toBe('Sending…');
+    expect(sendStatusLine({ phase: 'sent', queued: false }, 'Claude', true, true)).toBe('Sent');
   });
 });

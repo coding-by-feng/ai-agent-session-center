@@ -143,13 +143,16 @@ describe('approvalDetector', () => {
   // Notification (see test/approvalPermissionMode.test.ts). So in both modes the
   // timeout heuristic is dropped: it could only guess wrong there. The reported
   // case: a bypass-mode session an hour into thinking after a Read showed "!".
+  // `auto` joined them on Nov 12 2026: its classifier runs before each call, so the
+  // timer fired mid-check, and its real asks send the same two signals.
   describe('mayAwaitApproval — modes where only a real signal may mean approval', () => {
-    it.each(['Read', 'Edit', 'Write', 'Bash', 'WebFetch'])('a %s gets no approval timer in bypassPermissions or dontAsk', (tool) => {
+    it.each(['Read', 'Edit', 'Write', 'Bash', 'WebFetch'])('a %s gets no approval timer in bypassPermissions, dontAsk or auto', (tool) => {
       expect(mayAwaitApproval(tool, 'bypassPermissions')).toBe(false);
       expect(mayAwaitApproval(tool, 'dontAsk')).toBe(false);
+      expect(mayAwaitApproval(tool, 'auto')).toBe(false);
     });
 
-    it.each(['default', 'acceptEdits', 'plan', 'auto', null, undefined, ''])('mode %s may still prompt, so the timer stays', (mode) => {
+    it.each(['default', 'acceptEdits', 'plan', null, undefined, ''])('mode %s may still prompt, so the timer stays', (mode) => {
       expect(mayAwaitApproval('Read', mode as string | null | undefined)).toBe(true);
       expect(mayAwaitApproval('Bash', mode as string | null | undefined)).toBe(true);
     });

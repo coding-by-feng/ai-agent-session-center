@@ -30,7 +30,7 @@ describe('Approve on your Mac', () => {
     expect(t.cookies[0]).toMatchObject({ origin: TAILNET, maxAgeSeconds: SESSION_COOKIE_MAX_AGE });
     expect(t.allowed.at(-1)).toEqual([TAILNET]); // the home network wasn't allowed
     const [mac] = await loadMacs(t.deps.store);
-    expect(mac).toMatchObject({ name: 'Kason-MBP', status: 'active', confirmCode: null, lastPath: 'tailnet', backendDeviceId: 'mac-dev-1' });
+    expect(mac).toMatchObject({ name: 'Kason-MBP', status: 'active', confirmCode: null, lastPath: 'tailnet', backendDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f' });
     expect(await readMacCredentials(t.deps.vault, mac.id)).not.toBeNull();
     expect(await readBackendCredential(t.deps.vault, mac.id)).toMatchObject({ host: 'api.aasc.work' });
   });

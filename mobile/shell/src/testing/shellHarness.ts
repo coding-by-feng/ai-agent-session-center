@@ -3,7 +3,7 @@
 import { createShellApp, type ShellApp, type ShellTiming } from '../app.js';
 import type { FormFactor } from '../formFactor.js';
 import { createFakeMac, type FakeDeviceStatus, type FakeMac, type FakeMacOptions } from '../dev/fakeMac.js';
-import type { BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
+import type { AuthSession, AuthSessionResult, BiometricGate, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { BrowseResult } from '../lanRescan.js';
 import type { NotificationLike } from '../pushPayload.js';
 import { loadMacs, saveMacs, withMac, writeMacCredentials, type SavedMac } from '../savedMacs.js';
@@ -12,7 +12,7 @@ export const TAILNET = 'http://100.101.102.103:3333';
 export const LAN = 'http://192.168.1.20:3333';
 export const LINK = 'https://aasc.work/pair#v=2&name=Kason-MBP&lan=192.168.1.20&ts=100.101.102.103&p=3333&mc=K7Q2M9XPZT';
 /** A QR from before AASC-52: it also carried a backend code, which the shell now ignores. */
-export const LEGACY_LINK = `${LINK}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv&md=mac-dev-1`;
+export const LEGACY_LINK = `${LINK}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv&md=7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f`;
 export const LAN_ONLY_LINK = 'https://aasc.work/pair#v=2&name=Home-Mac&lan=192.168.1.20&p=3333&mc=K7Q2M9XPZT';
 
 export interface HarnessOptions {
@@ -36,6 +36,11 @@ export interface HarnessOptions {
   widget?: boolean;
   /** Bonjour on this Wi-Fi: what the native browse finds (absent: the phone has no browser, sweep only). */
   discovery?: () => Promise<BrowseResult>;
+  /**
+   * Plan 17: the sign-in sheet. `true`: it goes through the fake backend's Google redirect as a user who signs in;
+   * a function: the test decides what comes back (`redirect` is what the fake backend would send). Absent: none.
+   */
+  authSession?: true | ((startUrl: string, redirect: string | null) => Promise<AuthSessionResult>);
 }
 
 export function createHarness(opts: HarnessOptions = {}) {
@@ -60,6 +65,16 @@ export function createHarness(opts: HarnessOptions = {}) {
     pause: null as (() => void) | null,
     resume: null as (() => void) | null,
     widget: [] as string[],
+    /** Every sign-in sheet opened: the start URL and the callback it waits for. */
+    authStarts: [] as Array<{ url: string; callback: { scheme?: string; prefix?: string } }>,
+  };
+  const authSession: AuthSession | undefined = opts.authSession && {
+    start: async (url, callback) => {
+      extras.authStarts.push({ url, callback });
+      const redirect = mac.googleRedirect(url);
+      if (opts.authSession === true) return redirect ? { url: redirect } : { cancelled: true };
+      return (opts.authSession as (u: string, r: string | null) => Promise<AuthSessionResult>)(url, redirect);
+    },
   };
   const push: PushHost | undefined = opts.push && {
     configured: async () => opts.push!.configured,
@@ -170,6 +185,7 @@ export function createHarness(opts: HarnessOptions = {}) {
     } : undefined,
     widget: opts.widget ? { write: async (json) => { extras.widget.push(json); } } : undefined,
     discovery: opts.discovery ? { browse: opts.discovery } : undefined,
+    authSession,
   };
 
   const root = document.createElement('div');

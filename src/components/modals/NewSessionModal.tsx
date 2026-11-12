@@ -45,6 +45,7 @@ import { getCommandSuggestions, saveCommand } from '@/lib/commandSuggestions';
 import { isKnownFolder } from '@/lib/folderBrowser';
 import { sendRoomOp } from '@/lib/roomOps';
 import { centralRequestFor } from '@/lib/centralChoice';
+import { useClaudeModels } from '@/lib/claudeModels';
 import {
   deriveRemoteControlName,
   loadRemoteControlSettings,
@@ -53,7 +54,6 @@ import {
   loadSessionPrefs,
   saveSessionPrefs,
   EFFORT_LEVELS,
-  MODEL_OPTIONS,
   normalizeEffortLevel,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
@@ -196,6 +196,7 @@ export default function NewSessionModal() {
   const passwordEnabled = useMcpStore((s) => s.passwordEnabled);
 
   const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
+  const claudeModels = useClaudeModels(activeModal === 'new-session' && isClaudeCommand);
   const isCodexCommand = /^(?:\S*\/)?codex(?:\s|$)/i.test(command.trim());
   const apiKeyEnvName = isCodexCommand
     ? 'OPENAI_API_KEY'
@@ -496,7 +497,7 @@ export default function NewSessionModal() {
             <Combobox
               value={claudeModel}
               onChange={setClaudeModel}
-              items={[...MODEL_OPTIONS]}
+              items={[...claudeModels.options]}
               placeholder="Default"
             />
           </div>

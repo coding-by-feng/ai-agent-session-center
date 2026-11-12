@@ -15,6 +15,7 @@
  */
 import { BUSY_SPINNER_RE } from './approvalDetector.js';
 import { stripAnsi } from '../src/lib/ansi.js';
+import type { Session } from '../src/types/session.js';
 
 /** When to look at the screen after the last keystroke (ms). */
 export const DIALOG_CLOSE_CHECKS_MS: readonly number[] = [400, 1200, 2500];
@@ -53,6 +54,19 @@ export function dialogClosedAndBusy(output: string | null | undefined): boolean 
   const tail = stripAnsi(output).slice(-3000);
   const spinner = lastMatchIndex(BUSY_CUE_RE, tail);
   return spinner >= 0 && spinner > lastMatchIndex(DIALOG_MARKER_RE, tail);
+}
+
+/**
+ * Was the timer's "approval" guess wrong? Only a guess (`approvalSource === 'timer'`) can
+ * be: PermissionRequest and the `permission_prompt` Notification are the CLI saying a
+ * dialog is open. The proof is the same as after a keystroke — the working spinner drawn
+ * after any dialog line — so a dialog the timer guessed right stays.
+ */
+export function timerApprovalDisproved(
+  session: Pick<Session, 'status' | 'approvalSource'>,
+  output: string | null | undefined,
+): boolean {
+  return session.status === 'approval' && session.approvalSource === 'timer' && dialogClosedAndBusy(output);
 }
 
 export interface DialogCloseDeps {

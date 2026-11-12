@@ -74,6 +74,7 @@ import { attachmentDisposition, parseByteRange, refusesStreamSize } from './file
 import { getCommandIndex } from './commandIndex.js';
 import { createCommandUsage, usageForEntries, usageScope } from './commandUsage.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
+import { getClaudeModelCatalog } from './claudeModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
 import { planHistoryResume } from './historyResume.js';
@@ -1097,7 +1098,7 @@ function isTerminalLive(terminalId: string): boolean {
 }
 
 /** Who asks for a central's launch: this Mac or not, and the rooms this Mac has (a room central needs one). */
-function centralCaller(req: Request): CentralCaller {
+export function centralCaller(req: Request): CentralCaller {
   return {
     isLocal: requestIsLocal(req),
     roomExists: (roomId) => roomsService.current().some((room) => room.id === roomId),
@@ -1274,21 +1275,61 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   }
 });
 
-// Reconnect an ended session's terminal — creates a new PTY and links it
-// to the existing session. Used by the RECONNECT button in the detail panel.
-// Works for SSH sessions (using stored sshConfig) and hook-detected sessions
-// that have a captured startupCommand.
-router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
-  const requestedId = str(req.params.id);
-  if (refuseWhileRestarting(requestedId, res)) return;
+/** How a reconnect went: the card's new terminal, or the answer the route gives. */
+export type ReconnectOutcome =
+  | { ok: true; terminalId: string }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * A reconnect asked for again while one for the same card is under way, or this soon after one opened a terminal
+ * that is still live, gets that one's terminal instead of a second (Nov 12 2026). Two callers can ask at once: the
+ * browser's workspace restore after a server restart, and a phone prompt that starts the agent (promptRouter).
+ */
+export const RECONNECT_JOIN_MS = 15_000;
+const reconnects = new Map<string, { promise: Promise<ReconnectOutcome>; settledAt: number | null; outcome: ReconnectOutcome | null }>();
+
+/**
+ * Open a new PTY for a card and start its agent in it: the stored line (SSH config or the captured startupCommand),
+ * or the conversation a restored card resumed. The RECONNECT button, the workspace restore of a card that came back
+ * without its PTY, and a phone prompt to a card whose agent isn't running all come here.
+ */
+export function reconnectCardTerminal(askedId: string, caller: CentralCaller): Promise<ReconnectOutcome> {
+  // Follow an old id (term-* before the CLI re-keyed it) to the card, so every caller joins under one key: the restore
+  // may still hold a saved id while the prompt route uses the current one.
+  const requestedId = resolveSessionId(askedId) ?? askedId;
+  if (isSessionRestarting(requestedId)) {
+    return Promise.resolve({ ok: false, status: 409, body: { ok: false, success: false, error: 'This session is restarting — try again in a moment' } });
+  }
   // A split card reconnects to its twin's thread, as one card (sessionStore.healSplitCard).
   const sessionId = healSplitCard(requestedId);
-  const healed = sessionId !== requestedId;
+  const recent = reconnects.get(sessionId);
+  if (recent) {
+    if (recent.settledAt === null) return recent.promise;
+    // Only while the card still runs in that terminal: a Restart since then gave it another.
+    const joinable = recent.outcome?.ok === true && Date.now() - recent.settledAt < RECONNECT_JOIN_MS
+      && isTerminalLive(recent.outcome.terminalId) && getSession(sessionId)?.terminalId === recent.outcome.terminalId;
+    if (joinable) return recent.promise;
+    reconnects.delete(sessionId);
+  }
+  const entry: { promise: Promise<ReconnectOutcome>; settledAt: number | null; outcome: ReconnectOutcome | null } = {
+    promise: Promise.resolve({ ok: false, status: 500, body: {} }), settledAt: null, outcome: null,
+  };
+  entry.promise = openCardTerminal(sessionId, sessionId !== requestedId, caller).then((outcome) => {
+    entry.settledAt = Date.now();
+    entry.outcome = outcome;
+    if (!outcome.ok) reconnects.delete(sessionId);
+    else setTimeout(() => { if (reconnects.get(sessionId) === entry) reconnects.delete(sessionId); }, RECONNECT_JOIN_MS).unref?.();
+    return outcome;
+  });
+  reconnects.set(sessionId, entry);
+  return entry.promise;
+}
+
+async function openCardTerminal(sessionId: string, healed: boolean, caller: CentralCaller): Promise<ReconnectOutcome> {
   const session = getSession(sessionId);
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  if (!session) return { ok: false, status: 404, body: { error: 'Session not found' } };
   if (session.source !== 'ssh' && !session.startupCommand) {
-    res.status(400).json({ error: 'Reconnect requires SSH config or a known startup command' });
-    return;
+    return { ok: false, status: 400, body: { error: 'Reconnect requires SSH config or a known startup command' } };
   }
 
   const cfg = session.sshConfig;
@@ -1310,7 +1351,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
       // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
       // session when the central cannot be established again (Ruling 16).
-      const plan = prepareCentralRelaunch(session, { command: launchCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, centralCaller(req));
+      const plan = prepareCentralRelaunch(session, { command: launchCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, caller);
       const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
       const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
       consumePendingLink(newConfig.workingDir || session.projectPath || '');
@@ -1321,8 +1362,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       if ('error' in result) {
         // The card is gone: a central's new terminal would hold a token nobody sees.
         discardCentralTerminal(plan.central, newTerminalId, closeTerminal);
-        res.status(500).json({ error: result.error });
-        return;
+        return { ok: false, status: 500, body: { error: result.error } };
       }
 
       // Write the original command (with full params) once shell is ready.
@@ -1338,7 +1378,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       const { broadcast } = await import('./wsManager.js');
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
 
-      res.json({ ok: true, terminalId: newTerminalId });
+      return { ok: true, terminalId: newTerminalId };
     } else {
       // Non-SSH (hook-detected) session: create local terminal, write command after shell ready.
       // Use command='' to avoid shell metacharacter validation on the startup command.
@@ -1352,7 +1392,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       const storedCmd = session.startupCommand || 'claude';
       const cmd = reconnectResumeLine(session, healed)
         ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
-      const plan = prepareCentralRelaunch(session, { command: cmd, workingDir: baseConfig.workingDir || '~', remoteHost: false }, centralCaller(req));
+      const plan = prepareCentralRelaunch(session, { command: cmd, workingDir: baseConfig.workingDir || '~', remoteHost: false }, caller);
       const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
       const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
       consumePendingLink(newConfig.workingDir || session.projectPath || '');
@@ -1361,8 +1401,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       const result = reconnectSessionTerminal(sessionId, newTerminalId);
       if ('error' in result) {
         discardCentralTerminal(plan.central, newTerminalId, closeTerminal);
-        res.status(500).json({ error: result.error });
-        return;
+        return { ok: false, status: 500, body: { error: result.error } };
       }
 
       writeWhenReady(newTerminalId, `${cmd}\r`);
@@ -1371,13 +1410,26 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       const { broadcast } = await import('./wsManager.js');
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
 
-      res.json({ ok: true, terminalId: newTerminalId });
+      return { ok: true, terminalId: newTerminalId };
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Reconnect terminal failed: ${msg}`);
-    res.status(500).json({ error: 'Failed to reconnect terminal' });
+    return { ok: false, status: 500, body: { error: 'Failed to reconnect terminal' } };
   }
+}
+
+// Reconnect an ended session's terminal — creates a new PTY and links it
+// to the existing session. Used by the RECONNECT button in the detail panel.
+// Works for SSH sessions (using stored sshConfig) and hook-detected sessions
+// that have a captured startupCommand.
+router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
+  const outcome = await reconnectCardTerminal(str(req.params.id), centralCaller(req));
+  if (!outcome.ok) {
+    res.status(outcome.status).json(outcome.body);
+    return;
+  }
+  res.json({ ok: true, terminalId: outcome.terminalId });
 });
 
 // Restart the agent in this card's terminal: stop it, open a fresh PTY in the same
@@ -3808,6 +3860,18 @@ router.get('/codex/models', async (_req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Codex model catalog failed: ${msg}`);
     res.status(503).json({ error: 'Codex model catalog unavailable' });
+  }
+});
+
+/** GET /api/claude/models — the installed Claude CLI's `/model` list (aliases resolved). */
+router.get('/claude/models', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    res.json(await getClaudeModelCatalog());
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Claude model catalog failed: ${msg}`);
+    res.status(503).json({ error: 'Claude model catalog unavailable' });
   }
 });
 

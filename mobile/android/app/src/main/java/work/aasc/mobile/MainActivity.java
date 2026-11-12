@@ -24,9 +24,11 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // The app's own plugins (AASC-17): both serve the bundled shell page only.
+        // The app's own plugins (AASC-17): all serve the bundled shell page only.
         registerPlugin(DeviceVaultPlugin.class);
         registerPlugin(ShellBridgePlugin.class);
+        // Google sign-in for the phone (plan 17): a Custom Tab answered by the /auth/google App Link.
+        registerPlugin(AuthSessionPlugin.class);
         // A cold start from the share sheet: the shell takes the item when it starts (AASC-21).
         ShareInbox.INSTANCE.accept(getIntent(), getPackageName());
         super.onCreate(savedInstanceState);

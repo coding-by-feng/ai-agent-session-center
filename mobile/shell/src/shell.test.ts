@@ -160,12 +160,12 @@ describe('pairing client', () => {
 
   describe('requestBackendCode (AASC-52)', () => {
     const url = `${origin}/api/mobile/backend-code`;
-    const ok = { status: 200, data: { success: true, data: { host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: 'mac-dev-1' } } };
+    const ok = { status: 200, data: { success: true, data: { host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f' } } };
 
     it('asks the Mac with the signed-in session, as JSON', async () => {
       const http = fakeRequester(() => ok);
       expect(await requestBackendCode(http, origin, 'sess-token')).toEqual({
-        status: 'ok', host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: 'mac-dev-1',
+        status: 'ok', host: 'api.aasc.work', code: 'abcdefghijklmnopqrstuv', macDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f',
       });
       expect(http.calls).toEqual([{ method: 'POST', url, headers: { Authorization: 'Bearer sess-token', 'Content-Type': 'application/json' }, body: {} }]);
     });

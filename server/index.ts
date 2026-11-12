@@ -36,7 +36,7 @@ import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
 import { respawnTerminalConfig } from './respawnConfig.js';
-import { config } from './serverConfig.js';
+import { config, CONFIG_PATH } from './serverConfig.js';
 import { respawnClaudeBase } from './respawnLine.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
@@ -44,7 +44,7 @@ import { getLocalIP, getPairingLanIP, getPublicInterfaceIP } from './networkInfo
 import { createTailscaleProbe } from './tailscaleStatus.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
-import { sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
+import { sqliteAccountDenyList, sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { createFolderRouter } from './mobile/folderRouter.js';
 import { createServerCliVersions } from './cliVersions.js';
@@ -52,6 +52,7 @@ import { createCliVersionsRouter } from './cliVersionsRouter.js';
 import { listKnownProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
+import { createAccountEnrollWiring } from './mobile/accountEnrollWiring.js';
 import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
 import { createMacPathsPublisher } from './mobile/macPathsPublisher.js';
 import { createPairingTarget } from './mobile/pairingTarget.js';
@@ -382,6 +383,21 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // Mounted before authMiddleware: /pair, /session and /unpair are the phone's
   // own authentication, /backend-code checks the phone's session itself
   // (AASC-52), and the desktop routes use the RESOURCES local gate.
+  // Plan 17: phones signed into this Mac's AASC Cloud account connect without a QR. On unless
+  // server-config.json "phoneAccountEnroll": false or AASC_PHONE_ACCOUNT_ENROLL=0; the device panel's checkbox writes it.
+  // AASC Cloud stays optional: with no connection none of it asks the backend anything (accountEnrollNoCloud.test.ts).
+  const accountEnrollWiring = createAccountEnrollWiring({
+    cloud,
+    phoneCloud,
+    configPath: CONFIG_PATH,
+    savedSetting: config.phoneAccountEnroll,
+    env: process.env,
+    pairingOffered: () => isPhonePairingOffered(config, process.env),
+    passwordEnabled: isPasswordEnabled,
+    denyList: sqliteAccountDenyList,
+    info: (message) => log.info('mobile', message),
+    warn: (message) => log.warn('mobile', message),
+  });
   const deviceAuth = createDeviceAuth({
     store: sqliteMobileDeviceStore,
     // A device token is bound to the dashboard password it was issued under.
@@ -400,6 +416,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       revokeTokensForDevice(device.id);
       disconnectDevice(device.id);
     },
+    // Plan 17 (review H1): Revoke / Unpair of an account phone also signs it out of AASC Cloud and refuses it here.
+    onRemovedByOwner: accountEnrollWiring.onRemovedByOwner,
   });
   // The password is read at startup: a changed one revokes every phone paired
   // under the old one now, backend devices included (AASC-52), not at its next sign-in.
@@ -409,6 +427,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // How each phone last connected (home network or Tailscale), in memory (AASC-60):
   // written by the mobile router below, read by Remote access.
   const phonePathLog = createPhonePathLog();
+  const accountEnroll = accountEnrollWiring.createEnroll(deviceAuth);
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
@@ -445,6 +464,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       warn: (message) => log.warn('mobile', message),
     }),
     pathLog: phonePathLog,
+    accountEnroll,
+    setAccountEnroll: (enabled) => accountEnrollWiring.setting.set(enabled),
   }));
 
   // -- Remote access (AASC-60) --

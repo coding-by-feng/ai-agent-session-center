@@ -5,7 +5,8 @@
  * In the terminal a bare `/model` or `/effort` opens a picker the phone can't
  * drive (the Mac refuses them bare: 400 needs_argument), so the choices are
  * here and the composer sends the command with its choice, as Claude's mobile
- * app does. Claude: the session modals' model list and the effort levels.
+ * app does. Claude: the Mac's CLI's own `/model` list (`GET /api/claude/models`,
+ * the static list until it arrives) and the effort levels.
  * Codex: its models from the Mac (`GET /api/codex/models`); Codex has no
  * /effort (its reasoning effort is part of its own /model menu), so a tap sends.
  *
@@ -22,8 +23,8 @@ import { SuccessIcon } from '../kit/kitIcons';
 import { detectCli } from '@/lib/cliDetect';
 import { formatModelLabel, modelLabelKey } from '@/lib/modelLabel';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
-import { MODEL_STEP_OPTIONS, isModelAlias, modelStepText } from '@/lib/queueModel';
-import { MODEL_ALIAS_VERSIONS } from '@/lib/remoteControlName';
+import { isModelAlias, modelStepText } from '@/lib/queueModel';
+import { useClaudeModels } from '@/lib/claudeModels';
 import { EFFORT_STEP_LEVELS, effortLevelSavesDefault, effortStepText } from '@/lib/queueEffort';
 import type { EffortLevel } from '@/lib/queueEffort';
 import styles from '@/styles/modules/mobile/ComposerSheets.module.css';
@@ -40,14 +41,16 @@ export interface ModelEffortSheetProps {
 
 const DETENTS = ['medium', 'large'] as const;
 
-/** "Newest · Opus 5.5": an alias with the version it means today. */
-const aliasNote = (alias: string): string => {
-  const version = MODEL_ALIAS_VERSIONS[alias];
+type AliasVersions = Readonly<Record<string, string>>;
+
+/** "Newest · Opus 5.5": an alias with the version it means today (the Mac's CLI says). */
+const aliasNote = (alias: string, versions: AliasVersions): string => {
+  const version = versions[alias];
   return version ? `Newest · ${formatModelLabel(version)}` : 'The newest version';
 };
 
 /** What a model choice is called on Apply: an alias by today's version. */
-const modelName = (model: string): string => formatModelLabel(MODEL_ALIAS_VERSIONS[model] ?? model);
+const modelName = (model: string, versions: AliasVersions): string => formatModelLabel(versions[model] ?? model);
 
 type CodexLoad = { models: CodexModelOption[] | null; failed: boolean };
 
@@ -62,6 +65,7 @@ function Check({ on }: { on: boolean }) {
 export default function ModelEffortSheet({ open, onClose, session, focus = 'model', onApply }: ModelEffortSheetProps) {
   const codex = detectCli(session) === 'codex';
   const [codexLoad, setCodexLoad] = useState<CodexLoad>({ models: null, failed: false });
+  const claudeModels = useClaudeModels(open && !codex);
 
   useEffect(() => {
     if (!open || !codex) return undefined;
@@ -122,8 +126,8 @@ export default function ModelEffortSheet({ open, onClose, session, focus = 'mode
     );
   }
 
-  const aliases = MODEL_STEP_OPTIONS.filter((m) => isModelAlias(m));
-  const pinned = MODEL_STEP_OPTIONS.filter((m) => !isModelAlias(m));
+  const aliases = claudeModels.options.filter((m) => isModelAlias(m));
+  const pinned = claudeModels.options.filter((m) => !isModelAlias(m));
   const running = resolveRuntimeDisplay(session);
   const now = running ? `Now ${[running.model, running.effort ? `effort ${running.effort}` : ''].filter(Boolean).join(' · ')}` : null;
 
@@ -143,7 +147,7 @@ export default function ModelEffortSheet({ open, onClose, session, focus = 'mode
     onApply(commands);
   };
   const applyLabel = modelChanged || effortChanged
-    ? `Apply · ${[modelName(model), EFFORT_LABELS[effort] ?? effort].filter(Boolean).join(' · ')}`
+    ? `Apply · ${[modelName(model, claudeModels.aliasVersions), EFFORT_LABELS[effort] ?? effort].filter(Boolean).join(' · ')}`
     : 'Apply';
 
   const modelSection = (
@@ -152,7 +156,7 @@ export default function ModelEffortSheet({ open, onClose, session, focus = 'mode
         <ListRow
           key={m}
           title={formatModelLabel(m)}
-          subtitle={aliasNote(m)}
+          subtitle={aliasNote(m, claudeModels.aliasVersions)}
           trailing={<Check on={isModel(m)} />}
           onClick={() => setPickedModel(m)}
         />

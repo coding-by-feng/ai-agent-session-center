@@ -10,14 +10,15 @@
  */
 import { MODEL_OPTIONS } from '@/lib/remoteControlName';
 
-export type ModelOption = (typeof MODEL_OPTIONS)[number];
+/** A Claude model name: any alias or ID, since the live list can name ones shipped after this build. */
+export type ModelOption = string;
 
 /** Marker attribute on any button that opens the model picker — clicks on it are
  *  exempt from the picker's outside-click close, so the button keeps its toggle. */
 export const MODEL_TRIGGER_ATTR = 'data-model-trigger';
 
-/** Models the picker offers: the same list the session creation modals use, tier
- *  aliases first, then pinned IDs. */
+/** The fallback list the picker offers until the CLI's own list arrives
+ *  (`useClaudeModels`): tier aliases first, then pinned IDs. */
 export const MODEL_STEP_OPTIONS: readonly ModelOption[] = MODEL_OPTIONS;
 
 /** The chain-step text that switches the session's model. */

@@ -18,7 +18,7 @@ import { detectFormFactor, readFormFactorProbe } from '../formFactor.js';
 import type { Haptic } from '../haptics.js';
 import type { BrowseResult } from '../lanRescan.js';
 import type { HttpRequester } from '../http.js';
-import type { PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
+import type { AuthSession, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { PushPermission } from '../pushRegistration.js';
 import type { HttpClient, HttpResponse } from '../pairingClient.js';
 
@@ -42,8 +42,26 @@ interface ShellBridgePlugin {
   discoverMacs(options: { timeoutMs: number }): Promise<BrowseResult>;
 }
 
+/** The app's own AuthSession plugin (plan 17): AuthSessionPlugin.swift / AuthSessionPlugin.kt. */
+interface AuthSessionPlugin {
+  start(options: { url: string; callbackScheme?: string; callbackPrefix?: string }): Promise<{ url?: string; cancelled?: boolean }>;
+}
+
 const DeviceVault = registerPlugin<DeviceVaultPlugin>('DeviceVault');
 const ShellBridge = registerPlugin<ShellBridgePlugin>('ShellBridge');
+const AuthSessionNative = registerPlugin<AuthSessionPlugin>('AuthSession');
+
+/** Google sign-in's sheet; anything but a URL string is a cancel. */
+const authSession: AuthSession = {
+  start: async (url, callback) => {
+    const res = await AuthSessionNative.start({
+      url,
+      ...(callback.scheme ? { callbackScheme: callback.scheme } : {}),
+      ...(callback.prefix ? { callbackPrefix: callback.prefix } : {}),
+    });
+    return typeof res?.url === 'string' ? { url: res.url } : { cancelled: true };
+  },
+};
 
 /** Plan 08 §6: native HTTP, no redirects followed, 15 s timeouts. */
 const TIMEOUTS = { connectTimeout: 15_000, readTimeout: 15_000 } as const;
@@ -160,6 +178,8 @@ export function capacitorDeps(): ShellDeps {
           haptics: { notify: (h: Haptic) => Haptics.notification({ type: HAPTIC[h] }) },
           // Bonjour `_aasc._tcp` (NsdManager / NWBrowser); lanRescan.ts checks every address it returns.
           discovery: { browse: (timeoutMs: number) => ShellBridge.discoverMacs({ timeoutMs }) },
+          // Plan 17: Sign in with Google (ASWebAuthenticationSession / Custom Tab + App Link).
+          authSession,
         }
       : {}),
     ...(os === 'android'
