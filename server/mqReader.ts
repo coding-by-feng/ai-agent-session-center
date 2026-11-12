@@ -15,13 +15,10 @@ import type { FSWatcher } from 'fs';
 import { join } from 'path';
 import { processHookEvent } from './hookProcessor.js';
 import log from './logger.js';
+import { hookQueueDir } from './hookQueueDir.js';
 
-// Use /tmp on macOS/Linux (matches the hardcoded path in dashboard-hook.sh).
-// os.tmpdir() on macOS returns /var/folders/... which hooks can't predict.
-// On Windows, hooks use $env:TEMP which matches os.tmpdir().
-const QUEUE_DIR = process.platform === 'win32'
-  ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
-  : '/tmp/claude-session-center';
+// The folder dashboard-hook.sh writes to (hookQueueDir.ts explains the /tmp choice).
+const QUEUE_DIR = hookQueueDir();
 const QUEUE_FILE = join(QUEUE_DIR, 'queue.jsonl');
 const POLL_INTERVAL_MS = 500;
 const DEBOUNCE_MS = 10;

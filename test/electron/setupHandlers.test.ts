@@ -206,6 +206,33 @@ describe('setup:save-config', () => {
     expect(parsed.hookDensity).toBe('medium')
   })
 
+  it('keeps sessionHistoryHours 0 ("Keep all") instead of resetting it to 24', () => {
+    _existsSyncMock.mockReturnValue(true)
+    const result = invokeHandler('setup:save-config', {
+      port: 3333,
+      enabledClis: ['claude'],
+      hookDensity: 'medium',
+      debug: false,
+      sessionHistoryHours: 0,
+    })
+    expect(result.ok).toBe(true)
+    const parsed = JSON.parse(_writeFileSyncMock.mock.calls[0][1] as string)
+    expect(parsed.sessionHistoryHours).toBe(0)
+  })
+
+  it('still resets a negative sessionHistoryHours to 24', () => {
+    _existsSyncMock.mockReturnValue(true)
+    invokeHandler('setup:save-config', {
+      port: 3333,
+      enabledClis: ['claude'],
+      hookDensity: 'medium',
+      debug: false,
+      sessionHistoryHours: -5,
+    })
+    const parsed = JSON.parse(_writeFileSyncMock.mock.calls[0][1] as string)
+    expect(parsed.sessionHistoryHours).toBe(24)
+  })
+
   it('creates data directory if it does not exist', () => {
     _existsSyncMock.mockReturnValue(false) // data dir missing
     const cfg = {

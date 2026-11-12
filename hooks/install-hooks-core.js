@@ -45,6 +45,19 @@ function escapeTomlString(value) {
     .replace(/\t/g, '\\t');
 }
 
+/** A top-level `notify` key (any value). Codex allows one: a second is a "duplicate key" and the whole file fails. */
+const NOTIFY_KEY = /^\s*notify\s*=/;
+
+/**
+ * Our own `notify` line: its command (the string, or the array's first element) is the dashboard hook.
+ * A foreign notify can carry our command further in (Codex Computer Use chains the previous notify as
+ * `--previous-notify "[...dashboard-hook...]"`); that line is the user's and must stay.
+ */
+function isOwnNotifyLine(line, hookPattern) {
+  const first = line.match(/^\s*notify\s*=\s*\[?\s*"((?:[^"\\]|\\.)*)"/);
+  return Boolean(first && first[1].includes(hookPattern));
+}
+
 /**
  * Remove dashboard-owned Codex hook blocks from config.toml.
  * Handles the old notify= form and the current [[hooks.Event]] form while
@@ -61,7 +74,7 @@ export function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
 
     if (
       line.includes(`[${hookSource}]`) ||
-      (line.includes(hookPattern) && trimmed.startsWith('notify'))
+      isOwnNotifyLine(line, hookPattern)
     ) {
       removed++;
       continue;
@@ -157,7 +170,9 @@ export function configureCodexHooksToml(toml, events, hookCommand, hookPattern, 
   // Drop trailing blank lines from head so the inserted block sits flush.
   while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
 
-  const notifyBlock = [
+  // The user's own notify (e.g. Codex Computer Use) wins: a second `notify` key breaks the whole file,
+  // and the [[hooks.Stop]] block below still reports the end of a turn.
+  const notifyBlock = head.some(l => NOTIFY_KEY.test(l)) ? [''] : [
     '',
     `# [${hookSource}] Dashboard hook -- safe to remove with "npm run reset"`,
     `notify = ["${command}"]`,

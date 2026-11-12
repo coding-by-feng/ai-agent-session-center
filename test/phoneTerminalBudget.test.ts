@@ -86,6 +86,7 @@ describe('opensTerminal', () => {
       ['POST', '/sessions/s1/fork'],
       ['POST', '/sessions/s1/clone'],
       ['POST', '/sessions/spawn-floating'],
+      ['POST', '/cli-auth/claude/login'],
     ]) expect(opensTerminal(method, path), `${method} ${path}`).toBe(true);
     for (const [method, path] of [
       ['GET', '/terminals'],
@@ -94,6 +95,7 @@ describe('opensTerminal', () => {
       ['POST', '/sessions/s1/queue/resume'],
       ['GET', '/sessions/s1/transcript'],
       ['DELETE', '/terminals/t1'],
+      ['GET', '/cli-auth'],
     ]) expect(opensTerminal(method, path), `${method} ${path}`).toBe(false);
   });
 });

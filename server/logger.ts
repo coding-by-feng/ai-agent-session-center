@@ -12,7 +12,9 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 let isDebug = process.argv.includes('--debug') || process.argv.includes('-debug');
 if (!isDebug) {
   try {
-    const cfg = JSON.parse(readFileSync(join(__dir, '..', 'data', 'server-config.json'), 'utf8'));
+    // The same file serverConfig.ts reads: the data folder when APP_USER_DATA is set.
+    const configDir = process.env.APP_USER_DATA || join(__dir, '..', 'data');
+    const cfg = JSON.parse(readFileSync(join(configDir, 'server-config.json'), 'utf8'));
     if (cfg.debug) isDebug = true;
   } catch { /* no config file yet */ }
 }

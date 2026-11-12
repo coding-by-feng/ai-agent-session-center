@@ -8,7 +8,7 @@ import { dirname, join } from 'path';
 import { mkdir, realpath } from 'fs/promises';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast, broadcastByLocality, disconnectDevice, onBroadcast, isPhoneDeviceOnline, sendToClientId, isPairedPhoneClient } from './wsManager.js';
+import { handleConnection, stopHeartbeat, broadcast, broadcastByLocality, disconnectDevice, onBroadcast, isPhoneDeviceOnline, isPairedComputerOnline, sendToClientId, isPairedPhoneClient } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
@@ -35,10 +35,13 @@ import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
 import { respawnTerminalConfig } from './respawnConfig.js';
-import { config } from './serverConfig.js';
+import { config, CONFIG_DIR } from './serverConfig.js';
+import { guardStartup, StartupError, EXIT_CODES } from './startupGuard.js';
+import { hookQueueDir } from './hookQueueDir.js';
+import { serverEdition, setPasswordCommand } from './edition.js';
 import { respawnClaudeBase } from './respawnLine.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
-import { resolvePort, killPortProcess } from './portManager.js';
+import { resolvePort, killPortProcess, describePortHolder } from './portManager.js';
 import { getLocalIP, getPairingLanIP, getPublicInterfaceIP } from './networkInfo.js';
 import { createTailscaleProbe } from './tailscaleStatus.js';
 import { hostname } from 'os';
@@ -48,6 +51,10 @@ import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { createFolderRouter } from './mobile/folderRouter.js';
 import { createServerCliVersions } from './cliVersions.js';
 import { createCliVersionsRouter } from './cliVersionsRouter.js';
+import { createCliAuthRouter } from './cliAuthRouter.js';
+import { createServerCliAuth } from './cliAuth.js';
+import { openCliLoginTerminal } from './cliLoginTerminal.js';
+import { AGENT_CLIS, type AgentCli } from '../src/types/cliVersions.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
@@ -69,15 +76,18 @@ import { createServerPromptRouter } from './promptWiring.js';
 import { createSkillNoteOpsWiring } from './skillNoteOpsWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
 import { createTranscriptWatch } from './chat/transcriptWatch.js';
-import { isLocalRequest } from './requestLocality.js';
+import { isLocalRequest, rateLimitAddress, setTrustForwardedFor, resolveTrustForwardedFor } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
+import { resolveBindAddress, needsLoopbackCompanion, startLoopbackCompanion } from './bindAddress.js';
+import { writeOwnerToken, removeOwnerToken, ownerTokenWanted, discardOwnerToken } from './ownerToken.js';
+import { clientRoleOf } from './clientRole.js';
 import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, loginLockedMessage, LOGIN_MAX_ATTEMPTS, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, getTokenComputerId, revokeTokensForDevice, createComputerToken,
-  bearerSession,
+  bearerSession, isOwnerRequest,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
@@ -165,6 +175,41 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 }
 
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
+  const args = process.argv.slice(2);
+  // Resolved up front: the locks record it, and the routes below take it as a plain number.
+  const PORT = port ?? resolvePort(args, config);
+  // The main listener's interface (bindAddress.ts): null is every interface. A bad value exits 1 here,
+  // before any lock is taken.
+  const BIND_ADDRESS = resolveBindAddress(process.env.AASC_BIND_ADDRESS, config.bindAddress);
+  // Only with a proxy that sets X-Forwarded-For in front of the remote-only listener (requestLocality.ts).
+  setTrustForwardedFor(resolveTrustForwardedFor(process.env.AASC_TRUST_PROXY, config.trustForwardedFor));
+  // The password rule and both single-instance locks (startupGuard.ts), before anything is opened.
+  // The desktop never goes through bin/cli.js, so only a check here lets each edition see the other.
+  const startupLocks = await guardStartup({
+    port: PORT,
+    edition: serverEdition(),
+    dataDir: CONFIG_DIR,
+    queueDir: hookQueueDir(),
+    passwordSet: isPasswordEnabled(),
+    allowSecondServer: args.includes('--allow-second-server'),
+    uid: process.getuid?.() ?? null,
+    warn: (message) => log.warn('server', message),
+  });
+  // Released on exit, which every path reaches: SIGTERM/SIGINT after gracefulShutdown, Electron's quit.
+  process.once('exit', () => startupLocks.release());
+  // The owner token (D7, ownerToken.ts): new at every start, written under the folder lock so no other
+  // server on this folder rotates it. aasc-server writes one; the desktop only when opted in.
+  if (ownerTokenWanted(process.env, config)) {
+    try {
+      writeOwnerToken(CONFIG_DIR);
+      process.once('exit', () => removeOwnerToken(CONFIG_DIR));
+    } catch (err) {
+      log.warn('server', `Could not write ${join(CONFIG_DIR, 'owner.token')}; aasc-server's admin commands won't work: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  } else {
+    discardOwnerToken(CONFIG_DIR);
+  }
+  if (process.env.AASC_TEST_QUEUE_DIR) log.warn('server', `Hook queue overridden for tests: ${hookQueueDir()}`);
   // npm 11 runs no install scripts until approved, which left node-pty's spawn-helper at 0644 and
   // every terminal failing with "posix_spawnp failed" in an npx install (ptySpawnHelper.ts).
   if (process.env.ELECTRON !== '1') {
@@ -183,10 +228,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     // A revoked phone's code that wasn't redeemed yet is checked once more after it expires (AASC-52).
     expiresAt: (codeRef) => sqliteBackendCodeLedger.expiresAt(codeRef),
   });
-  const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
-  // Resolved up front: the routes below take it as a plain number while they are built.
-  const PORT = port ?? resolvePort(args, config);
   // A central's launch line names this port (server/mcp/launch.ts): recorded before anything can start a
   // terminal. One that is no TCP port leaves centrals unwired, with a warning; it never stops the start.
   recordMcpPort(PORT);
@@ -270,7 +312,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   if (mcpRouter) app.use('/mcp', mcpRouter, mcpErrorHandler);
 
   // -- Auth endpoints (no auth required) --
-  const loginClientIp = (req: express.Request): string => req.ip || req.socket?.remoteAddress || 'unknown';
+  // Behind a proxy on the remote-only listener, the proxy's X-Forwarded-For entry (requestLocality.ts).
+  const loginClientIp = (req: express.Request): string => rateLimitAddress(req);
   const sendLoginLocked = (res: express.Response, seconds: number): void => {
     res.setHeader('Retry-After', String(seconds));
     res.status(429).json({ error: loginLockedMessage(seconds), retryAfter: seconds });
@@ -411,6 +454,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     // On unless server-config.json "phonePairing": false or AASC_PHONE_PAIRING=0.
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
+    isComputerOnline: isPairedComputerOnline,
     requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId),
     createComputerSessionToken: (deviceId) => createComputerToken(deviceId),
@@ -594,6 +638,19 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       return getTokenDeviceId(token) ?? getTokenLineage(token) ?? '';
     },
   });
+  // Are the enabled agent CLIs signed in, and a terminal running one's login (Oct 29 2026): every dashboard's
+  // "Log in" strip, `aasc-server status/doctor`, and setup's offer after install.
+  const enabledAgentClis = (): AgentCli[] => AGENT_CLIS.filter((cli) => config.enabledClis.includes(cli));
+  const cliAuthRouter = createCliAuthRouter({
+    service: createServerCliAuth(enabledAgentClis),
+    enabledClis: enabledAgentClis,
+    isLocal: isLocalRequest,
+    deviceKeyOf: (req) => {
+      const token = extractToken(req);
+      return getTokenDeviceId(token) ?? getTokenLineage(token) ?? '';
+    },
+    openLogin: openCliLoginTerminal,
+  });
   // The live centrals for the Central picker and the ★ badges (GET /api/mcp/centrals, and `centrals_update` to
   // this Mac's own windows): answered to this Mac only, and built from fields, never a token (server/mcp/http.ts).
   // The same router serves a central's activity log and its tasks (with the `mcp_activity` and `mcp_task_update`
@@ -631,7 +688,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
     closeTerminal: closeTerminalAndWait,
   });
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -688,7 +745,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
-      if (!validateToken(token)) {
+      // The box's owner (D7): only beside isLocalRequest, only from the Authorization header.
+      if (!validateToken(token) && !isOwnerRequest(req)) {
         log.debug('auth', 'Rejected unauthorized WebSocket connection');
         ws.close(4001, 'Unauthorized');
         return;
@@ -725,6 +783,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       lineage: wsLineage,
       deviceId: wsDeviceId,
       pairedId: wsPairedId,
+      // `aasc` is never the workspace writer (D10, clientRole.ts).
+      cli: clientRoleOf(req) === 'cli',
     });
   });
 
@@ -736,6 +796,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     process.env.AASC_REMOTE_LISTENER_PORT, config.remoteListenerPort, PORT,
   );
   let remoteServer: import('http').Server | null = null;
+  let loopbackCompanion: import('http').Server | null = null;
   let lanAdvertiser: { stop(): void } | null = null;
 
   /**
@@ -869,7 +930,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         log.info('server', '------------------------------------------------------------');
         log.info('server', 'No password set -- remote devices are BLOCKED (403 / ws 4003).');
         log.info('server', 'This machine (localhost) has full access as usual.');
-        log.info('server', 'To use the dashboard from a phone, run `npm run set-password`.');
+        log.info('server', `To use the dashboard from a phone, run \`${setPasswordCommand()}\`.`);
         log.info('server', '------------------------------------------------------------');
       }
     }
@@ -956,6 +1017,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       // Save final snapshot before exiting
       try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
       try { remoteServer?.close(); } catch { /* best effort */ }
+      try { loopbackCompanion?.close(); } catch { /* best effort */ }
       try { lanAdvertiser?.stop(); } catch { /* best effort */ }
       try { macPathsPublisher?.stop(); } catch { /* best effort */ }
       // MCP sessions hold event streams open: ending them first spares server.close() its 2s force-close.
@@ -1012,28 +1074,71 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   return new Promise<number>((resolve, reject) => {
     let retried = false;
+    // Listening: start the 127.0.0.1 companion when the main listener is bound elsewhere (bindAddress.ts),
+    // then go. A companion that can't bind is fatal: this machine's own tools would find no server.
+    const listened = (): void => {
+      // The locks now name the address a liveness probe should try (instanceLock.ts).
+      const bound = server.address();
+      startupLocks.markListening(typeof bound === 'object' && bound ? bound.address : '');
+      if (!needsLoopbackCompanion(BIND_ADDRESS)) {
+        onReady();
+        resolve(PORT);
+        return;
+      }
+      startLoopbackCompanion(app, wss, PORT).then((srv) => {
+        loopbackCompanion = srv;
+        onReady();
+        resolve(PORT);
+      }, (err: NodeJS.ErrnoException) => {
+        server.close();
+        startupLocks.release();
+        void describePortHolder(PORT).then((holder) => reject(new StartupError(
+          err.code === 'EADDRINUSE' ? EXIT_CODES.PORT_BUSY : EXIT_CODES.FAILURE,
+          err.code === 'EADDRINUSE'
+            ? `127.0.0.1:${PORT} is in use by ${holder}. Stop it, or choose another port with --port or PORT.`
+            : `could not listen on 127.0.0.1:${PORT}: ${err.message}`,
+        )));
+      });
+    };
     server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && !retried) {
+      if (err.code === 'EADDRINUSE' && process.env.AASC_NO_PORT_KILL === '1') {
+        // aasc-server never kills: the holder may be the desktop app or someone else's service.
+        startupLocks.release();
+        void describePortHolder(PORT).then((holder) => reject(new StartupError(
+          EXIT_CODES.PORT_BUSY,
+          `port ${PORT} is in use by ${holder}. Stop it, or choose another port with --port or PORT.`,
+        )));
+      } else if (err.code === 'EADDRINUSE' && !retried) {
         retried = true;
         log.info('server', `Port ${PORT} in use -- killing existing process...`);
         killPortProcess(PORT);
-        setTimeout(() => server.listen(PORT, () => {
-          onReady();
-          resolve(PORT);
-        }), 1000);
+        setTimeout(() => server.listen(PORT, BIND_ADDRESS ?? undefined, listened), 1000);
+      } else if (BIND_ADDRESS && err.code === 'EADDRNOTAVAIL') {
+        // The address is valid but not on this machine yet (Tailscale not up at boot): exit 1, which
+        // systemd retries, rather than hang with no listener. A malformed value already exited 78.
+        startupLocks.release();
+        reject(new StartupError(
+          EXIT_CODES.FAILURE,
+          `${BIND_ADDRESS} (AASC_BIND_ADDRESS / bindAddress) is not an address of this machine right now. Bring that interface up, or change the setting.`,
+        ));
       } else {
         reject(err);
       }
     });
 
-    server.listen(PORT, () => {
-      onReady();
-      resolve(PORT);
-    });
+    server.listen(PORT, BIND_ADDRESS ?? undefined, listened);
   });
 }
 
 // Auto-start when run directly (not imported by Electron)
 if (process.env.ELECTRON !== '1') {
-  startServer().catch(console.error);
+  startServer().catch((err: unknown) => {
+    if (err instanceof StartupError) {
+      log.error('server', err.message);
+      // Exit once stderr has drained: a pipe (systemd's journal, a test) is written asynchronously.
+      process.stderr.write('', () => process.exit(err.exitCode));
+      return;
+    }
+    console.error(err);
+  });
 }

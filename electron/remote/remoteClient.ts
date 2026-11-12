@@ -111,7 +111,7 @@ function field(data: unknown, pathParts: string[]): unknown {
 }
 
 /** A body as text, refusing (throwing) past `maxBytes` before it is all held in memory. */
-async function readCapped(res: FetchResponse, maxBytes: number): Promise<string> {
+export async function readCapped(res: FetchResponse, maxBytes: number): Promise<string> {
   if (!res.body) {
     const text = await res.text()
     if (Buffer.byteLength(text) > maxBytes) throw new Error('answer too large')

@@ -23,7 +23,7 @@
 // Failing closed is the right direction for a security gate.
 
 import type { IncomingHttpHeaders, Server } from 'http';
-import type { Socket } from 'net';
+import { isIP, type Socket } from 'net';
 import { isLoopbackAddress } from './presenceManager.js';
 
 /** Sockets accepted by a remote-only listener. Weak, so closed sockets drop out. */
@@ -125,4 +125,54 @@ export function isLocalNavigation(req: LocalityRequest): boolean {
   if (!isLoopbackAddress(req.ip || socket?.remoteAddress || '')) return false;
   const host = hostHeaderName(typeof req.headers?.host === 'string' ? req.headers.host : undefined);
   return host !== null && LOOPBACK_HOSTNAMES.has(host) && req.headers?.origin === undefined;
+}
+
+/**
+ * Rate-limit keys made from a trusted proxy's X-Forwarded-For entry carry this prefix, so
+ * authManager can give them a shared ceiling on top of their own buckets.
+ */
+export const PROXIED_KEY_PREFIX = 'proxied:';
+
+/** Whether a proxy that sets X-Forwarded-For sits in front of the remote-only listener. Off by default. */
+let trustForwardedFor = false;
+
+/** Set once at start from resolveTrustForwardedFor (index.ts). */
+export function setTrustForwardedFor(on: boolean): void {
+  trustForwardedFor = on;
+}
+
+/** `AASC_TRUST_PROXY=1` / `0` wins over `"trustForwardedFor": true` in server-config.json; anything else is off. */
+export function resolveTrustForwardedFor(envValue: string | undefined, configValue: unknown): boolean {
+  if (envValue === '1') return true;
+  if (envValue === '0') return false;
+  return configValue === true;
+}
+
+/**
+ * The address a per-client rate limit buckets by: login, and the phone's /pair, /challenge and
+ * /session (terminal-editions plan §7.6).
+ *
+ * Behind a reverse proxy (Caddy in front of the remote-only listener) every client connects from
+ * 127.0.0.1, so one bucket for everyone let five bad passwords from anyone lock every device out.
+ * When the owner says such a proxy is there (AASC_TRUST_PROXY=1 / trustForwardedFor), a request on
+ * a remote-only socket is bucketed by the LAST X-Forwarded-For entry: the one the proxy appended for
+ * the peer it saw, which the client can't choose (it can only prepend).
+ *
+ * Off by default (security review H1): without a proxy that sets the header, a local account, or a
+ * relay that passes headers through (ssh -R, socat, frp), would name a new "client" on every try and
+ * guess the password without limit. Even when on, these keys carry PROXIED_KEY_PREFIX and share an
+ * aggregate ceiling in authManager.
+ *
+ * Everywhere else the header is ignored, as before: anyone can send it to the main listener.
+ * This is a bucket key, never a locality signal: isLocalRequest still refuses every forwarded request.
+ */
+export function rateLimitAddress(req: LocalityRequest): string {
+  const socket = req.socket as Socket | undefined;
+  const peer = req.ip || socket?.remoteAddress || 'unknown';
+  if (!trustForwardedFor || !socket || !remoteOnlySockets.has(socket)) return peer;
+  const header = req.headers?.['x-forwarded-for'];
+  // Node joins repeated X-Forwarded-For headers with ", ", so the last entry is last either way.
+  const raw = Array.isArray(header) ? header.join(', ') : header;
+  const last = raw?.split(',').pop()?.trim() ?? '';
+  return isIP(last) ? `${PROXIED_KEY_PREFIX}${last}` : peer;
 }

@@ -13,6 +13,7 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import log from './logger.js';
+import { hookQueueDir } from './hookQueueDir.js';
 import { getWaitingLabel, sanitizeModelInCommand, extractModelFromCommand } from './config.js';
 import { stripCentralLaunch } from './mcp/launch.js';
 import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
@@ -140,12 +141,10 @@ export function getEventSeq(): number {
 
 // ---- Snapshot persistence ----
 // Use persistent APP_USER_DATA directory (Electron userData) when available;
-// fall back to /tmp only for non-Electron (standalone server) usage.
+// fall back to the hook-queue folder (hookQueueDir.ts) only for a dev server without one.
 const SNAPSHOT_DIR = process.env.APP_USER_DATA
   ? join(process.env.APP_USER_DATA, 'data')
-  : process.platform === 'win32'
-    ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
-    : '/tmp/claude-session-center';
+  : hookQueueDir();
 const SNAPSHOT_FILE = join(SNAPSHOT_DIR, 'sessions-snapshot.json');
 const SNAPSHOT_INTERVAL_MS = 10_000; // Save every 10s
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;

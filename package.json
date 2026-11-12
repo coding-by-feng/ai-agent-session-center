@@ -33,6 +33,8 @@
     "test:coverage": "vitest run --coverage",
     "electron:dev": "tsc -p tsconfig.electron.json && node scripts/cjsRename.mjs && concurrently \"vite\" \"tsx watch server/index.ts\" \"wait-on tcp:3333 && electron dist/electron/main.cjs\"",
     "build:server": "node scripts/build-server.mjs",
+    "pack:server": "npm run build && npm run build:server && node scripts/pack-server.mjs",
+    "pack:cli": "node scripts/pack-cli.mjs",
     "electron:build": "npm run build && npm run build:server && npm run electron:rebuild && tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/loading.html','dist/electron/loading.html')\" && node scripts/cjsRename.mjs && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",

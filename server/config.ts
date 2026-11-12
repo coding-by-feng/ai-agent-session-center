@@ -344,13 +344,28 @@ export const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
 ] as const;
 
 /**
- * Return a new env without the launching Claude Code session's markers (and
- * without unset keys, so the result is a plain string env for node-pty).
+ * The server's own identity, which a spawned terminal must not inherit either: `npm start` typed in
+ * a dashboard terminal would otherwise start as headless (AASC_HEADLESS), never free its port
+ * (AASC_NO_PORT_KILL), read a test hook queue (AASC_TEST_QUEUE_DIR), or open this server's data
+ * folder, where the folder lock refuses it (APP_USER_DATA, set by Electron and aasc-server). No child
+ * the server spawns reads any of them: hooks, the status-line tap, centrals and CLI updates don't.
+ */
+export const INHERITED_SERVER_ENV_KEYS = [
+  'AASC_HEADLESS',
+  'AASC_NO_PORT_KILL',
+  'AASC_TEST_QUEUE_DIR',
+  'APP_USER_DATA',
+] as const;
+
+/**
+ * Return a new env without the launching Claude Code session's markers and the
+ * server's own (and without unset keys, so the result is a plain string env for
+ * node-pty).
  */
 export function stripInheritedClaudeSessionEnv(
   env: Record<string, string | undefined>,
 ): Record<string, string> {
-  const stripped = new Set<string>(INHERITED_CLAUDE_SESSION_ENV_KEYS);
+  const stripped = new Set<string>([...INHERITED_CLAUDE_SESSION_ENV_KEYS, ...INHERITED_SERVER_ENV_KEYS]);
   return Object.fromEntries(
     Object.entries(env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined && !stripped.has(entry[0]),

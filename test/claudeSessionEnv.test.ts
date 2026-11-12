@@ -20,6 +20,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {
   INHERITED_CLAUDE_SESSION_ENV_KEYS,
+  INHERITED_SERVER_ENV_KEYS,
   stripInheritedClaudeSessionEnv,
 } from '../server/config.js';
 
@@ -110,5 +111,26 @@ describe('electron/ptyHost.ts mirror', () => {
 
   it('no longer destructures CLAUDECODE alone', () => {
     expect(src).not.toMatch(/const\s*\{\s*CLAUDECODE:\s*_drop,\s*\.\.\.parentEnv\s*\}/);
+  });
+});
+
+describe('INHERITED_SERVER_ENV_KEYS (terminal editions)', () => {
+  // A dashboard terminal must not inherit the server's own identity: `npm start` typed in one would
+  // start "headless", refuse to kill a port holder, read a test queue folder, or open the server's
+  // data folder (where the folder lock now refuses it).
+  it('names the headless markers and the data folder', () => {
+    expect([...INHERITED_SERVER_ENV_KEYS]).toEqual(['AASC_HEADLESS', 'AASC_NO_PORT_KILL', 'AASC_TEST_QUEUE_DIR', 'APP_USER_DATA']);
+  });
+
+  it('is stripped at every spawn site, with the Claude markers', () => {
+    const env = stripInheritedClaudeSessionEnv({
+      PATH: '/usr/bin',
+      AASC_HEADLESS: '1',
+      AASC_NO_PORT_KILL: '1',
+      AASC_TEST_QUEUE_DIR: '/tmp/q',
+      APP_USER_DATA: '/home/u/.config/ai-agent-session-center',
+      AASC_PHONE_PAIRING: '0',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin', AASC_PHONE_PAIRING: '0' });
   });
 });

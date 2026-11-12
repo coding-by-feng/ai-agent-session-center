@@ -132,6 +132,7 @@ describe('phoneRuleFor', () => {
     ['GET', '/phone-cloud/status'], ['GET', '/phone-cloud/browse'], ['GET', '/phone-cloud/resources/abc/versions'],
     // The Mac's agent CLIs (Oct 25 2026): versions, and the fixed `update` command (the router rate-limits).
     ['GET', '/cli-versions'], ['POST', '/cli-versions/claude/update'], ['POST', '/cli-versions/codex/update'],
+    ['GET', '/cli-auth'], ['POST', '/cli-auth/claude/login'], ['POST', '/cli-auth/codex/login'],
     // A central's confirmations a phone may answer (P5-15): the route itself checks the phone, the tool and sharing.
     ['GET', '/phone-confirms'], ['POST', '/phone-confirms/3f2a9c1e-0000-4000-8000-000000000000'],
   ])('lets a phone %s %s', (method, path) => {
@@ -177,10 +178,13 @@ describe('phoneRuleFor', () => {
     ['GET', '/phone-cloud'], ['GET', '/phone-cloud/resources'], ['GET', '/phone-cloud/resources/abc'],
     ['GET', '/phone-cloud/resources/abc/versions/2'], ['GET', '/phone-cloud/projects'],
     ['POST', '/cli-versions/gemini/update'], ['POST', '/cli-versions'], ['DELETE', '/cli-versions'], ['GET', '/cli-versions/codex/update'],
+    ['POST', '/cli-auth/gemini/login'], ['POST', '/cli-auth'], ['GET', '/cli-auth/claude/login'], ['POST', '/cli-auth/claude/logout'],
     // /api/mobile is the mobile router's own (mounted ahead of the profile): the phone's backend code
     // checks its session itself, and the desktop's cloud phone list is never a phone's (AASC-52).
     // /paths is the same kind of call (AASC-60): the signed-in phone asks for the Mac's Tailscale address, checking its own session.
     ['POST', '/mobile/backend-code'], ['POST', '/mobile/paths'], ['GET', '/mobile/cloud-phones'], ['POST', '/mobile/cloud-phones/remove-unlinked'],
+    // Making or withdrawing a pairing code is the Mac's (or aasc-server's) alone (P2 review L4).
+    ['POST', '/mobile/pairing'], ['DELETE', '/mobile/pairing/0123456789abcdef0123456789abcdef'],
     // Google sign-in (AASC-61) belongs to the Mac alone: start/cancel sit behind the RESOURCES gate and
     // the callback answers loopback navigations only.
     ['POST', '/resources/cloud/google/start'], ['POST', '/resources/cloud/google/cancel'], ['GET', '/resources/cloud/google/callback'],

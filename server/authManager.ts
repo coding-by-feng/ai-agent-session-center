@@ -1,8 +1,10 @@
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
-import { isLocalRequest } from './requestLocality.js';
+import { isLocalRequest, PROXIED_KEY_PREFIX, type LocalityRequest } from './requestLocality.js';
+import { isOwnerToken } from './ownerToken.js';
 import log from './logger.js';
+import { setPasswordCommand } from './edition.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -34,6 +36,55 @@ export interface LoginAttemptResult {
 
 const loginAttempts = new Map<string, LoginAttemptBucket>();
 
+/**
+ * How many buckets loginAttempts keeps. Each wrong password from a new address adds one; past the
+ * cap the oldest unlocked bucket goes first, so a flood can't push a locked one out.
+ */
+export const MAX_LOGIN_BUCKETS = 10_000;
+
+/**
+ * Every bucket keyed by a trusted proxy's X-Forwarded-For entry (requestLocality.ts) together:
+ * 30 failures in 15 minutes lock all of them, i.e. the remote-only listener's logins and sign-ins,
+ * for 15 minutes. A client behind the proxy that rotates addresses gets 30 tries, not unlimited.
+ */
+const PROXIED_MAX_FAILURES = 30;
+let proxiedFailures: number[] = [];
+let proxiedLockedUntil = 0;
+
+const isProxied = (key: string): boolean => key.startsWith(PROXIED_KEY_PREFIX);
+
+function proxiedLockSeconds(now: number): number {
+  return proxiedLockedUntil > now ? Math.ceil((proxiedLockedUntil - now) / 1000) : 0;
+}
+
+/** Count one proxied failure; true when it locks the proxied buckets. */
+function recordProxiedFailure(now: number): boolean {
+  proxiedFailures = [...proxiedFailures.filter((t) => now - t <= LOGIN_WINDOW_MS), now];
+  if (proxiedFailures.length < PROXIED_MAX_FAILURES) return false;
+  proxiedLockedUntil = now + LOGIN_LOCKOUT_MS;
+  proxiedFailures = [];
+  return true;
+}
+
+/** Make room for one more bucket: drop the oldest expired or unlocked one (Map order is insertion order). */
+function makeRoomForBucket(now: number): void {
+  if (loginAttempts.size < MAX_LOGIN_BUCKETS) return;
+  for (const [key, bucket] of loginAttempts) {
+    if (bucket.lockedUntil === null || bucketExpired(bucket, now)) {
+      loginAttempts.delete(key);
+      return;
+    }
+  }
+  // Every bucket is locked: the oldest lock goes.
+  const oldest = loginAttempts.keys().next();
+  if (!oldest.done) loginAttempts.delete(oldest.value);
+}
+
+/** Test-only: how many buckets are kept. */
+export function _loginBucketCount(): number {
+  return loginAttempts.size;
+}
+
 function bucketExpired(bucket: LoginAttemptBucket, now: number): boolean {
   return bucket.lockedUntil !== null
     ? now >= bucket.lockedUntil
@@ -45,9 +96,10 @@ function bucketExpired(bucket: LoginAttemptBucket, now: number): boolean {
  */
 export function checkLoginRateLimit(ip: string): number {
   const now = Date.now();
+  const shared = isProxied(ip) ? proxiedLockSeconds(now) : 0;
   const bucket = loginAttempts.get(ip);
-  if (!bucket || bucket.lockedUntil === null || bucketExpired(bucket, now)) return 0;
-  return Math.ceil((bucket.lockedUntil - now) / 1000);
+  if (!bucket || bucket.lockedUntil === null || bucketExpired(bucket, now)) return shared;
+  return Math.max(shared, Math.ceil((bucket.lockedUntil - now) / 1000));
 }
 
 /**
@@ -55,7 +107,13 @@ export function checkLoginRateLimit(ip: string): number {
  */
 export function recordLoginAttempt(ip: string): LoginAttemptResult {
   const now = Date.now();
+  if (isProxied(ip)) {
+    const shared = proxiedLockSeconds(now);
+    if (shared > 0) return { attemptsLeft: 0, lockedFor: shared };
+    if (recordProxiedFailure(now)) return { attemptsLeft: 0, lockedFor: LOGIN_LOCKOUT_MS / 1000 };
+  }
   const prev = loginAttempts.get(ip);
+  if (!prev) makeRoomForBucket(now);
   if (prev && prev.lockedUntil !== null && !bucketExpired(prev, now)) {
     return { attemptsLeft: 0, lockedFor: Math.ceil((prev.lockedUntil - now) / 1000) };
   }
@@ -322,6 +380,23 @@ export function bearerSession(req: IncomingMessage): { deviceId: string | null; 
 }
 
 /**
+ * The box's owner (D7, ownerToken.ts): `Authorization: Bearer <owner.token>` on a request
+ * isLocalRequest calls local. Checked beside validateToken, not inside it, because validateToken
+ * has no request to judge locality by. The same token through the remote-only listener, with a
+ * forwarding header, from another address or naming another Host is just a wrong token.
+ *
+ * Only the Authorization header carries it: a cookie or `?token=` could be planted by a page or
+ * end up in a log, and the admin CLI, the one client that holds the file, sends the header.
+ * An owner request reaches what a signed-in dashboard on this machine reaches; the local-only gates
+ * downstream (isLocalResourceRequest, isSameOriginWrite) still judge it on its own headers.
+ */
+export function isOwnerRequest(req: LocalityRequest): boolean {
+  const header = req.headers?.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+  return isOwnerToken(header.slice(7)) && isLocalRequest(req);
+}
+
+/**
  * Express middleware: protect routes that require authentication.
  * Checks cookie, Authorization header, and query string.
  * Skips auth check if password is not enabled.
@@ -332,15 +407,14 @@ export function bearerSession(req: IncomingMessage): { deviceId: string | null; 
  * indistinguishable from a bug at the other end.
  */
 /**
- * Names `npm run set-password`, NOT `npm run setup`. The setup wizard
- * hard-codes `<repo>/data/server-config.json`, but a packaged Electron app
- * reads `$APP_USER_DATA/server-config.json` (see serverConfig.ts) — so telling
- * a user to run the wizard against an installed app sends them to write a
- * password the app never reads, which looks like the password "not working".
+ * Names `npm run set-password` (`aasc-server set-password` on a headless
+ * server, edition.ts), NOT `npm run setup`: the wizard only writes the folder
+ * its own resolver picks, so on an installed desktop it can write a password
+ * the app never reads, which looks like the password "not working".
  */
 export const REMOTE_REQUIRES_PASSWORD =
   'This dashboard is not reachable from other devices until a password is set. '
-  + 'Run `npm run set-password` on the host machine to configure one.';
+  + `Run \`${setPasswordCommand()}\` on the host machine to configure one.`;
 
 /**
  * True when this request did NOT come from the machine running the server.
@@ -386,7 +460,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
   const token = extractToken(req);
-  if (validateToken(token)) {
+  if (validateToken(token) || isOwnerRequest(req)) {
     next();
     return;
   }

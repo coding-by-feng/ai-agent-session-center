@@ -48,6 +48,8 @@ interface WsClient extends WebSocket {
   /** The paired phone or computer this socket belongs to, so revoking either closes it (Oct 28 2026).
    *  Separate from `_deviceId`: a computer must never fall under the phone rules. */
   _pairedId: string | null;
+  /** Declared role=cli (`aasc`): presence must know which kind of connection closes (D10). */
+  _cli: boolean;
   /** Last time we told this client it lacks control of a session — throttles the notice. */
   _lastDenyAt: Map<string, number>;
 }
@@ -69,6 +71,8 @@ export interface ClientIdentity {
   deviceId?: string | null;
   /** The paired phone's or computer's id, for revoke; defaults to `deviceId`. */
   pairedId?: string | null;
+  /** A terminal client (`aasc`, role=cli: clientRole.ts), never the workspace writer (D10). */
+  cli?: boolean;
 }
 
 /**
@@ -148,6 +152,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
   client._deviceId = identity?.deviceId ?? null;
   client._pairedId = identity?.pairedId ?? client._deviceId;
+  client._cli = identity?.cli === true;
   // A remote device must not borrow the desktop's id: that id passes the
   // control check and would demote the desktop to "remote" in presence
   // (AASC-27). It connects as an anonymous socket instead, which can watch but
@@ -169,6 +174,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
       label: client._label,
       address: identity?.address ?? '',
       isLocal: client._isLocal,
+      cli: client._cli,
     });
   }
   log.info('ws', `Client connected (total: ${clients.size})`);
@@ -387,7 +393,7 @@ function detachClient(client: WsClient): void {
   if (!clients.delete(client)) return; // already detached (close after error)
   removeClientFromAllTerminals(client);
   client._terminalIds.clear();
-  if (client._clientId) presence.unregisterClient(client._clientId);
+  if (client._clientId) presence.unregisterClient(client._clientId, { cli: client._cli });
 }
 
 /**
@@ -578,6 +584,18 @@ export function sendToClientId<T extends { type: string }>(clientId: string, dat
 }
 
 /** Does this paired phone have an open socket right now? (The header chip's 📱 count, Oct 22 2026.) */
+/**
+ * A paired computer (another AASC desktop, or `aasc`) with an open socket: matched by `_pairedId`
+ * on a socket that is no phone's. Kept apart from isPhoneDeviceOnline, which feeds phone rules.
+ */
+export function isPairedComputerOnline(computerId: string): boolean {
+  if (!computerId) return false;
+  for (const client of clients) {
+    if (client._deviceId === null && client._pairedId === computerId && client.readyState === 1) return true;
+  }
+  return false;
+}
+
 export function isPhoneDeviceOnline(deviceId: string): boolean {
   if (!deviceId) return false;
   for (const client of clients) {

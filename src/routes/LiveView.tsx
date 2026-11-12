@@ -23,6 +23,18 @@ import { boardSessions } from '@/lib/liveBoard';
 import styles from '@/styles/modules/LiveView.module.css';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
+// "<CLI> isn't logged in on <host> · Log in" (Oct 29 2026): lazy, so the entry chunk doesn't carry it.
+const CliLoginStrip = lazy(() => import('@/components/live/CliLoginStrip'));
+
+/** The login strip: above the board in the flat view, over the 3D scene. A failed chunk load shows nothing
+ *  rather than the scene's error. */
+function LoginStripSlot({ placement }: { placement: 'inline' | 'over' }) {
+  return (
+    <Suspense fallback={null}>
+      <CliLoginStrip placement={placement} />
+    </Suspense>
+  );
+}
 
 // #57: Error boundary to catch 3D scene crashes gracefully
 class SceneErrorBoundary extends Component<
@@ -139,7 +151,10 @@ function FlatView() {
 
   return (
     <div className={styles.flatRoot}>
-      <DesktopFlatContent sessions={sessions} />
+      <LoginStripSlot placement="inline" />
+      <div className={styles.flatBody}>
+        <DesktopFlatContent sessions={sessions} />
+      </div>
       <SceneOverlay sessionCount={activeCount} />
     </div>
   );
@@ -180,6 +195,7 @@ export default function LiveView() {
         </Suspense>
         <SceneEmptyCard />
       </SceneErrorBoundary>
+      <LoginStripSlot placement="over" />
     </div>
   );
 }

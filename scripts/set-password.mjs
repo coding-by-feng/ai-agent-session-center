@@ -4,13 +4,14 @@
  *
  * ## Why this exists separately from `npm run setup`
  *
- * `hooks/setup-wizard.js` hard-codes `<repo>/data/server-config.json`, but a
- * PACKAGED Electron app reads `$APP_USER_DATA/server-config.json`
+ * In a checkout, `hooks/setup-wizard.js` writes `<repo>/data/server-config.json`,
+ * but a PACKAGED Electron app reads `$APP_USER_DATA/server-config.json`
  * (`~/Library/Application Support/ai-agent-session-center/…` on macOS) — see
  * `server/serverConfig.ts`. So running the wizard against an installed app
  * writes a password the app never reads: it silently appears to do nothing.
  * This script resolves the same path the app does, and by default writes BOTH
- * locations so a dev run and the installed app agree.
+ * locations so a dev run and the installed app agree. As
+ * `aasc-server set-password` (APP_USER_DATA set) it writes only that folder.
  *
  * ## Why input is prompted, never passed as an argument
  *
@@ -29,7 +30,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { scryptSync, randomBytes } from 'crypto';
 import { createInterface } from 'readline';
-import { homedir, platform } from 'os';
+import { desktopDataDir } from '../hooks/dataDir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -37,21 +38,13 @@ const PROJECT_ROOT = join(__dirname, '..');
 const RESET = '\x1b[0m', BOLD = '\x1b[1m', DIM = '\x1b[2m';
 const GREEN = '\x1b[32m', RED = '\x1b[31m', YELLOW = '\x1b[33m', CYAN = '\x1b[36m';
 
-/** Where the PACKAGED app keeps its config, per Electron's app.getPath('userData'). */
-function userDataConfigPath() {
-  const app = 'ai-agent-session-center';
-  const p = platform();
-  if (p === 'darwin') return join(homedir(), 'Library', 'Application Support', app, 'server-config.json');
-  if (p === 'win32') {
-    const base = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
-    return join(base, app, 'server-config.json');
-  }
-  const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-  return join(base, app, 'server-config.json');
-}
-
+// `aasc-server set-password` (bin/cli.js) sets APP_USER_DATA to the folder that server reads, and
+// HEADLESS so the hints name the right restart. Otherwise this writes the packaged desktop's folder,
+// per Electron's app.getPath('userData') (hooks/dataDir.js), plus the checkout's own when it has one.
+const HEADLESS = process.env.AASC_HEADLESS === '1';
+const EXPLICIT_DIR = process.env.APP_USER_DATA || null;
 const REPO_CONFIG = join(PROJECT_ROOT, 'data', 'server-config.json');
-const APP_CONFIG = userDataConfigPath();
+const APP_CONFIG = join(EXPLICIT_DIR ?? desktopDataDir(), 'server-config.json');
 
 /** Same scrypt parameters and "salt:hash" shape as server/authManager.ts —
  *  verifyPassword() splits on ':' and derives with keylen 64. Changing either
@@ -78,7 +71,7 @@ function readConfig(path) {
 }
 
 function writeConfig(path, cfg) {
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   // Write-to-temp + rename, matching the rule the app already follows for
   // ~/.claude/settings.json. rename() is atomic within a filesystem, so a
   // crash mid-write can never leave a truncated config — which would drop the
@@ -126,7 +119,7 @@ function createPrompter() {
             + '  This shell has no interactive TTY — that happens when the script is run\n'
             + '  from an agent, a CI job, or an editor\'s run button rather than a terminal.\n\n'
             + '  Open Terminal.app (or iTerm) and run it there:\n'
-            + '      cd ' + PROJECT_ROOT + ' && npm run set-password\n\n'
+            + (HEADLESS ? '      aasc-server set-password\n\n' : '      cd ' + PROJECT_ROOT + ' && npm run set-password\n\n')
             + '  Avoid piping the password in (`echo ... |`): it would be saved to your\n'
             + '  shell history and visible in `ps` to every user on this machine.',
           );
@@ -167,7 +160,9 @@ function createPrompter() {
 }
 
 function targets() {
-  // Always write the app's config. Also write the repo one when it already
+  // An explicit data folder is the only one written.
+  if (EXPLICIT_DIR) return [APP_CONFIG];
+  // Otherwise always write the app's config. Also write the repo one when it already
   // exists, so a dev `npm start` in this checkout matches the installed app
   // instead of quietly disagreeing about whether a password is set.
   return existsSync(REPO_CONFIG) ? [APP_CONFIG, REPO_CONFIG] : [APP_CONFIG];
@@ -177,7 +172,7 @@ async function main() {
   const arg = process.argv[2];
 
   if (arg === '--status') {
-    for (const path of [APP_CONFIG, REPO_CONFIG]) {
+    for (const path of EXPLICIT_DIR ? [APP_CONFIG] : [APP_CONFIG, REPO_CONFIG]) {
       const cfg = readConfig(path);
       const state = !cfg ? `${DIM}(no config file)${RESET}`
         : cfg.passwordHash ? `${GREEN}password SET${RESET}`
@@ -194,8 +189,12 @@ async function main() {
       writeConfig(path, cfg);
       console.log(`${YELLOW}✓${RESET} password removed  ${DIM}${path}${RESET}`);
     }
-    console.log(`\n${YELLOW}Remote devices are now BLOCKED${RESET} (localhost still has full access).`);
-    console.log(`${DIM}Restart the app for this to take effect.${RESET}`);
+    if (HEADLESS) {
+      console.log(`\n${YELLOW}A headless server will not start without a password${RESET} — set one before restarting it.`);
+    } else {
+      console.log(`\n${YELLOW}Remote devices are now BLOCKED${RESET} (localhost still has full access).`);
+      console.log(`${DIM}Restart the app for this to take effect.${RESET}`);
+    }
     return;
   }
 
@@ -233,9 +232,14 @@ async function main() {
   }
 
   console.log(`\n${BOLD}Next:${RESET}`);
-  console.log(`  1. Quit and reopen the app  ${DIM}(config is read at startup)${RESET}`);
-  console.log(`  2. From a phone, open the LAN URL and log in with this password`);
-  console.log(`     ${DIM}the address is in the 🖥 device chip in the header${RESET}`);
+  if (HEADLESS) {
+    console.log(`  1. Restart the server  ${DIM}(systemctl --user restart aasc-server, or rerun aasc-server serve)${RESET}`);
+    console.log(`  2. Open http://<this machine>:<port> in a browser and log in with this password`);
+  } else {
+    console.log(`  1. Quit and reopen the app  ${DIM}(config is read at startup)${RESET}`);
+    console.log(`  2. From a phone, open the LAN URL and log in with this password`);
+    console.log(`     ${DIM}the address is in the 🖥 device chip in the header${RESET}`);
+  }
   console.log(`\n  ${CYAN}Tokens last 1h; login is rate-limited to 5 attempts / 15 min.${RESET}\n`);
 }
 

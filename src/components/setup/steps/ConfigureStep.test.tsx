@@ -51,6 +51,17 @@ describe('ConfigureStep', () => {
     expect(portInput).toBeInTheDocument()
   })
 
+  it('offers "Keep all" for history retention and shows it for a saved 0', () => {
+    render(
+      <ConfigureStep
+        config={{ ...defaultConfig, sessionHistoryHours: 0 }}
+        setConfig={vi.fn()}
+        onNext={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Keep all')).toBeInTheDocument()
+  })
+
   it('renders all CLI checkboxes', () => {
     render(
       <ConfigureStep

@@ -18,6 +18,7 @@ const HISTORY_OPTIONS = [
   { value: 24, label: '24 hours' },
   { value: 48, label: '48 hours' },
   { value: 168, label: '7 days' },
+  { value: 0, label: 'Keep all' },
 ]
 
 const passwordSchema = z.string()

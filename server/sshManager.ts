@@ -1032,13 +1032,15 @@ export function writeToTerminal(terminalId: string, data: string): void {
  * at the status-line tap on the way (withStatusLineTap), and a central's line at /mcp
  * (withCentralLaunch). Don't use it to type free text.
  */
-export async function writeWhenReady(terminalId: string, data: string): Promise<boolean> {
+export async function writeWhenReady(terminalId: string, data: string, { raw = false }: { raw?: boolean } = {}): Promise<boolean> {
   const term = terminals.get(terminalId);
   if (!term) return false;
   const local = isLocal(term.config?.host);
-  const line = withCodexNoDaemon(local, data); // probes (if Codex) while the shell starts
+  // `raw`: a fixed admin line (`claude auth login`, cliLoginTerminal.ts) typed as is. The agent-launch
+  // rewrites (Codex --no-daemon, the Claude --settings tap) would break a subcommand that takes no such flag.
+  const line = raw ? Promise.resolve(data) : withCodexNoDaemon(local, data); // probes (if Codex) while the shell starts
   if (term.shellReady) await term.shellReady;
-  const typed = withStatusLineTap(local, await line);
+  const typed = raw ? await line : withStatusLineTap(local, await line);
   // Terminal might have been cleaned up while waiting
   const termNow = terminals.get(terminalId);
   if (!termNow || !termNow.pty) return false;

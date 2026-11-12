@@ -15,6 +15,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
+import { useServerEditionStore } from '@/stores/serverEditionStore';
 
 const device = (isLocal: boolean) => ({
   clientId: 'me', label: 'Test Device', address: isLocal ? '127.0.0.1' : '192.168.1.20', isLocal,
@@ -26,6 +27,7 @@ beforeEach(() => {
   useSettingsStore.setState({ scene3dEnabled: false } as never);
   usePresenceStore.setState({ devices: [device(true)] } as never);
   useWsStore.setState({ hiddenCount: 0 });
+  useServerEditionStore.setState({ headless: false });
 });
 
 describe('LiveEmptyState', () => {
@@ -118,17 +120,29 @@ describe('LiveEmptyState over the 3D scene', () => {
 });
 
 // A device that is not this machine (a phone or LAN browser) only sees sessions
-// someone shared with it (server/sessionVisibility.ts), and sessions it starts
-// stay hidden from it too. The usual copy ("every session you start here gets a
-// card", "it shows up here by itself") would be false there.
+// someone shared with it (server/sessionVisibility.ts). A session it starts
+// itself IS shared with it (the server marks a remote launch remoteVisible), so
+// it gets + NEW and DIRS; "run claude in any terminal" would still be false there.
 describe('LiveEmptyState on a device that is not this machine', () => {
-  it('says nothing is shared with it, instead of promising cards', () => {
+  it('says nothing is shared with it, and offers + NEW and DIRS to start a session it will see', () => {
     usePresenceStore.setState({ devices: [device(false)] } as never);
     render(<LiveEmptyState />);
     expect(screen.getByRole('heading', { name: /No sessions shared with this device/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '+ NEW' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'DIRS' })).toBeNull();
+    expect(screen.getByText(/A session you start from this device is shared with it/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '+ NEW' }));
+    expect(useUiStore.getState().activeModal).toBe('new-session');
+    expect(screen.getByRole('button', { name: 'DIRS' })).toBeInTheDocument();
     expect(screen.queryByText(/shows up here by itself/i)).toBeNull();
+  });
+
+  // A headless server has no screen, so "share it from the host's panel" is advice nobody can follow.
+  it('on a headless server, names the share-default command instead of the host panel', () => {
+    usePresenceStore.setState({ devices: [device(false)] } as never);
+    useServerEditionStore.setState({ headless: true });
+    render(<LiveEmptyState />);
+    expect(screen.getByText(/This server has no screen/i)).toBeInTheDocument();
+    expect(screen.getByText('aasc-server share-default on')).toBeInTheDocument();
+    expect(screen.queryByText(/HOST ONLY/)).toBeNull();
   });
 
   // The card points at the button the host really has: it reads HOST ONLY

@@ -163,6 +163,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // The command lines are fixed; the router limits a phone to one update per CLI per 10 minutes.
   route('GET', '/cli-versions', 'allow'),
   route('POST', '/cli-versions/(claude|codex)/update', 'allow'),
+  // Are they signed in, and a terminal running a CLI's login (Oct 29 2026): on a headless server a phone
+  // may be the only screen. The login line is fixed by the server (cliLoginTerminal.ts).
+  route('GET', '/cli-auth', 'allow'),
+  route('POST', '/cli-auth/(claude|codex)/login', 'allow'),
   // A central's confirmations a phone may answer (P5-15, server/mcp/phoneConfirmRoutes.ts): only the tools whose
   // routes this table already lets a phone call, about sessions shared with it; the route checks both, at answer
   // time. Nothing under /mcp: that stays this Mac's own.
@@ -275,6 +279,7 @@ const TERMINAL_OPENING: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: 'POST', path: /^\/terminals\/?$/ },
   { method: 'POST', path: /^\/sessions\/[^/]+\/(resume|restart-terminal|reconnect-terminal|fork|clone)\/?$/ },
   { method: 'POST', path: /^\/sessions\/spawn-floating\/?$/ },
+  { method: 'POST', path: /^\/cli-auth\/(claude|codex)\/login\/?$/ },
 ];
 
 /** Does this request open a new agent terminal on the Mac? */

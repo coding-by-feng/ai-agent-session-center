@@ -198,7 +198,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
   /** Open pairing codes, keyed by their hash. In memory on purpose: they live ten minutes. */
-  const codes = new Map<string, { expiresAt: number }>();
+  const codes = new Map<string, { expiresAt: number; codeRef: string }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
   /** Keys macProof's decoy: the same question gets the same wrong answer, as a real phone's would. */
@@ -241,13 +241,30 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
 
 
   return {
-    createPairingCode(): { code: string; expiresAt: number } {
+    /**
+     * A new pairing code. `codeRef` names it without being it, so whoever made the link can
+     * withdraw it (cancelPairingCode) without the code ever leaving the QR.
+     */
+    createPairingCode(): { code: string; expiresAt: number; codeRef: string } {
       pruneCodes();
       if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();
       const code = newPairingCode();
       const expiresAt = now() + PAIRING_CODE_TTL_MS;
-      codes.set(hashSecret(code), { expiresAt });
-      return { code, expiresAt };
+      const codeRef = randomBytes(16).toString('hex');
+      codes.set(hashSecret(code), { expiresAt, codeRef });
+      return { code, expiresAt, codeRef };
+    },
+
+    /** Withdraw an unused code by its reference. False when it was used, expired or never made. */
+    cancelPairingCode(codeRef: string): boolean {
+      pruneCodes();
+      for (const [hash, entry] of codes) {
+        if (entry.codeRef === codeRef) {
+          codes.delete(hash);
+          return true;
+        }
+      }
+      return false;
     },
 
     /**

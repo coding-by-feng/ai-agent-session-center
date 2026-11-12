@@ -17,6 +17,7 @@ import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSes
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
+import { isHeadless } from './edition.js';
 import { isPasswordEnabled, getTokenLineage, isLineageAlive, extractToken } from './authManager.js';
 import { createTerminal, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
@@ -76,6 +77,7 @@ import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extract
 import { planHistoryResume } from './historyResume.js';
 import { locateTranscript, transcriptCliOf } from './chat/transcriptLocator.js';
 import { markTranscriptSecrets } from './chat/transcriptMarks.js';
+import { clientRoleOf } from './clientRole.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 import type { Room } from '../src/types/room.js';
@@ -3874,6 +3876,9 @@ router.get('/config', (_req: Request, res: Response) => {
     // while it is off nothing central is shown (src/stores/centralFeatureStore.ts). A saved Settings choice
     // waits for the next start, so this is this run's answer, not that choice.
     centralSessions: isMcpEnabled(),
+    // A headless aasc-server (no screen of its own)? The remote "not shared" card names
+    // `aasc-server share-default on` there instead of the host's panel (serverEditionStore.ts).
+    headless: isHeadless(),
   });
 });
 
@@ -3947,7 +3952,8 @@ router.post('/workspace/save', (req: Request, res: Response) => {
     // rooms would otherwise overwrite them with its own empty set, and the
     // existing "never save an empty snapshot" guard would not catch it (the
     // session list is fully populated; only the rooms are wrong).
-    if (!presence.canWriteWorkspace(clientIdFromRequest(req))) {
+    // A terminal client (`X-AASC-Role: cli`) never saves, connected or not (D10, clientRole.ts).
+    if (clientRoleOf(req) === 'cli' || !presence.canWriteWorkspace(clientIdFromRequest(req))) {
       res.status(409).json({ ok: false, error: 'not-workspace-writer' });
       return;
     }
@@ -4073,6 +4079,11 @@ export function currentRooms(): Room[] {
  */
 router.post('/workspace/restore-claim', (req: Request, res: Response) => {
   const clientId = clientIdFromRequest(req);
+  if (clientRoleOf(req) === 'cli') {
+    // The first DASHBOARD restores; a terminal client never does (D10, clientRole.ts).
+    res.json({ granted: false, liveSessions: liveSessionCount() });
+    return;
+  }
   if (!clientId) {
     // An unidentified caller must never be granted a destructive, global,
     // once-per-boot operation — there would be no way to tell it apart from
