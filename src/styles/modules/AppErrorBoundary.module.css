@@ -1,0 +1,74 @@
+/* AppErrorBoundary — shown in place of an empty page when the root render fails. */
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  background: var(--bg-primary, #0a0a1a);
+  color: var(--text-primary, #e6e6f0);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.card {
+  max-width: 360px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-card, #14142a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-secondary, #a0a0b8);
+}
+
+.reload {
+  min-width: 120px;
+  min-height: 44px;
+  padding: 8px 24px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--bg-primary, #0a0a1a);
+  background: var(--accent-cyan, #00e5ff);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.reload:hover {
+  filter: brightness(1.1);
+}
+
+.reload:active {
+  transform: scale(0.97);
+}
+
+.reload:focus-visible {
+  outline: 2px solid var(--text-primary, #e6e6f0);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reload {
+    transition: none;
+  }
+}

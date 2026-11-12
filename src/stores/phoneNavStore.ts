@@ -72,6 +72,15 @@ interface PhoneNavState extends PhoneNav {
   /** Back was pressed at a tab root; one more back within the window leaves the page. */
   leaveArmed: boolean;
   lastAction: NavAction;
+  /** The iPad's split view (list | screen) is showing (Nov 1 2026). */
+  split: boolean;
+  setSplit: (split: boolean) => void;
+  /**
+   * The split view's list opens `paths` in the right pane: the shown tab becomes
+   * [root, ...paths], whatever was open there. Screens in the pane drill down with
+   * `push` as on a phone (`useOpenScreen` in app/listPane.ts picks which).
+   */
+  openFromRoot: (paths: readonly string[]) => void;
   /** Push a screen onto the shown tab's stack. A path this frame can't draw is ignored. */
   push: (path: string) => void;
   /** Back one screen (through history; popstate applies it). No-op at a tab root. */
@@ -123,11 +132,27 @@ export const usePhoneNavStore = create<PhoneNavState>((set, get) => ({
   stacks: defaultStacks(),
   leaveArmed: false,
   lastAction: 'restore',
+  split: false,
+
+  setSplit: (split) => {
+    if (split !== get().split) set({ split });
+  },
 
   push: (path) => {
     if (!parsePhonePath(path) || deferred(() => get().push(path))) return;
     const { tab, stacks } = get();
     showStack(tab, { ...stacks, [tab]: [...stacks[tab], path] }, 'push');
+  },
+
+  openFromRoot: (paths) => {
+    const valid = paths.length > 0 && paths.every((p) => {
+      const route = parsePhonePath(p);
+      return !!route && route.kind !== 'tab-root';
+    });
+    if (!valid || deferred(() => get().openFromRoot(paths))) return;
+    const { tab, stacks } = get();
+    const next = [stacks[tab][0], ...paths];
+    showStack(tab, { ...stacks, [tab]: next }, stackChange(stacks[tab].length, next.length));
   },
 
   pop: () => {

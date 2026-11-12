@@ -23,7 +23,7 @@
  * Renders as a self-contained overlay (not using the global Modal store) so
  * QueueTab can carry per-item state in its own component scope.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   QueueItem,
@@ -50,7 +50,9 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { addImagesToPrompt } from '@/lib/queueImageLimits';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import ImagePreview from '@/components/ui/ImagePreview';
 import { useIsMobile } from '@/lib/platform';
+import { withVideoPaths } from '@/lib/videoPaths';
 import styles from '@/styles/modules/Terminal.module.css';
 import dress from '@/styles/modules/PhoneDress.module.css';
 
@@ -78,6 +80,9 @@ let nextStepId = Date.now();
 function newStepId(): number {
   return nextStepId++;
 }
+
+/** The phone's photo library and camera (the queue compose box's own pair), loaded on a phone only. */
+const PhotoPickButtons = lazy(() => import('@/components/mobile/QueuePhotoButtons').then((m) => ({ default: m.PhotoPickButtons })));
 
 /** Read up to 5 dropped/pasted/picked files into base64 image attachments. */
 function filesToImages(files: File[]): Promise<QueueImageAttachment[]> {
@@ -148,6 +153,9 @@ export default function QueueItemEditModal({
   const [images, setImages] = useState<QueueImageAttachment[]>(
     (item.images ?? []).map((img) => ({ ...img })),
   );
+  /** The attached photo open full size (a tap or click on its thumbnail), or null. */
+  const [viewingImage, setViewingImage] = useState<QueueImageAttachment | null>(null);
+  const closeImage = useCallback(() => setViewingImage(null), []);
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -288,12 +296,24 @@ export default function QueueItemEditModal({
     [addImages],
   );
 
+  // The phone picker reads photos asynchronously: it asks for the images as they are then
+  // (one removed meanwhile stays removed), as the compose box reads its draft again.
+  const imagesRef = useRef(images);
+  useEffect(() => { imagesRef.current = images; }, [images]);
+  const getImages = useCallback(() => imagesRef.current, []);
+  const addPickedImages = useCallback((picked: QueueImageAttachment[]) => {
+    setImages((prev) => addImagesToPrompt(prev, picked).images);
+  }, []);
+  const addVideoPath = useCallback((path: string) => {
+    setMainText((prev) => withVideoPaths(prev, [path]));
+  }, []);
+
   const handleRemoveImage = useCallback((idx: number) => {
     setImages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  // ESC to close — but never while a snippet, effort or model picker is open, so the topmost
-  // layer closes first. `stopPropagation` cannot achieve this: the picker also
+  // ESC to close — but never while a snippet, effort or model picker (or a photo) is open, so
+  // the topmost layer closes first. `stopPropagation` cannot achieve this: the picker also
   // listens on `document`, and stopping propagation does NOT suppress a sibling
   // listener on the SAME node (that would need stopImmediatePropagation, whose
   // effect depends on registration order). Gating on the state is the only
@@ -301,14 +321,14 @@ export default function QueueItemEditModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (snippetPicker || effortPicker || modelPicker || confirmingDelete) return;
+        if (snippetPicker || effortPicker || modelPicker || confirmingDelete || viewingImage) return;
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, snippetPicker, effortPicker, modelPicker, confirmingDelete]);
+  }, [onClose, snippetPicker, effortPicker, modelPicker, confirmingDelete, viewingImage]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -679,6 +699,18 @@ export default function QueueItemEditModal({
               onChange={handleImageFiles}
             />
             <div className={styles.queueEditImageRow}>
+              {isMobile ? (
+                // Nov 7 2026: the desktop paperclip read a phone photo at full size and had no camera.
+                <Suspense fallback={null}>
+                  <PhotoPickButtons
+                    count={images.length}
+                    buttonClassName={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+                    getImages={getImages}
+                    onImages={addPickedImages}
+                    onVideoPath={addVideoPath}
+                  />
+                </Suspense>
+              ) : (
               <button
                 type="button"
                 className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
@@ -689,6 +721,7 @@ export default function QueueItemEditModal({
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
+              )}
               <button
                 type="button"
                 className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${isKept(mainText) ? ` ${styles.queueSnippetBtnOn}` : ''}`}
@@ -719,7 +752,15 @@ export default function QueueItemEditModal({
                 <div className={styles.queueComposeImages}>
                   {images.map((img, i) => (
                     <div key={i} className={styles.queueImageThumb}>
-                      <img src={img.dataUrl} alt={img.name} />
+                      <button
+                        type="button"
+                        className={styles.queueImageView}
+                        onClick={() => setViewingImage(img)}
+                        title={`View ${img.name}`}
+                        aria-label={`View ${img.name}`}
+                      >
+                        <img src={img.dataUrl} alt={img.name} />
+                      </button>
                       <button
                         type="button"
                         className={styles.queueImageRemove}
@@ -877,6 +918,11 @@ export default function QueueItemEditModal({
           onPick={(model) => addModelStep(modelPicker.target, model)}
           onClose={() => setModelPicker(null)}
         />
+      )}
+      {/* Portaled to <body> one z-index above the editor (itself portaled there on a phone);
+          closing it leaves the editor and its edits as they were. */}
+      {viewingImage && (
+        <ImagePreview src={viewingImage.dataUrl} name={viewingImage.name} onClose={closeImage} />
       )}
       {isMobile && (
         <ConfirmSheet

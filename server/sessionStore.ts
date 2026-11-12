@@ -12,8 +12,8 @@
 import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import log from './logger.js';
 import { hookQueueDir } from './hookQueueDir.js';
+import log from './logger.js';
 import { getWaitingLabel, sanitizeModelInCommand, extractModelFromCommand } from './config.js';
 import { stripCentralLaunch } from './mcp/launch.js';
 import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
@@ -22,17 +22,20 @@ import {
 } from './constants.js';
 
 // Sub-module imports
-import { matchSession, detectHookSource } from './sessionMatcher.js';
+import { matchSession, detectHookSource, findSplitTwin, foldSplitPair } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
 import { withBtwAnswer } from './btwCapture.js';
 import { toBackgroundTasks, FINISHED_TASK_STATUSES } from './backgroundTasks.js';
-import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, registerTerminalSuggestionCallback, watchTerminalForSuggestion, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, registerTerminalBtwCallback, registerTerminalSuggestionCallback, watchTerminalForSuggestion, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid, getForegroundProcess, tapTerminalOutput } from './sshManager.js';
 import { createCodexTrust } from './codexTrust.js';
+import { watchCodexReady } from './codexReadyWatch.js';
 import { forgetTerminalHeard, noteTerminalHeard, terminalHeard } from './heardTerminals.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
-import { checkTurnInterrupted, readTranscriptTail } from './transcriptInterrupt.js';
+import { checkTurnInterrupted, readTranscriptTail, TYPED_PROMPT_MARKER_MS, type StoppedTurn } from './transcriptInterrupt.js';
+import { emitTerminalHook } from './hookSignals.js';
 import { asksForProceed, lastAnswerAsksForProceed } from './proceedRequest.js';
 import { isCodexSession } from './sessionKillPolicy.js';
+import { stripCodexMemoryCitation } from './codexMemoryCitation.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -57,6 +60,7 @@ import {
 import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
 import { nextPendingRequest, guessPendingRequest, requestCliOf } from './pendingRequests.js';
 import { nextCompacting } from './compactingState.js';
+import { nextStopHooksSince, stopHooksSettled } from './stopHooksState.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
 import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
@@ -696,6 +700,26 @@ function runtimeSourcePath(session: Session): string | undefined {
   return codexRollouts.get(session.sessionId)?.path ?? undefined;
 }
 
+/** After a prompt, how long to wait before looking once more for a rollout that was not there. */
+const CODEX_ROLLOUT_PROMPT_RETRY_MS = 2_000;
+
+/**
+ * Codex writes its rollout at the session's first prompt, which can come long after
+ * SessionStart, when the lookup's backoff has grown to minutes. A prompt looks again now
+ * and once more shortly after, so a stop in that turn is seen.
+ */
+function lookAgainForCodexRollout(session: Session): void {
+  const { sessionId } = session;
+  if (!isCodexSession(session) || codexRollouts.get(sessionId)?.path) return;
+  codexRollouts.delete(sessionId);
+  const timer = setTimeout(() => {
+    if (codexRollouts.get(sessionId)?.path) return;
+    codexRollouts.delete(sessionId);
+    syncRuntimeWatch();
+  }, CODEX_ROLLOUT_PROMPT_RETRY_MS);
+  timer.unref?.();
+}
+
 /** Find a Codex session's rollout in the background; the next sync starts watching it. */
 function lookUpCodexRollout(sessionId: string, now: number): void {
   const known = codexRollouts.get(sessionId);
@@ -743,7 +767,39 @@ const runtimeWatch = createRuntimeWatch({
       if (tracksRuntime(session) && runtimeSourcePath(session) === path) applyRuntimeReading(session, reading);
     }
   },
+  applyToStoppedTurn(path, stopped) {
+    for (const session of sessions.values()) {
+      if (tracksRuntime(session) && runtimeSourcePath(session) === path) endTurnStoppedByUser(session, stopped);
+    }
+  },
+  applyToStopHooks(path, settled) {
+    for (const session of sessions.values()) {
+      if (session.stopHooksSince && runtimeSourcePath(session) === path && settled()) endStopHooks(session);
+    }
+  },
 });
+
+/** Claude's Stop hooks have finished: a prompt sent now starts at once. */
+function endStopHooks(session: Session): void {
+  if (!session.stopHooksSince) return;
+  session.stopHooksSince = null;
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+}
+
+/**
+ * After a Stop: the hooks may already be done (fast hooks finish before AASC's own MQ read),
+ * and then the transcript watcher saw the summary before there was a mark to clear.
+ */
+function checkStopHooksNow(session: Session, transcriptPath: string | undefined): void {
+  const since = session.stopHooksSince;
+  if (!since || !transcriptPath) return;
+  void readTranscriptTail(transcriptPath)
+    .then((lines) => {
+      if (lines && session.stopHooksSince === since && stopHooksSettled(lines)) endStopHooks(session);
+    })
+    .catch(() => undefined);
+}
 
 /**
  * Watch exactly the transcripts (Claude) and rollouts (Codex) of live sessions. Called
@@ -920,9 +976,11 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${session.startupCommand.slice(0,80)}`);
   }
 
-  if (hookData.cli_source) {
+  // Only a string names a CLI (a crafted POST /api/hooks can send anything): every reader below,
+  // isCodexSession among them, calls string methods on it.
+  if (typeof hookData.cli_source === 'string' && hookData.cli_source) {
     session.cliSource = hookData.cli_source;
-  } else if (!session.cliSource) {
+  } else if (!session.cliSource || typeof session.cliSource !== 'string') {
     session.cliSource = inferCliSource(session.startupCommand || session.sshCommand || session.sshConfig?.command);
   }
 
@@ -976,6 +1034,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.userCancelledAt = null;
     }
   }
+  noteTurnId(session, hook_event_name, hookData);
+  if (hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT) lookAgainForCodexRollout(session);
 
   // In-process subagent runs for the AGENTS tab (subagentTracker.ts). A
   // PreToolUse applies it below, where the tool summary exists, and learns
@@ -999,11 +1059,18 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   );
   if (pendingRequest !== (session.pendingRequest ?? null)) session.pendingRequest = pendingRequest;
 
-  // A context compaction in progress, for the phone's "Compacting" hint.
+  // A context compaction in progress, for the status marks and the phone's "Compacting" hint.
   const compacting = nextCompacting(
     session.compacting ?? null, hook_event_name, hookData as unknown as Record<string, unknown>, Date.now(),
   );
   if (compacting !== (session.compacting ?? null)) session.compacting = compacting;
+
+  // Claude's Stop hooks still running after Stop: a prompt sent now is held (the phone's "Finishing up").
+  const stopHooksSince = nextStopHooksSince(
+    session.stopHooksSince ?? null, hook_event_name,
+    isCodexSession(session) ? 'codex' : session.cliSource?.toLowerCase() || 'claude', Date.now(),
+  );
+  if (stopHooksSince !== (session.stopHooksSince ?? null)) session.stopHooksSince = stopHooksSince;
 
   // Every hook names the transcript, not only SessionStart: `EnterWorktree` moves a running
   // session's file into the worktree's projects folder, and a path kept from the start pointed
@@ -1200,11 +1267,16 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       eventEntry.detail = wasHeavyWork ? 'Heavy work done — ready for input' : 'Ready for your input';
 
       // Store response if present — try multiple possible field names
-      const responseText = ('response' in hookData ? hookData.response : undefined)
+      const rawResponse = ('response' in hookData ? hookData.response : undefined)
         || ('last_assistant_message' in hookData ? hookData.last_assistant_message : undefined)
         || ('message' in hookData ? hookData.message : undefined)
         || ('stop_reason_str' in hookData ? hookData.stop_reason_str : undefined)
         || '';
+      // Codex ends a reply with a memory citation (codexMemoryCitation.ts): out of the log, and
+      // out of the proceed check's tail, where a long one hides the ask.
+      const responseText = isCodexSession(session) && typeof rawResponse === 'string'
+        ? stripCodexMemoryCitation(rawResponse)
+        : rawResponse;
       // Does the answer end by asking for "proceed" (the P reminder, proceedRequest.ts)? Read
       // from the full text: the excerpt below keeps its start, and the ask is at the end. No
       // text in the hook: the transcript says.
@@ -1254,6 +1326,11 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
           ?? session.transcriptPath,
         'prompt_id' in hookData && typeof hookData.prompt_id === 'string' ? hookData.prompt_id : undefined,
+      );
+      checkStopHooksNow(
+        session,
+        ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
+          ?? session.transcriptPath,
       );
       break;
     }
@@ -1364,7 +1441,23 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       break;
     }
 
-    case EVENT_TYPES.SESSION_END:
+    case EVENT_TYPES.SESSION_END: {
+      const endReason = 'reason' in hookData ? hookData.reason : undefined;
+      // `/clear` is not a death: the same process fires SessionStart with a new id 2–5 s later,
+      // and Priority 1b re-keys this card. Ending it here let pinnedRespawn (2 s backoff) relaunch
+      // the old conversation first: one duplicate pinned card per /clear. The pid stays cached, so
+      // the process monitor still ends the card if the CLI really dies in between.
+      if (endReason === 'clear') {
+        session.status = SESSION_STATUS.IDLE;
+        session.animationState = ANIMATION_STATE.IDLE;
+        session.waitingDetail = null;
+        session.pendingProceedAt = null;
+        session.subagentCount = 0;
+        session.backgroundTaskCount = 0;
+        session.backgroundTasks = null;
+        eventEntry.detail = 'Conversation cleared (/clear)';
+        break;
+      }
       session.status = SESSION_STATUS.ENDED;
       // A session AASC put to sleep (sessionSleep.ts) ends quietly: it is resting, not dead.
       session.animationState = session.asleepAt ? ANIMATION_STATE.IDLE : ANIMATION_STATE.DEATH;
@@ -1373,7 +1466,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.subagentCount = 0;
       session.backgroundTaskCount = 0;
       session.backgroundTasks = null;
-      eventEntry.detail = `Session ended (${('reason' in hookData ? hookData.reason : undefined) || 'unknown'})`;
+      eventEntry.detail = `Session ended (${endReason || 'unknown'})`;
 
       // Release PID cache for this session
       if (session.cachedPid) {
@@ -1394,6 +1487,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       }
       // Non-SSH sessions are also kept (no auto-delete)
       break;
+    }
   }
 
   holdForSubagentDialog(session, hook_event_name, requestBefore, statusBefore);
@@ -1487,6 +1581,42 @@ export function clearPendingRequest(sessionId: string, requestId: string): Sessi
   return { ...session };
 }
 
+/** Is the session on this terminal waiting for the user? No copy: runs per keystroke (dialogCloseWatch). */
+export function isAwaitingAnswerOnTerminal(terminalId: string): boolean {
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) {
+      return s.status === SESSION_STATUS.APPROVAL || s.status === SESSION_STATUS.INPUT;
+    }
+  }
+  return false;
+}
+
+/**
+ * The user answered the dialog in the terminal and the agent is working again
+ * (dialogCloseWatch saw its spinner come back): leave approval/input now, so the "!"
+ * and the alarm stop, instead of waiting for the hook that would have ended it.
+ * Clears the subagent-dialog hold too, or the next event would put approval back.
+ * pendingTool stays: the robot still shows the running tool.
+ */
+export function releaseAnsweredDialog(terminalId: string): boolean {
+  let session: Session | undefined;
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) { session = s; break; }
+  }
+  if (!session) return false;
+  if (session.status !== SESSION_STATUS.APPROVAL && session.status !== SESSION_STATUS.INPUT) return false;
+  session.status = SESSION_STATUS.WORKING;
+  session.animationState = ANIMATION_STATE.RUNNING;
+  session.pendingRequest = null;
+  session.waitingDetail = null;
+  session.approvalSource = null;
+  statusUnderSubagentDialog.delete(session);
+  log.info('session', `Dialog answered in terminal: ${session.sessionId.slice(0, 8)} back to working`);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+  return true;
+}
+
 export function getSession(sessionId: string): Session | null {
   const resolved = resolveSessionId(sessionId);
   const session = resolved ? sessions.get(resolved) : null;
@@ -1541,6 +1671,25 @@ export function getSessionIdByTerminalId(terminalId: string): string | null {
  * stored under newId. Used during workspace import to map snapshot IDs to
  * freshly created terminal IDs.
  */
+/** Note the CLI session a restore launched this card to resume (Session.launchResumeId). */
+export function setLaunchResumeId(sessionId: string, resumeId: string): void {
+  const session = sessions.get(sessionId);
+  if (!session || session.sessionId === resumeId) return;
+  const updated = { ...session, launchResumeId: resumeId };
+  sessions.set(sessionId, updated);
+  invalidateSessionsCache();
+  // The workspace auto-save reads it off the client's copy, which may hear nothing else until a prompt.
+  broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...updated } }).catch(() => { /* the next update carries it */ });
+}
+
+/**
+ * The id to resume this card's conversation by: its own, or, while it is still keyed by its terminal
+ * id, the session its restore resumed (Session.launchResumeId).
+ */
+export function resumableIdOf(session: Pick<Session, 'sessionId' | 'launchResumeId'>): string {
+  return /^(?:term|pty)-/.test(session.sessionId) && session.launchResumeId ? session.launchResumeId : session.sessionId;
+}
+
 export function registerSessionAlias(originalId: string, newId: string): void {
   if (originalId && newId && originalId !== newId) {
     sessionAliases.set(originalId, newId);
@@ -1731,12 +1880,36 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // Unref'd, and its callback never rejects: a timer that outlives a test file (or the server's shutdown) must not
   // keep the process up or surface as an unhandled rejection (Ruling P4-44).
   const local = LOCAL_TERMINAL_HOSTS.has(config.host || 'localhost');
-  const timer = setTimeout(() => {
-    leaveConnecting(terminalId, command, agentCli, local ? workDir : null).catch((err: unknown) => {
-      log.error('session', `The connecting timeout of ${terminalId} failed: ${err instanceof Error ? err.message : String(err)}`);
+  const localFolder = local ? workDir : null;
+  const leave = (reason: string): void => {
+    leaveConnecting(terminalId, command, agentCli, localFolder, reason).catch((err: unknown) => {
+      log.error('session', `Leaving connecting (${reason}) for ${terminalId} failed: ${err instanceof Error ? err.message : String(err)}`);
     });
+  };
+  let codexWatch: (() => void) | null = null;
+  const timer = setTimeout(() => {
+    if (codexWatch) stopCodexReadyWatch(terminalId, codexWatch);
+    leave('connecting timeout');
   }, agentCli ? 30_000 : 3_000);
   timer.unref?.();
+  // A terminal id can be reused (a resume, `/terminals/register`): an older card's watch must not judge this one.
+  const older = codexReadyWatches.get(terminalId);
+  if (older) stopCodexReadyWatch(terminalId, older);
+  // A trusted local Codex leaves as soon as its input row is drawn and settled, not at 30 s (codexReadyWatch.ts).
+  if (CODEX_COMMAND_RE.test(command) && localFolder !== null) {
+    const cancel = watchCodexReady({
+      stillConnecting: () => sessions.get(terminalId)?.status === (SESSION_STATUS.CONNECTING as string),
+      atInput: () => codexAtItsInput(terminalId, command, localFolder),
+      tapOutput: (listener) => tapTerminalOutput(terminalId, listener),
+      onReady: () => {
+        stopCodexReadyWatch(terminalId, cancel);
+        clearTimeout(timer);
+        leave('its Codex input settled');
+      },
+    });
+    codexWatch = cancel;
+    codexReadyWatches.set(terminalId, cancel);
+  }
 
   return session;
 }
@@ -1748,7 +1921,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
  * Codex too (it sends its first hook only at its first prompt), except where it waits at its input (Ruling P4-46).
  * A plain shell never hooks and is never marked.
  */
-async function leaveConnecting(terminalId: string, command: string, agentCli: boolean, localFolder: string | null): Promise<void> {
+async function leaveConnecting(terminalId: string, command: string, agentCli: boolean, localFolder: string | null, reason: string): Promise<void> {
   const s = sessions.get(terminalId);
   if (!s || s.status !== (SESSION_STATUS.CONNECTING as string)) return;
   s.status = SESSION_STATUS.IDLE;
@@ -1771,12 +1944,20 @@ async function leaveConnecting(terminalId: string, command: string, agentCli: bo
   // guard missed path-qualified launches like `/usr/local/bin/claude`.
   if (!s.model) s.model = extractModelFromCommand(command);
   await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
-  log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
+  log.info('session', `Auto-transitioned session ${terminalId} to idle after ${reason} (${command})`);
 }
 
 /** Hosts whose folders are this Mac's: only there is the owner's Codex trust record the one that applies. */
 const LOCAL_TERMINAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1']);
 const CODEX_COMMAND_RE = /^(?:\S*\/)?codex(?:\s|$)/;
+/** The early-leave watch of each new Codex card still connecting, by terminal id. */
+const codexReadyWatches = new Map<string, () => void>();
+
+/** Stop one watch (stopping twice is harmless), and forget it unless a newer card's watch took the id. */
+function stopCodexReadyWatch(terminalId: string, cancel: () => void): void {
+  cancel();
+  if (codexReadyWatches.get(terminalId) === cancel) codexReadyWatches.delete(terminalId);
+}
 const codexTrust = createCodexTrust();
 
 /**
@@ -2126,6 +2307,37 @@ export function resumeSession(sessionId: string): { error: string } | { ok: true
   log.info('session', `RESUME: session ${sessionId?.slice(0,8)} → connecting (terminal=${session.lastTerminalId?.slice(0,8)})`);
 
   return { ok: true, terminalId: session.lastTerminalId, session: { ...session } };
+}
+
+/**
+ * Fold a split pair into one card before a relaunch, and return the id to relaunch.
+ * A card whose first hook was lost stays keyed by its terminal id while a twin under the real
+ * session id takes the hooks (sessionMatcher `findSplitTwin`). Relaunched alone, the card starts a
+ * fresh CLI: its launch line never knew the thread. Folded, Resume and Reconnect go back to the
+ * thread (`codex resume <id>`), and the card keeps its title, room and queue (`replacesId`).
+ * Returns `sessionId` unchanged when there is no pair.
+ */
+export function healSplitCard(sessionId: string): string {
+  const card = sessions.get(sessionId);
+  if (!card) return sessionId;
+  const twin = findSplitTwin(card, sessions);
+  if (!twin) return sessionId;
+  const realId = twin.sessionId;
+  const merged = foldSplitPair(card, twin, card.lastTerminalId ?? card.terminalId ?? twin.terminalId ?? null);
+  // An update still in the 20 ms batch would bring the card back on clients, or put the twin's bare fields
+  // over the merged card, after the update that carries `replacesId`.
+  dropPendingSessionUpdates(sessionId);
+  dropPendingSessionUpdates(realId);
+  sessions.delete(sessionId);
+  sessions.set(realId, merged);
+  sessionAliases.set(sessionId, realId);
+  dbMigrateSessionId(sessionId, realId);
+  migrateControl(sessionId, realId);
+  invalidateSessionsCache();
+  broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...merged } }).catch(() => { /* the relaunch broadcasts again */ });
+  delete merged.replacesId;
+  log.info('session', `REJOINED split card before relaunch: ${sessionId} + ${realId.slice(0, 8)} -> one card ${realId.slice(0, 8)}`);
+  return realId;
 }
 
 /**
@@ -2526,10 +2738,12 @@ registerTerminalSuggestionCallback((terminalId: string, suggestion) => {
 });
 
 // ---- User cancel (Esc, or a declined tool) --------------------------------
-// Claude Code fires an ordinary Stop for a cancel, so the prompt queue would
-// read it as a finished turn and send its next prompt. The transcript says
-// which it was (see transcriptInterrupt.ts), so every Stop of a Claude session
-// is followed by a read of the transcript's tail.
+// Neither CLI fires a hook when Esc stops a turn (Claude no Stop, Codex
+// nothing), so the card would stay working. Each writes it into its own file
+// instead, which the session runtime's watcher reads as it changes: that
+// ends the turn (endTurnStoppedByUser). A Stop that does come after a cancel
+// would read as a finished turn and let the queue send its next prompt, so
+// every Stop of a Claude session is also followed by a read of the tail.
 
 /**
  * The status the main agent reached while a background subagent's dialog held the
@@ -2584,6 +2798,55 @@ function holdForSubagentDialog(
  * survives a re-key.
  */
 const turnGeneration = new WeakMap<Session, number>();
+
+/**
+ * The id the CLI gives the turn that is running, as its hooks send it: Claude's
+ * `prompt_id`, Codex's `turn_id`. Set by UserPromptSubmit, or by the first hook
+ * that carries one (a card restored mid-turn); dropped by SessionStart. A stop
+ * read off the transcript must name this turn, not the one before it.
+ */
+const turnIds = new WeakMap<Session, string>();
+/** When the running turn's UserPromptSubmit reached the store. */
+const turnPromptedAt = new WeakMap<Session, number>();
+/** The turn the transcript already ended (`endTurnStoppedByUser`): it is ended once. */
+const endedTurns = new WeakMap<Session, string>();
+/**
+ * The turn each recent main-thread tool call ran under (`tool_use_id` → `prompt_id`), as
+ * its PreToolUse / PermissionRequest said. Claude renames a prompt queued behind a slow
+ * Stop hook when it runs it, so `turnIds` (from UserPromptSubmit) can be stale; the call's
+ * own hook names the turn the transcript will stamp. Capped, newest last.
+ */
+const callTurns = new WeakMap<Session, Map<string, string>>();
+const CALL_TURNS_MAX = 16;
+
+function noteTurnId(session: Session, event: string, hookData: HookPayload): void {
+  const id = ('prompt_id' in hookData && typeof hookData.prompt_id === 'string' && hookData.prompt_id)
+    || ('turn_id' in hookData && typeof hookData.turn_id === 'string' && hookData.turn_id)
+    || null;
+  if (event === EVENT_TYPES.SESSION_START) {
+    turnIds.delete(session);
+    turnPromptedAt.delete(session);
+    endedTurns.delete(session);
+    callTurns.delete(session);
+  } else if (event === EVENT_TYPES.USER_PROMPT_SUBMIT) {
+    if (id) turnIds.set(session, id);
+    else turnIds.delete(session);
+    turnPromptedAt.set(session, Date.now());
+    endedTurns.delete(session);
+  } else if (id && !turnIds.has(session)) turnIds.set(session, id);
+  if (id && (event === EVENT_TYPES.PRE_TOOL_USE || event === EVENT_TYPES.PERMISSION_REQUEST)) noteCallTurn(session, hookData, id);
+}
+
+function noteCallTurn(session: Session, hookData: HookPayload, turnId: string): void {
+  const toolUseId = 'tool_use_id' in hookData && typeof hookData.tool_use_id === 'string' ? hookData.tool_use_id : '';
+  // A subagent's calls run in its own transcript, never under a main-thread marker.
+  if (!toolUseId || subagentIdentity(hookData as unknown as Record<string, unknown>)) return;
+  const calls = new Map(callTurns.get(session) ?? []);
+  calls.delete(toolUseId);
+  calls.set(toolUseId, turnId);
+  while (calls.size > CALL_TURNS_MAX) calls.delete(calls.keys().next().value as string);
+  callTurns.set(session, calls);
+}
 
 /**
  * When to read the transcript after a Stop. The marker is written before the
@@ -2660,6 +2923,68 @@ function confirmUserCancel(session: Session): void {
   log.info('session', `USER CANCEL on ${session.sessionId.slice(0, 8)} — prompt queue held until the user acts`);
   invalidateSessionsCache();
   void broadcastSessionUpdate(session);
+}
+
+/** A turn still running: what an Esc can stop. */
+const STOPPABLE_STATUSES: ReadonlySet<string> = new Set([
+  SESSION_STATUS.PROMPTING, SESSION_STATUS.WORKING, SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT,
+]);
+
+/**
+ * The user stopped the running turn (Esc, the phone's Stop, a declined tool) and
+ * the CLI only wrote it down (`stoppedTurn`): end the turn as its Stop would,
+ * hold the queue as for any cancel, and tell whoever waits on the terminal (an
+ * interrupt, a central's task). A stop of another turn is stale, and a turn is
+ * ended once: a later read of the same line changes nothing.
+ */
+/**
+ * The marker follows the open dialog's own call, declined, in the turn that call ran under.
+ * Claude gives a prompt queued behind a slow Stop hook a new promptId when it runs it, so
+ * `turnIds` (its UserPromptSubmit's) misses it; the call's own hook named the right turn.
+ * A prompt typed into a busy turn stamps its marker with the NEW prompt's id: no match.
+ */
+function declinedOpenDialog(session: Session, stopped: StoppedTurn): boolean {
+  const toolUseId = session.pendingRequest?.toolUseId;
+  if (!toolUseId || !stopped.turnId || !stopped.rejectedToolUseIds?.includes(toolUseId)) return false;
+  return callTurns.get(session)?.get(toolUseId) === stopped.turnId;
+}
+
+function endTurnStoppedByUser(session: Session, stopped: StoppedTurn): void {
+  if (!STOPPABLE_STATUSES.has(session.status)) return;
+  const running = turnIds.get(session);
+  if (running && stopped.turnId && stopped.turnId !== running && !declinedOpenDialog(session, stopped)) return;
+  // Stamped as its prompt arrived: the marker Claude writes for a prompt typed into a busy
+  // turn, in whichever order it reached the file.
+  const promptedAt = turnPromptedAt.get(session);
+  if (stopped.at !== null && promptedAt !== undefined && Math.abs(stopped.at - promptedAt) <= TYPED_PROMPT_MARKER_MS) return;
+  // A subagent's open dialog keeps the card in approval, and every later write re-reads the marker.
+  const turn = stopped.turnId ?? running ?? '';
+  if (endedTurns.get(session) === turn) return;
+  endedTurns.set(session, turn);
+  const requestBefore = session.pendingRequest ?? null;
+  const statusBefore = session.status;
+  const now = Date.now();
+  clearApprovalTimer(session.sessionId, session);
+  session.status = SESSION_STATUS.WAITING;
+  session.animationState = ANIMATION_STATE.WAITING;
+  session.emote = null;
+  session.totalToolCalls = 0;
+  session.lastActivityAt = now;
+  session.pendingRequest = nextPendingRequest(requestBefore, EVENT_TYPES.STOP, {}, requestCliOf(session.cliSource), now);
+  session.compacting = nextCompacting(session.compacting ?? null, EVENT_TYPES.STOP, {}, now);
+  session.stopHooksSince = null; // the user ended the turn: no Stop hooks follow an Esc
+  holdForSubagentDialog(session, EVENT_TYPES.STOP, requestBefore, statusBefore);
+  session.events.push({ type: EVENT_TYPES.STOP, timestamp: now, detail: 'Stopped by you' });
+  if (session.events.length > 50) session.events.shift();
+  dbUpsertSession(session);
+  log.info('session', `STOPPED ${session.sessionId.slice(0, 8)}: the user ended the turn; the CLI sent no hook`);
+  if (session.userCancelledAt) {
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+  } else {
+    confirmUserCancel(session);
+  }
+  emitTerminalHook(EVENT_TYPES.STOP, session);
 }
 
 /**

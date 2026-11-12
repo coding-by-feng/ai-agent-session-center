@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -115,6 +115,124 @@ expect(PromptRules.title("  ") == "Unlock AASC", "blank -> default")
 expect(PromptRules.title(nil) == "Unlock AASC", "nil -> default")
 expect(PromptRules.title("a\u{0007}b\nc") == "abc", "control characters dropped")
 expect(PromptRules.title(String(repeating: "x", count: 80)).count == 60, "at most 60")
+
+// LiveActivityRules: the card is drawn only for a saved Mac's origin, under its saved name, clamped
+let savedMacs = """
+[{"id":"m1","name":"kason-mac","port":3333,"lan":"192.168.4.20","tailnet":"100.101.102.103","lanAllowed":true},
+ {"id":"m2","name":"studio","port":4444,"lan":"192.168.4.30","tailnet":null,"lanAllowed":false}]
+"""
+expect(LiveActivityRules.macName(origin: "http://192.168.4.20:3333", savedMacs: savedMacs) == "kason-mac", "LAN origin")
+expect(LiveActivityRules.macName(origin: "http://100.101.102.103:3333", savedMacs: savedMacs) == "kason-mac", "tailnet origin")
+expect(LiveActivityRules.macName(origin: "http://192.168.4.20:3334", savedMacs: savedMacs) == nil, "other port")
+expect(LiveActivityRules.macName(origin: "http://192.168.4.30:4444", savedMacs: savedMacs) == nil, "LAN not allowed")
+expect(LiveActivityRules.macName(origin: "http://192.168.4.99:3333", savedMacs: savedMacs) == nil, "unknown host")
+expect(LiveActivityRules.macName(origin: "capacitor://localhost", savedMacs: savedMacs) == nil, "the shell")
+expect(LiveActivityRules.macName(origin: "https://evil.example", savedMacs: savedMacs) == nil, "a web page")
+expect(LiveActivityRules.macName(origin: "http://192.168.4.20:3333", savedMacs: nil) == nil, "nothing saved")
+expect(LiveActivityRules.macName(origin: "http://192.168.4.20:3333", savedMacs: "{oops") == nil, "bad JSON")
+
+let goodCard: [String: Any] = [
+    "v": 1, "headline": "working", "more": 2, "needs": 0, "working": 1,
+    "rows": [["mark": "working", "title": "Fix\nthe build"], ["mark": "bogus", "title": "x"], ["mark": "done", "title": "  "],
+             ["mark": "done", "title": String(repeating: "y", count: 90)]],
+]
+let parsedCard = LiveActivityRules.card(goodCard, mac: "kason-mac")
+expect(parsedCard?.rows.count == 2, "bad mark and blank title dropped")
+expect(parsedCard?.rows.first?.title == "Fix the build", "control characters flattened")
+expect(parsedCard?.rows.last?.title.count == 60, "title clipped to 60")
+expect(parsedCard?.mac == "kason-mac" && parsedCard?.headline == "working" && parsedCard?.more == 2, "fields kept")
+let manyRows: [String: Any] = ["v": 1, "headline": "finished", "more": 0,
+                               "rows": (1...6).map { ["mark": "done", "title": "s\($0)"] }]
+expect(LiveActivityRules.card(manyRows, mac: "m")?.rows.count == 4, "at most 4 rows")
+expect(LiveActivityRules.card(manyRows, mac: "m")?.more == 2, "extra rows counted in more")
+expect(LiveActivityRules.card(["v": 2, "headline": "working"], mac: "m") == nil, "other version")
+expect(LiveActivityRules.card(["v": 1, "headline": "party"], mac: "m") == nil, "unknown headline")
+expect(LiveActivityRules.card("nope", mac: "m") == nil, "not an object")
+expect(LiveActivityRules.card(["v": 1, "headline": "needs", "needs": -5, "working": 5000], mac: "m").map { [$0.needs, $0.working] } == [0, 999], "counts clamped")
+
+// The timer's start time and the lead row's preview line
+let clock = Date(timeIntervalSince1970: 1_800_000_000)
+let clockMs = 1_800_000_000_000.0
+let timedCard: [String: Any] = [
+    "v": 1, "headline": "working", "working": 1,
+    "rows": [["mark": "working", "title": "lead", "startedAt": clockMs - 100_000, "detail": "Reading\nthe map " + String(repeating: "z", count: 120)],
+             ["mark": "needs", "title": "asks", "startedAt": clockMs - 5_000, "detail": "not the lead"],
+             ["mark": "done", "title": "done", "startedAt": clockMs - 5_000]],
+]
+let timed = LiveActivityRules.card(timedCard, mac: "m", now: clock)
+expect(timed?.rows[0].startedAt == clock.addingTimeInterval(-100), "lead start time kept")
+expect(timed?.rows[0].detail?.hasPrefix("Reading the map z") == true, "preview flattened")
+expect(timed?.rows[0].detail?.count == 80, "preview clipped to 80")
+expect(timed?.rows[1].startedAt == clock.addingTimeInterval(-5) && timed?.rows[1].detail == nil, "preview on the lead row only")
+expect(timed?.rows[2].startedAt == nil, "done rows have no timer")
+func startOf(_ raw: Any) -> Date? {
+    LiveActivityRules.card(["v": 1, "headline": "working", "rows": [["mark": "working", "title": "t", "startedAt": raw]]],
+                           mac: "m", now: clock)?.rows.first?.startedAt
+}
+expect(startOf(clockMs + 60_000) == clock, "a fast Mac clock never counts negative")
+expect(startOf(clockMs - 25 * 3_600_000) == nil, "over a day old: no timer")
+expect(startOf("123") == nil && startOf(true) == nil && startOf(-5) == nil, "not a time: no timer")
+expect(startOf(Int(clockMs) - 1_000) == clock.addingTimeInterval(-1), "an integer ms value works")
+
+// Idle sessions: a done row flagged idle becomes the idle mark; every live session idle makes the headline idle
+let idleRows: [[String: Any]] = [["mark": "done", "title": "a", "idle": true], ["mark": "done", "title": "b"],
+                                 ["mark": "working", "title": "c", "idle": true]]
+let someIdle = LiveActivityRules.card(["v": 1, "headline": "finished", "idle": 1, "rows": idleRows], mac: "m")
+expect(someIdle?.rows.map(\.mark) == ["idle", "done", "working"], "idle flag only turns a done row idle")
+expect(someIdle?.headline == "finished", "not every session idle: still finished")
+let allIdle = LiveActivityRules.card(["v": 1, "headline": "finished", "idle": 3, "more": 1,
+                                      "rows": [["mark": "done", "title": "a", "idle": true], ["mark": "done", "title": "b", "idle": true]]],
+                                     mac: "m")
+expect(allIdle?.headline == "idle" && allIdle?.rows.map(\.mark) == ["idle", "idle"], "every live session idle: headline idle")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "idle": 3, "rows": [["mark": "done", "title": "a"]]], mac: "m")?.headline == "finished",
+       "idle count covers the card but no row is flagged: finished")
+expect(LiveActivityRules.card(["v": 1, "headline": "working", "idle": 9, "working": 1, "rows": [["mark": "working", "title": "w"]]], mac: "m")?.headline == "working",
+       "only a finished card turns idle")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "idle": 1,
+                                "rows": [["mark": "done", "title": "a", "idle": true], ["mark": "done", "title": "\u{1B}"]]], mac: "m")?.headline == "finished",
+       "a finished row dropped here (blank title) still counts against all-idle")
+expect(LiveActivityRules.card(["v": 1, "headline": "idle", "rows": [["mark": "idle", "title": "x"]]], mac: "m") == nil,
+       "the Mac never posts idle as a headline")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "idle", "title": "x"]]], mac: "m")?.rows.isEmpty == true,
+       "nor as a mark")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "done", "title": "x", "idle": "yes"]]], mac: "m")?.rows.first?.mark == "done",
+       "a non-boolean idle flag is ignored")
+
+// A "proceed" owed (Nov 8 2026): a done row flagged proceed becomes the proceed mark and keeps its timer
+let askedAt = Date().timeIntervalSince1970 * 1000 - 60_000
+let proceedCard = LiveActivityRules.card(["v": 1, "headline": "needs", "needs": 1, "rows": [
+    ["mark": "done", "title": "p", "proceed": true, "startedAt": askedAt], ["mark": "done", "title": "d", "startedAt": askedAt],
+    ["mark": "done", "title": "both", "proceed": true, "idle": true]]], mac: "m")
+expect(proceedCard?.rows.map(\.mark) == ["proceed", "done", "proceed"], "proceed flag turns a done row proceed, and beats idle")
+expect(proceedCard?.rows.first?.startedAt != nil, "a proceed row keeps when it asked")
+expect(proceedCard?.rows[1].startedAt == nil, "a plain done row still has no timer")
+expect(LiveActivityRules.card(["v": 1, "headline": "working", "rows": [["mark": "working", "title": "w", "proceed": true]]], mac: "m")?.rows.first?.mark == "working",
+       "proceed only turns a done row")
+expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "proceed", "title": "x"]]], mac: "m")?.rows.isEmpty == true,
+       "the Mac never posts proceed as a mark")
+
+// FileSaveRules: the Download button downloads only the page's own file route, under a clean name (Nov 7 2026)
+let macPage = "http://192.168.4.20:3333"
+let goodPath = "/api/files/stream?root=%2FUsers%2Fk%2Fp&path=a%2Fv.mp4&download=1"
+let saveReq = FileSaveRules.request(["id": "lx2-1", "url": goodPath, "name": "v.mp4"], page: macPage)
+expect(saveReq?.url.absoluteString == macPage + goodPath && saveReq?.name == "v.mp4" && saveReq?.id == "lx2-1", "good request")
+expect(FileSaveRules.request(["id": "a", "url": "/api/files/stream?root=x&path=y", "name": "v"], page: macPage) == nil, "no download=1")
+expect(FileSaveRules.request(["id": "a", "url": "/api/sessions?download=1", "name": "v"], page: macPage) == nil, "another route")
+expect(FileSaveRules.request(["id": "a", "url": "//evil.example/api/files/stream?download=1", "name": "v"], page: macPage) == nil, "another host")
+expect(FileSaveRules.request(["id": "a", "url": "https://evil.example/api/files/stream?download=1", "name": "v"], page: macPage) == nil, "absolute url")
+expect(FileSaveRules.request(["id": "a b", "url": goodPath, "name": "v"], page: macPage) == nil, "bad id")
+expect(FileSaveRules.request(["id": "a", "url": goodPath, "name": "..."], page: macPage) == nil, "name of dots")
+expect(FileSaveRules.request("nope", page: macPage) == nil, "not an object")
+expect(FileSaveRules.fileName("../../etc/passwd") == "_.._etc_passwd", "separators replaced, leading dots dropped")
+expect(FileSaveRules.fileName("笔记 1.md") == "笔记 1.md", "unicode kept")
+expect(FileSaveRules.fileName("a\nb.txt") == "a_b.txt", "control characters replaced")
+let longName = FileSaveRules.fileName(String(repeating: "x", count: 300) + ".mp4")
+expect(longName?.utf8.count == FileSaveRules.nameMaxBytes && longName?.hasSuffix(".mp4") == true, "long name keeps its extension")
+let longCjk = FileSaveRules.fileName(String(repeating: "笔", count: 100) + ".md")
+expect((longCjk?.utf8.count ?? 999) <= FileSaveRules.nameMaxBytes && longCjk?.hasSuffix("笔.md") == true, "a CJK name is cut by bytes, whole characters")
+expect(FileSaveRules.postedId(["id": "a-1", "url": "x"]) == "a-1" && FileSaveRules.postedId(["id": "a b"]) == nil, "a refused request is still answered by id")
+let script = FileSaveRules.outcomeScript(id: "a", state: "failed", message: "x')); alert(1); ('")
+expect(script?.contains("\"message\":\"x')); alert(1); ('\"") == true, "message JSON-encoded inside the detail")
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

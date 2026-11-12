@@ -155,6 +155,14 @@ describe('accepting a prompt', () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
+  // Nov 8 2026: a photo is a prompt on its own; only a message with neither is empty.
+  it('takes a message that is only images, with no text', async () => {
+    expect((await send('s1', { text: '', images: ['queue-img-1-a.png'] })).status).toBe(202);
+    expect(submit.mock.calls[0][0]).toMatchObject({ text: '', imagePaths: ['/tmp/claude-queue-images/queue-img-1-a.png'] });
+    expect((await send('s1', { key: 'key-00000002', images: ['queue-img-2-b.jpg'], text: undefined })).status).toBe(202);
+    expect(submit.mock.calls[1][0].text).toBe('');
+  });
+
   it('types text, never control bytes: no Esc sequences, and Enter only where the Mac presses it', async () => {
     expect((await send('s1', { text: 'line one\r\nline two\rthree\x1b[2J\x07\x00 \tend\n\n' })).status).toBe(202);
     expect(submit.mock.calls[0][0].text).toBe('line one\nline two\nthree[2J \tend');
@@ -163,6 +171,7 @@ describe('accepting a prompt', () => {
   it.each([
     ['no text', { text: '' }],
     ['only control bytes and blanks', { text: '\x1b\x1b \r\n' }],
+    ['no text and an empty image list', { text: '', images: [] }],
     ['text over 64 KB', { text: 'x'.repeat(65_537) }],
     ['eleven images', { images: 'abcdefghijk'.split('').map((c) => `queue-img-1-${c}.png`) }],
     ['an unknown mode', { mode: 'later' }],

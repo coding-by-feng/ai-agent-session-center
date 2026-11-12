@@ -4,6 +4,7 @@ import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { projectFixture } from './cloudProjectsFixture.js';
 import { createProjectRouter } from '../server/cloud/projectRouter.js';
+import { isSameOriginWrite } from '../server/resourceRouter.js';
 import { CloudError } from '../server/cloud/types.js';
 import { sqliteIt } from './helpers/nativeSqlite.js';
 const servers: Server[] = [];
@@ -18,10 +19,8 @@ async function fixture() {
   const app = express();
   app.use(
     '/cloud',
-    createProjectRouter(
-      async () => f.service,
-      () => true,
-    ),
+    // The production gate (resourceRouter.ts): a header-free client passes, another page doesn't.
+    createProjectRouter(async () => f.service, isSameOriginWrite),
   );
   const server = await new Promise<Server>((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -238,3 +237,63 @@ sqliteIt(
     expect(save.status).toBe(400);
   },
 );
+// Oct 29 2026: this device's folders, saved projects' ♥/tags, and the tab's automatic Check.
+sqliteIt('serves folders and project tags; check takes only `auto`; a meta change takes no extra field', async () => {
+  const f = await fixture();
+  const folders = await fetch(f.url + '/projects/folders', { headers: f.headers });
+  expect(await folders.json()).toEqual({ success: true, data: { home: f.home, items: [] } });
+  // With no connection to review, this Mac's folders still list; a partial binding is refused.
+  const unbound = await fetch(f.url + '/projects/folders');
+  expect(await unbound.json()).toEqual({ success: true, data: { home: f.home, items: [] } });
+  const partial = await fetch(f.url + '/projects/folders', {
+    headers: { 'x-aasc-cloud-account': f.binding.accountId },
+  });
+  expect(partial.status).toBe(409);
+  // Another page on this Mac (another port) reads neither, with a connection or without.
+  for (const [path, headers] of [
+    ['/projects/folders', {}],
+    ['/projects/folders', f.headers],
+    ['/projects/meta', f.headers],
+  ] as const) {
+    const other = await fetch(f.url + path, { headers: { ...headers, 'sec-fetch-site': 'same-site' } });
+    expect(other.status, path).toBe(403);
+  }
+  const sent: { method: string; path: string; body?: unknown }[] = [];
+  f.cloud.client.request = async (method: string, path: string, body?: unknown) => {
+    sent.push({ method, path, body });
+    if (path.startsWith('/v1/projects/meta')) return { items: [], nextCursor: null };
+    return { projectId: f.project.id, version: 1, favorite: true, tags: [] };
+  };
+  const list = await fetch(f.url + '/projects/meta', { headers: f.headers });
+  expect(await list.json()).toEqual({ success: true, data: { available: true, items: [] } });
+  for (const body of [{ favorite: true, path: '/etc' }, {}, { addTags: 'work' }]) {
+    const r = await fetch(f.url + `/projects/${f.project.id}/meta`, {
+      method: 'POST',
+      headers: f.headers,
+      body: JSON.stringify(body),
+    });
+    expect(r.status).toBe(400);
+  }
+  const bad = await fetch(f.url + '/projects/not-a-uuid/meta', {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ favorite: true }),
+  });
+  expect(bad.status).toBe(400);
+  const changed = await fetch(f.url + `/projects/${f.project.id}/meta`, {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ favorite: true }),
+  });
+  expect((await changed.json()).data).toMatchObject({ projectId: f.project.id, favorite: true });
+  expect(sent.map((c) => `${c.method} ${c.path}`)).toEqual([
+    'GET /v1/projects/meta?limit=100',
+    `POST /v1/projects/${f.project.id}/meta`,
+  ]);
+  const loose = await fetch(f.url + `/projects/${f.project.id}/check`, {
+    method: 'POST',
+    headers: f.headers,
+    body: JSON.stringify({ auto: 'yes' }),
+  });
+  expect(loose.status).toBe(400);
+});

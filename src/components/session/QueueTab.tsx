@@ -33,10 +33,12 @@ import {
   currentChainStep,
   queueHoldReason,
 } from '@/lib/queueScheduler';
+import { IS_LITE } from '@/lib/edition';
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useQueueStripCollapsed } from '@/hooks/useQueueStripCollapsed';
 import { useUiStore } from '@/stores/uiStore';
 import { useIsStartReleased } from '@/stores/startReleaseStore';
 import QueueHoldBanner from './QueueHoldBanner';
@@ -59,7 +61,8 @@ import { appendSnippet } from '@/lib/promptSnippetInsert';
 import { useQueueDragReorder } from '@/hooks/useQueueDragReorder';
 import type { DragRect } from '@/lib/queueDragReorder';
 import QueueItemEditModal from './QueueItemEditModal';
-import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
+import QueueMovePicker, { MOVE_TRIGGER_ATTR } from './QueueMovePicker';
+import { queueMoveTargets } from '@/lib/queueMoveTargets';
 import QueueItemText from './QueueItemText';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
@@ -141,6 +144,9 @@ interface QueueTabProps {
    *  shared by every window of the app and a pop-out must neither inherit nor
    *  rewrite the docked strip's; and an inert header for the same reason. */
   floating?: boolean;
+  /** Never fold this copy, because it fills its whole tab and folding would leave a bare header.
+   *  Lite's QUEUE tab, whose strip folds on its own while the queue is empty. */
+  alwaysOpen?: boolean;
 }
 
 export default function QueueTab({
@@ -150,6 +156,7 @@ export default function QueueTab({
   onQueueCountChange,
   fullHeight,
   floating = false,
+  alwaysOpen = false,
 }: QueueTabProps) {
   const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const activeCount = items.filter((it) => !it.disabled).length;
@@ -270,7 +277,7 @@ export default function QueueTab({
     },
     [sessionId, setComposeDraftPatch, composeDraft.text],
   );
-  // The compose thumbnail opened full size, if any.
+  // The compose or queued-item thumbnail opened full size, if any.
   const [previewImage, setPreviewImage] = useState<QueueImageAttachment | null>(null);
   const closePreview = useCallback(() => setPreviewImage(null), []);
   const setComposeImages = useCallback(
@@ -306,9 +313,8 @@ export default function QueueTab({
   /** The compose row's "saved prompts" trigger, while its picker is open. */
   const [snippetAnchor, setSnippetAnchor] = useState<HTMLElement | null>(null);
   // Shared, not local: DetailPanel sizes the strip's row from it (collapsed, the
-  // terminal gets the height) and both docked mounts must agree — see uiStore.
-  const dockedCollapsed = useUiStore((s) => s.queuePanelCollapsed);
-  const setDockedCollapsed = useUiStore((s) => s.setQueuePanelCollapsed);
+  // terminal gets the height) and both docked mounts must agree.
+  const [dockedCollapsed, setDockedCollapsed] = useQueueStripCollapsed(sessionId);
   const isMobile = useIsMobile();
   // Claude's suggested next prompt (server/promptSuggestionCapture.ts): the empty box's placeholder,
   // and Tab takes it. Desktop only; a phone has its Composer's "Use suggestion" (and no Tab).
@@ -317,10 +323,10 @@ export default function QueueTab({
   // On a phone the QUEUE tab is the queue's only home (no strip under the
   // terminal, AASC-18), so it is never folded either — the stored flag belongs
   // to the docked strip of a desktop window.
-  const fixedOpen = floating || isMobile;
+  const fixedOpen = floating || isMobile || alwaysOpen;
   const collapsed = fixedOpen ? false : dockedCollapsed;
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
-  const canFloat = !floating && !isMobile;
+  const canFloat = !IS_LITE && !floating && !isMobile;
   /** List and Card are a desktop density choice; a phone has one layout (list rows, actions always shown). */
   const viewMode = isMobile ? 'list' : queueViewMode;
   /** Phone: the row whose "More" sheet is open, and the row waiting on a delete confirmation. */
@@ -792,10 +798,34 @@ export default function QueueTab({
     [items, reorder, sessionId],
   );
 
-  // ---- Other sessions for move picker ----
-  const moveTargets: QueueMoveTarget[] = Array.from(sessions.entries())
-    .filter(([id]) => id !== sessionId)
-    .map(([id, s]) => ({ id, projectName: s.projectName, title: s.title }));
+  // ---- Other sessions for move picker: live ones, by name (lib/queueMoveTargets.ts) ----
+  const moveTargets = useMemo(() => queueMoveTargets(sessions.values(), sessionId), [sessions, sessionId]);
+
+  // A queued item's photos: each thumbnail opens full size, like the compose row's. A button,
+  // so the row's press-and-hold drag never starts on it (useQueueDragReorder skips buttons).
+  const renderItemImages = (item: QueueItem) => {
+    if (!item.images || item.images.length === 0) return null;
+    return (
+      <div className={styles.queueItemImages}>
+        {item.images.map((img, i) => (
+          <div key={i} className={styles.queueItemThumb}>
+            <button
+              type="button"
+              className={styles.queueImageView}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewImage(img);
+              }}
+              title={`View ${img.name}`}
+              aria-label={`View ${img.name}`}
+            >
+              <img src={img.dataUrl} alt={img.name} />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Type chip + next-fire + chain badge. Extracted (rather than left as the
   // inline IIFE it used to be) so both List and Card layouts render the exact
@@ -1305,7 +1335,7 @@ export default function QueueTab({
             </button>
           </div>
         )}
-        {/* Held: the user stopped the last turn (Esc fires a real Stop, so
+        {/* Held: the user stopped the last turn (Esc ends it as `waiting`, so
             without this the queue would send its next prompt into the turn
             they just stopped), or subagents are still running, or its CLI has
             not reported that it started. Only when there is something waiting
@@ -1322,6 +1352,7 @@ export default function QueueTab({
         {/* Compose */}
         <div
           className={`${styles.queueCompose}${dragOver ? ` ${styles.queueComposeDragOver}` : ''}`}
+          data-queue-compose={fixedOpen ? undefined : sessionId}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -1402,7 +1433,11 @@ export default function QueueTab({
             <button
               className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
               {...{ [SNIPPET_TRIGGER_ATTR]: 'compose' }}
-              onClick={(e) => setSnippetAnchor((prev) => (prev ? null : e.currentTarget))}
+              onClick={(e) => {
+                // Read it now: React clears currentTarget after the click, and the updater can run later than that.
+                const trigger = e.currentTarget;
+                setSnippetAnchor((prev) => (prev ? null : trigger));
+              }}
               aria-haspopup="dialog"
               aria-expanded={snippetAnchor !== null}
               title="Insert a saved prompt"
@@ -1608,15 +1643,7 @@ export default function QueueTab({
                           onToggle={() => toggleExpanded(item.id)}
                         />
                       )}
-                      {item.images && item.images.length > 0 && (
-                        <div className={styles.queueItemImages}>
-                          {item.images.map((img, i) => (
-                            <div key={i} className={styles.queueItemThumb} title={img.name}>
-                              <img src={img.dataUrl} alt={img.name} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {renderItemImages(item)}
                     </div>
 
                     {renderItemMeta(item)}
@@ -1684,15 +1711,7 @@ export default function QueueTab({
                           onToggle={() => toggleExpanded(item.id)}
                         />
                       )}
-                      {item.images && item.images.length > 0 && (
-                        <div className={styles.queueItemImages}>
-                          {item.images.map((img, i) => (
-                            <div key={i} className={styles.queueItemThumb} title={img.name}>
-                              <img src={img.dataUrl} alt={img.name} />
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {renderItemImages(item)}
                     </div>
 
                     {renderItemMeta(item)}

@@ -12,7 +12,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import { useIsMobile } from '@/lib/platform';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
+import { useUiStore } from '@/stores/uiStore';
 import {
+  findByUuid,
   listByOriginSession,
   setArchived,
   setNotes,
@@ -63,6 +65,13 @@ function relativeTime(ts: number): string {
   return formatDate(ts);
 }
 
+/** Bring the row a saved highlight asked for into view, once per click. jsdom has no scrollIntoView. */
+function openFocusedRow(row: HTMLDivElement | null): void {
+  if (!row) return;
+  row.scrollIntoView?.({ block: 'nearest' });
+  useUiStore.getState().markFocusedAiPopupOpened();
+}
+
 interface AiPopupHistoryProps {
   sessionId: string;
   projectPath?: string;
@@ -76,16 +85,30 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const liveFloats = useFloatingSessionsStore((s) => s.floats);
   const showOnPhone = useFloatingSessionsStore((s) => s.setPhoneShown);
+  // A saved highlight clicked in PROJECT (Lite, which has no REVIEW). Its popup may have started in another
+  // session, so its record joins this list until the next highlight. It opens once per click, because this tab
+  // remounts on every visit and must then come back as it was left.
+  const focus = useUiStore((s) => s.focusedAiPopup);
+  const focusUuid = focus?.sessionId === sessionId ? focus.uuid : null;
+  const opening = focus?.sessionId === sessionId && focus.fresh ? focus : null;
+  const [seenOpening, setSeenOpening] = useState<typeof opening>(null);
+  if (opening !== seenOpening) {
+    setSeenOpening(opening);
+    if (opening) setExpandedUuid(opening.uuid);
+  }
 
   const reload = useCallback(() => {
     let cancelled = false;
-    listByOriginSession(sessionId).then((result) => {
-      if (!cancelled) setRows(result);
-    });
+    Promise.all([listByOriginSession(sessionId), focusUuid ? findByUuid(focusUuid) : undefined]).then(
+      ([result, focused]) => {
+        if (cancelled) return;
+        setRows(focused && !result.some((row) => row.uuid === focused.uuid) ? [focused, ...result] : result);
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, focusUuid]);
 
   useEffect(() => reload(), [reload]);
 
@@ -175,7 +198,11 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
           row.mode === 'translate-file' ? row.fileContent || row.filePath : row.selection;
         const running = isPhone && liveFloats.some((f) => f.terminalId === row.floatTerminalId);
         return (
-          <div key={row.uuid} className={`${styles.row}${expanded ? ` ${styles.rowExpanded}` : ''}`}>
+          <div
+            key={row.uuid}
+            ref={row.uuid === opening?.uuid ? openFocusedRow : undefined}
+            className={`${styles.row}${expanded ? ` ${styles.rowExpanded}` : ''}`}
+          >
             <div className={styles.rowHeaderWrap}>
               <button
                 type="button"

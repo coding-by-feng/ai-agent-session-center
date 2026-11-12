@@ -5,6 +5,7 @@
 // ShellBridge plugins); in a development build in a browser, in-memory fakes
 // (platform/dev.ts); in tests, fakes too. A production build opened in a plain
 // browser gets none of them and says it needs the app.
+import type { FormFactor } from './formFactor.js';
 import type { Haptic } from './haptics.js';
 import type { HttpRequester } from './http.js';
 import type { BrowseResult } from './lanRescan.js';
@@ -112,6 +113,8 @@ export type ShellOs = 'ios' | 'android' | 'web';
 
 export interface ShellDeps {
   os: ShellOs;
+  /** Phone or tablet (formFactor.ts): what the screens call this device. Absent: a phone. */
+  formFactor?: FormFactor;
   vault: DeviceVault;
   /** Preferences: the saved Macs (names, addresses), nothing secret. */
   store: KeyValueStore;

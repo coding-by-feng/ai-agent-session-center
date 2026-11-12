@@ -47,6 +47,16 @@ export function bindingFromHeaders(req: Request): CloudBinding {
     );
   return parsed.data;
 }
+/**
+ * A read that also answers with no connection (Projects lists this Mac's folders, Oct 29 2026):
+ * no binding header at all is `null`; any one of them and all are checked as above.
+ */
+export function optionalBindingFromHeaders(req: Request): CloudBinding | null {
+  const named = ['x-aasc-cloud-backend', 'x-aasc-cloud-account', 'x-aasc-cloud-generation'].some(
+    (h) => req.get(h) !== undefined,
+  );
+  return named ? bindingFromHeaders(req) : null;
+}
 export const abortCheck = (signal: AbortSignal) => {
   if (signal.aborted) throw new CloudError('cancelled', 'Cloud job cancelled.', 409);
 };

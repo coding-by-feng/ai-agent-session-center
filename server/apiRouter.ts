@@ -13,7 +13,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
@@ -26,7 +26,7 @@ import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects, rankProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
-import { appendPausedItem } from './sessionQueueCodec.js';
+import { appendPausedItem, isStaleQueueWrite } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
@@ -49,6 +49,7 @@ import { getMqStats } from './mqReader.js';
 import * as presence from './presenceManager.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
+import { pipeline } from 'stream';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
@@ -66,9 +67,11 @@ import {
   type CentralCaller, type CentralLaunchContext, type CentralLaunchInput,
 } from './mcp/centralLaunch.js';
 import type { SessionCentralMarker } from '../src/types/central.js';
-import { stripCodexNoDaemon } from './codexNoDaemon.js';
+import type { Session } from '../src/types/session.js';
+import { stripCodexLaunchFlags } from './codexNoDaemon.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
+import { attachmentDisposition, parseByteRange, refusesStreamSize } from './fileStreamPolicy.js';
 import { getCommandIndex } from './commandIndex.js';
 import { createCommandUsage, usageForEntries, usageScope } from './commandUsage.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
@@ -255,6 +258,8 @@ function saveLastUsername(username: string): void {
 // Build set of all addresses/hostnames that resolve to this machine.
 // Matches sshManager.ts approach so local-session detection is consistent.
 const LOCAL_HOSTS = new Set<string>(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+/** Ctrl-U: empties a shell's input line (kill-line in zsh and bash) before a line is typed into it. */
+const CLEAR_INPUT_LINE = '\x15';
 try {
   const h = hostname();
   LOCAL_HOSTS.add(h);
@@ -320,10 +325,11 @@ function stripClaudeSessionFlags(command: string): string {
 
 function stripCodexSessionSubcommand(command: string): string {
   // AASC-59: the stored command is the live CLI's `ps` args, so a dashboard-launched Codex
-  // brings back its `--no-daemon`. Drop it here (sshManager re-applies it when the line is
-  // typed, if the installed Codex takes it): left after `resume`, the strip below would eat
-  // `resume --no-daemon` and leave the old thread id behind as a stray prompt.
-  return stripCodexNoDaemon(command.replace(/^(\S*\/)codex/, 'codex'))
+  // brings back its `--no-daemon` (and, since Nov 4 2026, `--no-alt-screen`). Drop them here
+  // (sshManager re-applies them when the line is typed, if the installed Codex takes them):
+  // left after `resume`, the strip below would eat `resume --no-daemon` and leave the old
+  // thread id behind as a stray prompt.
+  return stripCodexLaunchFlags(command.replace(/^(\S*\/)codex/, 'codex'))
     .replace(/\s+(?:resume|fork)(?:\s+--last)?(?:\s+'[^']*'|\s+"[^"]*"|\s+[a-zA-Z0-9_-]+)?/g, '')
     .trim();
 }
@@ -391,6 +397,20 @@ export function buildStartupLaunchCommand(
  */
 export function buildResumeCommand(session: Parameters<typeof buildResumeLine>[0], sessionId: string): string {
   return stripCentralLaunch(buildResumeLine(session, sessionId));
+}
+
+/**
+ * Reconnect's line when the card's stored line may not hold its conversation: a restored card still keyed
+ * by its terminal id resumes the session its restore resumed (Session.launchResumeId), and a pair that was
+ * just folded resumes its real id. Null otherwise, and for a central, whose line keeps its own path.
+ */
+export function reconnectResumeLine(session: Session, healed: boolean): string | null {
+  if (session.central) return null;
+  // A pair just folded under its real id: its stored line can be the card's fresh launch (a twin minted by a
+  // non-startup hook carries none), so the line is built from the id.
+  if (healed) return buildResumeCommand(session, session.sessionId);
+  const resumeId = resumableIdOf(session);
+  return resumeId === session.sessionId ? null : buildResumeCommand(session, resumeId);
 }
 
 function buildResumeLine(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
@@ -632,6 +652,10 @@ const sessionQueueSchema = z.object({
    *  ignore its own update instead of re-saving it in a loop. Per window rather
    *  than per device: two windows of one device must not drop each other's updates. */
   originClientId: z.string().max(200).nullish(),
+  /** The stored version (`updatedAt`) the window built this list on. A save that names one is
+   *  refused (409 + the current list) once the stored list has moved on; one that names none is
+   *  written as before. */
+  baseUpdatedAt: z.number().int().nonnegative().nullish(),
 }).refine(
   (v) => JSON.stringify(v.items).length <= MAX_QUEUE_PAYLOAD_BYTES,
   { message: 'Queue payload too large to sync (over 8MB — likely oversized image attachments)' },
@@ -1129,15 +1153,17 @@ function restoredSessionLabel(body: { originalSessionId?: string; resumeSessionI
 // Resume an ended session — on its card, or from a HISTORY row (resumeFromHistory).
 // `<cli> --resume <id>` first, falling back to a FRESH CLI (see buildResumeCommand).
 router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
-  const sessionId = str(req.params.id);
+  const requestedId = str(req.params.id);
 
   // Validate session ID format to prevent command injection (only allow UUID-like chars)
-  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(requestedId)) {
     res.status(400).json({ error: 'Invalid session ID format' });
     return;
   }
 
-  if (refuseWhileRestarting(sessionId, res)) return;
+  if (refuseWhileRestarting(requestedId, res)) return;
+  // A split card resumes its twin's thread, as one card (sessionStore.healSplitCard).
+  const sessionId = healSplitCard(requestedId);
   const session = getSession(sessionId);
   if (!session) { await resumeFromHistory(sessionId, req, res); return; }
 
@@ -1151,7 +1177,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     return;
   }
 
-  const resumeCmd = buildResumeCommand(session, sessionId);
+  const resumeCmd = buildResumeCommand(session, resumableIdOf(session));
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
 
   if (terminalExists) {
@@ -1165,6 +1191,11 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     const result = resumeSession(sessionId);
     if ('error' in result) { res.status(400).json({ error: result.error }); return; }
 
+    // Empty the shell's input line first (Ctrl-U, kill-line in zsh and bash). A CLI that exited fast leaves
+    // xterm's late replies to its colour / cursor queries there as text ("1R10;rgb:…;rgb:…", Nov 2 2026), and
+    // the line typed after them was glued on and failed. Its own write: the launch hooks below read the
+    // line from its first word.
+    writeToTerminal(result.terminalId, CLEAR_INPUT_LINE);
     // A central (server/mcp) resumed in its still-open shell is typed through the launch hooks, which put
     // its MCP flags on the line: its token is still valid and still in that shell's environment, so nothing
     // is minted. Every other card's line is typed raw, as before: writeWhenReady would also add the
@@ -1250,8 +1281,11 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
 // Works for SSH sessions (using stored sshConfig) and hook-detected sessions
 // that have a captured startupCommand.
 router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
-  const sessionId = str(req.params.id);
-  if (refuseWhileRestarting(sessionId, res)) return;
+  const requestedId = str(req.params.id);
+  if (refuseWhileRestarting(requestedId, res)) return;
+  // A split card reconnects to its twin's thread, as one card (sessionStore.healSplitCard).
+  const sessionId = healSplitCard(requestedId);
+  const healed = sessionId !== requestedId;
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
   if (session.source !== 'ssh' && !session.startupCommand) {
@@ -1271,7 +1305,9 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       // a Claude line's name is rebuilt, quoted, from the card's title (Ruling P3-36): ps printed `-n "x mcp add …"` as
       // loose words, and typed as they are `-n` takes `x` and claude runs `mcp add …`.
       const storedCmd = session.startupCommand || cfg.command || 'claude';
-      const launchCmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      // A restored card no hook has re-keyed yet resumes the conversation its restore resumed, not a fresh CLI.
+      const launchCmd = reconnectResumeLine(session, healed)
+        ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
       // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
@@ -1316,7 +1352,8 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
       // As above: a central's command with a bare claude / codex word, a Claude line's name rebuilt from the card's
       // title, and its central in the new PTY (or a plain session when the central cannot be established again).
       const storedCmd = session.startupCommand || 'claude';
-      const cmd = relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
+      const cmd = reconnectResumeLine(session, healed)
+        ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
       const plan = prepareCentralRelaunch(session, { command: cmd, workingDir: baseConfig.workingDir || '~', remoteHost: false }, centralCaller(req));
       const newConfig: TerminalConfig = plan.central ? { ...baseConfig, central: plan.central } : baseConfig;
       const newTerminalId = await spawnCentralTerminal(plan.central, () => createTerminal(newConfig, null));
@@ -1366,9 +1403,12 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
 
   // A Claude/Codex card whose id is not a real CLI session id yet (no hook has reported one) can only be
   // relaunched blank: `buildResumeCommand` drops `--resume`. "Same session" would be a lie, so refuse.
+  // A restored card still keyed by its terminal id resumes the session its restore resumed (a Codex
+  // sends no hook on `codex resume` until its first prompt).
+  const resumeId = resumableIdOf(session);
   const launchCommand = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   if ((commandStartsWithCli(launchCommand, 'claude') || commandStartsWithCli(launchCommand, 'codex'))
-      && !CLAUDE_SESSION_UUID_RE.test(session.sessionId)) {
+      && !CLAUDE_SESSION_UUID_RE.test(resumeId)) {
     res.status(409).json({
       ok: false,
       error: 'This session has not reported its Claude session id yet (no hook has arrived), so a restart could not bring its conversation back',
@@ -1379,7 +1419,7 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
   try {
     const outcome = await restartSessionTerminal(
       session.sessionId,
-      buildResumeCommand(session, session.sessionId),
+      buildResumeCommand(session, resumeId),
       centralCaller(req),
     );
     if (!outcome.ok) {
@@ -1404,7 +1444,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   // buildForkCommand produces a fresh `claude --resume ... --fork-session` template
   // (no `-n` flag). Append `-n "<newTitle>"` so the new fork has its own name
   // rather than inheriting the original session's name from the resumed state.
-  const forkCmd = appendSessionName(buildForkCommand(session, sessionId), newTitle);
+  // A restored card still keyed by its terminal id forks the session its restore resumed, not `fork --last`.
+  const forkCmd = appendSessionName(buildForkCommand(session, resumableIdOf(session)), newTitle);
 
   try {
     const cfg = session.sshConfig;
@@ -1477,12 +1518,14 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
     const cfg = session.sshConfig;
     const newTitle = `Clone of ${session.title || session.projectName}`;
     const baseCmd = session.startupCommand || cfg?.command || 'claude';
-    // Strip session-specific flags (--resume, --continue, --fork-session) so a
-    // resumed session's stored startupCommand doesn't bleed into the clone, then
-    // strip the name so the clone gets its own title.
-    let cloneCmd = stripClaudeSessionFlags(baseCmd);
-    cloneCmd = stripClaudeSessionName(cloneCmd);
-    cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
+    // Strip session-specific flags (--resume, --continue, --fork-session; a Codex line's `resume <id>` /
+    // `fork <id>`) so a resumed session's stored startupCommand doesn't bleed into the clone, then strip the
+    // name so the clone gets its own title. A Codex line keeps its own approval flags: the permission
+    // rebuild below writes Claude's.
+    const isCodex = commandStartsWithCli(baseCmd, 'codex');
+    let cloneCmd = isCodex
+      ? stripCodexSessionSubcommand(baseCmd) || 'codex'
+      : reconstructPermissionFlags(stripClaudeSessionName(stripClaudeSessionFlags(baseCmd)), session.permissionMode);
     // The clone starts on the session's latest model + effort, not its launch flags.
     cloneCmd = applyClaudeLaunchFlags(cloneCmd, session.model, session.effortLevel, { replace: true });
     cloneCmd = appendSessionName(cloneCmd, newTitle);
@@ -1948,6 +1991,25 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
     return;
   }
 
+  // A list built on an older copy than the one stored would put back whatever changed since: a
+  // phone that slept through the Mac's queue sending a prompt saves its old list and the prompt
+  // returns, to be sent again (Nov 7 2026). Refuse it with the current list; the window merges its
+  // own edit into that and saves again. The read and the write run in one tick, so nothing lands
+  // between them.
+  const current = body.baseUpdatedAt == null ? null : db.getSessionQueue(sessionId);
+  if (current && isStaleQueueWrite(current.updatedAt, body.baseUpdatedAt)) {
+    // Not recorded as a refused save (`recordQueuePut`): the server is not missing anything this
+    // window holds — it holds newer. A mark here could also never clear: a window that is closing
+    // sends its last save as it goes and never sends another.
+    res.status(409).json({
+      success: false,
+      code: 'stale',
+      error: 'The queue changed since this list was loaded',
+      queue: { items: current.items, automation: current.automation, updatedAt: current.updatedAt },
+    });
+    return;
+  }
+
   const record = db.upsertSessionQueue(sessionId, body.items, body.automation ?? null);
   recordQueuePut(sessionId, true, body.originClientId ?? undefined);
 
@@ -2189,7 +2251,8 @@ export const SUMMARIZE_CLAUDE_ARGS: readonly string[] = ['-p', '--model', 'haiku
 
 /**
  * Summarize session using Claude CLI.
- * The frontend sends { context, promptTemplate } from IndexedDB data.
+ * The one caller is the central MCP tool `session_summarize` (the in-app Summary UI was removed Nov 6 2026);
+ * a body may still carry { context, promptTemplate }.
  * If custom_prompt is provided, use it directly as the prompt template. A central's (`mcp:` caller's) custom_prompt is
  * added to AASC's own template instead, never in place of it, and its promptTemplate is not read (Ruling P3-25).
  */
@@ -2544,6 +2607,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.originalSessionId) {
       registerSessionAlias(body.originalSessionId, terminalId);
     }
+    // Until a hook re-keys the card, this is how it knows its conversation (Session.launchResumeId).
+    if (resumeLaunchCmd && resumeId) setLaunchResumeId(terminalId, resumeId);
 
     // Inject the resume command once the shell is ready.
     // For remote SSH sessions, prepend `cd` + AGENT_MANAGER_TERMINAL_ID export since
@@ -2597,9 +2662,10 @@ router.get('/terminals', (req: Request, res: Response) => {
   res.json({ terminals });
 });
 
-// Register an externally-created terminal (e.g. Electron ptyHost) with the
-// session store.  Creates a session card and pending link WITHOUT spawning a
-// PTY — the caller already owns the PTY process.
+// Register an externally-created terminal with the session store. Creates a
+// session card and pending link WITHOUT spawning a PTY — the caller already owns
+// the PTY process. Its one caller, the Electron IPC PTY host, was removed in
+// Nov 2026; the route stays for API compatibility.
 const terminalRegisterSchema = z.object({
   terminalId: z.string().min(1),
   host: z.string().default('localhost'),
@@ -2622,7 +2688,7 @@ router.post('/terminals/register', requireLocalOnly, async (req: Request, res: R
       sessionTitle: body.sessionTitle,
     };
 
-    // Create the session card (no PTY spawn — ptyHost owns the process)
+    // Create the session card (no PTY spawn — the caller owns the process)
     const session = await createTerminalSession(body.terminalId, config);
 
     log.info('api', `Registered external terminal ${body.terminalId} → ${body.host}:${body.workingDir}`);
@@ -3179,7 +3245,6 @@ const TEXT_NAMES = new Set([
 ]);
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
 
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
 const STREAMABLE_EXTENSIONS = new Set([
@@ -3317,9 +3382,10 @@ router.get('/files/read', (req: Request, res: Response) => {
     const name = basename(fullPath);
     const fileExt = extname(name).toLowerCase();
 
-    // PDFs and other streamable files: return metadata with streamable flag (no size limit)
+    // PDFs, images, Office and media: metadata with the streamable flag. Whole-file types are capped
+    // at 100 MB; video/audio are played by Range request, so any size (fileStreamPolicy.ts).
     if (STREAMABLE_EXTENSIONS.has(fileExt)) {
-      if (stat.size > MAX_STREAMABLE_SIZE) {
+      if (refusesStreamSize(fileExt, stat.size)) {
         res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 100 MB)` });
         return;
       }
@@ -3344,7 +3410,21 @@ router.get('/files/read', (req: Request, res: Response) => {
   }
 });
 
-/** GET /api/files/stream?root=<projectPath>&path=<relative> — stream a file (PDF, images) */
+/**
+ * Pipe a file to the response and close it however the response ends: `stream.pipe(res)` left the file
+ * open when the client hung up mid-transfer (Nov 7 2026 review: one descriptor per Android download tap).
+ */
+function sendFileStream(res: Response, stream: ReturnType<typeof createReadStream>): void {
+  pipeline(stream, res, (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: 'Stream error' });
+  });
+}
+
+/**
+ * GET /api/files/stream?root=<projectPath>&path=<relative>[&download=1] — stream a file (PDF, images, media).
+ * `download=1` (the phone's Download button, Nov 7 2026) saves any file under the root as an attachment,
+ * whole and uncapped (streamed, Range-resumable): the viewer's type and size limits are for showing it.
+ */
 router.get('/files/stream', (req: Request, res: Response) => {
   const root = str(req.query.root);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
@@ -3362,10 +3442,10 @@ router.get('/files/stream', (req: Request, res: Response) => {
 
     const stat = statSync(fullPath);
     if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
-    if (stat.size > MAX_STREAMABLE_SIZE) { res.status(413).json({ error: 'File too large' }); return; }
-
     const fileExt = extname(fullPath).toLowerCase();
-    if (!STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
+    const download = str(req.query.download) === '1';
+    if (!download && !STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
+    if (!download && refusesStreamSize(fileExt, stat.size)) { res.status(413).json({ error: 'File too large' }); return; }
 
     const mimeMap: Record<string, string> = {
       '.pdf': 'application/pdf',
@@ -3386,25 +3466,27 @@ router.get('/files/stream', (req: Request, res: Response) => {
     const contentType = mimeMap[fileExt] || 'application/octet-stream';
 
     const safeName = basename(fullPath).replace(/[^a-zA-Z0-9._-]/g, '_');
-    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    res.setHeader('Content-Disposition', download ? attachmentDisposition(basename(fullPath)) : `inline; filename="${safeName}"`);
 
-    // Video/audio: support HTTP Range requests so browsers can seek
+    // Video/audio: support HTTP Range requests so browsers can seek; a download resumes by Range too.
     const isMedia = contentType.startsWith('video/') || contentType.startsWith('audio/');
-    if (isMedia) {
+    if (isMedia || download) {
       res.setHeader('Accept-Ranges', 'bytes');
-      const rangeHeader = req.headers.range;
-      if (rangeHeader) {
-        const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parseInt(startStr, 10);
-        const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+      // With no size cap on media, the Range header is all that bounds a read: parsed strictly.
+      const range = parseByteRange(req.headers.range, stat.size);
+      if (range === 'unsatisfiable') {
+        res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
+        res.end();
+        return;
+      }
+      if (range) {
+        const { start, end } = range;
         const chunkSize = end - start + 1;
         res.status(206);
         res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
         res.setHeader('Content-Length', chunkSize);
         res.setHeader('Content-Type', contentType);
-        const rangeStream = createReadStream(fullPath, { start, end });
-        rangeStream.pipe(res);
-        rangeStream.on('error', () => { if (!res.headersSent) res.status(500).json({ error: 'Stream error' }); });
+        sendFileStream(res, createReadStream(fullPath, { start, end }));
         return;
       }
     }
@@ -3412,11 +3494,7 @@ router.get('/files/stream', (req: Request, res: Response) => {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', stat.size);
 
-    const stream = createReadStream(fullPath);
-    stream.pipe(res);
-    stream.on('error', () => {
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
+    sendFileStream(res, createReadStream(fullPath));
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `File stream failed: ${msg}`);

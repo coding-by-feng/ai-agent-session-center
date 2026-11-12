@@ -4,6 +4,9 @@
  * to the queue's limits (lib/queueImageAttach) and added to the session's
  * compose draft. QueueTab loads this on a phone only (AASC-31).
  *
+ * `PhotoPickButtons` is the same pair with the destination left to the caller
+ * (Nov 7 2026): the phone's Edit queue item screen adds to the item it edits.
+ *
  * A picked or recorded video (Oct 27 2026) is too big to ride the queue: it uploads
  * to the Mac at once (lib/chat/videoAttach) and its saved path is added to the
  * prompt's text on its own line, where it can be read and deleted like any text.
@@ -16,17 +19,23 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { addImagesToPrompt, MAX_QUEUE_IMAGES, readQueueImages } from '@/lib/queueImageAttach';
 import { splitMediaFiles, uploadVideo, withVideoPaths } from '@/lib/chat/videoAttach';
 import { CameraIcon, PhotoIcon } from './projectIcons';
+import type { QueueImageAttachment } from '@/stores/queueStore';
 
-export interface QueuePhotoButtonsProps {
-  sessionId: string;
-  /** Images already in the compose draft. */
+export interface PhotoPickButtonsProps {
+  /** Images already in the prompt. */
   count: number;
   /** The compose row's button classes (Terminal.module.css). */
   buttonClassName: string;
+  /** The prompt's images as they are now: read again after each async step. */
+  getImages: () => readonly QueueImageAttachment[];
+  /** Picked photos, shrunk and within the caps, to add to the prompt. */
+  onImages: (images: QueueImageAttachment[]) => void;
+  /** An uploaded video's saved path, to add to the prompt's text. */
+  onVideoPath: (path: string) => void;
 }
 
-export default function QueuePhotoButtons({ sessionId, count, buttonClassName }: QueuePhotoButtonsProps) {
-  const setComposeDraftPatch = useQueueStore((s) => s.setComposeDraft);
+/** The photo library and camera buttons, adding to whatever prompt the caller names. */
+export function PhotoPickButtons({ count, buttonClassName, getImages, onImages, onVideoPath }: PhotoPickButtonsProps) {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,23 +51,17 @@ export default function QueuePhotoButtons({ sessionId, count, buttonClassName }:
           showToast(result.message, 'warning');
           return;
         }
-        // Read the draft again: it may have been typed into while the video went up.
-        const text = useQueueStore.getState().composeDrafts.get(sessionId)?.text ?? '';
-        setComposeDraftPatch(sessionId, { text: withVideoPaths(text, [result.path]) });
+        onVideoPath(result.path);
         showToast(`Video added: ${video.name}`, 'success');
       });
     }
     if (photoFiles.length === 0) return;
-    const draftImages = () => useQueueStore.getState().composeDrafts.get(sessionId)?.images ?? [];
-    const held = draftImages();
+    const held = getImages();
     void readQueueImages(photoFiles, held.length, undefined, held.reduce((n, i) => n + i.dataUrl.length, 0)).then(({ images, message }) => {
-      // Read the draft again: an image removed while these were being read stays removed.
-      if (images.length > 0) {
-        setComposeDraftPatch(sessionId, { images: addImagesToPrompt(draftImages(), images).images });
-      }
+      if (images.length > 0) onImages(images);
       if (message) showToast(message, 'warning');
     });
-  }, [sessionId, setComposeDraftPatch]);
+  }, [getImages, onImages, onVideoPath]);
 
   const full = count >= MAX_QUEUE_IMAGES;
   return (
@@ -82,6 +85,7 @@ export default function QueuePhotoButtons({ sessionId, count, buttonClassName }:
         data-testid="queue-camera-input"
       />
       <button
+        type="button"
         className={buttonClassName}
         onClick={() => photoInputRef.current?.click()}
         disabled={full}
@@ -90,6 +94,7 @@ export default function QueuePhotoButtons({ sessionId, count, buttonClassName }:
         <PhotoIcon />
       </button>
       <button
+        type="button"
         className={buttonClassName}
         onClick={() => cameraInputRef.current?.click()}
         disabled={full}
@@ -98,5 +103,37 @@ export default function QueuePhotoButtons({ sessionId, count, buttonClassName }:
         <CameraIcon />
       </button>
     </>
+  );
+}
+
+export interface QueuePhotoButtonsProps {
+  sessionId: string;
+  /** Images already in the compose draft. */
+  count: number;
+  /** The compose row's button classes (Terminal.module.css). */
+  buttonClassName: string;
+}
+
+/** The compose box's pair: adds to the session's compose draft. */
+export default function QueuePhotoButtons({ sessionId, count, buttonClassName }: QueuePhotoButtonsProps) {
+  const setComposeDraftPatch = useQueueStore((s) => s.setComposeDraft);
+  // Read the draft again at each step: it may have been typed into, or an image
+  // removed, while a video went up or the photos were read.
+  const getImages = useCallback(() => useQueueStore.getState().composeDrafts.get(sessionId)?.images ?? [], [sessionId]);
+  const onImages = useCallback((images: QueueImageAttachment[]) => {
+    setComposeDraftPatch(sessionId, { images: addImagesToPrompt([...getImages()], images).images });
+  }, [getImages, sessionId, setComposeDraftPatch]);
+  const onVideoPath = useCallback((path: string) => {
+    const text = useQueueStore.getState().composeDrafts.get(sessionId)?.text ?? '';
+    setComposeDraftPatch(sessionId, { text: withVideoPaths(text, [path]) });
+  }, [sessionId, setComposeDraftPatch]);
+  return (
+    <PhotoPickButtons
+      count={count}
+      buttonClassName={buttonClassName}
+      getImages={getImages}
+      onImages={onImages}
+      onVideoPath={onVideoPath}
+    />
   );
 }

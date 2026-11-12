@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
-import { buildStripItems, filterByRooms, neighbourSession, stripSessionOrder } from './sessionStrip';
+import { buildStripItems, filterByRooms, filterBySearch, neighbourSession, stripSessionOrder } from './sessionStrip';
 
 const s = (id: string, over: Partial<Session> = {}): Session =>
   ({ sessionId: id, title: id, status: 'idle', projectPath: `/w/${id}`, events: [], promptHistory: [], ...over }) as unknown as Session;
@@ -203,5 +203,53 @@ describe('neighbourSession', () => {
     expect(neighbourSession(order, 'x', 1)).toBe('a');
     expect(neighbourSession(order, 'x', -1)).toBe('c');
     expect(neighbourSession([], 'x', 1)).toBeNull();
+  });
+});
+
+describe('filterBySearch (the strip search box)', () => {
+  const list = [
+    s('a', { title: 'AASC Enhancement', projectName: 'agent-manager', projectPath: '/w/agent-manager' }),
+    s('b', { title: 'Exmouth 3D', projectName: 'exmouth', remark: 'waiting on review' }),
+    s('c', { title: 'Playroom 1', projectName: 'playroom' }),
+    s('d', { title: '', projectName: 'kason-monitor', projectPath: '/w/kason-monitor' }),
+  ];
+  const numbers = new Map([['a', 1], ['b', 3], ['c', 12], ['d', 4]]);
+  const labels: Record<string, string> = { c: 'urgent' };
+  const find = (q: string) =>
+    ids(filterBySearch(list, q, { numberOf: (id) => numbers.get(id), labelOf: (id) => labels[id] }));
+
+  it('an empty or all-space query lists everything, in order', () => {
+    expect(find('')).toEqual(['a', 'b', 'c', 'd']);
+    expect(find('   ')).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('matches the title, project, path, remark and label, ignoring case', () => {
+    expect(find('enhance')).toEqual(['a']);
+    expect(find('EXMOUTH')).toEqual(['b']);
+    expect(find('kason-monitor')).toEqual(['d']);
+    expect(find('review')).toEqual(['b']);
+    expect(find('urgent')).toEqual(['c']);
+  });
+
+  it('every word must match somewhere in the same session', () => {
+    expect(find('aasc agent')).toEqual(['a']);
+    expect(find('aasc exmouth')).toEqual([]);
+  });
+
+  it('#N is the card number, exactly', () => {
+    expect(find('#1')).toEqual(['a']);
+    expect(find('#12')).toEqual(['c']);
+    expect(find('#5')).toEqual([]);
+  });
+
+  it('a bare number matches the card number or the text', () => {
+    // #1 is a; "Playroom 1" holds a 1; #12 is c anyway.
+    expect(find('1')).toEqual(['a', 'c']);
+    expect(find('3')).toEqual(['b']);
+    expect(find('4')).toEqual(['d']);
+  });
+
+  it('returns the same array when nothing is typed', () => {
+    expect(filterBySearch(list, '', { numberOf: () => undefined, labelOf: () => undefined })).toBe(list);
   });
 });

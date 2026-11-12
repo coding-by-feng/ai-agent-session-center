@@ -144,8 +144,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const pinned = !session.pinned;
       const next = new Map(state.sessions);
       next.set(sessionId, { ...session, pinned });
-      // Persist to server. A refusal (a paired phone may not pin, AASC-50) puts
-      // the old value back instead of showing a pin the Mac never made.
+      // Persist to server. A refusal (a session not shared with this device) puts
+      // the old value back instead of showing a pin the Mac never made. The phone
+      // pins through useSessionActions.setPinned, which also says why (Nov 2 2026).
       fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pinned`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

@@ -19,7 +19,9 @@ import { useFileReadingPosition } from '@/hooks/useFileReadingPosition';
 import { readingKey, pdfReadingKey, readPositionValue, writePositionValue } from '@/lib/fileReadingPosition';
 const PdfViewer = lazy(() => import('./PdfViewer'));
 import { useNavigate } from 'react-router';
-import { listFavoritedByFile } from '@/lib/translationLog';
+import { useIsMobile } from '@/lib/platform';
+import { useUiStore } from '@/stores/uiStore';
+import { findByUuid, listFavoritedByFile } from '@/lib/translationLog';
 import { setProjectEditing } from '@/lib/projectEditGuard';
 import { makeSavedSelectionsPlugin, type SavedSelectionTerm } from '@/lib/rehypeSavedSelections';
 import { scrollIntoContainer } from '@/lib/scrollWithinContainer';
@@ -49,6 +51,7 @@ import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
+import { IS_LITE } from '@/lib/edition';
 import { extractDomSelection } from '@/lib/selectionExtractors';
 import { useSettingsStore } from '@/stores/settingsStore';
 import styles from '@/styles/modules/ProjectTab.module.css';
@@ -2096,9 +2099,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
   }, [showingFile, showingEditor, currentPath, editingNewFile]);
 
   const navigate = useNavigate();
+  const isPhone = useIsMobile();
 
   // Favorited saved selections for the open markdown file — highlighted inline
-  // (click a highlight → open the saved record in the REVIEW tab).
+  // (click a highlight → open the saved record in the REVIEW tab; Lite's AI POPUPS).
   const [savedSelTerms, setSavedSelTerms] = useState<SavedSelectionTerm[]>([]);
   // Key on the extension, not the whole `file` object — the highlight set only
   // depends on which file is open, so editing its content must not re-query.
@@ -2114,6 +2118,28 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
       .catch(() => { if (!cancelled) setSavedSelTerms([]); });
     return () => { cancelled = true; };
   }, [activeTabPath, activeFileExt]);
+
+  // Lite has no REVIEW, so a highlight opens in this session's AI POPUPS tab. A phone or a window with no
+  // session has no such tab to switch to: there it stays plain text. The highlights are only read when a file
+  // opens, so one can outlive its record: say so rather than switch to a tab that doesn't show it.
+  const openSavedSelection = useMemo(() => {
+    if (!IS_LITE) return (uuid: string) => navigate(`/review?uuid=${encodeURIComponent(uuid)}`);
+    if (isPhone || !originSessionId) return null;
+    return async (uuid: string) => {
+      try {
+        if (!(await findByUuid(uuid))) {
+          showToast('This saved lookup was deleted', 'info');
+          return;
+        }
+      } catch {
+        showToast('Could not read this saved lookup', 'error');
+        return;
+      }
+      setShowFullscreen(false);
+      useUiStore.getState().setFocusedAiPopup({ sessionId: originSessionId, uuid });
+      document.dispatchEvent(new CustomEvent('detailTabs:switchTab', { detail: { tabId: 'aiPopups' } }));
+    };
+  }, [navigate, isPhone, originSessionId]);
 
   const mdRehypePlugins = useMemo(
     () => [rehypeHighlight, makeSavedSelectionsPlugin(savedSelTerms)],
@@ -2165,19 +2191,21 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
     mark: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
       const uuid = (props as Record<string, unknown>)['data-saved-uuid'] as string | undefined;
       if (!uuid) return <mark {...props}>{children}</mark>;
+      const open = openSavedSelection;
+      if (!open) return <mark className="saved-selection-plain">{children}</mark>;
       return (
         <mark
           className="saved-selection"
           title={props.title}
           role="button"
           tabIndex={0}
-          onClick={() => navigate(`/review?uuid=${encodeURIComponent(uuid)}`)}
+          onClick={() => void open(uuid)}
         >
           {children}
         </mark>
       );
     },
-  }), [currentPath, loadFile, provider, projectPath, navigate]);
+  }), [currentPath, loadFile, provider, projectPath, openSavedSelection]);
 
   // ---- Mobile toolbar overflow ---------------------------------------------
   // The icon bar carries 16 actions at 28px each (~500px) and had NO overflow

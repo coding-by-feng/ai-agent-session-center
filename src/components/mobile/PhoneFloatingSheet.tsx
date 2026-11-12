@@ -8,8 +8,18 @@
  *   [ Reply to Claude…                       Send ]      follow-ups, through the Mac
  *
  * The desktop floats it in a draggable window or pops it out into one; a phone has
- * neither, so it gets the full height of the screen as a sheet. Pop-out,
- * minimize-to-pill and resizing have no phone meaning and are not offered.
+ * neither, so it gets the full height of the screen as a sheet. Pop-out and resizing
+ * have no phone meaning and are not offered. Minimizing does (Nov 2 2026): the sheet's
+ * ⌄ (and a swipe, the backdrop, Escape, Android back) leaves a floating ✦ button on the
+ * session's screen, with a count for several popups and a dot while one still works;
+ * tapping it reopens the popup last shown, or the newest when that one has ended.
+ *
+ *   ‹  Exmouth Development        ⋯
+ *   [ Chat | Changes | Project ]
+ *      chat …                 ╭───╮●   top-right, under the bars: the bottom holds the
+ *                             │ ✦ │2   composer and waiting cards of any height
+ *                             ╰───╯
+ *   [ Queue a message for Claude… ]
  *
  * Answer is the popup's OWN session as a chat (ChatView + ChatFooter, the session
  * screen's own pieces): its answer rows carry Copy and Read aloud, and a follow-up
@@ -20,12 +30,13 @@
  * a CLI without a transcript.
  *
  * The session exists before any of this is drawn (see the floating-fork
- * invariants): the sheet only shows it. Closing the sheet (×, Escape, the
- * backdrop) HIDES the popup and leaves it running, and Info → AI popups ("Open")
- * brings it back; only "End" closes it, after a confirm, through the store's
+ * invariants): the sheet only shows it. Minimizing the sheet HIDES the popup and
+ * leaves it running; the ✦ button or Info → AI popups ("Open") brings it back; only
+ * "End" closes it, after a confirm, through the store's
  * close(), which saves the answer under AI POPUPS before the terminal is killed.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
@@ -62,6 +73,22 @@ const VIEWS = [
   { value: 'answer', label: 'Answer' },
   { value: 'terminal', label: 'Terminal' },
 ] as const;
+
+/** A popup whose session is still producing its answer. */
+const WORKING = new Set(['working', 'prompting']);
+
+const MinimizeIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+const SparkleIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z" />
+    <path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+  </svg>
+);
 
 /** The session a popup's terminal belongs to, once the Mac has announced it. */
 function sessionOfTerminal(sessions: ReadonlyMap<string, Session>, terminalId: string): Session | null {
@@ -101,6 +128,26 @@ export default function PhoneFloatingSheet({ floats }: PhoneFloatingSheetProps) 
     return () => clearTimeout(timer);
   }, [fresh, shownTerminalId, shown]);
 
+  // The popup the ✦ button reopens: the one last shown, while it still runs.
+  const lastShown = useRef<string | null>(null);
+  useEffect(() => {
+    if (shownTerminalId) lastShown.current = shownTerminalId;
+  }, [shownTerminalId]);
+  const floatIds = floats.map((f) => f.terminalId).join(',');
+  const anyWorking = useSessionStore((s) => {
+    if (!floatIds) return false;
+    const ids = new Set(floatIds.split(','));
+    for (const session of s.sessions.values()) {
+      if (session.terminalId && ids.has(session.terminalId) && WORKING.has(session.status)) return true;
+    }
+    return false;
+  });
+  const reopen = useCallback(() => {
+    const last = lastShown.current;
+    const target = floats.some((f) => f.terminalId === last) ? last : floats.at(-1)?.terminalId ?? null;
+    if (target) setShown(target);
+  }, [floats, setShown]);
+
   // Stable: BottomSheet re-runs its focus effect whenever onClose changes.
   const hide = useCallback(() => setShown(null), [setShown]);
   const cancelEnd = useCallback(() => setConfirmEnd(false), []);
@@ -121,6 +168,8 @@ export default function PhoneFloatingSheet({ floats }: PhoneFloatingSheetProps) 
         title={shown?.label ?? 'AI popup'}
         fullHeight
         flush
+        closeLabel="Minimize"
+        closeIcon={<MinimizeIcon />}
         headerAction={(
           <Button variant="danger" className={styles.floatEnd} onClick={() => setConfirmEnd(true)}>
             End
@@ -184,6 +233,21 @@ export default function PhoneFloatingSheet({ floats }: PhoneFloatingSheetProps) 
           </div>
         )}
       </BottomSheet>
+      {!shown && floats.length > 0 && createPortal(
+        <button
+          type="button"
+          className={styles.floatFab}
+          onClick={reopen}
+          aria-label={floats.length > 1 ? `Open AI popups (${floats.length})` : 'Open AI popup'}
+          title={floats.length > 1 ? `${floats.length} AI popups` : floats[0].label}
+          data-testid="phone-float-fab"
+        >
+          <SparkleIcon />
+          {floats.length > 1 && <span className={styles.floatFabCount} aria-hidden="true">{floats.length}</span>}
+          {anyWorking && <span className={styles.floatFabLive} aria-hidden="true" />}
+        </button>,
+        document.body,
+      )}
       <ConfirmSheet
         open={confirmEnd && !!shown}
         title="End this AI popup?"

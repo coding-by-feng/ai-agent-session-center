@@ -1,8 +1,8 @@
-import { Tray, Menu, app, BrowserWindow, nativeImage, shell } from 'electron'
+import { Tray, Menu, app, BrowserWindow, nativeImage, shell, autoUpdater } from 'electron'
 import path from 'path'
 import { getCrashLogPath } from './crashLogger.js'
 
-export function setupTray(win: BrowserWindow) {
+export function setupTray(win: BrowserWindow, appName: string) {
   const iconName = process.platform === 'win32' ? 'tray.ico' : 'tray.png'
   const iconPath = path.join(__dirname, '..', 'icon', iconName)
 
@@ -22,11 +22,14 @@ export function setupTray(win: BrowserWindow) {
   // Track whether a real quit is in progress (Cmd+Q, tray Quit, etc.)
   let isQuitting = false
   app.on('before-quit', () => { isQuitting = true })
+  // "Restart to Install" closes every window BEFORE before-quit fires; a window that only hid would
+  // stall the install. Squirrel.Mac exists only on the Mac.
+  if (process.platform === 'darwin') autoUpdater.on('before-quit-for-update', () => { isQuitting = true })
 
   const rebuild = () => {
     tray.setContextMenu(Menu.buildFromTemplate([
       {
-        label: 'AI Agent Session Center',
+        label: appName,
         enabled: false,
       },
       { type: 'separator' },
@@ -66,7 +69,7 @@ export function setupTray(win: BrowserWindow) {
   }
 
   rebuild()
-  tray.setToolTip('AI Agent Session Center')
+  tray.setToolTip(appName)
   tray.on('double-click', () => {
     win.show()
     rebuild()

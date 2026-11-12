@@ -15,16 +15,11 @@
 // float, a fresh-instead-of-resumed session on workspace restore, an empty
 // Conversation tab, and no translate-answer.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 import {
   INHERITED_CLAUDE_SESSION_ENV_KEYS,
   INHERITED_SERVER_ENV_KEYS,
   stripInheritedClaudeSessionEnv,
 } from '../server/config.js';
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('INHERITED_CLAUDE_SESSION_ENV_KEYS', () => {
   it('strips the marker that disables Claude Code transcript persistence', () => {
@@ -93,24 +88,6 @@ describe('stripInheritedClaudeSessionEnv', () => {
       PATH: '/usr/bin',
       HOME: '/Users/x',
     });
-  });
-});
-
-// electron/ptyHost.ts owns the Electron PTY path and cannot import from server/
-// (separate tsconfig roots — same constraint that duplicates ptyRing.ts), so it
-// mirrors the key list. Drift there silently restores the bug for every
-// Electron-spawned session, which is the default transport.
-describe('electron/ptyHost.ts mirror', () => {
-  const src = readFileSync(join(repoRoot, 'electron/ptyHost.ts'), 'utf8');
-
-  it('strips the same keys as the server implementation', () => {
-    for (const key of INHERITED_CLAUDE_SESSION_ENV_KEYS) {
-      expect(src).toContain(key);
-    }
-  });
-
-  it('no longer destructures CLAUDECODE alone', () => {
-    expect(src).not.toMatch(/const\s*\{\s*CLAUDECODE:\s*_drop,\s*\.\.\.parentEnv\s*\}/);
   });
 });
 

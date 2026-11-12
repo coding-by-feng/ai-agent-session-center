@@ -27,7 +27,7 @@ import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { buildChatItems, findMatches, type ChatItem, type QueuedItem } from '@/lib/chat/buildChatItems';
 import { withBtwEntries } from '@/lib/chat/btwEntries';
 import { plural } from '@/lib/chat/chatFormat';
-import { isCompacting } from '@/lib/chat/phoneStatus';
+import { isCompacting, isFinishingUp } from '@/lib/chat/phoneStatus';
 import { SELECTABLE_ATTR } from '@/lib/aiSelectable';
 import { matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -37,6 +37,7 @@ import ChatSearchBar from './ChatSearchBar';
 import ChatTerminalStart from './ChatTerminalStart';
 import StatusStrip from './StatusStrip';
 import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
+import { ChatTerminalContext } from './chatQuestions';
 import SelectionReadAloud from './SelectionReadAloud';
 import { useChatLive } from './useChatLive';
 import { useChatScroll } from './useChatScroll';
@@ -103,8 +104,9 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
   const queue = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const working = isWorking(session.status);
   const awaiting = isAwaiting(session.status);
-  // A compaction shows the strip too, idle or not (the phone's "Compacting" hint).
-  const busy = working || isCompacting(session);
+  // A compaction shows the strip too, idle or not (the phone's "Compacting" hint), and so do
+  // Claude's Stop hooks still running: a prompt sent now waits for them ("Finishing up").
+  const busy = working || isCompacting(session) || isFinishingUp(session);
   const { projectPath } = session;
   // Files the chat names open in the Project tab (FileLink); without a folder they stay text.
   const fileLinks = useMemo<ChatFileLinks | null>(
@@ -201,7 +203,9 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
       popup={popup}
     />
   );
-  return fileLinks ? <FileLinkContext.Provider value={fileLinks}>{body}</FileLinkContext.Provider> : body;
+  // Question cards in the chat open the terminal for a question only it can answer (chatQuestions).
+  const withTerminal = <ChatTerminalContext.Provider value={onTerminal}>{body}</ChatTerminalContext.Provider>;
+  return fileLinks ? <FileLinkContext.Provider value={fileLinks}>{withTerminal}</FileLinkContext.Provider> : withTerminal;
 }
 
 interface ChatBodyProps {
@@ -215,7 +219,7 @@ interface ChatBodyProps {
   initialView?: ChatViewMemory;
   loadOlder: (sessionId: string) => Promise<void>;
   rememberView: (sessionId: string, view: ChatViewMemory) => void;
-  /** Working or compacting: shows the status strip and its terminal peek. */
+  /** Working, compacting or finishing up: shows the status strip and its terminal peek. */
   working: boolean;
   /** The terminal's last lines, from ChatView's one subscription. */
   peek: string[];

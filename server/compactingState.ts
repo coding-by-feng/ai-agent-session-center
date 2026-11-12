@@ -1,4 +1,4 @@
-// compactingState.ts — is a session compacting its context right now? (the phone's hint)
+// compactingState.ts — is a session compacting its context right now? (status marks, the phone's hint)
 //
 // Both CLIs fire PreCompact before a compaction, with `trigger` 'manual' (/compact) or
 // 'auto'. The end differs: Codex fires PostCompact, Claude Code fires SessionStart with

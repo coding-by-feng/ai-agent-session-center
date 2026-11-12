@@ -37,6 +37,57 @@ export function candidates(server: PairedServer): Candidate[] {
   return out;
 }
 
+/**
+ * How long a path that answered waits for an earlier one in the list (the home network) that has not answered
+ * yet. On the same Wi-Fi the Mac answers in tens of milliseconds; a phone away from home gives up on it this soon.
+ */
+export const LAN_GRACE_MS = 1_500;
+
+/**
+ * Probe every path at once; the earliest in the list that answers wins. A later one that answered first waits
+ * up to LAN_GRACE_MS for the earlier ones (Nov 10 2026: a phone at home opened its Mac over a relayed Tailscale
+ * link and sat on "Loading..."). `onTry` names the path it is waiting on, each time that changes. `probe` owns
+ * its own timeout; a throw counts as no answer.
+ */
+export function pickPreferred(
+  list: Candidate[],
+  probe: (origin: string) => Promise<boolean>,
+  onTry?: (c: Candidate) => void,
+): Promise<Candidate | null> {
+  if (list.length === 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const answers: Array<boolean | undefined> = list.map(() => undefined);
+    let done = false;
+    let grace: ReturnType<typeof setTimeout> | null = null;
+    let named = -1;
+    const finish = (picked: Candidate | null) => {
+      if (done) return;
+      done = true;
+      if (grace) clearTimeout(grace);
+      resolve(picked);
+    };
+    const firstAnswered = () => list[answers.findIndex((a) => a === true)] ?? null;
+    const settle = () => {
+      const lead = answers.findIndex((a) => a !== false);
+      if (lead === -1) return finish(null);
+      if (answers[lead] === true) return finish(list[lead]);
+      if (lead !== named) {
+        named = lead;
+        onTry?.(list[lead]);
+      }
+      if (grace === null && answers.some((a) => a === true)) grace = setTimeout(() => finish(firstAnswered()), LAN_GRACE_MS);
+    };
+    settle();
+    list.forEach((candidate, i) => {
+      const answer = (async () => probe(candidate.origin))().then((ok) => ok === true, () => false);
+      void answer.then((ok) => {
+        answers[i] = ok;
+        settle();
+      });
+    });
+  });
+}
+
 /** Probe in order; the first that answers wins. `probe` owns its own timeout. */
 export async function pickReachable(
   list: Candidate[],

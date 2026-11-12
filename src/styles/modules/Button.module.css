@@ -170,4 +170,13 @@
   .iconSm { width: 44px; height: 44px; }
   .iconButton::before { inset: 8px; }
   .iconSm::before { inset: 10px; }
+
+  /* Roomy touch icons (Nov 2 2026), opted into by a container (the session rail's header):
+     a 12px glyph alone in a 44px target read as a scattered dot on an iPad. The glyph and
+     its chip grow to match the target; the target stays 44px. An attribute, not a class,
+     because a module class from another stylesheet is hashed out of reach. */
+  [data-touch-icons='roomy'] .iconButton::before,
+  [data-touch-icons='roomy'] .iconSm::before { inset: 4px; }
+  [data-touch-icons='roomy'] .iconButton svg,
+  [data-touch-icons='roomy'] .iconSm svg { width: 16px; height: 16px; }
 }

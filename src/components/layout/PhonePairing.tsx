@@ -45,6 +45,9 @@ import {
 } from '@/lib/mobilePairingApi';
 import { chosenAddresses, readPairingChoice } from '@/lib/pairingAddressChoice';
 import PairingAddressChoice from './PairingAddressChoice';
+import { pairedDeviceKind, pairedDeviceNoun } from '@/lib/deviceKind';
+import { findReplaceCandidates, type ReplaceCandidate } from '@/lib/phoneReplaceCandidates';
+import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
 import styles from '@/styles/modules/PhonePairing.module.css';
 
 /** How often the list refreshes while the panel is open. */
@@ -62,7 +65,7 @@ const DESKTOP_ALLOW_WARNING =
 /** How long "Copied" shows on the Copy link button. */
 const COPIED_MS = 2000;
 const ACCESS_DETAIL =
-  'Paired phones can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
+  'Paired phones and tablets can watch and drive shared sessions, start Claude or Codex in a folder in your home folder, and read files '
   + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
 
 const PLATFORM_NAME: Record<PairedPhone['platform'], string> = { ios: 'iPhone', android: 'Android', desktop: 'Computer' };
@@ -79,8 +82,15 @@ const PLATFORM_IN_NAME: Record<PairedPhone['platform'], RegExp> = {
  * the word on every row. Exported for tests.
  */
 function platformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
-  return PLATFORM_IN_NAME[p.platform].test(p.label) ? null : PLATFORM_NAME[p.platform];
+  if (PLATFORM_IN_NAME[p.platform].test(p.label)) return null;
+  // An iOS tablet is an iPad, not an iPhone ("Kason’s tablet" · iPad).
+  return p.platform === 'ios' && pairedDeviceKind(p) === 'tablet' ? 'iPad' : PLATFORM_NAME[p.platform];
 }
+
+/** The rename field's label, by what the device is: "iPad name", "Computer name". */
+const NAME_FIELD_LABEL: Record<string, string> = {
+  computer: 'Computer name', phone: 'Phone name', iPad: 'iPad name', tablet: 'Tablet name',
+};
 
 /** The platform word for an Allow prompt: a computer is always named as one, whatever its label says. */
 function pendingPlatformLabel(p: Pick<PairedPhone, 'label' | 'platform'>): string | null {
@@ -186,6 +196,8 @@ export default function PhonePairing() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  /** Replace boxes the user changed, keyed `<pending id> <old id>`; untouched ones follow their default. */
+  const [replaceTicks, setReplaceTicks] = useState<Record<string, boolean>>({});
   /** The phone being renamed and the name typed so far; the 2-second refresh leaves it alone. */
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   /** Backend phone devices no paired phone holds (AASC-52); 0 with no cloud or when the check fails. */
@@ -282,11 +294,11 @@ export default function PhonePairing() {
     }
   };
 
-  const act = async (fn: () => Promise<void>, done: string) => {
+  const act = async (fn: () => Promise<void>, done: string | (() => string)) => {
     setError(null);
     try {
       await fn();
-      showToast(done, 'info', 3000);
+      showToast(typeof done === 'string' ? done : done(), 'info', 3000);
       setConfirmRevoke(null);
       await refresh();
     } catch (err) {
@@ -321,6 +333,22 @@ export default function PhonePairing() {
 
   const pending = phones.filter((p) => p.status === 'pending');
   const active = phones.filter((p) => p.status === 'active');
+
+  const tickKey = (p: PairedPhone, c: ReplaceCandidate) => `${p.id} ${c.device.id}`;
+  const isTicked = (p: PairedPhone, c: ReplaceCandidate) => replaceTicks[tickKey(p, c)] ?? c.preselected;
+
+  /** Allow, revoking the ticked older pairings of the same phone once it is in (Nov 6 2026). */
+  const allow = (p: PairedPhone, candidates: readonly ReplaceCandidate[]) => {
+    const replaces = candidates.filter((c) => isTicked(p, c)).map((c) => c.device.id);
+    let result = { replaced: [] as string[], skipped: [] as string[] };
+    void act(async () => {
+      result = await approvePhone(p.id, replaces);
+    }, () => {
+      const n = result.replaced.length;
+      const kept = result.skipped.length ? ` · ${result.skipped.length} kept (no longer the same ${pairedDeviceNoun(p)})` : '';
+      return `${p.label} can now connect${n ? ` · replaced ${n} older pairing${n === 1 ? '' : 's'}` : ''}${kept}`;
+    });
+  };
 
   // Not offered and nothing paired or left over: a release without the phone app shows nothing about phones.
   if (offered !== true && phones.length === 0 && !pairingLive && !error && cloudUnlinked === 0) return null;
@@ -361,14 +389,32 @@ export default function PhonePairing() {
             Allow <strong>{p.label}</strong>{pendingPlatformLabel(p) ? ` (${pendingPlatformLabel(p)})` : ''}?
           </span>
           <span className={styles.confirm}>
-            Code on the {p.platform === 'desktop' ? 'computer' : 'phone'}: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
+            Code on the {pairedDeviceNoun(p)}: <code>{p.confirmCode ? formatConfirmCode(p.confirmCode) : '—'}</code>
           </span>
           <span className={styles.note}>
-            Allow only if your {p.platform === 'desktop' ? 'computer' : 'phone'} shows the same code.
+            Allow only if your {pairedDeviceNoun(p)} shows the same code.
           </span>
           {p.platform === 'desktop' && <span className={styles.note}>{DESKTOP_ALLOW_WARNING}</span>}
+          {findReplaceCandidates(p, phones, now).map((c) => (
+            <label key={c.device.id} className={styles.replaceRow}>
+              <input
+                type="checkbox"
+                checked={isTicked(p, c)}
+                onChange={(e) => {
+                  const ticked = e.currentTarget.checked;
+                  setReplaceTicks((t) => ({ ...t, [tickKey(p, c)]: ticked }));
+                }}
+              />
+              <span>
+                Replaces {c.device.label}
+                {/* Each phrase keeps its words together (no-break spaces); only the " · " seams wrap. */}
+                {[c.device.approvedAt ? `paired ${shortDate(c.device.approvedAt)}` : '', `last seen ${relative(c.device.lastSeenAt)}`]
+                  .filter(Boolean).map((part) => ` · ${part.replace(/ /g, ' ')}`).join('')}
+              </span>
+            </label>
+          ))}
           <span className={styles.actions}>
-            <Button size="sm" variant="primary" onClick={() => act(() => approvePhone(p.id), `${p.label} can now connect`)}>
+            <Button size="sm" variant="primary" onClick={() => allow(p, findReplaceCandidates(p, phones, now))}>
               Allow
             </Button>
             <Button size="sm" variant="danger" onClick={() => act(() => removePhone(p.id), `${p.label} was refused`)}>
@@ -382,13 +428,13 @@ export default function PhonePairing() {
         <ul className={styles.list}>
           {active.map((p) => (
             <li key={p.id} className={styles.phone}>
-              <span className={styles.phoneIcon} aria-hidden="true">{p.platform === 'desktop' ? '🖥' : '📱'}</span>
+              <span className={styles.phoneIcon}><DeviceKindIcon kind={pairedDeviceKind(p)} /></span>
               <span className={styles.phoneMain}>
                 {editing?.id === p.id ? (
                   <span className={styles.rename}>
                     <TextInput
                       className={styles.renameInput}
-                      aria-label={p.platform === 'desktop' ? 'Computer name' : 'Phone name'}
+                      aria-label={NAME_FIELD_LABEL[pairedDeviceNoun(p)]}
                       value={editing.draft}
                       maxLength={MAX_NAME}
                       autoFocus

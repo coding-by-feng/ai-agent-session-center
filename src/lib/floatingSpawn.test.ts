@@ -88,12 +88,14 @@ describe('aiActionsFor', () => {
     }
   });
 
-  it('offers the last answer from Chat and Terminal, Claude only, never from a file or a popup', () => {
+  it('offers the last answer from Chat and Terminal, Claude and Codex, never from a file or a popup', () => {
     expect(aiActionsFor({ source: chat, cli: 'claude', hasSelection: false })['translate-answer']).toEqual({ offered: true });
     expect(aiActionsFor({ source: terminal, cli: 'claude', hasSelection: true })['translate-answer']).toEqual({ offered: true });
-    const codex = aiActionsFor({ source: chat, cli: 'codex', hasSelection: false })['translate-answer'];
-    expect(codex.offered).toBe(true);
-    expect(codex.disabledReason).toMatch(/Claude Code only/);
+    // Oct 30 2026: the Mac reads a Codex answer from its rollout.
+    expect(aiActionsFor({ source: terminal, cli: 'codex', hasSelection: false })['translate-answer']).toEqual({ offered: true });
+    const other = aiActionsFor({ source: chat, cli: null, hasSelection: false })['translate-answer'];
+    expect(other.offered).toBe(true);
+    expect(other.disabledReason).toMatch(/Claude Code and Codex only/);
     expect(aiActionsFor({ source: file, cli: 'claude', hasSelection: true })['translate-answer'].offered).toBe(false);
     expect(aiActionsFor({ source: popup, cli: 'claude', hasSelection: true })['translate-answer'].offered).toBe(false);
   });

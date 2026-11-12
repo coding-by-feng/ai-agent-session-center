@@ -30,6 +30,7 @@ import {
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
 import { poolRecentPrompts, type RecentPrompt } from '@/lib/promptSnippetPool';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useIsMobile } from '@/lib/platform';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/PromptSnippetPicker.module.css';
 
@@ -75,6 +76,7 @@ export default function PromptSnippetPicker({
   const setLabel = usePromptSnippetStore((s) => s.setLabel);
   const touch = usePromptSnippetStore((s) => s.touch);
   const sessions = useSessionStore((s) => s.sessions);
+  const isMobile = useIsMobile();
 
   const [tab, setTab] = useState<Tab>('saved');
   const [filter, setFilter] = useState('');
@@ -155,6 +157,14 @@ export default function PromptSnippetPicker({
     // Row-count changes the menu height, so re-measure when the list changes.
   }, [anchor, align, tab, savedRows.length, recentRows.length]);
 
+  /** Close, and hand focus back to the trigger: the filter it sat in is about to go. For the paths the keyboard
+   *  owns (Escape, a pick); an outside click leaves focus wherever the user put it. Not on a phone, where it would
+   *  take focus from the prompt box and close a keyboard that is already up. */
+  const closeAndRestoreFocus = useCallback(() => {
+    onClose();
+    if (!isMobile && anchor?.isConnected) anchor.focus();
+  }, [onClose, isMobile, anchor]);
+
   // Close on outside click, but never on a trigger — that button owns the
   // toggle, and closing here first would make it immediately re-open.
   useEffect(() => {
@@ -178,33 +188,36 @@ export default function PromptSnippetPicker({
   // with a document-level Escape handler must do the same.
   useEffect(() => {
     function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') closeAndRestoreFocus();
     }
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [onClose]);
+  }, [closeAndRestoreFocus]);
 
-  // Focus the filter on open so the user can type straight into it.
+  // Focus the filter so typing goes straight into it, but only once placed: until then the menu is
+  // `visibility: hidden`, and a browser silently refuses to focus a hidden element (jsdom does not).
+  // Not on a phone, where it would raise the keyboard over the list that just opened.
+  const placed = pos !== null;
   useEffect(() => {
-    filterRef.current?.focus();
-  }, []);
+    if (placed && !isMobile) filterRef.current?.focus();
+  }, [placed, isMobile]);
 
   // ---- Actions ----------------------------------------------------------
   const handleInsertSaved = useCallback(
     (snippet: PromptSnippet) => {
       onInsert(snippet.text);
       void touch(snippet.id);
-      onClose();
+      closeAndRestoreFocus();
     },
-    [onInsert, touch, onClose],
+    [onInsert, touch, closeAndRestoreFocus],
   );
 
   const handleInsertRecent = useCallback(
     (row: RecentPrompt) => {
       onInsert(row.text);
-      onClose();
+      closeAndRestoreFocus();
     },
-    [onInsert, onClose],
+    [onInsert, closeAndRestoreFocus],
   );
 
   const handleKeepRecent = useCallback(

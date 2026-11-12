@@ -764,3 +764,80 @@ describe.skipIf(NO_SYMLINKS)('linked folders are reported, not silently skipped 
     expect(fx.find('command', 'linked:b')).toBeUndefined();
   });
 });
+
+describe('scanResources — publisher: who made it, apart from how it got here', () => {
+  let fx: Awaited<ReturnType<typeof scanFixture>>;
+  const skill = (name: string) => `---\nname: ${name}\ndescription: ${name}\n---\nbody`;
+  beforeAll(async () => {
+    fx = await scanFixture('aasc-scan-publisher-', {
+      '.claude/skills/synced/acct/manifest.json': JSON.stringify({ skills: [
+        { name: 'xlsx', source: 'anthropic' },
+        { name: 'morning', source: 'anthropic-example' },
+        { name: 'import-memory', source: 'anthropic-example', creatorType: 'anthropic' },
+        { name: 'my-upload', source: 'plugin', creatorType: 'user' },
+      ] }),
+      '.claude/skills/synced/acct/xlsx/SKILL.md': skill('xlsx'),
+      '.claude/skills/synced/acct/morning/SKILL.md': skill('morning'),
+      '.claude/skills/synced/acct/import-memory/SKILL.md': skill('import-memory'),
+      '.claude/skills/synced/acct/my-upload/SKILL.md': skill('my-upload'),
+      '.claude/skills/synced/acct/unlisted/SKILL.md': skill('unlisted'),
+      '.claude/skills/own/SKILL.md': skill('own'),
+      '.codex/skills/.system/imagegen/SKILL.md': skill('imagegen'),
+    }, undefined, (h) => {
+      const plugins: Record<string, unknown> = {};
+      const add = (key: string, author: unknown, skillName: string, rawJson?: string) => {
+        const installPath = join(h, '.claude/plugins/cache/mkt', key.split('@')[0], '1.0.0');
+        mkdirSync(join(installPath, '.claude-plugin'), { recursive: true });
+        mkdirSync(join(installPath, 'skills', skillName), { recursive: true });
+        if (rawJson !== undefined) writeFileSync(join(installPath, '.claude-plugin/plugin.json'), rawJson);
+        else if (author !== undefined) writeFileSync(join(installPath, '.claude-plugin/plugin.json'), JSON.stringify({ name: key, author }));
+        writeFileSync(join(installPath, 'skills', skillName, 'SKILL.md'), skill(skillName));
+        plugins[key] = [{ scope: 'user', installPath, version: '1.0.0' }];
+      };
+      add('feature-dev@claude-plugins-official', { name: 'Anthropic', email: 'support@anthropic.com' }, 'fd-skill');
+      add('superpowers@claude-plugins-official', 'Jesse Vincent', 'sp-skill');
+      add('bare@mkt', undefined, 'bare-skill');
+      add('impostor@mkt', { name: 'Anthropic' }, 'impostor-skill');
+      add('fans@claude-plugins-official', 'Anthropic-fans', 'fans-skill');
+      add('broken@mkt', undefined, 'broken-skill', '{ "author": ');
+      add('long@mkt', 'Long Name '.repeat(50), 'long-skill');
+      writeFileSync(join(h, '.claude/plugins/installed_plugins.json'), JSON.stringify({ version: 2, plugins }));
+    });
+  });
+  afterAll(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  it('reads a synced skill\'s publisher from the claude.ai manifest, not from being synced', () => {
+    for (const name of ['xlsx', 'morning', 'import-memory']) {
+      expect(fx.find('skill', name)).toMatchObject({ origin: 'synced', publisher: { kind: 'anthropic', name: 'Anthropic' } });
+    }
+    expect(fx.find('skill', 'my-upload')).toMatchObject({ origin: 'synced' });
+    expect(fx.find('skill', 'my-upload')?.publisher).toBeUndefined();
+    expect(fx.find('skill', 'unlisted')?.publisher).toBeUndefined();
+  });
+
+  it('marks Codex .system skills as OpenAI\'s and leaves your own skills unmarked', () => {
+    expect(fx.find('skill', 'imagegen')).toMatchObject({ origin: 'system', publisher: { kind: 'openai', name: 'OpenAI' } });
+    expect(fx.find('skill', 'own')?.publisher).toBeUndefined();
+  });
+
+  it('takes a plugin\'s publisher from its plugin.json author, whatever marketplace lists it', () => {
+    expect(fx.find('skill', 'fd-skill')).toMatchObject({ origin: 'plugin', publisher: { kind: 'anthropic', name: 'Anthropic' } });
+    expect(fx.find('skill', 'sp-skill')).toMatchObject({ origin: 'plugin', publisher: { kind: 'third-party', name: 'Jesse Vincent' } });
+    expect(fx.find('skill', 'bare-skill')?.publisher).toBeUndefined();
+    expect(fx.find('plugin', 'superpowers@claude-plugins-official')).toMatchObject({ publisher: { kind: 'third-party', name: 'Jesse Vincent' } });
+    expect(fx.find('plugin', 'feature-dev@claude-plugins-official')).toMatchObject({ publisher: { kind: 'anthropic' } });
+  });
+
+  it('calls a plugin Claude official only when Anthropic\'s own marketplace ships it under Anthropic\'s exact name', () => {
+    expect(fx.find('skill', 'impostor-skill')).toMatchObject({ publisher: { kind: 'third-party', name: 'Anthropic' } });
+    expect(fx.find('skill', 'fans-skill')).toMatchObject({ publisher: { kind: 'third-party', name: 'Anthropic-fans' } });
+  });
+
+  it('caps a plugin.json author and ignores one that does not parse, without a finding', () => {
+    expect(fx.find('skill', 'long-skill')?.publisher?.name).toHaveLength(128);
+    expect(fx.find('skill', 'long-skill')?.publisher?.name).toMatch(/^Long Name Long Name/);
+    expect(fx.find('skill', 'broken-skill')).toBeDefined();
+    expect(fx.find('skill', 'broken-skill')?.publisher).toBeUndefined();
+    expect(fx.svc.getCatalog().findings.filter((f) => `${f.path ?? ''} ${f.message}`.includes('plugin.json'))).toEqual([]);
+  });
+});

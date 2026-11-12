@@ -9,19 +9,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Select from '@/components/ui/Select';
 import { showToast } from '@/components/ui/ToastContainer';
+import { SLEEP_CHOICES, sleepChoiceLabel } from '@/lib/sessionSleepChoices';
 import styles from '@/styles/modules/Settings.module.css';
 
 const ENDPOINT = '/api/session-sleep-setting';
-const CHOICES = [0, 15, 30, 60, 120, 240];
 
-function sleepChoiceLabel(minutes: number): string {
-  if (minutes === 0) return 'Off — never';
-  if (minutes < 60) return `After ${minutes} min idle`;
-  const hours = minutes / 60;
-  return `After ${hours} hour${hours === 1 ? '' : 's'} idle`;
-}
-
-const OPTIONS = CHOICES.map((m) => ({ value: String(m), label: sleepChoiceLabel(m) }));
+const OPTIONS = SLEEP_CHOICES.map((m) => ({ value: String(m), label: sleepChoiceLabel(m) }));
 
 export default function SessionSleepSetting() {
   const [minutes, setMinutes] = useState<number | null>(null);

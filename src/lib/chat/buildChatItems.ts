@@ -8,6 +8,8 @@
  *   thinking       "Thought for 12 s" (back-to-back blocks merged; the text is never sent)
  *   tool           one call paired with its result: "Ran npm test ✓ 0:42"
  *   tool-group     two or more consecutive finished calls: "Read 3 files, ran 2 commands"
+ *   question       an agent's multiple-choice question (Claude's AskUserQuestion, Codex's
+ *                  request_user_input): its choices, what was picked, and whether it is still open
  *   todo           a plan update; the newest one is the card
  *   subagent       a subagent card with its report once it came back
  *   command        a slash command you ran, with what it printed
@@ -36,6 +38,7 @@ import type {
 import { matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { describeTool, groupSummary, toolCategory, type ToolCategory } from './toolSummary';
 import { isEditTool } from './editDiff';
+import { QUESTION_TOOLS, claudeAnswers, codexAnswers, isCodexQuestionTool, isQuestionTool, parseQuestions, type ChatQuestion } from './questionItem';
 
 export type ToolStatus = 'running' | 'waiting' | 'done' | 'failed' | 'no-result';
 
@@ -104,6 +107,19 @@ export interface ToolGroupItem extends ItemBase {
   calls: ToolItem[];
   summary: string;
 }
+export interface QuestionItem extends ItemBase {
+  kind: 'question';
+  /** The call id: Claude's open request names it (`PendingRequest.toolUseId`). */
+  id: string;
+  cli: 'claude' | 'codex';
+  questions: ChatQuestion[];
+  /** Per question: the labels picked, or null when nothing says (a reply in your own words, a cut result). */
+  answers: Array<string[] | null>;
+  /** Nothing has answered it yet: Claude's call has no result at the live end; Codex's has no message after it. */
+  open: boolean;
+  /** Claude's call came back an error (declined, interrupted). */
+  failed: boolean;
+}
 export interface TodoItem extends ItemBase { kind: 'todo'; items: ChatTodoItem[]; done: number; total: number; latest: boolean }
 export type SubagentStatus = 'running' | 'done' | 'failed' | 'no-report';
 export interface SubagentItem extends ItemBase {
@@ -128,6 +144,7 @@ export type ChatItem =
   | ThinkingItem
   | ToolItem
   | ToolGroupItem
+  | QuestionItem
   | TodoItem
   | SubagentItem
   | CommandItem
@@ -200,6 +217,40 @@ function toolItem(entry: ChatToolUseEntry, raw: ToolResult | null, open: ToolSta
   };
 }
 
+/**
+ * A question call as its card, or null when its input can't be read (the tool row shows it then).
+ * Claude's answer is in its result; Codex's call returns at once, so its answer is your next message.
+ */
+function questionItem(entry: ChatToolUseEntry, result: ToolResult | null, open: boolean, reply: string | null | undefined): QuestionItem | null {
+  if (isRedacted(entry.input)) return null;
+  const questions = parseQuestions(entry.input);
+  if (!questions) return null;
+  const codex = isCodexQuestionTool(entry.name);
+  const failed = !codex && !!result?.isError;
+  const answers = codex
+    ? codexAnswers(reply ?? null, questions)
+    : result && !result.isError ? claudeAnswers(result.output, questions) : questions.map(() => null);
+  const stillOpen = codex ? reply === undefined : open;
+  const picked = answers.map((a) => a?.join(', ') ?? '');
+  return {
+    kind: 'question',
+    key: entry.key,
+    timestamp: entry.timestamp,
+    id: entry.id,
+    cli: codex ? 'codex' : 'claude',
+    questions,
+    answers,
+    open: stillOpen,
+    failed,
+    sig: `${stillOpen}|${failed}|${picked.join(';')}|${questions.length}`,
+    searchText: questions
+      .flatMap((q) => [q.header, q.question, ...q.options.flatMap((o) => [o.label, o.description])])
+      .concat(picked)
+      .filter(Boolean)
+      .join('\n'),
+  };
+}
+
 // ── Dividers ─────────────────────────────────────────────────────────────────
 
 function dividerLabel(system: ChatSystemKind, label?: string): string {
@@ -221,6 +272,14 @@ type Flat = Exclude<ChatItem, ToolGroupItem | QueuedItem>;
 function flatten(entries: readonly ChatEntry[], live: boolean, awaiting: boolean): Flat[] {
   const results = new Map<string, ChatToolResultEntry>();
   let lastTurnStart = 0;
+  // The first message you sent after each entry (undefined: none yet), for Codex's questions.
+  const replyAfter: Array<string | undefined> = new Array(entries.length);
+  let nextReply: string | undefined;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    replyAfter[i] = nextReply;
+    const e = entries[i];
+    if (e.kind === 'user') nextReply = e.text;
+  }
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i];
     if (e.kind === 'tool_result') results.set(e.toolUseId, e);
@@ -251,7 +310,8 @@ function flatten(entries: readonly ChatEntry[], live: boolean, awaiting: boolean
         const result = resultOf(results.get(e.id));
         // Open only at the live end of the transcript: an older call without a result was cut off.
         const open = live && !result && index >= lastTurnStart ? (awaiting ? 'waiting' : 'running') : null;
-        out.push(toolItem(e, result, open));
+        const question = isQuestionTool(e.name) ? questionItem(e, result, open !== null, replyAfter[index]) : null;
+        out.push(question ?? toolItem(e, result, open));
         break;
       }
       case 'todo': {
@@ -312,7 +372,7 @@ function flatten(entries: readonly ChatEntry[], live: boolean, awaiting: boolean
 // ── The second pass: fold runs of finished calls ─────────────────────────────
 
 /** Calls that carry words for you (a proposed plan, a question) are never folded away. */
-const NEVER_FOLDED: ReadonlySet<string> = new Set(['ExitPlanMode', 'AskUserQuestion']);
+const NEVER_FOLDED: ReadonlySet<string> = new Set(['ExitPlanMode', ...QUESTION_TOOLS]);
 
 const foldable = (item: Flat): boolean =>
   item.kind === 'thinking'
@@ -378,7 +438,7 @@ function finish(items: ChatItem[], live: boolean): ChatItem[] {
   }
   if (latestTodo >= 0) out[latestTodo] = { ...(out[latestTodo] as TodoItem), latest: true };
   return out.map((item) => {
-    if (item.kind === 'tool' || item.kind === 'tool-group' || item.kind === 'subagent') return item;
+    if (item.kind === 'tool' || item.kind === 'tool-group' || item.kind === 'subagent' || item.kind === 'question') return item;
     if (item.kind === 'todo') return { ...item, sig: `${item.latest}|${item.done}/${item.total}` };
     if (item.kind === 'assistant') return { ...item, sig: `${item.isAnswer}|${item.latestAnswer}|${item.text.length}` };
     if (item.kind === 'thinking') return { ...item, sig: `${item.length}|${item.durationMs ?? 0}` };

@@ -28,6 +28,7 @@ import QueueMovePicker, {
   MOVE_TRIGGER_ATTR,
   type QueueMoveTarget,
 } from '@/components/session/QueueMovePicker';
+import { queueMoveTargets } from '@/lib/queueMoveTargets';
 import PromptTokens from '@/components/ui/PromptTokens';
 import type { Session } from '@/types';
 import styles from '@/styles/modules/Queue.module.css';
@@ -337,10 +338,8 @@ export default function QueueView() {
   const move: MoveController = {
     itemId: moving?.itemId ?? null,
     anchor: moving?.anchor ?? null,
-    targets: moving
-      ? Array.from(sessions, ([id, s]) => ({ id, projectName: s.projectName, title: s.title }))
-          .filter((target) => target.id !== moving.fromSessionId)
-      : NO_TARGETS,
+    // Live sessions only, by name (lib/queueMoveTargets.ts, shared with the phone's sheet).
+    targets: moving ? queueMoveTargets(sessions.values(), moving.fromSessionId) : NO_TARGETS,
     toggle: toggleMove,
     confirm: handleMoveConfirm,
     close: closeMovePicker,

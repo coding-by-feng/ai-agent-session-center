@@ -7,6 +7,7 @@ import {
   requestCliOf,
   capRequestInput,
   answerableOptions,
+  answerableQuestions,
   nextPendingRequest,
   guessPendingRequest,
   PENDING_INPUT_MAX_BYTES,
@@ -89,6 +90,33 @@ describe('capRequestInput', () => {
 
   it('has no input when the hook sent none', () => {
     expect(capRequestInput('Bash', undefined)).toEqual({ input: undefined, truncated: false });
+  });
+});
+
+// Nov 6 2026: Claude asked "Theme" + "Scope" in one call and the phone could only open the terminal.
+describe('answerableQuestions', () => {
+  const q = (header: string, labels: string[], extra: Record<string, unknown> = {}) =>
+    ({ question: `Pick ${header}?`, header, multiSelect: false, options: labels.map((label) => ({ label })), ...extra });
+
+  it('takes 2–4 single-select questions, each with its header, question and choices', () => {
+    expect(answerableQuestions({ questions: [q('Theme', ['Warm', 'Clean']), q('Scope', ['AASC', 'General'])] })).toEqual([
+      { header: 'Theme', question: 'Pick Theme?', options: [{ label: 'Warm' }, { label: 'Clean' }] },
+      { header: 'Scope', question: 'Pick Scope?', options: [{ label: 'AASC' }, { label: 'General' }] },
+    ]);
+  });
+
+  it('leaves one question to answerableOptions, and refuses a multi-select one, >9 choices or >4 questions', () => {
+    expect(answerableQuestions({ questions: [q('A', ['x', 'y'])] })).toBeUndefined();
+    expect(answerableQuestions({ questions: [q('A', ['x']), q('B', ['y'], { multiSelect: true })] })).toBeUndefined();
+    expect(answerableQuestions({ questions: [q('A', ['x']), q('B', Array.from({ length: 10 }, (_, i) => `o${i}`))] })).toBeUndefined();
+    expect(answerableQuestions({ questions: ['A', 'B', 'C', 'D', 'E'].map((h) => q(h, ['x'])) })).toBeUndefined();
+    expect(answerableQuestions({ questions: [q('A', ['x']), { header: 'B', options: [{ label: 'y' }] }] })).toBeUndefined();
+  });
+
+  it('a raised AskUserQuestion with two questions carries them, and no single-question options', () => {
+    const r = next(null, 'PreToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'toolu_2q', tool_input: { questions: [q('Theme', ['Warm', 'Clean']), q('Scope', ['AASC'])] } });
+    expect(r?.questions?.map((x) => x.header)).toEqual(['Theme', 'Scope']);
+    expect(r?.options).toBeUndefined();
   });
 });
 
@@ -253,6 +281,25 @@ describe('nextPendingRequest: cleared', () => {
     expect(next(waiting(), event)).toBeNull();
   });
 
+  it.each(['startup', 'resume', 'clear'])('a SessionStart from %s clears it', (source) => {
+    expect(next(waiting(), 'SessionStart', { source })).toBeNull();
+  });
+
+  // Nov 8 2026: an in-process teammate compacted 19 min into a question the main agent
+  // had open; its SessionStart(compact), sent on the main session, sent the phone card to
+  // "Answer in Terminal" for the remaining 1h 24m. A compaction never closes a dialog.
+  it('a compaction’s SessionStart keeps it (whoever compacted)', () => {
+    const req = waiting();
+    expect(next(req, 'SessionStart', { source: 'compact' })).toBe(req);
+    expect(next(req, 'SessionStart', { source: 'compact', claude_agent_id: 'agent-teammate' })).toBe(req);
+  });
+
+  it('after a compaction, its dialog’s real end still clears it', () => {
+    const req = next(waiting(), 'SessionStart', { source: 'compact' }) as PendingRequest;
+    expect(next(req, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_1' })).toBeNull();
+    expect(next(req, 'Stop')).toBeNull();
+  });
+
   it('other events keep it', () => {
     const req = waiting();
     for (const event of ['SubagentStart', 'SubagentStop', 'Notification', 'PreCompact']) expect(next(req, event)).toBe(req);
@@ -305,6 +352,12 @@ describe('nextPendingRequest: a subagent’s request', () => {
 
   it.each(['SessionStart', 'SessionEnd'])('ends with %s', (event) => {
     expect(next(raised(), event, MAIN)).toBeNull();
+  });
+
+  it('survives a compaction, its own subagent’s or another agent’s', () => {
+    const req = raised();
+    expect(next(req, 'SessionStart', { source: 'compact', ...MAIN })).toBe(req);
+    expect(next(req, 'SessionStart', { source: 'compact', ...AGENT })).toBe(req);
   });
 
   it('the main agent’s own dialog meanwhile is raised as ambiguous (the CLI queues the two)', () => {

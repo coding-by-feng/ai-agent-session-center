@@ -178,12 +178,16 @@ export function buildSnapshot(
   rooms: Room[],
 ): WorkspaceSnapshot {
   const sessionSnapshots: SessionSnapshot[] = [];
-  const exportedSessionIds = new Set<string>();
+  // Live id → the id it is saved under (savedIdentityOf); rooms follow it.
+  const exportedSessionIds = new Map<string, string>();
   const identityAliases = buildSessionIdentityAliases(sessions);
+  const splitCards = findSplitCards(sessions, identityAliases);
 
-  for (const session of sessions.values()) {
-    const canonicalId = resolveIdentityAlias(session.sessionId, identityAliases);
-    if (canonicalId !== session.sessionId) continue;
+  for (const live of sessions.values()) {
+    const canonicalId = resolveIdentityAlias(live.sessionId, identityAliases);
+    if (canonicalId !== live.sessionId) continue;
+    const splitCard = live.sshConfig ? undefined : splitCards.get(live.sessionId);
+    const session = splitCard ? foldSplitCard(splitCard, live) : live;
     // Only export sessions that have SSH config (can be recreated)
     if (!session.sshConfig) continue;
     // Never recreate sessions that were explicitly killed or archived by the user
@@ -192,12 +196,16 @@ export function buildSnapshot(
     // (server/sessionSleep.ts) reads as ended but is still the person's: it is kept, and resumed.
     if (session.status === 'ended' && !session.asleepAt) continue;
 
-    exportedSessionIds.add(session.sessionId);
-    const projectTabs = getProjectTabs(session.sessionId);
+    const savedId = savedIdentityOf(session);
+    exportedSessionIds.set(session.sessionId, savedId);
+    // A split card's tabs are under its terminal id (findSplitCards).
+    const tabsId = splitCard && !getProjectTabs(session.sessionId) ? splitCard.sessionId : session.sessionId;
+    const projectTabs = getProjectTabs(tabsId);
     // Capture the per-session automation config only when it deviates from the
     // defaults — a default config carries no information and just bloats the
     // snapshot. A restored config keeps a paused/silenced session that way.
-    const rawAutomation = useQueueStore.getState().automation.get(session.sessionId);
+    const queueState = useQueueStore.getState();
+    const rawAutomation = queueState.automation.get(session.sessionId) ?? (splitCard && queueState.automation.get(splitCard.sessionId));
     const automation =
       rawAutomation &&
       (rawAutomation.paused ||
@@ -208,7 +216,9 @@ export function buildSnapshot(
         (rawAutomation.loopExcludeWindows?.length ?? 0) > 0)
         ? { ...rawAutomation }
         : undefined;
-    const rawQueue = useQueueStore.getState().queues.get(session.sessionId);
+    const rawQueue = queueState.queues.get(session.sessionId)?.length
+      ? queueState.queues.get(session.sessionId)
+      : splitCard && queueState.queues.get(splitCard.sessionId);
     const queueItems = rawQueue && rawQueue.length > 0
       ? rawQueue.map((q) => ({
           text: q.text,
@@ -228,10 +238,15 @@ export function buildSnapshot(
           totalFires: q.totalFires,
         }))
       : undefined;
+    const previousIds = [
+      ...(session.previousSessions?.map((previous) => previous.sessionId) ?? []),
+      ...(splitCard ? [splitCard.sessionId] : []),
+      ...(savedId !== session.sessionId ? [session.sessionId] : []),
+    ];
     sessionSnapshots.push({
-      originalSessionId: session.sessionId,
+      originalSessionId: savedId,
       terminalId: session.terminalId || session.lastTerminalId || undefined,
-      previousSessionIds: session.previousSessions?.map((previous) => previous.sessionId),
+      previousSessionIds: previousIds.length > 0 ? previousIds : undefined,
       title: session.title,
       status: session.asleepAt ? 'idle' : session.status,
       accentColor: session.accentColor,
@@ -255,7 +270,7 @@ export function buildSnapshot(
       model: session.model && /^[a-zA-Z0-9._-]+$/.test(session.model) ? session.model : undefined,
       remark: session.remark,
       projectTabs,
-      fileTabs: getFileTabs(session.sessionId, projectTabs),
+      fileTabs: getFileTabs(tabsId, projectTabs),
       queueItems,
       automation,
       isFork: session.isFork,
@@ -267,6 +282,14 @@ export function buildSnapshot(
     });
   }
 
+  // A popup's origin follows the id its origin card was saved under (savedIdentityOf, a folded split
+  // card), or the restore drops it as an orphan.
+  const withOrigins = sessionSnapshots.map((snap) => {
+    const savedOrigin = snap.originSessionId
+      && exportedSessionIds.get(resolveIdentityAlias(snap.originSessionId, identityAliases));
+    return savedOrigin && savedOrigin !== snap.originSessionId ? { ...snap, originSessionId: savedOrigin } : snap;
+  });
+
   // Only include rooms that reference exported sessions.
   // Filter out stale session IDs (hook-only, ended, or excluded sessions)
   // so the snapshot stays clean and importable without orphaned references.
@@ -274,15 +297,15 @@ export function buildSnapshot(
     ...r,
     sessionIds: [...new Set(
       r.sessionIds
-        .map((id) => resolveIdentityAlias(id, identityAliases))
-        .filter((id) => exportedSessionIds.has(id)),
+        .map((id) => exportedSessionIds.get(resolveIdentityAlias(id, identityAliases)))
+        .filter((id): id is string => id !== undefined),
     )],
   }));
 
   return {
     version: 1,
     exportedAt: Date.now(),
-    sessions: deduplicateSessions(sessionSnapshots),
+    sessions: deduplicateSessions(withOrigins),
     rooms: snapshotRooms,
   };
 }
@@ -479,6 +502,68 @@ function sessionIdentityRank(session: Session): number {
   const hookId = /^(?:term|pty)-/.test(session.sessionId) ? 0 : 1;
   const live = session.status === 'ended' && !session.asleepAt ? 0 : 1;
   return hookId * 1e15 + live * 1e14 + (session.lastActivityAt || session.startedAt || 0);
+}
+
+/**
+ * The id a card is saved under: its own, or, while it is still keyed by its terminal id, the session
+ * its restore resumed (Session.launchResumeId). Codex sends no hook until its first prompt, so an
+ * unprompted restored Codex card was saved under its terminal id and came back fresh (Oct 30 2026).
+ */
+function savedIdentityOf(session: Session): string {
+  return isSyntheticTerminalId(session.sessionId) && session.launchResumeId ? session.launchResumeId : session.sessionId;
+}
+
+/**
+ * Split pairs, keyed by the twin's id (Oct 30 2026). A card whose first hook was lost stays keyed
+ * by its terminal while a twin under the real session id takes the hooks. The terminal alias picks
+ * the twin, which has no launch config, so both were skipped and the card was lost on restart.
+ * Here: each twin without a launch config, and the one recreatable `term-`/`pty-` card it aliases.
+ */
+function findSplitCards(sessions: Map<string, Session>, aliases: Map<string, string>): Map<string, Session> {
+  const byId = new Map([...sessions.values()].map((session) => [session.sessionId, session]));
+  const cards = new Map<string, Session>();
+  const ambiguous = new Set<string>();
+  for (const session of sessions.values()) {
+    if (!session.sshConfig || !isSyntheticTerminalId(session.sessionId) || session.isFork) continue;
+    const twinId = resolveIdentityAlias(session.sessionId, aliases);
+    const twin = twinId !== session.sessionId ? byId.get(twinId) : undefined;
+    if (!twin || twin.sshConfig || twin.isFork) continue;
+    if (cards.has(twinId)) ambiguous.add(twinId);
+    else cards.set(twinId, session);
+  }
+  for (const id of ambiguous) cards.delete(id);
+  return cards;
+}
+
+/**
+ * The card's identity and launch config over the twin's thread (sessionMatcher `foldSplitPair`
+ * does the same on the server). A twin that ended for good, not asleep, takes the card's status,
+ * so a live card is still saved.
+ */
+function foldSplitCard(card: Session, twin: Session): Session {
+  const endedForGood = twin.status === 'ended' && !twin.asleepAt;
+  return {
+    ...twin,
+    title: card.title || twin.title,
+    remark: card.remark ?? twin.remark,
+    accentColor: card.accentColor ?? twin.accentColor,
+    characterModel: card.characterModel ?? twin.characterModel,
+    pinned: card.pinned ?? twin.pinned,
+    muted: card.muted ?? twin.muted,
+    handsOff: card.handsOff ?? twin.handsOff,
+    alerted: card.alerted ?? twin.alerted,
+    remoteVisible: card.remoteVisible ?? twin.remoteVisible,
+    central: card.central ?? twin.central,
+    effortLevel: card.effortLevel ?? twin.effortLevel,
+    permissionMode: card.permissionMode ?? twin.permissionMode,
+    opsTerminalId: card.opsTerminalId ?? twin.opsTerminalId,
+    hadOpsTerminal: card.hadOpsTerminal ?? twin.hadOpsTerminal,
+    sshConfig: card.sshConfig,
+    startupCommand: twin.startupCommand || card.startupCommand,
+    terminalId: card.terminalId || twin.terminalId,
+    lastTerminalId: card.lastTerminalId || twin.lastTerminalId,
+    ...(endedForGood ? { status: card.status, asleepAt: undefined } : {}),
+  };
 }
 
 /** Follow a terminal/previous-session alias chain with a cycle guard. */

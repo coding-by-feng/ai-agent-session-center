@@ -1151,8 +1151,8 @@
   background: var(--bg-accent, rgba(0, 229, 255, 0.1));
   border-left-color: var(--accent-cyan, #00e5ff);
 }
-.queueMovePickerItem:hover .queueMovePickerProject,
-.queueMovePickerItemActive .queueMovePickerProject {
+.queueMovePickerItem:hover .queueMovePickerName,
+.queueMovePickerItemActive .queueMovePickerName {
   color: var(--accent-text, var(--accent-cyan));
 }
 .queueMovePickerItem:focus-visible {
@@ -1161,12 +1161,13 @@
   border-left-color: var(--accent-cyan, #00e5ff);
 }
 
-.queueMovePickerProject {
+/* The session's name leads; its folder follows, muted (lib/queueMoveTargets.ts). */
+.queueMovePickerName {
   color: var(--text-primary, #e0e0ff);
   font-weight: 600;
   transition: color 0.1s;
 }
-.queueMovePickerTitle {
+.queueMovePickerDetail {
   color: var(--text-secondary, #8888aa);
 }
 

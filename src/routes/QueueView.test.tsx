@@ -354,9 +354,22 @@ describe('QueueView — Move', () => {
     await user.click(moveButtons()[0]);
 
     const labels = within(menu()).getAllByRole('option').map((o) => o.textContent);
-    expect(labels).toEqual(['beta — Docs', 'gamma']);
+    expect(labels).toEqual(['Docs — beta', 'gamma']);
     expect(moveButtons()[0]).toHaveAttribute('aria-expanded', 'true');
     expect(moveButtons()[1]).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('offers live sessions only, by name: never an ended one or a floating popup', async () => {
+    const user = userEvent.setup();
+    seed({ s1: [item(1, 's1', 'first')] }, [
+      ...sessions,
+      { ...session('s4', 'delta', 'Archive'), status: 'ended' } as Session,
+      { ...session('s5', 'beta', 'Translate'), isFloating: true } as Session,
+    ]);
+    render(<QueueView />);
+    await user.click(moveButtons()[0]);
+
+    expect(within(menu()).getAllByRole('option').map((o) => o.textContent)).toEqual(['Docs — beta', 'gamma']);
   });
 
   it('marks every Move button as a picker trigger, so a second click toggles it', async () => {

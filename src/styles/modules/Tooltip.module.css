@@ -8,6 +8,9 @@
 .tooltip {
   position: fixed;
   z-index: 10000;
+  /* Its own width, not what is left right of its last `left`: a tooltip reopened near the
+     right edge was measured narrow and crept left a few px each re-render (Oct 29 2026). */
+  width: max-content;
   max-width: 280px;
   padding: 8px 10px;
   background: #07071a;
@@ -21,9 +24,34 @@
   animation: tooltipFadeIn 0.12s ease-out;
 }
 
-/* A tooltip carrying a list (the strip's prompt peek): wider, never past the viewport's gutters. */
+/* A tooltip carrying a list (the strip's prompt peek, whole prompts since Oct 29 2026):
+   wider, never past the viewport's gutters. */
 .tooltipWide {
-  max-width: min(360px, calc(100vw - 16px));
+  max-width: min(480px, calc(100vw - 16px));
+}
+
+/* Interactive (Tooltip.tsx): never taller than the window less its 8px gutters. The
+   label stays put and the body scrolls; the arrow is absolute, so out of the flex flow.
+   Beside its trigger it is also no wider than the room there (`--tooltip-room`), which
+   only ever narrows it: an inline max-width would replace the caps above, not add to them. */
+.tooltipInteractive {
+  display: flex;
+  flex-direction: column;
+  max-width: min(280px, var(--tooltip-room, 100vw));
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  pointer-events: auto;
+}
+
+.tooltipInteractive.tooltipWide {
+  max-width: min(480px, calc(100vw - 16px), var(--tooltip-room, 100vw));
+}
+
+.body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 @keyframes tooltipFadeIn {

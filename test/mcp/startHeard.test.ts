@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   /** The owner's Codex config as the injected reader sees it: null text = unreadable, null mtime = missing. */
   codex: { text: '' as string | null, mtime: 1 as number | null },
   foreground: vi.fn((): string | null => null),
+  /** Live output listeners by terminal (no real PTY here): `paint` feeds them. */
+  taps: new Map<string, (chunk: string) => void>(),
+  untapped: new Set<(chunk: string) => void>(),
+  tap: vi.fn(),
 }));
 
 vi.mock('../../server/logger.js', () => ({ default: mocks.log }));
@@ -42,7 +46,7 @@ vi.mock('../../server/codexTrust.js', async (importOriginal) => {
 
 vi.mock('../../server/sshManager.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../server/sshManager.js')>();
-  return { ...mod, getForegroundProcess: mocks.foreground };
+  return { ...mod, getForegroundProcess: mocks.foreground, tapTerminalOutput: mocks.tap };
 });
 
 vi.mock('../../server/db.js', () => ({
@@ -81,7 +85,7 @@ vi.spyOn(process, 'kill').mockImplementation(((pid: number, signal?: string | nu
 
 // The store starts a 10 s auto-idle interval on import, so the clock has to be fake first.
 vi.useFakeTimers({ now: 1_800_000_000_000 });
-const { getSession, createTerminalSession, terminalHeard } = await import('../../server/sessionStore.js');
+const { getSession, createTerminalSession, terminalHeard, deleteSessionFromMemory } = await import('../../server/sessionStore.js');
 const { processHookEvent } = await import('../../server/hookProcessor.js');
 const { onTerminalHook } = await import('../../server/hookSignals.js');
 
@@ -121,6 +125,16 @@ beforeEach(() => {
   mocks.codex.mtime = n;
   mocks.foreground.mockReset();
   mocks.foreground.mockReturnValue(null);
+  mocks.taps.clear();
+  mocks.untapped.clear();
+  mocks.tap.mockReset();
+  mocks.tap.mockImplementation((id: string, listener: (chunk: string) => void) => {
+    mocks.taps.set(id, listener);
+    return () => {
+      mocks.untapped.add(listener);
+      if (mocks.taps.get(id) === listener) mocks.taps.delete(id);
+    };
+  });
 });
 
 /** The owner's Codex config trusting `folder` (as Codex writes it: the real path). */
@@ -321,5 +335,120 @@ describe('the first hook clears the marker before the ledger hears it (Ruling P4
     const sent = broadcastCards(CLI);
     expect(sent.length).toBeGreaterThan(0);
     expect(sent.every((card) => card.startHeard === undefined)).toBe(true);
+  });
+});
+
+describe('a trusted local Codex leaves connecting once its input has settled (codexReadyWatch)', () => {
+  const CODEX_SCREEN = '\x1b[1m>_ OpenAI Codex\x1b[0m (v0.165)\x1b[27;1H\x1b[1m›\x1b[22m \x1b[2mAsk Codex to do anything';
+  /** Codex prints to the card's terminal now. */
+  const paint = (chunk = CODEX_SCREEN): void => mocks.taps.get(TERM)?.(chunk);
+  const launchTrustedCodex = async (): Promise<void> => {
+    mocks.codex.text = trusting(DIR);
+    mocks.foreground.mockReturnValue('codex');
+    await createTerminalSession(TERM, { host: 'localhost', workingDir: DIR, command: 'codex' });
+  };
+
+  it('is idle and heard ~1.5 s after its input row went quiet, and the 30 s timer is cleared', async () => {
+    await launchTrustedCodex();
+    await vi.advanceTimersByTimeAsync(800);
+    paint();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getSession(TERM)?.status).toBe('connecting');
+    const timersBefore = vi.getTimerCount();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getSession(TERM)?.status).toBe('idle');
+    expect(getSession(TERM)?.startHeard).toBeUndefined();
+    expect(terminalHeard(TERM)).toBe(true);
+    expect(broadcastCards(TERM).at(-1)).toMatchObject({ status: 'idle' });
+    expect(mocks.log.info).toHaveBeenCalledWith('session', expect.stringContaining(`${TERM} to idle after its Codex input settled`));
+    // Its poll and its 30 s timer are both gone, and the tap is released.
+    expect(vi.getTimerCount()).toBe(timersBefore - 2);
+    expect(mocks.taps.has(TERM)).toBe(false);
+  });
+
+  it('waits while Codex is still painting', async () => {
+    await launchTrustedCodex();
+    for (let i = 0; i < 10; i += 1) {
+      paint();
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    expect(getSession(TERM)?.status).toBe('connecting');
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(getSession(TERM)?.status).toBe('idle');
+  });
+
+  it('keeps the 30 s path with no new output, a Codex menu, an untrusted folder or a shell in front', async () => {
+    const cases: Array<[string, () => void, string | null]> = [
+      // A restore prefills the replay ring with the old screen; only live output counts.
+      ['no new output', () => {}, null],
+      ['a menu', () => {}, 'Update available\x1b[5;1H› 1. Update now\x1b[6;1H  2. Skip'],
+      ['untrusted', () => { mocks.codex.text = trusting(DIR, 'untrusted'); }, CODEX_SCREEN],
+      ['shell in front', () => { mocks.foreground.mockReturnValue('zsh'); }, CODEX_SCREEN],
+    ];
+    for (const [label, setUp, screen] of cases) {
+      n += 1;
+      TERM = `term-heard-${n}`;
+      mocks.codex.text = trusting(DIR);
+      mocks.codex.mtime = n;
+      mocks.foreground.mockReturnValue('codex');
+      setUp();
+      await createTerminalSession(TERM, { host: 'localhost', workingDir: DIR, command: 'codex' });
+      if (screen) paint(screen);
+      await vi.advanceTimersByTimeAsync(CONNECTING_MS - 1_000);
+      expect(getSession(TERM)?.status, label).toBe('connecting');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(getSession(TERM)?.status, label).toBe('idle');
+      expect(mocks.taps.has(TERM), label).toBe(false);
+    }
+  });
+
+  it('never watches a Claude card or a card on another host', async () => {
+    mocks.codex.text = trusting(DIR);
+    mocks.foreground.mockReturnValue('claude');
+    await createTerminalSession(TERM, { host: 'localhost', workingDir: DIR, command: 'claude' });
+    n += 1;
+    TERM = `term-heard-${n}`;
+    mocks.foreground.mockReturnValue('codex');
+    await createTerminalSession(TERM, { host: 'build-box', username: 'me', workingDir: DIR, command: 'codex' });
+    expect(mocks.tap).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(CONNECTING_MS);
+  });
+
+  it('a hook that arrives first ends the watch and keeps the hook\'s state', async () => {
+    await launchTrustedCodex();
+    paint();
+    await processHookEvent({
+      session_id: CLI,
+      hook_event_name: 'UserPromptSubmit',
+      cli_source: 'codex',
+      cwd: DIR,
+      agent_terminal_id: TERM,
+      tty_path: '/dev/ttys051',
+      codex_pid: 4_000_100 + n,
+    } as never);
+    expect(getSession(TERM)?.status).not.toBe('connecting');
+    const status = getSession(CLI)?.status ?? getSession(TERM)?.status;
+    expect(status).toBe('prompting');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.taps.has(TERM)).toBe(false);
+    expect(mocks.log.info).not.toHaveBeenCalledWith('session', expect.stringContaining(`${TERM} to idle after its Codex input settled`));
+    await vi.advanceTimersByTimeAsync(CONNECTING_MS);
+  });
+
+  it('a reused terminal id stops the older card\'s watch and the new card gets its own', async () => {
+    await launchTrustedCodex();
+    const first = mocks.taps.get(TERM);
+    await vi.advanceTimersByTimeAsync(10_000);
+    // The first card is gone (its id free again) before its 30 s timer fired.
+    deleteSessionFromMemory(TERM);
+    await createTerminalSession(TERM, { host: 'localhost', workingDir: DIR, command: 'codex' });
+    expect(mocks.tap).toHaveBeenCalledTimes(2);
+    expect(mocks.taps.get(TERM)).not.toBe(first);
+    expect(first && mocks.untapped.has(first)).toBe(true);
+    paint();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(getSession(TERM)?.status).toBe('idle');
+    expect(mocks.log.info).toHaveBeenCalledWith('session', expect.stringContaining(`${TERM} to idle after its Codex input settled`));
+    await vi.advanceTimersByTimeAsync(CONNECTING_MS);
   });
 });

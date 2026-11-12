@@ -109,7 +109,7 @@ describe('GET /api/mobile/devices online', () => {
       const devices = (await res.json()).data.devices as PairedPhone[];
       expect(Object.fromEntries(devices.map((d) => [d.id, d.online]))).toEqual({ mac: true, phone: false });
       // The header's 📱 count leaves the online computer out.
-      expect(summarizePhones(devices)).toEqual({ paired: 1, online: 0 });
+      expect(summarizePhones(devices)).toMatchObject({ paired: 1, tablets: 0, online: 0 });
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }

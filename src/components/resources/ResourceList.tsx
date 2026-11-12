@@ -23,6 +23,7 @@ import {
   RESOURCE_TYPE_LABELS,
   hasVariantDiff,
   originTag,
+  publisherTag,
   repoChipLabel,
   revealDelta,
   scopeName,
@@ -135,6 +136,7 @@ function ResourceRow({
   onSelect: (id: string) => void;
 }) {
   const origin = originTag(r);
+  const publisher = publisherTag(r);
   const repo = repoChipLabel(r.repo.status);
   const target = shortcuts.targetOf.get(r.id);
   const aliases = shortcuts.aliasesOf.get(r.id);
@@ -154,6 +156,7 @@ function ResourceRow({
         <Badge>{AGENT_LABELS[r.agent]}</Badge>{' '}
         <Badge>{scopeName(r, projectsById)}</Badge>
         {origin && <>{' '}<Badge className={styles.chipOrigin}>{origin}</Badge></>}
+        {publisher && <>{' '}<Badge className={r.publisher?.kind === 'third-party' ? styles.chipMuted : styles.chipOfficial}>{publisher}</Badge></>}
         {repo && <>{' '}<Badge className={REPO_CHIP_CLASS[r.repo.status]}>{repo}</Badge></>}
         {hasVariantDiff(r) && <>{' '}<Badge className={styles.chipWarn}>≠ variant</Badge></>}
         {r.orphaned && <>{' '}<Badge className={styles.chipError}>orphaned</Badge></>}

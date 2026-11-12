@@ -26,9 +26,6 @@ vi.mock('./HookSettings', () => ({
 vi.mock('./ApiKeySettings', () => ({
   default: () => <div data-testid="api-key-settings">API Key Settings</div>,
 }));
-vi.mock('./SummaryPromptSettings', () => ({
-  default: () => <div data-testid="summary-prompt-settings">Summary Prompts</div>,
-}));
 
 // Mock Modal to just render children when active
 vi.mock('@/components/ui/Modal', () => ({

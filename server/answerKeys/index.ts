@@ -16,7 +16,7 @@ export type { Answer, AnswerChoice } from './types.js';
  * what the CLI asks, or that it asks anything. Nor is an ambiguous one: the CLI may be
  * showing another request's dialog.
  */
-export function answerKeysFor(request: PendingRequest, answer: Answer, env: NodeJS.ProcessEnv = process.env): string | null {
+export function answerKeysFor(request: PendingRequest, answer: Answer, env: NodeJS.ProcessEnv = process.env): string | string[] | null {
   if (request.source === 'timer' || request.source === 'notification' || request.ambiguous) return null;
   if (request.cli === 'claude') return claudeAnswerKeys(request, answer);
   if (request.cli === 'codex') return codexAnswerKeys(request, answer, env);

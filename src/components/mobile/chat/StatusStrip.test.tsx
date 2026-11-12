@@ -1,5 +1,5 @@
-// StatusStrip.test.tsx — the strip's Stop is the phone's only Stop (Oct 20 2026): Esc at
-// once between tools, a confirm first while a tool runs (stopping interrupts it).
+// StatusStrip.test.tsx — the strip's Stop is the phone's only Stop (Oct 20 2026). Since Nov 5
+// 2026 one tap writes Esc at once, a running tool included: the confirm sheet made it two taps.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { Session, SessionEvent } from '@/types';
@@ -45,22 +45,13 @@ describe('StatusStrip Stop', () => {
     await vi.waitFor(() => expect(writeTerminal).toHaveBeenCalledWith('term-1', '\x1b'));
   });
 
-  it('asks first while a tool runs, and stops only on the confirm', async () => {
+  it('writes Esc at once while a tool runs too: no confirm sheet', async () => {
     renderStrip(session({ events: [toolEvent('Bash: npm test')] }));
     fireEvent.click(screen.getByRole('button', { name: 'Stop the agent (Esc)' }));
-    expect(await screen.findByText('Stop Claude?')).toBeInTheDocument();
-    expect(screen.getByText('It is running Bash. Stopping interrupts it.')).toBeInTheDocument();
-    expect(writeTerminal).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await vi.waitFor(() => expect(writeTerminal).toHaveBeenCalledWith('term-1', '\x1b'));
-  });
-
-  it('cancelling the confirm leaves the agent running', async () => {
-    renderStrip(session({ events: [toolEvent('Bash: npm test')] }));
-    fireEvent.click(screen.getByRole('button', { name: 'Stop the agent (Esc)' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    expect(writeTerminal).not.toHaveBeenCalled();
+    expect(writeTerminal).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Stop Claude?')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 });
 
@@ -99,10 +90,12 @@ describe('StatusStrip — after Stop', () => {
     expect(writeTerminal).toHaveBeenCalledTimes(1);
   });
 
-  it('offers Stop again after 10 s if the agent is still working', async () => {
+  it('offers Stop again after 5 s if the agent is still working', async () => {
     renderStrip(turn(T0 - 5_000));
     await tapStop();
-    act(() => { vi.advanceTimersByTime(10_000); });
+    act(() => { vi.advanceTimersByTime(4_000); });
+    expect(screen.getByRole('button', { name: 'Stopping…' })).toHaveAttribute('aria-busy', 'true');
+    act(() => { vi.advanceTimersByTime(1_000); });
     expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).not.toHaveAttribute('aria-busy');
     expect(screen.getByTestId('chat-status-strip').textContent).toMatch(/^Working/);
   });
@@ -120,5 +113,36 @@ describe('StatusStrip — after Stop', () => {
     await tapStop();
     expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).toBeInTheDocument();
     expect(screen.getByRole('alert').textContent).toBe('The terminal has closed.');
+  });
+});
+
+// Nov 6 2026: Claude holds a prompt sent while its Stop hooks still run. The strip says so,
+// timed from the Stop, instead of vanishing on "Finished".
+describe('StatusStrip — Finishing up', () => {
+  it('names the Stop hooks and times them from the Stop, with no tool', () => {
+    const stoppedAt = Date.now() - 12_000;
+    renderStrip(session({
+      status: 'waiting',
+      stopHooksSince: stoppedAt,
+      events: [toolEvent('Bash: npm test')],
+      toolLog: [{ tool: 'Bash', input: 'npm test', timestamp: stoppedAt - 1000 }] as Session['toolLog'],
+    }));
+    expect(screen.getByTestId('chat-status-strip')).toHaveTextContent('Finishing up · Stop hooks');
+    expect(screen.getByTestId('chat-status-strip')).toHaveTextContent('0:12');
+    expect(screen.getByTestId('chat-status-strip')).not.toHaveTextContent('Bash');
+  });
+
+  it('offers no Stop: Esc would cancel the user\'s own Stop hooks, and the answer is in', () => {
+    renderStrip(session({ status: 'waiting', stopHooksSince: Date.now() - 3_000 }));
+    expect(screen.queryByRole('button', { name: 'Stop the agent (Esc)' })).toBeNull();
+  });
+
+  it('draws nothing once the mark is stale, rather than "Working" on a finished turn', () => {
+    const { container } = renderStrip(session({
+      status: 'waiting',
+      stopHooksSince: Date.now() - 4 * 60_000,
+      toolLog: [{ tool: 'Bash', input: 'npm test', timestamp: Date.now() - 5 * 60_000 }] as Session['toolLog'],
+    }));
+    expect(container).toBeEmptyDOMElement();
   });
 });

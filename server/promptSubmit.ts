@@ -34,8 +34,8 @@
 // command and its first hook arrived), never onto text it may have left unsent.
 //
 // `interrupt` presses Esc first and waits (at most 10 s) for the turn to stop.
-// Claude Code fires an ordinary Stop for an Esc; the transcript check that follows
-// it stamps `userCancelledAt` (sessionStore), which is why only a cancel stamped
+// No CLI fires a hook for an Esc: sessionStore ends the turn once the transcript
+// records it and stamps `userCancelledAt`, which is why only a cancel stamped
 // after this prompt's own Enter counts as the user taking over, and for an
 // interrupt only once INTERRUPT_CANCEL_GRACE_MS have passed.
 
@@ -355,7 +355,8 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     // Checked again before each keystroke: an interrupt or a previous prompt may have
     // waited seconds, and the pause before Enter is one or two more.
     if (!mayType(req)) return 'stopped';
-    const typed = imagePaths.length > 0 ? `${text}\n${imagePaths.join('\n')}` : text;
+    // No text (an image-only prompt): just the paths — a leading "\n" would be a stray blank line first.
+    const typed = imagePaths.length === 0 ? text : [...(text ? [text] : []), ...imagePaths].join('\n');
     if (!deps.write(terminalId, typed)) return 'failed';
     progress.typed = true;
     await sleep(submitDelayFor(imagePaths.length));

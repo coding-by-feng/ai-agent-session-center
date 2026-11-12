@@ -37,6 +37,37 @@
   color: var(--card-tone);
 }
 
+/* Compact (the chat shows the question): one row, title left, the pointer up to it right. */
+.header[data-compact] { align-items: center; flex-wrap: wrap; }
+.header[data-compact] .icon { padding-top: 0; }
+.header[data-compact] .title { flex: 1 1 auto; }
+
+.jump {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  min-height: var(--ph-target);
+  margin: calc(-1 * var(--ph-space-2)) 0;
+  padding: 0 var(--ph-space-1);
+  border: 0;
+  border-radius: var(--ph-radius);
+  background: transparent;
+  color: var(--ph-accent);
+  font: inherit;
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jumpIcon { flex: none; transform: rotate(-90deg); }
+@media (hover: hover) {
+  .jump:hover { background: var(--ph-fill); }
+}
+.jump:active { background: var(--ph-fill-strong); }
+.jump:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+
 .title {
   margin: 0;
   font-size: var(--ph-size-body);

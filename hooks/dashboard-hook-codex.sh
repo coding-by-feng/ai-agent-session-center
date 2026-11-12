@@ -123,12 +123,30 @@ ENRICHED=$(echo "$INPUT" | jq -c \
 
 [ -z "$ENRICHED" ] && ENRICHED="$INPUT"
 
+# One write() per line. Bash's echo (and printf, jq) flush a long line in 1 KB pieces, so
+# hooks firing together (Codex runs a turn's tool hooks in parallel) interleaved their pieces and
+# the server dropped the torn lines: a lost first hook left a card deaf to its own agent, and its
+# queue typed into a running turn (Oct 30 2026). A short line is one write already.
+mq_append() {
+  local LC_ALL=C
+  if [ "${#1}" -lt 1000 ]; then
+    echo "$1" >> "$2"
+  elif command -v perl >/dev/null 2>&1; then
+    # No PERL_UNICODE / PERL5OPT from the user's shell: a :utf8 layer makes syswrite die.
+    printf '%s\n' "$1" | env -u PERL_UNICODE -u PERL5OPT perl -e 'binmode STDIN; local $/; my $d = <STDIN>;
+      open(my $f, ">>", $ARGV[0]) or exit 1; binmode $f; my $o = 0; while ($o < length $d) { my $n = syswrite($f, $d, length($d) - $o, $o); exit 1 unless defined $n; $o += $n; }' "$2"
+  else
+    # cat writes what one pipe read returns: whole up to the pipe's capacity (~16 KB), not beyond.
+    printf '%s\n' "$1" | cat >> "$2"
+  fi
+}
+
 # ── Deliver to dashboard via file-based MQ (primary) or HTTP (fallback) ──
 MQ_DIR="/tmp/claude-session-center"
 MQ_FILE="$MQ_DIR/queue.jsonl"
 
 if [ -d "$MQ_DIR" ]; then
-  echo "$ENRICHED" >> "$MQ_FILE" 2>/dev/null
+  mq_append "$ENRICHED" "$MQ_FILE" 2>/dev/null
 else
   echo "$ENRICHED" | curl -s --connect-timeout 1 -m 3 -X POST \
     -H "Content-Type: application/json" \

@@ -24,7 +24,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useUiStore } from '@/stores/uiStore';
-import { baseName, parentRel, relInProject } from '@/lib/phoneProject';
+import { baseName, parentRel, relInProject, withoutProjectName } from '@/lib/phoneProject';
+import { resolvePath } from '@/lib/phoneFiles';
 import {
   closedAllFiles,
   closedFile,
@@ -127,20 +128,57 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
   }, [reading, goToDir]);
   const closeFilesSheet = useCallback(() => setFilesOpen(false), []);
 
-  // A file path tapped in a terminal opens here.
+  // Nov 6 2026: a link that repeated the project's name ("second-brain/02-study/x.mp4" in
+  // second-brain) was remembered as `/second-brain/…`, so the tab reopened on "isn't available"
+  // until Project folder was tapped. On open, a remembered place that starts with the project's
+  // name is checked once; a 404 for it moves the tab to the reading without the name.
   useEffect(() => {
+    const saved = files.current ?? (files.dir !== '/' ? files.dir : null);
+    const healed = saved ? withoutProjectName(saved, projectPath) : null;
+    if (!saved || !healed) return;
+    let gone = false;
+    void resolvePath(`${projectPath.replace(/\/+$/, '')}${saved}`).then((found) => {
+      if (gone || found.ok || found.status !== 404) return;
+      const fix = (p: string) => withoutProjectName(p, projectPath) ?? p;
+      setFiles((f) => ({ ...f, dir: fix(f.dir), current: f.current ? fix(f.current) : null, open: f.open.map(fix), recent: f.recent.map(fix) }));
+      setStack(files.current ? fileStack(healed) : dirStack(healed));
+    }, () => undefined);
+    return () => { gone = true; };
+    // Once per folder: the remembered place as the tab opened on it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath]);
+
+  // A file path tapped in a terminal or the chat opens here.
+  useEffect(() => {
+    // Only the latest tap opens: an earlier one still asking the Mac is dropped.
+    let latest = 0;
+    const show = (rel: string) => {
+      setNotice(null);
+      setFiles((f) => openedFile(f, rel));
+      setStack(fileStack(rel));
+    };
     const handle = (request: ReturnType<typeof useUiStore.getState>['pendingFileOpen']) => {
       if (!request || (request.projectPath && request.projectPath !== projectPath)) return;
       useUiStore.getState().clearPendingFileOpen();
       const rel = relInProject(request.filePath, projectPath);
+      const tap = ++latest;
       setFullscreen(false);
       if (!rel) {
         setNotice(`${request.filePath} is outside this project.`);
         return;
       }
-      setNotice(null);
-      setFiles((f) => openedFile(f, rel));
-      setStack(fileStack(rel));
+      // "second-brain/02-study/x.md" in second-brain (Nov 6 2026): the path as written
+      // wins when it exists; only a 404 for it opens the reading without the name.
+      const other = withoutProjectName(rel, projectPath);
+      if (!other) {
+        show(rel);
+        return;
+      }
+      void resolvePath(`${projectPath.replace(/\/+$/, '')}${rel}`)
+        .then((found) => (found.ok || found.status !== 404 ? rel : other), () => rel)
+        .then((chosen) => {
+          if (tap === latest) show(chosen);
+        });
     };
     // One that arrived before this tab mounted, then every later one.
     const first = setTimeout(() => handle(useUiStore.getState().pendingFileOpen), 0);
@@ -148,6 +186,7 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
       if (s.pendingFileOpen !== prev.pendingFileOpen) handle(s.pendingFileOpen);
     });
     return () => {
+      latest += 1; // a reply after this tab closed or changed folder opens nothing
       clearTimeout(first);
       unsubscribe();
     };

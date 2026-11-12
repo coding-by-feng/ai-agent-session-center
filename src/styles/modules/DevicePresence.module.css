@@ -44,7 +44,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The 📱 part (Oct 22 2026): paired phones, with a dot while one has the app open. */
+/* Nov 2 2026: SVG device icons (computer / phone / tablet) replace the 🖥 / 📱 emoji. */
+.chipIcon {
+  flex: 0 0 auto;
+  display: block;
+}
+
+/* The phone part (Oct 22 2026): paired phones and tablets, with a dot while one has the app open. */
 .chipSep {
   opacity: 0.6;
 }
@@ -81,6 +87,20 @@
   font-size: 12px;
 }
 
+/* The sections (Sharing, pairing, paired computers) each draw a top rule; the first one in the
+   panel drops it, and the devices heading takes one when the sections sit above it. */
+.panel > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.panel > .panelHead:not(:first-child) {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #2a2a44);
+}
+
 .panelHead {
   margin-bottom: 10px;
   color: var(--text-secondary, #8a8aa8);
@@ -107,8 +127,9 @@
 
 .deviceIcon {
   flex: 0 0 auto;
-  font-size: 14px;
-  line-height: 1.3;
+  display: inline-flex;
+  padding-top: 2px;
+  color: var(--text-secondary, inherit);
 }
 
 .deviceMain {
@@ -418,4 +439,9 @@
   .dismissBtn:active {
     transform: none;
   }
+}
+
+/* A phone count followed by the tablet icon: a little extra room so "2 ▭1" reads as two counts. */
+.chipCount + .chipIcon {
+  margin-left: 3px;
 }

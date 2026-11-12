@@ -578,3 +578,45 @@ describe('a session re-keyed (/clear, a resume)', () => {
     expect(nav().stacks).toBe(before);
   });
 });
+
+describe('openFromRoot (the iPad split view’s list, Nov 1 2026)', () => {
+  it('replaces whatever the right pane shows, through history', () => {
+    install();
+    nav().openFromRoot(['/sessions/s1/chat']);
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/chat']);
+    expect(nav().lastAction).toBe('push');
+    nav().push('/sessions/s1/info');
+    nav().openFromRoot(['/sessions/s2/chat']);
+    history.flush();
+    expect(stack()).toEqual(['/sessions', '/sessions/s2/chat']);
+    expect(history.url).toBe('/?m=/sessions/s2/chat');
+    nav().openFromRoot(['/sessions/s3/chat', '/sessions/s3/terminal']);
+    expect(stack()).toEqual(['/sessions', '/sessions/s3/chat', '/sessions/s3/terminal']);
+  });
+
+  it('Back from the pane goes to the bare list', () => {
+    install();
+    nav().openFromRoot(['/sessions/s1/chat']);
+    nav().openFromRoot(['/sessions/s2/chat']);
+    expect(nav().lastAction).toBe('replace');
+    history.back();
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('refuses a tab root or a path it cannot draw', () => {
+    install();
+    nav().openFromRoot(['/inbox']);
+    nav().openFromRoot(['/nope']);
+    nav().openFromRoot([]);
+    expect(stack()).toEqual(['/sessions']);
+  });
+
+  it('leaves push stacking, also in the split view (a teammate from Agents, Cloud from This phone)', () => {
+    install();
+    nav().setSplit(true);
+    nav().openFromRoot(['/sessions/s1/agents']);
+    nav().push('/sessions/s9/chat');
+    expect(stack()).toEqual(['/sessions', '/sessions/s1/agents', '/sessions/s9/chat']);
+    nav().setSplit(false);
+  });
+});

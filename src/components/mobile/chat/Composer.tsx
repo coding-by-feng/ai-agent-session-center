@@ -1,11 +1,11 @@
 /**
  * Composer — the session's message box on the phone (AASC-42).
  *
- *   ⧉ 2 queued ›                 Opus 5.5 · high · ◔ 38%     chips
  *   ┌────────────────────────────────────────────────┐
  *   │ Reply to Claude…                                │       grows to 6 lines
  *   │ ＋  /  @                            ■  [Send ↑] │
  *   └────────────────────────────────────────────────┘
+ *   ⧉ 2 queued ›                 Opus 5.5 · high · ◔ 38%     chips (Oct 30 2026: under the box)
  *
  * - The draft is kept per session on this phone (composerDraftStore).
  * - ＋: photo library, camera, saved prompt, command, file. A "/" word under
@@ -33,6 +33,9 @@ import { useComposerDraftStore, type ComposerSheetRequest } from '@/stores/compo
 import { DEFAULT_AUTOMATION, useQueueStore, type QueueImageAttachment, type QueueItem } from '@/stores/queueStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useSessionStore } from '@/stores/sessionStore';
+import { agentProgress, type AgentProgress } from '@/lib/agentFlow';
 import { getClientId } from '@/lib/deviceIdentity';
 import { detectCli } from '@/lib/cliDetect';
 import { entryToken, type CommandEntry } from '@/lib/commandIndex';
@@ -60,11 +63,11 @@ import { useQuickReply } from '@/lib/chat/quickReply';
 import { owesProceed } from '@/lib/sessionStatusStyle';
 import ComposerSuggestions from './ComposerSuggestions';
 import PhoneImageViewer from '../PhoneImageViewer';
-import { usePromptSender, type OutgoingMessage, type SendPhase } from './usePromptSender';
+import { sendStatusLine, usePromptSender, type OutgoingMessage } from './usePromptSender';
 import { useDriverName } from './useDriverName';
 import { useComposerVideos } from './useComposerVideos';
 import ComposerVideoChip from './ComposerVideoChip';
-import { AtIcon, CameraIcon, CommandsIcon, VideoIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
+import { AgentsDoneIcon, AgentsIcon, AtIcon, CameraIcon, CommandsIcon, VideoIcon, ContextRing, FileIcon, PhotoIcon, PlusIcon, QueueIcon, QuickReplyIcon, SendIcon, SlashIcon, SnippetIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Composer.module.css';
 
 export interface ComposerProps {
@@ -94,17 +97,6 @@ const HOLD_MS = 500;
 const PLUS_DETENTS = ['fit'] as const;
 const PHOTO_DETENTS = ['large'] as const;
 
-function statusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
-  switch (state.phase) {
-    case 'sending': return 'Sending…';
-    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
-    case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
-    case 'failed': return state.message;
-    case 'unsure': return state.message;
-    default: return null;
-  }
-}
-
 export default function Composer({ session, card, inputRef }: ComposerProps) {
   const sessionId = session.sessionId;
   const cli = detectCli(session);
@@ -126,6 +118,8 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const windowOpen = macWindowOpen({ received, workspaceWriter, devices }, getClientId());
   const queueItems = useQueueStore((s) => s.queues.get(sessionId) ?? NO_ITEMS);
   const queued = queueItems.length;
+  // This turn's subagents and live teammates, for the agents chip (Nov 8 2026).
+  const agents = useSessionStore(useShallow((s) => agentProgress(s.sessions.get(sessionId), s.sessions)));
   const automation = useQueueStore((s) => s.automation.get(sessionId) ?? DEFAULT_AUTOMATION);
   const waiting = queueWaiting(queueItems, automation);
   const sender = usePromptSender(sessionId);
@@ -168,7 +162,9 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     macWindowOpen: windowOpen,
     queueWaiting: waiting,
   };
-  const decision = composerAction({ ...actionInput, hasContent: text.trim() !== '' });
+  // A photo is a prompt on its own (Nov 8 2026): it types just the image path. Videos still need text.
+  const hasContent = text.trim() !== '' || images.length > 0;
+  const decision = composerAction({ ...actionInput, hasContent });
   const sending = sender.state.phase === 'sending';
   // The quick reply always has text: it goes the way the main button would send it, but never as a
   // card's answer ("Deny and tell Claude" would deny the tool call with a "proceed").
@@ -254,7 +250,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   }, [sender, session.pendingRequest, sessionId, setDraft, cli]);
 
   const submit = useCallback((how: 'send' | 'send-now' | 'queue' | 'deny-and-tell' = decision.action) => {
-    if (sending || fieldOff || text.trim() === '') return;
+    if (sending || fieldOff || !hasContent) return;
     if (how === decision.action && !decision.canSend) return;
     if (media.uploading) {
       showToast('Wait for the video to finish uploading.', 'info');
@@ -269,7 +265,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     setDraft(sessionId, '');
     setImages([]);
     void deliver(message, how);
-  }, [decision.action, decision.canSend, sending, fieldOff, text, cli, images, media, sessionId, setDraft, deliver]);
+  }, [decision.action, decision.canSend, sending, fieldOff, hasContent, text, cli, images, media, sessionId, setDraft, deliver]);
 
   // While another device drives, or the session has ended or is still starting,
   // the Mac would refuse a /model too: the chip is off and says why.
@@ -306,10 +302,14 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   };
 
   // Return is a new line (a phone chat); Cmd/Ctrl+Return sends from a hardware keyboard.
+  // Tab in the empty box takes Claude's suggestion, as the desktop Queue tab does (iPad keyboard).
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
+    } else if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && suggestion) {
+      e.preventDefault();
+      setDraft(sessionId, suggestion);
     }
   };
 
@@ -396,6 +396,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     if (parsePhonePath(path)) nav.push(path);
     else nav.switchTab('queue');
   };
+  const openAgents = () => usePhoneNavStore.getState().showSegment(sessionId, 'agents', true);
 
   // Stable handlers for the sheets (they re-render with every session update).
   const triggerStart = sheet && (sheet.type === 'command' || sheet.type === 'file') ? sheet.start : null;
@@ -433,7 +434,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     focusAt((useComposerDraftStore.getState().drafts[sessionId] ?? '').length);
   }, [appendToDraft, sessionId, focusAt]);
 
-  const line = statusLine(sender.state, cliName, windowOpen);
+  const line = sendStatusLine(sender.state, cliName, windowOpen);
   const failed = sender.state.phase === 'failed';
   const dismissable = failed || sender.state.phase === 'unsure';
   const longLabel = decision.label.length > 8;
@@ -454,50 +455,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       )}
       {decision.queueNote && !line && (
         <p className={styles.note}><InfoIcon /> {decision.queueNote}</p>
-      )}
-      {(queued > 0 || modelLabel || usage.chip) && (
-        <div className={styles.chips}>
-          {queued > 0 && (
-            // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
-            <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
-              <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
-            </button>
-          )}
-          {modelLabel && (
-            <button
-              type="button"
-              className={`${styles.chip} ${styles.modelChip}`}
-              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
-              aria-label={`Model ${modelLabel}: change`}
-              aria-disabled={blocked ? true : undefined}
-              aria-describedby={blocked ? chipReasonId : undefined}
-            >
-              <span className={styles.modelText}>{modelLabel}</span>
-              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
-            </button>
-          )}
-          {usage.chip && (
-            <button
-              type="button"
-              className={`${styles.chip} ${styles.usageChip}`}
-              onClick={() => setSheet({ type: 'usage' })}
-              aria-label={`${usage.ariaLabel} Show details.`}
-              aria-haspopup="dialog"
-            >
-              {usage.chip.context && (
-                <span className={styles.context} data-level={usage.chip.context.level}>
-                  <ContextRing pct={usage.chip.context.pct} /> {usage.chip.context.pctText}
-                </span>
-              )}
-              {usage.chip.context && usage.chip.planText && <span aria-hidden="true">·</span>}
-              {usage.chip.planText && (
-                <span className={styles.planPart}>
-                  {usage.chip.planText}{usage.chip.planHigh && <span aria-hidden="true"> ▲</span>}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
       )}
       {attached > 0 && (
         <ul className={styles.thumbs} aria-label="Photos and videos to send">
@@ -617,6 +574,53 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         </div>
       </div>
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
+      {/* Under the box (Oct 30 2026): queue count, model and usage sit in the strip above the
+          home indicator instead of between the working line and the box. */}
+      {(queued > 0 || agents.total > 0 || modelLabel || usage.chip) && (
+        <div className={styles.chips}>
+          {queued > 0 && (
+            // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
+            <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
+              <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
+            </button>
+          )}
+          {agents.total > 0 && <AgentsChip progress={agents} onOpen={openAgents} />}
+          {modelLabel && (
+            <button
+              type="button"
+              className={`${styles.chip} ${styles.modelChip}`}
+              onClick={() => { if (!blocked) setSheet({ type: 'model', focus: 'model' }); }}
+              aria-label={`Model ${modelLabel}: change`}
+              aria-disabled={blocked ? true : undefined}
+              aria-describedby={blocked ? chipReasonId : undefined}
+            >
+              <span className={styles.modelText}>{modelLabel}</span>
+              {blocked && <span id={chipReasonId} className={styles.srOnly}>{blocked}</span>}
+            </button>
+          )}
+          {usage.chip && (
+            <button
+              type="button"
+              className={`${styles.chip} ${styles.usageChip}`}
+              onClick={() => setSheet({ type: 'usage' })}
+              aria-label={`${usage.ariaLabel} Show details.`}
+              aria-haspopup="dialog"
+            >
+              {usage.chip.context && (
+                <span className={styles.context} data-level={usage.chip.context.level}>
+                  <ContextRing pct={usage.chip.context.pct} /> {usage.chip.context.pctText}
+                </span>
+              )}
+              {usage.chip.context && usage.chip.planText && <span aria-hidden="true">·</span>}
+              {usage.chip.planText && (
+                <span className={styles.planPart}>
+                  {usage.chip.planText}{usage.chip.planHigh && <span aria-hidden="true"> ▲</span>}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       <input ref={photoInput} type="file" accept="image/*,video/*" multiple hidden onChange={onPhotos} data-testid="composer-photo-input" />
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={onPhotos} data-testid="composer-camera-input" />
@@ -696,5 +700,34 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         onCancel={cancelConfirm}
       />
     </div>
+  );
+}
+
+/**
+ * The agents chip (Nov 8 2026): "⟳ 2 · 1/3 ›" while agents work (running, then finished of this
+ * turn's total), "✓ 3 ›" once all have finished. Opens the session's Agents tab.
+ */
+function AgentsChip({ progress, onOpen }: { progress: AgentProgress; onOpen: () => void }) {
+  const { running, finished, total } = progress;
+  const working = running > 0;
+  const label = working
+    ? `${running} agent${running === 1 ? '' : 's'} running, ${finished} of ${total} finished: open Agents`
+    : `${total === 1 ? 'The agent' : `All ${total} agents`} finished: open Agents`;
+  return (
+    <button
+      type="button"
+      className={`${styles.chip} ${styles.agentsChip}`}
+      data-state={working ? 'running' : 'done'}
+      onClick={onOpen}
+      aria-label={label}
+    >
+      {working ? (
+        <span className={styles.agentsGlyph}><AgentsIcon /><span className={styles.agentsSpin} aria-hidden="true" /></span>
+      ) : (
+        <AgentsDoneIcon />
+      )}
+      <span>{working ? `${running} · ${finished}/${total}` : total}</span>
+      <ChevronRightIcon />
+    </button>
   );
 }

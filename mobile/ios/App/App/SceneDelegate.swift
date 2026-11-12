@@ -50,6 +50,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         guard let bridge = (window?.rootViewController as? CAPBridgeViewController)?.bridge,
               let webView = bridge.webView else { return }
+        // iOS throws away the WebView's content process after a long time in the background.
+        // Capacitor then calls reload(), which does nothing once the page has no URL left:
+        // an empty white app until it is force-quit. Start the shell again instead.
+        if pausedAt > 0, webView.url == nil {
+            webView.load(URLRequest(url: bridge.config.localURL))
+            return
+        }
         let target = LockRules.resumeUrl(
             UserDefaults.standard.string(forKey: LockRules.settingsDefaultsKey),
             shell: bridge.config.localURL.absoluteString,

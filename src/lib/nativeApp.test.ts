@@ -1,7 +1,8 @@
 // nativeApp.test.ts — AASC-17: how the server's UI behaves inside the AASC phone app.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook } from '@testing-library/react';
 import {
-  nativeAppPlatform, nativeAppVersion, isNativeMobileApp, nativeShellReauthUrl, nativeAppViewport, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
+  nativeAppPlatform, nativeAppVersion, isNativeMobileApp, useIsMobile, nativeShellReauthUrl, nativeAppViewport, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
 } from './platform';
 import { mayDrivePtyGeometry, defaultWidthMode } from './terminalGeometry';
 import { parseSessionDeepLink, stripSessionDeepLink } from './deepLink';
@@ -136,5 +137,28 @@ describe('WebSocket URL in the app', () => {
 
   it('keeps the existing behaviour in a browser', () => {
     expect(connectWith(SAFARI_UA)).toContain('token=secret-session-token');
+  });
+});
+
+describe('useIsMobile in the app (iPad, Nov 1 2026)', () => {
+  const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) AASC-Mobile/1.2.0+9';
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  function isMobileWith(ua: string, phoneSized: boolean): boolean {
+    vi.stubGlobal('navigator', { ...navigator, userAgent: ua });
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: phoneSized, addEventListener: () => {}, removeEventListener: () => {},
+    })));
+    return renderHook(() => useIsMobile()).result.current;
+  }
+
+  it('is the phone layout at any width inside the app: an iPad is wider than the breakpoint', () => {
+    expect(isMobileWith(IPAD_UA, false)).toBe(true);
+    expect(isMobileWith(IOS_UA, false)).toBe(true);
+  });
+
+  it('still follows the viewport in a browser', () => {
+    expect(isMobileWith(SAFARI_UA, true)).toBe(true);
+    expect(isMobileWith(SAFARI_UA, false)).toBe(false);
   });
 });

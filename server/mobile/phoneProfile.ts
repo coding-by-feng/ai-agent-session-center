@@ -30,6 +30,7 @@ import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import log from '../logger.js';
+import { databaseDirectory } from '../dbPaths.js';
 import { browsableFolder, expandHome, inside, realOrNull, touchesSecret, writtenFolder } from './homeFolders.js';
 import {
   filterPhoneChangesAnswer,
@@ -104,7 +105,9 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // /sessions/:id gate answers 404 for a session that isn't shared.
   route('GET', '/sessions/:id/(chat|changes|context-breakdown)', 'allow'),
   route('GET', '/sessions/:id/changes/\\d+', 'allow'),
-  route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
+  // Pinned (Nov 2 2026, reversing AASC-50): a shared session's PINNED flag, so the Mac brings it back if it
+  // ends. No more than Restart or Resume already let a phone do to the same session; kill still unpins first.
+  route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|pinned|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
   // An AI popup (AASC-20): a floating fork of a shared session, started from its
@@ -205,13 +208,16 @@ function realTarget(p: string): string | null {
 /**
  * May a phone read `target` (absolute)? Only inside a shared session's project,
  * after links are followed (a link in the project to ~/.ssh is still ~/.ssh),
- * and never a secrets folder or secret-looking file.
+ * and never a secrets folder, a secret-looking file or the server's own data folder.
  */
 export function phoneMayRead(target: string, sharedProjects: readonly string[], home: string): boolean {
   if (!isAbsolute(target)) return false;
   const real = realTarget(resolve(target));
   const realHome = realOrNull(home);
   if (!real || !realHome || !inside(real, realHome) || touchesSecret(relative(realHome, real))) return false;
+  // The server's own data (sessions.db, server-config.json, backups), wherever it sits.
+  const dataDir = realOrNull(databaseDirectory()) ?? resolve(databaseDirectory());
+  if (inside(real, dataDir)) return false;
   return sharedProjects.some((projectPath) => {
     const root = phoneProjectRoot(projectPath, home);
     return root !== null && inside(real, root);

@@ -17,6 +17,7 @@
  *   /more/resources[/cloud|/projects]  More → Resources (plan 16): Library, Cloud sync, Projects;
  *                                 /more/cloud (AASC-51's Cloud) is an old link to Cloud sync
  *   /more/resources/item/<id>     one Library resource: back returns to the Library
+ *   /more/resources/projects/<id> one saved project: back returns to Projects
  *   /more/cloud/<resourceId>      one cloud resource's versions (AASC-51): back returns to Cloud sync
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
@@ -64,6 +65,8 @@ export type PhoneRoute =
   | { kind: 'resources'; tab: ResourcesTab }
   /** One Library resource, by its catalog id (plan 16). */
   | { kind: 'resource-item'; id: string }
+  /** One project saved to AASC Cloud, by its cloud id (Nov 2 2026). */
+  | { kind: 'project-item'; id: string }
   /** One AASC Cloud resource's versions, under Resources → Cloud sync (AASC-51). */
   | { kind: 'cloud-resource'; resourceId: string };
 
@@ -125,6 +128,11 @@ export function resourceItemPath(id: string): string {
   return `/more/resources/item/${id}`;
 }
 
+/** One saved project, under Resources → Projects. */
+export function projectItemPath(id: string): string {
+  return `/more/resources/projects/${id}`;
+}
+
 export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'tab-root') return tabRootPath(route.tab);
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
@@ -133,6 +141,7 @@ export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'cloud-resource') return cloudResourcePath(route.resourceId);
   if (route.kind === 'resources') return resourcesPath(route.tab);
   if (route.kind === 'resource-item') return resourceItemPath(route.id);
+  if (route.kind === 'project-item') return projectItemPath(route.id);
   return morePath(route.page);
 }
 
@@ -205,6 +214,7 @@ function parseResourcesPath(parts: string[]): PhoneRoute | null {
   if (parts.length === 2) return { kind: 'resources', tab: 'library' };
   if (parts.length === 3 && parts[2] !== 'library' && isOneOf(RESOURCES_TABS, parts[2])) return { kind: 'resources', tab: parts[2] };
   if (parts.length === 4 && parts[2] === 'item' && CATALOG_ID.test(parts[3])) return { kind: 'resource-item', id: parts[3] };
+  if (parts.length === 4 && parts[2] === 'projects' && CLOUD_ID.test(parts[3])) return { kind: 'project-item', id: parts[3] };
   return null;
 }
 
@@ -213,7 +223,8 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'more' || route.kind === 'cloud-resource' || route.kind === 'resources' || route.kind === 'resource-item'
+  return route.kind === 'more' || route.kind === 'cloud-resource' || route.kind === 'resources'
+    || route.kind === 'resource-item' || route.kind === 'project-item'
     ? 'more'
     : 'sessions';
 }
@@ -239,6 +250,7 @@ export function pathChain(path: string): string[] {
   if (route.kind === 'cloud-resource') return [tabRootPath('more'), resourcesPath('cloud'), path];
   if (route.kind === 'resources') return [tabRootPath('more'), resourcesPath(route.tab)];
   if (route.kind === 'resource-item') return [tabRootPath('more'), resourcesPath('library'), path];
+  if (route.kind === 'project-item') return [tabRootPath('more'), resourcesPath('projects'), path];
   const chain: string[] = [];
   for (let page: MorePage | undefined = route.page; page; page = MORE_PARENT[page]) {
     chain.unshift(morePath(page));

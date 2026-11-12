@@ -1,7 +1,7 @@
 import { afterEach } from 'vitest';
 import { mkdtemp, realpath, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createGitOperations } from '../server/cloud/git.js';
 import { ProjectRecordSchema } from '../src/types/cloudProjects.js';
@@ -14,6 +14,8 @@ export async function gitFixture(
     beforePublish?: (path: string) => Promise<void>;
     afterPublish?: () => Promise<void>;
     activeProjectPaths?: () => string[];
+    /** A folder put first on PATH for AASC's Git only (the fixture's own commands keep PATH). */
+    pathFirst?: string;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'aasc-git-')));
@@ -62,7 +64,7 @@ export async function gitFixture(
     activeProjectPaths: extra.activeProjectPaths,
     testTransport: {
       barePath: bare,
-      env,
+      env: extra.pathFirst ? { ...env, PATH: `${extra.pathFirst}${delimiter}${env.PATH}` } : env,
       afterPublish: extra.afterPublish,
       beforePublish: extra.beforePublish,
     },

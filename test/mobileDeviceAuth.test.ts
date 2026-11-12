@@ -387,3 +387,48 @@ describe('rename and sign out from the desktop', () => {
     expect(onSignedOut).not.toHaveBeenCalled();
   });
 });
+
+describe('replacing an older pairing of the same phone (Nov 6 2026)', () => {
+  it('revokes an active row with the same name and platform, through onRevoked', () => {
+    const old = approvedPhone('iPhone 17');
+    const fresh = approvedPhone('iPhone 17');
+    onRevoked.mockClear();
+    expect(auth.replaceTwins(fresh.device.id, [old.device.id])).toEqual({ replaced: [old.device.id], skipped: [] });
+    expect(store.rows.get(old.device.id)?.status).toBe('revoked');
+    expect(onRevoked).toHaveBeenCalledTimes(1);
+    expect(onRevoked.mock.calls[0][0]).toMatchObject({ id: old.device.id, status: 'revoked' });
+    expect(store.rows.get(fresh.device.id)?.status).toBe('active');
+  });
+
+  it('matches the name without regard to case or surrounding spaces', () => {
+    const old = approvedPhone('iphone 17');
+    const fresh = approvedPhone('iPhone 17');
+    expect(auth.replaceTwins(fresh.device.id, [old.device.id]).replaced).toEqual([old.device.id]);
+  });
+
+  it('skips a row with another name, another platform, a pending, revoked or unknown one, and itself', () => {
+    const fresh = approvedPhone('iPhone 17');
+    const otherName = approvedPhone('iPad');
+    const pending = pairPhone('iPhone 17');
+    const revoked = approvedPhone('iPhone 17');
+    auth.revoke(revoked.device.id);
+    const { code } = auth.createPairingCode();
+    const android = auth.redeem({ code, label: 'iPhone 17', platform: 'android' })!;
+    auth.approve(android.device.id);
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    onRevoked.mockClear();
+    const ids = [otherName.device.id, pending.device.id, revoked.device.id, android.device.id, unknown, fresh.device.id];
+    expect(auth.replaceTwins(fresh.device.id, ids)).toEqual({ replaced: [], skipped: ids });
+    expect(onRevoked).not.toHaveBeenCalled();
+    expect(store.rows.get(otherName.device.id)?.status).toBe('active');
+    expect(store.rows.get(android.device.id)?.status).toBe('active');
+    expect(store.rows.get(pending.device.id)?.status).toBe('pending');
+  });
+
+  it('replaces nothing for a phone that is not approved', () => {
+    const old = approvedPhone('iPhone 17');
+    const fresh = pairPhone('iPhone 17');
+    expect(auth.replaceTwins(fresh.device.id, [old.device.id])).toEqual({ replaced: [], skipped: [old.device.id] });
+    expect(store.rows.get(old.device.id)?.status).toBe('active');
+  });
+});

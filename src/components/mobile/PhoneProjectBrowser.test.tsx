@@ -56,6 +56,12 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   if (u.pathname === '/api/files/search') {
     return json({ results: [{ path: '/src/lib', name: 'lib', type: 'dir' }, { path: '/src/lib/a.ts', name: 'a.ts', type: 'file' }], indexing: false });
   }
+  if (u.pathname === '/api/files/resolve') {
+    // Absolute path in; a project file or folder exists when the tree or the files name it.
+    const abs = u.searchParams.get('path') ?? '';
+    const rel = abs.startsWith(`${ROOT}/`) ? abs.slice(ROOT.length) : null;
+    return rel && (FILES[rel] || TREE[rel]) ? json({ absolute: abs, kind: FILES[rel] ? 'file' : 'dir' }) : notFound();
+  }
   if (u.pathname === '/api/files/grep') return json({ matches: [{ file: '/src/lib/a.ts', line: 42, text: 'const target = sendPrompt();' }], truncated: false });
   return notFound();
 });
@@ -309,6 +315,51 @@ describe('PhoneProjectBrowser — a file link from the terminal', () => {
     expect(useUiStore.getState().pendingFileOpen).toBeNull();
     act(() => useUiStore.getState().openFileInProject('/etc/hosts', ROOT));
     expect(await screen.findByText('/etc/hosts is outside this project.')).toBeInTheDocument();
+  });
+});
+
+describe('PhoneProjectBrowser — a link that repeats the project\'s name (Nov 6 2026)', () => {
+  const resolves = () => fetchMock.mock.calls.filter(([u]) => u.startsWith('/api/files/resolve')).map(([u]) => new URL(u, 'http://phone').searchParams.get('path'));
+
+  it('opens "proj/src/lib/a.ts" as the project\'s own src/lib/a.ts when there is no proj folder in it', async () => {
+    renderBrowser();
+    await within(root()).findByRole('button', { name: 'Folder docs' });
+    act(() => useUiStore.getState().openFileInProject(`${ROOT}/proj/src/lib/a.ts`, ROOT));
+    expect(await screen.findByText('const target = sendPrompt();')).toBeInTheDocument();
+    expect(resolves()).toEqual([`${ROOT}/proj/src/lib/a.ts`]);
+    expect(screen.queryByText(/isn't available on this phone/)).toBeNull();
+  });
+
+  it('keeps the path as written when the project really has a folder of its own name', async () => {
+    TREE['/proj'] = [{ name: 'a.md', type: 'file', size: 2 }];
+    FILES['/proj/a.md'] = { content: 'inner', ext: 'md' };
+    FILES['/a.md'] = { content: 'outer', ext: 'md' };
+    try {
+      renderBrowser();
+      await within(root()).findByRole('button', { name: 'Folder docs' });
+      act(() => useUiStore.getState().openFileInProject('proj/a.md', ROOT));
+      expect(await screen.findByText('inner')).toBeInTheDocument();
+      expect(screen.queryByText('outer')).toBeNull();
+    } finally {
+      delete TREE['/proj'];
+      delete FILES['/proj/a.md'];
+      delete FILES['/a.md'];
+    }
+  });
+
+  it('heals a remembered folder that repeats the project\'s name: the tab opens where it should', async () => {
+    localStorage.setItem(`aasc:phone-project-files:${ROOT}`, JSON.stringify({ dir: '/proj/src', open: [], recent: [], current: null }));
+    renderBrowser();
+    expect(await within(root()).findByRole('button', { name: 'Folder lib' })).toBeInTheDocument();
+    expect(screen.queryByText(/isn't available on this phone/)).toBeNull();
+  });
+
+  it('asks nothing extra for an ordinary path', async () => {
+    renderBrowser();
+    await within(root()).findByRole('button', { name: 'Folder docs' });
+    act(() => useUiStore.getState().openFileInProject('src/lib/a.ts', ROOT));
+    expect(await screen.findByText('const target = sendPrompt();')).toBeInTheDocument();
+    expect(resolves()).toEqual([]);
   });
 });
 

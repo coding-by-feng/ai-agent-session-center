@@ -5,7 +5,11 @@ import {
   SyncStatusSchema,
   type CloudJob,
 } from '@/types/cloudResources';
-import { ProjectRecordSchema } from '@/types/cloudProjects';
+import {
+  ProjectFoldersSchema,
+  ProjectMetasSchema,
+  ProjectRecordSchema,
+} from '@/types/cloudProjects';
 import type { CloudReviewBinding } from '@/lib/cloudApi';
 export const cacheKey = (b: CloudReviewBinding | null) =>
   b ? JSON.stringify([b.backendOrigin, b.accountId]) : '';
@@ -18,6 +22,12 @@ const schema = z.object({
    */
   sync: SyncStatusSchema.optional().catch(undefined),
   projects: z.array(ProjectRecordSchema),
+  /**
+   * The Projects tab's last folder list and ♥/tags (Oct 29 2026), shown until read again. Like
+   * `sync`, a stored shape this build can't read is dropped on its own.
+   */
+  projectFolders: ProjectFoldersSchema.optional().catch(undefined),
+  projectMeta: ProjectMetasSchema.optional().catch(undefined),
   jobs: z.array(
     z.object({ job: CloudJobSchema, generation: z.number(), projectId: z.string().optional() }),
   ),

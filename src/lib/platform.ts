@@ -51,12 +51,26 @@ export const MOBILE_MEDIA_QUERY =
   `(max-width: ${MOBILE_BREAKPOINT}px), (max-height: ${MOBILE_BREAKPOINT}px) and (pointer: coarse)`;
 
 /**
- * True on a phone-sized viewport. Use to UNMOUNT things that shouldn't exist
+ * The phone app's split view (iPad, Nov 1 2026): the list on the left, the open
+ * screen on the right. Wide AND tall, so a big phone in landscape (~930 × 430)
+ * keeps one column; an iPad in landscape (1180 × 820) splits, in portrait it doesn't.
+ */
+export const PHONE_SPLIT_MIN_WIDTH = 900;
+export const PHONE_SPLIT_MIN_HEIGHT = 600;
+export const PHONE_SPLIT_MEDIA_QUERY =
+  `(min-width: ${PHONE_SPLIT_MIN_WIDTH}px) and (min-height: ${PHONE_SPLIT_MIN_HEIGHT}px)`;
+
+/**
+ * True on a phone-sized viewport, and always inside the AASC phone app: its UI
+ * is the phone layout at any size, so an iPad (wider than the breakpoint) gets
+ * the phone app and every phone variant of the views it reuses, not the
+ * desktop dashboard (Nov 1 2026). Use to UNMOUNT things that shouldn't exist
  * on mobile — see rule (3) above. For purely visual differences prefer a CSS
- * media query, which costs no JS and no re-render.
+ * media query, which costs no JS and no re-render (it does not see the app).
  */
 export function useIsMobile(): boolean {
-  return useMediaQuery(MOBILE_MEDIA_QUERY);
+  const phoneSized = useMediaQuery(MOBILE_MEDIA_QUERY);
+  return phoneSized || isNativeMobileApp();
 }
 
 /**

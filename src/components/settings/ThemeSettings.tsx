@@ -1,11 +1,14 @@
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
 import { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription, type RobotModelType } from '@/lib/robotModelMeta';
+import { IS_LITE } from '@/lib/edition';
 import styles from '@/styles/modules/Settings.module.css';
 
 export default function ThemeSettings() {
   const themeName = useSettingsStore((s) => s.themeName);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const scanlineEnabled = useSettingsStore((s) => s.scanlineEnabled);
+  const instantTyping = useSettingsStore((s) => s.instantTyping);
+  const setInstantTyping = useSettingsStore((s) => s.setInstantTyping);
   const animationIntensity = useSettingsStore((s) => s.animationIntensity);
   const animationSpeed = useSettingsStore((s) => s.animationSpeed);
   const characterModel = useSettingsStore((s) => s.characterModel);
@@ -40,8 +43,8 @@ export default function ThemeSettings() {
         </div>
       </div>
 
-      {/* Character Model Picker */}
-      <div className={styles.section}>
+      {/* Character Model Picker (Lite has no 3D scene to show it in) */}
+      {!IS_LITE && <div className={styles.section}>
         <h4>3D Character Model</h4>
         <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
           Choose the robot model shown in the Cyberdrome
@@ -91,7 +94,7 @@ export default function ThemeSettings() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Font Size */}
       <div className={styles.section}>
@@ -136,8 +139,22 @@ export default function ThemeSettings() {
         </label>
       </div>
 
-      {/* Animation Controls */}
+      {/* Terminal: instant typing (LocalEchoOverlay). APPEARANCE is in Lite's allow-list, so Lite can turn it off. */}
       <div className={styles.section}>
+        <h4>Terminal</h4>
+        <label className={styles.toggleLabel}>
+          <input
+            type="checkbox"
+            checked={instantTyping}
+            onChange={(e) => setInstantTyping(e.target.checked)}
+          />
+          <span className={styles.toggleSwitch} />
+          <span>Instant typing: show keys before the echo returns</span>
+        </label>
+      </div>
+
+      {/* Animation Controls (both drive the 3D robots) */}
+      {!IS_LITE && <div className={styles.section}>
         <h4>Animation</h4>
         <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', display: 'block' }}>
           Intensity (range of 3D robot movement)
@@ -170,7 +187,7 @@ export default function ThemeSettings() {
           />
           <span style={{ minWidth: '40px', textAlign: 'right' }}>{animationSpeed}%</span>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -9,6 +9,8 @@
  *   Text/code  numbered lines, coloured where highlight.js knows the language
  *              (AASC-56); a search match opens at its line, marked
  *
+ * Every file, shown or not, has a Download button (⬇, Nov 7 2026: project/DownloadButton.tsx).
+ *
  * Find in the file (AASC-56) works on the source lines and on a rendered
  * Markdown page (the page's own text, lit with the CSS Highlight API).
  *
@@ -45,6 +47,7 @@ import {
 import PhoneImageViewer from './PhoneImageViewer';
 import SourceLines from './project/SourceLines';
 import FindBar from './project/FindBar';
+import DownloadButton from './project/DownloadButton';
 import { useDomFind } from './project/useDomFind';
 import { CollapseIcon, ExpandIcon, FindInFileIcon, OutlineIcon } from './projectIcons';
 import styles from '@/styles/modules/PhoneProject.module.css';
@@ -171,7 +174,9 @@ export default function PhoneFileView({
         fill
         title={text.title}
         hint={text.hint}
-        action={<Button onClick={() => { setStreamFailed(false); setAttempt((n) => n + 1); }}>Try again</Button>}
+        action={text.retryable
+          ? <Button onClick={() => { setStreamFailed(false); setAttempt((n) => n + 1); }}>Try again</Button>
+          : undefined}
       />
     );
   }
@@ -214,6 +219,7 @@ export default function PhoneFileView({
           Wrap
         </button>
       )}
+      <DownloadButton projectPath={projectPath} path={path} name={file.name || path.split('/').pop() || 'file'} />
       <button
         type="button"
         className={styles.iconBtn}

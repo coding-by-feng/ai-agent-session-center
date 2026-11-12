@@ -64,6 +64,21 @@ export function relInProject(filePath: string, projectPath: string): string | nu
   return path.startsWith(`${root}/`) ? normalizeRel(path.slice(root.length)) : null;
 }
 
+/**
+ * An agent sometimes names files from the project's parent folder: in
+ * `~/Documents/second-brain`, "second-brain/02-study/x.md" (Nov 6 2026). Read
+ * as written that is `/second-brain/02-study/x.md`, which isn't there. This is
+ * the other reading, `/02-study/x.md`, or null when the path doesn't start with
+ * the project folder's name. Only a guess: a project may hold a folder of its
+ * own name (`mypkg/mypkg/`), so the caller tries the path as written first.
+ */
+export function withoutProjectName(rel: string, projectPath: string): string | null {
+  const name = baseName(projectPath);
+  const parts = normalizeRel(rel).split('/').filter(Boolean);
+  if (!name || parts.length < 2 || parts[0] !== name) return null;
+  return `/${parts.slice(1).join('/')}`;
+}
+
 // ── Viewers ──────────────────────────────────────────────────────────────────
 
 export type PhoneViewerKind = 'markdown' | 'tex' | 'pdf' | 'image' | 'media' | 'text' | 'none';
@@ -125,18 +140,21 @@ export function lineWindow(total: number, target: number | null, size = PHONE_LI
 /**
  * What the screen says when a read fails. A paired phone is refused with a
  * plain 404 (so a refused path can't be told from a missing one): say both.
+ * `retryable` is false when trying again cannot change the answer (a file
+ * too large to open), so the screen offers no Try again.
  */
-export function fileErrorText(status: number, what: 'file' | 'folder'): { title: string; hint: string } {
+export function fileErrorText(status: number, what: 'file' | 'folder'): { title: string; hint: string; retryable: boolean } {
   if (status === 404) {
     return {
       title: `This ${what} isn't available on this phone`,
       hint: 'A phone reads only inside a shared session\'s project, never private files such as .env or keys — or it may have been moved or deleted.',
+      retryable: true,
     };
   }
-  if (status === 413) return { title: `This ${what} is too large to open`, hint: 'Open it on the Mac.' };
-  if (status === 429) return { title: 'Too many requests', hint: 'Wait a moment and try again.' };
-  if (status === 0) return { title: 'The Mac could not be reached', hint: 'Check the connection and try again.' };
-  return { title: `This ${what} could not be opened`, hint: 'Try again, or open it on the Mac.' };
+  if (status === 413) return { title: `This ${what} is too large to open`, hint: 'Open it on the Mac.', retryable: false };
+  if (status === 429) return { title: 'Too many requests', hint: 'Wait a moment and try again.', retryable: true };
+  if (status === 0) return { title: 'The Mac could not be reached', hint: 'Check the connection and try again.', retryable: true };
+  return { title: `This ${what} could not be opened`, hint: 'Try again, or open it on the Mac.', retryable: true };
 }
 
 export function formatSize(bytes?: number): string {

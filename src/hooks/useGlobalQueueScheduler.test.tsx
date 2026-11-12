@@ -4,10 +4,9 @@
  *
  * Two things reach `waiting` — the queue's "turn finished" signal — without the
  * turn being finished, and neither may send the next prompt:
- *   - the user stopped the turn with Esc (Claude Code fires a real Stop for it,
- *     so the session lands in `waiting` exactly like a clean finish; the server
- *     marks `userCancelledAt` from the CLI's own "What should Claude do
- *     instead?" line);
+ *   - the user stopped the turn with Esc (the server reads it from the CLI's
+ *     transcript, ends the turn as `waiting` exactly like a clean finish, and
+ *     marks `userCancelledAt`);
  *   - subagents still running after the main agent's Stop (`subagentCount`).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -134,7 +133,7 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     expect(recordQueueSent).not.toHaveBeenCalled();
   });
 
-  it('after an Esc-cancel (a real Stop), nothing sends', async () => {
+  it('after an Esc-cancel (ended as waiting), nothing sends', async () => {
     setSession({ status: 'waiting', userCancelledAt: T0 });
     queueOnce('next prompt');
     render(<Harness />);
@@ -368,6 +367,43 @@ describe('useGlobalQueueScheduler — a sent prompt the CLI never took', () => {
     await advance(70_000);
     expect(send).toHaveBeenCalledTimes(1);
     expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  // Nov 8 2026: a photo is a prompt on its own.
+  it('sends a queued item that is only an image as just its path, with no blank first line', async () => {
+    const IMG = '/tmp/claude-queue-images/queue-img-1-a.png';
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url === '/api/queue-images'
+        ? new Response(JSON.stringify({ paths: [IMG] }), { status: 200 })
+        : new Response('{}', { status: 200 }),
+    ));
+    setSession({ status: 'waiting' });
+    const item: QueueItem = {
+      id: 1, sessionId: 's1', text: '', position: 0, createdAt: T0, type: 'once',
+      images: [{ name: 'shot.png', dataUrl: 'data:image/png;base64,AAAA' } as never],
+    };
+    useQueueStore.setState({ queues: new Map([['s1', [item]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1]).toBe(IMG);
+    expect(send.mock.calls[0][3]).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
+  });
+
+  it('types nothing for an image-only item whose image upload failed, and keeps it queued', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url === '/api/queue-images' ? new Response('{}', { status: 500 }) : new Response('{}', { status: 200 }),
+    ));
+    setSession({ status: 'waiting' });
+    const item: QueueItem = {
+      id: 1, sessionId: 's1', text: '', position: 0, createdAt: T0, type: 'once',
+      images: [{ name: 'shot.png', dataUrl: 'data:image/png;base64,AAAA' } as never],
+    };
+    useQueueStore.setState({ queues: new Map([['s1', [item]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(5000);
+    expect(send).not.toHaveBeenCalled();
+    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
   });
 
   it('the /clear incident: the prompt queued after /clear is still submitted when its first Enter is swallowed', async () => {

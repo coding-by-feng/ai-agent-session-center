@@ -121,7 +121,7 @@ describe('phoneRuleFor', () => {
     ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['GET', '/sessions/abc/subagents/a1b2/transcript'],
     ['PUT', '/sessions/abc/queue'],
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
-    ['PUT', '/sessions/abc/title'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
+    ['PUT', '/sessions/abc/title'], ['PUT', '/sessions/abc/pinned'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
@@ -163,7 +163,7 @@ describe('phoneRuleFor', () => {
     ['POST', '/config/terminal-buffer'], ['POST', '/reset'], ['POST', '/hook-stats/reset'],
     ['POST', '/sessions/clear-all'], ['GET', '/ssh-keys'], ['POST', '/tmux-sessions'],
     ['POST', '/sessions/abc/reconnect-ops-terminal'], ['PUT', '/sessions/abc/remote-visible'],
-    ['PUT', '/sessions/abc/pinned'], ['POST', '/sessions/abc/summarize'],
+    ['POST', '/sessions/abc/summarize'],
     ['GET', '/sessions/history'], ['GET', '/sessions/resume-command'], ['GET', '/sessions/spawn-floating'],
     ['POST', '/terminals/register'], ['POST', '/terminals/t1/prefill-output'],
     ['GET', '/teams/x/config'], ['POST', '/teams/x/members/y/terminal'],
@@ -391,6 +391,30 @@ describe('phoneMayRead', () => {
     }
   });
 
+  // Nov 7 2026: the phone's Download button (`/files/stream?download=1`) sends any file's bytes, so
+  // binary secrets and databases are refused by name, and the server's own data folder by place.
+  it('never reads binary keys, keychains or databases (WAL and backups too)', () => {
+    for (const name of ['AuthKey_ABC.p8', 'vault.kdbx', 'login.keychain-db', 'dev.mobileprovision', 'notes.gpg',
+      'sessions.db', 'sessions.db-wal', 'sessions.db-shm', 'sessions.db.bak-20260529', 'app.sqlite', 'app.sqlite3', 'x.sqlite-wal']) {
+      expect(phoneMayRead(join(project, 'data', name), [project], home), name).toBe(false);
+    }
+    expect(phoneMayRead(join(project, 'schema.dbml'), [project], home)).toBe(true);
+    expect(phoneMayRead(join(project, 'db.md'), [project], home)).toBe(true);
+  });
+
+  it("never reads the server's own data folder, even inside a shared project", () => {
+    const before = process.env.APP_USER_DATA;
+    process.env.APP_USER_DATA = join(project, 'user-data');
+    mkdirSync(join(project, 'user-data', 'data'), { recursive: true });
+    try {
+      expect(phoneMayRead(join(project, 'user-data', 'data', 'server-config.json'), [project], home)).toBe(false);
+      expect(phoneMayRead(join(project, 'user-data', 'notes.md'), [project], home)).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.APP_USER_DATA;
+      else process.env.APP_USER_DATA = before;
+    }
+  });
+
   it('never serves a shared project outside the home folder or inside agent config', () => {
     expect(phoneMayRead(join(outside, 'x.txt'), [outside], home)).toBe(false);
     expect(phoneMayRead(join(home, '.codex', 'auth.json'), [join(home, '.codex')], home)).toBe(false);
@@ -490,6 +514,16 @@ describe('a paired phone through the API', () => {
     const res = await call('GET', `/files/read?${q({ root: project, path: '/README.md' })}`, PHONE);
     expect(res.status).toBe(200);
     expect(JSON.stringify(res.json)).toContain('# proj');
+  });
+
+  // Nov 6 2026: the Project tab asks whether a chat link's path exists as written before it
+  // reads it without the project's own name ("second-brain/02-study/x.md" in second-brain).
+  it('asks whether a path in a shared project exists: 200 when it does, 404 when it is missing', async () => {
+    const found = await call('GET', `/files/resolve?${q({ path: join(project, 'README.md') })}`, PHONE);
+    expect(found.status).toBe(200);
+    expect(found.json.kind).toBe('file');
+    const missing = await call('GET', `/files/resolve?${q({ path: join(project, 'proj', 'nope', 'x.md') })}`, PHONE);
+    expect(missing.status).toBe(404);
   });
 
   it('can’t read ~/.ssh, directly or through a link in the project', async () => {
@@ -1037,6 +1071,14 @@ const DESKTOP_CLOUD_ROUTES: Array<[string, string]> = [
   ['GET', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/local'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/resources-plan'],
   ['POST', '/resources/cloud/projects/jobs/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/retry-resources'],
+  // RESOURCES → Projects (AASC-63, Oct 29 2026): this Mac's folders and accounts, ♥/tags, row actions.
+  ['GET', '/resources/cloud/projects/github-accounts'], ['GET', '/resources/cloud/projects/candidates'],
+  ['GET', '/resources/cloud/projects/folders'], ['GET', '/resources/cloud/projects/meta'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/meta'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/remove'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/check'],
+  ['POST', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/push'],
+  ['PUT', '/resources/cloud/projects/0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c/account'],
   // Remote access (AASC-60): this Mac's Tailscale state, its refresh, and launching the Tailscale app.
   ['GET', '/resources/cloud/remote-access'], ['POST', '/resources/cloud/remote-access/refresh'],
   ['POST', '/resources/cloud/remote-access/open-tailscale'],

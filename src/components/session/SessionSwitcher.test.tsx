@@ -285,6 +285,115 @@ describe('SessionSwitcher — queue hint badge', () => {
     vi.restoreAllMocks();
   });
 
+  describe('the CLI mark', () => {
+    const cardOf = (title: string) => screen.getAllByText(title)[0].closest('button') as HTMLElement;
+
+    it.each([
+      ['claude', 'Claude'],
+      ['codex', 'Codex'],
+    ])('marks a %s session with its brand icon, named for screen readers', (cliSource, name) => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Same Name', cliSource } as Partial<Session>));
+      const mark = within(cardOf('Same Name')).getByRole('img', { name });
+      expect(mark.querySelector('svg')).not.toBeNull();
+      expect(mark.getAttribute('title')).toBe(name);
+    });
+
+    it('knows a session by its model when no hook named the CLI', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Same Name', model: 'gpt-5.5-codex' }));
+      expect(within(cardOf('Same Name')).getByRole('img', { name: 'Codex' })).toBeInTheDocument();
+    });
+
+    it('comes first in the title row, before the star and the queue chip', () => {
+      useQueueStore.getState().setQueue('s2', queue('s2', 2) as never);
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Same Name', cliSource: 'claude' } as Partial<Session>));
+      const mark = within(cardOf('Same Name')).getByRole('img', { name: 'Claude' });
+      expect(mark.parentElement?.firstElementChild).toBe(mark);
+    });
+
+    it('draws nothing when the CLI is unknown', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Same Name' }));
+      const card = cardOf('Same Name');
+      expect(within(card).queryByRole('img', { name: 'Claude' })).toBeNull();
+      expect(within(card).queryByRole('img', { name: 'Codex' })).toBeNull();
+    });
+
+    it('shows on a detailed card too, where the word badge misses a session known only by its hooks', () => {
+      const mode = useUiStore.getState().cardDisplayMode;
+      useUiStore.setState({ cardDisplayMode: 'detailed' });
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Same Name', cliSource: 'codex' } as Partial<Session>));
+      expect(within(cardOf('Same Name')).getByRole('img', { name: 'Codex' })).toBeInTheDocument();
+      useUiStore.setState({ cardDisplayMode: mode });
+    });
+
+    it('appears when the CLI is identified after the card first drew, with nothing else changing', () => {
+      const current = makeSession({ sessionId: 'cur', title: 'Current' });
+      const view = (carded: Session) => (
+        <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])} onSwitch={vi.fn()} />
+      );
+      const base = { sessionId: 's2', title: 'Same Name' };
+      const { rerender } = render(view(makeSession(base)));
+      expect(within(cardOf('Same Name')).queryByRole('img', { name: 'Claude' })).toBeNull();
+      rerender(view(makeSession({ ...base, cliSource: 'claude' } as Partial<Session>)));
+      expect(within(cardOf('Same Name')).getByRole('img', { name: 'Claude' })).toBeInTheDocument();
+    });
+  });
+
+  describe('while compacting', () => {
+    const compacting = { since: Date.now() - 5_000, trigger: 'auto' as const };
+    const cardOf = (title: string) => screen.getAllByText(title)[0].closest('button') as HTMLElement;
+
+    it('the card shows the working spinner in its colour, not an idle card', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Busy Agent', status: 'idle', compacting }));
+      const card = cardOf('Busy Agent');
+      const badge = within(card).getByRole('img', { name: 'Compacting' });
+      expect(badge.querySelector('path')).not.toBeNull();
+      expect(card.style.getPropertyValue('--robot-color')).toBe('var(--accent-orange)');
+    });
+
+    it('outranks the proceed reminder on the card', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Busy Agent', status: 'idle', pendingProceedAt: 1, compacting }));
+      expect(within(cardOf('Busy Agent')).getByRole('img', { name: 'Compacting' })).toBeInTheDocument();
+    });
+
+    it('outranks the completed tick, which comes back when the compaction ends', () => {
+      const current = makeSession({ sessionId: 'cur', title: 'Current' });
+      const view = (carded: Session) => (
+        <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])} onSwitch={vi.fn()} />
+      );
+      const busy = { sessionId: 's2', title: 'Busy Agent' };
+      const { rerender } = render(view(makeSession({ ...busy, status: 'working' })));
+      rerender(view(makeSession({ ...busy, status: 'waiting' })));
+      expect(within(cardOf('Busy Agent')).getByRole('img', { name: /^Completed/ })).toBeInTheDocument();
+
+      rerender(view(makeSession({ ...busy, status: 'waiting', compacting })));
+      expect(within(cardOf('Busy Agent')).queryByRole('img', { name: /^Completed/ })).toBeNull();
+      expect(within(cardOf('Busy Agent')).getByRole('img', { name: 'Compacting' })).toBeInTheDocument();
+
+      rerender(view(makeSession({ ...busy, status: 'waiting', compacting: null })));
+      expect(within(cardOf('Busy Agent')).getByRole('img', { name: /^Completed/ })).toBeInTheDocument();
+    });
+
+    it('leaves a card that needs an approval alone', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Busy Agent', status: 'approval', compacting }));
+      const card = cardOf('Busy Agent');
+      expect(within(card).queryByRole('img', { name: 'Compacting' })).toBeNull();
+      expect(within(card).getByRole('img', { name: 'Approval needed' })).toBeInTheDocument();
+    });
+
+    it('goes back to the status once the compaction is over', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Busy Agent', status: 'idle', compacting: null }));
+      expect(within(cardOf('Busy Agent')).getByRole('img', { name: 'Idle' })).toBeInTheDocument();
+    });
+
+    it('the panel header says so too', () => {
+      const current = makeSession({ sessionId: 'cur', title: 'Current', status: 'idle', compacting });
+      const { container } = render(
+        <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} statusLabel="IDLE" />,
+      );
+      expect(container.querySelector('[data-status="compacting"]')).toHaveTextContent('Compacting');
+    });
+  });
+
   it('shows the badge with the count when the session has queued prompts', () => {
     useQueueStore.getState().setQueue('s2', queue('s2', 2) as never);
     renderWithCard(makeSession({ sessionId: 's2', title: 'Queued Agent' }));
@@ -1275,12 +1384,12 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     expect(recentOf(container)).toBeNull();
   });
 
-  it('lets a session go once it has been quiet for the whole window, with no update arriving', () => {
-    const nearlyStale = makeSession({ sessionId: 'n', title: 'Nearly stale', ...worked(40, 29) });
-    const { container } = renderSwitcher([qa, nearlyStale], [makeRoom({ id: 'r', name: 'R', sessionIds: ['qa', 'n'] })]);
-    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Nearly stale']);
-    act(() => { vi.advanceTimersByTime(2 * MIN); });
-    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A']);
+  it('keeps a session that went quiet, however much time passes (RECENT_LIMIT, Nov 2)', () => {
+    const quiet = makeSession({ sessionId: 'n', title: 'Long quiet', ...worked(40, 29) });
+    const { container } = renderSwitcher([qa, quiet], [makeRoom({ id: 'r', name: 'R', sessionIds: ['qa', 'n'] })]);
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Long quiet']);
+    act(() => { vi.advanceTimersByTime(120 * MIN); });
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'Long quiet']);
   });
 
   it('shows in the top-bar layout too, first', () => {
@@ -2610,7 +2719,8 @@ describe('SessionSwitcher — central badge', () => {
       const star = within(title).getByLabelText('Central session: global');
       const queue = within(title).getByLabelText('1 queued prompt');
 
-      expect(title.firstElementChild).toBe(star);
+      // First in the row, after only the Claude/Codex mark.
+      expect([...title.children].find((el) => !el.matches('[aria-label="Claude"], [aria-label="Codex"]'))).toBe(star);
       expect(star.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(title.textContent?.endsWith('Boss Agent')).toBe(true);
       useQueueStore.setState({ queues: new Map() } as never);

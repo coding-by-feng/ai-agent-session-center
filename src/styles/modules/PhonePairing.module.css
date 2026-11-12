@@ -112,6 +112,31 @@
   letter-spacing: 0.06em;
 }
 
+/* "Replaces iPhone 17 · paired 31 Oct · last seen 4d ago" (Nov 6 2026): the whole row is the touch target. */
+.replaceRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary, #e0e0f0);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.replaceRow input {
+  flex: none;
+  margin: 2px 0 0;
+  cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .replaceRow {
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
 .actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -134,7 +159,10 @@
 }
 
 .phoneIcon {
-  font-size: 14px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 2px;
+  color: var(--text-secondary, inherit);
 }
 
 .phoneMain {

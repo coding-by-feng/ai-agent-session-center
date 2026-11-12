@@ -136,7 +136,7 @@ export async function readCapped(res: FetchResponse, maxBytes: number): Promise<
 /** One HTTP call with its own deadline and size cap (the body read included). Throws on network failure, timeout or an oversized answer. */
 async function call(
   deps: RemoteClientDeps, method: 'GET' | 'POST', url: string,
-  opts: { body?: unknown; bearer?: string; timeoutMs?: number; maxBytes?: number } = {},
+  opts: { body?: unknown; bearer?: string; cookie?: string; timeoutMs?: number; maxBytes?: number } = {},
 ): Promise<Answer> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? deps.timeoutMs ?? TRY_TIMEOUT_MS)
@@ -144,6 +144,7 @@ async function call(
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
     if (opts.bearer) headers.Authorization = `Bearer ${opts.bearer}`
+    if (opts.cookie) headers.Cookie = opts.cookie
     const res = await deps.fetch(url, {
       method,
       headers,
@@ -345,5 +346,26 @@ export async function countShared(deps: RemoteClientDeps, origin: string, sessio
     return Array.isArray(a.data) ? a.data.length : Object.keys(a.data).length
   } catch {
     return null
+  }
+}
+
+export type RemoteSessionState = 'signed-in' | 'signed-out' | 'no-password' | 'no-answer'
+
+/**
+ * Is this session still good? Asks without signing in: a sign-in mints a session, and the remote keeps only the newest
+ * few per computer, so asking that way would end the very session being asked about. Anything but a clear answer from
+ * AASC is `no-answer`, never `signed-out`. `no-password`: the remote calls everyone authenticated, yet refuses remote
+ * requests until it has one, so no session can be good. Never throws.
+ */
+export async function remoteSessionState(deps: RemoteClientDeps, origin: string, sessionToken: string | null): Promise<RemoteSessionState> {
+  try {
+    const a = await call(deps, 'GET', `${origin}/api/auth/status`, sessionToken ? { cookie: `auth_token=${sessionToken}` } : {})
+    if (a.status !== 200) return 'no-answer'
+    if (field(a.data, ['passwordRequired']) === false) return 'no-password'
+    const authenticated = field(a.data, ['authenticated'])
+    if (authenticated === true) return 'signed-in'
+    return authenticated === false ? 'signed-out' : 'no-answer'
+  } catch {
+    return 'no-answer'
   }
 }

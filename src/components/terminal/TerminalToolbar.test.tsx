@@ -84,3 +84,23 @@ describe('TerminalToolbar — Restart session', () => {
     expect(restart).not.toHaveAttribute('aria-busy');
   });
 });
+
+describe('TerminalToolbar — Find in terminal', () => {
+  it('offers Find just before Fullscreen, lit while the bar is open', () => {
+    const onToggleSearch = vi.fn();
+    const { rerender } = render(<TerminalToolbar {...base} onToggleSearch={onToggleSearch} />);
+    const find = screen.getByRole('button', { name: 'Find in terminal' });
+    expect(find).toHaveAttribute('aria-pressed', 'false');
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[buttons.indexOf(find) + 1]).toHaveAccessibleName('Fullscreen terminal');
+    find.click();
+    expect(onToggleSearch).toHaveBeenCalledTimes(1);
+    rerender(<TerminalToolbar {...base} onToggleSearch={onToggleSearch} searchOpen />);
+    expect(screen.getByRole('button', { name: 'Find in terminal' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('has no Find without a handler', () => {
+    render(<TerminalToolbar {...base} />);
+    expect(screen.queryByRole('button', { name: 'Find in terminal' })).toBeNull();
+  });
+});

@@ -17,6 +17,8 @@ let removal: { removed: number; failed: number };
 let addresses: { lan: string | null; tailnet: string | null; public: string | null } | null;
 /** The bodies POST /api/mobile/pairing was sent. */
 let pairingBodies: unknown[];
+/** The bodies each approve was sent (undefined: none). */
+let approveBodies: unknown[];
 
 function json(status: number, body: unknown) {
   return Promise.resolve({ ok: status < 400, status, json: async () => body });
@@ -37,6 +39,7 @@ beforeEach(() => {
   removal = { removed: 0, failed: 0 };
   addresses = null;
   pairingBodies = [];
+  approveBodies = [];
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ url, method });
@@ -56,7 +59,16 @@ beforeEach(() => {
         data: { code: 'ABCDEFGHJK', expiresAt: Date.now() + 120_000, link: 'https://aasc.work/pair#v=2&mc=ABCDEFGHJK' },
       });
     }
-    if (url.endsWith('/approve')) { phones = phones.map((p) => ({ ...p, status: 'active', confirmCode: null })); return json(200, { success: true }); }
+    if (url.endsWith('/approve')) {
+      const id = decodeURIComponent(url.split('/')[4] ?? '');
+      const body = init?.body ? JSON.parse(String(init.body)) as { replaces?: string[] } : undefined;
+      approveBodies.push(body);
+      const replaced = body?.replaces ?? [];
+      phones = phones
+        .filter((p) => !replaced.includes(p.id))
+        .map((p) => (p.id === id ? { ...p, status: 'active', confirmCode: null } : p));
+      return json(200, { success: true, data: { device: phones.find((p) => p.id === id), replaced, skipped: [] } });
+    }
     if (method === 'DELETE') { phones = []; return json(200, { success: true }); }
     if (method === 'PATCH') {
       const id = decodeURIComponent(url.split('/').pop() ?? '');
@@ -127,17 +139,16 @@ describe('PhonePairing', () => {
     expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
   });
 
-  it('lists a paired computer with 🖥, "Computer" and what a password sign-in may see', async () => {
+  it('lists a paired computer with a computer icon, "Computer" and what a password sign-in may see', async () => {
     phones = [
       phone({ id: 'd1', label: 'Studio Mac', platform: 'desktop', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
     ];
     render(<PhonePairing />);
     const row = (await screen.findByText('Studio Mac')).closest('li') as HTMLElement;
-    expect(row.textContent).toContain('🖥');
-    expect(row.textContent).not.toContain('📱');
+    expect(row.querySelector('svg')?.getAttribute('data-kind')).toBe('computer');
     expect(screen.getByText('Computer · Shared sessions, like a password sign-in')).toBeTruthy();
     // The phone-only access paragraph is about phones.
-    expect(screen.queryByText(/Paired phones can watch and drive/)).toBeNull();
+    expect(screen.queryByText(/Paired phones and tablets can watch and drive/)).toBeNull();
   });
 
   it('asks before letting a pending computer in, with the same code check', async () => {
@@ -159,6 +170,30 @@ describe('PhonePairing', () => {
     expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow Kason’s computer iPhone (Computer)?');
   });
 
+  it('a paired iPad gets a tablet icon, and a phone a phone icon (Nov 2 2026)', async () => {
+    phones = [
+      phone({ id: 't1', label: 'iPad', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 'p2', label: 'iPhone 17', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+      phone({ id: 't2', label: 'Kitchen tablet', status: 'active', confirmCode: null, lastSeenAt: Date.now() }),
+    ];
+    render(<PhonePairing />);
+    const kind = async (name: string) => ((await screen.findByText(name)).closest('li') as HTMLElement).querySelector('svg')?.getAttribute('data-kind');
+    expect(await kind('iPad')).toBe('tablet');
+    expect(await kind('iPhone 17')).toBe('phone');
+    expect(await kind('Kitchen tablet')).toBe('tablet');
+    // An iOS tablet whose name doesn't say so is called an iPad, never an iPhone.
+    expect(screen.getByText('iPad · shared sessions only')).toBeTruthy();
+    expect(screen.getByText(/Paired phones and tablets can watch and drive/)).toBeTruthy();
+  });
+
+  it('asks about a pending iPad in iPad words', async () => {
+    phones = [phone({ id: 't1', label: 'iPad', confirmCode: '654321' })];
+    render(<PhonePairing />);
+    expect((await screen.findByText(/^Allow .*\?$/)).textContent).toBe('Allow iPad?');
+    expect(screen.getByText(/Code on the iPad/)).toBeTruthy();
+    expect(screen.getByText(/Allow only if your iPad shows the same code/)).toBeTruthy();
+  });
+
   it('shows no computer warning for a pending phone', async () => {
     phones = [phone({})];
     render(<PhonePairing />);
@@ -174,6 +209,46 @@ describe('PhonePairing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
     await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices/p1/approve' && c.method === 'POST')).toBe(true));
     expect(await screen.findByText('Kason iPhone')).toBeTruthy();
+  });
+
+  describe('a phone pairing again (Nov 6 2026)', () => {
+    const DAY = 86_400_000;
+    const old = () => phone({
+      id: 'old', label: 'iPhone 17', status: 'active', confirmCode: null,
+      createdAt: Date.now() - 6 * DAY, approvedAt: Date.now() - 6 * DAY, lastSeenAt: Date.now() - 4 * DAY,
+    });
+    const fresh = () => phone({ id: 'new', label: 'iPhone 17' });
+
+    it('offers to replace the older pairing, ticked, and Allow sends it', async () => {
+      phones = [old(), fresh()];
+      render(<PhonePairing />);
+      const box = await screen.findByRole('checkbox', { name: /Replaces iPhone 17 · paired\s.* · last\sseen\s4d\sago/ });
+      expect((box as HTMLInputElement).checked).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
+      await waitFor(() => expect(approveBodies).toEqual([{ replaces: ['old'] }]));
+      await waitFor(() => expect(screen.getAllByText('iPhone 17')).toHaveLength(1));
+    });
+
+    it('sends no replace when the box is unticked', async () => {
+      phones = [old(), fresh()];
+      render(<PhonePairing />);
+      fireEvent.click(await screen.findByRole('checkbox', { name: /Replaces iPhone 17/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
+      await waitFor(() => expect(approveBodies).toEqual([undefined]));
+    });
+
+    it('starts unticked when the older one is online: maybe a second phone with the same name', async () => {
+      phones = [{ ...old(), online: true }, fresh()];
+      render(<PhonePairing />);
+      expect(((await screen.findByRole('checkbox', { name: /Replaces iPhone 17/ })) as HTMLInputElement).checked).toBe(false);
+    });
+
+    it('offers nothing when no paired phone has the same name', async () => {
+      phones = [{ ...old(), label: 'iPad' }, fresh()];
+      render(<PhonePairing />);
+      await screen.findByText('123 456');
+      expect(screen.queryByRole('checkbox', { name: /Replaces/ })).toBeNull();
+    });
   });
 
   it('denies a pending phone', async () => {

@@ -30,13 +30,15 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
+import { isCompacting, isFinishingUp, phoneStatus } from '@/lib/chat/phoneStatus';
 import { displayStatus } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
 import { centralLabel } from '@/lib/centralChoice';
 import { useClock } from '@/lib/chat/clock';
+import { parsePhonePath } from '@/lib/chat/phoneRoutes';
+import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import type { GripHandlers } from './useSessionRoomDrag';
 import styles from '@/styles/modules/mobile/Sessions.module.css';
 import roomStyles from '@/styles/modules/mobile/SessionRooms.module.css';
@@ -96,10 +98,16 @@ export default function SessionListRow({
   // No ★ while central sessions are off: the marker stays, for when they are on again (centralFeatureStore).
   const central = useCentralSessionsShown() ? session.central : undefined;
   const queued = useQueueStore((s) => s.queues.get(session.sessionId)?.length ?? 0);
+  // The iPad's split view: this row's session (or a screen of it) is open in the right pane.
+  const current = usePhoneNavStore((s) => {
+    if (!s.split) return false;
+    const route = parsePhonePath(s.stacks[s.tab][1] ?? '');
+    return !!route && 'sessionId' in route && route.sessionId === session.sessionId;
+  });
   const clock = useClock();
   const title = sessionDisplayTitle(session);
   const shown = displayStatus(session); // the P while the last answer asks you to proceed
-  const status = phoneStatus(shown, !!session.interruption, isCompacting(session)).label;
+  const status = phoneStatus(shown, !!session.interruption, isCompacting(session), isFinishingUp(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
   const cli = detectCli(session);
@@ -117,6 +125,8 @@ export default function SessionListRow({
       className={styles.row}
       onClick={() => onOpen(session)}
       aria-label={spoken}
+      aria-current={current ? 'true' : undefined}
+      data-current={current ? '' : undefined}
       data-testid={`session-row-${session.sessionId}`}
     >
       <span className={styles.avatar}>

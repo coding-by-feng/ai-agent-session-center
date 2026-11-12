@@ -270,6 +270,61 @@ describe('the lines the relaunch routes type pass the relaunch rule (Ruling P3-2
     expect(typedLines()).toEqual(['codex --model gpt-5']);
   });
 
+  // Oct 30 2026: Codex sends no hook on `codex resume`, so a restored Codex card nobody prompted stayed
+  // keyed by its terminal id, and its Reconnect / Resume opened a fresh Codex instead of the thread.
+  it('a restored Codex card no hook has re-keyed reconnects and resumes the thread its restore resumed', async () => {
+    const { json } = await api.call('POST', '/terminals', {
+      host: 'localhost', workingDir: DIR, command: 'codex --model gpt-5', sessionTitle: 'AASC Codex',
+      forceNew: true, originalSessionId: UUID, resumeSessionId: UUID,
+    });
+    const terminal = String(json.terminalId);
+    expect(terminal).toMatch(/^term-/);
+    expect(store.getSession(terminal)?.launchResumeId).toBe(UUID);
+
+    for (const route of ['reconnect-terminal', 'resume']) {
+      mocks.writeWhenReady.mockClear();
+      const { status } = await api.call('POST', `/sessions/${terminal}/${route}`, {});
+      expect(status, route).toBe(200);
+      expect(typedLines()[0], route).toContain(`resume '${UUID}'`);
+    }
+  });
+
+  // Review finding: a twin minted by a non-startup hook carries no launch line, so after the fold the stored
+  // line is the card's fresh one. Reconnect must build the line from the real id instead.
+  it('reconnect right after a fold resumes the real id even when the stored line is a fresh launch', async () => {
+    const { reconnectResumeLine } = await import('../../server/apiRouter.js');
+    const folded = { sessionId: UUID, startupCommand: 'codex --model gpt-5', sshConfig: { command: 'codex' } } as never;
+
+    expect(reconnectResumeLine(folded, true)).toContain(`resume '${UUID}'`);
+    expect(reconnectResumeLine(folded, false)).toBeNull();
+  });
+
+  // Oct 30 2026: the toolbar's Clone and Fork on a Codex card. Clone stripped only Claude's session flags, so a
+  // resumed Codex line kept `resume '<id>'` and the clone took over the same thread; Fork of a restored card
+  // still keyed by its terminal id typed `codex fork --last`, which forks whatever thread is newest in the folder.
+  it('a Codex clone starts a fresh Codex: the resumed thread and its --no-daemon are not carried over', async () => {
+    const terminal = await plainCard(`codex --no-daemon --model gpt-5 resume '${UUID}'`, { command: 'codex', model: 'gpt-5' });
+    live.delete(terminal);
+    const { status } = await api.call('POST', `/sessions/${UUID}/clone`, {});
+    expect(status).toBe(200);
+    const [line] = typedLines();
+    expect(line).toBe(`codex --model gpt-5 -c 'model_reasoning_effort="high"'`);
+  });
+
+  it('a restored Codex card no hook has re-keyed forks the thread its restore resumed, never --last', async () => {
+    const { json } = await api.call('POST', '/terminals', {
+      host: 'localhost', workingDir: DIR, command: 'codex --model gpt-5', sessionTitle: 'AASC Codex',
+      forceNew: true, originalSessionId: UUID, resumeSessionId: UUID,
+    });
+    const terminal = String(json.terminalId);
+    mocks.writeWhenReady.mockClear();
+    const { status } = await api.call('POST', `/sessions/${terminal}/fork`, {});
+    expect(status).toBe(200);
+    const [line] = typedLines();
+    expect(line).toContain(`fork '${UUID}'`);
+    expect(line).not.toContain('--last');
+  });
+
   it('a Codex card’s resume line passes too', async () => {
     const terminal = await plainCard('codex --model gpt-5 -c model_reasoning_effort="high"', { command: 'codex', model: 'gpt-5' });
     live.delete(terminal);

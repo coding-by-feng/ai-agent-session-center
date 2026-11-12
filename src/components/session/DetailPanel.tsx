@@ -25,6 +25,8 @@ const AgentsTab = lazy(() => import('./AgentsTab'));
 // ACTIVITY (a central session's log of what it did) exists for central sessions only.
 const CentralActivity = lazy(() => import('./CentralActivity'));
 import QueueTab from './QueueTab';
+import { IS_LITE } from '@/lib/edition';
+import { useQueueStripCollapsed } from '@/hooks/useQueueStripCollapsed';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
@@ -144,7 +146,7 @@ const TerminalContent = memo(function TerminalContent({
   // to the terminal (queueHeight is kept for when it expands) and the divider
   // goes, since there is nothing to resize. Without this the row kept its height
   // and the header sat over ~220px of nothing.
-  const queueCollapsed = useUiStore((s) => s.queuePanelCollapsed);
+  const [queueCollapsed] = useQueueStripCollapsed(sessionId);
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -193,10 +195,6 @@ const TerminalContent = memo(function TerminalContent({
         .then((r) => {
           if (r?.ok !== false) {
             useFloatingSessionsStore.getState().setPoppedOut(terminalId, true);
-            // The in-app TerminalContainer unmounts to a placeholder; explicitly
-            // release its PTY-host subscription (unmount alone doesn't) so the
-            // popout window is the sole subscriber. No-op for WS terminals.
-            try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
           }
         })
         .catch(() => {});
@@ -351,7 +349,6 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
         .then((r) => {
           if (r?.ok !== false) {
             useFloatingSessionsStore.getState().setPoppedOut(opsTerminalId, true);
-            try { window.electronAPI?.unsubscribePty?.(opsTerminalId); } catch { /* ignore */ }
           }
         })
         .catch(() => {});
@@ -864,6 +861,7 @@ export default function DetailPanel() {
         {/* Tabs and content */}
         <div className={styles.mainCol}>
         <DetailTabs
+          hasTerminal={!!displaySession.terminalId}
           terminalContent={
             <TerminalContent
               sessionId={displaySession.sessionId}
@@ -919,6 +917,7 @@ export default function DetailPanel() {
               sessionStatus={displaySession.status}
               terminalId={displaySession.terminalId}
               fullHeight
+              alwaysOpen={IS_LITE}
             />
           }
           projectContent={
@@ -947,15 +946,16 @@ export default function DetailPanel() {
           }
           commandsContent={
             // A paired phone never opens a plain shell on the Mac (AASC-28): say so
-            // instead of a terminal that can never connect.
-            isNativeMobileApp() ? <Suspense fallback={null}><CommandsUnavailable /></Suspense> :
-            (displaySession.opsTerminalId || displaySession.hadOpsTerminal) ? (
+            // instead of a terminal that can never connect. Lite and Full alike (Nov 10 2026): a
+            // session launched without the shell gets CONNECT TERMINAL, never a blank tab, and
+            // the shell opens only on that click (each one is a PTY).
+            isNativeMobileApp() ? <Suspense fallback={null}><CommandsUnavailable /></Suspense> : (
               <OpsTerminalContent
                 sessionId={displaySession.sessionId}
                 opsTerminalId={displaySession.opsTerminalId ?? null}
                 projectPath={displaySession.projectPath}
               />
-            ) : undefined
+            )
           }
           onTabChange={setActiveTab}
           sessionId={displaySession.sessionId}

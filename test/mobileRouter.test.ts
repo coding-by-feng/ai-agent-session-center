@@ -358,6 +358,46 @@ describe('approve / deny from the desktop', () => {
   });
 });
 
+describe('approve replacing an older pairing (Nov 6 2026)', () => {
+  it('approves, then revokes the listed older pairing of the same phone, and says so', async () => {
+    const old = await pairedPhone();
+    await call('POST', `/devices/${old.deviceId}/approve`);
+    const fresh = await pairedPhone();
+    onRevoked.mockClear();
+    const res = await call('POST', `/devices/${fresh.deviceId}/approve`, { body: { replaces: [old.deviceId] } });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ device: { id: fresh.deviceId, status: 'active' }, replaced: [old.deviceId], skipped: [] });
+    expect(onRevoked).toHaveBeenCalledTimes(1);
+    expect((await signIn(old.deviceId, old.deviceToken)).body.code).toBe('DEVICE_REVOKED');
+  });
+
+  it('approves with no body, an empty body or an empty list, replacing nothing', async () => {
+    for (const body of [undefined, {}, { replaces: [] }]) {
+      const phone = await pairedPhone();
+      const res = await call('POST', `/devices/${phone.deviceId}/approve`, body ? { body } : {});
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ replaced: [], skipped: [] });
+    }
+  });
+
+  it('refuses a malformed list before approving anything', async () => {
+    const phone = await pairedPhone();
+    for (const body of [{ replaces: ['not-a-uuid'] }, { replaces: 'x' }, { replaces: [], extra: 1 }]) {
+      expect((await call('POST', `/devices/${phone.deviceId}/approve`, { body })).status).toBe(400);
+    }
+    expect((await call('GET', '/devices')).body.data.devices[0].status).toBe('pending');
+  });
+
+  it('a pending phone that is unknown approves nothing and replaces nothing', async () => {
+    const old = await pairedPhone();
+    await call('POST', `/devices/${old.deviceId}/approve`);
+    onRevoked.mockClear();
+    const res = await call('POST', '/devices/00000000-0000-4000-8000-000000000000/approve', { body: { replaces: [old.deviceId] } });
+    expect(res.status).toBe(404);
+    expect(onRevoked).not.toHaveBeenCalled();
+  });
+});
+
 describe('rename / sign out from the desktop', () => {
   it('PATCH renames a phone and the list shows the new name', async () => {
     const phone = await pairedPhone();

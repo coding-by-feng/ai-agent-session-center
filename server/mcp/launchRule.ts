@@ -4,7 +4,8 @@
 // A central that opens a worker (openWorker.ts, P4) has no more right to a folder than a paired phone does, so the
 // rule mirrors `phoneLaunchDecision` (server/mobile/phoneProfile.ts), which a phone's POST /terminals goes through:
 //
-//   * a KNOWN project root (a folder Claude Code has worked in) is allowed, even inside a hidden folder, but never
+//   * a KNOWN project root (a folder Claude Code has worked in) is allowed, even inside a hidden folder or outside
+//     home (an external drive: its exact folder only), but never
 //     one that passes through a private one (`.ssh`, `.git`, `.claude`, `~/Library`, key and env files …);
 //   * any other folder is allowed only when it sits inside the home folder with no hidden (dot) or private segment;
 //   * the home folder itself and everything above it (`/`, `/home`) is never allowed: the agent would take the
@@ -67,7 +68,11 @@ export function launchRefusal(folder: string, known: readonly string[], home: st
   const target = normalizeFolder(written);
   const root = normalizeFolder(home);
   if (target === root || isWithin(root, target)) return LAUNCH_REFUSALS.homeOrAbove;
-  if (!isWithin(target, root)) return LAUNCH_REFUSALS.outsideHome;
+  if (!isWithin(target, root)) {
+    // As the phone allows it: a known project root may sit outside home (an external drive), its exact folder only.
+    if (!isKnownProject(target, known)) return LAUNCH_REFUSALS.outsideHome;
+    return touchesSecret(target) ? LAUNCH_REFUSALS.hiddenOrPrivate : null;
+  }
   const inHome = relative(root, target);
   if (touchesSecret(inHome)) return LAUNCH_REFUSALS.hiddenOrPrivate;
   if (hasHiddenSegment(inHome) && !isKnownProject(target, known)) return LAUNCH_REFUSALS.hiddenOrPrivate;

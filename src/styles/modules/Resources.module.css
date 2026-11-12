@@ -210,6 +210,11 @@
   background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
   color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
+/* Made by Anthropic or OpenAI — the publisher chip beside the origin chip. */
+.chipOfficial {
+  background: color-mix(in srgb, var(--accent-cyan) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-cyan) 65%, var(--text-primary));
+}
 .maskedChip {
   background: color-mix(in srgb, var(--accent-yellow) 14%, transparent);
   color: color-mix(in srgb, var(--accent-yellow) 60%, var(--text-primary));

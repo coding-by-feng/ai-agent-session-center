@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.edition }} ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
@@ -19,14 +19,86 @@ jobs:
             runner: macos-15
             architecture: arm64
             command: electron:build:mac
+            edition: full
+            output: dist
+            artifact: release-mac
           - platform: win
             runner: windows-latest
             architecture: x64
             command: electron:build:win
+            edition: full
+            output: dist
+            artifact: release-win
           - platform: linux
             runner: ubuntu-22.04
             architecture: x64
             command: electron:build:linux
+            edition: full
+            output: dist
+            artifact: release-linux
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:lite:mac
+            edition: lite
+            output: dist/lite
+            artifact: release-lite-mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:lite:win
+            edition: lite
+            output: dist/lite
+            artifact: release-lite-win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:lite:linux
+            edition: lite
+            output: dist/lite
+            artifact: release-lite-linux
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:full-client:mac
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:full-client:win
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:full-client:linux
+            edition: full-client
+            output: dist/full-client
+            artifact: release-full-client-linux
+          - platform: mac
+            runner: macos-15
+            architecture: arm64
+            command: electron:build:lite-client:mac
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-mac
+          - platform: win
+            runner: windows-latest
+            architecture: x64
+            command: electron:build:lite-client:win
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-win
+          - platform: linux
+            runner: ubuntu-22.04
+            architecture: x64
+            command: electron:build:lite-client:linux
+            edition: lite-client
+            output: dist/lite-client
+            artifact: release-lite-client-linux
     runs-on: ${{ matrix.runner }}
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -55,25 +127,25 @@ jobs:
         run: npm run typecheck:all
 
       - name: Test release artifact verification
-        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts
+        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts test/electronEdition.test.ts test/electronLiteConfig.test.ts test/electronClientConfig.test.ts test/liteBundleCheck.test.ts test/electronOpenAppHelper.test.ts
 
       - name: Build without publishing
         run: npm run ${{ matrix.command }} -- --publish never
 
       - name: Verify versioned artifacts and checksums
-        run: npm run electron:verify -- ${{ matrix.platform }}
+        run: npm run electron:verify -- ${{ matrix.platform }} ${{ matrix.output }} ${{ matrix.edition }}
 
       - name: Upload verified platform artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
+          name: ${{ matrix.artifact }}
           path: |
-            dist/*.dmg
-            dist/*-mac.zip
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
-            dist/SHA256SUMS-${{ matrix.platform }}.txt
+            ${{ matrix.output }}/*.dmg
+            ${{ matrix.output }}/*-mac.zip
+            ${{ matrix.output }}/*.exe
+            ${{ matrix.output }}/*.AppImage
+            ${{ matrix.output }}/*.deb
+            ${{ matrix.output }}/SHA256SUMS-*.txt
           if-no-files-found: error
           retention-days: 30
 

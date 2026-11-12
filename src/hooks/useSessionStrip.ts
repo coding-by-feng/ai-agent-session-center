@@ -13,9 +13,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
+import { detectCli } from '@/lib/cliDetect';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS } from '@/lib/recentSessions';
-import { buildStripItems, filterByRooms, type StripItem } from '@/lib/sessionStrip';
+import { buildStripItems, filterByRooms, filterBySearch, type StripItem } from '@/lib/sessionStrip';
+import { useLabelStore } from '@/stores/labelStore';
 import { nextCompletionAttention } from '@/lib/sessionAttention';
 import type { Session } from '@/types';
 
@@ -32,11 +34,19 @@ export interface SessionStrip {
   availableRooms: Room[];
   /** What the room filter lets through, in strip order. */
   filteredSessions: Session[];
+  /** What the search box then lets through (all of filteredSessions when it is empty). */
+  matchedSessions: Session[];
+  /** A search is typed: the built-in frames step aside and folded frames open. */
+  searching: boolean;
   /** The frames and loose cards, in the order they are drawn. */
   items: StripItem[];
 }
 
-export function useSessionStrip(sessions: Map<string, Session>, currentSessionId: string): SessionStrip {
+export function useSessionStrip(
+  sessions: Map<string, Session>,
+  currentSessionId: string,
+  searchQuery = '',
+): SessionStrip {
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
@@ -62,7 +72,10 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
       // whose directory changes (an SSH session follows its hook's cwd) has to
       // move frames without waiting for some other field to change.
       // pendingProceedAt: the card's P (its answer asks you to proceed) comes and goes with no other change.
-      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
+      // compacting: so does its spinner, since a compaction leaves the status alone.
+      // detectCli: the card's Claude/Codex mark, when the CLI is identified after the card first drew.
+      // remark: the search box reads it, and a remark can change from another device with nothing else.
+      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.compacting?.since ?? ''}|${detectCli(s) ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}|${s.remark ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');
@@ -133,20 +146,35 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
     [sortedSessions, selectedRoomIds, rooms],
   );
 
+  // Then the search box, on top of the room filter. A search lists each match
+  // once: CENTRAL, PINNED and RECENT only repeat cards that are in a room below.
+  const labels = useLabelStore((s) => s.labels);
+  const searching = searchQuery.trim() !== '';
+  const matchedSessions = useMemo(
+    () => filterBySearch(filteredSessions, searchQuery, {
+      numberOf: (id) => sessionIndexMap.get(id),
+      labelOf: (id) => labels[id],
+    }),
+    [filteredSessions, searchQuery, sessionIndexMap, labels],
+  );
+
   const items = useMemo(
     () => buildStripItems({
-      filtered: filteredSessions,
+      filtered: matchedSessions,
       all: sortedSessions,
       rooms,
       mode: sessionSortMode,
-      recentIds: recentIdsKey ? recentIdsKey.split('\n') : [],
-      showPinned: !pinnedRoomHidden,
-      showCentral,
+      recentIds: recentIdsKey && !searching ? recentIdsKey.split('\n') : [],
+      showPinned: !pinnedRoomHidden && !searching,
+      showCentral: showCentral && !searching,
     }),
-    [filteredSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden, showCentral],
+    [matchedSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden, showCentral, searching],
   );
 
-  return { sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms, filteredSessions, items };
+  return {
+    sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms,
+    filteredSessions, matchedSessions, searching, items,
+  };
 }
 
 /**

@@ -1,8 +1,8 @@
 /**
  * @module hookQueueDir
- * The folder the hook scripts write their JSONL queue to, in one place (mqReader.ts and
- * planUsageSources.ts each had their own copy). Also where the machine lock lives (instanceLock.ts):
- * every AASC server on a machine reads this one queue, whatever its data folder.
+ * The folder the hook scripts write their JSONL queue to, in one place (mqReader.ts,
+ * planUsageSources.ts and sessionStore.ts each had their own copy). Also where the machine lock lives
+ * (instanceLock.ts): every AASC server on a machine reads this one queue, whatever its data folder.
  *
  * /tmp on macOS/Linux because a hook cannot predict os.tmpdir() (it is /var/folders/… on macOS);
  * dashboard-hook.sh and dashboard-statusline.sh hard-code the same path. On Windows the hooks use

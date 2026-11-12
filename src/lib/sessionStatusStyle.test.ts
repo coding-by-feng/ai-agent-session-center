@@ -2,7 +2,7 @@
 // shared by the panel's rail and the LIVE board so a status reads the same on
 // both (they list the same sessions side by side in a user's head).
 import { describe, it, expect } from 'vitest';
-import { PROCEED, STATUS_COLORS, STATUS_LEGEND, displayStatus, owesProceed, statusColor, statusLabel } from './sessionStatusStyle';
+import { COMPACTING, COMPACTING_STALE_MS, PROCEED, STATUS_COLORS, STATUS_LEGEND, displayStatus, owesProceed, showsCompacting, statusColor, statusLabel, statusOrCompacting } from './sessionStatusStyle';
 import { STATUS_ORDER } from './sessionSort';
 
 describe('session status names and colours', () => {
@@ -51,5 +51,51 @@ describe('the "asks you to proceed" reminder', () => {
     expect(statusLabel(PROCEED)).toBe('Asks you to proceed');
     expect(statusColor(PROCEED)).toBe('var(--accent-yellow)');
     expect(STATUS_LEGEND.some((e) => e.status === PROCEED)).toBe(false);
+  });
+});
+
+// Nov 3 2026: an idle session compacting its context drew idle's pause bars beside a terminal
+// that said "Compacting conversation…".
+describe('the "compacting" display status', () => {
+  const compacting = { since: Date.now() - 5_000 };
+
+  it('shows over an idle, finished, working or starting status', () => {
+    for (const status of ['idle', 'waiting', 'working', 'prompting']) {
+      expect(displayStatus({ status, compacting })).toBe(COMPACTING);
+      expect(showsCompacting({ status, compacting })).toBe(true);
+    }
+  });
+
+  it('never hides a status that blocks the session, or the end', () => {
+    for (const status of ['approval', 'input', 'ended']) {
+      expect(displayStatus({ status, compacting })).toBe(status);
+      expect(showsCompacting({ status, compacting })).toBe(false);
+    }
+  });
+
+  it('outranks the proceed reminder, which comes back when the compaction ends', () => {
+    expect(displayStatus({ status: 'idle', pendingProceedAt: 1, compacting })).toBe(COMPACTING);
+    expect(displayStatus({ status: 'idle', pendingProceedAt: 1, compacting: null })).toBe(PROCEED);
+  });
+
+  it('stays out of the way of a sleeping session', () => {
+    expect(displayStatus({ status: 'ended', asleepAt: 1, compacting })).toBe('asleep');
+  });
+
+  it('does not outlive a lost end hook', () => {
+    const stale = { since: Date.now() - COMPACTING_STALE_MS };
+    expect(displayStatus({ status: 'idle', compacting: stale })).toBe('idle');
+  });
+
+  it('statusOrCompacting swaps in the compaction and nothing else: no P, no asleep', () => {
+    expect(statusOrCompacting({ status: 'idle', compacting })).toBe(COMPACTING);
+    expect(statusOrCompacting({ status: 'approval', compacting })).toBe('approval');
+    expect(statusOrCompacting({ status: 'idle', compacting: null })).toBe('idle');
+  });
+
+  it('reads like work, in its own words, and stays out of the status legend', () => {
+    expect(statusLabel(COMPACTING)).toBe('Compacting');
+    expect(statusColor(COMPACTING)).toBe(statusColor('working'));
+    expect(STATUS_LEGEND.some((e) => e.status === COMPACTING)).toBe(false);
   });
 });

@@ -11,10 +11,7 @@ import type { SessionCentralMarker } from './central.js';
 // This is what gets replayed when a terminal reconnects, the app reloads, or a
 // session resumes — i.e. how far back you can scroll after a rebuild. It is a
 // user setting (Settings ▸ ADVANCED ▸ Terminal); these constants are the
-// default and the safety clamp applied on every backend.
-//
-// NOTE: electron/ptyHost.ts keeps its own copy of these constants (it does not
-// import this module at runtime) — keep the two in sync.
+// default and the safety clamp applied by the server.
 // ---------------------------------------------------------------------------
 
 /** Default replay buffer size: 1 MB (~8× the old 128 KB). */

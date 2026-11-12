@@ -14,6 +14,7 @@ import { App } from '@capacitor/app';
 import { Haptics, NotificationType } from '@capacitor/haptics';
 import { Preferences } from '@capacitor/preferences';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { detectFormFactor, readFormFactorProbe } from '../formFactor.js';
 import type { Haptic } from '../haptics.js';
 import type { BrowseResult } from '../lanRescan.js';
 import type { HttpRequester } from '../http.js';
@@ -106,6 +107,7 @@ export function capacitorDeps(): ShellDeps {
 
   return {
     os,
+    formFactor: detectFormFactor(os, readFormFactorProbe()),
     vault: {
       get: async (key) => (await DeviceVault.get({ key })).value ?? null,
       set: (key, value) => DeviceVault.set({ key, value }),

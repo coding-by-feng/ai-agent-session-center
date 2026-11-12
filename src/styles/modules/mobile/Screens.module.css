@@ -246,3 +246,38 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* RestartBanner (Nov 8 2026): the step line and its three dots (done · now · next). */
+.restartLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ph-space-2);
+}
+
+.restartSteps {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.restartDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ph-fill-strong);
+}
+
+.restartDot[data-state='done'] { background: var(--ph-status-working); }
+
+.restartDot[data-state='now'] {
+  background: var(--ph-status-working);
+  animation: restartPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes restartPulse { 50% { opacity: 0.35; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .restartDot[data-state='now'] { animation: none; }
+}

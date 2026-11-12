@@ -5,12 +5,17 @@
  * one of six tones the kit colours: amber approval, violet question, blue
  * working, green finished, red interrupted, grey otherwise. An interruption
  * (`session.interruption`) outranks the status: the turn stopped and waits.
- * A context compaction in progress (`session.compacting`) reads "Compacting" over
- * an idle, finished or working status, never over a question, an approval or the end.
+ * A context compaction in progress (`session.compacting`, see sessionStatusStyle) reads
+ * "Compacting" over an idle, finished or working status, never over a question, an approval or the end.
+ * A finished turn whose Stop hooks still run (`isFinishingUp`) reads "Finishing up", not "Finished":
+ * a prompt sent then waits until they finish (Nov 6 2026).
  */
 
 import { formatModelLabel } from '@/lib/modelLabel';
+import { COMPACTING, FINISHING_UP_LABEL, OUTRANK_COMPACTING, isCompacting, isFinishingUp } from '@/lib/sessionStatusStyle';
 import type { Session } from '@/types';
+
+export { COMPACTING_STALE_MS, STOP_HOOKS_STALE_MS, isCompacting, isFinishingUp } from '@/lib/sessionStatusStyle';
 
 export type PhoneStatusTone = 'approval' | 'question' | 'working' | 'finished' | 'error' | 'idle';
 
@@ -34,29 +39,22 @@ const STATUS: Record<string, { tone: PhoneStatusTone; label: string }> = {
   ended: { tone: 'idle', label: 'Ended' },
 };
 
-/** How long a compaction may show without its end hook: a lost hook must not leave it up for good. */
-export const COMPACTING_STALE_MS = 10 * 60_000;
-
-/** Is the session compacting its context right now (PreCompact seen, no end yet, not stale)? */
-export function isCompacting(session: Pick<Session, 'compacting'>, now = Date.now()): boolean {
-  const c = session.compacting;
-  return !!c && now - c.since < COMPACTING_STALE_MS;
-}
-
-const OUTRANK_COMPACTING = new Set(['approval', 'input', 'ended']);
-
-export function phoneStatus(status: string, interrupted = false, compacting = false): PhoneStatus {
+export function phoneStatus(status: string, interrupted = false, compacting = false, finishing = false): PhoneStatus {
   if (interrupted && status !== 'ended') return { tone: 'error', label: 'Interrupted', glyph: 'interrupted' };
-  if (compacting && !OUTRANK_COMPACTING.has(status)) return { tone: 'working', label: 'Compacting', glyph: 'working' };
+  // `status` may already be the display status (a row or a ring handed `displayStatus()`).
+  if (status === COMPACTING || (compacting && !OUTRANK_COMPACTING.has(status))) {
+    return { tone: 'working', label: 'Compacting', glyph: 'working' };
+  }
+  if (finishing && status === 'waiting') return { tone: 'working', label: FINISHING_UP_LABEL, glyph: 'working' };
   const known = STATUS[status];
   return known ? { ...known, glyph: status } : { tone: 'idle', label: status || 'Unknown', glyph: 'idle' };
 }
 
-type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting'>;
+type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting' | 'stopHooksSince'>;
 
 /** A session screen's subtitle: "Working · Opus 5.5 · high" (live model and effort first). */
 export function sessionSubtitle(session: SubtitleFields): string {
-  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session));
+  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session), isFinishingUp(session));
   // The model as people say it (`claude-opus-5-5` → `Opus 5.5`); other CLIs' names stay as they are.
   const rawModel = session.runtime?.model || session.model;
   const model = rawModel ? formatModelLabel(rawModel) : rawModel;

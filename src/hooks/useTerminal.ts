@@ -9,6 +9,7 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
+import { SearchAddon } from '@xterm/addon-search';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -27,6 +28,9 @@ import {
 } from '@/lib/terminalGeometry';
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
 import { logicalLineAt, locateBookmark, rowAtOffset } from '@/lib/terminalBookmarks';
+import { isPasteKey, readPasteData, stripTrailingNewlines } from '@/lib/terminalPaste';
+import { isMac } from '@/lib/shortcutKeys';
+import { TERMINAL_SEARCH_HIGHLIGHT_LIMIT, isTerminalFindKey } from '@/lib/terminalSearch';
 import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +41,8 @@ interface ActiveTerminal {
   terminalId: string;
   term: Terminal;
   fitAddon: FitAddon;
+  /** Find-in-terminal (Nov 6 2026); null if the addon failed to load. */
+  searchAddon: SearchAddon | null;
   resizeObserver: ResizeObserver;
   /** Watches container visibility so we can refit+repaint when the tab is switched
    *  back to terminal. Without this, xterm's canvas stays blank because
@@ -64,6 +70,8 @@ interface UseTerminalOptions {
   palette?: ITheme;
   /** Project root path — enables clickable file paths in terminal output */
   projectPath?: string;
+  /** ⌘F (Ctrl+F off a Mac) pressed inside this terminal: open its find bar. */
+  onFindRequest?: () => void;
 }
 
 interface UseTerminalReturn {
@@ -141,6 +149,15 @@ interface UseTerminalReturn {
   setInputTap: (tap: TerminalInputTap | null) => void;
   /** The caret cell on screen, or null when it is scrolled out of view or nothing is attached. */
   getCaretRect: () => CaretRect | null;
+  /** The attached terminal's search addon (find-in-terminal), or null. Changes with `activeTerminalId`. */
+  getSearchAddon: () => SearchAddon | null;
+  /** The attached xterm, or null. Changes with `activeTerminalId`. For overlays that add their own
+   *  listeners (`LocalEchoOverlay`); they must never write to it. */
+  getTerminal: () => Terminal | null;
+  /** Put the keyboard back in the terminal (the find bar's Esc / close). */
+  focusTerminal: () => void;
+  /** Drop the terminal's selection: the search addon leaves its last match selected. */
+  clearXtermSelection: () => void;
 }
 
 /**
@@ -252,11 +269,6 @@ function disposeAfterOpenTimers(term: Terminal): void {
   setTimeout(() => term.dispose(), 0);
 }
 
-/** Returns true if this terminal is managed by Electron's ptyHost (IPC transport). */
-function isPtyHostTerminal(terminalId: string): boolean {
-  return terminalId.startsWith('pty-') && !!window.electronAPI?.writePty;
-}
-
 /**
  * Strip terminal response sequences that xterm.js emits via onData but should
  * never reach the PTY stdin.  These include:
@@ -270,13 +282,11 @@ function stripTerminalResponses(data: string): string {
   return data.replace(TERMINAL_RESPONSE_RE, '');
 }
 
-/** Send terminal input via the appropriate transport (IPC or WS). */
+/** Send terminal input over the WebSocket. */
 function sendInput(ws: WebSocket | null, terminalId: string, data: string): void {
   const cleaned = stripTerminalResponses(data);
   if (!cleaned) return;
-  if (isPtyHostTerminal(terminalId)) {
-    window.electronAPI!.writePty!(terminalId, cleaned);
-  } else if (ws && ws.readyState === 1) {
+  if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: cleaned }));
   }
 }
@@ -555,9 +565,7 @@ function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows
   // mayDrivePtyGeometry() for why this holds even while the phone has control.
   if (!deviceMayDrivePty) return;
   if (!isSaneGeometry(cols, rows)) return;
-  if (isPtyHostTerminal(terminalId)) {
-    window.electronAPI!.resizePty!(terminalId, cols, rows);
-  } else if (ws && ws.readyState === 1) {
+  if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'terminal_resize', terminalId, cols, rows }));
   }
 }
@@ -658,9 +666,12 @@ function forceCanvasRepaint(
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: UseTerminalOptions): UseTerminalReturn {
+export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFindRequest }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
+  // Read at key time: the key handler is installed once per xterm.
+  const onFindRequestRef = useRef(onFindRequest);
+  useEffect(() => { onFindRequestRef.current = onFindRequest; }, [onFindRequest]);
   // Phones render at the PTY's width and pan; everything else fits its
   // container as before. Held in a ref because the FitAddon is installed once
   // per terminal but these values change afterwards (mode toggle, PTY resize).
@@ -783,7 +794,6 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
     wsRef.current = ws;
     if (!activeRef.current || !ws || ws.readyState !== 1) return;
     const { terminalId } = activeRef.current;
-    if (isPtyHostTerminal(terminalId)) return;
     // Each subscribe replays the whole scrollback: send one per (socket, xterm).
     if (subscribedSocketRef.current === ws && subscribedTerminalIdRef.current === terminalId) return;
     if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
@@ -825,12 +835,6 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
       } catch { /* ignore */ }
       // Clear active terminal's batched output buffer
       pendingOutputRef.current.delete(`__active__${terminalId}`);
-      // Unsubscribe from the PTY host (Electron IPC) so the main process
-      // stops streaming output for this terminal to us.
-      if (isPtyHostTerminal(terminalId)) {
-        try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
-        subscribedTerminalIdRef.current = null;
-      }
       activeRef.current.resizeObserver.disconnect();
       activeRef.current.visibilityObserver?.disconnect();
       disposeAfterOpenTimers(activeRef.current.term);
@@ -895,26 +899,8 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
       pendingOutputTtlRef.current.delete(terminalId);
 
       // Subscribe for output (#74: track subscription to prevent duplicates)
-      // PTY host terminals subscribe via IPC; others use WebSocket
       subscribedSocketRef.current = null; // a fresh xterm needs its own replay
-      if (isPtyHostTerminal(terminalId)) {
-        window.electronAPI!.subscribePty!(terminalId).then((result) => {
-          // Stale attach: we already unsubscribed in detach(); dropping the
-          // replay keeps this terminal's scrollback out of whatever is on
-          // screen now. (handleTerminalOutput also filters by active id, so
-          // this is belt-and-braces.)
-          if (isStale()) return;
-          if (!result.ok) {
-            setTerminalClosed({ terminalId, reason: result.error || 'unavailable' });
-            return;
-          }
-          if (result.buffer) {
-            // Replay buffered output
-            handleTerminalOutput(terminalId, result.buffer);
-          }
-        });
-        subscribedTerminalIdRef.current = terminalId;
-      } else if (wsRef.current && wsRef.current.readyState === 1) {
+      if (wsRef.current && wsRef.current.readyState === 1) {
         if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
           wsRef.current.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
         }
@@ -1044,6 +1030,16 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           term.loadAddon(new CanvasAddon());
         } catch {
           // Canvas unavailable (e.g. no GPU context) — DOM renderer still works.
+        }
+
+        // Find-in-terminal: searches the scrollback and highlights matches (decorations need
+        // allowProposedApi, set above). Fail-soft like the addons above.
+        let searchAddon: SearchAddon | null = null;
+        try {
+          searchAddon = new SearchAddon({ highlightLimit: TERMINAL_SEARCH_HIGHLIGHT_LIMIT });
+          term.loadAddon(searchAddon);
+        } catch {
+          searchAddon = null;
         }
 
         // Custom URL link provider — handles URLs spanning wrapped terminal lines.
@@ -1211,6 +1207,14 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
             if (e.type === 'keydown') sendInput(wsRef.current, terminalId, '\x1b');
             return false;
           }
+          // ⌘F / Ctrl+F: this terminal's find bar, not the page-wide "find in file", and
+          // nothing typed into the program.
+          if (onFindRequestRef.current && isTerminalFindKey(e, isMac)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.type === 'keydown') onFindRequestRef.current();
+            return false;
+          }
           // Shift+Enter → same as Alt+Enter (sends ESC + newline)
           if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
@@ -1226,45 +1230,11 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
             return false;
           }
-          // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines and
-          // support image paste (saves image to temp file, pastes the path).
-          // preventDefault() is critical — without it the browser still fires a
-          // native paste event that xterm processes via onData, causing a double-paste.
-          if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
-            e.preventDefault();
-            if (e.type === 'keydown') {
-              // The paste goes straight to the PTY, past onData: the `/` list can't follow it.
-              inputTapRef.current?.onReset();
-              readClipboard().then(async ({ text, imageBlobs }) => {
-                const usePty = isPtyHostTerminal(terminalId);
-                // Handle image paste — upload and paste file path(s)
-                if (imageBlobs.length > 0) {
-                  const paths = await uploadClipboardImages(imageBlobs);
-                  if (paths.length > 0) {
-                    const pathText = paths.join(' ');
-                    if (usePty) {
-                      sendInput(null, terminalId, pathText);
-                    } else if (wsRef.current && wsRef.current.readyState === 1) {
-                      wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: pathText }));
-                    }
-                    return;
-                  }
-                }
-                // Handle text paste
-                if (!text) return;
-                const stripped = text.replace(/[\r\n]+$/, '');
-                if (!stripped) return;
-                if (usePty) {
-                  sendInput(null, terminalId, stripped);
-                } else if (wsRef.current && wsRef.current.readyState === 1) {
-                  wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: stripped }));
-                }
-              }).catch((err) => {
-                console.warn('Terminal paste failed:', err);
-              });
-            }
-            return false;
-          }
+          // ⌘V (macOS) / Ctrl+V: xterm skips the key but the browser keeps its default, so a native paste event
+          // follows and the capture listener below sends it (terminalPaste.ts). Never cancel it here: the async
+          // Clipboard API that used to replace it is missing on plain http:// and refused in a remote computer's
+          // window, so the paste vanished there.
+          if (isPasteKey(e, isMac)) return false;
           return true;
         });
 
@@ -1278,10 +1248,43 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
         // the layout is done moving.
         fitAndSendWhenSettled(term, fitAddon, container, wsRef.current, terminalId);
 
-        // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
+        // Send keystrokes (chunk large pastes: one terminal_input carries at most 262 144 chars)
         const CHUNK_SIZE = 4096;
-        const usePtyIpc = isPtyHostTerminal(terminalId);
         term.textarea?.addEventListener('blur', () => inputTapRef.current?.onReset());
+        // Every paste (⌘V, the Edit menu, a phone's long-press) arrives here first. Capture phase on xterm's own
+        // root, so its textarea's paste handler never runs and nothing is typed twice.
+        // `term.paste` goes out through onData below (bracketed when the app asked for it, \n → \r, chunked),
+        // and the `/` list never follows a paste.
+        let pasting = false;
+        const pasteText = (text: string): void => {
+          pasting = true;
+          try {
+            term.paste(text);
+          } finally {
+            pasting = false;
+          }
+        };
+        // Every paste (⌘V, the Edit menu, a phone's long-press) arrives here first. Capture phase on xterm's own
+        // root, so xterm's paste handlers (its textarea's, and its root's) never run and nothing is typed twice.
+        term.element?.addEventListener('paste', (e: ClipboardEvent) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          inputTapRef.current?.onReset();
+          const { text, images } = readPasteData(e.clipboardData);
+          void (async () => {
+            if (images.length > 0) {
+              const paths = await uploadClipboardImages(images);
+              if (paths.length > 0) {
+                pasteText(paths.join(' '));
+                return;
+              }
+            }
+            const stripped = stripTrailingNewlines(text);
+            if (stripped) pasteText(stripped);
+          })().catch((err: unknown) => {
+            console.warn('Terminal paste failed:', err);
+          });
+        }, true);
         // A TUI that left the alt screen with mouse tracking on (Codex /logout)
         // would type every mouse move into the shell; see terminalMouseReset.ts.
         // Its parser handlers go with the terminal, so it needs no dispose here.
@@ -1290,21 +1293,16 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
           const data = mouseGuard.filterInput(raw);
           if (data === null) return;
           const tap = inputTapRef.current;
-          if (tap) tap.onData(data, readCaretContext(term));
-          if (usePtyIpc) {
-            // IPC transport — no chunking needed (no WS frame limit)
-            sendInput(null, terminalId, data);
+          if (tap && !pasting) tap.onData(data, readCaretContext(term));
+          if (!wsRef.current || wsRef.current.readyState !== 1) return;
+          if (data.length <= CHUNK_SIZE) {
+            wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
           } else {
-            if (!wsRef.current || wsRef.current.readyState !== 1) return;
-            if (data.length <= CHUNK_SIZE) {
-              wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
-            } else {
-              const ws = wsRef.current;
-              for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-                const chunk = data.slice(i, i + CHUNK_SIZE);
-                if (ws.readyState !== 1) break;
-                ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }));
-              }
+            const ws = wsRef.current;
+            for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+              const chunk = data.slice(i, i + CHUNK_SIZE);
+              if (ws.readyState !== 1) break;
+              ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }));
             }
           }
         });
@@ -1383,7 +1381,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
         });
         visibilityObserver.observe(container);
 
-        activeRef.current = { terminalId, term, fitAddon, resizeObserver, visibilityObserver, layoutReady: false, pendingScrollRestore };
+        activeRef.current = { terminalId, term, fitAddon, searchAddon, resizeObserver, visibilityObserver, layoutReady: false, pendingScrollRestore };
         setIsAttached(true);
         setActiveTerminalId(terminalId);
 
@@ -1592,8 +1590,8 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
   const handleTerminalClosed = useCallback((terminalId: string, reason?: string) => {
     const active = activeRef.current;
     const isActive = active?.terminalId === terminalId;
-    // Electron broadcasts PTY exits to every renderer. Do not let an unrelated
-    // terminal overwrite the selected terminal's unavailable/disconnected state.
+    // A close can arrive for any terminal. Do not let an unrelated terminal
+    // overwrite the selected terminal's unavailable/disconnected state.
     if (active && isActive) {
       setTerminalClosed({ terminalId, reason: reason || 'closed' });
       active.term.write(
@@ -1652,6 +1650,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
     inputTapRef.current = tap;
   }, []);
 
+  // Stable, so an overlay can key its listeners on `activeTerminalId` alone.
+  const getTerminal = useCallback((): Terminal | null => activeRef.current?.term ?? null, []);
+
   const getCaretRect = useCallback((): CaretRect | null => {
     const t = activeRef.current?.term;
     return t ? readCaretRect(t) : null;
@@ -1661,31 +1662,26 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
     if (!activeRef.current) return;
     inputTapRef.current?.onReset();
     const { terminalId } = activeRef.current;
-    const usePtyIpc = isPtyHostTerminal(terminalId);
-    if (!usePtyIpc && (!wsRef.current || wsRef.current.readyState !== 1)) return;
+    if (!wsRef.current || wsRef.current.readyState !== 1) return;
 
-    /** Helper: send text to the terminal with chunking for WS transport */
+    /** Helper: send text to the terminal, chunked to stay under the WS frame cap */
     const sendText = async (raw: string) => {
       const text = raw.replace(/[\r\n]+$/, '');
       if (!text) return;
-      if (usePtyIpc) {
-        sendInput(null, terminalId, text);
+      const CHUNK_SIZE = 4096;
+      if (text.length <= CHUNK_SIZE) {
+        wsRef.current!.send(
+          JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
+        );
       } else {
-        const CHUNK_SIZE = 4096;
-        if (text.length <= CHUNK_SIZE) {
-          wsRef.current!.send(
-            JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
+        const ws = wsRef.current!;
+        for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+          const chunk = text.slice(i, i + CHUNK_SIZE);
+          if (i > 0) await new Promise((r) => setTimeout(r, 5));
+          if (ws.readyState !== 1) break;
+          ws.send(
+            JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
           );
-        } else {
-          const ws = wsRef.current!;
-          for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-            const chunk = text.slice(i, i + CHUNK_SIZE);
-            if (i > 0) await new Promise((r) => setTimeout(r, 5));
-            if (ws.readyState !== 1) break;
-            ws.send(
-              JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
-            );
-          }
         }
       }
     };
@@ -1818,40 +1814,29 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
     return () => document.removeEventListener('terminal:scrollToBottom', handler);
   }, [scrollToBottom]);
 
-  /** Clear the terminal display and replay buffered output from the server/ptyHost. */
+  /** Clear the terminal display and replay buffered output from the server. */
   const refreshOutput = useCallback(() => {
     if (!activeRef.current) return;
     const { term, terminalId } = activeRef.current;
     term.clear();
-    if (isPtyHostTerminal(terminalId)) {
-      window.electronAPI!.subscribePty!(terminalId).then((result) => {
-        if (!result.ok) {
-          setTerminalClosed({ terminalId, reason: result.error || 'unavailable' });
-          return;
-        }
-        if (result.buffer) handleTerminalOutput(terminalId, result.buffer);
-      });
-    } else {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
-      }
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
     }
-  }, [handleTerminalOutput]);
+  }, []);
 
   /** Clear this terminal's output for good. The server empties its replay ring
    *  and announces it to every subscriber (`terminal_cleared`, handled below),
    *  so the screen is cleared at the same point of the output stream as the
    *  ring: clearing here first would let bytes printed in between survive on
-   *  screen but vanish from the replay. An Electron `pty-*` terminal has no
-   *  server ring, and with the socket down there is no one to ask: those clear
-   *  locally. `term.clear()` keeps the cursor's line; a TUI redraws the rest
+   *  screen but vanish from the replay. With the socket down there is no one
+   *  to ask, so the screen clears locally. `term.clear()` keeps the cursor's line; a TUI redraws the rest
    *  on its next update. Nothing is written to the PTY. */
   const clearOutput = useCallback(() => {
     if (!activeRef.current) return;
     const { term, terminalId } = activeRef.current;
     const ws = wsRef.current;
-    if (!isPtyHostTerminal(terminalId) && ws && ws.readyState === 1) {
+    if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'terminal_clear', terminalId }));
       return;
     }
@@ -1964,18 +1949,6 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
       }
     };
   }, []);
-
-  // Electron IPC PTY data listener — routes ptyHost output into handleTerminalOutput
-  useEffect(() => {
-    if (!window.electronAPI?.onPtyData) return;
-    const unsubData = window.electronAPI.onPtyData((terminalId, base64Data) => {
-      handleTerminalOutput(terminalId, base64Data);
-    });
-    const unsubExit = window.electronAPI.onPtyExit!((terminalId, exitCode, signal) => {
-      handleTerminalClosed(terminalId, signal ? `signal ${signal}` : `exit ${exitCode}`);
-    });
-    return () => { unsubData(); unsubExit(); };
-  }, [handleTerminalOutput, handleTerminalClosed]);
 
   // Alt+F11 fullscreen
   useEffect(() => {
@@ -2096,5 +2069,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath }: Us
     },
     setInputTap,
     getCaretRect,
+    getSearchAddon: () => activeRef.current?.searchAddon ?? null,
+    getTerminal,
+    focusTerminal: () => activeRef.current?.term.focus(),
+    clearXtermSelection: () => activeRef.current?.term.clearSelection(),
   };
 }

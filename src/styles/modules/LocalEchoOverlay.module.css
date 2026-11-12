@@ -1,0 +1,43 @@
+/* LocalEchoOverlay — instant typing guesses, drawn in .xterm-screen's own coordinates (it is position: relative).
+   Above xterm's canvases and its decorations (z-index 6), under its scroll area (10). Colours and font come from
+   the terminal's own options as --echo-* variables, so every terminal theme matches without a token here. */
+.layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.cell,
+.erase {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--echo-bg);
+}
+
+.cell {
+  color: var(--echo-fg);
+  font-family: var(--echo-font);
+  font-size: var(--echo-size);
+  white-space: pre;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* Echoes are slow (a remote link): mark what the program has not confirmed yet, as mosh does. */
+.slow .cell {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--echo-fg) 55%, transparent);
+  text-underline-offset: 2px;
+}
+
+/* The terminal uses a bar cursor; this one stands after the last guess while the real one waits for the echo. */
+.caret {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--echo-caret);
+}

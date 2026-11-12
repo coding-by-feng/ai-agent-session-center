@@ -56,11 +56,16 @@ export interface RequestAnswerDeps {
 
 const AnswerSchema = z
   .object({
-    choice: z.enum(['allow_once', 'allow_always', 'deny', 'option']),
+    choice: z.enum(['allow_once', 'allow_always', 'deny', 'option', 'options']),
     optionIndex: z.number().int().min(0).max(99).optional(),
+    optionIndexes: z.array(z.number().int().min(0).max(99)).min(1).max(8).optional(),
   })
   .strict()
-  .refine((body) => body.choice !== 'option' || body.optionIndex !== undefined, { message: 'optionIndex is required' });
+  .refine((body) => body.choice !== 'option' || body.optionIndex !== undefined, { message: 'optionIndex is required' })
+  .refine((body) => body.choice !== 'options' || body.optionIndexes !== undefined, { message: 'optionIndexes is required' });
+
+/** Gap between keys sent as separate steps: Claude drops keys that arrive in one burst (probed 2.1.318). */
+export const ANSWER_KEY_GAP_MS = 400;
 
 function str(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -178,10 +183,22 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     }
 
     if (clientId) deps.noteControlActivity(sessionId, clientId);
-    deps.writeToTerminal(terminalId, keys);
+    if (Array.isArray(keys)) {
+      // One step at a time; a later step's write failing (the terminal closed) is only logged.
+      keys.forEach((step, i) => {
+        if (i === 0) { deps.writeToTerminal(terminalId, step); return; }
+        setTimeout(() => {
+          try { deps.writeToTerminal(terminalId, step); } catch (err) {
+            log.warn('answer', `step ${i + 1}/${keys.length} not typed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }, i * ANSWER_KEY_GAP_MS).unref?.();
+      });
+    } else {
+      deps.writeToTerminal(terminalId, keys);
+    }
     const updated = deps.clearPendingRequest(sessionId, requestId);
     if (updated) deps.broadcastSession(updated);
-    const option = answer.optionIndex !== undefined ? ` option=${answer.optionIndex}` : '';
+    const option = answer.optionIndex !== undefined ? ` option=${answer.optionIndex}` : answer.optionIndexes ? ` options=${answer.optionIndexes.join(',')}` : '';
     log.info('answer', `session=${sessionId.slice(0, 8)} request=${requestId.slice(0, 64)} choice=${answer.choice}${option} device=${device.slice(0, 15)} client=${clientId.slice(0, 12) || '-'}`);
     res.status(202).json({ success: true, data: { accepted: true } });
   });

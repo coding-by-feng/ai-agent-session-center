@@ -131,6 +131,8 @@ export const LocalProjectSchema = z
     behind: z.number().int().nonnegative().nullable(),
     /** The GitHub account this device uses for the project; null is this Mac's own Git sign-in. */
     account: GithubLoginSchema.nullable(),
+    /** A live agent session works in the folder: Pull and Push wait for it (Oct 29 2026). */
+    agentActive: z.boolean(),
   })
   .strict();
 export type LocalProject = z.infer<typeof LocalProjectSchema>;
@@ -157,6 +159,75 @@ export type ProjectCandidate = z.infer<typeof ProjectCandidateSchema>;
 export const ProjectCandidatesSchema = z
   .object({ items: z.array(ProjectCandidateSchema).max(500) })
   .strict();
+/**
+ * A project folder on this device, as the Projects tab lists it (Oct 29 2026): the catalog's
+ * folders, GitHub or not, most used first. `repository` is null when its origin is not on GitHub.
+ */
+export const ProjectFolderSchema = z
+  .object({
+    path: z.string().min(1).max(4096),
+    repository: GithubRepositorySchema.nullable(),
+    /** The saved cloud project with this repository and branch, when there is one. */
+    projectId: CanonicalCloudIdSchema.nullable(),
+    /** Sessions started here in the last 30 days. */
+    recent: z.number().int().nonnegative(),
+    /** The latest session activity here (epoch ms); null when no session ran here. */
+    lastActivityAt: z.number().int().nonnegative().nullable(),
+    /**
+     * A GitHub checkout AASC won't work in, and why: its Git settings send the traffic elsewhere,
+     * it is a worktree or submodule, or it is not on a branch. Absent for any other folder.
+     */
+    blocked: z.enum(['settings', 'worktree', 'detached']).optional(),
+  })
+  .strict();
+export type ProjectFolder = z.infer<typeof ProjectFolderSchema>;
+export const ProjectFoldersSchema = z
+  .object({
+    /** This Mac's home folder, which every folder is inside: the tab writes `~/code/app`. */
+    home: z.string().min(1).max(4096),
+    items: z.array(ProjectFolderSchema).max(500),
+  })
+  .strict();
+export type ProjectFolders = z.infer<typeof ProjectFoldersSchema>;
+/** A saved project's tags are the Library's tags (`normalizeTag`), at most this many. */
+export const MAX_PROJECT_TAGS = 12;
+/**
+ * A saved project's ♥ and tags (Oct 29 2026). They live beside the project record in AASC Cloud
+ * (`/v1/projects/meta`), never in it, so a Mac whose AASC parses records strictly never sees them.
+ */
+export const ProjectMetaSchema = z
+  .object({
+    projectId: CanonicalCloudIdSchema,
+    version: ProjectRevisionSchema,
+    favorite: z.boolean(),
+    tags: z.array(z.string().min(1).max(24)).max(MAX_PROJECT_TAGS),
+  })
+  .strict();
+export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;
+/** One page from AASC Cloud: 100 at most, so the 100 pages read stop at 10,000 (projectMeta.ts). */
+export const ProjectMetaListSchema = z
+  .object({
+    items: z.array(ProjectMetaSchema).max(100),
+    nextCursor: CanonicalCloudIdSchema.nullable(),
+  })
+  .strict();
+/** This Mac's answer: `available` is false while AASC Cloud has no meta routes yet. */
+export const ProjectMetasSchema = z
+  .object({ available: z.boolean(), items: z.array(ProjectMetaSchema) })
+  .strict();
+export type ProjectMetas = z.infer<typeof ProjectMetasSchema>;
+/** One change to a project's ♥ or tags; the cloud applies it to whatever is there now. */
+export const ProjectMetaChangeSchema = z
+  .object({
+    favorite: z.boolean().optional(),
+    addTags: z.array(z.string().min(1).max(64)).max(MAX_PROJECT_TAGS).optional(),
+    removeTags: z.array(z.string().min(1).max(64)).max(MAX_PROJECT_TAGS).optional(),
+  })
+  .strict()
+  .refine((c) => c.favorite !== undefined || !!c.addTags?.length || !!c.removeTags?.length, {
+    message: 'Change the favourite or a tag.',
+  });
+export type ProjectMetaChange = z.infer<typeof ProjectMetaChangeSchema>;
 export const GetProjectSchema = z
   .object({
     parentPath: z.string().min(1).max(4096),

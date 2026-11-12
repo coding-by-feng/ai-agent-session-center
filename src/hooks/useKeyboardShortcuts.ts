@@ -8,6 +8,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import { jumpToSessionNumber } from '@/lib/sessionJump';
+import { SESSION_SEARCH_FOCUS_EVENT } from '@/lib/sessionStrip';
+import { IS_LITE } from '@/lib/edition';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,8 +43,9 @@ export function useKeyboardShortcuts(): void {
       const currentModal = useUiStore.getState().activeModal;
       const selectedId = useSessionStore.getState().selectedSessionId;
 
-      // Cmd+Shift+F (macOS) / Ctrl+Shift+F — open global session content search
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+      // Cmd+Shift+F (macOS) / Ctrl+Shift+F — open global session content search.
+      // Not in Lite: a hit opens inside CONVERSATION, which Lite hides.
+      if (!IS_LITE && e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault();
         if (currentModal === 'global-search') {
           closeModal();
@@ -54,6 +57,8 @@ export function useKeyboardShortcuts(): void {
 
       // Cmd+F (macOS) / Ctrl+F — find in current file (VS Code-style)
       if (!e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+        // A focused terminal took it for its own find bar (useTerminal, Nov 6 2026).
+        if (e.defaultPrevented) return;
         if (selectedId) {
           e.preventDefault();
           document.dispatchEvent(new CustomEvent('projectTab:findInFile'));
@@ -130,6 +135,12 @@ function dispatchAction(actionId: string): void {
       break;
     case 'jumpToSession':
       useUiStore.getState().openSessionJump();
+      break;
+    case 'searchSessions':
+      // SessionSwitcher owns the box (and opens a folded rail first). Not behind a
+      // dialog: it would reshape the panel and pull focus out of the modal.
+      if (useUiStore.getState().activeModal) return;
+      document.dispatchEvent(new CustomEvent(SESSION_SEARCH_FOCUS_EVENT));
       break;
     default:
       if (actionId.startsWith('fileBrowser')) {

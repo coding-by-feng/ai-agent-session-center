@@ -124,6 +124,14 @@ describe('pendingProceedAt', () => {
     expect(pending(id)).toBeTypeOf('number');
   });
 
+  it('reads a Codex ask past the memory citation Codex appends, and keeps the citation out of the log', () => {
+    const id = newSession({ cli_source: 'codex' });
+    const citation = `<oai-mem-citation>\n<citation_entries>\n${'MEMORY.md:1-1|note=[a long note about prior work]\n'.repeat(12)}</citation_entries>\n<rollout_ids>\n</rollout_ids>\n</oai-mem-citation>`;
+    finishedTurn(id, `Reply **proceed** to create it.\n\n${citation}`, { cli_source: 'codex' });
+    expect(pending(id)).toBeTypeOf('number');
+    expect(getSession(id)?.responseLog.at(-1)?.text).toBe('Reply **proceed** to create it.');
+  });
+
   it('survives auto-idle: the session can sit for hours and still owe a reply', async () => {
     const id = newSession();
     finishedTurn(id, ASK);

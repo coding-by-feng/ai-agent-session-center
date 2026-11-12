@@ -25,6 +25,7 @@ const DiffScreen = lazy(() => import('../screens/DiffScreen'));
 const CloudResourceScreen = lazy(() => import('../screens/CloudResourceScreen'));
 const ResourcesScreen = lazy(() => import('../screens/ResourcesScreen'));
 const ResourceItemScreen = lazy(() => import('../screens/ResourceItemScreen'));
+const ProjectItemScreen = lazy(() => import('../screens/ProjectItemScreen'));
 
 function UnknownScreen() {
   return (
@@ -42,6 +43,7 @@ export default function RouteScreen({ path }: { path: string }) {
   if (route.kind === 'cloud-resource') return <CloudResourceScreen resourceId={route.resourceId} />;
   if (route.kind === 'resources') return <ResourcesScreen tab={route.tab} />;
   if (route.kind === 'resource-item') return <ResourceItemScreen id={route.id} />;
+  if (route.kind === 'project-item') return <ProjectItemScreen id={route.id} />;
   if (route.kind === 'session-info') {
     return route.page
       ? <InfoPageScreen sessionId={route.sessionId} page={route.page} />

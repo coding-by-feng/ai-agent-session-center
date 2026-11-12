@@ -16,18 +16,21 @@
  * session's ≡ to drag it into another room (tap it for "Move to room…"), tap a
  * room's name to fold it (this phone only), and its ⋯ moves it up or down,
  * renames, recolours, deletes it or kills its sessions (only those shared with
- * this phone). Pull down (or Refresh in the search bar) re-asks the Mac.
+ * this phone). Grouped by project (Nov 4 2026) a project folds and drags the same
+ * way, both on this phone only: the Mac keeps no project order. Pull down (or
+ * Refresh in the search bar) re-asks the Mac.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { Session } from '@/types';
 import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ForkIcon, KillIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { CloneIcon, ForkIcon, KillIcon, PinIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
-import { CentralGroupHeader, PinnedGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
+import { CentralGroupHeader, PinnedGroupHeader, ProjectGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
 import { useCollapsedRooms } from './useCollapsedRooms';
+import { useProjectOrder } from './useProjectOrder';
 import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSessionRoomDrag';
 import { useIsHostDevice } from '../views/hostAccess';
 import SessionListRow from './SessionListRow';
@@ -38,7 +41,7 @@ import SessionSheets, { type SessionSheetKind } from './info/SessionSheets';
 import { forkBlocker, useSessionActions } from './info/useSessionActions';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
 import { useRoomStore } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -50,6 +53,7 @@ import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
 import { reorderOpFor, sessionDropOp, type RoomGroupRect } from '@/lib/chat/roomsListModel';
+import { projectOrderAfterDrag } from '@/lib/chat/projectsListModel';
 import { defaultSegment, infoPath, sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
 import { detectCli } from '@/lib/cliDetect';
 import { restartBlocker } from '@/lib/chat/sessionInfoModel';
@@ -145,6 +149,17 @@ interface RoomGrouping {
   sessionDrag: SessionDrag | null;
 }
 
+/** What a group grouped by project adds (Nov 4 2026): folding and the drag, both this phone's. */
+interface ProjectFrames {
+  collapsed: ReadonlySet<string>;
+  onToggle: (projectKey: string) => void;
+  onGripDown: (e: PointerEvent, projectKey: string) => void;
+  /** The project being reordered, and how far each passed project slides aside. */
+  liftedKey: string | null;
+  shifts: ReadonlyMap<string, number>;
+  registerEl: (projectKey: string, el: HTMLElement | null) => void;
+}
+
 interface GroupProps {
   group: SessionGroup;
   /** The Idle section may fold (not while a search lists every match). */
@@ -157,53 +172,63 @@ interface GroupProps {
   onOpen: (session: Session) => void;
   /** Set when grouped by room. */
   rooms?: RoomGrouping;
+  /** Set when grouped by project. */
+  projects?: ProjectFrames;
   /** A project group's ＋: a new session in its folder, as the desktop's project frames offer. */
   onNewHere?: (dir: string) => void;
 }
 
-function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, onNewHere }: GroupProps) {
+function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, projects, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
+  const projectKey = projects ? group.projectKey ?? null : null;
   // Central, Pinned and Recent (By room) list sessions that are also in their rooms: never a
   // drop target (their null room would read as "No room") and their copies have no grip.
   const builtin = group.kind === 'central' || group.kind === 'recent' || group.kind === 'pinned';
-  const roomFolded = group.kind === 'central' ? !!rooms?.centralCollapsed
+  const frameFolded = group.kind === 'central' ? !!rooms?.centralCollapsed
     : group.kind === 'recent' ? !!rooms?.recentCollapsed
     : group.kind === 'pinned' ? !!rooms?.pinnedCollapsed
+    : projectKey ? !!projects?.collapsed.has(projectKey)
     : !!(rooms && roomId && rooms.collapsed.has(roomId));
   const groupRef = useCallback((el: HTMLDivElement | null) => {
+    if (projectKey) projects?.registerEl(projectKey, el);
     if (!rooms || builtin) return;
     rooms.registerGroup(group.key, roomId, el);
     if (roomId) rooms.registerRoomEl(roomId, el);
-  }, [rooms, builtin, group.key, roomId]);
+  }, [rooms, projects, builtin, group.key, roomId, projectKey]);
   // The header sits outside the list's region, so the region is named by the
   // group alone ("Needs you"), not by its buttons too.
   const header = rooms && group.kind === 'central' ? (
-    <CentralGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleCentral} />
+    <CentralGroupHeader count={count} collapsed={frameFolded} onToggle={rooms.onToggleCentral} />
   ) : rooms && group.kind === 'pinned' ? (
-    <PinnedGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onTogglePinned} />
+    <PinnedGroupHeader count={count} collapsed={frameFolded} onToggle={rooms.onTogglePinned} />
   ) : rooms && group.kind === 'recent' ? (
-    <RecentGroupHeader count={count} collapsed={roomFolded} onToggle={rooms.onToggleRecent} />
+    <RecentGroupHeader count={count} collapsed={frameFolded} onToggle={rooms.onToggleRecent} />
   ) : rooms && group.room ? (
     <RoomGroupHeader
       room={group.room}
       title={group.title}
       count={count}
       color={group.color}
-      collapsed={roomFolded}
+      collapsed={frameFolded}
       onToggle={rooms.onToggleRoom}
       onMenu={rooms.onRoomMenu}
       onGripDown={rooms.onRoomGripDown}
     />
+  ) : projects && projectKey ? (
+    <ProjectGroupHeader
+      projectKey={projectKey}
+      title={group.title}
+      count={count}
+      color={group.color}
+      collapsed={frameFolded}
+      onToggle={projects.onToggle}
+      onGripDown={projects.onGripDown}
+      onNew={group.launchPath && group.local !== false && onNewHere ? () => onNewHere(group.launchPath!) : undefined}
+    />
   ) : (
     <div className={styles.groupHeader}>
-      {group.color && <span className={styles.swatch} style={{ '--swatch': group.color } as CSSProperties} aria-hidden="true" />}
       <h2 className={styles.groupTitle}>{group.title} · {count}</h2>
-      {group.kind === 'project' && group.launchPath && group.local !== false && onNewHere && (
-        <button type="button" className={styles.groupIcon} onClick={() => onNewHere(group.launchPath!)} aria-label={`New session in ${group.title}`} aria-haspopup="dialog">
-          <PlusIcon />
-        </button>
-      )}
       {foldable && (
         <button type="button" className={styles.groupAction} onClick={onToggleFold} aria-expanded={!folded}>
           {folded ? `Show ${count}` : 'Hide'}
@@ -212,18 +237,20 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
     </div>
   );
   const drag = builtin ? null : rooms?.sessionDrag ?? null;
-  const roomShift = roomId ? rooms?.roomShifts.get(roomId) : undefined;
+  const frameId = roomId ?? projectKey;
+  const frameShift = frameId ? (rooms?.roomShifts ?? projects?.shifts)?.get(frameId) : undefined;
+  const lifted = frameId !== null && (rooms?.liftedRoomId ?? projects?.liftedKey) === frameId;
   return (
     <div
       ref={groupRef}
-      className={`${styles.group} ${rooms ? roomStyles.roomGroup : ''}${builtin ? ` ${roomStyles.recentGroup}` : ''}`}
-      data-room-lifted={roomId && rooms?.liftedRoomId === roomId ? '' : undefined}
+      className={`${styles.group} ${rooms || projects ? roomStyles.roomGroup : ''}${builtin ? ` ${roomStyles.recentGroup}` : ''}`}
+      data-room-lifted={lifted ? '' : undefined}
       data-drop-target={drag && drag.overRoomId === roomId && drag.fromRoomId !== roomId ? '' : undefined}
-      style={roomShift ? ({ '--room-shift': `${roomShift}px` } as CSSProperties) : undefined}
-      data-testid={rooms ? `room-group-${builtin ? group.kind : roomId ?? 'none'}` : undefined}
+      style={frameShift ? ({ '--room-shift': `${frameShift}px` } as CSSProperties) : undefined}
+      data-testid={rooms ? `room-group-${builtin ? group.kind : roomId ?? 'none'}` : projectKey ? `project-group-${projectKey}` : undefined}
     >
       {header}
-      {roomFolded ? null : (
+      {frameFolded ? null : (
       <ListSection label={group.title} className={styles.groupList}>
       {count === 0 && rooms ? (
         <li className={roomStyles.emptyRoom}>No sessions. Hold a session’s ≡ and drop it here.</li>
@@ -262,10 +289,12 @@ export default function SessionsScreen() {
   const connected = useWsStore((s) => s.connected);
   const hiddenCount = useWsStore((s) => s.hiddenCount);
   const rooms = useRoomStore((s) => s.rooms);
-  const push = usePhoneNavStore((s) => s.push);
+  // In the iPad's split view the list opens into the right pane (listPane.ts).
+  const push = useOpenScreen();
+  const openTerminal = useOpenTerminalScreen();
   const reads = useSessionReads();
   const now = useClock();
-  const { copy, setNotifications, markRead } = useSessionActions();
+  const { copy, setNotifications, setPinned, markRead } = useSessionActions();
 
   const [filter, setFilter] = useState<SessionsFilter>('all');
   const [groupChoice, setGroupChoice] = useState<SessionsGroupBy | null>(readGroupChoice);
@@ -292,6 +321,10 @@ export default function SessionsScreen() {
   const toggleRecent = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const pinnedCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
   const togglePinned = useUiStore((s) => s.togglePinnedRoomCollapsed);
+  // By project: the desktop frames' own fold flag, on this device, like the built-in groups above.
+  const collapsedProjects = useUiStore((s) => s.collapsedProjects);
+  const toggleProject = useUiStore((s) => s.toggleProjectCollapsed);
+  const { order: projectOrder, save: saveProjectOrder } = useProjectOrder();
   const searchRef = useRef<HTMLInputElement>(null);
   const [chipsRef, moreChips] = useMoreToTheRight<HTMLDivElement>();
 
@@ -302,8 +335,8 @@ export default function SessionsScreen() {
 
   const showCentral = useCentralSessionsShown();
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral }),
-    [sessions, groupBy, filter, query, rooms, reads, now, showCentral],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral, projectOrder }),
+    [sessions, groupBy, filter, query, rooms, reads, now, showCentral, projectOrder],
   );
   // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
   const contentHits = useMemo(() => {
@@ -340,8 +373,8 @@ export default function SessionsScreen() {
   // The actions sheet's "Terminal" (AASC-56): over the session's Chat, or a shell's Terminal tab.
   const openSessionTerminal = useCallback((id: string) => {
     const target = useSessionStore.getState().sessions.get(id);
-    usePhoneNavStore.getState().openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
-  }, []);
+    openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
+  }, [openTerminal]);
 
   const rowProps = useCallback((s: Session) => {
     const id = s.sessionId;
@@ -355,6 +388,8 @@ export default function SessionsScreen() {
     const menuItems: ContextMenuItem[] = [
       { id: 'read', label: 'Mark read', disabledReason: unread ? undefined : 'Nothing new since you read it.', onSelect: () => markRead(s) },
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
+      // The desktop's PINNED frame and respawn (Nov 2 2026; AASC-50 had kept a phone from pinning).
+      { id: 'pin', label: s.pinned ? 'Unpin' : 'Pin', icon: <PinIcon />, onSelect: () => void setPinned(s, !s.pinned) },
       { id: 'rename', label: 'Rename', icon: <RenameIcon />, onSelect: () => openSheet(id, 'rename') },
       { id: 'remark', label: 'Remark…', onSelect: () => openSheet(id, 'remark') },
       { id: 'room', label: 'Move to room…', icon: <RoomIcon />, onSelect: () => openSheet(id, 'move-room') },
@@ -364,7 +399,7 @@ export default function SessionsScreen() {
       { id: 'kill', label: 'Kill…', icon: <KillIcon />, destructive: true, disabledReason: ended ? 'It has already ended.' : undefined, onSelect: () => openSheet(id, 'kill') },
     ];
     return { swipeActions, menuItems };
-  }, [reads, markRead, setNotifications, openSheet, copy]);
+  }, [reads, markRead, setNotifications, setPinned, openSheet, copy]);
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);
@@ -378,25 +413,32 @@ export default function SessionsScreen() {
     if (searching) searchRef.current?.focus();
   }, [searching]);
 
-  // ---- Grouped by room (AASC-55) ----
+  // ---- Grouped by room (AASC-55) or by project (Nov 4 2026): frames that fold and drag ----
   const byRoom = groupBy === 'room';
+  const byProject = groupBy === 'project';
   // The room groups on screen, in order: what a room drag and Move up / down reorder.
   const visibleRoomIds = useMemo(
     () => (byRoom ? groups.flatMap((g) => (g.room ? [g.room.id] : [])) : []),
     [byRoom, groups],
   );
-  const roomEls = useRef(new Map<string, HTMLElement>());
-  const registerRoomEl = useCallback((id: string, el: HTMLElement | null) => {
-    if (el) roomEls.current.set(id, el);
-    else roomEls.current.delete(id);
+  const visibleProjectKeys = useMemo(
+    () => (byProject ? groups.flatMap((g) => g.projectKey ?? []) : []),
+    [byProject, groups],
+  );
+  // One view is on screen at a time, so one drag serves both: a room id or a project key.
+  const frameIds = byRoom ? visibleRoomIds : visibleProjectKeys;
+  const frameEls = useRef(new Map<string, HTMLElement>());
+  const registerFrameEl = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) frameEls.current.set(id, el);
+    else frameEls.current.delete(id);
   }, []);
-  const getRoomRects = useCallback((): RoomDragRect[] => visibleRoomIds.flatMap((id) => {
-    const el = roomEls.current.get(id);
+  const getFrameRects = useCallback((): RoomDragRect[] => frameIds.flatMap((id) => {
+    const el = frameEls.current.get(id);
     if (!el) return [];
     const r = el.getBoundingClientRect();
     return [{ id, top: r.top, bottom: r.bottom }];
-  }), [visibleRoomIds]);
-  const getRoomEl = useCallback((id: string) => roomEls.current.get(id), []);
+  }), [frameIds]);
+  const getFrameEl = useCallback((id: string) => frameEls.current.get(id), []);
   const commitRoomOrder = useCallback((nextIds: string[]) => {
     const op = reorderOpFor(useRoomStore.getState().rooms, nextIds);
     if (!op) return;
@@ -404,7 +446,15 @@ export default function SessionsScreen() {
       if (!outcome.ok) showToast(outcome.message, 'error');
     });
   }, [isRoomWriter]);
-  const roomDrag = useRoomDragReorder(visibleRoomIds, getRoomRects, commitRoomOrder, getRoomEl);
+  const commitProjectOrder = useCallback((nextKeys: string[]) => {
+    // Every project, not only those on screen: a filter must not cost the hidden ones their slots.
+    const live = groupSessions({
+      sessions: useSessionStore.getState().sessions.values(), groupBy: 'project', filter: 'all', query: '', rooms: [], reads: {}, now: 0,
+    }).flatMap((g) => g.projectKey ?? []);
+    const next = projectOrderAfterDrag(projectOrder, live, nextKeys);
+    if (next) saveProjectOrder(next);
+  }, [projectOrder, saveProjectOrder]);
+  const frameDrag = useRoomDragReorder(frameIds, getFrameRects, byRoom ? commitRoomOrder : commitProjectOrder, getFrameEl);
 
   const dropSession = useCallback((sessionId: string, fromRoomId: string | null, target: RoomGroupRect | null) => {
     const op = sessionDropOp(sessionId, fromRoomId, target);
@@ -428,15 +478,24 @@ export default function SessionsScreen() {
     onTogglePinned: togglePinned,
     onToggleRoom: toggleRoom,
     onRoomMenu: setRoomMenuId,
-    onRoomGripDown: roomDrag.onPointerDown,
-    liftedRoomId: roomDrag.draggingId,
-    roomShifts: roomDrag.shifts,
-    registerRoomEl,
+    onRoomGripDown: frameDrag.onPointerDown,
+    liftedRoomId: frameDrag.draggingId,
+    roomShifts: frameDrag.shifts,
+    registerRoomEl: registerFrameEl,
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, roomDrag.onPointerDown, roomDrag.draggingId, roomDrag.shifts,
-    registerRoomEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
+  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts,
+    registerFrameEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
+
+  const projectFrames = useMemo<ProjectFrames | undefined>(() => (byProject ? {
+    collapsed: collapsedProjects,
+    onToggle: toggleProject,
+    onGripDown: frameDrag.onPointerDown,
+    liftedKey: frameDrag.draggingId,
+    shifts: frameDrag.shifts,
+    registerEl: registerFrameEl,
+  } : undefined), [byProject, collapsedProjects, toggleProject, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts, registerFrameEl]);
 
   const actions = (
     <>
@@ -502,13 +561,14 @@ export default function SessionsScreen() {
         rowProps={rowProps}
         onOpen={open}
         rooms={roomGrouping}
+        projects={projectFrames}
         onNewHere={openNewHere}
       />
       );
     });
-    if (byRoom) {
+    if (byRoom || byProject) {
       body = (
-        <div className={roomStyles.roomList} data-room-drag={roomDrag.draggingId ? '' : undefined} data-session-drag={sessionDrag.drag ? '' : undefined}>
+        <div className={roomStyles.roomList} data-room-drag={frameDrag.draggingId ? '' : undefined} data-session-drag={sessionDrag.drag ? '' : undefined}>
           {body}
         </div>
       );
@@ -591,7 +651,7 @@ export default function SessionsScreen() {
         onOpenTerminal={sheetFor ? () => openSessionTerminal(sheetFor) : undefined}
       />
       <Sheet open={groupSheet} onClose={closeGroupSheet} title="Group sessions by" detents={FIT} testId="group-by-sheet">
-        <ListSection label="Group by" footer="Rooms and projects are listed in your Mac’s order.">
+        <ListSection label="Group by" footer="Rooms follow your Mac’s order. Projects go A to Z until you drag them on this phone.">
           {GROUP_BY_OPTIONS.map((o) => (
             <ListRow
               key={o.value}

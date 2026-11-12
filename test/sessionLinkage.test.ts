@@ -35,6 +35,8 @@ import {
   deleteSessionFromMemory,
   registerSessionAlias,
   resolveSessionId,
+  setLaunchResumeId,
+  resumableIdOf,
 } from '../server/sessionStore.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
 
@@ -122,6 +124,7 @@ describe('matchSession — 5-priority session matching', () => {
     closeTerminal: vi.fn(),
     getTerminals: vi.fn(() => []),
     getTerminalOutputBuffer: vi.fn(() => null),
+    tapTerminalOutput: vi.fn(() => () => {}),
   }));
 
   let sessions: Map<string, Session>;
@@ -1254,5 +1257,20 @@ describe('Edge cases', () => {
 
     expect(result.startedAt).toBeGreaterThanOrEqual(before);
     expect(result.startedAt).toBeLessThanOrEqual(after);
+  });
+});
+
+// Oct 30 2026: Codex sends no hook on `codex resume`, so a restored card nobody prompted stays keyed by
+// its terminal id; Resume, Reconnect and the workspace save must still find its conversation.
+describe('launchResumeId — a restored card that no hook has re-keyed', () => {
+  it('resumes the session its restore resumed until a hook re-keys it', async () => {
+    const termId = `term-${uid('restored')}`;
+    await createTerminalSession(termId, { host: 'localhost', workingDir: '/tmp/restored', command: 'codex' });
+
+    expect(resumableIdOf(getSession(termId)!)).toBe(termId);
+    setLaunchResumeId(termId, '01a1864e-0000-7000-8000-000000000001');
+    expect(resumableIdOf(getSession(termId)!)).toBe('01a1864e-0000-7000-8000-000000000001');
+    // A card keyed by a real id resumes by its own id, whatever it was launched from.
+    expect(resumableIdOf({ sessionId: 'real-id', launchResumeId: 'older' })).toBe('real-id');
   });
 });

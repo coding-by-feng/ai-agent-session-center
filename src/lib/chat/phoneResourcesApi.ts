@@ -35,6 +35,11 @@ const SummarySchema = z.looseObject({
   path: z.string().max(4096),
   linkTarget: z.string().max(4096).optional(),
   pluginName: z.string().max(256).optional(),
+  // Not shown on the phone yet; checked so a bad value is dropped alone, not the whole list.
+  publisher: z.object({
+    kind: z.enum(['anthropic', 'openai', 'third-party']),
+    name: z.string().max(256),
+  }).optional().catch(undefined),
   fileCount: z.number().int().nonnegative(),
   bytes: z.number().nonnegative(),
   mtimeMs: z.number(),

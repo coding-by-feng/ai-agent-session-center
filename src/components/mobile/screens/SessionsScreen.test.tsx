@@ -186,12 +186,50 @@ describe('SessionsScreen', () => {
       expect(items.some((t) => t?.startsWith(label))).toBe(true);
     }
     expect(items.some((t) => t?.startsWith('Label'))).toBe(false);
-    expect(items.some((t) => /Pin/.test(t ?? ''))).toBe(false);
+    expect(items.some((t) => t?.startsWith('Pin'))).toBe(true);
     await user.click(within(menu).getByRole('menuitem', { name: /Kill/ }));
     expect(requestSessionKill).not.toHaveBeenCalled();
     const confirm = await screen.findByRole('dialog', { name: 'Kill this session?' });
     await user.click(within(confirm).getByRole('button', { name: 'Kill session' }));
     await waitFor(() => expect(requestSessionKill).toHaveBeenCalledWith('s2', 'term-s2'));
+  });
+
+  describe('Pin from the row menu (Nov 2 2026)', () => {
+    it('pins on the Mac at once and says so', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+      expect(useSessionStore.getState().sessions.get('s2')?.pinned).toBe(true);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s2/pinned', expect.objectContaining({
+        method: 'PUT', body: JSON.stringify({ pinned: true }),
+      })));
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/^Pinned/), 'info'));
+    });
+
+    it('offers Unpin on a pinned session', async () => {
+      const sessions = fixtures();
+      sessions.set('s3', { ...sessions.get('s3')!, pinned: true });
+      useSessionStore.setState({ sessions });
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s3'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Unpin' }));
+      expect(useSessionStore.getState().sessions.get('s3')?.pinned).toBe(false);
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith('Unpinned', 'info'));
+    });
+
+    it('puts the pin back and says why when the Mac refuses', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+      await waitFor(() => expect(showToast).toHaveBeenCalledWith('Not pinned. This session isn’t shared with this phone.', 'error'));
+      expect(useSessionStore.getState().sessions.get('s2')?.pinned).toBe(false);
+    });
   });
 
   it('renames from the long-press menu, never saving an untouched name', async () => {
@@ -555,6 +593,131 @@ describe('SessionsScreen', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('grouped by project (Nov 4 2026): fold and drag, like rooms', () => {
+    const APP = 'localhost|/w/agent-manager';
+    const SITE = 'localhost|/w/site';
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 300, width: 300, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    const titles = () => screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    const place = (key: string, top: number, bottom: number) =>
+      vi.spyOn(screen.getByTestId(`project-group-${key}`), 'getBoundingClientRect').mockReturnValue(rect(top, bottom));
+    /** Hold a project's ≡ (touch: hold first), carry it to `toY`, let go. Needs fake timers. */
+    const carry = async (key: string, toY: number) => {
+      fireEvent.pointerDown(screen.getByTestId(`project-grip-${key}`), { pointerId: 1, button: 0, clientX: 10, clientY: 20, pointerType: 'touch' });
+      act(() => { vi.advanceTimersByTime(ROOM_HOLD_MS + 10); });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 10, clientY: toY });
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: toY });
+      await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    };
+
+    beforeEach(() => {
+      localStorage.setItem('aasc.phoneSessionsGroup', 'project');
+      useUiStore.setState({ collapsedProjects: new Set() });
+    });
+
+    it('folds a project from its name, and it stays folded after a reload', async () => {
+      const user = userEvent.setup();
+      const { unmount } = render(<SessionsScreen />);
+      const toggle = screen.getByRole('button', { name: 'site, 1 session, open' });
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(screen.getByTestId('session-row-s3')).toBeTruthy();
+      await user.click(toggle);
+      expect(screen.getByRole('button', { name: 'site, 1 session, folded' }).getAttribute('aria-expanded')).toBe('false');
+      expect(screen.queryByTestId('session-row-s3')).toBeNull();
+      // Only that project folds.
+      expect(screen.getByTestId('session-row-s1')).toBeTruthy();
+      unmount();
+      render(<SessionsScreen />);
+      expect(screen.queryByTestId('session-row-s3')).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'site, 1 session, folded' }));
+      expect(screen.getByTestId('session-row-s3')).toBeTruthy();
+    });
+
+    it('keeps its ＋ while folded', async () => {
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      await user.click(screen.getByRole('button', { name: 'site, 1 session, open' }));
+      expect(screen.getByRole('button', { name: 'New session in site' })).toBeTruthy();
+    });
+
+    it('offers no ＋ for a project on another machine, but still folds and drags it', () => {
+      useSessionStore.setState({ sessions: new Map([
+        ['r1', session('r1', 'On the box', 'idle', { projectPath: '/srv/api', sshHost: 'build-box' })],
+      ]) });
+      render(<SessionsScreen />);
+      expect(screen.queryByRole('button', { name: /^New session in / })).toBeNull();
+      expect(screen.getByRole('button', { name: /^api@build-box, 1 session, open/ })).toBeTruthy();
+      expect(screen.getByTestId('project-grip-build-box|/srv/api')).toBeTruthy();
+    });
+
+    it('drags a project below another; the order stays on this phone, after a reload too', async () => {
+      vi.useFakeTimers();
+      try {
+        const { unmount } = render(<SessionsScreen />);
+        expect(titles()).toEqual(['agent-manager · 3', 'site · 1']);
+        place(APP, 0, 200);
+        place(SITE, 216, 400);
+        await carry(APP, 420);
+        expect(titles()).toEqual(['site · 1', 'agent-manager · 3']);
+        const fetchMock = vi.mocked(fetch);
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/rooms/ops'))).toEqual([]);
+        unmount();
+        render(<SessionsScreen />);
+        expect(titles()).toEqual(['site · 1', 'agent-manager · 3']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a drop under a filter keeps the hidden project’s slot', async () => {
+      useSessionStore.setState({ sessions: new Map([
+        ['a', session('a', 'A one', 'working', { projectPath: '/w/alpha' })],
+        ['b', session('b', 'B one', 'idle', { projectPath: '/w/beta' })],
+        ['c', session('c', 'C one', 'working', { projectPath: '/w/gamma' })],
+      ]) });
+      vi.useFakeTimers();
+      try {
+        render(<SessionsScreen />);
+        fireEvent.click(screen.getByRole('button', { name: /^Working/ }));
+        expect(titles()).toEqual(['alpha · 1', 'gamma · 1']);
+        place('localhost|/w/alpha', 0, 100);
+        place('localhost|/w/gamma', 116, 216);
+        await carry('localhost|/w/alpha', 420);
+        expect(titles()).toEqual(['gamma · 1', 'alpha · 1']);
+        fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+        expect(titles()).toEqual(['gamma · 1', 'beta · 1', 'alpha · 1']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a grip that moves before the hold is a scroll: the order stays', async () => {
+      vi.useFakeTimers();
+      try {
+        render(<SessionsScreen />);
+        place(APP, 0, 200);
+        place(SITE, 216, 400);
+        fireEvent.pointerDown(screen.getByTestId(`project-grip-${APP}`), { pointerId: 1, button: 0, clientX: 10, clientY: 20, pointerType: 'touch' });
+        fireEvent.pointerMove(window, { pointerId: 1, clientX: 10, clientY: 420 });
+        act(() => { vi.advanceTimersByTime(ROOM_HOLD_MS + 10); });
+        fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 420 });
+        await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+        expect(titles()).toEqual(['agent-manager · 3', 'site · 1']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('gives No project no ≡, and a session no grip: its project is its folder', () => {
+      const withLoose = fixtures();
+      withLoose.set('s6', session('s6', 'Loose', 'idle', { projectPath: '', projectName: '' }));
+      useSessionStore.setState({ sessions: withLoose });
+      render(<SessionsScreen />);
+      expect(titles()).toEqual(['agent-manager · 3', 'site · 1', 'No project · 1']);
+      expect(screen.getAllByTestId(/^project-grip-/)).toHaveLength(2);
+      expect(screen.queryByTestId(/^session-grip-/)).toBeNull();
     });
   });
 

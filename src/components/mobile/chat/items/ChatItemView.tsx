@@ -12,6 +12,7 @@ import ThinkingRow from './ThinkingRow';
 import ToolRow from './ToolRow';
 import ToolGroupRow from './ToolGroupRow';
 import TodoCard from './TodoCard';
+import QuestionCard from './QuestionCard';
 import SubagentCard from './SubagentCard';
 import QueuedBubble from './QueuedBubble';
 import { CommandRow, DividerRow, NoticeRow } from './EventRows';
@@ -42,6 +43,7 @@ function Body({ item, sessionId, expanded, openMembers, onToggle, onToggleMember
     case 'thinking': return <ThinkingRow item={item} />;
     case 'tool': return <ToolRow item={item} expanded={expanded} onToggle={onToggle} />;
     case 'tool-group': return <ToolGroupRow item={item} expanded={expanded} onToggle={onToggle} openMembers={openMembers ?? ''} onToggleMember={onToggleMember} />;
+    case 'question': return <QuestionCard item={item} sessionId={sessionId} />;
     case 'todo': return <TodoCard item={item} expanded={expanded} onToggle={onToggle} />;
     case 'subagent': return <SubagentCard item={item} expanded={expanded} onToggle={onToggle} />;
     case 'command': return <CommandRow item={item} />;

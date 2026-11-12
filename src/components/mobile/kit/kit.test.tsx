@@ -235,6 +235,11 @@ describe('Chip, StatusRing, Banner, EmptyState, NavBar', () => {
     expect(screen.getByRole('img', { name: 'Interrupted' })).toBeTruthy();
   });
 
+  it('a status ring handed a compaction spins and says so', () => {
+    render(<StatusRing status="compacting" />);
+    expect(screen.getByRole('img', { name: 'Compacting' })).toHaveAttribute('data-spin');
+  });
+
   it('an error banner is announced at once, the rest politely', () => {
     render(<><Banner tone="error" title="Refused" /><Banner tone="offline" title="Reconnecting" /></>);
     expect(screen.getByRole('alert')).toHaveTextContent('Refused');

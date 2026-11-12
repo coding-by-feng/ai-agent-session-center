@@ -5,6 +5,7 @@ import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { openLiveSession } from '@/lib/liveSession';
 import { useLiveHint } from '@/hooks/useLiveBoard';
+import { IS_LITE, LITE_NAV_ROUTES } from '@/lib/edition';
 import CountBadge from '@/components/ui/CountBadge';
 import styles from '@/styles/modules/NavBar.module.css';
 
@@ -46,7 +47,7 @@ export default function NavBar() {
   // the safe state, so a local-only tab appears once the server confirms it.
   const isLocal = usePresenceStore((s) => isLocalDevice(s.devices, getClientId()));
   const navItems = NAV_ITEMS.filter(
-    (i) => !(i.localOnly && !isLocal),
+    (i) => !(i.localOnly && !isLocal) && (!IS_LITE || LITE_NAV_ROUTES.has(i.to)),
   );
   // The LIVE board's one-time tip ("…or press LIVE") marks this tab with a dot
   // while it is up. A LIVE click that opens a session is one of the things it

@@ -20,6 +20,7 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { waitingCardModel } from '@/lib/chat/waitingCardModel';
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
@@ -291,6 +292,16 @@ describe('Composer', () => {
     useComposerDraftStore.setState({ sheetRequest: null });
   });
 
+  it('puts the queue · model · usage chips under the box, not above it', () => {
+    stubMac();
+    useQueueStore.setState({ queues: new Map([['s1', [{ id: 1, sessionId: 's1', text: 'next', position: 0, createdAt: 1 } as QueueItem]]]) });
+    renderComposer(session());
+    const box = screen.getByTestId('composer-input');
+    for (const chip of [screen.getByRole('button', { name: /queued: open this session/ }), screen.getByRole('button', { name: /^Model / })]) {
+      expect(box.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it('offers the model chip with an empty box', async () => {
     stubMac();
     renderComposer(session());
@@ -323,6 +334,47 @@ describe('Composer', () => {
     renderComposer(session());
     const chip = screen.getByRole('button', { name: /1 queued/ });
     expect(chip).toHaveTextContent(/^1$/);
+  });
+
+  describe('agents chip (Nov 8 2026): this turn\'s subagents at a glance', () => {
+    const PROMPT_AT = 1_000;
+    const run = (agentId: string, status: 'working' | 'done') => ({
+      agentId, agentType: 'Explore', description: 'look', descriptionConfirmed: true, status,
+      startedAt: PROMPT_AT + 1, endedAt: status === 'done' ? PROMPT_AT + 2 : null, lastActivityAt: PROMPT_AT + 2,
+      toolCount: 3, currentTool: null, currentTarget: null,
+    });
+    const withRuns = (runs: ReturnType<typeof run>[]) =>
+      session({ promptHistory: [{ text: 'go', timestamp: PROMPT_AT }], subagents: runs } as Partial<Session>);
+
+    it('is hidden when no agent ran this turn', () => {
+      stubMac();
+      renderComposer(session());
+      expect(screen.queryByRole('button', { name: /agent/i })).not.toBeInTheDocument();
+    });
+
+    it('shows running and finished-of-total while agents work, and spins', () => {
+      stubMac();
+      renderComposer(withRuns([run('a', 'working'), run('b', 'working'), run('c', 'done')]));
+      const chip = screen.getByRole('button', { name: '2 agents running, 1 of 3 finished: open Agents' });
+      expect(chip).toHaveTextContent('2 · 1/3');
+      expect(chip).toHaveAttribute('data-state', 'running');
+    });
+
+    it('shows a done tick with the total once every agent has finished', () => {
+      stubMac();
+      renderComposer(withRuns([run('a', 'done'), run('b', 'done')]));
+      const chip = screen.getByRole('button', { name: 'All 2 agents finished: open Agents' });
+      expect(chip).toHaveTextContent(/^2$/);
+      expect(chip).toHaveAttribute('data-state', 'done');
+    });
+
+    it('opens the session\'s Agents tab', () => {
+      stubMac();
+      const showSegment = vi.spyOn(usePhoneNavStore.getState(), 'showSegment').mockImplementation(() => {});
+      renderComposer(withRuns([run('a', 'working')]));
+      fireEvent.click(screen.getByRole('button', { name: /agent running/ }));
+      expect(showSegment).toHaveBeenCalledWith('s1', 'agents', true);
+    });
   });
 
   describe('usage (Oct 20 2026): context window and plan limits', () => {
@@ -402,6 +454,24 @@ describe('Claude’s suggested next prompt (Oct 26 2026)', () => {
     renderComposer(suggested({ status: 'ended' }));
     expect(screen.queryByRole('button', { name: /Use Claude’s suggestion/ })).toBeNull();
     expect(screen.getByTestId('composer-input').getAttribute('placeholder')).not.toBe('run the tests again');
+  });
+
+  it('Tab from a hardware keyboard (iPad) fills the empty box with it', () => {
+    presence();
+    stubMac();
+    renderComposer(suggested());
+    const box = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    const notCancelled = fireEvent.keyDown(box, { key: 'Tab' });
+    expect(notCancelled).toBe(false);
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('run the tests again');
+  });
+
+  it('leaves Tab alone with no suggestion to use, so focus can move on', () => {
+    presence();
+    stubMac();
+    renderComposer(session());
+    expect(fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Tab' })).toBe(true);
+    expect(fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Tab', shiftKey: true })).toBe(true);
   });
 
   it('shows nothing without a suggestion', () => {

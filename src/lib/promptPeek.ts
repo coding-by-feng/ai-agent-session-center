@@ -21,8 +21,16 @@ export const PEEK_PROMPT_COUNT = 5;
 /** How long the pointer rests on a session before its peek opens: running down the rail flashes none. */
 export const PEEK_HOVER_DELAY_MS = 500;
 
-/** The most characters of a prompt a peek keeps; CSS clamps it to two lines from there. */
+/** The most characters of a prompt a one-line (`'line'`) peek keeps. */
 export const PEEK_PROMPT_MAX_CHARS = 200;
+
+/**
+ * How a peek writes each prompt. `'line'`: one line, cut at `PEEK_PROMPT_MAX_CHARS`
+ * (the phone's Recent prompts sheet). `'full'` (Oct 29 2026): the whole prompt as
+ * typed, line breaks kept (the desktop hover peek, whose body scrolls when it is
+ * taller than the window).
+ */
+export type PeekTextForm = 'line' | 'full';
 
 export interface PeekPrompt {
   text: string;
@@ -43,18 +51,25 @@ function oneLine(text: string): string {
 }
 
 /**
- * The newest `count` prompts the user typed, newest first. With no history yet,
- * the prompt in flight (`currentPrompt`) stands in, as on the LIVE board's note.
+ * The newest `count` prompts the user typed, newest first, written in `form`. With
+ * no history yet, the prompt in flight (`currentPrompt`) stands in, as on the LIVE
+ * board's note. "Whole" is as much as the server keeps: `sessionTrim.ts` cuts a
+ * history entry at 16,000 characters and says so in the text.
  */
-export function typedPrompts(session: Session, count: number = PEEK_PROMPT_COUNT): PeekPrompt[] {
+export function typedPrompts(
+  session: Session,
+  count: number = PEEK_PROMPT_COUNT,
+  form: PeekTextForm = 'line',
+): PeekPrompt[] {
+  const write = form === 'full' ? (text: string) => text.trim() : oneLine;
   const out: PeekPrompt[] = [];
   const history = Array.isArray(session.promptHistory) ? session.promptHistory : [];
   for (let i = history.length - 1; i >= 0 && out.length < count; i--) {
     const entry = history[i];
-    if (isTyped(entry?.text)) out.push({ text: oneLine(entry.text), at: entry.timestamp });
+    if (isTyped(entry?.text)) out.push({ text: write(entry.text), at: entry.timestamp });
   }
   if (history.length === 0 && isTyped(session.currentPrompt)) {
-    out.push({ text: oneLine(session.currentPrompt), at: session.lastActivityAt ?? 0 });
+    out.push({ text: write(session.currentPrompt), at: session.lastActivityAt ?? 0 });
   }
   return out;
 }

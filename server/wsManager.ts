@@ -7,6 +7,8 @@ import {
   updateQueueCount,
   getSessionIdByTerminalId,
   getSession,
+  isAwaitingAnswerOnTerminal,
+  releaseAnsweredDialog,
 } from './sessionStore.js';
 import {
   writeToTerminal,
@@ -19,7 +21,9 @@ import {
   getTerminalSessionId,
   isOpsTerminal,
   getForegroundProcess,
+  getTerminalOutputTail,
 } from './sshManager.js';
+import { createDialogCloseWatch } from './dialogCloseWatch.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { bindRemoteClientId } from './clientBinding.js';
 import { stripTerminalReplies } from './terminalReplies.js';
@@ -30,6 +34,13 @@ import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type WebSocket from 'ws';
+
+const dialogCloseWatch = createDialogCloseWatch({
+  // Wrapped, not passed bare: a test's vi.mock of either module may lack these exports.
+  isAwaitingAnswer: (terminalId) => isAwaitingAnswerOnTerminal(terminalId),
+  readTail: (terminalId) => getTerminalOutputTail(terminalId, 8192),
+  release: (terminalId) => releaseAnsweredDialog(terminalId),
+});
 
 interface WsClient extends WebSocket {
   _terminalIds: Set<string>;
@@ -253,6 +264,8 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
               break;
             }
             writeToTerminal(msg.terminalId, msg.data);
+            // Answering a dialog here ends the "!" and the alarm once the agent is working again.
+            if (typed !== '') dialogCloseWatch.noteInput(msg.terminalId);
           }
           break;
         case WS_TYPES.TERMINAL_RESIZE:

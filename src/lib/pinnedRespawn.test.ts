@@ -103,6 +103,12 @@ describe('pinnedRespawn', () => {
       expect(body.startupCommand).toBe('npm run dev && claude');
     });
 
+    it('resumes the session a restore resumed while the card is still keyed by its terminal id', () => {
+      const body = buildRespawnBody(mkSession({ sessionId: 'term-1-xyz', launchResumeId: '01a1864e-thread' }))!;
+      expect(body.resumeSessionId).toBe('01a1864e-thread');
+      expect(body.originalSessionId).toBe('term-1-xyz');
+    });
+
     it('returns null without sshConfig', () => {
       expect(buildRespawnBody(mkSession({ sshConfig: undefined }))).toBeNull();
     });

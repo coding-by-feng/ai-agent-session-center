@@ -8,13 +8,15 @@ import Button from '@/components/ui/Button';
 import { useUiStore } from '@/stores/uiStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { SECTION_ORDER, keyComboToString } from '@/lib/shortcutKeys';
+import { IS_LITE } from '@/lib/edition';
 import styles from '@/styles/modules/Modal.module.css';
 
 /** Non-customizable shortcuts shown alongside the store bindings. */
 const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: string }[] }[] = [
   {
     section: 'Terminal',
-    items: [
+    // Lite has no Refresh button to pair this key with.
+    items: IS_LITE ? [] : [
       { key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' },
     ],
   },
@@ -22,7 +24,7 @@ const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: str
     section: 'File Browser',
     items: [
       { key: 'Cmd/Ctrl+F', description: 'Find in current file' },
-      { key: 'Cmd/Ctrl+Shift+F', description: 'Global search across sessions' },
+      ...(IS_LITE ? [] : [{ key: 'Cmd/Ctrl+Shift+F', description: 'Global search across sessions' }]),
     ],
   },
 ];
@@ -90,9 +92,11 @@ export default function ShortcutsPanel() {
             </div>
           ))}
           {/* The shared kit (AASC-11): it was inline styles with a JS hover, no focus ring. */}
-          <Button size="sm" className={styles.shortcutsCustomize} onClick={() => openModal('shortcut-settings')}>
-            Customize…
-          </Button>
+          {!IS_LITE && (
+            <Button size="sm" className={styles.shortcutsCustomize} onClick={() => openModal('shortcut-settings')}>
+              Customize…
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

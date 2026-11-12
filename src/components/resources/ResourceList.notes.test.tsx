@@ -77,4 +77,19 @@ describe('ResourceList — skill notes', () => {
     );
     expect(screen.queryByRole('button', { name: /Favourite/ })).toBeNull();
   });
+
+  it('shows who made a skill beside its origin, and nothing extra on your own', () => {
+    renderList([
+      res({ id: 'xlsx', origin: 'synced', publisher: { kind: 'anthropic', name: 'Anthropic' } }),
+      res({ id: 'brainstorming', origin: 'plugin', pluginName: 'superpowers', publisher: { kind: 'third-party', name: 'Jesse Vincent' } }),
+      res({ id: 'imagegen', agent: 'codex', origin: 'system', publisher: { kind: 'openai', name: 'OpenAI' } }),
+      res({ id: 'rar' }),
+    ]);
+    const [xlsx, brainstorming, imagegen, rar] = screen.getAllByRole('listitem');
+    expect(within(xlsx).getByText('synced')).toBeTruthy();
+    expect(within(xlsx).getByText('Claude official')).toBeTruthy();
+    expect(within(brainstorming).getByText('by Jesse Vincent')).toBeTruthy();
+    expect(within(imagegen).getByText('Codex official')).toBeTruthy();
+    expect(within(rar).queryByText(/official|^by /)).toBeNull();
+  });
 });

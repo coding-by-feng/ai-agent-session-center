@@ -31,6 +31,8 @@ export type ShortcutActionId =
   | 'switchLatestSession'
   // Type a session's badge number to go to it (SessionJumpOverlay)
   | 'jumpToSession'
+  // Focus the session strip's search box
+  | 'searchSessions'
   // Detail panel tabs
   | 'switchTabProject'
   | 'switchTabTerminal'

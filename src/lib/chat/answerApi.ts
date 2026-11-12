@@ -10,12 +10,14 @@
  */
 import type { PromptDriver } from './promptApi';
 
-export type AnswerChoice = 'allow_once' | 'allow_always' | 'deny' | 'option';
+export type AnswerChoice = 'allow_once' | 'allow_always' | 'deny' | 'option' | 'options';
 
 export interface Answer {
   choice: AnswerChoice;
   /** 0-based, for `option`. */
   optionIndex?: number;
+  /** 0-based, one per question, for `options` (several questions in one call, Nov 6 2026). */
+  optionIndexes?: number[];
 }
 
 export type AnswerErrorCode =
@@ -106,7 +108,11 @@ function failureFor(status: number, reply: Reply | null): AnswerResult {
 
 /** Answer request `requestId` of session `sessionId`. Never throws. */
 export async function answerRequest(sessionId: string, requestId: string, answer: Answer): Promise<AnswerResult> {
-  const body: Answer = answer.choice === 'option' ? { choice: 'option', optionIndex: answer.optionIndex } : { choice: answer.choice };
+  const body: Answer = answer.choice === 'option'
+    ? { choice: 'option', optionIndex: answer.optionIndex }
+    : answer.choice === 'options'
+      ? { choice: 'options', optionIndexes: answer.optionIndexes }
+      : { choice: answer.choice };
   let res: Response;
   try {
     res = await fetch(

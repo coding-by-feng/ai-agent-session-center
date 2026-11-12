@@ -259,6 +259,90 @@ export function isInheritedTerminalClaim(
  *              Previously dropped ("SSH-only mode"); now surfaced as an external
  *              card so every live session is traced.
  */
+/** What the person set on a card, or its launch gave it: kept when a split pair rejoins. */
+const CARD_IDENTITY_KEYS = [
+  'title', 'remark', 'accentColor', 'characterModel', 'colorIndex', 'muted', 'pinned', 'alerted',
+  'remoteVisible', 'aiPopupEnabled', 'central', 'handsOff', 'effortLevel', 'queueCount',
+  'terminalId', 'opsTerminalId', 'hadOpsTerminal', 'sshHost', 'sshCommand', 'sshConfig',
+  'startupCommand', 'source', 'projectName', 'projectPath', 'previousSessions',
+] as const satisfies readonly (keyof Session)[];
+
+/**
+ * Rejoin a split pair (Oct 30 2026). A card stays keyed by its terminal id until its first
+ * hook; when that hook is lost (a torn MQ line), Priority 5 used to mint a twin on the same
+ * terminal under the real session id. The twin then took every hook by direct id lookup, so
+ * the card holding the queue read idle while its Codex worked, and its queue typed into the
+ * running turn.
+ *
+ * When the hook's own card (S) is found and a different card (P) is still keyed by the hook's
+ * terminal id, bound to it and never re-keyed, they become one card under S: P's identity
+ * (title, pin, launch config, queue via `replacesId`) over S's activity (status, prompts,
+ * tools, transcript). Only when S is bound to that same terminal; not on SessionEnd, and not
+ * for a subagent's hook or a fork.
+ */
+function rejoinSplitCard(hookData: HookPayloadBase, twin: Session, sessions: Map<string, Session>): Session {
+  const termId = hookData.agent_terminal_id;
+  if (!termId || hookData.hook_event_name === EVENT_TYPES.SESSION_END) return twin;
+  if (hookData.parent_session_id || hookData.agent_name) return twin;
+  const card = sessions.get(termId);
+  if (!card || card === twin || card.sessionId !== termId || card.terminalId !== termId || card.isFork) return twin;
+  // Both bound to this terminal: the unambiguous split. A card with no terminal (a historical
+  // origin a fork or clone resumes from) is left alone, and a restart never keeps a twin: the
+  // workspace import's clear-all wipes the server's cards first.
+  if (twin.terminalId !== termId) return twin;
+
+  const merged = foldSplitPair(card, twin, termId);
+  sessions.delete(termId);
+  sessions.set(twin.sessionId, merged);
+  log.info('session', `REJOINED split card: ${termId} + ${twin.sessionId?.slice(0, 8)} -> one card ${twin.sessionId?.slice(0, 8)} (event=${hookData.hook_event_name})`);
+  return merged;
+}
+
+/**
+ * One card from a split pair: the card's identity over the twin's activity, under the twin's
+ * real id, with `replacesId` set to the card's key. The launch line is the twin's when it has
+ * one: it was read off the process that runs the thread (`codex … resume <id>`), where the
+ * card's may be a fresh launch that never knew the thread.
+ */
+export function foldSplitPair(card: Session, twin: Session, lastTerminalId: string | null): Session {
+  const identity: Partial<Session> = {};
+  for (const key of CARD_IDENTITY_KEYS) {
+    if (card[key] !== undefined) (identity as Record<string, unknown>)[key] = card[key];
+  }
+  if (!card.title) delete identity.title;
+  if (twin.startupCommand) identity.startupCommand = twin.startupCommand;
+  return {
+    ...twin,
+    ...identity,
+    sessionId: twin.sessionId,
+    replacesId: card.sessionId,
+    isExternal: false,
+    isHistorical: false,
+    lastTerminalId,
+  };
+}
+
+/**
+ * The twin of a card still keyed by a terminal id, when exactly one exists: a top-level card
+ * under a real session id, bound to the card's own terminal (its key, or the terminal it runs
+ * in now). Used before a relaunch (Resume, Reconnect): a split card's own launch line has no
+ * thread in it, so relaunching it alone starts a fresh CLI. Seen Oct 30 2026: sleep closed the
+ * twin's terminal, the card's Reconnect then opened a new Codex instead of thread 01a18661.
+ */
+export function findSplitTwin(card: Session, sessions: Map<string, Session>): Session | null {
+  if (!SYNTHETIC_ID_RE.test(card.sessionId) || card.isFork) return null;
+  const terminals = new Set([card.sessionId, card.terminalId, card.lastTerminalId].filter(Boolean));
+  const twins = [...sessions.values()].filter((s) =>
+    s !== card
+    && !SYNTHETIC_ID_RE.test(s.sessionId)
+    && !s.isFork
+    && !s.parentSessionId
+    && !!s.terminalId && terminals.has(s.terminalId));
+  return twins.length === 1 ? twins[0] : null;
+}
+
+const SYNTHETIC_ID_RE = /^(?:term|pty)-/;
+
 export function matchSession(
   hookData: HookPayloadBase,
   sessions: Map<string, Session>,
@@ -314,6 +398,10 @@ export function matchSession(
       pidToSession.set(pid, session.sessionId);
       log.debug('session', `CACHED pid=${pid} -> session=${session.sessionId?.slice(0, 8)}`);
     }
+  }
+
+  if (session && hookData.agent_terminal_id) {
+    session = rejoinSplitCard(hookData, session, sessions);
   }
 
   if (session) {
@@ -624,7 +712,12 @@ export function matchSession(
       // So: if exactly one session already owns this terminal, adopt it whatever the
       // event type. Deliberately narrower than it looks —
       //   • sole owner only; 2+ is ambiguous and falls through, as everywhere else
-      //   • CONNECTING placeholders are Priority 3's job, not ours
+      //   • CONNECTING placeholders are Priority 3's job, not ours — except the card still
+      //     keyed by this very terminal id, whatever its status: Priority 1 re-keys that one
+      //     on startup events only, so when its first hook is lost (a torn MQ line dropped a
+      //     restored Codex card's UserPromptSubmit, Oct 30 2026) this is its only way back.
+      //     Skipping it minted a twin that took every hook while the card holding the queue
+      //     sat idle, and the queue typed into the running turn. Re-keyed in place, like P1.
       //   • SessionEnd/Stop excluded — a late teardown hook from a dead thread must
       //     not drag an active card backward (the same reason 1b is startup-gated)
       //   • subagent hooks excluded — teamManager owns those under their parent
@@ -636,13 +729,26 @@ export function matchSession(
         if (!isTeardown && !isSubagent) {
           const owners: Array<{ key: string; s: Session }> = [];
           for (const [key, s] of sessions) {
-            if (key === termId) continue; // Priority 1's case
+            if (key === termId) {
+              if (s.terminalId) owners.push({ key, s });
+              continue;
+            }
             if (s.status === SESSION_STATUS.CONNECTING) continue; // Priority 3's case
             if (s.terminalId === termId || s.lastTerminalId === termId) {
               owners.push({ key, s });
             }
           }
-          if (owners.length === 1) {
+          if (owners.length === 1 && owners[0].key === termId) {
+            const s = owners[0].s;
+            sessions.delete(termId);
+            s.sessionId = session_id;
+            s.replacesId = termId;
+            session = s;
+            sessions.set(session_id, s);
+            consumePendingLink(s.projectPath || '');
+            found = true;
+            log.info('session', `ADOPTED terminal ${termId} — re-keyed its placeholder -> ${session_id?.slice(0, 8)} (no startup hook observed; first event=${hook_event_name})`);
+          } else if (owners.length === 1) {
             const { key, s } = owners[0];
             session = reKeyResumedSession(sessions, s, session_id, key, pidToSession);
             consumePendingLink(s.projectPath || '');

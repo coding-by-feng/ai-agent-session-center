@@ -3,6 +3,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+import { WS_SERVER_OPTIONS } from './wsServerOptions.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { mkdir, realpath } from 'fs/promises';
@@ -13,10 +14,10 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep } from './sessionStore.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep, healSplitCard } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
-import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue } from './db.js';
+import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue, getProjectActivity } from './db.js';
 import { createSessionMemory } from './sessionMemory.js';
 import { createSessionSleepRouter, startSessionSleep } from './sessionSleep.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
@@ -55,7 +56,7 @@ import { createCliAuthRouter } from './cliAuthRouter.js';
 import { createServerCliAuth } from './cliAuth.js';
 import { openCliLoginTerminal } from './cliLoginTerminal.js';
 import { AGENT_CLIS, type AgentCli } from '../src/types/cliVersions.js';
-import { listKnownProjects } from './knownProjects.js';
+import { listKnownProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
@@ -91,6 +92,7 @@ import {
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
+import { workingProjectPaths } from './cloud/agentWork.js';
 import { createCloudConnection } from './cloud/connection.js';
 import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
 import { cloudStateBase } from './cloud/paths.js';
@@ -109,6 +111,7 @@ import { watchCentralLifecycle } from './mcp/lifecycle.js';
 import { isMcpEnabled, recordMcpPort } from './mcp/runtime.js';
 import { bareCliCommand, discardCentralTerminal } from './mcp/centralLaunch.js';
 import { spawnRespawnTerminal } from './mcp/respawn.js';
+import { mountClientStatic } from './clientStatic.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -235,7 +238,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
+  // 512 KB max message; large frames deflated (the snapshot and whole-session updates, Nov 7 2026).
+  const wss = new WebSocketServer({ server, ...WS_SERVER_OPTIONS });
 
   // Sign in with Google (AASC-61): one pending sign-in per process. The callback is a cross-site
   // browser navigation that can't carry the session cookie, so it is mounted before authMiddleware
@@ -393,7 +397,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
 
   // -- Static files (Vite-built React SPA) --
   const clientDir = join(__dirname, '..', 'dist', 'client');
-  app.use(express.static(clientDir));
+  mountClientStatic(app, clientDir); // missing /assets/* → 404, not index.html
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
@@ -533,11 +537,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     onCatalogReady: (catalog) => { resourceCatalog = catalog; },
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
-    cloudActiveProjectPaths: () =>
-      Object.values(getAllSessions())
-        .filter((s) => s.status !== 'ended')
-        .map((s) => s.projectPath)
-        .filter(Boolean),
+    cloudActiveProjectPaths: () => workingProjectPaths(Object.values(getAllSessions())),
+    sync: { eagerLoad: true, activeSessionPaths: () => workingProjectPaths(Object.values(getAllSessions())) },
+    projectActivity: () => getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS),
     remoteAccess,
     ...(cloudSetup
       ? {
@@ -679,12 +681,26 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     sessions: () => Object.values(getAllSessions()),
   });
   const openTerminalIds = () => new Set(getTerminals().map((t) => t.terminalId));
+  const foldedFrom = new Map<string, string>(); // real id -> the terminal id a folded split card was keyed by
   const stopSessionSleep = startSessionSleep({
     sessions: () => Object.values(getAllSessions()),
     terminalSleepable: (terminalId) => openTerminalIds().has(terminalId) && !isTmuxBackedTerminal(terminalId),
     lastOutputAt: terminalLastOutputAt,
-    hasArmedQueue: (sessionId) =>
-      (getSessionQueue(sessionId)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true),
+    // A folded card's queue can still be stored under the card's terminal id (foldedFrom, below).
+    hasArmedQueue: (sessionId) => [sessionId, foldedFrom.get(sessionId)].some((id) => !!id &&
+      (getSessionQueue(id)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true)),
+    // A split pair is judged and sleeps as one card (sessionStore.healSplitCard): its pin, hands-off and queue
+    // count, and opening it resumes the thread. Asleep alone, the twin closed the card's terminal and the card's
+    // Reconnect opened a fresh CLI (Oct 30 2026). A twin's card is the one keyed by the twin's terminal.
+    // Always the live object: an earlier fold in this sweep may have merged or slept the one listed.
+    prepare: (s) => {
+      const cardKey = s.terminalId && s.terminalId !== s.sessionId && getSession(s.terminalId)?.sessionId === s.terminalId
+        ? s.terminalId
+        : s.sessionId;
+      const id = healSplitCard(cardKey);
+      if (id !== cardKey) foldedFrom.set(id, cardKey);
+      return getSession(id) ?? s;
+    },
     markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
     closeTerminal: closeTerminalAndWait,
   });
@@ -1102,8 +1118,13 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     };
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE' && process.env.AASC_NO_PORT_KILL === '1') {
-        // aasc-server never kills: the holder may be the desktop app or someone else's service.
         startupLocks.release();
+        if (process.env.AASC_HEADLESS !== '1') {
+          // The Lite desktop never kills: the holder may be a running Full app and all its terminals.
+          reject(new Error(`Port ${PORT} is in use. Quit what is using it, then open the app again.`));
+          return;
+        }
+        // aasc-server never kills: the holder may be the desktop app or someone else's service.
         void describePortHolder(PORT).then((holder) => reject(new StartupError(
           EXIT_CODES.PORT_BUSY,
           `port ${PORT} is in use by ${holder}. Stop it, or choose another port with --port or PORT.`,

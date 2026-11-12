@@ -946,14 +946,66 @@
 }
 .switcherBarVertical .switcherCollapseBtn { order: 9; }
 
-/* Title block in the rail: number + title, then the project and label under the
-   title, then the actions row — not the project floating between icon rows. */
+/* The rail on a touch screen (iPad, Nov 2 2026). Every icon button is a 44px target
+   there (Button.module.css), and at 230px the title row (5 × 44 + the kill's 8px) ran
+   39px past the rail's edge while − and « fell onto a line of their own. So, touch only:
+
+     [⚲][✎][⌂][▤]               [☠]    5 × 44 + 8 = 228 ≤ 239 (256 − 1 − 2 × 8)
+     [View ▾]                 [−][«]    the panel itself
+     [+][🗀][⌂]                          starting a session, the PINNED frame
+
+   One panel row would need 63 + 4 + 5 × 44 = 287px, a 304px rail; two rows by job keep
+   it at 256. The glyphs grow to 16px (data-touch-icons, set on .switcherToggle). A mouse
+   keeps the 230px rail and the single panel row above. */
+@media (pointer: coarse) {
+  .switcherBarVertical {
+    width: 256px;
+  }
+  /* The 44px boxes already leave 28px between glyphs. Wraps, never clips, when Hands
+     off or Pop out add a button. */
+  .switcherBarVertical .switcherTitleActions {
+    gap: 0;
+    flex-wrap: wrap;
+  }
+  .switcherBarVertical .switcherLaunch {
+    gap: 0;
+  }
+  /* Its own line, as at 230px: 26px more let it climb beside the model chip as "Store…". */
+  .switcherBarVertical .roomSelect {
+    flex-basis: 100%;
+  }
+  .switcherBarVertical .switcherMinimizeBtn,
+  .switcherBarVertical .switcherCollapseBtn {
+    order: 7;
+  }
+  /* A zero-height full-width item ends the View row after «. */
+  .switcherBarVertical .switcherMeta::after {
+    content: '';
+    order: 8;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  .switcherBarVertical .switcherLaunch,
+  .switcherBarVertical .switcherPinnedToggle {
+    order: 9;
+  }
+  /* The folded strip holds a 44px expand button. Three classes: the 38px rule below is two. */
+  .switcherBar.switcherBarVertical.switcherBarCollapsed {
+    width: 48px;
+  }
+}
+
+/* Title block in the rail: number + title, then the label, ★ badge and project on
+   one line under the title, then the actions row — not the project floating
+   between icon rows. The project's 80px basis is wider than the ≤60px the title
+   row leaves free, so it never climbs up beside the title; it ellipsises after. */
 .switcherBarVertical .switcherProject,
 .switcherBarVertical .switcherLabelChip {
   order: 1;
 }
 .switcherBarVertical .switcherProject {
-  flex: 0 0 100%;
+  flex: 1 1 80px;
+  min-width: 0;
 }
 .switcherBarVertical .switcherTitleActions {
   order: 2;
@@ -1230,7 +1282,8 @@
 /* The ★ central badge (CentralBadge) in the name row, after the label chip. It gives way before the
    title does (the title is what the row is for) and is capped, so a long folder name ellipsises; its
    tooltip has the whole scope. Two classes: the badge's own module has a one-class `max-width`. In the
-   rail it joins the label chip and the project name under the title (see the block below). */
+   rail it shares one line with the label chip and the project name under the title, capped at half the row so a
+   long room or folder scope leaves the project readable. */
 .switcherNameDisplay .switcherCentral {
   flex: 0 1 auto;
   max-width: 160px;
@@ -1238,7 +1291,7 @@
 
 .switcherBarVertical .switcherNameDisplay .switcherCentral {
   order: 1;
-  max-width: 100%;
+  max-width: 50%;
 }
 
 .switcherProject {
@@ -1425,6 +1478,55 @@
   display: none;
 }
 
+/* ---- Session search (Nov 9 2026) ----
+   The rail: its own row between the header and the scrolling list, so it never
+   scrolls away. The top bar: the strip's first item, held at the left edge while
+   the cards scroll under it (opaque, or the cards show through). z-index 5 is
+   local: above the cards' number badges and status marks (up to 4 in this file),
+   which otherwise painted over the box mid-scroll; .convToolbar's sticky uses 5 too. */
+.stripSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.switcherBarVertical .stripSearch {
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--border-faint);
+}
+.sessionTabStrip > .stripSearch {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding-right: 8px;
+  background: var(--bg-panel);
+}
+.stripSearchField {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Wide enough for the whole "Search sessions (/)" placeholder past the 32px glyph and clear insets. */
+.sessionTabStrip > .stripSearch .stripSearchField {
+  width: 208px;
+}
+.stripSearchCount {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.stripSearchEmpty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.switcherBarVertical .stripSearchEmpty {
+  white-space: normal;
+}
+
 /* Status is signalled by the coloured corner badge (StatusGlyph / green ✓) and
    the mini status dot — NOT by the card frame. Frames stay neutral and static:
    the old per-status conic-gradient spinner + pulse animations repainted every
@@ -1562,6 +1664,16 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+
+/* Claude/Codex brand mark, inline at the very START of the title. Compact titles are left-aligned,
+   so there the marks form one column; a detailed title is centred, and its mark goes with it.
+   Brand colours come from CliBrandIcons. */
+.sessionTabCli {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 3px;
 }
 
 /* Queue-hint badge — a cyan list-glyph + count shown inline at the START of the
@@ -2265,7 +2377,7 @@
 
   /* ---- Reachable session controls on a phone --------------------------------
    * `.switcherMeta` is the row holding status / model / duration /
-   * `SessionControlLock` / KILL-MUTE-ALERT / room select / minimize. It is
+   * KILL-MUTE-ALERT / room select / minimize (once also the control lock). It is
    * `flex-shrink: 0` and does not wrap, so at 390px the lock chip ("🔒 Driven
    * by Mac · Chrome" + Ask/Take, itself added long after this breakpoint was
    * written) consumed the row and pushed EVERYTHING after it past the right
@@ -2288,7 +2400,7 @@
   /* Give the session controls their own full-width line rather than letting
      them wrap mid-group and split KILL from MUTE from ALERT.
      `.switcherControls` wraps `SessionControlBar`'s `.ctrlBar`, which itself
-     contains SessionControlLock ("🔒 Driven by …" + Ask/Take) FIRST, then
+     contained the control lock ("🔒 Driven by …" + Ask/Take, since removed) FIRST, then
      KILL/MUTE/ALERT, then the room select — so widening this one container is
      what makes the whole group reachable; the lock is nested inside it, not a
      sibling needing its own rule. `.ctrlBar` already sets `flex-wrap: wrap`,

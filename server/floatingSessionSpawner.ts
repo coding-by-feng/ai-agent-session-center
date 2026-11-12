@@ -19,9 +19,10 @@
  * Claude transcript file (server/extractPreviousAnswer.ts). Cross-CLI support
  * for codex transcripts is a phase-2 follow-up.
  */
-import { getSession, getSessionByTerminalId, createTerminalSession } from './sessionStore.js';
+import { getSession, getSessionByTerminalId, createTerminalSession, resumableIdOf } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, injectClaudeCommandsWhenReady } from './sshManager.js';
-import { readClaudeLastAssistant, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
+import { readClaudeLastAssistant, readCodexLastAssistant, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
+import { findCodexRollout } from './codexRollout.js';
 import { reconstructPermissionFlags, applyClaudeLaunchFlags, sanitizeModelId } from './config.js';
 import {
   buildPrompt,
@@ -144,9 +145,13 @@ export async function spawnFloatingSession(
         projectPath,
         origin.transcriptPath || null,
       );
+    } else if (cliKind === 'codex') {
+      // A Codex card's transcript is its rollout: the hook's path, else found by the thread id.
+      const rollout = origin.transcriptPath || await findCodexRollout(resumableIdOf(origin));
+      if (rollout) prevAnswer = readCodexLastAssistant(rollout);
     }
     if (!prevAnswer) {
-      throw new Error('Could not read the previous assistant answer for this session. Translation requires a Claude Code transcript.');
+      throw new Error('Could not read the previous assistant answer for this session. Translation requires a Claude Code or Codex transcript.');
     }
   }
 
@@ -175,7 +180,9 @@ export async function spawnFloatingSession(
   // project-tab markdown viewer) have no spawnTerminalId and fork from the root.
   const spawnParent = args.spawnTerminalId ? getSessionByTerminalId(args.spawnTerminalId) : null;
   const forkParentSession = spawnParent ?? origin;
-  const forkParentId = spawnParent ? spawnParent.sessionId : args.originSessionId;
+  // A restored card still keyed by its terminal id forks the session its restore resumed (Session.launchResumeId):
+  // a Codex sends no hook on `codex resume`, and a term-* id would fork `--last`, the newest thread in the folder.
+  const forkParentId = resumableIdOf(spawnParent ?? origin);
   // Fork from (inherit the conversation context of) the parent session for ALL
   // popup modes on Claude/Codex origins — surrounding context improves
   // explanations, translations, and vocab sense. BUT only when that parent has a

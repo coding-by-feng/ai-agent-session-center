@@ -12,6 +12,7 @@ vi.mock('@/lib/deviceIdentity', async (importOriginal) => ({
 
 import ResourcesScreen from './ResourcesScreen';
 import ResourceItemScreen from './ResourceItemScreen';
+import ProjectItemScreen from './ProjectItemScreen';
 import { usePhoneNavStore, defaultStacks } from '@/stores/phoneNavStore';
 import type { ResourceSummary } from '@/types/resources';
 
@@ -242,6 +243,38 @@ describe('Resources → Projects', () => {
     expect(rows[1].textContent).toContain('Not on this device');
     expect(screen.getByText(/Clone, Pull, Push and Check run on your Mac/)).toBeTruthy();
     expectReadOnly();
+  });
+
+  it('a row opens its project', async () => {
+    const user = userEvent.setup();
+    render(<ResourcesScreen tab="projects" />);
+    const rows = await screen.findAllByTestId('project-row');
+    await user.click(within(rows[1]).getByRole('button'));
+    expect(top()).toBe(`/more/resources/projects/${CLOUD(21)}`);
+  });
+});
+
+describe('a saved project', () => {
+  it('shows its state, repository and the checkout on the Mac in full', async () => {
+    render(<ProjectItemScreen id={CLOUD(20)} />);
+    expect(await screen.findByRole('heading', { name: 'agent-manager' })).toBeTruthy();
+    expect(screen.getByText('2 commits to push')).toBeTruthy();
+    expect(screen.getByText('github.com/kason/agent-manager')).toBeTruthy();
+    expect(screen.getByText('~/code/agent-manager')).toBeTruthy();
+    const mac = screen.getByRole('region', { name: 'On your Mac' });
+    expect(within(mac).getByText('Branch here')).toBeTruthy();
+    expect(within(mac).getByText('2 commits')).toBeTruthy();
+    expect(within(mac).getByText('Nothing')).toBeTruthy();
+    expect(within(mac).getByText('kason')).toBeTruthy();
+    expectReadOnly();
+  });
+
+  it('one not cloned on the Mac says so; one no longer saved says that', async () => {
+    const { unmount } = render(<ProjectItemScreen id={CLOUD(21)} />);
+    expect(await screen.findByText('Not on this Mac')).toBeTruthy();
+    unmount();
+    render(<ProjectItemScreen id={CLOUD(99)} />);
+    expect(await screen.findByText('This project isn’t saved to cloud any more')).toBeTruthy();
   });
 });
 

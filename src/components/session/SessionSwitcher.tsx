@@ -14,13 +14,16 @@ import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
-import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
+import { RECENT_LIMIT } from '@/lib/recentSessions';
+import { SESSION_SEARCH_FOCUS_EVENT, stripSessionOrder } from '@/lib/sessionStrip';
+import SearchInput from '@/components/ui/SearchInput';
 import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import CentralBadge from './CentralBadge';
 import WorkerBadge from './WorkerBadge';
 import HandsOffToggle from './HandsOffToggle';
 import PlanUsageChip from './PlanUsageChip';
+import { IS_LITE } from '@/lib/edition';
 import SessionRuntimeChip from './SessionRuntimeChip';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import ProjectFrameHeader from './ProjectFrameHeader';
@@ -54,7 +57,9 @@ import Tooltip from '@/components/ui/Tooltip';
 import SessionPromptPeek from './SessionPromptPeek';
 import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
-import { ASLEEP, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, statusLabel as statusWords } from '@/lib/sessionStatusStyle';
+import { ASLEEP, COMPACTING, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, showsCompacting, statusColor, statusLabel as statusWords, statusOrCompacting } from '@/lib/sessionStatusStyle';
+import { detectCli } from '@/lib/cliDetect';
+import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
@@ -65,7 +70,7 @@ const RECENT_FRAME_KEY = 'builtin:recent';
 /** Where a built-in frame's cards are listed again: their room, or in the Projects view their project. */
 const alsoListedIn = (mode: SessionSortMode) => `Each is also listed in its own ${mode === 'project' ? 'project' : 'room'}.`;
 const recentFrameTitle = (mode: SessionSortMode) =>
-  `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. ${alsoListedIn(mode)}`;
+  `Recent: the ${RECENT_LIMIT} most recently active sessions. ${alsoListedIn(mode)}`;
 const PINNED_FRAME_KEY = 'builtin:pinned';
 const pinnedFrameTitle = (mode: SessionSortMode) => `Pinned: every pinned session. ${alsoListedIn(mode)}`;
 const CENTRAL_FRAME_KEY = 'builtin:central';
@@ -158,14 +163,39 @@ export default function SessionSwitcher({
 
   // The list itself (numbers, room filter, RECENT, the view's frames) is
   // useSessionStrip.
+  // The search box above the list (Nov 9 2026): narrows the cards as you type.
+  const [stripQuery, setStripQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
   const {
     sessionIndexMap,
     currentIndex,
     activeSessionIds,
     availableRooms,
     filteredSessions,
+    matchedSessions,
+    searching,
     items: tabRenderItems,
-  } = useSessionStrip(sessions, currentSession.sessionId);
+  } = useSessionStrip(sessions, currentSession.sessionId, stripQuery);
+
+  // The `searchSessions` shortcut (`/`): bring the list back if it is folded or
+  // hidden behind a maximized panel, then focus the box once it is drawn.
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
+  useEffect(() => {
+    const onFocusSearch = () => {
+      const ui = useUiStore.getState();
+      if (ui.maximized) ui.toggleMaximized();
+      if (ui.navPosition === 'left' && ui.navRailCollapsed) ui.toggleNavRailCollapsed();
+      setSearchFocusRequest((n) => n + 1);
+    };
+    document.addEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocusSearch);
+    return () => document.removeEventListener(SESSION_SEARCH_FOCUS_EVENT, onFocusSearch);
+  }, []);
+  useEffect(() => {
+    if (searchFocusRequest === 0) return;
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }, [searchFocusRequest]);
 
   // How to get back here from the keyboard: the user's own binding for "Switch to
   // session N" (1–9), else "Go to session by number". A string, so the selector is stable.
@@ -236,7 +266,10 @@ export default function SessionSwitcher({
     ? currentSession.projectName
     : null;
   const pinCopy = currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin;
-  const pinnedFrameListed = tabRenderItems.some((i) => i.type === 'pinned');
+  // A search hides the PINNED frame, which is not the same as nothing being pinned.
+  const pinnedFrameListed = searching
+    ? filteredSessions.some((s) => s.pinned)
+    : tabRenderItems.some((i) => i.type === 'pinned');
   const pinnedCopy = pinnedRoomHidden
     ? tooltips.pinnedRoomHidden
     : pinnedFrameListed ? tooltips.pinnedRoomShown : tooltips.pinnedRoomEmpty;
@@ -372,7 +405,7 @@ export default function SessionSwitcher({
 
   // Pop the whole session out into its own native window. Electron only — the
   // same guard FloatingTerminalPanel uses for its own pop-out button.
-  const canPopOutSession = typeof window !== 'undefined' && !!window.electronAPI?.openSessionWindow;
+  const canPopOutSession = !IS_LITE && typeof window !== 'undefined' && !!window.electronAPI?.openSessionWindow;
   const handleDetachSession = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const { sessionId, title } = currentSession;
@@ -382,6 +415,51 @@ export default function SessionSwitcher({
         /* ignore — session stays in-app */
       });
   }, [currentSession]);
+
+  // Enter opens the first match that is not already open (so Enter again goes
+  // back: two matches toggle); Escape clears the box, then leaves it.
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // An IME's Enter commits a candidate and its Escape cancels one (pinyin, kana):
+    // Chromium flags it isComposing, WebKit only keyCode 229. Same guard as TerminalSearchBar.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') {
+      if (!searching) return;
+      e.preventDefault();
+      const target = stripSessionOrder(tabRenderItems).find((id) => id !== currentSession.sessionId);
+      if (target) handleSwitch(target);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (stripQuery) setStripQuery('');
+      else e.currentTarget.blur();
+    }
+  };
+  const searchShortcut = useShortcutStore((st) => {
+    const combo = st.bindings.find((b) => b.actionId === 'searchSessions')?.combo ?? null;
+    return combo ? keyComboToString(combo) : '';
+  });
+  const stripSearchBox = (
+    <div className={styles.stripSearch} role="search">
+      <SearchInput
+        variant="field"
+        className={styles.stripSearchField}
+        value={stripQuery}
+        onChange={setStripQuery}
+        debounceMs={0}
+        placeholder={searchShortcut ? `Search sessions (${searchShortcut})` : 'Search sessions'}
+        ariaLabel="Search sessions by name, project, remark, label or #number"
+        inputRef={searchInputRef}
+        onKeyDown={handleSearchKeyDown}
+      />
+      {searching && (
+        <span className={styles.stripSearchCount} aria-live="polite">
+          <span aria-hidden="true">{matchedSessions.length}/{filteredSessions.length}</span>
+          <span className={chipStyles.srOnly}>
+            {matchedSessions.length} of {filteredSessions.length} sessions match
+          </span>
+        </span>
+      )}
+    </div>
+  );
 
   // ── Folded left rail: a thin strip with just the expand affordance + count ──
   if (isRailCollapsed) {
@@ -407,11 +485,12 @@ export default function SessionSwitcher({
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
       {/* ── Top row: current session name + meta controls ── */}
-      <div className={styles.switcherToggle}>
+      {/* The rail asks the kit for roomy touch icons (Button.module.css): 16px glyphs in the 44px target. */}
+      <div className={styles.switcherToggle} data-touch-icons={isVertical ? 'roomy' : undefined}>
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
               .switcherMeta below: that row's icon count is what the rail is sized for. */}
-          <PlanUsageChip session={currentSession} />
+          {!IS_LITE && <PlanUsageChip session={currentSession} />}
           {/* The session's number — the badge its card carries, and what the switch
               shortcuts use. The status dot that sat beside it repeated the status
               badge below, so it is gone (AASC-11); the number now says what it is. */}
@@ -449,12 +528,14 @@ export default function SessionSwitcher({
                 onDoubleClick={beginHeaderEdit}
               >
                 {/* Hover peeks at the session (Oct 23 2026): where it runs, your remark and
-                    the last prompts you typed. Its first line is the full name, which the
+                    the last prompts you typed, each in full (Oct 29), so the pointer may move
+                    in to scroll a long one. Its first line is the full name, which the
                     native title used to give when the rail clamps a long one. */}
                 <Tooltip
                   label={primaryName}
                   content={<SessionPromptPeek session={currentSession} />}
                   wide
+                  interactive
                   delay={PEEK_HOVER_DELAY_MS}
                   placement={isVertical ? 'right' : 'bottom'}
                   triggerClassName={styles.switcherNameTrigger}
@@ -596,19 +677,19 @@ export default function SessionSwitcher({
           {/* The shared status mark — the same glyph and words as the LIVE card (AASC-11). */}
           {statusLabel && (
             <StatusBadge
-              status={currentSession.asleepAt ? ASLEEP : isDisconnected ? 'ended' : currentSession.status}
+              status={currentSession.asleepAt ? ASLEEP : isDisconnected ? 'ended' : statusOrCompacting(currentSession)}
               className={styles.switcherStatus}
             />
           )}
           {/* Claude: the model · effort it runs on NOW, following /model and /effort live.
               Others (Codex) report neither, so they keep the launch model as plain text. */}
-          {hasRuntimeChip ? (
+          {!IS_LITE && (hasRuntimeChip ? (
             <SessionRuntimeChip session={currentSession} />
           ) : model && (
             /* title: the badge is clamped to one ellipsised line (see
                .detailModel), so hover is the only way to read a long id. */
             <span className={styles.detailModel} title={model}>{model}</span>
-          )}
+          ))}
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}
@@ -690,9 +771,19 @@ export default function SessionSwitcher({
         />
       )}
 
+      {/* ── Search box ── the rail's own row, above the scrolling list. The top
+          bar has no row to spare: there it leads the strip (stickily). */}
+      {!maximized && filteredSessions.length > 0 && isVertical && stripSearchBox}
+
       {/* ── Session tab strip ── (hidden when the panel is maximized) */}
       {!maximized && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
+          {!isVertical && stripSearchBox}
+          {searching && matchedSessions.length === 0 && (
+            <p className={styles.stripSearchEmpty}>
+              No session matches “{stripQuery.trim()}”{selectedRoomIds.size > 0 ? ' in the rooms shown' : ''}.
+            </p>
+          )}
           {tabRenderItems.map((item) => {
             if (item.type === 'central') {
               return (
@@ -741,7 +832,8 @@ export default function SessionSwitcher({
             }
             if (item.type === 'project') {
               const { group } = item;
-              const collapsed = collapsedProjects.has(group.key);
+              // A search opens every frame: a match must not hide in a folded one.
+              const collapsed = collapsedProjects.has(group.key) && !searching;
               return (
                 <div
                   key={group.key}
@@ -756,6 +848,7 @@ export default function SessionSwitcher({
                     group={group}
                     collapsed={collapsed}
                     onToggleCollapse={() => toggleProjectCollapsed(group.key)}
+                    foldable={!searching}
                   />
                   {!collapsed &&
                     group.sessions.map((s) => (
@@ -773,7 +866,7 @@ export default function SessionSwitcher({
               );
             }
             if (item.type === 'room') {
-              const collapsed = item.room.collapsed;
+              const collapsed = item.room.collapsed && !searching;
               // Live (killable) sessions in this room, independent of the room
               // filter — ended cards and dropped ids don't count. The kill icon
               // is hidden when there's nothing to kill.
@@ -823,7 +916,9 @@ export default function SessionSwitcher({
                         only, so a drag there could never land where it was
                         released — and the carry preview's vertical slides
                         would visibly break the row. ▲▼ still reorder there. */}
-                    {isVertical && (
+                    {/* No reordering while a search hides rooms: ▲▼ would hop over
+                        the hidden ones and renumber only the rooms shown. */}
+                    {isVertical && !searching && (
                       <span
                         className={styles.roomDragHandle}
                         title="Drag to reorder this room"
@@ -833,6 +928,10 @@ export default function SessionSwitcher({
                         <RoomDragHandleIcon />
                       </span>
                     )}
+                    {/* A search draws every frame open, so the fold would only flip the
+                        hidden stored state (seen once the box is cleared): no fold then. */}
+                    {!searching && (
+                    <>
                     <button
                       type="button"
                       className={styles.roomCollapseToggle}
@@ -873,6 +972,8 @@ export default function SessionSwitcher({
                     >
                       <MoveRoomDownIcon />
                     </button>
+                    </>
+                    )}
                     {roomLiveCount > 0 && (
                       <>
                       <span className={styles.roomHeaderDivider} aria-hidden="true" />
@@ -954,14 +1055,20 @@ function SessionTabCard({
   index: number;
   needsAttention?: boolean;
 }) {
-  const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
-  const railStatus = session.asleepAt ? ASLEEP : session.status;
+  // A compaction is busy whatever the status says, so it shows over the P and the ✓ below.
+  const compacting = showsCompacting(session);
+  const color = compacting ? statusColor(COMPACTING) : STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+  const railStatus = session.asleepAt ? ASLEEP : compacting ? COMPACTING : session.status;
   const statusTitle = session.asleepAt
     ? `${statusWords(ASLEEP)} — open to resume`
-    : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
+    : compacting
+      ? statusWords(COMPACTING)
+      : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
+  const detectedCli = detectCli(session);
+  const cliMark = CLI_LAUNCHERS.find((c) => c.command === detectedCli);
   const label = useLabelStore((s) => s.labels[session.sessionId]);
   const labelColor = useLabelStore((s) => s.labelColor);
   // Client queueStore is the source of truth for pending prompts — `session.queueCount`
@@ -1018,11 +1125,13 @@ function SessionTabCard({
 
   // Hover peeks at the session (Oct 23 2026): its name, where it runs, your remark and
   // the last prompts you typed, in place of the native "title · project · status" title.
+  // The prompts are whole (Oct 29), so the pointer may move in to scroll a long one.
   return (
     <Tooltip
       label={title}
       content={<SessionPromptPeek session={session} />}
       wide
+      interactive
       delay={PEEK_HOVER_DELAY_MS}
       placement={peekPlacement}
       triggerClassName={styles.sessionTabTrigger}
@@ -1057,7 +1166,7 @@ function SessionTabCard({
           shows the green ✓ "completed" badge; otherwise it shows a distinct
           per-status glyph (approval "!", input "?", working spinner, etc.) so
           statuses are tellable apart by icon, not colour alone. */}
-      {owesProceed(session) ? (
+      {!compacting && owesProceed(session) ? (
         // Its last answer asks you to reply "proceed" (Oct 23 2026): outranks the ✓, and shows on
         // the current card too, since looking at it is not the reply.
         <span
@@ -1068,7 +1177,7 @@ function SessionTabCard({
         >
           <StatusGlyph status={PROCEED} />
         </span>
-      ) : needsAttention ? (
+      ) : !compacting && needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
           role="img"
@@ -1135,7 +1244,13 @@ function SessionTabCard({
           onDoubleClick={beginEdit}
           title={isCurrent ? 'Double-click to rename' : undefined}
         >
-          {/* A central session (server/mcp): the star first, before the queue chip; the card's hover names its scope. */}
+          {/* Claude or Codex, always first: on a compact card the marks form one column to scan. */}
+          {cliMark && (
+            <span className={styles.sessionTabCli} role="img" aria-label={cliMark.label} title={cliMark.label}>
+              <cliMark.Icon size={11} />
+            </span>
+          )}
+          {/* A central session (server/mcp): the star next, before the queue chip; the card's hover names its scope. */}
           {session.central && <CentralBadge central={session.central} bare className={styles.sessionTabCentral} />}
           {queueLen > 0 && (
             <span

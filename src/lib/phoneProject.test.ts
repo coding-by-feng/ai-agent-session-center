@@ -19,6 +19,7 @@ import {
   pinchView,
   relInProject,
   viewerKindFor,
+  withoutProjectName,
   PHONE_LINE_WINDOW,
 } from './phoneProject';
 
@@ -49,6 +50,16 @@ describe('paths', () => {
     expect(relInProject('/Users/me/project2/x.md', '/Users/me/proj')).toBeNull();
     expect(relInProject('~/.ssh/id_rsa', '/Users/me/proj')).toBeNull();
     expect(relInProject('  ', '/Users/me/proj')).toBeNull();
+  });
+
+  // Nov 6 2026: an agent wrote "second-brain/02-study/x.md" from the project's parent folder.
+  it('reads a path that starts with the project folder\'s own name as one inside it', () => {
+    expect(withoutProjectName('/proj/docs/x.md', '/Users/me/proj')).toBe('/docs/x.md');
+    expect(withoutProjectName('/proj/docs/x.md', '/Users/me/proj/')).toBe('/docs/x.md');
+    expect(withoutProjectName('/docs/x.md', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/proj', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/projX/a.md', '/Users/me/proj')).toBeNull();
+    expect(withoutProjectName('/proj/a.md', '')).toBeNull();
   });
 });
 
@@ -90,6 +101,11 @@ describe('fileErrorText', () => {
     expect(text.hint).toMatch(/moved or deleted/);
     expect(fileErrorText(0, 'folder').title).toMatch(/could not be reached/);
     expect(fileErrorText(500, 'folder').title).toMatch(/could not be opened/);
+  });
+
+  it('offers no retry for a file too large to open: trying again cannot change it (Nov 5 2026)', () => {
+    expect(fileErrorText(413, 'file')).toMatchObject({ title: 'This file is too large to open', retryable: false });
+    for (const status of [0, 404, 429, 500]) expect(fileErrorText(status, 'file').retryable).toBe(true);
   });
 });
 

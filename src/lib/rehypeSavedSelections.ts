@@ -2,13 +2,14 @@
  * rehype plugin: wrap occurrences of saved (favorited) selection strings in the
  * rendered markdown with a clickable <mark className="saved-selection">, so a
  * user sees which phrases they've looked up via the AI popup — and can click to
- * open the saved record in the REVIEW tab.
+ * open the saved record in the REVIEW tab (Lite's AI POPUPS).
  *
  * Kept as a tree transform (not a per-paragraph hack) so it works for text
  * anywhere in the document. Code/links/existing marks are skipped.
  *
  * Local minimal hast types avoid a hard dependency on the `hast` type package.
  */
+import { IS_LITE } from '@/lib/edition';
 
 export interface SavedSelectionTerm {
   /** The exact selected text to highlight. */
@@ -110,7 +111,7 @@ function markNode(text: string, term: SavedSelectionTerm): HastElement {
     properties: {
       className: ['saved-selection'],
       dataSavedUuid: term.uuid,
-      title: term.alias || 'Saved lookup — click to open in REVIEW',
+      title: term.alias || `Saved lookup — click to open in ${IS_LITE ? 'AI POPUPS' : 'REVIEW'}`,
     },
     children: [{ type: 'text', value: text }],
   };

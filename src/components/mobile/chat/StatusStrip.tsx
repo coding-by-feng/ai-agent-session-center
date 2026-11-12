@@ -1,38 +1,40 @@
 /**
  * StatusStrip — while the agent works (AASC-41): "● Working · Bash · 0:42  ■ Stop",
  * or compacts its context: "● Compacting context · auto · 0:23  ■ Stop" (timed from
- * PreCompact; Esc cancels a compaction too). The terminal's last lines sit under it
+ * PreCompact; Esc cancels a compaction too), or, once the answer is in, while Claude still runs
+ * its Stop hooks: "● Finishing up · Stop hooks · 0:12" (timed from Stop; Nov 6 2026). A prompt
+ * sent then waits, unseen, until they finish, so the strip stays up to say why. The terminal's last lines sit under it
  * only once ⌄ asks for them (Oct 19 2026, remembered per phone: peekPreference).
  * and the terminal peek under it, whose opened face has "Open terminal" (AASC-56). Status and tool come from the session object
  * (hook-driven, instant), not from the transcript.
  *
  * Stop is Esc, written to the session's terminal the way the phone's key bar
  * writes keys (`writeTerminal`, POST /api/terminals/:id/write). It is the phone's
- * only Stop (Oct 20 2026: the composer had a second, which asked first where this
- * one didn't): while a tool runs it asks first, since stopping interrupts the tool.
+ * only Stop (Oct 20 2026: the composer had a second). One tap writes Esc at once,
+ * a running tool included (Nov 5 2026: a confirm sheet while a tool ran made Stop
+ * two taps; Esc on the desktop never asked either).
  *
  * Oct 28 2026: once Esc is written the button holds "Stopping…" (busy) and the strip
  * reads "Stopping", until the turn ends or a new one starts, or STOP_PENDING_MS
  * passes with the agent still working (then Stop can be pressed again). Before, it
- * was busy only for the write itself, so a tap looked like it did nothing.
+ * was busy only for the write itself, so a tap looked like it did nothing. Never a
+ * second Esc on its own: at Claude's idle prompt a second Esc opens its rewind menu.
  */
 import { useEffect, useId, useState } from 'react';
 import type { Session } from '@/types';
 import { useControlBaton } from '@/hooks/useControlBaton';
 import { PHONE_KEY_SEQUENCES, writeTerminal } from '@/lib/terminalCompose';
 import { formatDuration } from '@/lib/chat/chatFormat';
-import { isCompacting } from '@/lib/chat/phoneStatus';
-import { runningTool } from '@/lib/chat/composerAction';
-import { detectCli } from '@/lib/cliDetect';
+import { isCompacting, isFinishingUp } from '@/lib/chat/phoneStatus';
 import { readPeekOpen, writePeekOpen } from '@/lib/chat/peekPreference';
-import { Button, ConfirmSheet } from '../kit';
+import { Button } from '../kit';
 import TerminalPeek from './TerminalPeek';
 import { ChevronIcon, SquareStopIcon } from './chatViewIcons';
 import styles from '@/styles/modules/mobile/Chat.module.css';
 
 const TICK_MS = 1000;
 /** How long a written Stop holds "Stopping…" before Stop is offered again. */
-export const STOP_PENDING_MS = 10_000;
+export const STOP_PENDING_MS = 5_000;
 
 /** When the current turn began: the last prompt, else the last activity. */
 function turnStart(session: Session): number {
@@ -63,10 +65,6 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   /** When Esc was written, and for which turn (its start). */
   const [stopSent, setStopSent] = useState<{ at: number; turn: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** The tool a confirmed Stop would interrupt, while its confirm is open. */
-  const [confirmTool, setConfirmTool] = useState<string | null>(null);
-  const cli = detectCli(session);
-  const cliName = cli === 'codex' ? 'Codex' : cli === 'claude' ? 'Claude' : 'the agent';
   const [peekOpen, setPeekOpen] = useState(readPeekOpen);
   const peekId = useId();
   const togglePeek = () => {
@@ -81,16 +79,21 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
   }, []);
 
   const compacting = isCompacting(session, now) ? session.compacting : null;
-  const since = compacting ? compacting.since : turnStart(session);
-  const tool = compacting ? null : currentTool(session, since);
+  const finishingSince = !compacting && isFinishingUp(session, now) ? session.stopHooksSince ?? null : null;
+  const since = compacting ? compacting.since : finishingSince ?? turnStart(session);
+  const tool = compacting || finishingSince ? null : currentTool(session, since);
   const elapsed = formatDuration(Math.max(0, now - since));
   // Worked out on each tick, never set by an effect: a new turn or the timeout ends it.
   const stopPending = !!stopSent && stopSent.turn === since && now - stopSent.at < STOP_PENDING_MS;
+  // Nothing left to show: a mark gone stale with no update to unmount the strip (the session
+  // sits waiting) must not fall back to "Working · <the turn's last tool>".
+  const live = session.status === 'working' || session.status === 'prompting' || !!compacting || finishingSince !== null;
   const label = stopPending
     ? 'Stopping'
     : compacting
       ? ['Compacting context', compacting.trigger].filter(Boolean).join(' · ')
-      : session.status === 'prompting' ? 'Starting' : 'Working';
+      : finishingSince ? 'Finishing up · Stop hooks'
+        : session.status === 'prompting' ? 'Starting' : 'Working';
 
   const stop = async () => {
     if (!terminalId) return;
@@ -107,17 +110,14 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
       setError(result.message);
     }
   };
-  const askStop = () => {
-    const running = runningTool(session);
-    if (running) setConfirmTool(running);
-    else void stop();
-  };
 
   const disabledReason = !terminalId
     ? 'No terminal to stop'
     : baton.mode === 'spectator'
       ? `${baton.holder?.label ?? 'Another device'} is driving`
       : undefined;
+
+  if (!live) return null;
 
   return (
     <div className={styles.strip} data-testid="chat-status-strip">
@@ -142,11 +142,13 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
         >
           <ChevronIcon size={18} />
         </button>
-        <Button
+        {/* No Stop while finishing up: Esc there cancels the user's own Stop hooks (claude-mem's
+            summary of the turn is lost), and the answer is already in. */}
+        {finishingSince === null && <Button
           small
           variant="secondary"
           icon={<SquareStopIcon size={16} />}
-          onClick={askStop}
+          onClick={() => { void stop(); }}
           loading={stopping || stopPending}
           loadingLabel="Stopping…"
           disabledReason={disabledReason}
@@ -154,7 +156,7 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           className={styles.stripStop}
         >
           {stopping || stopPending ? 'Stopping…' : 'Stop'}
-        </Button>
+        </Button>}
       </div>
       {error && <p className={styles.stripError} role="alert">{error}</p>}
       {peekOpen && (
@@ -162,15 +164,6 @@ export default function StatusStrip({ session, peek, onOpenTerminal }: StatusStr
           <TerminalPeek terminalId={terminalId} lines={peek} onOpenTerminal={onOpenTerminal} />
         </div>
       )}
-      <ConfirmSheet
-        open={confirmTool !== null}
-        title={`Stop ${cliName}?`}
-        message={`It is running ${confirmTool ?? 'a tool'}. Stopping interrupts it.`}
-        confirmLabel="Stop"
-        danger
-        onConfirm={() => { setConfirmTool(null); void stop(); }}
-        onCancel={() => setConfirmTool(null)}
-      />
     </div>
   );
 }

@@ -11,19 +11,9 @@
 import { useEffect, useRef } from 'react';
 import { useSessionSwitchHold } from '@/hooks/useSessionSwitchHold';
 import { isMac } from '@/lib/shortcutKeys';
+import { statusColor, statusOrCompacting } from '@/lib/sessionStatusStyle';
 import type { Session } from '@/types';
 import styles from '@/styles/modules/SessionSwitchOverlay.module.css';
-
-const STATUS_COLORS: Record<string, string> = {
-  idle: 'var(--accent-green)',
-  prompting: 'var(--accent-cyan)',
-  working: 'var(--accent-orange)',
-  waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-yellow)',
-  input: 'var(--accent-purple)',
-  ended: 'var(--accent-red)',
-  connecting: 'var(--text-dim)',
-};
 
 const STATUS_LABELS: Record<string, string> = {
   idle: 'Idle',
@@ -34,6 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
   input: 'Input',
   ended: 'Disconnected',
   connecting: 'Connecting',
+  compacting: 'Compacting',
 };
 
 function sessionName(s: Session): string {
@@ -64,7 +55,8 @@ export default function SessionSwitchOverlay() {
         <div className={styles.list}>
           {items.map((session, index) => {
             const highlighted = index === highlightedIndex;
-            const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+            const shown = statusOrCompacting(session);
+            const color = statusColor(shown);
             const name = sessionName(session);
             return (
               <button
@@ -90,7 +82,7 @@ export default function SessionSwitchOverlay() {
                   <span className={styles.project}>{session.projectName}</span>
                 )}
                 <span className={styles.status}>
-                  {STATUS_LABELS[session.status] ?? session.status}
+                  {STATUS_LABELS[shown] ?? shown}
                 </span>
               </button>
             );

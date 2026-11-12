@@ -13,7 +13,7 @@ export interface Room {
    *  This is a 3D WORLD-SPACE position, not a display-order hint — it drives
    *  `computeRoomCenter` (the room's actual walls/floor/doors in the
    *  cyberdrome), the camera-focus target in `SceneOverlay`, and the room's
-   *  color in `HeaderAgentStrip`/`SessionSwitcher` (`roomIndex % PALETTE.length`).
+   *  color in `SessionSwitcher` (`roomIndex % PALETTE.length`).
    *  Reordering a room in a 2D list must NEVER write this field — see
    *  `listOrder` below, which exists specifically so list views have
    *  somewhere to put "order" without moving the room in the 3D scene. */

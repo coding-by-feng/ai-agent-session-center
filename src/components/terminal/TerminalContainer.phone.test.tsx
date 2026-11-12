@@ -55,10 +55,14 @@ vi.mock('@/hooks/useTerminal', () => ({
   }),
 }));
 vi.mock('./TerminalToolbar', () => ({ default: () => <div data-testid="terminal-toolbar" /> }));
+vi.mock('./LocalEchoOverlay', () => ({
+  default: ({ enabled }: { enabled: boolean }) => <div data-testid="local-echo" data-enabled={String(enabled)} />,
+}));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 import { settleLazy } from '@/__tests__/settleLazy';
 import TerminalContainer from './TerminalContainer';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 function fakeSocket() {
   const listeners: Array<(e: MessageEvent) => void> = [];
@@ -127,5 +131,26 @@ describe('TerminalContainer on a desktop', () => {
     expect(screen.getAllByTestId('terminal-toolbar').length).toBeGreaterThan(0);
     expect(screen.queryByRole('group', { name: 'Terminal keys' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Message to send to the terminal' })).toBeNull();
+  });
+
+  // Instant typing (Nov 2026): the desktop draws keys before their echo; a phone types through its compose box.
+  it('draws typed keys before their echo while Instant typing is on', () => {
+    platform.isMobile = false;
+    useSettingsStore.setState({ instantTyping: true });
+    const { unmount } = render(<TerminalContainer terminalId="term-1" ws={null} />);
+    expect(screen.getByTestId('local-echo')).toHaveAttribute('data-enabled', 'true');
+    unmount();
+    useSettingsStore.setState({ instantTyping: false });
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    expect(screen.getByTestId('local-echo')).toHaveAttribute('data-enabled', 'false');
+    useSettingsStore.setState({ instantTyping: true });
+  });
+});
+
+describe('Instant typing on a phone', () => {
+  it('is never drawn: the phone types through its compose box', () => {
+    useSettingsStore.setState({ instantTyping: true });
+    render(<TerminalContainer terminalId="term-1" ws={null} originSessionId="s1" controlSessionId="s1" />);
+    expect(screen.queryByTestId('local-echo')).toBeNull();
   });
 });

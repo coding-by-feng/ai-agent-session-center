@@ -36,6 +36,7 @@ export default defineConfig({
   define: {
     __AASC_VERSION__: JSON.stringify(appVersion),
     __AASC_BUILD__: JSON.stringify({ date: new Date().toISOString(), commit: buildCommit() }),
+    __AASC_EDITION__: JSON.stringify('full'),
   },
   plugins: [react()],
   publicDir: 'static',

@@ -14,17 +14,41 @@
  * on the PTY, with the PTY's tty and terminal id, and the existing matching binds them.
  * Verified against Codex 0.162.1 with an isolated CODEX_HOME in a tmux probe.
  *
- * An older Codex rejects the unknown flag and does not start, so the flag is only added
- * once `codex --help` (probed through a login shell, cached) advertises it. Like the Claude
- * status-line tap, it is applied to the line typed into a LOCAL terminal only.
+ * Nov 4 2026: `--no-alt-screen` joins it. Codex 0.166 draws its TUI on the alternate screen,
+ * which keeps no xterm scrollback, so the TERMINAL tab could not scroll back to earlier turns
+ * (xterm turns the wheel into arrow keys typed into Codex there). `--no-alt-screen` ("Runs the
+ * TUI in inline mode, preserving terminal scrollback history", also on `resume` / `fork`) puts
+ * the history in the scrollback, the way CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 does for Claude.
+ *
+ * An older Codex rejects an unknown flag and does not start, so each flag is only added once
+ * `codex --help` (probed through a login shell, cached) advertises THAT flag: a Codex can have
+ * one and not the other. Like the Claude status-line tap, they are applied to the line typed
+ * into a LOCAL terminal only.
  */
 import { execFile } from 'child_process';
 import { simpleCommands, type ShellWord } from './config.js';
 import log from './logger.js';
 
 export const CODEX_NO_DAEMON_FLAG = '--no-daemon';
+export const CODEX_NO_ALT_SCREEN_FLAG = '--no-alt-screen';
 
-export type CodexNoDaemonSupport = 'supported' | 'unsupported' | 'unknown';
+export type CodexLaunchFlag = typeof CODEX_NO_DAEMON_FLAG | typeof CODEX_NO_ALT_SCREEN_FLAG;
+
+/** Every flag this module types, in the order it types them. */
+export const CODEX_LAUNCH_FLAGS: readonly CodexLaunchFlag[] = [CODEX_NO_DAEMON_FLAG, CODEX_NO_ALT_SCREEN_FLAG];
+
+/** Each flag's opt-out: `=1` leaves that flag as the line was built. */
+const OPT_OUT_ENV: Readonly<Record<CodexLaunchFlag, string>> = {
+  [CODEX_NO_DAEMON_FLAG]: 'AASC_DISABLE_CODEX_NO_DAEMON',
+  [CODEX_NO_ALT_SCREEN_FLAG]: 'AASC_DISABLE_CODEX_NO_ALT_SCREEN',
+};
+
+export type CodexFlagSupport = 'supported' | 'unsupported' | 'unknown';
+
+/** What the installed Codex says about each flag. */
+export type CodexLaunchFlagSupport = Readonly<Record<CodexLaunchFlag, CodexFlagSupport>>;
+
+const isLaunchFlag = (text: string): text is CodexLaunchFlag => (CODEX_LAUNCH_FLAGS as readonly string[]).includes(text);
 
 /** Root options of `codex` that take a separate value (so the next word is not a subcommand). */
 const VALUE_OPTIONS: ReadonlySet<string> = new Set([
@@ -45,10 +69,10 @@ const OTHER_SUBCOMMANDS: ReadonlySet<string> = new Set([
 ]);
 
 interface CodexLaunch {
-  /** Where the flag belongs: just after `codex`, or after the resume/fork word. */
+  /** Where the flags belong: just after `codex`, or after the resume/fork word. */
   insertAt: number;
-  /** Existing `--no-daemon` words in the command. */
-  flags: ShellWord[];
+  /** Launch-flag words already in the command. */
+  flags: { word: ShellWord; flag: CodexLaunchFlag }[];
 }
 
 /**
@@ -59,13 +83,13 @@ interface CodexLaunch {
 function readCodexLaunch(line: string, words: ShellWord[]): CodexLaunch | null {
   const [first, ...rest] = words;
   if (!first || line.slice(first.start, first.end) !== 'codex') return null;
-  const flags: ShellWord[] = [];
+  const flags: CodexLaunch['flags'] = [];
   let insertAt = first.end;
   let subcommandSeen = false;
   for (let i = 0; i < rest.length; i++) {
     const text = line.slice(rest[i].start, rest[i].end);
-    if (text === CODEX_NO_DAEMON_FLAG) {
-      flags.push(rest[i]);
+    if (isLaunchFlag(text)) {
+      flags.push({ word: rest[i], flag: text });
       continue;
     }
     if (subcommandSeen) continue;
@@ -99,34 +123,43 @@ function applyEdits(line: string, edits: Edit[]): string {
   return ordered.reduce((out, e) => out.slice(0, e.start) + e.text + out.slice(e.end), line);
 }
 
-function rewrite(line: string, withFlag: boolean): string {
+/** Which flags to put on a launch line and which to take off; a flag in neither stays where it is. */
+export interface CodexFlagChanges {
+  add?: readonly CodexLaunchFlag[];
+  remove?: readonly CodexLaunchFlag[];
+}
+
+/**
+ * Give every interactive bare `codex` on a launch line exactly one of each `add` flag, right
+ * after `codex` or after its `resume` / `fork` subcommand (where `codex resume --help`
+ * documents them), in `CODEX_LAUNCH_FLAGS` order, and none of each `remove` flag. A flag
+ * already in the line is moved there, not doubled: the hook stores the live CLI's `ps` args,
+ * so a relaunch line often carries them at the root already. Decides per simple command, so
+ * both halves of `codex … resume 'id' || codex …` get them, and keeps everything else,
+ * including the typed carriage return. Idempotent.
+ *
+ * Only for a line about to be typed into a LOCAL terminal whose Codex supports the added flags.
+ */
+export function applyCodexLaunchFlags(line: string, { add = [], remove = [] }: CodexFlagChanges): string {
+  const touched = new Set<CodexLaunchFlag>([...add, ...remove]);
+  const typed = CODEX_LAUNCH_FLAGS.filter((flag) => add.includes(flag));
   const edits: Edit[] = [];
   for (const words of simpleCommands(line)) {
     const launch = readCodexLaunch(line, words);
     if (!launch) continue;
-    for (const flag of launch.flags) edits.push(removal(line, flag));
-    if (withFlag) edits.push({ start: launch.insertAt, end: launch.insertAt, text: ` ${CODEX_NO_DAEMON_FLAG}` });
+    for (const { word, flag } of launch.flags) if (touched.has(flag)) edits.push(removal(line, word));
+    if (typed.length) edits.push({ start: launch.insertAt, end: launch.insertAt, text: ` ${typed.join(' ')}` });
   }
   return edits.length ? applyEdits(line, edits) : line;
 }
 
 /**
- * Give every interactive bare `codex` on a launch line exactly one `--no-daemon`, right
- * after `codex` or after its `resume` / `fork` subcommand (where `codex resume --help`
- * documents it). A flag already in the line is moved there, not doubled: the hook stores
- * the live CLI's `ps` args, so a relaunch line often carries it at the root already.
- * Decides per simple command, so both halves of `codex … resume 'id' || codex …` get it,
- * and keeps everything else, including the typed carriage return. Idempotent.
- *
- * Only for a line about to be typed into a LOCAL terminal whose Codex supports the flag.
+ * Remove every flag this module types from every interactive bare `codex` on the line: a
+ * stored command (the live CLI's `ps` args) is cleaned with it before it is rebuilt, and the
+ * flags go back on when the line is typed, if the installed Codex still takes them.
  */
-export function applyCodexNoDaemon(line: string): string {
-  return rewrite(line, true);
-}
-
-/** Remove `--no-daemon` from every interactive bare `codex` on the line (an older Codex rejects it). */
-export function stripCodexNoDaemon(line: string): string {
-  return rewrite(line, false);
+export function stripCodexLaunchFlags(line: string): string {
+  return applyCodexLaunchFlags(line, { remove: CODEX_LAUNCH_FLAGS });
 }
 
 /** True when the line starts at least one interactive bare `codex`. */
@@ -134,17 +167,20 @@ export function hasCodexLaunch(line: string): boolean {
   return simpleCommands(line).some((words) => readCodexLaunch(line, words) !== null);
 }
 
-/** Does `codex --help` list the option? */
-export function helpAdvertisesNoDaemon(helpText: string): boolean {
-  return /(^|\s)--no-daemon(\s|$)/m.test(helpText);
+/** Does `codex --help` list the option (the whole word)? */
+export function helpAdvertises(helpText: string, flag: CodexLaunchFlag): boolean {
+  return new RegExp(`(^|\\s)${flag}(\\s|$)`, 'm').test(helpText);
 }
 
-/** `AASC_DISABLE_CODEX_NO_DAEMON=1` leaves Codex launch lines exactly as built. */
-export function isCodexNoDaemonEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.AASC_DISABLE_CODEX_NO_DAEMON !== '1';
+/**
+ * Each flag has its own opt-out: `AASC_DISABLE_CODEX_NO_DAEMON=1` and
+ * `AASC_DISABLE_CODEX_NO_ALT_SCREEN=1` leave that flag exactly as the line was built.
+ */
+export function isCodexLaunchFlagEnabled(flag: CodexLaunchFlag, env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[OPT_OUT_ENV[flag]] !== '1';
 }
 
-export interface CodexNoDaemonProbeOptions {
+export interface CodexLaunchFlagProbeOptions {
   /** How long a definite answer is kept (Codex may be upgraded or downgraded meanwhile). */
   ttlMs?: number;
   /** How long an "unknown" (codex missing, timed out) is kept before asking again. */
@@ -156,38 +192,46 @@ export const CODEX_NO_DAEMON_TTL_MS = 10 * 60_000;
 export const CODEX_NO_DAEMON_UNKNOWN_TTL_MS = 30_000;
 export const CODEX_HELP_TIMEOUT_MS = 10_000;
 
+/** The same answer for every flag: `codex --help` could not be run. */
+function answerForAll(answer: CodexFlagSupport): CodexLaunchFlagSupport {
+  return Object.fromEntries(CODEX_LAUNCH_FLAGS.map((flag) => [flag, answer])) as Record<CodexLaunchFlag, CodexFlagSupport>;
+}
+
 /**
- * A cached, de-duplicated answer to "does the installed Codex take --no-daemon?". A
+ * A cached, de-duplicated answer to "which of these flags does the installed Codex take?". A
  * workspace restore launches many terminals at once; they share one `codex --help`.
  */
-export function createCodexNoDaemonProbe(
+export function createCodexLaunchFlagProbe(
   runHelp: () => Promise<string>,
-  opts: CodexNoDaemonProbeOptions = {},
-): () => Promise<CodexNoDaemonSupport> {
+  opts: CodexLaunchFlagProbeOptions = {},
+): () => Promise<CodexLaunchFlagSupport> {
   const ttlMs = opts.ttlMs ?? CODEX_NO_DAEMON_TTL_MS;
   const unknownTtlMs = opts.unknownTtlMs ?? CODEX_NO_DAEMON_UNKNOWN_TTL_MS;
   const now = opts.now ?? Date.now;
-  let cached: { answer: CodexNoDaemonSupport; at: number } | null = null;
-  let inFlight: Promise<CodexNoDaemonSupport> | null = null;
+  let cached: { answer: CodexLaunchFlagSupport; known: boolean; at: number } | null = null;
+  let inFlight: Promise<CodexLaunchFlagSupport> | null = null;
 
-  const ask = async (): Promise<CodexNoDaemonSupport> => {
+  const ask = async (): Promise<{ answer: CodexLaunchFlagSupport; known: boolean }> => {
     try {
       const help = await runHelp();
-      return helpAdvertisesNoDaemon(help) ? 'supported' : 'unsupported';
+      const answer = Object.fromEntries(
+        CODEX_LAUNCH_FLAGS.map((flag) => [flag, helpAdvertises(help, flag) ? 'supported' : 'unsupported']),
+      ) as Record<CodexLaunchFlag, CodexFlagSupport>;
+      return { answer, known: true };
     } catch (err) {
-      log.warn('codex', `Could not read codex --help (Codex launches keep the shared daemon): ${err instanceof Error ? err.message : String(err)}`);
-      return 'unknown';
+      log.warn('codex', `Could not read codex --help (Codex launch lines are typed as built): ${err instanceof Error ? err.message : String(err)}`);
+      return { answer: answerForAll('unknown'), known: false };
     }
   };
 
   return async () => {
     if (cached) {
       const age = now() - cached.at;
-      if (age < (cached.answer === 'unknown' ? unknownTtlMs : ttlMs)) return cached.answer;
+      if (age < (cached.known ? ttlMs : unknownTtlMs)) return cached.answer;
     }
     if (!inFlight) {
-      inFlight = ask().then((answer) => {
-        cached = { answer, at: now() };
+      inFlight = ask().then(({ answer, known }) => {
+        cached = { answer, known, at: now() };
         inFlight = null;
         return answer;
       });
@@ -214,4 +258,4 @@ function runCodexHelp(): Promise<string> {
 }
 
 /** The server's one probe. Never called on Windows (the caller checks). */
-export const codexNoDaemonSupport = createCodexNoDaemonProbe(runCodexHelp);
+export const codexLaunchFlagSupport = createCodexLaunchFlagProbe(runCodexHelp);

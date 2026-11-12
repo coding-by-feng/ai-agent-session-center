@@ -18,6 +18,10 @@ interface SearchInputProps {
   variant?: 'default' | 'field';
   /** Accessible name; a placeholder is not a label. */
   ariaLabel?: string;
+  /** The input element, for a caller that focuses it (a shortcut). */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  /** Keys on the input (Enter to pick, Escape to clear). */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
 function SearchGlyph({ className }: { className?: string }) {
@@ -49,10 +53,13 @@ export default function SearchInput({
   inputClassName,
   variant = 'default',
   ariaLabel,
+  inputRef: externalInputRef,
+  onKeyDown,
 }: SearchInputProps) {
   const [localValue, setLocalValue] = useState(controlledValue ?? '');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const ownInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = externalInputRef ?? ownInputRef;
 
   // Adopt a new controlled value during render (React's "adjusting state when
   // a prop changes"), not in an effect: an effect paints the stale text first,
@@ -66,6 +73,11 @@ export default function SearchInput({
   const debouncedOnChange = useCallback(
     (val: string) => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      // 0 = filter as you type: a short in-memory list needs no wait.
+      if (debounceMs <= 0) {
+        onChange(val);
+        return;
+      }
       timerRef.current = setTimeout(() => onChange(val), debounceMs);
     },
     [onChange, debounceMs],
@@ -102,6 +114,7 @@ export default function SearchInput({
           data-search-input
           value={localValue}
           onChange={handleChange}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           aria-label={ariaLabel ?? placeholder}
           className={`${styles.control} ${styles.searchInput}${inputClassName ? ` ${inputClassName}` : ''}`}

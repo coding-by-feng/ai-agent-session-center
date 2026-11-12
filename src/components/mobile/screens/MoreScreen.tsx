@@ -5,14 +5,14 @@
  *   RESOURCES   Resources: the desktop's Library, Cloud sync and Projects, through the Mac (plan 16)
  *   SETTINGS    Appearance · Notifications · Voice · Translation · Advanced
  *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair; AASC's
- *               version (About folded in here, Oct 20 2026); in the app, Switch Mac → the
- *               app's Your Macs (Oct 21 2026)
+ *               version (About folded in here, Oct 20 2026); in the app, Switch AASC → the
+ *               app's Your Macs (Oct 21 2026; "AASC", not "Mac", since Oct 29 2026)
  *
  * Each row pushes a screen of its own (lib/chat/phoneRoutes.ts: `/more/<page>`, a
  * Settings page at `/more/settings/<section>`, so back from it returns to Settings).
  */
 import { ListRow, ListSection, Screen } from '../kit';
-import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useOpenScreen } from '../app/listPane';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSettingsStore, THEMES } from '@/stores/settingsStore';
 import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
@@ -23,7 +23,7 @@ import { useIsHostDevice } from '../views/hostAccess';
 
 /** The settings rows, shared by More and More → Settings. */
 export function SettingsRows() {
-  const push = usePhoneNavStore((s) => s.push);
+  const push = useOpenScreen();
   const themeName = useSettingsStore((s) => s.themeName);
   return (
     <>
@@ -42,10 +42,11 @@ export function SettingsRows() {
 }
 
 export default function MoreScreen() {
-  const push = usePhoneNavStore((s) => s.push);
+  const push = useOpenScreen();
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const isHost = useIsHostDevice();
   // The app's own Your Macs (null in a phone browser): the shell reopens the Mac used last, so this is the way back.
+  // Its row says AASC: the computer you switch to isn't always a Mac.
   const shellHome = nativeShellHomeUrl();
   return (
     <Screen title="More" testId="phone-more">
@@ -68,7 +69,7 @@ export default function MoreScreen() {
           onClick={() => push('/more/phone')}
         />
         {shellHome && (
-          <ListRow title="Switch Mac" subtitle="Open another Mac or pair a new one" chevron onClick={() => window.location.assign(shellHome)} />
+          <ListRow title="Switch AASC" subtitle="Open another AASC or pair a new one" chevron onClick={() => window.location.assign(shellHome)} />
         )}
       </ListSection>
     </Screen>

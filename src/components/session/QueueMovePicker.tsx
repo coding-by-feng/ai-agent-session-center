@@ -1,6 +1,8 @@
 /**
  * QueueMovePicker — dropdown that lists the other live sessions as move targets
- * for a queue item.
+ * for a queue item. Each row leads with the session's name, its folder muted
+ * after it, A→Z: the list comes from `queueMoveTargets` (lib/queueMoveTargets.ts),
+ * shared with the phone's QueueMoveSheet.
  *
  * Styled to match the shared `Select` dropdown (same surface, border, radius,
  * hover treatment) so it reads as part of the active theme rather than a raw
@@ -20,7 +22,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { computeMovePickerPosition } from '@/lib/queueMovePlacement';
+import type { QueueMoveTarget } from '@/lib/queueMoveTargets';
 import styles from '@/styles/modules/Terminal.module.css';
+
+export type { QueueMoveTarget } from '@/lib/queueMoveTargets';
 
 /**
  * Marker attribute on the MOVE button. Clicks on any trigger are exempt from
@@ -28,12 +33,6 @@ import styles from '@/styles/modules/Terminal.module.css';
  * another row's MOVE hands the picker over instead of just closing this one).
  */
 export const MOVE_TRIGGER_ATTR = 'data-queue-move-trigger';
-
-export interface QueueMoveTarget {
-  id: string;
-  projectName?: string;
-  title?: string;
-}
 
 interface QueueMovePickerProps {
   /** The MOVE button this menu hangs off. Placement is measured from its rect. */
@@ -167,21 +166,16 @@ export default function QueueMovePicker({
             className={`${styles.queueMovePickerItem}${idx === highlighted ? ` ${styles.queueMovePickerItemActive}` : ''}`}
             onClick={() => onSelect(target.id)}
             onMouseEnter={() => setHighlighted(idx)}
-            title={
-              target.title
-                ? `${target.projectName || target.id.slice(0, 8)} — ${target.title}`
-                : target.projectName || target.id.slice(0, 8)
-            }
+            title={target.project ? `${target.name} — ${target.project}` : target.name}
           >
             {/* Inner span owns the truncation: Chromium ignores text-overflow
                 on a <button>'s anonymous inner box, so the label would hard-cut
-                mid-word instead of showing an ellipsis. */}
+                mid-word instead of showing an ellipsis. The name comes first, so
+                a long row loses the folder, not the name. */}
             <span className={styles.queueMovePickerRow}>
-              <span className={styles.queueMovePickerProject}>
-                {target.projectName || target.id.slice(0, 8)}
-              </span>
-              {target.title && (
-                <span className={styles.queueMovePickerTitle}> — {target.title}</span>
+              <span className={styles.queueMovePickerName}>{target.name}</span>
+              {target.project && (
+                <span className={styles.queueMovePickerDetail}> — {target.project}</span>
               )}
             </span>
           </button>

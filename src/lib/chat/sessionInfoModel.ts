@@ -9,7 +9,7 @@ import type { Session } from '@/types';
 import { restartNeedsConfirm } from '@/lib/restartSession';
 import { formatModelLabel } from '@/lib/modelLabel';
 import { detectCli } from '@/lib/cliDetect';
-import { isCompacting, phoneStatus } from './phoneStatus';
+import { isCompacting, isFinishingUp, phoneStatus } from './phoneStatus';
 import { describeUsage } from './usageModel';
 
 /** Restart is the terminal toolbar's: the agent's own terminal, never a fork's. */
@@ -55,7 +55,7 @@ function cliName(session: Session): string | null {
 
 /** "Claude Code · Working · 1h 12m": the Info screen's line under the title. */
 export function infoSubtitle(session: Session, now: number): string {
-  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session));
+  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session), isFinishingUp(session, now));
   return [cliName(session), label, formatRunTime(session, now)].filter(Boolean).join(' · ');
 }
 

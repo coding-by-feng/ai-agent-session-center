@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import { stripCodexMemoryCitation } from './codexMemoryCitation.js';
 import log from './logger.js';
 
 interface JsonlLine {
@@ -233,6 +234,47 @@ export function readClaudeLastAssistant(
     log.warn('floating-spawn', `Failed to read transcript ${file}: ${err instanceof Error ? err.message : String(err)}`);
   }
   return null;
+}
+
+/**
+ * The most recent assistant message in a Codex rollout (`~/.codex/sessions/…/rollout-*.jsonl`): a
+ * `response_item` message with role `assistant`, its text blocks joined. A rollout with no such item
+ * falls back to its newest `agent_message` event. Null when the file is missing or holds no answer.
+ */
+export function readCodexLastAssistant(rolloutPath: string): string | null {
+  if (!existsSync(rolloutPath)) return null;
+  try {
+    const lines = readFileSync(rolloutPath, 'utf8').split('\n');
+    let eventAnswer: string | null = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const raw = lines[i].trim();
+      if (!raw) continue;
+      let record: { type?: string; payload?: { type?: string; role?: string; content?: unknown; message?: unknown } };
+      try {
+        record = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      const p = record.payload;
+      if (!p) continue;
+      if (record.type === 'response_item' && p.type === 'message' && p.role === 'assistant' && Array.isArray(p.content)) {
+        // Never translate or explain Codex's memory citation (codexMemoryCitation.ts).
+        const text = stripCodexMemoryCitation((p.content as ContentBlock[])
+          .map((b) => (typeof b?.text === 'string' ? b.text : ''))
+          .filter((t) => t.trim())
+          .join('\n'));
+        if (text.trim()) return text;
+      }
+      if (!eventAnswer && record.type === 'event_msg' && p.type === 'agent_message' && typeof p.message === 'string') {
+        const message = stripCodexMemoryCitation(p.message);
+        if (message.trim()) eventAnswer = message;
+      }
+    }
+    return eventAnswer;
+  } catch (err) {
+    log.warn('floating-spawn', `Failed to read Codex rollout ${rolloutPath}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 /** A record's own time in ms, or NaN when it has none. */

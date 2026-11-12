@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import TerminalContainer from './TerminalContainer';
 
@@ -18,14 +18,26 @@ const mockScrollToBottom = vi.fn();
 const mockClearOutput = vi.fn();
 const mockHandleTerminalCleared = vi.fn();
 const mockContainerRef = { current: null };
+const mockFocusTerminal = vi.fn();
+const mockSearchAddon = {
+  findNext: vi.fn(), findPrevious: vi.fn(), clearDecorations: vi.fn(),
+  onDidChangeResults: vi.fn(() => ({ dispose: vi.fn() })),
+};
+let mockSelection: string | null = null;
+const mockClearSelection = vi.fn();
+let mockIsFullscreen = false;
+/** What the terminal calls on ⌘F (useTerminal's key handler). */
+let findRequest: (() => void) | undefined;
 
 vi.mock('@/hooks/useTerminal', () => ({
-  useTerminal: () => ({
+  useTerminal: (opts: { onFindRequest?: () => void }) => {
+    findRequest = opts.onFindRequest;
+    return {
     containerRef: mockContainerRef,
     attach: mockAttach,
     detach: mockDetach,
     isAttached: false,
-    isFullscreen: false,
+    isFullscreen: mockIsFullscreen,
     toggleFullscreen: mockToggleFullscreen,
     sendEscape: mockSendEscape,
     refitTerminal: mockRefitTerminal,
@@ -37,7 +49,14 @@ vi.mock('@/hooks/useTerminal', () => ({
     clearOutput: mockClearOutput,
     reparent: mockReparent,
     scrollToBottom: mockScrollToBottom,
-  }),
+    getSearchAddon: () => mockSearchAddon,
+    focusTerminal: mockFocusTerminal,
+    getTerminal: () => null,
+    getXtermSelection: () => mockSelection,
+    clearXtermSelection: mockClearSelection,
+    activeTerminalId: 'term-1',
+    };
+  },
 }));
 
 // Mock TerminalToolbar
@@ -51,6 +70,8 @@ vi.mock('./TerminalToolbar', () => ({
     onClearOutput,
     onRestart,
     restartPending,
+    onToggleSearch,
+    searchOpen,
   }: {
     themeName: string;
     onFullscreen: () => void;
@@ -60,12 +81,15 @@ vi.mock('./TerminalToolbar', () => ({
     onClearOutput?: () => void;
     onRestart?: () => void;
     restartPending?: boolean;
+    onToggleSearch?: () => void;
+    searchOpen?: boolean;
   }) => (
     <div data-testid="terminal-toolbar" data-theme={themeName}>
       <button data-testid="escape-btn" onClick={onSendEscape}>ESC</button>
       <button data-testid="fullscreen-btn" onClick={onFullscreen}>Fullscreen</button>
       {onClearOutput && <button data-testid="clear-btn" onClick={onClearOutput}>Clear</button>}
       {onRestart && <button data-testid="restart-btn" onClick={onRestart} disabled={restartPending}>Restart</button>}
+      {onToggleSearch && <button data-testid="search-btn" aria-pressed={!!searchOpen} onClick={onToggleSearch}>Find</button>}
       {showReconnect && onReconnect && (
         <button data-testid="reconnect-btn" onClick={onReconnect}>Reconnect</button>
       )}
@@ -79,6 +103,77 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 describe('TerminalContainer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('the find button opens the find bar over the terminal, seeded with a one-line selection, and closes it', () => {
+    mockSelection = '  BatchMode  ';
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    expect(screen.queryByTestId('terminal-search-bar')).toBeNull();
+    act(() => { screen.getAllByTestId('search-btn')[0].click(); });
+    expect(screen.getByTestId('terminal-search-bar')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Find in terminal' })).toHaveValue('BatchMode');
+    expect(screen.getAllByTestId('search-btn')[0]).toHaveAttribute('aria-pressed', 'true');
+    act(() => { screen.getAllByTestId('search-btn')[0].click(); });
+    expect(screen.queryByTestId('terminal-search-bar')).toBeNull();
+    expect(mockFocusTerminal).toHaveBeenCalled();
+    mockSelection = null;
+  });
+
+  it('⌘F on an open bar only refocuses it: the addon\'s selected match never overwrites a regex', () => {
+    mockSelection = null;
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    act(() => { findRequest?.(); });
+    const field = screen.getByRole('textbox', { name: 'Find in terminal' });
+    fireEvent.change(field, { target: { value: 'err\\w+' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Use regular expression' }));
+    mockSelection = 'errors'; // what the addon selected for the current match
+    act(() => { findRequest?.(); });
+    expect(screen.getByRole('textbox', { name: 'Find in terminal' })).toHaveValue('err\\w+');
+    expect(screen.getByRole('button', { name: 'Use regular expression' })).toHaveAttribute('aria-pressed', 'true');
+    mockSelection = null;
+  });
+
+  it('keeps the query and toggles when the terminal goes fullscreen (the bar remounts there)', () => {
+    mockSelection = null;
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    act(() => { findRequest?.(); });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find in terminal' }), { target: { value: 'ECONNRESET' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Match case' }));
+    const before = screen.getByRole('textbox', { name: 'Find in terminal' });
+    mockIsFullscreen = true;
+    try {
+      // memo(TerminalContainer) ignores a same-props rerender: a state change re-renders it.
+      fireEvent.click(screen.getByRole('button', { name: 'Use regular expression' }));
+      expect(screen.getAllByTestId('terminal-search-bar')).toHaveLength(1);
+      const after = screen.getByRole('textbox', { name: 'Find in terminal' });
+      expect(after).not.toBe(before); // really remounted, in the fullscreen overlay
+      expect(after).toHaveValue('ECONNRESET');
+      expect(screen.getByRole('button', { name: 'Match case' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Use regular expression' })).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      mockIsFullscreen = false;
+    }
+  });
+
+  it('closing drops the match the addon left selected, and reopening brings the last query back', () => {
+    mockSelection = null;
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    act(() => { findRequest?.(); });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find in terminal' }), { target: { value: 'ssh' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in terminal' }), { key: 'Escape' });
+    expect(screen.queryByTestId('terminal-search-bar')).toBeNull();
+    expect(mockClearSelection).toHaveBeenCalledTimes(1);
+    expect(mockFocusTerminal).toHaveBeenCalled();
+    act(() => { findRequest?.(); });
+    expect(screen.getByRole('textbox', { name: 'Find in terminal' })).toHaveValue('ssh');
+  });
+
+  it('a multi-line selection does not become the query', () => {
+    mockSelection = 'line one\nline two';
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    act(() => { screen.getAllByTestId('search-btn')[0].click(); });
+    expect(screen.getByRole('textbox', { name: 'Find in terminal' })).toHaveValue('');
+    mockSelection = null;
   });
 
   it('shows placeholder when no terminalId', () => {

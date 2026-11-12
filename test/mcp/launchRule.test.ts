@@ -36,7 +36,23 @@ describe('launchRefusal', () => {
   it('a folder outside home is refused', () => {
     expect(launchRefusal('/tmp/proj', [], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
     expect(launchRefusal('/home/tester2/proj', [], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
-    expect(launchRefusal('/Volumes/ext/proj', ['/Volumes/ext/proj'], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
+    expect(launchRefusal('/Volumes/ext/proj', [], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
+  });
+
+  it('a known project outside home is allowed, as the phone allows it, but only its exact folder', () => {
+    const external = '/Volumes/ext/proj';
+    expect(launchRefusal(external, [external], HOME)).toBeNull();
+    expect(launchRefusal(`${external}/`, [external], HOME)).toBeNull();
+    // Known means exactly the project root: below it, above it or beside it stays outside home.
+    expect(launchRefusal(`${external}/sub`, [external], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
+    expect(launchRefusal('/Volumes/ext', [external], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
+    expect(launchRefusal(`${external}/../other`, [external], HOME)).toBe(LAUNCH_REFUSALS.outsideHome);
+  });
+
+  it('a known project outside home never passes through a private folder', () => {
+    for (const folder of ['/Volumes/ext/.ssh', '/Volumes/ext/code/.git/hooks', '/Volumes/ext/id_rsa']) {
+      expect(launchRefusal(folder, [folder], HOME), folder).toBe(LAUNCH_REFUSALS.hiddenOrPrivate);
+    }
   });
 
   it('a folder written with .. cannot reach a private one', () => {

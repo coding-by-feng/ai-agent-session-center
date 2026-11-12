@@ -6,11 +6,14 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
 import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
-import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { registerRemoteHandlers } from './ipc/remoteHandlers.js'
-import { disposeAll as disposePtyHost } from './ptyHost.js'
+import { registerNotifyHandlers } from './ipc/notifyHandlers.js'
 import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
+import { desktopAppName, readDesktopEdition } from './edition.js'
+import { chooseLitePort, portMovedMessage, resolveServerPort } from './portPreflight.js'
+import { claimSingleInstance, revealRunningWindow } from './singleInstance.js'
+import { startAutoUpdate, updateMenuItems } from './autoUpdate.js'
 import {
   POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
 } from './popoutBounds.js'
@@ -21,12 +24,18 @@ import type { PopoutKind, WindowBounds } from './popoutBounds.js'
 // Chromium's autoplay policy silently blocks AudioContext.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
+const isDev = !app.isPackaged
+const edition = readDesktopEdition(app.getAppPath())
+
+// Packaged only: `electron:dev` keeps working beside the installed app, as it always has.
+// app.exit before `ready` only takes effect once the message loop starts, so whenReady checks this too.
+const isSecondInstance = !isDev && !claimSingleInstance(app, showRunningWindow)
+if (isSecondInstance) app.exit(0)
+
 // Register as early as possible so startup crashes are covered too -- see
 // crashLogger.ts for why this exists (nothing previously observed a renderer/GPU
 // crash or wrote any log to disk once the loading screen was dismissed).
 initCrashLogger()
-
-const isDev = !app.isPackaged
 
 // Reference to server shutdown function (set after server starts in production)
 let serverShutdown: (() => Promise<void>) | null = null
@@ -104,6 +113,12 @@ async function createWindow(): Promise<BrowserWindow> {
 
 // ── Pop-out floating terminal windows (draggable to another monitor) ──
 let mainWindowRef: BrowserWindow | null = null
+
+/** Another launch (of either edition) found this app running: bring its window forward. */
+function showRunningWindow(): void {
+  if (!mainWindowRef || mainWindowRef.isDestroyed()) return
+  revealRunningWindow(mainWindowRef, process.platform, () => { app.dock?.bounce('informational') })
+}
 const popoutWindows = new Map<string, BrowserWindow>()
 
 // Last-used popout window bounds, persisted per KIND (see popoutBounds.ts) so
@@ -515,12 +530,13 @@ function captureLogsToLoadingScreen(win: BrowserWindow): () => void {
 }
 
 app.whenReady().then(async () => {
+  if (isSecondInstance) return
   adoptExistingInstall()
   // Register IPC handlers first so renderer can call them on load
   registerSetupHandlers()
   registerAppHandlers()
-  registerTerminalHandlers()
   registerRemoteHandlers()
+  registerNotifyHandlers(() => mainWindowRef)
   registerPopoutHandler()
   registerDirectoryPickerHandler()
   registerProjectWindowHandler()
@@ -530,14 +546,52 @@ app.whenReady().then(async () => {
   // Create window immediately — shows loading screen in production
   const win = await createWindow()
   mainWindowRef = win
-  setupTray(win)
+  setupTray(win, desktopAppName(edition))
   buildAppMenu(win)
+  // Packaged Mac only (a no-op elsewhere): downloads in the background, installs on the next quit.
+  startAutoUpdate({
+    edition,
+    appName: desktopAppName(edition),
+    shutdown: gracefulShutdown,
+    onChange: () => { if (!win.isDestroyed()) buildAppMenu(win) },
+    showMainWindow: () => {
+      if (win.isDestroyed()) return null
+      win.show()
+      win.focus()
+      return win
+    },
+  })
 
   if (!isDev) {
     // Production: start Express server in-process, stream logs to loading UI, then navigate
     // In dev mode the server is already running via `tsx watch server/index.ts`
     sendLoadingUpdate(win, 10, 'Starting server')
     process.env.APP_USER_DATA = app.getPath('userData')
+
+    // Lite only: the port it chose. Undefined leaves the choice to the server, as Full always does.
+    let litePort: number | undefined
+    if (edition === 'lite') {
+      const name = JSON.stringify(desktopAppName(edition))
+      js(win, `document.title = ${name}; document.querySelector('.title').textContent = ${name}`)
+      process.env.AASC_NO_PORT_KILL = '1'
+      const configPath = path.join(app.getPath('userData'), 'server-config.json')
+      const wanted = resolveServerPort(
+        process.argv.slice(2),
+        process.env,
+        existsSync(configPath) ? readFileSync(configPath, 'utf8') : null,
+      )
+      const choice = await chooseLitePort(wanted)
+      if ('stop' in choice) {
+        js(win, `window.showError && window.showError(${JSON.stringify(choice.stop)})`)
+        return
+      }
+      litePort = choice.port
+      if (litePort !== wanted) {
+        const moved = portMovedMessage(wanted, litePort)
+        sendLog(win, moved)
+        logMainError(moved)
+      }
+    }
 
     // Mirror all stdout/stderr to the loading screen
     const restoreLogs = captureLogsToLoadingScreen(win)
@@ -566,7 +620,7 @@ app.whenReady().then(async () => {
       sendLoadingUpdate(win, 30, 'Starting server')
       // The cloud device token is encrypted with the OS keychain. Linux's
       // 'basic_text' backend is plain obfuscation, so it counts as unavailable.
-      const port = await serverModule.startServer(undefined, {
+      const port = await serverModule.startServer(litePort, {
         cloudEncryption: {
           isAvailable: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
           encrypt: (value) => safeStorage.encryptString(value),
@@ -594,6 +648,7 @@ function buildAppMenu(win: BrowserWindow) {
       label: app.name,
       submenu: [
         { role: 'about' as const },
+        ...updateMenuItems(),
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
@@ -662,9 +717,26 @@ function buildAppMenu(win: BrowserWindow) {
 // Graceful shutdown: notify renderer to save workspace, then shut down server.
 // This runs BEFORE windows close, so the server is still alive.
 let isQuitting = false
+let shutdownPromise: Promise<void> | null = null
 app.on('before-quit', async (e) => {
   if (isQuitting) return
   e.preventDefault()
+  await gracefulShutdown()
+  app.quit()
+})
+
+/**
+ * Save the workspace, kill the terminals and stop the server. Runs once: a normal quit calls it from
+ * before-quit; "Restart to Install" calls it before handing the quit to the updater, after which
+ * before-quit sees `isQuitting` and lets the quit through.
+ */
+function gracefulShutdown(): Promise<void> {
+  // A second caller waits for the shutdown already running instead of racing past the workspace save.
+  shutdownPromise ??= runShutdown()
+  return shutdownPromise
+}
+
+async function runShutdown(): Promise<void> {
   isQuitting = true
 
   // Tell renderer to save workspace — wait up to 5s for it to finish
@@ -684,9 +756,6 @@ app.on('before-quit', async (e) => {
     }
   }
 
-  // Kill all PTY host terminals
-  disposePtyHost()
-
   // Shut down server (save SQLite snapshot, close DB)
   if (serverShutdown) {
     const fn = serverShutdown
@@ -697,8 +766,7 @@ app.on('before-quit', async (e) => {
       // best effort
     }
   }
-  app.quit()
-})
+}
 
 app.on('window-all-closed', () => {
   // Do nothing — tray keeps app alive.

@@ -134,7 +134,7 @@ describe('DetailTabs — open Project in a native window', () => {
     // this guard exists to prevent. A preload missing openProjectWindow is a
     // build problem; do nothing rather than leave the app.
     seedSession('/Users/me/proj');
-    vi.stubGlobal('electronAPI', { createPty: vi.fn() });
+    vi.stubGlobal('electronAPI', { getPort: vi.fn() });
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);

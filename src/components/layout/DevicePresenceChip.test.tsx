@@ -65,7 +65,7 @@ describe('DevicePresenceChip — visible at any device count', () => {
     seed([device({ clientId: 'me', label: 'MacBook Pro' })]);
     render(<DevicePresenceChip />);
     // Previously this returned null entirely — nothing to query for. The
-    // button's accessible name comes from its text content (🖥 + count), not
+    // button's accessible name comes from its text content (icon + count), not
     // `title`, so that's what a real query has to match; `.title` is checked
     // separately below.
     expect(screen.getByRole('button')).toBeInTheDocument();
@@ -154,7 +154,7 @@ describe('DevicePresenceChip — network URL for phone usage', () => {
     render(<DevicePresenceChip />);
 
     // Mounted (always-visible chip, per the Aug 2026 change), but not opened.
-    // (The Mac does read its paired phones on mount, for the 📱 count.)
+    // (The Mac does read its paired phones on mount, for the phone count.)
     expect(fetchMock).not.toHaveBeenCalledWith('/api/config', expect.anything());
 
     fireEvent.click(screen.getByRole('button'));
@@ -230,6 +230,9 @@ describe('DevicePresenceChip — network URL for phone usage', () => {
   });
 });
 
+/** The device icons drawn in an element, in order. */
+const kinds = (el: HTMLElement) => [...el.querySelectorAll('svg[data-kind]')].map((svg) => svg.getAttribute('data-kind'));
+
 describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
   function stubPhones(devices: unknown[]) {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (
@@ -248,16 +251,52 @@ describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
     render(<DevicePresenceChip />);
     const chip = screen.getByRole('button');
     await waitFor(() => expect(chip).toHaveAttribute('title', '1 device connected · 2 paired phones (1 online)'));
-    expect(chip).toHaveTextContent('🖥1·📱2');
+    expect(chip).toHaveTextContent('1·2');
+    expect(kinds(chip)).toEqual(['computer', 'phone']);
   });
 
-  it('shows no 📱 part when no phone is paired', async () => {
+  it('counts a paired iPad apart, with a tablet icon (Nov 2 2026)', async () => {
+    stubPhones([phone('iPhone 17', false), phone('iPhone 13', false), phone('iPad', true)]);
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    const chip = screen.getByRole('button');
+    await waitFor(() => expect(chip).toHaveAttribute('title', '1 device connected · 2 paired phones, 1 paired iPad (1 online)'));
+    expect(chip).toHaveTextContent('1·21');
+    expect(kinds(chip)).toEqual(['computer', 'phone', 'tablet']);
+  });
+
+  it('shows only the tablet when every handheld is one', async () => {
+    stubPhones([phone('iPad', false)]);
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    const chip = screen.getByRole('button');
+    await waitFor(() => expect(kinds(chip)).toEqual(['computer', 'tablet']));
+  });
+
+  it('Connected devices rows pick their icon by kind: this Mac, an iPad, a phone, a browser', async () => {
+    stubPhones([]);
+    seed([
+      device({ clientId: 'me', label: 'Mac · Desktop App' }),
+      device({ clientId: 'a', label: 'Mac · AASC App', isLocal: false, address: '192.168.6.50' }),
+      device({ clientId: 'b', label: 'iPhone · AASC App', isLocal: false, address: '192.168.6.51' }),
+      device({ clientId: 'c', label: 'Windows · Chrome', isLocal: false, address: '192.168.6.52' }),
+    ]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    const row = async (label: string) => (await screen.findByText(label)).closest('li') as HTMLElement;
+    expect(kinds(await row('Mac · Desktop App'))).toEqual(['computer']);
+    expect(kinds(await row('Mac · AASC App'))).toEqual(['tablet']);
+    expect(kinds(await row('iPhone · AASC App'))).toEqual(['phone']);
+    expect(kinds(await row('Windows · Chrome'))).toEqual(['computer']);
+  });
+
+  it('shows no phone part when no phone is paired', async () => {
     stubPhones([]);
     seed([device({ clientId: 'me' })]);
     render(<DevicePresenceChip />);
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     expect(screen.getByRole('button')).toHaveAttribute('title', '1 device connected');
-    expect(screen.getByRole('button')).not.toHaveTextContent('📱');
+    expect(kinds(screen.getByRole('button'))).toEqual(['computer']);
   });
 
   it('a remote device never asks for the Mac’s phones', () => {
@@ -265,7 +304,7 @@ describe('DevicePresenceChip — paired phones (Oct 22 2026)', () => {
     seed([device({ clientId: 'me', isLocal: false })]);
     render(<DevicePresenceChip />);
     expect(globalThis.fetch).not.toHaveBeenCalledWith('/api/mobile/devices', expect.anything());
-    expect(screen.getByRole('button')).not.toHaveTextContent('📱');
+    expect(kinds(screen.getByRole('button'))).toEqual(['computer']);
   });
 });
 
@@ -289,6 +328,21 @@ describe('DevicePresenceChip — Remote computers (Oct 28 2026)', () => {
     render(<DevicePresenceChip />);
     fireEvent.click(screen.getByRole('button'));
     expect(await screen.findByRole('region', { name: 'Remote computers' })).toBeInTheDocument();
+  });
+
+  // Oct 30 2026: the actions (Sharing, pairing, paired computers) lead the panel, so Pair is in view without
+  // scrolling; the connected devices list follows them.
+  it('puts Sharing, pairing and paired computers above the connected devices list', async () => {
+    window.electronAPI = { remotes: remotes() } as unknown as typeof window.electronAPI;
+    seed([device({ clientId: 'me' })]);
+    render(<DevicePresenceChip />);
+    fireEvent.click(screen.getByRole('button'));
+    const remote = await screen.findByRole('region', { name: 'Remote computers' });
+    const heading = screen.getByText('Connected devices');
+    const sharing = screen.getByText(/^sharing$/i);
+    const follows = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(sharing, remote)).toBe(true);
+    expect(follows(remote, heading)).toBe(true);
   });
 
   it('leaves it out in a browser, in an app without the API, and on a remote device', async () => {

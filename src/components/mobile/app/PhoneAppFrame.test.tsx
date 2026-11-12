@@ -2,7 +2,7 @@
 // browser history (jsdom): tabs and their stacks, the Inbox badge, back through
 // history, the tab bar hiding on a session, old ?session= links, the selection
 // bridge for today's views, "N more need you ›", and the body-scoped tokens.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
@@ -26,6 +26,7 @@ import { PHONE_PALETTES, PHONE_SCHEME_ATTR } from '@/lib/chat/phoneThemes';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
+import { PHONE_SPLIT_MEDIA_QUERY } from '@/lib/platform';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
   return {
@@ -379,5 +380,108 @@ describe('PhoneAppFrame', () => {
     await waitFor(() => expect(useSessionStore.getState().selectedSessionId).toBeNull());
     act(() => useSessionStore.getState().selectSession('s4'));
     expect(await screen.findByTestId('phone-session')).toBeTruthy();
+  });
+});
+
+describe('PhoneAppFrame split view (iPad, Nov 1 2026)', () => {
+  let wide = true;
+  const listeners = new Set<() => void>();
+  beforeEach(() => {
+    wide = true;
+    listeners.clear();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      get matches() { return query === PHONE_SPLIT_MEDIA_QUERY && wide; },
+      addEventListener: (_: string, fn: () => void) => { if (query === PHONE_SPLIT_MEDIA_QUERY) listeners.add(fn); },
+      removeEventListener: (_: string, fn: () => void) => { listeners.delete(fn); },
+    }));
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const rotate = (toWide: boolean) => act(() => { wide = toWide; for (const fn of [...listeners]) fn(); });
+
+  it('shows the list, an empty right pane and the tab bar', async () => {
+    render(<PhoneAppFrame />);
+    const list = await screen.findByTestId('phone-list-pane');
+    expect(within(list).getByTestId('phone-sessions')).toBeTruthy();
+    expect(screen.getByText('Pick a session to open it here')).toBeTruthy();
+    expect(screen.getByTestId('phone-app')).toHaveAttribute('data-split');
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();
+    expect(usePhoneNavStore.getState().split).toBe(true);
+  });
+
+  it('opens a row in the right pane, keeps the list and the tab bar, and marks the row', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const sessionEl = await screen.findByTestId('phone-session');
+    expect(within(sessionEl).getByRole('heading', { level: 1 })).toHaveTextContent('Working one');
+    expect(screen.getByTestId('phone-list-pane')).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();
+    expect(screen.getByTestId('session-row-s2')).toHaveAttribute('aria-current', 'true');
+    expect(screen.queryByText('Pick a session to open it here')).toBeNull();
+  });
+
+  it('swaps the right pane for another row instead of stacking it', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    await screen.findByTestId('phone-session');
+    await user.click(screen.getByRole('button', { name: /Idle one/ }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.sessions).toEqual(['/sessions', '/sessions/s4/chat']));
+    expect(screen.getByTestId('session-row-s4')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('session-row-s2')).not.toHaveAttribute('aria-current');
+  });
+
+  it('drills down inside the pane but opens over it from the list (Settings rows sit in both)', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(tabButton('More'));
+    const list = await screen.findByTestId('phone-list-pane');
+    act(() => usePhoneNavStore.getState().openFromRoot(['/more/settings']));
+    const pane = (await screen.findByRole('heading', { level: 1, name: 'Settings' })).closest('[data-slot]') as HTMLElement;
+    await user.click(within(pane).getByRole('button', { name: /^Appearance/ }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings', '/more/settings/appearance']));
+    await user.click(within(list).getByRole('button', { name: /^Voice/ }));
+    await waitFor(() => expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/settings/voice']));
+  });
+
+  // Nov 2: the keyboard shrinks the iPad's WebView under the split's 600 px; collapsing
+  // the split then blurred the composer and the keyboard flickered open and shut.
+  it('keeps the split while the keyboard shrinks the window under a focused composer', async () => {
+    const size = (w: number, h: number) => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: h });
+    };
+    size(1180, 820);
+    try {
+      const user = userEvent.setup();
+      render(<PhoneAppFrame />);
+      await user.click(await screen.findByRole('button', { name: /Working one/ }));
+      const sessionEl = await screen.findByTestId('phone-session');
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      const field = within(sessionEl).getAllByRole('textbox')[0];
+      act(() => field.focus());
+      act(() => { size(1180, 420); window.dispatchEvent(new Event('resize')); });
+      rotate(false); // the media query now fails on height
+      expect(screen.getByTestId('phone-app')).toHaveAttribute('data-split');
+      expect(screen.getByTestId('phone-list-pane')).toBeTruthy();
+      expect(document.activeElement).toBe(field);
+    } finally {
+      size(1024, 768);
+    }
+  });
+
+  it('keeps the open session mounted across the split line, both ways', async () => {
+    const user = userEvent.setup();
+    render(<PhoneAppFrame />);
+    await user.click(await screen.findByRole('button', { name: /Working one/ }));
+    const sessionEl = await screen.findByTestId('phone-session');
+    rotate(false);
+    expect(screen.queryByTestId('phone-list-pane')).toBeNull();
+    expect(screen.getByTestId('phone-session')).toBe(sessionEl);
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+    rotate(true);
+    expect(screen.getByTestId('phone-session')).toBe(sessionEl);
+    expect(screen.getByTestId('phone-list-pane')).toBeTruthy();
   });
 });

@@ -241,6 +241,7 @@ function baseSummary(entry: RawEntry, display: (abs: string) => string): Resourc
     ...(entry.projectId ? { projectId: entry.projectId } : {}),
     path: display(entry.absPath),
     ...(entry.pluginName ? { pluginName: entry.pluginName } : {}),
+    ...(entry.publisher ? { publisher: entry.publisher } : {}),
     fileCount: 1,
     bytes: 0,
     mtimeMs: 0,

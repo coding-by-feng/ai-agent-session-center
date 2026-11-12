@@ -21,7 +21,7 @@ import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import type { Session } from '@/types';
 
 /** Rendered only inside the dropdown — a reliable "menu is open" probe. */
-const DROPDOWN_FOOTER = '↑↓ navigate · Enter select · Esc close';
+const DROPDOWN_FOOTER = '↑↓ navigate · Tab/Enter select · Esc close';
 
 const CODEX_ENTRIES: CommandEntry[] = [
   { name: 'compact', description: 'Compact history', cli: 'codex', kind: 'command', source: 'builtin' },
@@ -48,7 +48,13 @@ function seedSession(id: string, startupCommand: string): void {
 }
 
 /** Render a controlled textarea that keeps its own value, like the real parents. */
-function Harness({ sessionId }: { sessionId: string }) {
+function Harness({
+  sessionId,
+  onKeyDown,
+}: {
+  sessionId: string;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
   const [value, setValue] = useState('');
   return (
     <AutocompleteTextarea
@@ -56,6 +62,7 @@ function Harness({ sessionId }: { sessionId: string }) {
       onChange={setValue}
       sessionId={sessionId}
       ariaLabel="prompt"
+      onKeyDown={onKeyDown}
     />
   );
 }
@@ -250,5 +257,62 @@ describe('AutocompleteTextarea — skill notes (favourite, abbreviation)', () =>
     const labels = screen.getAllByText(/^\/(plan|brainstorming|retouch-ascii-review)$/).map((el) => el.textContent);
     expect(labels[0]).toBe('/plan');
     expect(screen.getByLabelText('Favourite')).toBeTruthy();
+  });
+});
+
+// Tab completes the highlighted row, as the terminal `/` list does (Nov 10 2026). Before, Tab left the box and
+// the typed `/krt` stayed half-written.
+describe('AutocompleteTextarea — Tab completes the highlighted entry', () => {
+  it('inserts the highlighted command, keeps focus, and does not reach the parent', async () => {
+    fetchCommandIndex.mockResolvedValue(CLAUDE_ENTRIES);
+    seedSession('s-claude', 'claude');
+    const parentKeys = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" onKeyDown={parentKeys} />);
+    const box = screen.getByLabelText('prompt') as HTMLTextAreaElement;
+
+    await user.click(box);
+    await user.keyboard('/to');
+    await screen.findByText(DROPDOWN_FOOTER);
+    await user.keyboard('{Tab}');
+
+    await waitFor(() => expect(box.value).toBe('/todo '));
+    expect(document.activeElement).toBe(box);
+    expect(screen.queryByText(DROPDOWN_FOOTER)).toBeNull();
+    // QueueTab's Tab fills the grey next-prompt suggestion: it must not also fire on a completion.
+    expect(parentKeys.mock.calls.some(([e]) => e.key === 'Tab')).toBe(false);
+  });
+
+  it('completes the row picked with the arrow keys', async () => {
+    fetchCommandIndex.mockResolvedValue(CLAUDE_ENTRIES);
+    seedSession('s-claude', 'claude');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" />);
+    const box = screen.getByLabelText('prompt') as HTMLTextAreaElement;
+
+    await user.click(box);
+    await user.keyboard('/');
+    await screen.findByText(DROPDOWN_FOOTER);
+    const first = screen.getAllByText(/^\/(clear|todo)$/)[1].textContent;
+    await user.keyboard('{ArrowDown}{Tab}');
+
+    await waitFor(() => expect(box.value).toBe(`${first} `));
+  });
+
+  it('leaves Shift+Tab to the page, so focus can still move backwards', async () => {
+    fetchCommandIndex.mockResolvedValue(CLAUDE_ENTRIES);
+    seedSession('s-claude', 'claude');
+    const parentKeys = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" onKeyDown={parentKeys} />);
+    const box = screen.getByLabelText('prompt') as HTMLTextAreaElement;
+
+    await user.click(box);
+    await user.keyboard('/to');
+    await screen.findByText(DROPDOWN_FOOTER);
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+
+    expect(box.value).toBe('/to');
+    expect(parentKeys.mock.calls.some(([e]) => e.key === 'Tab' && e.shiftKey)).toBe(true);
   });
 });

@@ -35,6 +35,8 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
 import { listPairedPhones, type PairedPhone } from '@/lib/mobilePairingApi';
 import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
+import { presenceDeviceKind } from '@/lib/deviceKind';
+import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useIsDesktopApp } from '@/lib/platform';
 import styles from '@/styles/modules/DevicePresence.module.css';
@@ -48,7 +50,7 @@ const RemoteComputers = lazy(() => import('@/components/layout/RemoteComputers')
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
 const PANEL_WIDTH = 320;
-/** How often the Mac re-reads its paired phones for the chip's 📱 count. */
+/** How often the Mac re-reads its paired phones for the chip's phone and tablet counts. */
 const PHONES_POLL_MS = 30_000;
 
 /** How many sessions a device currently drives. Offline holders drive nothing. */
@@ -255,13 +257,23 @@ export default function DevicePresenceChip() {
         title={deviceChipTitle(devices.length, phoneSummary)}
         aria-label={deviceChipTitle(devices.length, phoneSummary)}
       >
-        <span aria-hidden="true">🖥</span>
+        <DeviceKindIcon kind="computer" className={styles.chipIcon} />
         <span className={styles.chipCount}>{devices.length}</span>
-        {phoneSummary && phoneSummary.paired > 0 && (
+        {phoneSummary && phoneSummary.paired + phoneSummary.tablets > 0 && (
           <>
             <span className={styles.chipSep} aria-hidden="true">·</span>
-            <span aria-hidden="true">📱</span>
-            <span className={styles.chipCount}>{phoneSummary.paired}</span>
+            {phoneSummary.paired > 0 && (
+              <>
+                <DeviceKindIcon kind="phone" className={styles.chipIcon} />
+                <span className={styles.chipCount}>{phoneSummary.paired}</span>
+              </>
+            )}
+            {phoneSummary.tablets > 0 && (
+              <>
+                <DeviceKindIcon kind="tablet" className={styles.chipIcon} />
+                <span className={styles.chipCount}>{phoneSummary.tablets}</span>
+              </>
+            )}
             {phoneSummary.online > 0 && <span className={styles.chipOnlineDot} aria-hidden="true" />}
           </>
         )}
@@ -276,6 +288,15 @@ export default function DevicePresenceChip() {
             role="dialog"
             aria-label="Connected devices"
           >
+            {/* The actions lead, so Pair is in view without scrolling; the devices list follows them. */}
+            {canPairPhones && (
+              <Suspense fallback={null}>
+                <SharingDefault />
+                <PhonePairing />
+                {canPairRemotes && <RemoteComputers />}
+              </Suspense>
+            )}
+
             <div className={styles.panelHead}>Connected devices</div>
 
             <ul className={styles.deviceList}>
@@ -284,8 +305,8 @@ export default function DevicePresenceChip() {
                 const isMe = d.clientId === myId;
                 return (
                   <li key={d.clientId} className={styles.device}>
-                    <span className={styles.deviceIcon} aria-hidden="true">
-                      {d.isLocal ? '🖥' : '📱'}
+                    <span className={styles.deviceIcon}>
+                      <DeviceKindIcon kind={presenceDeviceKind(d)} />
                     </span>
                     <span className={styles.deviceMain}>
                       <span className={styles.deviceLabel}>
@@ -352,13 +373,6 @@ export default function DevicePresenceChip() {
               </p>
             )}
 
-            {canPairPhones && (
-              <Suspense fallback={null}>
-                <SharingDefault />
-                <PhonePairing />
-                {canPairRemotes && <RemoteComputers />}
-              </Suspense>
-            )}
           </div>,
           document.body,
         )}

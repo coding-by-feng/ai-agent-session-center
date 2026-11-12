@@ -18,13 +18,15 @@ import { join } from 'path';
 import { lstatSync, watch as fsWatch, type FSWatcher, type Stats } from 'fs';
 import { lstat, open, readdir, readFile, rm, stat } from 'fs/promises';
 import type { PlanCli, PlanUsage } from '../src/types/session.js';
+import { hookQueueDir } from './hookQueueDir.js';
 import log from './logger.js';
 import { latestCodexUsage, parseClaudeSnapshot } from './planUsageCodec.js';
 import { globalRootPaths } from './resourceRoots.js';
-import { hookQueueDir } from './hookQueueDir.js';
 
-// Same directory the hook message queue lives in (hookQueueDir.ts). The status-line
-// script hard-codes the same path; a test keeps the two from drifting.
+// Same directory the hook message queue lives in (see mqReader.ts): /tmp on
+// macOS/Linux because a hook cannot predict os.tmpdir(), which is /var/folders/…
+// there. The status-line script hard-codes the same path; a test keeps the two
+// from drifting.
 const QUEUE_DIR = hookQueueDir();
 
 /** `<queue dir>/usage/<session-id>.json`, one per Claude session the status-line script has seen. */

@@ -18,6 +18,7 @@ import DetailPanel from '@/components/session/DetailPanel';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useProceedNotifications } from '@/hooks/useProceedNotifications';
 import { useAuth } from '@/hooks/useAuth';
 import { startNotesSync } from '@/stores/skillNotesStore';
 import LoginScreen from '@/components/auth/LoginScreen';
@@ -37,18 +38,21 @@ import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
 import { useRoomSync } from '@/hooks/useRoomSync';
 import { useUiStore } from '@/stores/uiStore';
 import { getInterruptedOffer, subscribeInterrupted } from '@/lib/interruptedRestore';
+import { IS_LITE } from '@/lib/edition';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
-const PromptsView = lazy(() => import('@/routes/PromptsView'));
-const QueueView = lazy(() => import('@/routes/QueueView'));
-const AgendaView = lazy(() => import('@/routes/AgendaView'));
-const ReviewView = lazy(() => import('@/routes/ReviewView'));
+// @__PURE__: the Lite build renders none of these, and only then can Rollup drop their chunks.
+const PromptsView = /* @__PURE__ */ lazy(() => import('@/routes/PromptsView'));
+const QueueView = /* @__PURE__ */ lazy(() => import('@/routes/QueueView'));
+const AgendaView = /* @__PURE__ */ lazy(() => import('@/routes/AgendaView'));
+const ReviewView = /* @__PURE__ */ lazy(() => import('@/routes/ReviewView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
-const ResourcesView = lazy(() => import('@/routes/ResourcesView'));
+const ResourcesView = /* @__PURE__ */ lazy(() => import('@/routes/ResourcesView'));
 // Only after a restore that cut sessions off mid-turn (lib/interruptedRestore.ts).
 const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
+const UpdateReadyBanner = lazy(() => import('@/components/layout/UpdateReadyBanner'));
 // The phone app (AASC-38, every phone since AASC-48): its own chunk, never part
 // of the desktop's first download (phoneChunkBoundary.test.ts).
 const PhoneAppFrame = lazy(() => import('@/components/mobile/app/PhoneAppFrame'));
@@ -67,6 +71,8 @@ const queryClient = new QueryClient({
 
 function AppLayout() {
   useKeyboardShortcuts();
+  // Desktop app only: a system notification when a session waits for "proceed" (no-op without the bridge).
+  useProceedNotifications();
 
   // A popped-out session's "back to main" button focuses this window and sends
   // this signal — deselect back to the session list, mirroring FloatingTerminalRoot's
@@ -114,11 +120,16 @@ function AppLayout() {
       <NewSessionModal />
       <ShortcutsPanel />
       <ShortcutSettingsModal />
-      <GlobalSearchModal />
+      {!IS_LITE && <GlobalSearchModal />}
       <SessionSwitchOverlay />
       <SessionJumpOverlay />
       <FloatingTerminalRoot />
       <FileOpenChooser />
+      {window.electronAPI?.updates && (
+        <Suspense fallback={null}>
+          <UpdateReadyBanner />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -213,12 +224,17 @@ function Dashboard({ token }: { token: string | null }) {
             } />
             <Route element={<AppLayout />}>
               <Route path="/" element={<LiveView />} />
-              <Route path="/agenda" element={<AgendaView />} />
               <Route path="/history" element={<HistoryView />} />
-              <Route path="/prompts" element={<PromptsView />} />
-              <Route path="/queue" element={<QueueView />} />
-              <Route path="/review" element={<ReviewView />} />
-              <Route path="/resources" element={<ResourcesView />} />
+              {/* Lite: LIVE and HISTORY only; any other address lands on LIVE below. */}
+              {!IS_LITE && (
+                <>
+                  <Route path="/agenda" element={<AgendaView />} />
+                  <Route path="/prompts" element={<PromptsView />} />
+                  <Route path="/queue" element={<QueueView />} />
+                  <Route path="/review" element={<ReviewView />} />
+                  <Route path="/resources" element={<ResourcesView />} />
+                </>
+              )}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

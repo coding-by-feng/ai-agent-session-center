@@ -102,9 +102,37 @@ export function useSessionActions() {
     }
   }, []);
 
+  /**
+   * Pin or unpin (Nov 2 2026): the desktop's PINNED flag (PUT /sessions/:id/pinned, open to a phone for a
+   * shared session). The row moves into PINNED at once and moves back, with a toast saying why, if the
+   * Mac refuses — the store's own togglePin reverts silently.
+   */
+  const setPinned = useCallback(async (session: Session, on: boolean) => {
+    if (on === !!session.pinned) return;
+    const store = useSessionStore.getState();
+    const apply = (pinned: boolean) => {
+      const current = useSessionStore.getState().sessions.get(session.sessionId);
+      if (current) store.updateSession({ ...current, pinned });
+    };
+    apply(on);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/pinned`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: on }),
+      });
+      if (!res.ok) throw new Error(res.status === 404 ? 'This session isn’t shared with this phone.' : `Your Mac said no (HTTP ${res.status}).`);
+      showToast(on ? 'Pinned: it stays in PINNED, and your Mac brings it back if it ends' : 'Unpinned', 'info');
+    } catch (err) {
+      apply(!on);
+      const why = err instanceof TypeError ? 'Couldn’t reach your Mac.' : err instanceof Error ? err.message : String(err);
+      showToast(`${on ? 'Not pinned' : 'Still pinned'}. ${why}`, 'error');
+    }
+  }, []);
+
   const markRead = useCallback((session: Session) => {
     markSessionRead(session.sessionId, readStamp(session));
   }, []);
 
-  return { busy, copy, resume, setNotifications, setLoudAlerts, setAiPopups, markRead };
+  return { busy, copy, resume, setNotifications, setLoudAlerts, setAiPopups, setPinned, markRead };
 }

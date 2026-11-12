@@ -11,7 +11,7 @@ import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
 import { reapPtyChildren, listChildPids, terminateProcessTree } from './processMonitor.js';
 import { appendSessionName, applyClaudeLaunchFlags, applyStatusLineTap, isStatusLineTapEnabled, isStatusLineTapInstalled, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
-import { applyCodexNoDaemon, codexNoDaemonSupport, hasCodexLaunch, isCodexNoDaemonEnabled, stripCodexNoDaemon } from './codexNoDaemon.js';
+import { applyCodexLaunchFlags, CODEX_LAUNCH_FLAGS, codexLaunchFlagSupport, hasCodexLaunch, isCodexLaunchFlagEnabled } from './codexNoDaemon.js';
 import { centrals } from './mcp/centrals.js';
 import { MCP_TOKEN_ENV, applyCentralLaunch, centralWiringFor, stripCentralLaunch, type CentralWiring, type LaunchPlace } from './mcp/launch.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
@@ -140,6 +140,23 @@ export function watchTerminalForSuggestion(terminalId: string): void {
   if (onTerminalSuggestionCallback && terminals.has(terminalId)) armSuggestionWatch(terminalId, suggestionDeps);
 }
 
+type OutputTap = (chunk: string) => void;
+const outputTaps = new Map<string, Set<OutputTap>>();
+
+/**
+ * Listen to a terminal's live PTY output from now on (never its replay ring, which a restore prefills). Returns
+ * the unsubscribe. For short watches, such as a new Codex card waiting for its input row (codexReadyWatch.ts).
+ */
+export function tapTerminalOutput(terminalId: string, tap: OutputTap): () => void {
+  const taps = outputTaps.get(terminalId) ?? new Set<OutputTap>();
+  taps.add(tap);
+  outputTaps.set(terminalId, taps);
+  return () => {
+    taps.delete(tap);
+    if (taps.size === 0 && outputTaps.get(terminalId) === taps) outputTaps.delete(terminalId);
+  };
+}
+
 /**
  * Run one PTY chunk past the interruption detector and forward any fault.
  * Called from every `onData` handler that owns an agent terminal. Kept tiny and
@@ -156,6 +173,7 @@ function notePtyOutput(terminalId: string, data: string): void {
     }
     if (onTerminalBtwCallback) noteBtwChunk(terminalId, data, btwDeps);
     if (onTerminalSuggestionCallback) noteSuggestionChunk(terminalId, data, suggestionDeps);
+    outputTaps.get(terminalId)?.forEach((tap) => tap(data));
   } catch (e: unknown) {
     // Detection is best-effort — it must never break terminal streaming.
     log.debug('pty', `Output scan failed for ${terminalId}: ${(e as Error).message}`);
@@ -461,21 +479,28 @@ function attachCentralTerminal(centralId: string, terminalId: string, ptyProcess
 }
 
 /**
- * AASC-59: start a LOCAL interactive Codex with `--no-daemon`, so its lifecycle hooks are run
- * by the TUI in this PTY (this terminal's tty and AGENT_MANAGER_TERMINAL_ID) instead of by
- * Codex's shared app-server daemon, whose hooks carry no tty, the daemon's pid and a terminal
- * id from whichever terminal started the daemon — nothing the matcher can bind to this card.
- * Only once the installed Codex advertises the flag (an older one would refuse to start); a
- * Codex that no longer takes it gets a stored flag removed; "unknown" changes nothing. A
- * remote host's Codex is never probed, so remote lines are left alone, as are Claude lines
- * (no probe at all). Like withStatusLineTap, applied to the typed string only.
+ * Start a LOCAL interactive Codex with:
+ * - `--no-daemon` (AASC-59), so its lifecycle hooks are run by the TUI in this PTY (this
+ *   terminal's tty and AGENT_MANAGER_TERMINAL_ID) instead of by Codex's shared app-server
+ *   daemon, whose hooks carry no tty, the daemon's pid and a terminal id from whichever
+ *   terminal started the daemon — nothing the matcher can bind to this card;
+ * - `--no-alt-screen` (Nov 4 2026), so its history goes to the terminal's scrollback and the
+ *   wheel scrolls back through it, instead of the alternate screen, which keeps none.
+ * Each only once the installed Codex advertises it (an older one would refuse to start); a
+ * Codex that no longer takes one gets that stored flag removed; "unknown" changes nothing,
+ * and so does a flag's opt-out. A remote host's Codex is never probed, so remote lines are
+ * left alone, as are Claude lines (no probe at all). Like withStatusLineTap, applied to the
+ * typed string only.
  */
-async function withCodexNoDaemon(local: boolean, line: string): Promise<string> {
-  if (!local || process.platform === 'win32' || !isCodexNoDaemonEnabled() || !hasCodexLaunch(line)) return line;
-  const support = await codexNoDaemonSupport();
-  if (support === 'supported') return applyCodexNoDaemon(line);
-  if (support === 'unsupported') return stripCodexNoDaemon(line);
-  return line;
+async function withCodexLaunchFlags(local: boolean, line: string): Promise<string> {
+  if (!local || process.platform === 'win32' || !hasCodexLaunch(line)) return line;
+  const flags = CODEX_LAUNCH_FLAGS.filter((flag) => isCodexLaunchFlagEnabled(flag));
+  if (flags.length === 0) return line;
+  const support = await codexLaunchFlagSupport();
+  return applyCodexLaunchFlags(line, {
+    add: flags.filter((flag) => support[flag] === 'supported'),
+    remove: flags.filter((flag) => support[flag] === 'unsupported'),
+  });
 }
 
 function getDefaultShell(): string {
@@ -835,7 +860,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         };
 
         // The Codex capability probe (if this is a Codex launch) runs while the shell starts.
-        const typedLaunch = withCodexNoDaemon(local, command).then(buildLaunchCmd);
+        const typedLaunch = withCodexLaunchFlags(local, command).then(buildLaunchCmd);
 
         // Wait for shell prompt before writing — replaces the old blind setTimeout
         shellReady.then(async (detected) => {
@@ -1038,7 +1063,7 @@ export async function writeWhenReady(terminalId: string, data: string, { raw = f
   const local = isLocal(term.config?.host);
   // `raw`: a fixed admin line (`claude auth login`, cliLoginTerminal.ts) typed as is. The agent-launch
   // rewrites (Codex --no-daemon, the Claude --settings tap) would break a subcommand that takes no such flag.
-  const line = raw ? Promise.resolve(data) : withCodexNoDaemon(local, data); // probes (if Codex) while the shell starts
+  const line = raw ? Promise.resolve(data) : withCodexLaunchFlags(local, data); // probes (if Codex) while the shell starts
   if (term.shellReady) await term.shellReady;
   const typed = raw ? await line : withStatusLineTap(local, await line);
   // Terminal might have been cleaned up while waiting

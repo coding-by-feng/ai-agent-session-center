@@ -195,6 +195,11 @@ export const tooltips = {
     label: 'Clone session',
     description: 'Start a new session reusing this command, working directory, and config.',
   },
+  termSearch: {
+    label: 'Find in terminal',
+    description: 'Search this terminal’s output, scrollback included. Enter and Shift+Enter step through the matches; Esc closes.',
+    shortcut: 'Cmd+F',
+  },
   termFullscreen: {
     label: 'Fullscreen terminal',
     description: 'Maximize the terminal to take over the panel.',

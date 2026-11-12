@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cloudResourcePath,
+  projectItemPath,
   resourceItemPath,
   resourcesPath,
   segmentsFor,
@@ -281,6 +282,18 @@ describe('More → Resources (plan 16)', () => {
     expect(tabOfPath(`/more/resources/item/${ITEM}`)).toBe('more');
     expect(pathChain('/more/resources/projects')).toEqual(['/more', '/more/resources/projects']);
     expect(pathChain(`/more/resources/item/${ITEM}`)).toEqual(['/more', '/more/resources', `/more/resources/item/${ITEM}`]);
+  });
+
+  it('opens a saved project by its cloud id, stacked over Projects', () => {
+    const PROJECT = '0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b20';
+    expect(projectItemPath(PROJECT)).toBe(`/more/resources/projects/${PROJECT}`);
+    expect(parsePhonePath(`/more/resources/projects/${PROJECT}`)).toEqual({ kind: 'project-item', id: PROJECT });
+    expect(parsePhonePath(phonePath({ kind: 'project-item', id: PROJECT }))).toEqual({ kind: 'project-item', id: PROJECT });
+    expect(tabOfPath(projectItemPath(PROJECT))).toBe('more');
+    expect(pathChain(projectItemPath(PROJECT))).toEqual(['/more', '/more/resources/projects', projectItemPath(PROJECT)]);
+    for (const bad of [`/more/resources/projects/${PROJECT.toUpperCase()}`, '/more/resources/projects/abc', `/more/resources/projects/${PROJECT}/x`]) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
   });
 });
 

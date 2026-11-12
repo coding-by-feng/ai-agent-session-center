@@ -24,14 +24,33 @@ export function decodeProjectDir(encoded: string): string | null {
   const prepared = encoded.slice(1).replace(/--/g, DOT);
   const parts = prepared.split('-').map((p) => p.replaceAll(DOT, '.'));
 
+  // A name the encoding turned `-` (`_`, a space …): the entry of `dir` that encodes to the candidate.
+  const listed = new Map<string, string[]>();
+  const entriesOf = (dir: string): string[] => {
+    let names = listed.get(dir);
+    if (names === undefined) {
+      try {
+        names = readdirSync(dir);
+      } catch {
+        names = [];
+      }
+      listed.set(dir, names);
+    }
+    return names;
+  };
+  const encodeName = (name: string): string => name.replace(/[^A-Za-z0-9]/g, '-');
+
   // Greedily resolve: try longest segment match against filesystem first
   function resolve(current: string, idx: number): string | null {
     if (idx >= parts.length) return current;
     for (let end = parts.length; end > idx; end--) {
       const candidate = parts.slice(idx, end).join('-');
-      const fullPath = join(current, candidate);
-      if (existsSync(fullPath)) {
-        const result = resolve(fullPath, end);
+      const exact = join(current, candidate);
+      const names = existsSync(exact)
+        ? [candidate]
+        : entriesOf(current).filter((name) => encodeName(name) === encodeName(candidate));
+      for (const name of names) {
+        const result = resolve(join(current, name), end);
         if (result !== null) return result;
       }
     }

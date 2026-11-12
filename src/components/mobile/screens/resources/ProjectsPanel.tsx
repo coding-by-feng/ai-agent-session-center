@@ -9,14 +9,17 @@
  *   [2 commits to push]
  *   github.com/kason/agent-manager · main
  *   ~/Documents/claude/agent-manager
- *   (the desktop's hint, when the state has one)
+ *   (the desktop's hint, when the state has one)                ›
  *
+ * A row opens the project (ProjectItemScreen): the lines it cuts, in full.
  * P1 reads only: Clone, Pull, Push and Check run on the Mac for now.
  */
 import { useEffect } from 'react';
 import { Banner, Button, EmptyState, ListRow, ListSection } from '../../kit';
+import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useClock } from '@/lib/chat/clock';
 import { fetchPhoneProjects } from '@/lib/chat/phoneResourcesApi';
+import { projectItemPath } from '@/lib/chat/phoneRoutes';
 import { accountsWords, projectStateWords, repoWords } from '@/lib/chat/phoneResourcesModel';
 import { CLOUD_CONNECT_HINT, CLOUD_RECONNECT_HINT, agoWords } from '@/lib/chat/cloudBrowseModel';
 import type { PhoneProjects } from '@/types/phoneResources';
@@ -30,6 +33,7 @@ export const PROJECTS_READ_ONLY_NOTE = 'Clone, Pull, Push and Check run on your 
 
 export default function ProjectsPanel({ register }: { register: RegisterRefresh }) {
   const now = useClock();
+  const push = usePhoneNavStore((s) => s.push);
   const read = useCloudRead<PhoneProjects>(readProjects);
   const { refresh } = read;
   useEffect(() => {
@@ -88,6 +92,8 @@ export default function ProjectsPanel({ register }: { register: RegisterRefresh 
                     {state.hint && <span className={styles.hint}>{state.hint}</span>}
                   </>
                 }
+                chevron
+                onClick={() => push(projectItemPath(p.id))}
                 testId="project-row"
               />
             );

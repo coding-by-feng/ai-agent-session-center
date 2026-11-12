@@ -20,9 +20,10 @@
  */
 import type { Dirent } from 'fs';
 import { basename, dirname, join, sep } from 'path';
-import type { CoverageCategory, CoverageEntry, CoverageStatus, ResourceAgent, ResourceFinding, ResourceFormat, ResourceOrigin, ResourceScope, ResourceType } from '../src/types/resources.js';
+import type { CoverageCategory, CoverageEntry, CoverageStatus, ResourceAgent, ResourceFinding, ResourceFormat, ResourceOrigin, ResourcePublisher, ResourceScope, ResourceType } from '../src/types/resources.js';
 import { listDir, listFlatFiles, listTree, lstatSize, sha1Hex, statKind } from './fsSafe.js';
 import type { ConfigRead, Limiter, ListStatus } from './fsSafe.js';
+import { redactSecretsInString } from './resourceMask.js';
 import { claudeCredentials, codexData, inaccessibleProjectCoverage, listingNote, PHASE_D_NOTE, sizedFile } from './resourceSafety.js';
 import { walkProjectNested, type GlobalRoots, type NestedFinds, type ProjectRecord } from './resourceRoots.js';
 // Type-only (erased at build): the scanner owns the limit DEFAULTS, adapters only read them.
@@ -55,6 +56,7 @@ export interface RawEntry {
   hashInput?: unknown;
   projectId?: string;
   pluginName?: string;
+  publisher?: ResourcePublisher;
   /** Fallback when frontmatter has none (`_shared`, a synced skill's manifest). */
   description?: string;
   orphaned?: boolean;
@@ -93,6 +95,7 @@ interface Base {
   rootAbs: string;
   projectId?: string;
   pluginName?: string;
+  publisher?: ResourcePublisher;
 }
 
 interface Found {
@@ -102,7 +105,7 @@ interface Found {
 }
 
 type EntrySpec = Pick<RawEntry, 'type' | 'format' | 'name' | 'absPath' | 'kind'> &
-  Partial<Pick<RawEntry, 'subKey' | 'config' | 'hashInput' | 'description' | 'repoRel' | 'variantGroup' | 'notASkill' | 'origin'>>;
+  Partial<Pick<RawEntry, 'subKey' | 'config' | 'hashInput' | 'description' | 'repoRel' | 'variantGroup' | 'notASkill' | 'origin' | 'publisher'>>;
 
 type ReadResult = { read: ConfigRead; entry?: RawEntry; finding?: ResourceFinding };
 
@@ -121,6 +124,7 @@ function makeEntry(base: Base, spec: EntrySpec): RawEntry {
     rootAbs: base.rootAbs,
     ...(base.projectId ? { projectId: base.projectId } : {}),
     ...(base.pluginName ? { pluginName: base.pluginName } : {}),
+    ...(base.publisher ? { publisher: base.publisher } : {}),
     ...spec,
     origin: spec.origin ?? base.origin,
   };
@@ -186,14 +190,49 @@ async function syncedSkills(dir: string, base: Base, ctx: AdapterContext): Promi
       const idDir = join(dir, d.name);
       const manifest = okValue(await ctx.readConfig(join(idDir, 'manifest.json'), 'json'));
       const listed = isRecord(manifest) && Array.isArray(manifest.skills) ? manifest.skills.filter(isRecord) : [];
-      const descriptions = new Map(listed
-        .filter((s) => typeof s.name === 'string' && typeof s.description === 'string')
-        .map((s) => [s.name as string, s.description as string]));
+      const byName = new Map(listed.filter((s) => typeof s.name === 'string').map((s) => [s.name as string, s]));
       const found = await skillPackages(idDir, { ...base, origin: 'synced' }, ctx);
-      return found.entries.map((e) => (descriptions.has(e.name) ? { ...e, description: descriptions.get(e.name) } : e));
+      return found.entries.map((e) => {
+        const listing = byName.get(e.name);
+        const publisher = listing ? syncedPublisher(listing) : undefined;
+        return {
+          ...e,
+          ...(typeof listing?.description === 'string' ? { description: listing.description } : {}),
+          ...(publisher ? { publisher } : {}),
+        };
+      });
     }),
   );
   return perId.flat();
+}
+
+const ANTHROPIC: ResourcePublisher = { kind: 'anthropic', name: 'Anthropic' };
+const OPENAI: ResourcePublisher = { kind: 'openai', name: 'OpenAI' };
+/** claude.ai's own catalogue sources; a `creatorType: 'user'` upload is the person's whatever its source. */
+const ANTHROPIC_SYNC_SOURCES = new Set(['anthropic', 'anthropic-example']);
+/**
+ * A plugin.json author is whatever the plugin says, so "Anthropic" only counts
+ * from Anthropic's own marketplace, and only as the exact name.
+ */
+const ANTHROPIC_MARKETPLACES = new Set(['claude-plugins-official']);
+const ANTHROPIC_AUTHOR = /^anthropic(,? (inc|pbc)\.?)?$/i;
+const AUTHOR_MAX = 128;
+
+/** A synced skill's maker, from its claude.ai manifest listing. */
+function syncedPublisher(listing: Record<string, unknown>): ResourcePublisher | undefined {
+  if (listing.creatorType === 'user') return undefined;
+  if (listing.creatorType === 'anthropic' || ANTHROPIC_SYNC_SOURCES.has(listing.source as string)) return ANTHROPIC;
+  return undefined;
+}
+
+/** A plugin's maker, from `.claude-plugin/plugin.json` `author` (an object with `name`, or a string). */
+function pluginPublisher(read: ConfigRead, marketplace: string): ResourcePublisher | undefined {
+  const value = okValue(read);
+  const author = isRecord(value) ? value.author : undefined;
+  const raw = isRecord(author) ? author.name : author;
+  const name = typeof raw === 'string' ? redactSecretsInString(raw.trim().slice(0, AUTHOR_MAX)) : '';
+  if (!name) return undefined;
+  return ANTHROPIC_MARKETPLACES.has(marketplace) && ANTHROPIC_AUTHOR.test(name) ? ANTHROPIC : { kind: 'third-party', name };
 }
 
 /** `skills/<name>/SKILL.md` packages, plus the `_shared`, `synced/` and `.system/` tiers. */
@@ -208,7 +247,9 @@ async function skillPackages(
   const nested = await Promise.all(listing.entries.map(async (d): Promise<RawEntry[]> => {
     if (tiers.synced && d.name === 'synced') return syncedSkills(join(dir, d.name), base, ctx);
     if (tiers.system && d.name === '.system') {
-      return (await skillPackages(join(dir, d.name), { ...base, origin: 'system' }, ctx)).entries;
+      // Only Codex has a `.system` tier; anything else bundled there says nothing about its maker.
+      const system: Base = { ...base, origin: 'system', ...(base.agent === 'codex' ? { publisher: OPENAI } : {}) };
+      return (await skillPackages(join(dir, d.name), system, ctx)).entries;
     }
     if (d.name.startsWith('.')) return [];
     const one = await skillAt(dir, d, base, ctx, tiers.repoPrefix);
@@ -428,11 +469,20 @@ function pluginDisplayRecord(install: PluginInstall, ctx: AdapterContext): Recor
   };
 }
 
-async function pluginBase(install: PluginInstall, base: Base, ctx: AdapterContext): Promise<Base> {
+async function pluginScopeBase(install: PluginInstall, base: Base, ctx: AdapterContext): Promise<Base> {
   const { scope, projectPath } = install.raw;
   if ((scope !== 'project' && scope !== 'local') || typeof projectPath !== 'string') return base;
   const projectId = await ctx.projectIdFor(projectPath);
   return projectId ? { ...base, scope: 'project', projectId } : base;
+}
+
+/** The install's base, carrying who made the plugin when its plugin.json says. */
+async function pluginBase(install: PluginInstall, base: Base, ctx: AdapterContext): Promise<Base> {
+  const scoped = await pluginScopeBase(install, base, ctx);
+  if (!install.installPath) return scoped;
+  const read = await ctx.readConfig(join(install.installPath, '.claude-plugin', 'plugin.json'), 'json');
+  const publisher = pluginPublisher(read, install.key.split('@')[1] ?? '');
+  return publisher ? { ...scoped, publisher } : scoped;
 }
 
 async function pluginItems(install: PluginInstall, base: Base, ctx: AdapterContext): Promise<RawEntry[]> {

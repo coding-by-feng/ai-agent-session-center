@@ -6,9 +6,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const TARGETS: QueueMoveTarget[] = [
-  { id: 'sess-aaaa1111', projectName: 'thesis', title: 'Verification' },
-  { id: 'sess-bbbb2222', projectName: 'kason-tools' },
-  { id: 'sess-cccc3333' },
+  { id: 'sess-aaaa1111', name: 'Verification', project: 'thesis' },
+  { id: 'sess-bbbb2222', name: 'kason-tools' },
+  { id: 'sess-cccc3333', name: 'Unnamed' },
 ];
 
 /** A detached MOVE button to hang the picker off. */
@@ -28,16 +28,15 @@ afterEach(() => {
 });
 
 describe('QueueMovePicker', () => {
-  it('lists every target, falling back to a short id when unnamed', () => {
+  it('lists every target by name, its folder after it, so a long row cuts the folder, not the name', () => {
     render(
       <QueueMovePicker anchor={anchor} targets={TARGETS} onSelect={vi.fn()} onClose={vi.fn()} />,
     );
 
     const options = screen.getAllByRole('option');
-    expect(options).toHaveLength(3);
-    expect(options[0].textContent).toContain('thesis');
-    expect(options[0].textContent).toContain('Verification');
-    expect(options[2].textContent).toContain('sess-ccc');
+    expect(options.map((o) => o.textContent)).toEqual(['Verification — thesis', 'kason-tools', 'Unnamed']);
+    expect(options[0]).toHaveAttribute('title', 'Verification — thesis');
+    expect(options[1]).toHaveAttribute('title', 'kason-tools');
   });
 
   it('reports the chosen session id', () => {

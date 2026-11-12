@@ -1,0 +1,328 @@
+/* Project Sync (Oct 31 2026): the dialog a Projects card opens. Controls are the shared view-tab
+   kit; this sheet only lays them out.
+
+   .sync is the dialog body. Hints and errors take two classes: the shared Modal styles every
+   paragraph in it (`.panel p` in Modal.module.css: 12px, --text-secondary, a 16px bottom margin),
+   which beats one class. Rendered check, Oct 31: errors read as grey prose, and every note under a
+   row stood 16px off the next one. */
+.sync .hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.sync .error {
+  color: var(--accent-red);
+  font-size: 13px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+/* An answer scrolled into view (ProjectSyncRun's `reveal`) keeps the panel's 24px below it. */
+.sync .error,
+.confirm {
+  scroll-margin: 24px 0;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Setup and settings forms. */
+.setup,
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.settings {
+  margin: 8px 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.subform {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+.form .formField {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+/* The kit caps a select at 280px; in these forms every control takes the row. */
+.form .formField > :not(:first-child) {
+  width: 100%;
+  max-width: 100%;
+}
+/* A field's hint sits just under it, closer than the next field. */
+.form > .hint {
+  margin-top: -8px;
+}
+.form .formField > :first-child {
+  white-space: normal;
+}
+.formWide {
+  grid-column: 1 / -1;
+}
+.check {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.check input {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.formActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* The chosen server's facts, with Remove at their right. */
+.serverFacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.serverFacts > .hint {
+  margin: 0;
+}
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.inline > .hint {
+  margin: 0;
+}
+
+/* A linked project: its two folders, how it syncs, Compare and Settings. */
+.paths {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+}
+.paths dt {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.paths dd {
+  margin: 0;
+  min-width: 0;
+}
+.linkHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.linkHead > .hint {
+  margin: 0;
+}
+.linkTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* The review and the run. */
+.run {
+  margin-top: 16px;
+}
+.runHead {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.runHead > .hint {
+  margin: 0;
+}
+.summary {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.entries,
+.repos,
+.warnings {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.warnings li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-left: 2px solid var(--accent-yellow);
+  margin-bottom: 4px;
+}
+.confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px;
+  margin: 8px 0;
+  border: 1px solid var(--accent-yellow);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.confirm span {
+  flex: 1 1 240px;
+}
+.repoRow {
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.repoHead {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.repoField {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin-top: 8px;
+}
+.repoSelect {
+  flex: 1 1 200px;
+  max-width: 100%;
+}
+.toolbar {
+  display: flex;
+  gap: 8px 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.entryMain {
+  display: grid;
+  /* The path takes what is left and wraps; chips and the action keep one line. */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.path {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* What the run does (a select or words) and Diff, kept together at the right. */
+.entryAct {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* One width for every row's action, select or words, so the column holds down the list and
+   stays put when a review turns into a run. Words start where a select's label does (its 8px
+   padding and 1px border, FormControl.module.css). */
+.actionSelect,
+.actionText {
+  width: 240px;
+}
+.actionText {
+  box-sizing: border-box;
+  padding-left: 9px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+/* Diff's place on a row that has none (a credential, a link). */
+.slot {
+  visibility: hidden;
+}
+.diff {
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  margin: 8px 0 0;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  white-space: pre;
+}
+.diffAdd {
+  color: var(--accent-green);
+}
+.diffDel {
+  color: var(--accent-red);
+}
+.footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.footer > .hint {
+  margin: 0;
+}
+@media (max-width: 480px) {
+  /* Narrow: the path, its chips and the action stack, each with the full width. */
+  .entryMain {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chips {
+    justify-content: flex-start;
+  }
+  .entryAct {
+    min-width: 0;
+  }
+  /* A select is as wide as its longest option unless it may shrink: the row decides. */
+  .entryAct > .actionSelect,
+  .entryAct > .actionText {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+  }
+  .linkTools {
+    margin-left: 0;
+  }
+}

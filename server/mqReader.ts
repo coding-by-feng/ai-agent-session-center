@@ -2,7 +2,8 @@
 // Hooks append JSON lines to a queue file; this module watches it and processes events.
 //
 // Performance: fs.watch() for instant notification + 500ms fallback poll.
-// Atomicity: POSIX guarantees atomic append for writes <= PIPE_BUF (4096 bytes).
+// Atomicity: each hook writes a line in ONE write() (`mq_append` in the hook scripts). A plain
+// `echo >> file` flushed long lines in 1 KB pieces that concurrent hooks interleaved (Oct 30 2026).
 // Our enriched hook JSON is typically 300-800 bytes.
 
 import {
@@ -17,7 +18,7 @@ import { processHookEvent } from './hookProcessor.js';
 import log from './logger.js';
 import { hookQueueDir } from './hookQueueDir.js';
 
-// The folder dashboard-hook.sh writes to (hookQueueDir.ts explains the /tmp choice).
+// The folder dashboard-hook.sh writes to (hookQueueDir.ts explains the path).
 const QUEUE_DIR = hookQueueDir();
 const QUEUE_FILE = join(QUEUE_DIR, 'queue.jsonl');
 const POLL_INTERVAL_MS = 500;

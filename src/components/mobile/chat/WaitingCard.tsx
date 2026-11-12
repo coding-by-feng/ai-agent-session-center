@@ -12,6 +12,11 @@
  * useRequestAnswer answers through the Mac's checked route. Answered elsewhere →
  * "Already answered on your Mac"; the Mac can't tell the choices → only "Open
  * terminal". The card is server state, so it comes back after a reconnect.
+ * While the chat shows the question as its own card (items/QuestionCard, Nov 2 2026), the
+ * choices are there and this card says so instead of repeating them. Since Nov 5 2026 it also
+ * drops what is asked (the chat card shows it whole): repeating it made this card a third of the
+ * screen and covered the chat's answers. Its header then points up: "Answer above"
+ * scrolls the chat to the open question.
  */
 import { useId } from 'react';
 import type { Session } from '@/types';
@@ -19,7 +24,9 @@ import { Button, ConfirmSheet } from '../kit';
 import { ChevronRightIcon } from '../kit/kitIcons';
 import { offeredChoices, type CardDetail, type WaitingCard as WaitingCardData } from '@/lib/chat/waitingCardModel';
 import { choiceKey, useRequestAnswer } from './useRequestAnswer';
+import { useAnsweredInChat } from './chatQuestions';
 import { QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
+import MultiQuestionPicker from './MultiQuestionPicker';
 import styles from '@/styles/modules/mobile/WaitingCard.module.css';
 
 export interface WaitingCardProps {
@@ -88,14 +95,30 @@ export function CardDetailView({ detail }: { detail: CardDetail }) {
   }
 }
 
+/** Scroll the chat to its open question card (the newest when several are open). */
+function scrollToChatQuestion(): void {
+  const open = document.querySelectorAll('[data-chat-question][data-open]');
+  const target = open[open.length - 1] ?? null;
+  if (!target) return;
+  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+}
+
 export default function WaitingCard({ session, card, onTerminal, onTell }: WaitingCardProps) {
   const titleId = useId();
   const { busy, outcome, confirm, cancelConfirm, answer, spectator, driver } = useRequestAnswer(session.sessionId, card.requestId, card.cliName);
   const tone = card.kind === 'question' ? 'question' : 'approval';
   const terminalOnly = card.terminalOnly || outcome?.kind === 'terminal-only';
   const settled = outcome?.kind === 'sent' || outcome?.kind === 'stale';
-  const showChoices = !terminalOnly && !settled && card.choices.length > 0;
   const isQuestion = card.kind === 'question';
+  // A question card in the chat offers the same choices (items/QuestionCard): the card here keeps
+  // what is asked, "Other…" and the terminal, not a second set of buttons.
+  const inChat = useAnsweredInChat(session.sessionId, isQuestion ? card.requestId : null);
+  const several = !!card.questions?.length;
+  const answerable = !terminalOnly && !settled && (card.choices.length > 0 || several);
+  const showChoices = answerable && !inChat;
+  /** The chat shows this question whole: keep the title, Other… and the terminal, nothing it repeats. */
+  const compact = answerable && inChat;
   const { offered, reasons } = offeredChoices(card.choices);
 
   const choices = showChoices && offered.length > 0 && (
@@ -129,17 +152,32 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
   // by ChatFooter). A question's options are part of what scrolls: there may be nine.
   return (
     <section className={styles.card} data-tone={tone} aria-labelledby={titleId} data-testid="waiting-card">
-      <header className={styles.header}>
+      <header className={styles.header} data-compact={compact ? '' : undefined}>
         <span className={styles.icon}>{isQuestion ? <QuestionIcon /> : <WarningIcon />}</span>
         <h3 id={titleId} className={styles.title}>{card.title}</h3>
+        {compact && (
+          <button type="button" className={styles.jump} onClick={scrollToChatQuestion} data-testid="waiting-card-in-chat">
+            Answer above
+            <ChevronRightIcon className={styles.jumpIcon} aria-hidden="true" />
+          </button>
+        )}
       </header>
-      <div className={styles.scroll} data-testid="waiting-card-body">
-        <div className={styles.body}>
-          <CardDetailView detail={card.detail} />
-          {card.where && <p className={styles.where}>{card.where}</p>}
+      {!compact && (
+        <div className={styles.scroll} data-testid="waiting-card-body">
+          <div className={styles.body}>
+            <CardDetailView detail={card.detail} />
+            {card.where && <p className={styles.where}>{card.where}</p>}
+          </div>
+          {isQuestion && choices}
+          {showChoices && several && (
+            <MultiQuestionPicker
+              questions={card.questions ?? []}
+              loading={busy?.startsWith('options:')}
+              onSend={(optionIndexes) => answer({ answer: { choice: 'options', optionIndexes }, label: 'Send answers', tone: 'primary' })}
+            />
+          )}
         </div>
-        {isQuestion && choices}
-      </div>
+      )}
 
       <div className={styles.fixed}>
         {outcome?.kind === 'stale' && <p className={styles.state} role="status">Already answered on your Mac</p>}
@@ -156,7 +194,7 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
 
         <div className={styles.links}>
           {/* The box is off while another device drives: nothing to tell it in. */}
-          {showChoices && card.tell && !spectator && (
+          {answerable && card.tell && !spectator && (
             <button type="button" className={styles.link} onClick={onTell}>
               <span>{card.tell.label}</span>
               <ChevronRightIcon />

@@ -56,8 +56,8 @@ export const WAITING_LABELS: Record<string, (toolName: string, detail: string) =
 export const AUTO_IDLE_TIMEOUTS: Record<string, number> = {
   // prompting -> waiting after this much hook AND terminal silence: a prompt
   // that never ran (e.g. blocked by a UserPromptSubmit hook). Not a user cancel
-  // — Esc fires a real Stop. A live turn keeps printing, so it is left alone
-  // for as long as it prints (see autoIdleManager).
+  // — sessionStore ends that turn from the transcript. A live turn keeps
+  // printing, so it is left alone for as long as it prints (see autoIdleManager).
   prompting: 30_000,
   waiting: 300_000,     // waiting -> idle (5 min)
   // working -> idle is a pure SAFETY NET for a crashed/abandoned tool whose
@@ -183,7 +183,7 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
  * permission) and the flag silently falls back to the default when given it.
  * Instead, ultracode launches at its valid base level `--effort xhigh` (see
  * `applyClaudeLaunchFlags`) and is upgraded to true ultracode via a post-startup
- * `/effort ultracode` slash command (see sshManager / ptyHost auto-inject).
+ * `/effort ultracode` slash command (see sshManager auto-inject).
  */
 export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -295,6 +295,10 @@ export function sanitizeModelInCommand(command: string): string {
 export const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
   DISABLE_AUTO_UPDATE: 'true',
+  // Claude's next-prompt suggestion feeds the app's input boxes (promptSuggestionCapture.ts). Claude
+  // backs off ("Showing fewer prompt suggestions") after a run it counts as unused, and one taken
+  // from the app is typed into the PTY, so it reads as unused. "true" turns the back-off off.
+  CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: 'true',
 };
 
 /**

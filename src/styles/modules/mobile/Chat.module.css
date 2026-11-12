@@ -70,6 +70,17 @@
   color: var(--ph-text-secondary);
 }
 
+/* The words take the room and wrap; Retry keeps its one line (it broke into "Retr / y"). */
+.stale > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stale > button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .loading {
   flex: 1;
   display: flex;

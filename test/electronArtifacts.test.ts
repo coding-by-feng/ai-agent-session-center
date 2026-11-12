@@ -9,15 +9,16 @@ const script = join(process.cwd(), 'scripts/verify-electron-artifacts.mjs');
 const pkg = { name: 'test-app', version: '1.2.3' };
 const productName = 'Test App';
 
-function verify(platform: string, files: Record<string, string>) {
+function verify(platform: string, files: Record<string, string>, edition?: string) {
   const root = mkdtempSync(join(tmpdir(), 'electron-artifacts-'));
   try {
     writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
     writeFileSync(join(root, 'electron-builder.json'), JSON.stringify({ productName }));
     for (const [name, data] of Object.entries(files)) writeFileSync(join(root, name), data);
-    const result = spawnSync(process.execPath, [script, platform, root], { cwd: root, encoding: 'utf8' });
+    const args = edition ? [script, platform, root, edition] : [script, platform, root];
+    const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
     let checksums = '';
-    if (result.status === 0) checksums = readFileSync(join(root, `SHA256SUMS-${platform}.txt`), 'utf8');
+    if (result.status === 0) checksums = readFileSync(join(root, `SHA256SUMS-${platform}${edition === 'lite' ? '-lite' : ''}.txt`), 'utf8');
     return { ...result, checksums };
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -50,5 +51,31 @@ describe('versioned Electron artifact verification', () => {
 
   it('rejects unknown platforms', () => {
     expect(verify('other', {}).status).not.toBe(0);
+  });
+
+  it.each([
+    ['mac', ['Test App Lite-1.2.3-arm64.dmg', 'Test App Lite-1.2.3-arm64-mac.zip']],
+    ['win', ['Test App Lite Setup 1.2.3.exe']],
+    ['linux', ['test-app-lite-1.2.3-x86_64.AppImage', 'test-app-lite-1.2.3-amd64.deb']],
+  ])('checks every Lite %s artifact under its own name', (platform, names) => {
+    const files = Object.fromEntries(names.map((name) => [name, `bytes of ${name}`]));
+    const result = verify(platform, files, 'lite');
+    expect(result.status, result.stderr).toBe(0);
+    for (const name of names) {
+      const digest = createHash('sha256').update(files[name]).digest('hex');
+      expect(result.checksums).toContain(`${digest}  ${name}\n`);
+    }
+  });
+
+  it('never passes Full files off as Lite', () => {
+    expect(verify('win', { 'Test App Setup 1.2.3.exe': 'full' }, 'lite').status).not.toBe(0);
+  });
+
+  it('accepts `full` as the default edition, which the release workflow passes for every build', () => {
+    expect(verify('win', { 'Test App Setup 1.2.3.exe': 'full' }, 'full').status).toBe(0);
+  });
+
+  it('rejects an unknown edition', () => {
+    expect(verify('win', { 'Test App Setup 1.2.3.exe': 'full' }, 'mini').status).not.toBe(0);
   });
 });

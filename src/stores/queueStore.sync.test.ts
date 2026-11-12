@@ -27,6 +27,10 @@ interface Put {
   automation: unknown;
   originClientId: string;
   keepalive: boolean;
+  /** The version the window built this list on, when it named one. */
+  baseUpdatedAt?: number;
+  /** The version the server stored it as. */
+  updatedAt?: number;
 }
 
 const mk = (id: number, sessionId = 's1', over: Partial<QueueItem> = {}): QueueItem => ({
@@ -81,22 +85,33 @@ async function openWindowWithDb(rows: Array<Record<string, unknown>>): Promise<W
  * and changes nothing); `holdNextPut` keeps the next PUT on the wire — unhandled — until
  * `release`; `write` is a write the server makes itself (a central's queue tool), told to
  * every window under its own origin.
+ *
+ * Every stored list gets a version, carried on the broadcast and the PUT's answer like the real
+ * route's `updatedAt`. With `versioned` the server also does what the route does with a save that
+ * names an older version than the one stored (`baseUpdatedAt`): 409, the current list, nothing
+ * written (`stale`). Without it, it ignores the base, as a server from before versions did.
+ * `deafen` stops a window hearing broadcasts: a phone whose socket died while it slept.
  */
-function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolean } = {}) {
+function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolean; versioned?: boolean } = {}) {
   const records = new Map<string, Put>();
   const puts: Put[] = [];
   const refused: Put[] = [];
+  const stale: Put[] = [];
   const held: Array<() => void> = [];
+  const deaf = new Set<Win>();
   let holdNext = false;
+  let version = 100;
   const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) as T;
 
   const tellEveryWindow = (put: Put) => {
     for (const w of windows()) {
+      if (deaf.has(w)) continue;
       w.store.getState().applyRemoteQueue(
         put.sessionId,
         clone(put.items),
         clone(put.automation) as never,
         put.originClientId,
+        put.updatedAt,
       );
     }
   };
@@ -107,10 +122,17 @@ function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolea
       refused.push(put);
       return new Response('{"success":false,"error":"Queue payload too large to sync"}', { status: 400 });
     }
-    puts.push(put);
-    records.set(put.sessionId, put);
-    tellEveryWindow(put);
-    return new Response('{"ok":true}', { status: 200 });
+    const current = records.get(put.sessionId);
+    if (opts.versioned && current && typeof put.baseUpdatedAt === 'number' && current.updatedAt !== put.baseUpdatedAt) {
+      stale.push(put);
+      const queue = { items: current.items, automation: current.automation, updatedAt: current.updatedAt };
+      return new Response(JSON.stringify({ success: false, code: 'stale', error: 'stale', queue }), { status: 409 });
+    }
+    const stored = { ...put, updatedAt: ++version };
+    puts.push(stored);
+    records.set(put.sessionId, stored);
+    tellEveryWindow(stored);
+    return new Response(JSON.stringify({ ok: true, updatedAt: stored.updatedAt }), { status: 200 });
   };
 
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
@@ -121,6 +143,7 @@ function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolea
         items: QueueItem[];
         automation: unknown;
         originClientId: string;
+        baseUpdatedAt?: number;
       };
       const put: Put = {
         sessionId: decodeURIComponent(match[1]),
@@ -128,6 +151,7 @@ function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolea
         automation: body.automation ?? null,
         originClientId: body.originClientId,
         keepalive: init.keepalive === true,
+        ...(typeof body.baseUpdatedAt === 'number' ? { baseUpdatedAt: body.baseUpdatedAt } : {}),
       };
       if (holdNext) {
         holdNext = false;
@@ -140,7 +164,7 @@ function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolea
         sessionId: p.sessionId,
         items: p.items,
         automation: p.automation,
-        updatedAt: 0,
+        updatedAt: p.updatedAt ?? 0,
       }));
       return new Response(JSON.stringify({ queues }), { status: 200 });
     }
@@ -151,15 +175,24 @@ function startServer(windows: () => Win[], opts: { refuse?: (put: Put) => boolea
     fetchMock,
     puts,
     refused,
+    /** Saves refused as built on an older version (`versioned` only). */
+    stale,
     /** Put a record on the server without a window having pushed it. */
     preload(sessionId: string, items: QueueItem[]) {
-      records.set(sessionId, { sessionId, items, automation: null, originClientId: '', keepalive: false });
+      records.set(sessionId, { sessionId, items, automation: null, originClientId: '', keepalive: false, updatedAt: ++version });
     },
     /** The server's own write (a central's queue tool): stored, then told to every window under `origin`. */
     write(sessionId: string, items: QueueItem[], origin: string) {
-      const put: Put = { sessionId, items, automation: null, originClientId: origin, keepalive: false };
+      const put: Put = { sessionId, items, automation: null, originClientId: origin, keepalive: false, updatedAt: ++version };
       records.set(sessionId, put);
       tellEveryWindow(put);
+    },
+    /** From now on `win` hears no broadcast (its socket died); `hear` undoes it. */
+    deafen(win: Win) {
+      deaf.add(win);
+    },
+    hear(win: Win) {
+      deaf.delete(win);
     },
     /** Keep the next PUT on the wire, unhandled, until `release`. */
     holdNextPut() {
@@ -657,6 +690,108 @@ describe('closing the window with a push still waiting', () => {
     window.dispatchEvent(new Event('pagehide'));
 
     expect(server.putsBy(w, 's1')).toHaveLength(0);
+  });
+});
+
+describe('a window that missed an update saves an edit (versioned saves, Nov 7 2026)', () => {
+  // The Mac's scheduler sent prompt 1 and removed it while the phone's socket was dead. The phone
+  // then sent prompt 3 by hand, which removes it from the phone's old list [1, 2, 3], and saved
+  // [1, 2]: the server kept the last list saved, so prompt 1 came back and waited to be sent again.
+  async function missedUpdate(versioned: boolean) {
+    begin();
+    const mac = await openWindow();
+    const phone = await openWindow();
+    const server = startServer(() => [mac, phone], { versioned });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.write('s1', [mk(1), mk(2), mk(3)], 'central'); // both hear it, with its version
+    await settle();
+
+    server.deafen(phone);
+    mac.store.getState().remove('s1', 1); // the queue sent prompt 1
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(server.final('s1')).toEqual([2, 3]);
+    expect(queueOf(phone)).toEqual([1, 2, 3]); // the phone never heard
+
+    phone.store.getState().remove('s1', 3); // SEND on prompt 3 from the old list
+    await vi.advanceTimersByTimeAsync(3000);
+    return { mac, phone, server };
+  }
+
+  it('the stale save is refused, merged with what the server holds, and saved again', async () => {
+    const { mac, phone, server } = await missedUpdate(true);
+    expect(server.stale).toHaveLength(1);
+    expect(idsOf(server.stale[0].items)).toEqual([1, 2]);
+    expect(server.final('s1')).toEqual([2]); // prompt 1 stays sent, prompt 3 stays sent
+    expect(queueOf(phone)).toEqual([2]);
+    server.hear(phone);
+    expect(queueOf(mac)).toEqual([2]); // the Mac heard the merged save
+  });
+
+  it('without the version check the sent prompt comes back (what happened before)', async () => {
+    const { server } = await missedUpdate(false);
+    expect(server.final('s1')).toEqual([1, 2]);
+  });
+
+  it('a save names the version of the list it was built on', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { versioned: true });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.write('s1', [mk(1), mk(2)], 'central');
+    await settle();
+    const known = server.putsFor('s1').length;
+
+    w.store.getState().remove('s1', 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    const first = server.putsFor('s1')[known];
+    expect(first.baseUpdatedAt).toBe(101); // the central's write
+    w.store.getState().remove('s1', 2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(server.putsFor('s1')[known + 1].baseUpdatedAt).toBe(first.updatedAt); // its own save's answer
+    expect(server.stale).toHaveLength(0);
+  });
+
+  it('names no version before it has heard one, so it is written as before', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { versioned: true });
+    vi.stubGlobal('fetch', server.fetchMock);
+    sync(w, [mk(1), mk(2)]); // installed with no version (an IndexedDB load, an old server)
+
+    w.store.getState().remove('s1', 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(server.putsFor('s1')[0].baseUpdatedAt).toBeUndefined();
+    expect(server.final('s1')).toEqual([2]);
+  });
+
+  it('stops retrying after repeated refusals and keeps its own list', async () => {
+    begin();
+    const w = await openWindow();
+    const server = startServer(() => [w], { versioned: true });
+    vi.stubGlobal('fetch', server.fetchMock);
+    server.write('s1', [mk(1), mk(2)], 'central');
+    await settle();
+    server.deafen(w);
+    // Another writer moves the list on before each of this window's saves lands.
+    const realFetch = server.fetchMock.getMockImplementation()!;
+    server.fetchMock.mockImplementation(async (input, init) => {
+      if (init?.method === 'PUT') server.write('s1', [mk(1), mk(2), mk(9)], 'central');
+      return realFetch(input, init);
+    });
+
+    w.store.getState().remove('s1', 1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(server.stale.length).toBeGreaterThanOrEqual(2);
+    expect(server.stale.length).toBeLessThanOrEqual(4); // bounded, not a PUT every 400 ms forever
+    expect(queueOf(w)).not.toContain(1); // its removal is never undone
+
+    // The other writer goes quiet. The person's next edit is a new save: refused once, merged
+    // with what the server holds, and saved — not refused forever on the count the last one used up.
+    server.fetchMock.mockImplementation(realFetch);
+    w.store.getState().remove('s1', 2);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(server.final('s1')).toEqual([9]);
+    expect(queueOf(w)).toEqual([9]);
   });
 });
 

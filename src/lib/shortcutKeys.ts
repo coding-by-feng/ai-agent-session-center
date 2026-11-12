@@ -1,6 +1,7 @@
 /**
  * shortcutKeys — default shortcut definitions and KeyCombo utilities.
  */
+import { IS_LITE, liteAllowsShortcut } from '@/lib/edition';
 import type { KeyCombo, ShortcutActionId, ShortcutBinding } from '@/types/shortcut';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,8 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: isMac ? { key: 'p', shiftKey: true, metaKey: true } : { key: 'p', shiftKey: true, ctrlKey: true } },
   // Opens the "go to session #" box: type any badge number (1…9 only reach so far).
   jumpToSession:              { label: 'Go to session by number',       section: 'Session Switch', combo: sw('0') },
+  // Plain `/` while not typing (a focused terminal keeps it), like a web page's search key.
+  searchSessions:             { label: 'Search sessions',               section: 'Session Switch', combo: { key: '/' } },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
   switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },
@@ -85,6 +88,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'terminalClone', 'terminalFork', 'terminalPopOut',
   'switchLatestSession',
   'jumpToSession',
+  'searchSessions',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
@@ -104,7 +108,10 @@ export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'Floa
 export function buildBindings(
   overrides?: Partial<Record<ShortcutActionId, KeyCombo>>,
 ): ShortcutBinding[] {
-  return ACTION_IDS.map((actionId) => {
+  // Lite has no binding at all for an action it leaves out: the key passes through to the terminal,
+  // and the shortcut lists skip it.
+  const actions = IS_LITE ? ACTION_IDS.filter(liteAllowsShortcut) : ACTION_IDS;
+  return actions.map((actionId) => {
     const def = DEFAULTS[actionId];
     return {
       actionId,
@@ -186,8 +193,9 @@ export function comboMatchesEvent(combo: KeyCombo | null, e: KeyboardEvent): boo
   if (!!combo.metaKey !== e.metaKey) return false;
   if (!!combo.altKey !== e.altKey) return false;
 
-  // Special: '?' inherently requires Shift — don't require shiftKey flag in binding
-  if (combo.key === '?') return true;
+  // Special: '?' inherently requires Shift — don't require shiftKey flag in binding.
+  // '/' does on many layouts (German Shift+7), and Shift+/ is '?' on US, so it is safe too.
+  if (combo.key === '?' || combo.key === '/') return true;
 
   if (!!combo.shiftKey !== e.shiftKey) return false;
   return true;

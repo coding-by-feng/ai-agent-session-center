@@ -43,7 +43,7 @@ export function renderShare(s: ShareScreen, ctx: ScreenContext): HTMLElement {
               h('span', { class: 'mac-text' }, h('span', { class: 'mac-name' }, t.title),
                 h('span', { class: 'mac-sub' }, STATUS_TEXT[t.status] ?? t.status)),
               icon('chevron', 'icon chevron')))))
-          : para('No session on this Mac is shared with this phone. Share one with it on the Mac, then try again.', 'hint'),
+          : para(`No session on this Mac is shared with this ${ctx.device}. Share one with it on the Mac, then try again.`, 'hint'),
       ];
       break;
     case 'done':
@@ -80,8 +80,8 @@ export function renderPhone(s: Extract<Screen, { name: 'phone' }>, ctx: ScreenCo
           label: 'Lock with fingerprint or face',
           checked: lock.enabled,
           hint: lock.available
-            ? 'Asks when AASC starts, after the phone restarts, and when you come back after the time below.'
-            : 'Set up a fingerprint, face or screen lock in the phone’s settings first.',
+            ? `Asks when AASC starts, after the ${ctx.device} restarts, and when you come back after the time below.`
+            : `Set up a fingerprint, face or screen lock in the ${ctx.device}’s settings first.`,
           onChange: (on) => a.setLockEnabled(on),
         }),
         lock.enabled
@@ -100,7 +100,7 @@ export function renderPhone(s: Extract<Screen, { name: 'phone' }>, ctx: ScreenCo
       ]
     : [para('The lock isn’t available in this build.', 'hint')];
 
-  return screen('This phone', { label: 'Your Macs', onClick: a.showMacs },
+  return screen(`This ${ctx.device}`, { label: 'Your Macs', onClick: a.showMacs },
     notice(s.notice),
     h('h2', {}, 'Lock'),
     ...lockPart,

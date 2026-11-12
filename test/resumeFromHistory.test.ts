@@ -266,3 +266,26 @@ describe('resume a session that is still running', () => {
     expect(store.getSession(ID)?.status).not.toBe('connecting');
   });
 });
+
+describe('resume an ended session whose shell is still open', () => {
+  it('clears the shell input line before typing the resume line', async () => {
+    // A Codex that exits fast leaves xterm's late replies to its colour and cursor queries in zsh's
+    // input line ("1R10;rgb:1414/1616/1a1a11;rgb:ecec/e9e9/d8d8", Nov 2 2026). A line typed after
+    // them was glued on and failed. Ctrl-U (kill-line in zsh and bash) clears it first.
+    const terminal = `term-open-${n}`;
+    const openDir = join(projectDir, 'open');
+    await store.createTerminalSession(terminal, { host: 'localhost', workingDir: openDir, command: 'codex', sessionTitle: 'Open shell Codex' });
+    store.handleEvent({ session_id: ID, hook_event_name: EVENT_TYPES.SESSION_START, agent_terminal_id: terminal, cwd: openDir, startup_command: 'codex' } as never);
+    store.handleEvent({ session_id: ID, hook_event_name: EVENT_TYPES.SESSION_END, agent_terminal_id: terminal } as never);
+    expect(store.getSession(ID)?.status).toBe('ended');
+    mocks.getTerminals.mockReturnValue([{ terminalId: terminal, isOps: false }]);
+
+    const { status } = await resume(ID);
+
+    expect(status).toBe(200);
+    expect(mocks.createTerminal).not.toHaveBeenCalled();
+    const writes = mocks.writeToTerminal.mock.calls.map(([, data]) => data as string);
+    expect(writes[0]).toBe('\x15');
+    expect(writes[1]).toMatch(new RegExp(`^codex .*resume '${ID}'.*\\r$`));
+  });
+});

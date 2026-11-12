@@ -342,6 +342,20 @@ describe('ChatView', () => {
     expect(screen.queryByTestId('chat-status-strip')).toBeNull();
   });
 
+  it('while Claude still runs its Stop hooks after the answer: the strip says Finishing up', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    render(<ChatView session={session({ status: 'waiting', stopHooksSince: Date.now() - 8_000 })} onTerminal={() => {}} />);
+    const strip = await screen.findByTestId('chat-status-strip');
+    expect(strip).toHaveTextContent(/^Finishing up · Stop hooks · 0:0\d/);
+  });
+
+  it('shows no strip for a finished turn once its Stop hooks are done', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    render(<ChatView session={session({ status: 'waiting', stopHooksSince: null })} onTerminal={() => {}} />);
+    await waitFor(() => expect(fetchChatPage).toHaveBeenCalled());
+    expect(screen.queryByTestId('chat-status-strip')).toBeNull();
+  });
+
   describe('files named in the chat open in the Project tab', () => {
     const filesPage = (): ApiResult<ChatPage> => ({
       ok: true,

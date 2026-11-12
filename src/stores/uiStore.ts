@@ -35,6 +35,10 @@ export type CardDisplayMode = 'detailed' | 'compact';
  *  same grip; a carried card moves both ways (Oct 22 2026) and ▲/▼ remain. */
 export type QueueViewMode = 'list' | 'card';
 
+/** RESOURCES → Projects layout (Oct 29 2026): a wrapping grid of cards (the
+ *  default) or the original rows. The same facts and one action either way. */
+export type ProjectViewMode = 'list' | 'card';
+
 /** Where the DetailPanel session-navigation bar sits: a horizontal strip on top
  *  (default) or a vertical rail down the left side (reclaims vertical space). */
 export type NavPosition = 'top' | 'left';
@@ -80,6 +84,8 @@ interface UiState {
   cardDisplayMode: CardDisplayMode;
   /** Prompt Queue layout. Persisted to localStorage['queue-view-mode']. */
   queueViewMode: QueueViewMode;
+  /** RESOURCES → Projects layout. Persisted to localStorage['projects-view-mode']. */
+  projectViewMode: ProjectViewMode;
   /** DetailPanel nav-bar position: 'top' (default) or 'left' rail. Persisted. */
   navPosition: NavPosition;
   /** Maximize mode: hide the detail panel's own session-chip strip for more
@@ -135,6 +141,12 @@ interface UiState {
    *  window ignores it. Persisted to localStorage['queue-panel-collapsed'];
    *  collapsed when nothing is stored. */
   queuePanelCollapsed: boolean;
+  /** Lite's click on the queue strip, for one session. Never stored: Full reads the flag above on the
+   *  same port, so Lite must not write it. See useQueueStripCollapsed. */
+  queueStripChoice: { sessionId: string; collapsed: boolean; hadQueued: boolean } | null;
+  /** The AI popup record a saved highlight asked this session's AI POPUPS tab to open (Lite, which has
+   *  no REVIEW). `fresh` until the tab has opened it, once per click: the tab remounts on every visit. */
+  focusedAiPopup: { sessionId: string; uuid: string; fresh: boolean } | null;
 
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
@@ -157,6 +169,7 @@ interface UiState {
   clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
   toggleQueueViewMode: () => void;
+  setProjectViewMode: (mode: ProjectViewMode) => void;
   setNavPosition: (pos: NavPosition) => void;
   toggleNavPosition: () => void;
   setMaximized: (on: boolean) => void;
@@ -179,6 +192,9 @@ interface UiState {
   clearRoomFilter: () => void;
   dismissLiveHint: () => void;
   setQueuePanelCollapsed: (collapsed: boolean) => void;
+  setQueueStripChoice: (choice: { sessionId: string; collapsed: boolean; hadQueued: boolean } | null) => void;
+  setFocusedAiPopup: (focus: { sessionId: string; uuid: string } | null) => void;
+  markFocusedAiPopupOpened: () => void;
 }
 
 function loadCardDisplayMode(): CardDisplayMode {
@@ -215,11 +231,21 @@ function loadQueueViewMode(): QueueViewMode {
   }
 }
 
+/** Projects layout: cards unless 'list' was picked (the queue's rule above). */
+function loadProjectViewMode(): ProjectViewMode {
+  try {
+    return localStorage.getItem('projects-view-mode') === 'list' ? 'list' : 'card';
+  } catch {
+    return 'card';
+  }
+}
+
+// The session list starts as the left rail (Nov 10 2026); only a saved 'top' puts it on top.
 function loadNavPosition(): NavPosition {
   try {
-    return localStorage.getItem('nav-position') === 'left' ? 'left' : 'top';
+    return localStorage.getItem('nav-position') === 'top' ? 'top' : 'left';
   } catch {
-    return 'top';
+    return 'left';
   }
 }
 
@@ -346,6 +372,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
   queueViewMode: loadQueueViewMode(),
+  projectViewMode: loadProjectViewMode(),
   navPosition: loadNavPosition(),
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
@@ -362,6 +389,8 @@ export const useUiStore = create<UiState>((set) => ({
   liveHintDismissed: loadLiveHintDismissed(),
   workspaceRestorePending: true,
   queuePanelCollapsed: loadQueuePanelCollapsed(),
+  queueStripChoice: null,
+  focusedAiPopup: null,
 
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
@@ -397,6 +426,15 @@ export const useUiStore = create<UiState>((set) => ({
         /* ignore */
       }
       return { queueViewMode: next };
+    }),
+  setProjectViewMode: (mode) =>
+    set(() => {
+      try {
+        localStorage.setItem('projects-view-mode', mode);
+      } catch {
+        /* ignore */
+      }
+      return { projectViewMode: mode };
     }),
   setNavPosition: (pos) =>
     set(() => {
@@ -524,4 +562,9 @@ export const useUiStore = create<UiState>((set) => ({
     }
     set({ queuePanelCollapsed: collapsed });
   },
+  setQueueStripChoice: (queueStripChoice) => set({ queueStripChoice }),
+  setFocusedAiPopup: (focus) => set({ focusedAiPopup: focus && { ...focus, fresh: true } }),
+  markFocusedAiPopupOpened: () => set((s) => (
+    s.focusedAiPopup?.fresh ? { focusedAiPopup: { ...s.focusedAiPopup, fresh: false } } : s
+  )),
 }));

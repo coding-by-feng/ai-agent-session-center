@@ -1,7 +1,8 @@
 /**
  * phoneAppGate — does App.tsx show the phone app or the desktop layout?
  *
- * Every phone-sized screen (`useIsMobile()`) gets the phone app (AASC-48). The
+ * Every phone-sized screen (`useIsMobile()`, which is also true at any width
+ * inside the phone app, so an iPad) gets the phone app (AASC-48). The
  * one exception is the standalone project browser: the desktop opens it in a
  * window of its own that can shrink to 480px, which is "phone-sized" by the
  * media query, and it must stay the project browser there. Import-free: App.tsx

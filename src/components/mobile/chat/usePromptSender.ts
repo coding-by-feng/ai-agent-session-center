@@ -43,6 +43,18 @@ export interface OutgoingMessage {
   images?: readonly QueueImageAttachment[];
 }
 
+/** What the status line says about a send: the composer's, and a chat question card's (Nov 2 2026). */
+export function sendStatusLine(state: SendPhase, cliName: string, windowOpen: boolean): string | null {
+  switch (state.phase) {
+    case 'sending': return 'Sending…';
+    case 'pending': return state.slow ? `Still waiting for ${cliName} to take it…` : `Sent to your Mac · waiting for ${cliName} to take it…`;
+    case 'sent': return state.queued ? (windowOpen ? `Queued · sent when ${cliName} finishes` : 'Queued · sent when AASC is open on your Mac') : 'Sent';
+    case 'failed': return state.message;
+    case 'unsure': return state.message;
+    default: return null;
+  }
+}
+
 /** How long "Sent" / "Queued" stays before the line clears. */
 const DONE_LINGER_MS = 2500;
 /** How long a declined dialog gets to close before the prompt is sent anyway (as an interrupt). */

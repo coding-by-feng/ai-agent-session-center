@@ -53,7 +53,7 @@ vi.mock('../server/processMonitor.js', async (importOriginal) => {
 
 // The store starts its 10 s auto-idle interval when it is imported, so the clock has to be fake first.
 vi.useFakeTimers({ now: 1_800_000_000_000 });
-const { handleEvent, getSession, getAllSessions, saveSnapshot, clearPendingRequest } = await import('../server/sessionStore.js');
+const { handleEvent, getSession, getAllSessions, saveSnapshot, clearPendingRequest, linkTerminalToSession, isAwaitingAnswerOnTerminal, releaseAnsweredDialog } = await import('../server/sessionStore.js');
 const { toArchivedSession } = await import('../server/sessionTrim.js');
 
 let n = 0;
@@ -189,6 +189,32 @@ describe('pendingRequest is cleared', () => {
     expect(pendingOf(id)).toBeNull();
   });
 
+  // Nov 8 2026, replayed: the main agent asked at 11:04; an in-process teammate kept working
+  // on the same session and compacted at 11:23. Its SessionStart(compact) used to clear the
+  // question, so the phone card said "Answer in Terminal" until the answer at 12:47.
+  it('not by a teammate’s compaction while the main agent’s question is open', () => {
+    const id = newSession();
+    hook(id, 'PreToolUse', QUESTION);
+    hook(id, 'PermissionRequest', QUESTION);
+    const TEAMMATE = { claude_agent_id: 'agent-port-recent' };
+    hook(id, 'PreToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_t1' });
+    hook(id, 'PostToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_use_id: 'toolu_t1' });
+    hook(id, 'PreCompact', { trigger: 'auto' });
+    hook(id, 'SubagentStop', TEAMMATE);
+    const result = hook(id, 'SessionStart', { source: 'compact' });
+    expect(result?.session.pendingRequest).toMatchObject({ id: 'toolu_ask', kind: 'question' });
+    hook(id, 'PreToolUse', { ...TEAMMATE, tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'toolu_t2' });
+    expect(pendingOf(id)?.id).toBe('toolu_ask');
+    hook(id, 'PostToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'toolu_ask' });
+    expect(pendingOf(id)).toBeNull();
+  });
+
+  it('by a SessionStart that is not a compaction', () => {
+    const id = waiting();
+    hook(id, 'SessionStart', { source: 'resume' });
+    expect(pendingOf(id)).toBeNull();
+  });
+
   it('not by the PostToolUse of another call', () => {
     const id = waiting();
     hook(id, 'PostToolUse', { tool_name: 'Read', tool_use_id: 'toolu_read' });
@@ -267,6 +293,64 @@ describe('a background subagent’s dialog outlives the main agent’s turn', ()
     const result = hook(id, 'Stop', MAIN);
     expect(result?.session.pendingRequest).toBeNull();
     expect(result?.session.status).toBe('waiting');
+  });
+});
+
+// Nov 2: the user answered a subagent's dialog, its approved Bash ran for minutes, and the
+// card kept "!" and the alarm until that Bash's PostToolUse. dialogCloseWatch releases it
+// once the terminal shows the agent working again.
+describe('a dialog answered in the terminal (releaseAnsweredDialog)', () => {
+  const SUB = { claude_agent_id: 'agent-b1', claude_agent_type: 'general-purpose' };
+  const MAIN = { claude_agent_id: null };
+  const RM = { tool_name: 'Bash', tool_input: { command: 'rm -f out/*.o' }, tool_use_id: 'toolu_rm2' };
+
+  function onTerminal(id: string): string {
+    const terminalId = `term-release-${id}`;
+    linkTerminalToSession(id, terminalId);
+    return terminalId;
+  }
+
+  it('puts a subagent dialog back to working at once, and the main Stop no longer reasserts approval', () => {
+    const id = newSession();
+    const terminalId = onTerminal(id);
+    hook(id, 'SubagentStart', SUB);
+    hook(id, 'PreToolUse', { ...RM, ...SUB });
+    hook(id, 'PermissionRequest', { ...RM, ...SUB });
+    expect(isAwaitingAnswerOnTerminal(terminalId)).toBe(true);
+    ws.broadcast.mockClear();
+
+    expect(releaseAnsweredDialog(terminalId)).toBe(true);
+    const s = getSession(id);
+    expect(s?.status).toBe('working');
+    expect(s?.pendingRequest).toBeNull();
+    expect(s?.waitingDetail).toBeNull();
+    expect(s?.approvalSource).toBeNull();
+    expect(isAwaitingAnswerOnTerminal(terminalId)).toBe(false);
+
+    hook(id, 'PreToolUse', { tool_name: 'Read', tool_use_id: 'toolu_main_r', ...MAIN });
+    expect(getSession(id)?.status).toBe('working');
+    // The answered call's late PostToolUse changes nothing.
+    hook(id, 'PostToolUse', { ...RM, ...SUB });
+    expect(getSession(id)?.status).toBe('working');
+  });
+
+  it('releases an answered question (input)', () => {
+    const id = newSession();
+    const terminalId = onTerminal(id);
+    hook(id, 'PreToolUse', QUESTION);
+    vi.advanceTimersByTime(60_000); // the input timer fires
+    expect(getSession(id)?.status).toBe('input');
+    expect(releaseAnsweredDialog(terminalId)).toBe(true);
+    expect(getSession(id)?.status).toBe('working');
+  });
+
+  it('leaves a session that is not waiting alone', () => {
+    const id = newSession();
+    const terminalId = onTerminal(id);
+    hook(id, 'Stop', MAIN);
+    expect(releaseAnsweredDialog(terminalId)).toBe(false);
+    expect(getSession(id)?.status).toBe('waiting');
+    expect(releaseAnsweredDialog('term-unknown')).toBe(false);
   });
 });
 

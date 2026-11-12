@@ -26,6 +26,9 @@ export const assistantTextCap = (asked: number | undefined): number =>
 export const TOOL_INPUT_CAP = 2 * 1024;
 /** Characters of an edit tool's input: whole, so diffs can be drawn from it. */
 export const EDIT_INPUT_CAP = 64 * 1024;
+/** Characters of a question's input (Claude's AskUserQuestion, Codex's request_user_input): whole
+ *  enough for four questions of four described options, so the phone chat can draw each choice. */
+export const QUESTION_INPUT_CAP = 16 * 1024;
 /** Characters of a tool's output. */
 export const TOOL_OUTPUT_CAP = 4 * 1024;
 /** Characters of a name or label (a tool, a command, an agent type, a model). */
@@ -36,8 +39,12 @@ export const TODO_ITEMS_CAP = 100;
 /** Tools whose input is an edit (Claude's, and Codex's patch tool). */
 export const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch']);
 
+/** Tools that ask you a multiple-choice question (src/lib/chat/questionItem.ts reads them). */
+export const QUESTION_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion', 'request_user_input', 'request_user_input_async']);
+
 /** The cap for a tool's input. */
-export const toolInputCap = (name: string): number => (EDIT_TOOLS.has(name) ? EDIT_INPUT_CAP : TOOL_INPUT_CAP);
+export const toolInputCap = (name: string): number =>
+  EDIT_TOOLS.has(name) ? EDIT_INPUT_CAP : QUESTION_TOOLS.has(name) ? QUESTION_INPUT_CAP : TOOL_INPUT_CAP;
 
 /** `text` cut to `max` characters, never between the halves of a surrogate pair. */
 export function cut(text: string, max: number): { text: string; truncated: boolean } {

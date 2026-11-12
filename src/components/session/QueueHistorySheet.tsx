@@ -89,13 +89,15 @@ export default function QueueHistorySheet({
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // ESC closes the topmost layer first (confirm → view → edit → sheet); the
-  // confirmation sheet handles its own Escape.
+  // confirmation sheet handles its own Escape, and so does the editor: it closes
+  // itself through onClose, but not while one of its own layers (a picker, a
+  // photo) is open, so closing it from here would discard its edits.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
       if (removing) return;
-      if (editEntry) { setEditEntry(null); return; }
+      if (editEntry) return;
       if (viewEntry) { setViewEntry(null); return; }
       onClose();
     }

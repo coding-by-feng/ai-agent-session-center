@@ -1,6 +1,7 @@
-import { app, dialog, crashReporter } from 'electron'
+import { app, dialog, crashReporter, type WebContents } from 'electron'
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
+import { decideRendererReload } from './rendererRecovery.js'
 
 // Everything in this file exists because, before it, a crash left no trace:
 // process.stdout/stderr is only mirrored to the loading screen during startup
@@ -99,6 +100,7 @@ export function initCrashLogger(): void {
     })()
     const level = details.reason === 'clean-exit' ? 'INFO' : 'ERROR'
     writeLine(level, `Renderer process gone: reason=${details.reason} exitCode=${details.exitCode} url=${url}`)
+    reloadAfterCrash(webContents, details.reason)
   })
 
   app.on('child-process-gone', (_event, details) => {
@@ -113,6 +115,28 @@ export function initCrashLogger(): void {
       writeLine('ERROR', `Preload failed to load: ${preloadPath} -- ${error.message}`)
     })
   })
+}
+
+// Reload times per window, for the crash-loop budget in rendererRecovery.ts.
+const reloadHistory = new WeakMap<WebContents, number[]>()
+
+/** A dead renderer leaves its window blank: reload it, unless it keeps crashing. */
+function reloadAfterCrash(webContents: WebContents, reason: string): void {
+  if (webContents.isDestroyed()) return
+  const decision = decideRendererReload(reason, Date.now(), reloadHistory.get(webContents) ?? [])
+  reloadHistory.set(webContents, decision.history)
+  if (!decision.reload) {
+    if (reason !== 'clean-exit' && reason !== 'killed') {
+      writeLine('ERROR', 'Renderer crashed again within a minute: not reloading (crash loop)')
+    }
+    return
+  }
+  writeLine('INFO', 'Reloading the window after its renderer died')
+  try {
+    webContents.reload()
+  } catch (err) {
+    writeLine('ERROR', `Reload after renderer crash failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** Absolute path to the main-process log file, for surfacing in UI (tray menu, etc). */

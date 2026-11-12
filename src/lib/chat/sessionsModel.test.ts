@@ -87,6 +87,37 @@ describe('statusSection', () => {
   });
 });
 
+// Nov 3 2026: the row's ring spins while compacting, so its section and filter must agree with it.
+describe('a compacting session', () => {
+  const compacting = { since: Date.now(), trigger: 'auto' as const };
+
+  it('sits under Working and in the Working filter, even when its status is idle', () => {
+    const row = mk('a', { status: 'idle', compacting });
+    expect(statusSection(row)).toBe('working');
+    expect(matchesFilter(row, 'working')).toBe(true);
+    expect(matchesFilter(row, 'needs-you')).toBe(false);
+  });
+
+  it('leaves Needs you while it compacts, and the proceed reminder returns after', () => {
+    const owing = { status: 'idle' as const, pendingProceedAt: 5 };
+    expect(statusSection(mk('a', { ...owing, compacting }))).toBe('working');
+    expect(matchesFilter(mk('a', { ...owing, compacting }), 'needs-you')).toBe(false);
+    expect(statusSection(mk('a', { ...owing, compacting: null }))).toBe('needs-you');
+  });
+
+  it('never takes a session that is blocked out of Needs you', () => {
+    for (const over of [{ status: 'approval' as const }, { status: 'input' as const }, { status: 'idle' as const, interruption: { kind: 'overloaded', line: 'x', at: 1 } }]) {
+      const row = mk('a', { ...over, compacting } as Partial<Session>);
+      expect(statusSection(row)).toBe('needs-you');
+      expect(matchesFilter(row, 'working')).toBe(false);
+    }
+  });
+
+  it('does not outlive a lost end hook', () => {
+    expect(statusSection(mk('a', { status: 'idle', compacting: { since: 0, trigger: null } }))).toBe('idle');
+  });
+});
+
 describe('nowLine', () => {
   it('says the pending ask for a waiting session', () => {
     expect(nowLine(mk('a', { status: 'approval', pendingToolDetail: 'npm run build' }))).toBe('Wants to run: npm run build');
@@ -218,31 +249,33 @@ describe('groupSessions', () => {
     ];
     const byRoom = (over: Partial<GroupInput> = {}) => groupSessions(input(list, { groupBy: 'room', rooms, now: N, ...over }));
 
-    it('lists the sessions with a running turn or work in the last 30 min: pinned first, then newest prompt', () => {
+    it('lists the most recently worked live sessions: pinned first, then newest prompt', () => {
       const recent = byRoom().find((g) => g.kind === 'recent')!;
       expect(recent).toMatchObject({ key: 'recent', kind: 'recent', title: 'Recent' });
-      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'loose']);
+      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
     });
 
     it('keeps each of them in its own room as well', () => {
       const groups = byRoom();
       expect(groups.map((g) => [g.title, g.sessions.map((s) => s.sessionId)])).toEqual([
         ['Pinned', ['pin']],
-        ['Recent', ['pin', 'fresh', 'run', 'loose']],
+        ['Recent', ['pin', 'fresh', 'run', 'quiet', 'loose']],
         ['First', ['pin', 'run', 'fresh', 'quiet']], // the room's own order: pinned first
         ['No room', ['loose']],
       ]);
     });
 
-    it('lets a session go when it has been quiet for the whole window, pinned or not', () => {
-      // 6 min on, pin's last prompt is 31 min old; a running turn stays however old.
-      expect(byRoom({ now: N + 6 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['fresh', 'run', 'loose']);
+    it('keeps quiet sessions however long ago they worked, never an ended one (RECENT_LIMIT, Nov 2)', () => {
+      const later = byRoom({ now: N + 600 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId);
+      expect(later).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
+      expect(later).not.toContain('gone');
     });
 
     it('narrows with the filter and the search, and is left out when none is recent', () => {
       expect(byRoom({ filter: 'needs-you' })[0].sessions.map((s) => s.sessionId)).toEqual(['loose']);
       expect(byRoom({ query: 'fresh' }).map((g) => g.title)).toEqual(['Recent', 'First']);
-      expect(byRoom({ query: 'quiet' }).map((g) => g.title)).toEqual(['First']);
+      expect(byRoom({ query: 'quiet' }).map((g) => g.title)).toEqual(['Recent', 'First']);
+      expect(byRoom({ query: 'gone' }).map((g) => g.title)).toEqual([]);
     });
 
     it('is only in the By room view, as on the desktop', () => {
@@ -334,6 +367,36 @@ describe('groupSessions', () => {
     expect(groups.map((g) => [g.kind, g.sessions.map((s) => s.sessionId)])).toEqual([['project', ['a', 'c']], ['project', ['b']]]);
     expect(groups[0].launchPath).toBe('/w/app');
     expect(groups[0].local).toBe(true);
+  });
+
+  describe('a phone’s own project order (Nov 4 2026)', () => {
+    const list = [
+      mk('a', { projectPath: '/w/app' }),
+      mk('b', { projectPath: '/w/site' }),
+      mk('c', { projectPath: '/w/web' }),
+      mk('d', { projectPath: '' }),
+    ];
+    const titles = (projectOrder?: readonly string[]) =>
+      groupSessions(input(list, { groupBy: 'project', projectOrder })).map((g) => g.title);
+
+    it('lists projects A to Z until one is dragged', () => {
+      expect(titles()).toEqual(['app', 'site', 'web', 'No project']);
+    });
+
+    it('follows the stored order, and No project stays last', () => {
+      expect(titles(['localhost|/w/web', 'localhost|/w/app', 'localhost|/w/site'])).toEqual(['web', 'app', 'site', 'No project']);
+    });
+
+    it('says which project each group is, and No project is none', () => {
+      const groups = groupSessions(input(list, { groupBy: 'project' }));
+      expect(groups.map((g) => g.projectKey)).toEqual(['localhost|/w/app', 'localhost|/w/site', 'localhost|/w/web', undefined]);
+    });
+
+    it('does not touch the rooms’ order', () => {
+      const rooms = [room('r1', 'Zed', ['a'], 0), room('r2', 'Abe', ['b'], 1)];
+      const groups = groupSessions(input(list, { groupBy: 'room', rooms, projectOrder: ['localhost|/w/site'] }));
+      expect(groups.filter((g) => g.kind === 'room').map((g) => g.title)).toEqual(['Zed', 'Abe']);
+    });
   });
 });
 
