@@ -1,3 +1,4 @@
+import HostedConnectionMenu from '@/components/hosted/HostedConnectionMenu';
 import { useState, useCallback, useRef } from 'react';
 import { SettingsButton } from '@/components/settings/SettingsPanel';
 import DevicePresenceChip from './DevicePresenceChip';
@@ -255,6 +256,7 @@ export default function Header() {
           their far-right corner positions (muscle memory), and the
           destructive-ish Quit stays furthest from the buttons that just moved. */}
       <div className={styles.stats}>
+        <HostedConnectionMenu />
         <ShortcutsButton />
         {/* Renders nothing unless a second device is connected — so this slot
             collapses when you're on one device, nudging the icons to its right.

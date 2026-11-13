@@ -77,6 +77,16 @@ describe('localEcho — trust', () => {
     expect(s.trusted).toBe(false);
     expect(shown(type(s, 'b', prompt('a')))).toBe('');
   });
+
+  it.each([
+    screen(['Continue? a', 'Password: '], 1, 10),
+    screen(['Password: '], 0, 10),
+    screen(['PW:'], 0, 3),
+  ])('does not carry trust into an output-only password prompt', (password) => {
+    const s = echoOutput(trusted(), password, 50);
+    expect(shown(type(s, 'synthetic-secret', password, 100))).toBe('');
+    expect(shown(type(trusted(), 'synthetic-secret', password, 100))).toBe('');
+  });
 });
 
 describe('localEcho — guessing', () => {
@@ -162,11 +172,14 @@ describe('localEcho — when the guess is wrong', () => {
 
   it(`stops guessing after ${MAX_MISSES} misses in a row, until Enter`, () => {
     let s = trusted();
+    let current = 'a';
     for (let i = 0; i < MAX_MISSES; i += 1) {
       const t = 100 + i * 100;
-      s = type(s, 'b', prompt('a'), t);
-      s = echoOutput(s, prompt('aX'), t + 10); // miss
-      s = echoOutput(echoInput(s, 'a', prompt('aX'), t + 60), prompt('aXa'), t + 70); // a pause, then re-trust
+      s = type(s, 'b', prompt(current), t);
+      current += 'X';
+      s = echoOutput(s, prompt(current), t + 10); // miss
+      s = echoOutput(echoInput(s, 'a', prompt(current), t + 60), prompt(current + 'a'), t + 70); // a pause, then re-trust
+      current += 'a';
     }
     expect(s.disabled).toBe(true);
     expect(shown(type(s, 'b', prompt('aXa'), 40))).toBe('');

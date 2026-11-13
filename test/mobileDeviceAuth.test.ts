@@ -432,3 +432,19 @@ describe('replacing an older pairing of the same phone (Nov 6 2026)', () => {
     expect(store.rows.get(old.device.id)?.status).toBe('active');
   });
 });
+
+describe('owner-issued desktop codes', () => {
+ it('scopes a preapproved code to a desktop and consumes it once', () => {
+  const {code}=auth.createPairingCode({platform:'desktop',autoApprove:true});
+  expect(auth.redeem({code,label:'Phone',platform:'ios'})).toBeNull();
+  const paired=auth.redeem({code,label:'Owner desktop',platform:'desktop'});
+  expect(paired?.device.status).toBe('active');
+  expect(signIn(paired!.device.id,paired!.deviceToken).ok).toBe(true);
+  expect(auth.redeem({code,label:'Replay',platform:'desktop'})).toBeNull();
+ });
+ it('never upgrades a phone-scoped code into desktop access', () => {
+  const {code}=auth.createPairingCode({platform:'phone'});
+  expect(auth.redeem({code,label:'Intruder',platform:'desktop'})).toBeNull();
+  expect(auth.redeem({code,label:'Phone',platform:'ios'})?.device.status).toBe('pending');
+ });
+});

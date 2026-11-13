@@ -157,6 +157,22 @@ describe('useAuth — silent refresh keeps a cookie-only session alive', () => {
 
     expect(result.current.needsLogin).toBe(false);
   });
+  it('honors a hosted session’s remaining lifetime on status and subsequent refreshes', async () => {
+    const { renderHook, act } = await import('@testing-library/react');
+    const { useAuth } = await import('./useAuth');
+    let refreshes = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/api/auth/status')) return new Response(JSON.stringify({ passwordRequired: true, authenticated: true, expiresIn: 90 }));
+      refreshes++;
+      return new Response(JSON.stringify({ success: true, expiresIn: 60 }));
+    }));
+    renderHook(() => useAuth());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(refreshes).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(refreshes).toBe(2);
+  });
 
   it('DOES force re-login when the server genuinely rejects the refresh', async () => {
     // The failure path must still work — otherwise an expired session would

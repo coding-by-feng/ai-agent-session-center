@@ -1,3 +1,4 @@
+import { hostedUiPath } from '@/lib/hosted';
 /**
  * queuePopout — open one session's QUEUE panel in its own window.
  *
@@ -43,7 +44,7 @@ export function queuePopoutTitle(session: TitledSession | null | undefined): str
 
 /** The standalone route a queue window loads. */
 export function queuePopoutUrl(sessionId: string): string {
-  return `/?popout=queue&sessionId=${encodeURIComponent(sessionId)}`;
+  return hostedUiPath(`/?popout=queue&sessionId=${encodeURIComponent(sessionId)}`);
 }
 
 /** One stable window name per session, so a second click reuses the open popup. */

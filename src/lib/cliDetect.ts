@@ -16,7 +16,7 @@ export type CliName = 'claude' | 'codex';
  * 2. Fallback: check event types for CLI-specific events
  * Returns null if the CLI cannot be determined.
  */
-export function detectCli(session: Session): CliName | null {
+export function detectCli(session: Partial<Pick<Session, 'cliSource' | 'startupCommand' | 'sshCommand' | 'sshConfig' | 'model' | 'events'>>): CliName | null {
   const explicit = (session.cliSource || '').toLowerCase();
   if (explicit === 'claude' || explicit === 'codex') {
     return explicit;

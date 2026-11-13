@@ -80,9 +80,9 @@ export function getAuthToken(): string | null {
 }
 
 /**
- * Silently refresh the auth session. Returns true when the server accepted it.
+ * Silently refresh the auth session. Returns remaining lifetime, or null on refusal.
  *
- * ## Why this is cookie-driven and returns a boolean
+ * ## Why this is cookie-driven
  *
  * This used to require a localStorage token twice over — it returned early on
  * `if (!token) return null`, and then only counted the refresh as successful
@@ -105,7 +105,7 @@ export function getAuthToken(): string | null {
  * so a deployment that does return one keeps working; and `data.token` is
  * still honoured if present. Neither is required.
  */
-async function doRefreshToken(): Promise<boolean> {
+async function doRefreshToken(): Promise<number | null> {
   try {
     const token = getStoredToken();
     const res = await fetch('/api/auth/refresh', {
@@ -119,12 +119,12 @@ async function doRefreshToken(): Promise<boolean> {
       },
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return false;
+    if (!res.ok || !data.success) return null;
     // Tolerated, not required — see above.
     if (data.token) storeToken(data.token);
-    return true;
+    return count(data.expiresIn) ?? 3600;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -145,14 +145,14 @@ export function useAuth(): UseAuthReturn {
     const delayMs = Math.max((expiresIn * 1000) - REFRESH_BUFFER_MS, 30_000);
 
     refreshTimerRef.current = setTimeout(async () => {
-      const ok = await doRefreshToken();
-      if (ok) {
+      const expiresIn = await doRefreshToken();
+      if (expiresIn !== null) {
         // The session is renewed via the rotated HttpOnly cookie. `token` is
         // only updated when the server actually returned one — reading it back
         // from storage keeps state in step without inventing a value.
         setState((prev) => ({ ...prev, token: getStoredToken() }));
         // Server returns expiresIn in seconds (3600 for 1h)
-        scheduleRefresh(3600);
+        scheduleRefresh(expiresIn);
       } else {
         // Refresh genuinely rejected — force re-login.
         clearToken();
@@ -193,7 +193,7 @@ export function useAuth(): UseAuthReturn {
             // and the next status check returned authenticated:false, which is
             // the password prompt the user saw come back on a cycle.
             if (data.passwordRequired && data.authenticated) {
-              scheduleRefresh(3600);
+              scheduleRefresh(count(data.expiresIn) ?? 3600);
             }
           } else {
             const lockedFor = count(data.lockedFor);

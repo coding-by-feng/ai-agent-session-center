@@ -94,6 +94,11 @@ describe('addressPlan', () => {
 });
 
 describe('pair', () => {
+  it('preserves owner-preapproved desktop status for immediate connection', async () => {
+    const {fetch}=fakeFetch(()=>({status:201,body:{success:true,data:{deviceId:DEVICE_ID,deviceToken:DEVICE_TOKEN,confirmCode:'042137',status:'active'}}}));
+    expect(await pair(deps(fetch),link,'Desktop')).toMatchObject({ok:true,approved:true});
+  });
+
   it('pairs over a public address when the link names only that, and says where it looked when none answers', async () => {
     const pub: RemotePairingLink = { ...link, lan: null, tailnet: null, publicAddress: '45.63.31.79' };
     const ok = fakeFetch(() => ({

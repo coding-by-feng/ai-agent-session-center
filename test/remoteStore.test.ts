@@ -67,6 +67,16 @@ describe('remoteStore', () => {
     expect(again.get(newIdAt(1))?.publicAddress).toBe('45.63.31.79');
   });
 
+  it('retains the exact HTTPS target after restarting the client, without plain-text credentials', () => {
+    const httpsOrigin='https://order-da1537bb1cac4015a4fff9c980c36eaf.xclaude.dev';
+    const store=createRemoteStore({file,crypto:fakeCrypto(),newId});
+    expect(store.add({...base,lan:null,port:443,httpsOrigin},TOKEN).ok).toBe(true);
+    const fresh=createRemoteStore({file,crypto:fakeCrypto(),newId});
+    expect(fresh.list()[0].httpsOrigin).toBe(httpsOrigin);
+    expect(fresh.credentials(newIdAt(1))?.deviceToken).toBe(TOKEN);
+    expect(readFileSync(file,'utf8')).not.toContain(TOKEN);
+  });
+
   it('reads a record saved before public addresses as having none', () => {
     const store = createRemoteStore({ file, crypto: fakeCrypto(), newId });
     store.add(base, TOKEN);

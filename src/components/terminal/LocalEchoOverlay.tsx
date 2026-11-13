@@ -129,7 +129,7 @@ export default function LocalEchoOverlay({ getTerminal, terminalId, enabled }: L
     const subscriptions = [
       term.onData((data) => update(echoInput(state, data, screenView(term), Date.now()))),
       term.onWriteParsed(() => {
-        if (state.guesses.length > 0) update(echoOutput(state, screenView(term), Date.now()));
+        if (state.trusted || state.guesses.length > 0) update(echoOutput(state, screenView(term), Date.now()));
       }),
       term.onResize(() => update(echoReset(state))),
       term.onScroll(() => {

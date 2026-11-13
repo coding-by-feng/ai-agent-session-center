@@ -1,8 +1,11 @@
+import { hostedOriginAllowed } from './hostedConfig.js';
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
 import { isLocalRequest, PROXIED_KEY_PREFIX, type LocalityRequest } from './requestLocality.js';
 import { isOwnerToken } from './ownerToken.js';
+import { getHostedConfig } from './hostedConfig.js';
+import { authorizeHosted, currentHostedOwner, type HostedIdentity } from './hostedAuthority.js';
 import log from './logger.js';
 import { setPasswordCommand } from './edition.js';
 import type { IncomingMessage } from 'http';
@@ -182,7 +185,7 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // 2026): it signs in with a device key like a phone, but its session is a password
 // session's in every other respect (no phone allow-list, no phone-only limits), so
 // it never carries `deviceId`; revoking it ends its sessions all the same.
-type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string };
+type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string; hosted?: HostedIdentity; hostedExpiresAt?: number };
 const tokens = new Map<string, TokenEntry>();
 
 /**
@@ -213,12 +216,14 @@ export function verifyPassword(password: string, stored: string): boolean {
 /** Live sessions one paired phone may hold (app + extensions); older ones are dropped. */
 const MAX_SESSIONS_PER_DEVICE = 4;
 
-export function createToken(deviceId?: string): string {
+export function createToken(deviceId?: string, hosted?: HostedIdentity): string {
   // A paired phone's sign-ins share one lineage: it signs in again after an app reinstall or a
   // lapsed session and keeps its client id, which stays bound to the lineage that first used it
   // (clientBinding.ts). A fresh lineage per sign-in locked the phone out of its own id for up to
   // an hour. Another phone still can't borrow it: its lineage names a different device.
-  return issueToken(deviceId ? `device:${deviceId}` : randomBytes(16).toString('hex'), deviceId);
+  const token = issueToken(deviceId ? `device:${deviceId}` : randomBytes(16).toString('hex'), deviceId);
+  if (hosted) tokens.get(token)!.hosted = hosted;
+  return token;
 }
 
 /**
@@ -226,8 +231,26 @@ export function createToken(deviceId?: string): string {
  * `deviceId`, so every phone rule (phoneProfile, the phone's terminal limits, phone
  * push confirms) leaves it alone and it reaches what a password sign-in reaches.
  */
-export function createComputerToken(computerId: string): string {
-  return issueToken(`computer:${computerId}`, undefined, computerId);
+export function createComputerToken(computerId: string, hosted?: HostedIdentity): string {
+  const token = issueToken(`computer:${computerId}`, undefined, computerId);
+  if (hosted) tokens.get(token)!.hosted = hosted;
+  return token;
+}
+
+/** Hosted customer identity survives new iframe sessions and token rotation. Never a local identity. */
+export function createHostedToken(orderId: string, principalHash: string, authority?: HostedIdentity): string {
+  const token = issueToken(`hosted:${orderId}:${principalHash}`);
+  tokens.get(token)!.hostedExpiresAt = Date.now() + TOKEN_TTL_MS;
+  if (authority) tokens.get(token)!.hosted = authority;
+  return token;
+}
+export function getTokenHostedIdentity(token: string | null): HostedIdentity | null {
+  return token && validateToken(token) ? tokens.get(token)?.hosted ?? null : null;
+}
+
+/** An authoritative order claim ends all previous hosted owner sessions. */
+export function revokeHostedTokens(orderId: string): void {
+  for (const [token, entry] of tokens) if (entry.lineage.startsWith(`hosted:${orderId}:`)) tokens.delete(token);
 }
 
 function issueToken(lineage: string, deviceId?: string, computerId?: string): string {
@@ -255,7 +278,7 @@ export function getTokenLineage(token: string | null): string | null {
 export function isLineageAlive(lineage: string): boolean {
   const now = Date.now();
   for (const entry of tokens.values()) {
-    if (entry.lineage === lineage && now - entry.createdAt <= TOKEN_TTL_MS) return true;
+    if (entry.lineage === lineage && now - entry.createdAt <= TOKEN_TTL_MS && (entry.hostedExpiresAt === undefined || now < entry.hostedExpiresAt)) return true;
   }
   return false;
 }
@@ -288,12 +311,15 @@ export function revokeTokensForDevice(deviceId: string): number {
  * Refresh an existing valid token: revoke the old one, return a new one.
  * Returns null if the old token is invalid/expired.
  */
-export function refreshToken(oldToken: string | null): string | null {
+export function refreshToken(oldToken: string | null, renewHosted = false): string | null {
   if (!oldToken || !validateToken(oldToken)) return null;
   const entry = tokens.get(oldToken);
   const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return issueToken(lineage, entry?.deviceId, entry?.computerId);
+  const token = issueToken(lineage, entry?.deviceId, entry?.computerId);
+  if (entry?.hosted) tokens.get(token)!.hosted = entry.hosted;
+  if (entry?.hostedExpiresAt) tokens.get(token)!.hostedExpiresAt = renewHosted ? Date.now() + TOKEN_TTL_MS : entry.hostedExpiresAt;
+  return token;
 }
 
 /**
@@ -304,7 +330,7 @@ export function validateToken(token: string | null): boolean {
   if (!token) return false;
   const entry = tokens.get(token);
   if (!entry) return false;
-  if (Date.now() - entry.createdAt > TOKEN_TTL_MS) {
+  if (Date.now() - entry.createdAt > TOKEN_TTL_MS || (entry.hostedExpiresAt !== undefined && Date.now() >= entry.hostedExpiresAt)) {
     tokens.delete(token);
     return false;
   }
@@ -318,7 +344,7 @@ export function getTokenTTL(token: string | null): number {
   if (!token) return 0;
   const entry = tokens.get(token);
   if (!entry) return 0;
-  const remaining = TOKEN_TTL_MS - (Date.now() - entry.createdAt);
+  const remaining = Math.min(TOKEN_TTL_MS - (Date.now() - entry.createdAt), entry.hostedExpiresAt === undefined ? Infinity : entry.hostedExpiresAt - Date.now());
   return remaining > 0 ? remaining : 0;
 }
 
@@ -450,6 +476,22 @@ function isRemoteRequest(req: Request): boolean {
  * configured to log in *with*.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const hosted = getHostedConfig();
+  if (hosted) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !hostedOriginAllowed(hosted, req.headers.origin)) {
+      res.status(403).json({ error: 'Same origin required' }); return;
+    }
+    const token = extractToken(req);
+    if (!validateToken(token) || !(getTokenLineage(token)?.startsWith(`hosted:${hosted.orderId}:`) || getTokenDeviceId(token) || (getTokenComputerId(token) && getTokenHostedIdentity(token)))) {
+      res.status(401).json({ error: 'Open this order on xclaude.dev to connect.' }); return;
+    }
+    const identity = getTokenHostedIdentity(token) ?? (getTokenDeviceId(token) ? currentHostedOwner(hosted) : null);
+    void authorizeHosted(hosted, identity).then((allowed) => {
+      if (allowed && validateToken(token)) next();
+      else { removeToken(token ?? ''); res.status(401).json({ error: 'Order access is no longer authorized. Open xclaude.dev.' }); }
+    });
+    return;
+  }
   if (!isPasswordEnabled()) {
     if (isRemoteRequest(req)) {
       log.warn('auth', `Blocked remote request (no password configured): ${req.method} ${req.originalUrl} from ${req.ip || req.socket?.remoteAddress}`);
@@ -494,7 +536,7 @@ export function startTokenCleanup(): void {
   cleanupTimer = setInterval(() => {
     const now = Date.now();
     for (const [token, entry] of tokens) {
-      if (now - entry.createdAt > TOKEN_TTL_MS) {
+      if (now - entry.createdAt > TOKEN_TTL_MS || (entry.hostedExpiresAt !== undefined && now >= entry.hostedExpiresAt)) {
         tokens.delete(token);
       }
     }

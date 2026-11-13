@@ -41,7 +41,7 @@ vi.mock('../server/processMonitor.js', async (importOriginal) => {
 // The store starts its 10 s auto-idle interval when it is imported, so the clock has to be fake first.
 const T0 = 1_800_000_000_000;
 vi.useFakeTimers({ now: T0 });
-const { handleEvent, getAllSessions, getSession, createTerminalSession } = await import('../server/sessionStore.js');
+const { handleEvent, getAllSessions, getSession, createTerminalSession, reconnectSessionTerminal } = await import('../server/sessionStore.js');
 
 const MIN = 60_000;
 
@@ -188,3 +188,26 @@ describe('a card that gives up connecting', () => {
   });
 });
 
+
+
+describe('plain terminal reconnect lifecycle', () => {
+  it.each(['/bin/bash', 'bash', '/bin/zsh'])('keeps %s attached beyond the agent resume deadline', async (command) => {
+    const id = `shell-reconnect-${++n}`;
+    await createTerminalSession(id, { host: 'localhost', command, workingDir: '/tmp' });
+    await vi.advanceTimersByTimeAsync(4_000);
+    const terminalId = `${id}-replacement`;
+    const result = reconnectSessionTerminal(id, terminalId);
+    expect(result).toMatchObject({ ok: true });
+    await vi.advanceTimersByTimeAsync(150_000);
+    expect(getSession(id)).toMatchObject({ terminalId, status: 'idle' });
+    expect(getAllSessions()[id]).toMatchObject({ terminalId, status: 'idle' });
+  });
+
+  it.each(['claude', '/opt/bin/codex resume abc'])('still waits for hooks when reconnecting %s', async (command) => {
+    const id = `agent-reconnect-${++n}`;
+    await createTerminalSession(id, { host: 'localhost', command, workingDir: '/tmp' });
+    const terminalId = `${id}-replacement`;
+    reconnectSessionTerminal(id, terminalId);
+    expect(getSession(id)).toMatchObject({ terminalId, status: 'connecting' });
+  });
+});

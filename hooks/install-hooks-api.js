@@ -122,7 +122,7 @@ export async function installHooks({
   const HOOK_DEST = join(HOOKS_DEST_DIR, HOOK_SCRIPT);
   const HOOK_COMMAND = isWindows
     ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${HOOK_DEST}"`
-    : '~/.claude/hooks/dashboard-hook.sh';
+    : 'exec ~/.claude/hooks/dashboard-hook.sh';
   const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
   const TOTAL_STEPS = uninstall ? 4 : 6;
 

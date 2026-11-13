@@ -14,7 +14,7 @@
  * error message.
  */
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import { isPrivateLanAddress, isPublicAddress, isTailnetAddress, type RemotePairingLink } from './pairingLinkRules.js'
+import { isHostedOrigin, isPrivateLanAddress, isPublicAddress, isTailnetAddress, type RemotePairingLink } from './pairingLinkRules.js'
 
 /** The slice of a fetch Response this client reads. */
 export interface FetchResponse {
@@ -45,6 +45,7 @@ export interface RemoteTarget {
   lan: string | null
   tailnet: string | null
   /** A public IPv4 from the link's `pub=` (Oct 28 2026): plain HTTP over the Internet, so tried last. */
+  httpsOrigin?: string | null
   publicAddress?: string | null
   port: number
 }
@@ -54,7 +55,7 @@ export interface RemoteCredentials {
   deviceToken: string
 }
 
-export type Via = 'lan' | 'tailnet' | 'public'
+export type Via = 'lan' | 'tailnet' | 'public' | 'https'
 
 export const TRY_TIMEOUT_MS = 3_000
 /** GET /api/sessions can be a few hundred KB over Tailscale: a longer budget than a handshake. */
@@ -85,6 +86,7 @@ function sameHex(a: string, b: string): boolean {
 
 /** The addresses to try, in order: the home network first (fast, direct), then Tailscale, then a public address. */
 export function addressPlan(target: RemoteTarget): { via: Via; origin: string }[] {
+  if (target.httpsOrigin !== undefined && target.httpsOrigin !== null) return isHostedOrigin(target.httpsOrigin) ? [{via: 'https', origin: target.httpsOrigin}] : []
   const plan: { via: Via; origin: string }[] = []
   if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) return plan
   if (target.lan && isPrivateLanAddress(target.lan)) plan.push({ via: 'lan', origin: `http://${target.lan}:${target.port}` })
@@ -142,6 +144,7 @@ async function call(
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? deps.timeoutMs ?? TRY_TIMEOUT_MS)
   try {
     const headers: Record<string, string> = { Accept: 'application/json' }
+    if (new URL(url).protocol === 'https:') headers.Origin = new URL(url).origin
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
     if (opts.bearer) headers.Authorization = `Bearer ${opts.bearer}`
     if (opts.cookie) headers.Cookie = opts.cookie
@@ -200,6 +203,7 @@ function commonRefusal(a: Answer): string | null {
 }
 
 export function unreachableMessage(target: RemoteTarget): string {
+  if (target.httpsOrigin) return `No answer from ${target.httpsOrigin}. Check your internet connection and the order status, then retry.`
   const addrs = [target.lan, target.tailnet, target.publicAddress].filter(Boolean).join(' or ')
   const reach = target.publicAddress
     ? 'is its port open to this computer, or is this computer on the same network or Tailscale?'
@@ -208,12 +212,12 @@ export function unreachableMessage(target: RemoteTarget): string {
 }
 
 export type PairResult =
-  | { ok: true; deviceId: string; deviceToken: string; confirmCode: string; via: Via }
+  | { ok: true; deviceId: string; deviceToken: string; confirmCode: string; via: Via; approved?: boolean }
   | { ok: false; error: string }
 
 /** Redeem the link's one-time code: the remote makes a pending device for this computer. */
 export async function pair(deps: RemoteClientDeps, link: RemotePairingLink, label: string): Promise<PairResult> {
-  const target = { lan: link.lan, tailnet: link.tailnet, publicAddress: link.publicAddress ?? null, port: link.port }
+  const target = { httpsOrigin: link.httpsOrigin, lan: link.lan, tailnet: link.tailnet, publicAddress: link.publicAddress ?? null, port: link.port }
   const hit = await firstAnswer(target, async (origin) => aascAnswer(await call(deps, 'POST', `${origin}/api/mobile/pair`, {
     body: { code: link.macCode, label: label.slice(0, 200) || 'Computer', platform: 'desktop' },
   })))
@@ -236,7 +240,7 @@ export async function pair(deps: RemoteClientDeps, link: RemotePairingLink, labe
     || typeof confirmCode !== 'string' || !/^\d{6}$/.test(confirmCode)) {
     return { ok: false, error: 'That computer sent an unexpected answer.' }
   }
-  return { ok: true, deviceId, deviceToken, confirmCode, via: hit.via }
+  return { ok: true, deviceId, deviceToken, confirmCode, via: hit.via, ...(field(a.data, ['data', 'status']) === 'active' ? { approved: true } : {}) }
 }
 
 /** Ask for a nonce and answer it: the body for /session or /unpair. Null with a reason when the challenge is refused. */

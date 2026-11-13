@@ -40,6 +40,10 @@ import { useUiStore } from '@/stores/uiStore';
 import { getInterruptedOffer, subscribeInterrupted } from '@/lib/interruptedRestore';
 import { IS_LITE } from '@/lib/edition';
 import appLayout from '@/styles/modules/AppLayout.module.css';
+import { hostedParent, hostedBase } from '@/lib/hosted';
+const HostedWorkspace = lazy(() => import('@/components/hosted/HostedWorkspace'));
+const HostedPhonePair = lazy(() => import('@/components/hosted/HostedPhonePair'));
+const WorkspaceContinuation = lazy(() => import('@/components/hosted/WorkspaceContinuation'));
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
@@ -195,6 +199,7 @@ function Dashboard({ token }: { token: string | null }) {
   return (
     <>
       <DesktopAutomationGate />
+      {(hostedParent() || document.querySelector('meta[name="aasc-remote-client"]')) && <Suspense fallback={null}><WorkspaceContinuation /></Suspense>}
       {saving && (
         <SavingOverlay
           progress={saveProgress}
@@ -214,7 +219,7 @@ function Dashboard({ token }: { token: string | null }) {
           <PhoneAppFrame />
         </Suspense>
       ) : (
-        <BrowserRouter>
+        <BrowserRouter basename={hostedBase() || undefined}>
           <Routes>
             {/* Standalone route — no AppLayout chrome */}
             <Route path={PROJECT_BROWSER_PATH} element={
@@ -264,13 +269,14 @@ function AuthGate() {
   }
 
   if (needsLogin) {
+    if (hostedParent()) return <Suspense fallback={null}><HostedWorkspace needsLogin /></Suspense>;
     // The phone app never shows the password form: its shell re-exchanges the
     // device token for a session and comes back (AASC-17).
     if (isNativeMobileApp()) return <NativeReauth />;
     return <LoginScreen onLogin={login} lockedFor={lockedFor} />;
   }
 
-  return <Dashboard token={token} />;
+  return <><Dashboard token={token} />{hostedParent() && <Suspense fallback={null}><HostedWorkspace needsLogin={false} /></Suspense>}</>;
 }
 
 export default function App() {
@@ -294,6 +300,10 @@ export default function App() {
         </div>
       </>
     );
+  }
+
+  if (hostedParent() && window.location.pathname === '/hosted/pair') {
+    return <Suspense fallback={<div>Connecting phone browser…</div>}><HostedPhonePair /></Suspense>;
   }
 
   if (isSetup === false) {

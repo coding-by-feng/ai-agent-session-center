@@ -65,6 +65,11 @@ export function useEdgeSwipeBack(
     };
 
     const onStart = (e: TouchEvent) => {
+      // A second finger belongs to browser zoom, even mid back-swipe.
+      if (e.touches.length !== 1) {
+        finish(true);
+        return;
+      }
       // A drag still open here lost its end: a finger can't start a touch while it is down.
       if (track && e.touches.length === 1) finish(true);
       if (settle || e.touches.length !== 1) return;
@@ -78,6 +83,10 @@ export function useEdgeSwipeBack(
     const onMove = (e: TouchEvent) => {
       if (!track || e === seen) return;
       seen = e;
+      if (e.touches.length !== 1) {
+        finish(true);
+        return;
+      }
       const touch = e.touches[0];
       const dx = touch.clientX - track.x;
       const dy = touch.clientY - track.y;

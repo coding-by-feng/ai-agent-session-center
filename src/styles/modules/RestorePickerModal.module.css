@@ -24,13 +24,18 @@
   border: 2px solid var(--accent-cyan, #00e5ff);
   border-radius: 10px;
   width: min(820px, calc(100vw - 32px));
-  max-height: 88vh;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 80px rgba(0, 229, 255, 0.18);
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-primary, #e0e0ff);
 }
+
+.header, .toolbar, .rememberRow, .footer { flex-shrink: 0; }
 
 /* ---- Header ---- */
 .header {
@@ -82,6 +87,7 @@
 
 .search {
   flex: 1;
+  min-width: 0;
   background: var(--bg-card, #12122a);
   border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   color: var(--text-primary, #e0e0ff);
@@ -113,12 +119,14 @@
 }
 
 /* ---- List ---- */
-.list {
-  flex: 1;
+.scrollBody {
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.list {
   padding: 8px 20px;
-  min-height: 200px;
 }
 
 .empty {
@@ -349,15 +357,52 @@
 /* ---- Mobile ---- */
 @media (max-width: 640px) {
   .panel {
+    font-family: var(--ph-font, system-ui, sans-serif);
     width: calc(100vw - 16px);
-    max-height: 92vh;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
   }
-  .header, .toolbar, .list, .footer, .rememberRow, .warnStrip {
+  .header, .toolbar, .list, .footer, .rememberRow {
     padding-left: 12px;
     padding-right: 12px;
   }
-  .warnStrip { margin-left: 12px; margin-right: 12px; }
-  .rowTitle { min-width: 80px; max-width: 120px; }
-  .rowDir { max-width: 120px; }
-  .footer { flex-wrap: wrap; }
+  .header { gap: 8px; padding-top: 12px; }
+  .header > div { min-width: 0; }
+  .title { font-size: 14px; letter-spacing: 1px; }
+  .subtitle { font-size: 12px; line-height: 1.5; }
+  .skipBtn { flex-shrink: 0; min-height: 44px; }
+  .toolbar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .search { grid-column: 1 / -1; width: 100%; box-sizing: border-box; font-size: 16px; min-height: 44px; }
+  .toolBtn { min-height: 44px; font-size: 13px; padding: 6px; }
+  .row {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 12px;
+    margin: 8px 0;
+    border-color: var(--border-subtle);
+    border-radius: 8px;
+  }
+  .row input[type='checkbox'] { grid-column: 1; grid-row: 1; width: 20px; height: 20px; }
+  .pinned { grid-column: 3; grid-row: 1; }
+  .rowTitle { grid-column: 2; grid-row: 1; min-width: 0; max-width: none; font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+  .rowDir { grid-column: 2 / -1; grid-row: 2; min-width: 0; max-width: none; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+  .rowCmd { grid-column: 2 / -1; grid-row: 3; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+  .rowCmd:empty { display: none; }
+  .badge { grid-column: 2 / -1; justify-self: start; font-size: 11px; }
+  .warnStrip { margin: 0 12px 12px; }
+  .warnTitle, .warnLine { font-size: 12px; overflow-wrap: anywhere; }
+  .rememberRow { min-height: 44px; box-sizing: border-box; line-height: 1.4; font-size: 12px; }
+  .rememberRow input[type='checkbox'] { flex-shrink: 0; width: 20px; height: 20px; }
+  .footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 10px; padding-bottom: 12px; }
+  .btnGhost, .btnAll, .btnPrimary { min-height: 44px; font-size: 12px; padding: 8px; letter-spacing: 0; text-transform: none; }
+  .btnGhost { grid-column: 1; grid-row: 1; }
+  .btnAll { grid-column: 2; grid-row: 1; background: transparent; color: var(--accent-text, var(--accent-cyan)); }
+  .btnPrimary { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* With the keyboard open, keep every control reachable by scrolling the panel. */
+@media (max-height: 480px) {
+  .panel { overflow-y: auto; }
+  .scrollBody { overflow: visible; flex-shrink: 0; }
 }

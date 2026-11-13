@@ -12,7 +12,7 @@
 import { chmodSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type { RemoteComputer } from '../../src/types/electron.js'
-import { isPublicAddress } from './pairingLinkRules.js'
+import { isHostedOrigin, isPublicAddress } from './pairingLinkRules.js'
 
 export interface RemoteCrypto {
   isAvailable(): boolean
@@ -56,11 +56,13 @@ function readRecord(raw: unknown): StoredRemote | null {
   if (typeof r.id !== 'string' || !REMOTE_ID.test(r.id)) return null
   if (typeof r.name !== 'string' || typeof r.deviceId !== 'string' || typeof r.token !== 'string') return null
   if (!isNullableString(r.lan) || !isNullableString(r.tailnet) || !isNullableString(r.confirmCode)) return null
+  if (r.httpsOrigin !== undefined && !isHostedOrigin(r.httpsOrigin)) return null
   if (r.publicAddress !== undefined && !(typeof r.publicAddress === 'string' && isPublicAddress(r.publicAddress))) return null
   if (typeof r.port !== 'number' || typeof r.status !== 'string' || !STATUSES.has(r.status)) return null
   if (typeof r.addedAt !== 'number' || !(r.lastSeenAt === null || typeof r.lastSeenAt === 'number')) return null
   return {
     id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet,
+    ...(typeof r.httpsOrigin === 'string' ? { httpsOrigin: r.httpsOrigin } : {}),
     ...(typeof r.publicAddress === 'string' ? { publicAddress: r.publicAddress } : {}),
     port: r.port, status: r.status as RemoteComputer['status'], confirmCode: r.confirmCode,
     addedAt: r.addedAt, lastSeenAt: r.lastSeenAt as number | null,
@@ -71,6 +73,7 @@ function readRecord(raw: unknown): StoredRemote | null {
 function toView(r: StoredRemote): RemoteComputer {
   return {
     id: r.id, name: r.name, lan: r.lan, tailnet: r.tailnet,
+    ...(r.httpsOrigin ? { httpsOrigin: r.httpsOrigin } : {}),
     ...(r.publicAddress ? { publicAddress: r.publicAddress } : {}),
     port: r.port, status: r.status, confirmCode: r.confirmCode, addedAt: r.addedAt, lastSeenAt: r.lastSeenAt,
   }
@@ -140,6 +143,7 @@ export function createRemoteStore(deps: RemoteStoreDeps) {
       }
       const record: StoredRemote = {
         id: newId(), name: input.name, lan: input.lan, tailnet: input.tailnet,
+        ...(input.httpsOrigin ? { httpsOrigin: input.httpsOrigin } : {}),
         ...(input.publicAddress ? { publicAddress: input.publicAddress } : {}),
         port: input.port,
         status: input.status, confirmCode: input.confirmCode, addedAt: input.addedAt, lastSeenAt: input.lastSeenAt,

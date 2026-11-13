@@ -1,3 +1,4 @@
+import { hostedUiPath } from '@/lib/hosted';
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
  * Tabs: Project | Terminal | Commands | Conversation | AI Popups | Notes | Queue | Agents
@@ -517,7 +518,7 @@ export default function DetailTabs({
     const top = Math.round((window.screen.availHeight - h) / 2);
     const features = `popup,noopener=no,width=${w},height=${h},left=${left},top=${top}`;
     const fileQs = file ? `&file=${encodeURIComponent(file)}` : '';
-    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}${fileQs}`, name, features);
+    window.open(hostedUiPath(`/project-browser?path=${encodeURIComponent(projectPath)}${fileQs}`), name, features);
   }, [projectPath, sessionId]);
 
   const isSplit = splitView && panelWideEnough && !stackedView;

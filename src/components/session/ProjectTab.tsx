@@ -1,3 +1,4 @@
+import { hostedUiPath } from '@/lib/hosted';
 /**
  * ProjectTab — interactive file browser for a session's project directory.
  * Features: tree navigation, file tabs, fuzzy search, content search, new file/folder.
@@ -1685,7 +1686,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
     if (!contextMenu) return;
     closeContextMenu();
     const { entry, entryPath } = contextMenu;
-    const base = `/project-browser?path=${encodeURIComponent(projectPath)}`;
+    const base = hostedUiPath(`/project-browser?path=${encodeURIComponent(projectPath)}`);
     if (entry.type === 'file') {
       window.open(`${base}&file=${encodeURIComponent(entryPath)}`, '_blank');
     } else {
@@ -1749,7 +1750,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
     if (onOpenBrowserTab) {
       onOpenBrowserTab(projectPath, browseDir);
     } else {
-      window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, '_blank');
+      window.open(hostedUiPath(`/project-browser?path=${encodeURIComponent(projectPath)}`), '_blank');
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
@@ -1765,7 +1766,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
       if (onOpenBrowserTab) {
         onOpenBrowserTab(resolved.root, resolved.rel, resolved.kind === 'file');
       } else {
-        window.open(`/project-browser?path=${encodeURIComponent(resolved.root)}`, '_blank');
+        window.open(hostedUiPath(`/project-browser?path=${encodeURIComponent(resolved.root)}`), '_blank');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

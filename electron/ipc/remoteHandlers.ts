@@ -89,7 +89,7 @@ function cleanName(name: unknown): string | null {
 }
 
 function targetOf(r: RemoteComputer): RemoteTarget {
-  return { lan: r.lan, tailnet: r.tailnet, publicAddress: r.publicAddress ?? null, port: r.port }
+  return { httpsOrigin: r.httpsOrigin, lan: r.lan, tailnet: r.tailnet, publicAddress: r.publicAddress ?? null, port: r.port }
 }
 
 function fail<T>(error: string): RemoteResult<T> {
@@ -136,10 +136,11 @@ async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
     name: read.link.name,
     lan: read.link.lan,
     tailnet: read.link.tailnet,
+    ...(read.link.httpsOrigin ? { httpsOrigin: read.link.httpsOrigin } : {}),
     ...(read.link.publicAddress ? { publicAddress: read.link.publicAddress } : {}),
     port: read.link.port,
-    status: 'pending',
-    confirmCode: paired.confirmCode,
+    status: paired.approved ? 'active' : 'pending',
+    confirmCode: paired.approved ? null : paired.confirmCode,
     addedAt: Date.now(),
     lastSeenAt: null,
     deviceId: paired.deviceId,

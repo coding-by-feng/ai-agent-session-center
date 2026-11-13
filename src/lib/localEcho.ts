@@ -47,6 +47,8 @@ export interface Guess {
 
 export interface EchoState {
   trusted: boolean;
+  /** Trust belongs to the confirmed prompt/cursor, not to the terminal forever. */
+  trustedView: { row: number; col: number; prefix: string } | null;
   guesses: readonly Guess[];
   /** Misses in a row. */
   misses: number;
@@ -65,6 +67,7 @@ export const SLOW_ECHO_MS = 80;
 
 export const INITIAL_ECHO: EchoState = Object.freeze({
   trusted: false,
+  trustedView: null,
   guesses: Object.freeze([]) as readonly Guess[],
   misses: 0,
   disabled: false,
@@ -112,7 +115,7 @@ export function isSlowEcho(state: EchoState): boolean {
 /** Drop every guess and wait for an echo before drawing again; the echo timing is kept. */
 export function echoReset(state: EchoState): EchoState {
   if (state.guesses.length === 0 && !state.trusted) return state;
-  return { ...state, guesses: [], trusted: false };
+  return { ...state, guesses: [], trusted: false, trustedView: null };
 }
 
 function newLine(state: EchoState): EchoState {
@@ -121,7 +124,16 @@ function newLine(state: EchoState): EchoState {
 
 function miss(state: EchoState): EchoState {
   const misses = state.guesses.some((guess) => guess.shown) ? state.misses + 1 : state.misses;
-  return { ...state, guesses: [], trusted: false, misses, disabled: misses >= MAX_MISSES };
+  return { ...state, guesses: [], trusted: false, trustedView: null, misses, disabled: misses >= MAX_MISSES };
+}
+
+function promptPrefix(view: ScreenView, col = view.cursorCol): string {
+  return JSON.stringify(Array.from({ length: col }, (_, x) => view.cellAt(view.cursorRow, x)));
+}
+
+function sameTrustedPrompt(state: EchoState, view: ScreenView): boolean {
+  const anchor = state.trustedView;
+  return !!anchor && anchor.row === view.cursorRow && promptPrefix(view, anchor.col) === anchor.prefix;
 }
 
 /** No key for longer than the echo takes: every earlier key has echoed, so the real cursor is current. */
@@ -147,6 +159,8 @@ function addGuess(state: EchoState, ch: string, view: ScreenView, now: number, p
 /** A chunk of typed input (xterm's onData), with the screen as it is before the program has echoed it. */
 export function echoInput(state: EchoState, data: string, view: ScreenView, now: number): EchoState {
   if (isTerminalReport(data)) return state;
+  if (state.trusted && (!sameTrustedPrompt(state, view) ||
+      (state.guesses.length === 0 && state.trustedView?.col !== view.cursorCol))) state = echoReset(state);
   const paused = typingPaused(state, now);
   const typed: EchoState = { ...state, lastKeyAt: now };
   if (/[\r\n]/.test(data)) return newLine(typed);
@@ -164,6 +178,10 @@ function echoed(cell: string, ch: string): boolean {
 
 /** The program wrote to the screen: confirm the guesses its echo covers, or drop them all on a miss. */
 export function echoOutput(state: EchoState, view: ScreenView, now: number): EchoState {
+  // Programs can change prompts after a single-key answer without a user Enter.
+  // Process that output even after the last pending guess was confirmed.
+  if (state.trusted && !sameTrustedPrompt(state, view)) return miss(state);
+  if (state.trusted && state.guesses.length === 0 && state.trustedView?.col !== view.cursorCol) return echoReset(state);
   let next = state;
   while (next.guesses.length > 0) {
     const [guess, ...rest] = next.guesses;
@@ -173,6 +191,7 @@ export function echoOutput(state: EchoState, view: ScreenView, now: number): Ech
       next = {
         ...next,
         trusted: true,
+        trustedView: { row: view.cursorRow, col: view.cursorCol, prefix: promptPrefix(view) },
         // Trusting the line makes the keys typed meanwhile visible.
         guesses: next.trusted ? rest : rest.map((g) => ({ ...g, shown: true })),
         // Only a guess the user saw clears a run of misses; re-trusting after one does not.

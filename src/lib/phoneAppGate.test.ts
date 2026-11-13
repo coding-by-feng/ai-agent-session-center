@@ -16,3 +16,12 @@ describe('showsPhoneApp', () => {
     expect(showsPhoneApp(true, '/project-browser')).toBe(false);
   });
 });
+
+it.each(['lite', 'full'])(
+  'keeps a narrow hosted %s project window in the editor layout',
+  (edition) => {
+    expect(showsPhoneApp(true, `/ui/${edition}/project-browser`)).toBe(false);
+    expect(showsPhoneApp(false, `/ui/${edition}/project-browser`)).toBe(false);
+    expect(showsPhoneApp(true, `/ui/${edition}/history`)).toBe(true);
+  },
+);

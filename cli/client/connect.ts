@@ -53,7 +53,7 @@ function guarded(request: Requester, server: ServerRecord, via: Via | 'ssh'): Re
   };
 }
 
-const VIA_LABEL: Record<Via | 'ssh', string> = { lan: 'home LAN', tailnet: 'Tailscale', public: 'public address', ssh: 'SSH' };
+const VIA_LABEL: Record<Via | 'ssh', string> = { lan: 'home LAN', tailnet: 'Tailscale', public: 'public address', https: 'hosted HTTPS', ssh: 'SSH' };
 export const viaLabel = (via: Via | 'ssh'): string => VIA_LABEL[via];
 
 /** `aasc on <hostname>`: how this computer is named in the server's devices list and presence. */

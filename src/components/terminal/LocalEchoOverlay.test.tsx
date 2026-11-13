@@ -81,6 +81,16 @@ describe('LocalEchoOverlay', () => {
     expect(guessed()).toBe('');
   });
 
+  it.each(['\r\nPassword: ', '\r\x1b[2KPassword: '])('revokes trust when output changes the prompt without Enter (%j)', async (prompt) => {
+    const term = openTerminal();
+    mount(term);
+    await trustedPrompt(term);
+    await act(async () => { await write(term, prompt); });
+    act(() => { term.input('synthetic-secret'); });
+    expect(guessed()).toBe('');
+    expect(bufferLine(term, term.buffer.active.cursorY)).not.toContain('synthetic-secret');
+  });
+
   it('covers the program\'s faint suggestion text after the guesses', async () => {
     const term = openTerminal();
     mount(term);
