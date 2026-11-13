@@ -42,8 +42,8 @@ describe('serveBundledUi', () => {
     const { ses, session } = fakeSession();
     await serveBundledUi(session, LAN, root, none);
     await serveBundledUi(session, LAN, root, none);
-    expect(ses.protocol.handle).toHaveBeenCalledTimes(1);
-    expect(ses.protocol.handle.mock.calls[0][0]).toBe('http');
+    // One handler per scheme: http, and https for a hosted (xclaude.dev) computer. The second open adds none.
+    expect(ses.protocol.handle.mock.calls.map((c) => c[0])).toEqual(['http', 'https']);
   });
 
   it('forwards through the session itself, past its own handler', async () => {
