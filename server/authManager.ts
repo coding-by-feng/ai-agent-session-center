@@ -252,14 +252,14 @@ export function revokeTokensForDevice(deviceId: string): number {
  * Refresh an existing valid token: revoke the old one, return a new one.
  * Returns null if the old token is invalid/expired.
  */
-export function refreshToken(oldToken: string | null): string | null {
+export function refreshToken(oldToken: string | null, renewHosted = false): string | null {
   if (!oldToken || !validateToken(oldToken)) return null;
   const entry = tokens.get(oldToken);
   const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
   const token = issueToken(lineage, entry?.deviceId, entry?.computerId);
   if (entry?.hosted) tokens.get(token)!.hosted = entry.hosted;
-  if (entry?.hostedExpiresAt) tokens.get(token)!.hostedExpiresAt = entry.hostedExpiresAt;
+  if (entry?.hostedExpiresAt) tokens.get(token)!.hostedExpiresAt = renewHosted ? Date.now() + TOKEN_TTL_MS : entry.hostedExpiresAt;
   return token;
 }
 

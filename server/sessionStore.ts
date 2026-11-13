@@ -2303,18 +2303,23 @@ export function reconnectSessionTerminal(
     if (session.previousSessions.length > 5) session.previousSessions.shift();
   }
 
-  // Register pending resume so session matching can link new Claude hooks
-  pendingResume.set(newTerminalId, {
-    oldSessionId: sessionId,
-    timestamp: Date.now(),
-  });
+  // Plain shells never emit agent hooks. Registering them as pending resumes
+  // makes the two-minute hook deadline detach a perfectly healthy terminal.
+  const command = session.startupCommand || session.sshCommand || session.sshConfig?.command || 'claude';
+  const awaitsHooks = !!session.cliSource || !!inferCliSource(command);
+  if (awaitsHooks) {
+    pendingResume.set(newTerminalId, {
+      oldSessionId: sessionId,
+      timestamp: Date.now(),
+    });
+  }
 
   // Update the REAL session (not a copy)
   session.terminalId = newTerminalId;
   session.lastTerminalId = newTerminalId;
-  session.status = SESSION_STATUS.CONNECTING as Session['status'];
-  session.animationState = ANIMATION_STATE.WALKING;
-  session.emote = EMOTE.WAVE;
+  session.status = awaitsHooks ? SESSION_STATUS.CONNECTING : SESSION_STATUS.IDLE;
+  session.animationState = awaitsHooks ? ANIMATION_STATE.WALKING : ANIMATION_STATE.IDLE;
+  session.emote = awaitsHooks ? EMOTE.WAVE : null;
   session.isHistorical = false;
   session.endedAt = null;
   delete session.asleepAt;
@@ -2322,7 +2327,7 @@ export function reconnectSessionTerminal(
   session.events.push({
     type: 'ResumeNewTerminal',
     timestamp: Date.now(),
-    detail: `New terminal ${newTerminalId?.slice(0, 8)} for claude --resume || --continue`,
+    detail: `New terminal ${newTerminalId?.slice(0, 8)} for ${awaitsHooks ? 'agent reconnect' : 'shell reconnect'}`,
   });
 
   invalidateSessionsCache();

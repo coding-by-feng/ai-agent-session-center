@@ -1,3 +1,5 @@
+import { defaultSessionInitializer } from './hostedDefaults.js';
+import { homedir } from 'node:os';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import {
   closeSync,
@@ -220,7 +222,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
     res
       .type('js')
       .send(
-        `window.parent.postMessage({type:'aasc:hosted-error'},${JSON.stringify(config.websiteOrigin)});`,
+        `window.parent.postMessage({type:'aasc:hosted-error',reason:'launch_refused'},${JSON.stringify(config.websiteOrigin)});`,
       );
   });
   router.post(
@@ -256,6 +258,47 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       }
     },
   );
+  const ensureDefaults = defaultSessionInitializer(async cli => {
+    const store = await import('./sessionStore.js');
+    const pty = await import('./sshManager.js');
+    const directory = join(homedir(), 'workspace');
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const settings = { host: 'localhost', port: 22, username: 'local', authMethod: 'key' as const,
+      workingDir: directory, command: cli, sessionTitle: cli === 'claude' ? 'Claude' : 'Codex',
+      remoteVisible: true, pinned: true, autoConfirmTrust: false };
+    const existing = store.findActiveSessionByConfig(settings);
+    if (existing && existing.remoteVisible !== false) {
+      if (!existing.terminalId || !pty.getTerminals().some(t => t.terminalId === existing.terminalId)) {
+        const id = await pty.createTerminal(settings, null);
+        const result = store.reconnectSessionTerminal(existing.sessionId, id, { archivePrevious: false });
+        if ('error' in result) { pty.closeTerminal(id); throw new Error('Default session recovery failed'); }
+      }
+      return existing.sessionId;
+    }
+    const { checkTerminalCapacity } = await import('./terminalCapacity.js');
+    if (!checkTerminalCapacity(pty.getTerminals(), { sessions: 1, ops: 0 }).ok) throw new Error('Terminal capacity reached');
+    const id = await pty.createTerminal(settings, null);
+    try { return (await store.createTerminalSession(id, settings)).sessionId; }
+    catch (error) { pty.closeTerminal(id); throw error; }
+  });
+  router.post('/api/hosted/default-sessions', authMiddleware, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.headers.origin !== config.runtimeOrigin || !hostedSessionAllowed(config, req) ||
+        !getTokenLineage(extractToken(req))?.startsWith('hosted:')) {
+      res.status(403).json({ error: 'Owner workspace required' }); return;
+    }
+    const identity = getTokenHostedIdentity(extractToken(req));
+    if (!identity || !await authorizeHosted(config, identity, true)) {
+      res.status(403).json({ error: 'Order access revoked' }); return;
+    }
+    try {
+      const sessions = await ensureDefaults();
+      if (!hostedSessionAllowed(config, req) || !await authorizeHosted(config, identity, true)) {
+        res.status(403).json({ error: 'Order access revoked' }); return;
+      }
+      res.json({ sessions });
+    } catch { res.status(503).json({ error: 'Default sessions could not be started. Retry workspace setup.' }); }
+  });
   router.get('/api/hosted/status', authMiddleware, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!hostedSessionAllowed(config, req)) {

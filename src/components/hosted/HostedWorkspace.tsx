@@ -1,3 +1,5 @@
+import { useHostedControls } from './HostedConnectionMenu';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useEffect, useRef, useState } from 'react';
 import { useWsStore } from '@/stores/wsStore';
 import Button from '@/components/ui/Button';
@@ -11,7 +13,7 @@ async function api(path: string, method = 'GET') {
     ...(method !== 'GET' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error ?? 'Connection failed. Try again.');
+  if (!response.ok) throw Object.assign(new Error(body.error ?? 'Connection failed. Try again.'), { status: response.status });
   return body;
 }
 interface Phone {
@@ -149,10 +151,23 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState('');
   const [pairing, setPairing] = useState(false);
+  const [setupError, setSetupError] = useState('');
+  const [setupAttempt, setSetupAttempt] = useState(0);
   const sent = useRef(false);
+  const selectedDefault = useRef(false);
   useEffect(() => {
     if (!parent) return;
+    let expanded = false;
+    const escape = (event: KeyboardEvent) => {
+      if (expanded && event.key === 'Escape') {
+        window.parent.postMessage({ type: 'aasc:hosted-exit-expanded' }, parent);
+      }
+    };
     const receive = (event: MessageEvent) => {
+      if (event.origin === parent && event.source === window.parent && event.data?.type === 'aasc:hosted-expanded') {
+        expanded = event.data.expanded === true;
+        return;
+      }
       if (
         event.origin !== parent ||
         event.source !== window.parent ||
@@ -169,19 +184,32 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
           window.parent.postMessage({ type: 'aasc:hosted-logged-out' }, parent);
           window.location.replace('/');
         })
-        .catch(() => window.parent.postMessage({ type: 'aasc:hosted-error' }, parent));
+        .catch(() => window.parent.postMessage({ type: 'aasc:hosted-error', reason: 'logout_failed' }, parent));
     };
     window.addEventListener('message', receive);
-    return () => window.removeEventListener('message', receive);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('message', receive);
+      window.removeEventListener('keydown', escape);
+    };
   }, [parent]);
   useEffect(() => {
     if (!parent) return;
     if (needsLogin) {
-      window.parent.postMessage({ type: 'aasc:hosted-error' }, parent);
+      window.parent.postMessage({ type: 'aasc:hosted-error', reason: window.parent !== window ? 'embedded_auth' : 'auth_required' }, parent);
       return;
     }
     let active = true;
-    void api('/api/hosted/status')
+    void (async () => {
+      for (let attempt = 0; ; attempt++) {
+        try { return await api('/api/hosted/status'); }
+        catch (err) {
+          const status = (err as {status?:number}).status;
+          if (!active || attempt >= 2 || status === 401 || status === 403) throw err;
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        }
+      }
+    })()
       .then((data) => {
         if (!active) return;
         setAuthenticated(true);
@@ -192,7 +220,7 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
       .catch((err) => {
         if (active) {
           setError(err.message);
-          window.parent.postMessage({ type: 'aasc:hosted-error' }, parent);
+          window.parent.postMessage({ type: 'aasc:hosted-error', reason: err.status === 401 ? (window.parent !== window ? 'embedded_auth' : 'auth_required') : err.status === 403 ? 'access_denied' : 'network' }, parent);
         }
       });
     return () => {
@@ -205,6 +233,22 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
       window.parent.postMessage({ type: 'aasc:hosted-ready' }, parent);
     }
   }, [parent, authenticated, connected, snapshot]);
+  useEffect(() => {
+    if (!authenticated || !owner || !connected || !snapshot) return;
+    let active = true;
+    setSetupError('');
+    void api('/api/hosted/default-sessions', 'POST').then(data => {
+      if (active && !selectedDefault.current && typeof data.sessions?.claude === 'string') {
+        selectedDefault.current = true;
+        useSessionStore.getState().selectSession(data.sessions.claude);
+      }
+    }).catch(() => { if (active) setSetupError('Claude / Codex 会话启动失败。终端连接仍可使用。'); });
+    return () => { active = false; };
+  }, [authenticated, owner, connected, snapshot, setupAttempt]);
+  useEffect(() => {
+    useHostedControls.setState({ pair: authenticated && owner && !needsLogin ? () => setPairing(true) : null });
+    return () => { useHostedControls.setState({ pair: null }); };
+  }, [authenticated, owner, needsLogin]);
   if (!parent) return null;
   if (needsLogin || error)
     return (
@@ -221,10 +265,7 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
     );
   return (
     <>
-      <div className={styles.toolbar}>
-        <span>{connected && snapshot ? 'Hosted Lite connected' : 'Connecting hosted Lite…'}</span>
-        {owner && <Button onClick={() => setPairing(true)}>Pair phone browser</Button>}
-      </div>
+      {setupError && <div role="alert">{setupError} <Button onClick={() => setSetupAttempt(n => n + 1)}>重试启动</Button></div>}
       {pairing && <PhoneManager close={() => setPairing(false)} />}
     </>
   );

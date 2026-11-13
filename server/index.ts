@@ -348,7 +348,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       return;
     }
     const oldToken = parseCookieToken(req.headers.cookie) ?? extractToken(req);
-    const newToken = refreshToken(oldToken);
+    const newToken = refreshToken(oldToken, Boolean(hosted));
     if (!newToken) {
       res.status(401).json({ error: 'Token expired or invalid — please login again' });
       return;

@@ -109,3 +109,33 @@ node --import "$APP_USER_DATA/authority-forward.mjs" --import tsx server/index.t
 Keep the process in the foreground and stop it with Ctrl-C. In another terminal, confirm listener43580 before opening the website. Obtain every ticket from the actual website: `/verify-launch` must issue `accessMode: verify` only in its verification stage; ordinary `/launch` must issue `accessMode: use` only when fulfilled/ready. Keep the page and iframe referrer policy `strict-origin` so POST Origin remains the exact website origin. Replaying a ticket already exercised by a Node smoke test is expected to fail.
 
 Verify authenticated own-order HTTP/WS, iframe readiness, cold/warm launches, phone proof/approval, mode transitions, and cancellation/disable/outage. Never treat a mere iframe load as runtime verification. Unit/integration regressions under `test/hostedAccess`, `hostedAuthority`, `hostedSession` and `src/hooks/useAuth` cover missing mode, wrong order/audience/key/origin, replay, absolute expiry/refresh, current owner/device mode, mounted mobile authority and cache boundaries. The website fixture and TLS proxy are owned by the website integration harness and must be started separately.
+
+
+## Plain terminal reconnect lifecycle
+
+A hosted runtime can expose an ordinary shell such as `/bin/bash` independently
+of model authentication. On terminal reconnection or automatic server-restart
+recovery, these hookless sessions enter Idle with their terminal attached. They
+must not enter the agent pending-resume queue: its two-minute hook deadline would
+otherwise detach a working shell. Claude/Codex and sessions carrying a known CLI
+source retain hook matching and their existing Connecting state.
+
+`test/sessionStoreAutoIdle.test.ts` advances the real store timers by 150 seconds
+for Bash/Zsh reconnects and checks both the session and cached snapshot. Agent
+reconnect controls retain Connecting. This verifies terminal lifecycle only;
+it does not establish model access or fulfill an order.
+
+### Header connection menu (2026-11-10)
+
+Hosted connection status and phone pairing now live in the phone NavBar, desktop
+Header and desktop session header. HostedWorkspace exposes only the authorized
+owner pairing action to the shared control; ordinary clients render no control.
+The bottom fixed toolbar has been removed. Status and pairing appear only when
+the header menu opens; disconnected state offers reload. The shared Menu supplies
+viewport clamping, outside-click dismissal, Escape and focus restoration.
+
+Validation: 28 component/menu tests; frontend type check and Lite build; real
+Chrome fixture at 320x568, 390x844, 390x420 and 1024x768 confirms header/input
+bounds, pairing activation and retained draft. Reduced viewport height simulates
+limited space; it is not physical iPhone keyboard evidence. Static assets deployed
+without restarting AASC or its model terminals.

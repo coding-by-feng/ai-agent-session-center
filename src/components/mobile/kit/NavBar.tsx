@@ -1,3 +1,4 @@
+import HostedConnectionMenu from '@/components/hosted/HostedConnectionMenu';
 /**
  * NavBar — the top bar of a phone screen (AASC-38).
  *
@@ -98,7 +99,7 @@ export default function NavBar({
         {onTitlePress && onTitleLongPress && titleLongPressHint && (
           <span id={hintId} className={styles.srOnly}>{titleLongPressHint}</span>
         )}
-        <div className={styles.trailing}>{actions}</div>
+        <div className={styles.trailing}><HostedConnectionMenu />{actions}</div>
       </div>
     </header>
   );
