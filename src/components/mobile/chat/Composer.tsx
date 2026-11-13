@@ -168,7 +168,6 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const text = draft.replace(/\s+$/, '');
   const actionInput = {
     status: session.status,
-    terminalId: session.terminalId ?? null,
     startHeard: session.startHeard,
     cli,
     spectator: baton.mode === 'spectator',

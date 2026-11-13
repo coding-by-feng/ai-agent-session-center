@@ -91,7 +91,7 @@ afterEach(() => {
 });
 
 describe('Composer', () => {
-  it.each([{ terminalId: null }, { startHeard: false }])('keeps the draft and blocks every send until recovery: %j', async (readiness) => {
+  it.each([{ startHeard: false }])('keeps the draft and blocks every send until an unconfirmed start recovers: %j', async (readiness) => {
     const calls = stubMac();
     const s = session({ status: 'idle', ...readiness });
     const view = renderComposer(s);

@@ -28,8 +28,6 @@ export type ComposerHold = 'send-now' | 'send-ahead' | 'queue';
 
 export interface ComposerInput {
   status: string;
-  /** Explicit null means the terminal is disconnected; omitted by legacy callers. */
-  terminalId?: string | null;
   /** False after startup timed out without confirmation. */
   startHeard?: boolean;
   cli: 'claude' | 'codex' | null;
@@ -85,12 +83,12 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       holdAction: null,
     };
   }
-  if (input.terminalId === null || input.startHeard === false) {
+  // A start the Mac never heard (startHeard false, terminal kept): its CLI may sit at a question with no hook,
+  // where typed text would answer it. A card back WITHOUT a terminal still takes Send: the Mac relaunches it.
+  if (input.startHeard === false) {
     return {
       action: 'send', label: 'Send', canSend: false, placeholder: reply, holdAction: null,
-      blockedReason: input.terminalId === null
-        ? 'No connected terminal. Open Terminal to reconnect.'
-        : 'Agent startup was not confirmed. Open Terminal to recover.',
+      blockedReason: 'Agent startup was not confirmed. Open Terminal to recover.',
     };
   }
   if (input.card) {

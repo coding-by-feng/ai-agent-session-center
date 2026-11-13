@@ -227,7 +227,6 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
 /** Codex's open question: a pick is sent as your next message, the way the composer sends one. */
 function CodexQuestion({ item, sessionId }: QuestionCardProps) {
   const status = useSessionStore((s) => s.sessions.get(sessionId)?.status ?? 'ended');
-  const terminalId = useSessionStore((s) => s.sessions.get(sessionId)?.terminalId ?? null);
   const startHeard = useSessionStore((s) => s.sessions.get(sessionId)?.startHeard);
   const dialogOpen = useSessionStore((s) => !!s.sessions.get(sessionId)?.pendingRequest);
   const baton = useControlBaton(sessionId);
@@ -241,7 +240,7 @@ function CodexQuestion({ item, sessionId }: QuestionCardProps) {
   const [sent, setSent] = useState(false);
 
   const decision = composerAction({
-    terminalId, startHeard,
+    startHeard,
     status, cli: 'codex', spectator: baton.mode === 'spectator', driverLabel: driver, card: null, macWindowOpen: windowOpen, hasContent: true,
   });
   // A dialog is up (an approval): typing now would answer it. The waiting card goes first.

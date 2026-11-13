@@ -50,13 +50,12 @@ export function phoneStatus(status: string, interrupted = false, compacting = fa
   return known ? { ...known, glyph: status } : { tone: 'idle', label: status || 'Unknown', glyph: 'idle' };
 }
 
-type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting' | 'stopHooksSince' | 'startHeard'>
-  & Partial<Pick<Session, 'terminalId' | 'isExternal'>>;
+type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting' | 'stopHooksSince' | 'startHeard'>;
 
 /** A session screen's subtitle: "Working · Opus 5.5 · high" (live model and effort first). */
 export function sessionSubtitle(session: SubtitleFields): string {
-  const recovery = session.status !== 'ended' && session.status !== 'connecting'
-    && ((session.terminalId === null && !session.isExternal) || session.startHeard === false);
+  // Only a start the Mac never confirmed; a card with no terminal relaunches when you send to it.
+  const recovery = session.status !== 'ended' && session.status !== 'connecting' && session.startHeard === false;
   const label = recovery ? 'Needs recovery'
     : phoneStatus(session.status, !!session.interruption, isCompacting(session), isFinishingUp(session)).label;
   // The model as people say it (`claude-opus-5-5` → `Opus 5.5`); other CLIs' names stay as they are.
