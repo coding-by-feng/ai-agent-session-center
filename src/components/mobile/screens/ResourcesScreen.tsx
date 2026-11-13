@@ -1,14 +1,14 @@
 /**
- * ResourcesScreen — More → Resources (plan 16): the desktop RESOURCES tab's Library, Cloud sync
- * and Projects on the phone, read through the Mac (lib/chat/phoneResourcesApi.ts).
+ * ResourcesScreen — More → Resources (plan 16): the desktop RESOURCES tab's Library and Projects
+ * on the phone, read through the Mac (lib/chat/phoneResourcesApi.ts).
  *
  *   ‹  Resources                                ⟳
- *   [ Library | Cloud sync | Projects ]
+ *   [ Library | Projects ]
  *   (the tab's own list)
  *
- * Each tab is its own path (`/more/resources[/cloud|/projects]`), so Back from a resource returns
- * to the tab it was opened from and a link lands on the right one. Pull down, or Refresh, reads
- * the open tab again; the Mac reads AASC Cloud and git for it at most every 10 s.
+ * Each tab is its own path (`/more/resources[/projects]`), so Back from a resource returns to the
+ * tab it was opened from and a link lands on the right one. Pull down, or Refresh, reads the open
+ * tab again; the Mac reads AASC Cloud and git for Projects at most every 10 s.
  */
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { EmptyState, Screen, SegmentedControl } from '../kit';
@@ -21,7 +21,6 @@ import styles from '@/styles/modules/mobile/Cloud.module.css';
 import resourceStyles from '@/styles/modules/mobile/Resources.module.css';
 
 const LibraryPanel = lazy(() => import('./resources/LibraryPanel'));
-const CloudSyncPanel = lazy(() => import('./resources/CloudSyncPanel'));
 const ProjectsPanel = lazy(() => import('./resources/ProjectsPanel'));
 
 const PULL_WORDS: Record<Exclude<PullPhase, 'idle'>, string> = {
@@ -88,7 +87,6 @@ export default function ResourcesScreen({ tab }: { tab: ResourcesTab }) {
         <div id="resources-panel" role="tabpanel" aria-labelledby={`resources-tab-${tab}`}>
           <Suspense fallback={<EmptyState live title="Loading…" />}>
             {tab === 'library' && <LibraryPanel register={register} />}
-            {tab === 'cloud' && <CloudSyncPanel register={register} />}
             {tab === 'projects' && <ProjectsPanel register={register} />}
           </Suspense>
         </div>

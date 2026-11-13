@@ -221,3 +221,69 @@ describe('project sync HTTP boundary', () => {
     expect((await refused.json()).error).toMatch(/Remove that link first/);
   });
 });
+
+describe('project sync HTTP: policy, browse and pulls (Nov 13 2026)', () => {
+  it('takes a conflict policy on a link, and refuses an unknown one', async () => {
+    const url = await start();
+    const pid = await projectId(url);
+    const body = {
+      name: 'proj',
+      projectId: pid,
+      deviceId: device.id,
+      remoteRoot: join(deviceHome, 'proj'),
+      excludes: [],
+      credentialsAck: true,
+    };
+    expect((await post(url + '/sync/links', { ...body, conflictPolicy: 'server' })).status).toBe(
+      400,
+    );
+    const created = (await (await post(url + '/sync/links', { ...body, conflictPolicy: 'local' })).json())
+      .data;
+    expect(created.conflictPolicy).toBe('local');
+    const updated = await post(url + `/sync/links/${created.id}/update`, { conflictPolicy: 'ask' });
+    expect((await updated.json()).data.conflictPolicy).toBeUndefined();
+  });
+
+  it('browses a saved server folder; paths must be absolute', async () => {
+    await mkdir(join(deviceHome, 'data'));
+    const url = await start();
+    const listed = await (await fetch(url + `/sync/devices/${device.id}/browse`)).json();
+    expect(listed).toMatchObject({ success: true, data: { path: deviceHome, parent: null } });
+    expect(listed.data.entries.map((e: { name: string }) => e.name)).toEqual(['data']);
+    const inner = await fetch(
+      url + `/sync/devices/${device.id}/browse?path=${encodeURIComponent(join(deviceHome, 'data'))}`,
+    );
+    expect((await inner.json()).data.parent).toBe(deviceHome);
+    expect(
+      (await fetch(url + `/sync/devices/${device.id}/browse?path=relative`)).status,
+    ).toBe(400);
+    expect((await fetch(url + `/sync/devices/not-a-uuid/browse`)).status).toBe(400);
+  });
+
+  it('plans, starts, reads and undoes a pull over HTTP', async () => {
+    await mkdir(join(deviceHome, 'data'));
+    await writeFile(join(deviceHome, 'data', 'x.txt'), 'x\n');
+    const url = await start();
+    const pid = await projectId(url);
+    expect(
+      (await post(url + `/sync/devices/${device.id}/pulls`, { projectId: pid, sources: [] }))
+        .status,
+    ).toBe(400);
+    const planned = await post(url + `/sync/devices/${device.id}/pulls`, {
+      projectId: pid,
+      sources: [join(deviceHome, 'data')],
+    });
+    const plan = (await planned.json()).data;
+    expect(plan).toMatchObject({ state: 'planned', counts: { new: 1 } });
+    expect((await post(url + `/sync/pulls/${plan.id}/start`, {})).status).toBe(200);
+    let state = 'running';
+    for (let i = 0; i < 200 && state === 'running'; i++) {
+      await new Promise((r) => setTimeout(r, 15));
+      state = (await (await fetch(url + `/sync/pulls/${plan.id}`)).json()).data.state;
+    }
+    expect(state).toBe('complete');
+    const undone = await post(url + `/sync/pulls/${plan.id}/undo`, {});
+    expect((await undone.json()).data.state).toBe('undone');
+    expect((await fetch(url + `/sync/pulls/${randomUUID()}`)).status).toBe(404);
+  });
+});

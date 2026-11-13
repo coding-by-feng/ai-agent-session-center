@@ -197,12 +197,12 @@ interface UiState {
   markFocusedAiPopupOpened: () => void;
 }
 
+/** Session cards start Compact (Nov 13 2026; was Detailed): only a saved 'detailed' keeps Detailed. */
 function loadCardDisplayMode(): CardDisplayMode {
   try {
-    const v = localStorage.getItem('card-display-mode');
-    return v === 'compact' ? 'compact' : 'detailed';
+    return localStorage.getItem('card-display-mode') === 'detailed' ? 'detailed' : 'compact';
   } catch {
-    return 'detailed';
+    return 'compact';
   }
 }
 

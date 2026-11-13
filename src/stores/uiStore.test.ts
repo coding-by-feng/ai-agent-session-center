@@ -142,6 +142,41 @@ describe('uiStore', () => {
     });
   });
 
+  // Nov 13 2026: session cards start Compact; a saved choice is kept.
+  describe('cardDisplayMode (loaded at module init)', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('card-display-mode');
+      if (stored !== null) localStorage.setItem('card-display-mode', stored);
+      vi.resetModules();
+      return (await import('./uiStore')).useUiStore;
+    }
+    afterEach(() => localStorage.removeItem('card-display-mode'));
+
+    it('starts Compact when nothing is saved', async () => {
+      expect((await freshStore(null)).getState().cardDisplayMode).toBe('compact');
+      expect((await freshStore('nonsense')).getState().cardDisplayMode).toBe('compact');
+    });
+
+    it('keeps a saved choice, Detailed included', async () => {
+      // The case that matters most: someone who picked Detailed is not flipped.
+      expect((await freshStore('detailed')).getState().cardDisplayMode).toBe('detailed');
+      expect((await freshStore('compact')).getState().cardDisplayMode).toBe('compact');
+    });
+
+    it('starts Compact when storage cannot be read', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      try {
+        vi.resetModules();
+        const store = (await import('./uiStore')).useUiStore;
+        expect(store.getState().cardDisplayMode).toBe('compact');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   // RESOURCES → Projects, Oct 29 2026: the same rule as the queue's.
   describe('projectViewMode (loaded at module init)', () => {
     async function freshStore(stored: string | null) {

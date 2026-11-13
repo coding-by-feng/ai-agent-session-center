@@ -24,8 +24,11 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'LIVE' },
   { to: '/agenda', label: 'AGENDA' },
-  { to: '/history', label: 'HISTORY' },
-  { to: '/prompts', label: 'PROMPTS' },
+  // The session list and the cross-session prompt trace answer the host only
+  // (403 HISTORY_HOST_ONLY, AASC-29): a Client app or LAN browser would open a
+  // tab that can only show that refusal.
+  { to: '/history', label: 'HISTORY', localOnly: true },
+  { to: '/prompts', label: 'PROMPTS', localOnly: true },
   { to: '/queue', label: 'QUEUE' },
   { to: '/review', label: 'REVIEW' },
   // Every Claude Code / Codex resource on this machine — reads ~/.claude and

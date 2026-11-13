@@ -215,13 +215,26 @@ export async function probe(launch: Launcher) {
 
 export async function readManifest(
   launch: Launcher,
-  req: { root: string; excludes: string[]; base: Map<string, FileMeta>; inHome?: boolean },
+  req: {
+    root: string;
+    excludes: string[];
+    base: Map<string, FileMeta>;
+    inHome?: boolean;
+    /** Only these names at the top of the folder (a pull of single files). */
+    only?: string[];
+  },
 ): Promise<{ manifest: Manifest; missing: boolean }> {
   const manifest: Manifest = new Map();
   let overflow = false;
   const r = await requestDone(
     launch,
-    { op: 'manifest', root: req.root, excludes: req.excludes, inHome: req.inHome === true },
+    {
+      op: 'manifest',
+      root: req.root,
+      excludes: req.excludes,
+      inHome: req.inHome === true,
+      ...(req.only ? { only: req.only } : {}),
+    },
     (line) => {
       const e = entryOf(line);
       if (!e) return;
@@ -562,4 +575,47 @@ export async function readText(
 ): Promise<Buffer | null> {
   const r = await requestDone(launch, { op: 'read', ...req });
   return typeof r.data === 'string' ? Buffer.from(r.data, 'base64') : null;
+}
+
+/** One row of a server folder listing. */
+export interface ListedEntry {
+  name: string;
+  kind: 'dir' | 'file' | 'link' | 'other';
+  size: number;
+  mtimeMs: number;
+}
+const LISTED_KIND = { d: 'dir', f: 'file', l: 'link', o: 'other' } as const;
+
+/** One level of a folder inside the helper's home. Credential folders are never listed. */
+export async function listDir(
+  launch: Launcher,
+  path: string,
+): Promise<{ home: string; entries: ListedEntry[]; missing: boolean; truncated: boolean }> {
+  const entries: ListedEntry[] = [];
+  const r = await requestDone(launch, { op: 'list', path }, (line) => {
+    const kind = LISTED_KIND[line.k as keyof typeof LISTED_KIND];
+    if (typeof line.n !== 'string' || !kind || entries.length >= 2000) return;
+    entries.push({ name: line.n, kind, size: Number(line.s) || 0, mtimeMs: Number(line.m) || 0 });
+  });
+  return {
+    home: String(r.home),
+    entries,
+    missing: r.missing === true,
+    truncated: r.truncated === true,
+  };
+}
+
+/** Free bytes where `path` is or would be; null when the helper cannot tell. */
+export async function freeSpace(launch: Launcher, path: string): Promise<number | null> {
+  const r = await requestDone(launch, { op: 'space', path });
+  return typeof r.free === 'number' && Number.isFinite(r.free) && r.free >= 0 ? r.free : null;
+}
+
+/** Removes undo journals of a link's runs not in `keep` (and older than `minAgeMs`). */
+export async function purgeRuns(
+  launch: Launcher,
+  req: { linkId: string; keep: string[]; side?: 'local'; minAgeMs?: number },
+): Promise<number> {
+  const r = await requestDone(launch, { op: 'purge', ...req });
+  return Number(r.removed) || 0;
 }

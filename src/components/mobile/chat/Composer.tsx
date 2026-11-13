@@ -60,8 +60,10 @@ import UsageSheet from './UsageSheet';
 import SavedPromptSheet from './SavedPromptSheet';
 import QuickReplySheet from './QuickReplySheet';
 import { useQuickReply } from '@/lib/chat/quickReply';
-import { owesProceed } from '@/lib/sessionStatusStyle';
+import { isCompacting, isFinishingUp, owesProceed } from '@/lib/sessionStatusStyle';
 import ComposerSuggestions from './ComposerSuggestions';
+import StopButton from './StopButton';
+import WorkingChip from './WorkingChip';
 import PhoneImageViewer from '../PhoneImageViewer';
 import { sendStatusLine, usePromptSender, type OutgoingMessage } from './usePromptSender';
 import { useDriverName } from './useDriverName';
@@ -117,6 +119,17 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
   const devices = usePresenceStore((s) => s.devices);
   const windowOpen = macWindowOpen({ received, workspaceWriter, devices }, getClientId());
   const queueItems = useQueueStore((s) => s.queues.get(sessionId) ?? NO_ITEMS);
+  // Working, compacting or finishing up: the status chip leads the chips row and ■ Stop sits
+  // beside the send button (Nov 13 2026: they replaced the working strip above the box).
+  const busy = session.status === 'working' || session.status === 'prompting' || isCompacting(session) || isFinishingUp(session);
+  const [stopError, setStopError] = useState<string | null>(null);
+  // A failed Stop belongs to its turn: cleared when the agent stops being busy, or the next
+  // prompt would bring the old error (and its alert) back.
+  const [wasBusy, setWasBusy] = useState(busy);
+  if (busy !== wasBusy) {
+    setWasBusy(busy);
+    if (!busy) setStopError(null);
+  }
   const queued = queueItems.length;
   // This turn's subagents and live teammates, for the agents chip (Nov 8 2026).
   const agents = useSessionStore(useShallow((s) => agentProgress(s.sessions.get(sessionId), s.sessions)));
@@ -511,12 +524,12 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             <PlusIcon />
           </button>
           {cli && (
-            <button type="button" className={`${styles.tool} ${styles.optional}`} onClick={() => setSheet({ type: 'command', start: null })} aria-label="Commands and skills" aria-haspopup="dialog" disabled={fieldOff}>
+            <button type="button" className={`${styles.tool} ${styles.optional} ${styles.inPlus}`} onClick={() => setSheet({ type: 'command', start: null })} aria-label="Commands and skills" aria-haspopup="dialog" disabled={fieldOff}>
               <SlashIcon />
             </button>
           )}
           {session.projectPath && (
-            <button type="button" className={`${styles.tool} ${styles.optional}`} onClick={() => setSheet({ type: 'file', start: null })} aria-label="Mention a file" aria-haspopup="dialog" disabled={fieldOff}>
+            <button type="button" className={`${styles.tool} ${styles.optional} ${styles.inPlus}`} onClick={() => setSheet({ type: 'file', start: null })} aria-label="Mention a file" aria-haspopup="dialog" disabled={fieldOff}>
               <AtIcon />
             </button>
           )}
@@ -545,6 +558,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             {quickBlocked ? `${quickBlocked}. ` : ''}{quickPending ? 'The last answer asks you to proceed. ' : ''}Hold to change what it sends.
           </span>
           <span className={styles.spacer} />
+          <StopButton session={session} onError={setStopError} />
           <button
             type="button"
             className={styles.primary}
@@ -574,13 +588,16 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
         </div>
       </div>
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
+      {busy && stopError && <p className={styles.note} data-tone="error" role="alert"><InfoIcon /> {stopError}</p>}
       {/* Under the box (Oct 30 2026): queue count, model and usage sit in the strip above the
-          home indicator instead of between the working line and the box. */}
-      {(queued > 0 || agents.total > 0 || modelLabel || usage.chip) && (
+          home indicator instead of between the working line and the box. Since Nov 13 2026 the
+          working status leads it, in the bottom-left corner the model chip leaves free. */}
+      {(busy || queued > 0 || agents.total > 0 || modelLabel || usage.chip) && (
         <div className={styles.chips}>
+          <WorkingChip session={session} />
           {queued > 0 && (
             // The count alone (Oct 20 2026: three chips share the row); its name says the rest.
-            <button type="button" className={styles.chip} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
+            <button type="button" className={`${styles.chip} ${styles.queueChip}`} onClick={openQueue} aria-label={`${queued} queued: open this session’s queue`}>
               <QueueIcon /> <span>{queued}</span> <ChevronRightIcon />
             </button>
           )}

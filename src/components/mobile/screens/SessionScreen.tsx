@@ -322,7 +322,7 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
           data-full={full ? '' : undefined}
         >
           {shown === 'terminal' && <SessionTerminal session={session} />}
-          {shown === 'chat' && <ChatView session={session} onTerminal={openTerminal} onOpenFile={openFile} />}
+          {shown === 'chat' && <ChatView session={session} onTerminal={openTerminal} onOpenFile={openFile} composer={!full} />}
           {full && (
             <button
               type="button"

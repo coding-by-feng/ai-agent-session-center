@@ -1,7 +1,7 @@
 /**
- * HealthPanel — RESOURCES → Health (Oct 23 2026): Checks, then Sources, in one scrolling view.
- * Both answer "is my catalog right?" and are opened far less than Library, so they share a tab
- * instead of taking two. Old `?section=checks` and `?section=sources` links open here.
+ * HealthPanel — the Library's Checks view (the Health tab Oct 23 – Nov 13 2026): Checks, then Sources, in one scrolling view.
+ * Both answer "is my catalog right?" and are opened far less than the list, so the Library's
+ * Checks button swaps them in for it. Old `?section=health|checks|sources` links open here.
  */
 import type { ResourceCatalog, ResourceProject, ResourceSummary } from '@/types/resources';
 import { healthIssues } from '@/lib/resourceFilters';

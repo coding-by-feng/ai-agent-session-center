@@ -213,6 +213,7 @@ export default function PhoneFloatingSheet({ floats }: PhoneFloatingSheetProps) 
                     session={own}
                     onTerminal={toTerminal}
                     popup={{ rootSessionId: shown.originSessionId, terminalId: shown.terminalId }}
+                    composer
                   />
                   <ChatFooter session={own} onTerminal={toTerminal} />
                 </Suspense>

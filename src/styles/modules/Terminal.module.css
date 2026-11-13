@@ -1357,6 +1357,23 @@
 .queueEditImageRow .queueSnippetBtn {
   align-self: center;
 }
+/* "Take the text from Claude's input box": pressed and working states on top of queueSnippetBtn. */
+.queueTakeBtn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.queueTakeBtn:disabled[aria-busy='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.queueTakeBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .queueTakeBtn:active:not(:disabled) {
+    transform: none;
+  }
+}
 
 .queueComposeImages {
   display: flex;

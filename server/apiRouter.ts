@@ -34,7 +34,8 @@ import { createSessionKeysRouter } from './sessionKeysRouter.js';
 import { createSessionInterruptRouter } from './sessionInterruptRouter.js';
 import type { PromptSubmitter } from './promptSubmit.js';
 import { centralEscBook } from './mcp/escHold.js';
-import { clearTerminalOutput, getForegroundProcess } from './sshManager.js';
+import { clearTerminalOutput, getForegroundProcess, readTerminalScreenCells } from './sshManager.js';
+import { isSendPending, noteTerminalWrite, takeInputBox, type TakeRefusal } from './inputBoxCapture.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { terminalHeard } from './heardTerminals.js';
 import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
@@ -2848,19 +2849,25 @@ router.post('/terminals/:id/prefill-output', requireLocalOnly, (req: Request, re
   res.json({ ok: true });
 });
 
+/**
+ * May this request type into the terminal? A remote device types only while it holds the session's
+ * control baton, the same rule as terminal_input on the live connection (AASC-25). Unlike a socket,
+ * an anonymous remote request is not arbitrated: it is refused (409, already sent).
+ */
+function mayTypeInto(req: Request, res: Response, terminalId: string): boolean {
+  if (requestIsLocal(req)) return true;
+  const clientId = clientIdFromRequest(req);
+  const sessionId = sessionIdOfTerminal(terminalId);
+  if (!clientId || !sessionId || !presence.noteControlActivity(sessionId, clientId)) {
+    res.status(409).json({ error: 'This device was not recognised. Reload it and try again.', code: 'CONTROL_HELD' });
+    return false;
+  }
+  return true;
+}
+
 router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
-  // A remote device types only while it holds the session's control baton, the
-  // same rule as terminal_input on the live connection (AASC-25). Unlike a
-  // socket, an anonymous remote request is not arbitrated: it is refused.
-  if (!requestIsLocal(req)) {
-    const clientId = clientIdFromRequest(req);
-    const sessionId = sessionIdOfTerminal(terminalId);
-    if (!clientId || !sessionId || !presence.noteControlActivity(sessionId, clientId)) {
-      res.status(409).json({ error: 'This device was not recognised. Reload it and try again.', code: 'CONTROL_HELD' });
-      return;
-    }
-  }
+  if (!mayTypeInto(req, res, terminalId)) return;
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
     res.status(400).json({ error: 'Missing or invalid "data" field' });
@@ -2876,8 +2883,49 @@ router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: 
     res.status(404).json({ error: 'Terminal not found' });
     return;
   }
+  // A send's text half, until its Enter: the queue's take-input waits for it (inputBoxCapture.ts).
+  noteTerminalWrite(terminalId, data);
   writeToTerminal(terminalId, data);
   res.json({ ok: true });
+});
+
+// Move the text in Claude's input box (typed, or dictated with hold-Space) into the queue box:
+// read it off the screen, clear the box, return the text (server/inputBoxCapture.ts). It types
+// Ctrl+U into the terminal, so it follows /write's rules.
+/** Why a take was refused: status, code and the toast the desktop shows. */
+const TAKE_REFUSALS: Record<TakeRefusal, { status: number; code: string; error: string }> = {
+  'no-terminal': { status: 404, code: 'TERMINAL_NOT_FOUND', error: 'Terminal not found' },
+  'no-input-box': { status: 409, code: 'NO_INPUT_BOX', error: "Couldn't find Claude's input box on screen." },
+  'not-agent': { status: 409, code: 'NOT_AGENT', error: "Claude isn't running in this terminal." },
+  'send-in-progress': { status: 409, code: 'SEND_IN_PROGRESS', error: 'A prompt is being sent to this terminal. Try again in a moment.' },
+  'has-attachment': {
+    status: 409,
+    code: 'HAS_ATTACHMENT',
+    error: "Claude's input box holds a paste or an image. Move that prompt by hand.",
+  },
+};
+
+router.post('/terminals/:id/take-input', requireVisibleTerminal, async (req: Request, res: Response) => {
+  const terminalId = str(req.params.id);
+  if (!mayTypeInto(req, res, terminalId)) return;
+  try {
+    const result = await takeInputBox(terminalId, {
+      readScreen: readTerminalScreenCells,
+      write: writeToTerminal,
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      agentInFront: (id) => isAgentProcessName(getForegroundProcess(id)),
+      sendPending: (id) => isSendPending(id),
+    });
+    if (!result.ok) {
+      const refusal = TAKE_REFUSALS[result.reason];
+      res.status(refusal.status).json({ success: false, code: refusal.code, error: refusal.error });
+      return;
+    }
+    res.json({ success: true, data: { text: result.text, cleared: result.cleared } });
+  } catch (err) {
+    log.error('take-input', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ success: false, error: "Couldn't read Claude's input box" });
+  }
 });
 
 // ── Team Endpoints ──

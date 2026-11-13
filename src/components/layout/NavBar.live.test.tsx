@@ -20,6 +20,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWsStore } from '@/stores/wsStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 
 const T = Date.now();
 
@@ -44,6 +45,8 @@ const click = (label: string) => fireEvent.click(screen.getByRole('link', { name
 beforeEach(() => {
   useSessionStore.setState({ sessions: new Map(), selectedSessionId: null, previousSessionId: null, lastSelectedSessionId: null });
   useUiStore.setState({ detailPanelMinimized: false });
+  // The host machine: HISTORY is a local-only tab.
+  usePresenceStore.setState({ devices: [{ clientId: 'me', isLocal: true }] } as never);
 });
 
 describe('NavBar — the LIVE tab opens the session panel', () => {

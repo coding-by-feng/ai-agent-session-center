@@ -424,6 +424,21 @@ describe('restoring on reopen', () => {
     expect(fromLink.stacks.inbox).toEqual(['/inbox', '/sessions/s2/chat']);
   });
 
+  // Nov 13 2026: the Cloud sync screens were removed and their paths now open Resources › Projects.
+  // A stack saved before the update reopens with one Projects screen, so Back leaves it at once.
+  it('reopens a stack saved on the removed cloud screens with one Projects screen', () => {
+    const old = {
+      tab: 'more',
+      stacks: {
+        sessions: ['/sessions'],
+        inbox: ['/inbox'],
+        queue: ['/queue'],
+        more: ['/more', '/more/resources/cloud', '/more/cloud/00000000-0000-4000-8000-000000000001'],
+      },
+    };
+    expect(initialPhoneNav('', old).stacks.more).toEqual(['/more', '/more/resources/projects']);
+  });
+
   it('drops a saved stack it cannot trust', () => {
     const bad = { tab: 'sessions', stacks: { sessions: ['/inbox', '/sessions/x/chat'], inbox: 'no', queue: ['/queue', '/nope'], more: [] } };
     expect(initialPhoneNav('', bad)).toEqual({

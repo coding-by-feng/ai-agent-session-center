@@ -55,6 +55,8 @@
 }
 
 .note svg { flex: none; width: 16px; height: 16px; }
+/* A Stop the Mac couldn't write (Nov 13 2026: under the box, where the strip's line was). */
+.note[data-tone='error'] { color: var(--ph-danger); }
 
 .status[data-tone='error'] {
   color: var(--ph-danger);
@@ -528,6 +530,12 @@
 .tool[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
 .tool[aria-disabled='true']:active { background: transparent; }
 
+/* ■ Stop beside the send button needs the room on a narrow phone (Nov 13 2026): / and @
+   stay in ＋, which lists commands and files too. */
+@media (max-width: 374px) {
+  .toolbar:has(.stop) .inPlus { display: none; }
+}
+
 /* A long main label ("Deny and tell Claude") needs the room: / and @ stay in ＋. */
 @media (max-width: 430px) {
   .toolbar[data-long] .optional { display: none; }
@@ -592,6 +600,86 @@
 @media (prefers-reduced-motion: reduce) {
   .field, .tool, .primary, .suggestion { transition: none; }
   .primary:active:not([aria-disabled='true']) { transform: none; }
+}
+
+/* ---- While the agent works (Nov 13 2026): the status chip and Stop ----
+   The chip leads the chips row, in the bottom-left corner the model chip leaves free (its
+   margin-left: auto). A pulsing mark and the time; its spoken name says the rest. */
+.workingChip {
+  position: relative;
+  flex: none;
+  color: var(--ph-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mark only (narrow or crowded) it draws 24px wide: its tap area reaches 44px into the gutter
+   on its left and the gap on its right, without moving anything. */
+.workingChip::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(-1 * var(--ph-space-2)) 0 -12px;
+}
+
+.workingMark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ph-status-working);
+  animation: working-pulse 1.6s ease-in-out infinite;
+}
+
+/* Pressed while the terminal's last lines are open above the box. */
+.workingChip[aria-expanded='true'] { background: var(--ph-fill); }
+
+/* Finishing up: the answer is in, only Claude's Stop hooks run. */
+.workingChip[data-tone='quiet'] { color: var(--ph-text-secondary); }
+.workingChip[data-tone='quiet'] .workingMark { background: var(--ph-text-tertiary); animation: none; }
+
+@keyframes working-pulse { 50% { opacity: 0.35; } }
+
+/* On a narrow phone with the queue or agents chip up too, the chip keeps its mark and drops
+   the time (still spoken, and in the open peek). */
+@media (max-width: 359px) {
+  .chips:has(> .queueChip) .workingTime,
+  .chips:has(> .agentsChip) .workingTime { display: none; }
+}
+
+/* Crowded: status, queued and agents leave the model chip no room (it shrank to an empty
+   16px stub, and the row overflowed). The header names the model already and a bare /model
+   opens its sheet, so the model chip steps aside and the status chip keeps only its mark (the
+   time is in its spoken name and the open peek). Under 360px the queue chip drops its › too,
+   as the agents chip does. */
+.chips:has(> .workingChip):has(> .queueChip):has(> .agentsChip) .modelChip,
+.chips:has(> .workingChip):has(> .queueChip):has(> .agentsChip) .workingTime { display: none; }
+
+@media (max-width: 359px) {
+  .chips:has(> .workingChip):has(> .queueChip):has(> .agentsChip) .queueChip > svg:last-child { display: none; }
+}
+
+/* ■ beside the send button: the phone's one Stop, a tap away. */
+.stop {
+  background: var(--ph-fill);
+  color: var(--ph-accent);
+}
+
+.stop[aria-busy='true'] { opacity: 1; cursor: progress; }
+
+.stopSpinner {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: stop-spin 800ms linear infinite;
+}
+
+@keyframes stop-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .workingMark { animation: none; }
+  .stopSpinner { animation: none; border-right-color: currentColor; border-top-color: transparent; }
 }
 
 /* Context window + plan limits (Oct 20 2026): its own chip after the model's. */

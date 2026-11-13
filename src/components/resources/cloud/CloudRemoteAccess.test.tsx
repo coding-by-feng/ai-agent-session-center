@@ -507,7 +507,7 @@ describe('card 2: Tell your phones where this Mac is', () => {
     {
       state: 'no-cloud',
       text: "This Mac isn't connected to AASC Cloud. Phones still learn the Tailscale address the next time they connect.",
-      button: 'Open Connection',
+      button: 'Open cloud account',
     },
     { state: 'not-needed', text: 'No phone uses this Mac yet. Pair a phone first.' },
     { state: 'no-tailscale', text: 'Waiting for Tailscale on this Mac.' },
@@ -515,7 +515,9 @@ describe('card 2: Tell your phones where this Mac is', () => {
     { state: 'published', text: SHARED, hint: PUBLISHED_HINT },
     {
       state: 'forbidden',
-      text: "This Mac's cloud link can't share addresses. Make a new pairing code with mac-paths:publish on the backend, then connect again in Connection.",
+      text: "This Mac's cloud link can't share addresses. Make a new pairing code with mac-paths:publish on the backend, then connect again in the cloud account.",
+      // It sends you to the cloud account, so it offers the way there (review, Nov 13).
+      button: 'Open cloud account',
     },
     {
       state: 'unsupported',
@@ -538,7 +540,7 @@ describe('card 2: Tell your phones where this Mac is', () => {
     },
   );
 
-  it('hides card 2 when publishing is unavailable and shows Open Connection when the Mac has no cloud', async () => {
+  it('hides card 2 when publishing is unavailable and shows Open cloud account when the Mac has no cloud', async () => {
     const reading = read(view({ publish: { state: 'unavailable', tailnet: null, at: null } }));
     const { onConnection, unmount } = show();
     await screen.findByText(`Connected · ${ADDRESS}`);
@@ -548,7 +550,7 @@ describe('card 2: Tell your phones where this Mac is', () => {
 
     reading.mockResolvedValue(view({ publish: { state: 'no-cloud', tailnet: null, at: null } }));
     const second = show({ onConnection });
-    fireEvent.click(await screen.findByRole('button', { name: 'Open Connection' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open cloud account' }));
     expect(onConnection).toHaveBeenCalledTimes(1);
     second.unmount();
   });

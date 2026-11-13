@@ -2,10 +2,12 @@
 import type {
   SyncAction,
   SyncChange,
+  SyncConflictPolicy,
   SyncDirection,
   SyncEntry,
   SyncGroup,
   SyncLink,
+  SyncPull,
   SyncRun,
 } from '@/types/projectSync';
 
@@ -57,9 +59,35 @@ export const DIRECTION_LABEL: Record<SyncDirection, string> = {
 };
 /** What a direction means, under its select. */
 export const DIRECTION_HINT: Record<SyncDirection, string> = {
-  'two-way': 'Changes on either side carry over. A file changed on both waits for your choice.',
+  'two-way': 'Changes on either side carry over.',
   push: 'The server mirrors this computer. Changes made there are listed for review, never copied here.',
 };
+
+/** Two-way: what happens to a file both sides changed since the last sync. */
+export const POLICY_LABEL: Record<SyncConflictPolicy, string> = {
+  ask: 'Ask me',
+  local: 'This computer wins',
+};
+export const POLICY_OPTIONS: { value: SyncConflictPolicy; label: string }[] = [
+  { value: 'ask', label: POLICY_LABEL.ask },
+  { value: 'local', label: POLICY_LABEL.local },
+];
+export const POLICY_HINT: Record<SyncConflictPolicy, string> = {
+  ask: 'Each file changed on both sides waits for your choice.',
+  local:
+    "This computer's version replaces the server's, and a file deleted here is deleted there (undo restores it). The first compare and git repositories still ask.",
+};
+
+/** What a pull plan does: "3 new · 1 replaced · 2 kept as they are · 4 already the same". */
+export function pullSummary(c: SyncPull['counts']): string {
+  const parts: string[] = [];
+  if (c.new) parts.push(`${c.new} new`);
+  if (c.replace) parts.push(`${c.replace} replaced`);
+  if (c.keep) parts.push(`${c.keep} kept as ${c.keep === 1 ? 'it is' : 'they are'} here`);
+  if (c.same) parts.push(`${c.same} already the same`);
+  if (c.skip) parts.push(`${c.skip} skipped`);
+  return parts.join(' · ') || 'Nothing to pull';
+}
 
 export const LINK_STATE_LABEL: Record<SyncLink['state'], string> = {
   never: 'Not compared yet',

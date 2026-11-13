@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import {
   DEFAULT_SYNC_EXCLUDES,
+  type SyncConflictPolicy,
   type SyncDevice,
   type SyncDirection,
   type SyncLink,
@@ -18,6 +19,8 @@ import {
   DIRECTION_LABEL,
   excludesOf,
   excludesText,
+  POLICY_HINT,
+  POLICY_OPTIONS,
   suggestRemoteRoot,
 } from '@/lib/projectSyncFormat';
 import Button from '@/components/ui/Button';
@@ -25,6 +28,7 @@ import Field from '@/components/ui/Field';
 import NativeSelect from '@/components/ui/NativeSelect';
 import TextArea from '@/components/ui/TextArea';
 import TextInput from '@/components/ui/TextInput';
+import RemoteFolderPicker from './RemoteFolderPicker';
 import styles from '@/styles/modules/ProjectSync.module.css';
 
 const ADD = '+';
@@ -152,6 +156,8 @@ export default function ProjectSyncSetup({
     device ? suggestRemoteRoot(project.path, device.home) : '',
   );
   const [direction, setDirection] = useState<SyncDirection>('two-way');
+  const [policy, setPolicy] = useState<SyncConflictPolicy>('ask');
+  const [picking, setPicking] = useState(false);
   const [excludes, setExcludes] = useState(excludesText(DEFAULT_SYNC_EXCLUDES));
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -161,6 +167,7 @@ export default function ProjectSyncSetup({
   const choose = (id: string, list: readonly SyncDevice[] = devices) => {
     setDeviceId(id);
     setRemoveAsk(false);
+    setPicking(false);
     const d = list.find((x) => x.id === id);
     if (d) setRemoteRoot(suggestRemoteRoot(project.path, d.home));
   };
@@ -196,6 +203,7 @@ export default function ProjectSyncSetup({
         excludes: excludesOf(excludes),
         credentialsAck: ack,
         direction,
+        ...(direction === 'two-way' ? { conflictPolicy: policy } : {}),
       });
       await onLinked(l);
     } catch (e) {
@@ -271,6 +279,28 @@ export default function ProjectSyncSetup({
                 onChange={(e) => setRemoteRoot(e.target.value)}
               />
             </Field>
+            <div className={`${styles.formWide} ${styles.inline}`}>
+              <Button size="sm" aria-expanded={picking} onClick={() => setPicking((x) => !x)}>
+                Browse…
+              </Button>
+              <span className={styles.hint}>Pick any folder inside {device.home}.</span>
+            </div>
+            {picking ? (
+              <div className={styles.formWide}>
+                <RemoteFolderPicker
+                  device={device}
+                  mode="folder"
+                  start={
+                    remoteRoot.trim().startsWith(device.home + '/') ? remoteRoot.trim() : undefined
+                  }
+                  onUse={(p) => {
+                    setRemoteRoot(p);
+                    setPicking(false);
+                  }}
+                  onCancel={() => setPicking(false)}
+                />
+              </div>
+            ) : null}
             <Field label="Direction" className={`${styles.formField} ${styles.formWide}`}>
               <NativeSelect<SyncDirection>
                 value={direction}
@@ -279,6 +309,21 @@ export default function ProjectSyncSetup({
               />
             </Field>
             <p className={`${styles.hint} ${styles.formWide}`}>{DIRECTION_HINT[direction]}</p>
+            {direction === 'two-way' ? (
+              <>
+                <Field
+                  label="When both changed"
+                  className={`${styles.formField} ${styles.formWide}`}
+                >
+                  <NativeSelect<SyncConflictPolicy>
+                    value={policy}
+                    onChange={setPolicy}
+                    options={POLICY_OPTIONS}
+                  />
+                </Field>
+                <p className={`${styles.hint} ${styles.formWide}`}>{POLICY_HINT[policy]}</p>
+              </>
+            ) : null}
             <Field
               label="Leave out (one per line)"
               className={`${styles.formField} ${styles.formWide}`}

@@ -19,6 +19,7 @@ import {
   type FileMeta,
   type SyncAction,
   type SyncChange,
+  type SyncConflictPolicy,
   type SyncDirection,
   type SyncEntry,
   type SyncFlag,
@@ -44,10 +45,14 @@ export interface ClassifyOptions {
    * case and Unicode normalization). Two server paths that fold alike cannot both land here.
    */
   foldLocal?: (path: string) => string;
+  /** Two-way only: `local` lets this computer's version win a conflict instead of asking. */
+  conflictPolicy?: SyncConflictPolicy;
 }
 export interface Plan {
   entries: SyncEntry[];
   groups: SyncGroup[];
+  /** Conflicts the link's policy settled for this computer's version. */
+  settled?: number;
 }
 
 /** Content identity: kind, bytes (by hash), permission bits, link target. mtime is not identity. */
@@ -108,7 +113,7 @@ function groupOf(path: string, repos: ReadonlySet<string>, isDir: boolean): stri
 }
 
 /** A link whose target lies outside the project (absolute, or climbing above its root). */
-function pointsOutside(path: string, meta: FileMeta | undefined): boolean {
+export function pointsOutside(path: string, meta: FileMeta | undefined): boolean {
   if (meta?.kind !== 'symlink' || meta.linkTarget === undefined) return false;
   const t = meta.linkTarget;
   const resolved = posix.normalize(posix.join(posix.dirname(path), t));
@@ -370,6 +375,38 @@ function holdGitRedirects(entries: SyncEntry[]) {
     }
 }
 
+/**
+ * Two-way, `local` policy: a file both sides changed since the last sync takes this computer's
+ * version, and one this computer deleted is deleted on the server (to its trash; undo restores
+ * it). Only plain conflicts against a base: a repository, a path a guard held (it has a reason)
+ * and anything inside a held folder still ask. Returns how many it settled.
+ */
+/** The notes a settled conflict carries; a decision for another action drops them. */
+export const SETTLED_NOTES: readonly string[] = [
+  "Changed on both sides: this computer's version wins (link setting). Undo restores the server's.",
+  "Deleted here and changed on the server: the delete wins (link setting). Undo restores the server's.",
+];
+
+function settleForLocal(entries: SyncEntry[], repos: ReadonlySet<string>): number {
+  const held = entries.filter((e) => e.change === 'conflict' && e.reason).map((e) => e.path + '/');
+  // A folder deleted here that the server added files to: its deletes still ask, or the delete
+  // would race the server's new files into a folder that is gone.
+  const growing = entries
+    .filter((e) => !e.local && e.device?.kind === 'dir')
+    .map((e) => e.path + '/')
+    .filter((d) => entries.some((x) => x.action === 'pull' && x.path.startsWith(d)));
+  let n = 0;
+  for (const e of entries) {
+    if (e.change !== 'conflict' || e.action !== 'review' || e.reason) continue;
+    if (repos.has(e.groupId) || held.some((h) => e.path.startsWith(h))) continue;
+    if (!e.local && growing.some((d) => e.path.startsWith(d))) continue;
+    e.action = e.local ? 'push' : 'delete-device';
+    e.reason = SETTLED_NOTES[e.local ? 0 : 1];
+    n++;
+  }
+  return n;
+}
+
 export function classify(
   local: Manifest,
   device: Manifest,
@@ -487,13 +524,21 @@ export function classify(
       }
     }
   }
+  const settled =
+    direction === 'two-way' && hasBase && options.conflictPolicy === 'local'
+      ? settleForLocal(entries, repos)
+      : 0;
   for (const e of entries) {
     if (e.action === 'push' && e.local?.kind === 'file')
       groups.get(e.groupId)!.bytes += e.local.size;
     if (e.action === 'pull' && e.device?.kind === 'file')
       groups.get(e.groupId)!.bytes += e.device.size;
   }
-  return { entries, groups: [...groups.values()].sort((a, b) => a.id.localeCompare(b.id)) };
+  return {
+    entries,
+    groups: [...groups.values()].sort((a, b) => a.id.localeCompare(b.id)),
+    ...(settled ? { settled } : {}),
+  };
 }
 
 function strip(m: ManifestEntry): FileMeta {

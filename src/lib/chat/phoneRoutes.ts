@@ -14,11 +14,13 @@
  *   /more/<page>                  History, Prompts, Saved prompts, Review, Agenda, Settings,
  *                                 This phone, About, UI kit
  *   /more/settings/<section>      a Settings page: back returns to the Settings list
- *   /more/resources[/cloud|/projects]  More → Resources (plan 16): Library, Cloud sync, Projects;
- *                                 /more/cloud (AASC-51's Cloud) is an old link to Cloud sync
+ *   /more/resources[/projects]    More → Resources (plan 16): Library, Projects
  *   /more/resources/item/<id>     one Library resource: back returns to the Library
  *   /more/resources/projects/<id> one saved project: back returns to Projects
- *   /more/cloud/<resourceId>      one cloud resource's versions (AASC-51): back returns to Cloud sync
+ *
+ * Old links to the resource sync screens, removed Nov 2026, land on Projects:
+ * /more/cloud (AASC-51's Cloud), /more/resources/cloud (Cloud sync) and
+ * /more/cloud/<resourceId> (one cloud resource's versions).
  *
  * A path is what `phoneNavStore` keeps in its stacks and what the address bar
  * shows as `?m=<path>`, so a reload or a link lands on the same screen. Pure:
@@ -42,8 +44,8 @@ export const MORE_PAGES = [
 ] as const;
 export type MorePage = (typeof MORE_PAGES)[number];
 
-/** More → Resources' tabs (plan 16): the desktop RESOURCES tab's Library, Cloud sync and Projects. */
-export const RESOURCES_TABS = ['library', 'cloud', 'projects'] as const;
+/** More → Resources' tabs (plan 16): the desktop RESOURCES tab's Library and Projects. */
+export const RESOURCES_TABS = ['library', 'projects'] as const;
 export type ResourcesTab = (typeof RESOURCES_TABS)[number];
 
 /** The Settings pages: pushed over the Settings list, at /more/settings/<section>. */
@@ -66,9 +68,7 @@ export type PhoneRoute =
   /** One Library resource, by its catalog id (plan 16). */
   | { kind: 'resource-item'; id: string }
   /** One project saved to AASC Cloud, by its cloud id (Nov 2 2026). */
-  | { kind: 'project-item'; id: string }
-  /** One AASC Cloud resource's versions, under Resources → Cloud sync (AASC-51). */
-  | { kind: 'cloud-resource'; resourceId: string };
+  | { kind: 'project-item'; id: string };
 
 /** The same shape the backend accepts as a push session reference (deepLink.ts). */
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -79,7 +79,7 @@ const FILE_INDEX = /^\d{1,4}$/;
 /** A Library resource's catalog id, as the Mac's phone-resources route takes it. */
 const CATALOG_ID = /^[a-f0-9]{16}$/;
 
-/** A cloud resource id: a canonical (lower-case) UUID, as the Mac's phone-cloud route takes it. */
+/** An AASC Cloud id (a saved project's, a cloud resource's): a canonical (lower-case) UUID. */
 const CLOUD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** A More page reached from another More page, not from the More list itself. */
@@ -113,11 +113,6 @@ export function infoPath(sessionId: string, page: InfoPage | null = null): strin
   return page ? `/sessions/${sessionId}/info/${page}` : `/sessions/${sessionId}/info`;
 }
 
-/** One cloud resource's versions (AASC-51). */
-export function cloudResourcePath(resourceId: string): string {
-  return `/more/cloud/${resourceId}`;
-}
-
 /** More → Resources on a tab (plan 16); the Library is the bare path. */
 export function resourcesPath(tab: ResourcesTab = 'library'): string {
   return tab === 'library' ? '/more/resources' : `/more/resources/${tab}`;
@@ -138,7 +133,6 @@ export function phonePath(route: PhoneRoute): string {
   if (route.kind === 'session') return sessionPath(route.sessionId, route.segment);
   if (route.kind === 'diff') return diffPath(route.sessionId, route.fileIndex);
   if (route.kind === 'session-info') return infoPath(route.sessionId, route.page);
-  if (route.kind === 'cloud-resource') return cloudResourcePath(route.resourceId);
   if (route.kind === 'resources') return resourcesPath(route.tab);
   if (route.kind === 'resource-item') return resourceItemPath(route.id);
   if (route.kind === 'project-item') return projectItemPath(route.id);
@@ -200,18 +194,21 @@ export function parsePhonePath(path: string): PhoneRoute | null {
   if (head === 'more' && parts.length === 3 && parts[1] === 'settings' && parts[2] === 'api-keys') {
     return { kind: 'more', page: 'voice' };
   }
-  if (head === 'more' && parts.length === 3 && parts[1] === 'cloud' && CLOUD_ID.test(parts[2])) {
-    return { kind: 'cloud-resource', resourceId: parts[2] };
-  }
   return parseResourcesPath(parts);
 }
 
-/** More → Resources' paths, and AASC-51's More → Cloud (now its Cloud sync tab). */
+/** Where an old link to a resource sync screen lands (the sync screens were removed Nov 2026). */
+const syncLinkLanding = (): PhoneRoute => ({ kind: 'resources', tab: 'projects' });
+
+/** More → Resources' paths, and the old links to its resource sync screens. */
 function parseResourcesPath(parts: string[]): PhoneRoute | null {
   if (parts[0] !== 'more') return null;
-  if (parts.length === 2 && parts[1] === 'cloud') return { kind: 'resources', tab: 'cloud' };
+  // AASC-51's More → Cloud, and one cloud resource's versions under it.
+  if (parts[1] === 'cloud' && (parts.length === 2 || (parts.length === 3 && CLOUD_ID.test(parts[2])))) return syncLinkLanding();
   if (parts[1] !== 'resources') return null;
   if (parts.length === 2) return { kind: 'resources', tab: 'library' };
+  // Resources → Cloud sync.
+  if (parts.length === 3 && parts[2] === 'cloud') return syncLinkLanding();
   if (parts.length === 3 && parts[2] !== 'library' && isOneOf(RESOURCES_TABS, parts[2])) return { kind: 'resources', tab: parts[2] };
   if (parts.length === 4 && parts[2] === 'item' && CATALOG_ID.test(parts[3])) return { kind: 'resource-item', id: parts[3] };
   if (parts.length === 4 && parts[2] === 'projects' && CLOUD_ID.test(parts[3])) return { kind: 'project-item', id: parts[3] };
@@ -223,7 +220,7 @@ export function tabOfPath(path: string): PhoneTab {
   const route = parsePhonePath(path);
   if (!route) return 'sessions';
   if (route.kind === 'tab-root') return route.tab;
-  return route.kind === 'more' || route.kind === 'cloud-resource' || route.kind === 'resources'
+  return route.kind === 'more' || route.kind === 'resources'
     || route.kind === 'resource-item' || route.kind === 'project-item'
     ? 'more'
     : 'sessions';
@@ -247,7 +244,6 @@ export function pathChain(path: string): string[] {
     const base = [tabRootPath('sessions'), sessionPath(route.sessionId), info];
     return route.page ? [...base, path] : base;
   }
-  if (route.kind === 'cloud-resource') return [tabRootPath('more'), resourcesPath('cloud'), path];
   if (route.kind === 'resources') return [tabRootPath('more'), resourcesPath(route.tab)];
   if (route.kind === 'resource-item') return [tabRootPath('more'), resourcesPath('library'), path];
   if (route.kind === 'project-item') return [tabRootPath('more'), resourcesPath('projects'), path];

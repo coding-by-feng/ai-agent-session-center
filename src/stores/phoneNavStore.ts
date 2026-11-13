@@ -42,6 +42,7 @@ import { z } from 'zod';
 import {
   PHONE_TABS,
   parsePhonePath,
+  phonePath,
   pathChain,
   phonePathFromSearch,
   renameSessionInPath,
@@ -240,14 +241,20 @@ const persistedSchema = z.object({
   stacks: z.record(z.string(), z.unknown()),
 });
 
-/** A stack is trusted only whole: its tab's root, then screens this frame draws (no other root). */
+/** A stack is trusted only whole: its tab's root, then screens this frame draws (no other root).
+ *  Each screen is rewritten to its current path, and a screen repeated back-to-back is kept once:
+ *  a stack saved on screens since folded into one (Nov 13 2026: Cloud sync's paths now open
+ *  Resources › Projects) would otherwise need two Backs to leave it. */
 function validStack(tab: PhoneTab, value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0 || value[0] !== tabRootPath(tab)) return null;
-  const ok = value.slice(1).every((p) => {
+  const screens: string[] = [];
+  for (const p of value.slice(1)) {
     const route = typeof p === 'string' ? parsePhonePath(p) : null;
-    return !!route && route.kind !== 'tab-root';
-  });
-  return ok ? (value as string[]) : null;
+    if (!route || route.kind === 'tab-root') return null;
+    const path = phonePath(route);
+    if (path !== (screens[screens.length - 1] ?? value[0])) screens.push(path);
+  }
+  return [value[0] as string, ...screens];
 }
 
 /** The nav to open with: the `?m=` screen if any, the saved stacks otherwise (pure). */

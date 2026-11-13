@@ -2,10 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const send = vi.hoisted(() => vi.fn(async () => true));
+const press = vi.hoisted(() => vi.fn(async () => true));
 const toast = vi.hoisted(() => vi.fn());
 const sessions = vi.hoisted(() => ({ map: new Map<string, unknown>() }));
 
-vi.mock('@/lib/terminalSend', () => ({ sendPromptToTerminal: send }));
+vi.mock('@/lib/terminalSend', () => ({ sendPromptToTerminal: send, pressEnterInTerminal: press }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: toast }));
 vi.mock('@/stores/sessionStore', () => ({
   useSessionStore: { getState: () => ({ sessions: sessions.map }) },
@@ -15,6 +16,7 @@ import {
   CONTINUE_AFTER_RESTART_PROMPT,
   READY_SETTLE_MS,
   READY_TIMEOUT_MS,
+  confirmContinueSubmitted,
   continueInterrupted,
   getInterruptedOffer,
   isReadyToContinue,
@@ -171,5 +173,68 @@ describe('continueInterrupted', () => {
     await vi.advanceTimersByTimeAsync(READY_TIMEOUT_MS + 2_000);
     expect(send).not.toHaveBeenCalled();
     expect((await run).skipped).toEqual(['Gone']);
+  });
+});
+
+describe('confirmContinueSubmitted', () => {
+  // Nov 12 2026: the resumed CLI was still drawing ("Background agent … didn't finish")
+  // when the Enter landed; the prompt sat typed in the input box, never sent.
+  const t0 = 3_000_000;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(t0);
+    press.mockClear();
+    toast.mockClear();
+    sessions.map = new Map();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const at = (status: string, lastActivityAt: number, extra: Record<string, unknown> = {}) => ({
+    sessionId: 's1',
+    terminalId: 't1',
+    status,
+    lastActivityAt,
+    ...extra,
+  });
+
+  it('presses Enter again while the prompt sits unsent, and stops once a hook acknowledges it', async () => {
+    sessions.map.set('s1', at('idle', 100));
+    const run = confirmContinueSubmitted({ terminalId: 't1', title: 'A', status: 'working' }, t0, 100);
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(press).toHaveBeenCalledTimes(1);
+    expect(press).toHaveBeenCalledWith('t1');
+
+    sessions.map.set('s1', at('prompting', Date.now()));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(press).toHaveBeenCalledTimes(1);
+    expect(await run).toBe(true);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('never presses Enter when the first one was taken', async () => {
+    sessions.map.set('s1', at('prompting', t0 + 10));
+    const run = confirmContinueSubmitted({ terminalId: 't1', title: 'A', status: 'working' }, t0, 100);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await run).toBe(true);
+    expect(press).not.toHaveBeenCalled();
+  });
+
+  it('stops pressing when a dialog opens or the user cancels', async () => {
+    sessions.map.set('s1', at('approval', 100));
+    expect(await (async () => {
+      const r = confirmContinueSubmitted({ terminalId: 't1', title: 'A', status: 'working' }, t0, 100);
+      await vi.advanceTimersByTimeAsync(5_000);
+      return r;
+    })()).toBe(true);
+    expect(press).not.toHaveBeenCalled();
+  });
+
+  it('tells the user which session is still unsent after every retry', async () => {
+    sessions.map.set('s1', at('idle', 100));
+    const run = confirmContinueSubmitted({ terminalId: 't1', title: 'Stuck', status: 'working' }, t0, 100);
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(await run).toBe(false);
+    expect(press).toHaveBeenCalledTimes(5);
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining('Stuck'), 'warning', expect.any(Number));
   });
 });

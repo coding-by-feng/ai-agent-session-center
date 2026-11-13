@@ -1,8 +1,8 @@
 /**
  * CloudSessionProvider — this Mac's AASC cloud connection for the whole RESOURCES tab (Oct 23
- * 2026; until then it lived inside the lazy Cloud section). Library rows and the detail pane show
- * each resource's cloud state, so they need the connection as much as the Cloud sync, Projects
- * and Connection tabs do; the heavy views stay lazy.
+ * 2026; until then it lived inside the lazy Cloud section). Projects, the cloud account button and
+ * its dialog all need it (Nov 13 2026: Cloud sync, and with it the Library's cloud state, was
+ * removed); the heavy views stay lazy.
  *
  * Status is read from the local server (`/api/resources/cloud/status`) at mount and every 15 s;
  * the device token never reaches the browser. An identity change (connect, disconnect, another

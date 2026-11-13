@@ -5,7 +5,7 @@
 import { randomUUID } from 'crypto';
 import { lstat, realpath } from 'fs/promises';
 import { homedir } from 'os';
-import { isAbsolute, join, posix } from 'path';
+import { isAbsolute, join } from 'path';
 import type { ResourceCatalogService } from '../resourceCatalog.js';
 import { isWithin } from '../fsSafe.js';
 import log from '../logger.js';
@@ -13,20 +13,21 @@ import { knownFingerprint, nodeEvalCommand, spawnPinnedSsh } from './transport.j
 import { classify } from './classify.js';
 import { applyDecisions, type DecisionRequest } from './decisions.js';
 import { clean, SyncError } from './errors.js';
-import { localLauncher, probe, readManifest, undoRun, type Launcher } from './helperClient.js';
+import { localLauncher, probe, readManifest, type Launcher } from './helperClient.js';
 import { previewDiff } from './preview.js';
 import { PROJECT_HELPER } from './projectHelper.js';
-import { executeRun, saveBase } from './runner.js';
-import { invalidDeviceInput, MAX_DEVICES, measureFold, validRemoteRoot } from './servers.js';
+import { createPulls } from './pullPaths.js';
+import { browseFolder, defaultSpaceOf, ensureRoom, purgeJournals } from './remoteFolders.js';
+import { executeRun, undoRunSides } from './runner.js';
+import { checkNewDevice, measureFold, validRemoteRoot } from './servers.js';
 import { sqliteStore, type StoredLink, type SyncStore } from './store.js';
-import { massDeleteAsk, summarize, warningsFor } from './summary.js';
+import { localWinsWarning, massDeleteAsk, summarize, warningsFor } from './summary.js';
 import {
   isActing,
   keepBothPath,
-  LOCAL_ACTIONS,
-  SERVER_ACTIONS,
   type FileMeta,
   type SyncDevice,
+  type SyncConflictPolicy,
   type SyncDeviceInput,
   type SyncDirection,
   type SyncEntry,
@@ -35,6 +36,7 @@ import {
   type SyncLink,
   type SyncLinkInput,
   type SyncOverview,
+  type SyncPullInput,
   type SyncRun,
 } from '../../src/types/projectSync.js';
 
@@ -59,6 +61,10 @@ export interface SyncServiceDeps {
   localPlatform?: string;
   /** Persist progress at most this often while a run is going (ms). */
   saveEveryMs?: number;
+  /** Free bytes where a side writes (null: unknown). Default: asks that side's helper. */
+  freeSpace?: (launch: Launcher, path: string) => Promise<number | null>;
+  /** A run's undo journal younger than this survives a purge (default: one hour). */
+  journalMinAgeMs?: number;
 }
 
 const RUNS_KEPT_PER_LINK = 10;
@@ -71,6 +77,9 @@ const RUNNABLE: ReadonlySet<SyncRun['state']> = new Set([
   'cancelled',
   'interrupted',
 ]);
+
+/** A link's conflict policy; links made before it existed ask. */
+const policyOf = (l: StoredLink): SyncConflictPolicy => l.conflictPolicy ?? 'ask';
 
 /** `~/x` (catalog display path) → absolute. */
 function expand(display: string, home: string): string {
@@ -102,6 +111,7 @@ export function createSyncService(deps: SyncServiceDeps) {
   const foldLocal = deps.foldLocal ?? measureFold;
   const localPlatform = deps.localPlatform ?? process.platform;
   const saveEveryMs = deps.saveEveryMs ?? 1000;
+  const spaceOf = deps.freeSpace ?? defaultSpaceOf;
 
   let store: SyncStore;
   let links: StoredLink[] = [];
@@ -189,13 +199,22 @@ export function createSyncService(deps: SyncServiceDeps) {
     await store.saveRun(r);
   }
 
-  async function pruneRuns(linkId: string) {
-    const mine = runs.filter((r) => r.linkId === linkId).sort((a, b) => b.createdAt - a.createdAt);
-    for (const old of mine.slice(RUNS_KEPT_PER_LINK)) {
-      runs = runs.filter((r) => r.id !== old.id);
-      entryCache.delete(old.id);
-      await store.deleteRun(old.id);
+  /** Keeps a link's newest runs; the undo journals of the rest go too. */
+  async function pruneRuns(l: StoredLink, d: SyncDevice) {
+    const mine = runs.filter((r) => r.linkId === l.id).sort((a, b) => b.createdAt - a.createdAt);
+    const old = mine.slice(RUNS_KEPT_PER_LINK);
+    for (const o of old) {
+      runs = runs.filter((r) => r.id !== o.id);
+      entryCache.delete(o.id);
+      await store.deleteRun(o.id);
     }
+    if (old.length)
+      await purgeJournals(
+        [{ launch: launchDevice(d) }, { launch: launchLocal, side: 'local' }],
+        l.id,
+        mine.slice(0, RUNS_KEPT_PER_LINK).map((r) => r.id),
+        deps.journalMinAgeMs,
+      );
   }
 
   // -------------------------------------------------------------------------
@@ -205,43 +224,11 @@ export function createSyncService(deps: SyncServiceDeps) {
   /** Adds a server once its host key is in known_hosts and it runs Node.js 18+ over SSH. */
   async function addDevice(input: SyncDeviceInput): Promise<SyncDevice> {
     await load();
-    const d: SyncDeviceInput = {
-      name: input.name.trim(),
-      host: input.host.trim(),
-      username: input.username.trim(),
-      port: input.port,
-    };
-    const bad = invalidDeviceInput(d);
-    if (bad) throw new SyncError(bad, 400);
-    const saved = await devicesOf();
-    if (saved.length >= MAX_DEVICES) throw new SyncError('Remove a server before adding another.');
-    if (saved.some((x) => x.host === d.host && x.username === d.username && x.port === d.port))
-      throw new SyncError('That server is already added.');
-    let pinned: string;
-    try {
-      pinned = await fingerprint(d);
-    } catch (e) {
-      throw new SyncError(clean(e));
-    }
-    let info: { home: string; platform: string; node: string };
-    try {
-      info = await probe(launchDevice({ ...d, fingerprint: pinned }));
-    } catch (e) {
-      throw new SyncError(`Could not reach the server: ${clean(e)}`);
-    }
-    if (info.platform === 'win32') throw new SyncError('Windows servers are not supported.');
-    if (!(Number(info.node.split('.')[0]) >= 18))
-      throw new SyncError(`The server needs Node.js 18 or newer (it has ${info.node}).`);
-    if (!posix.isAbsolute(info.home) || info.home === '/')
-      throw new SyncError('The server reported no usable home folder.');
-    const device: SyncDevice = {
-      id: randomUUID(),
-      ...d,
-      fingerprint: pinned,
-      home: info.home,
-      platform: info.platform,
-      checkedAt: Date.now(),
-    };
+    const device = await checkNewDevice(input, {
+      saved: await devicesOf(),
+      fingerprint,
+      probe: (d) => probe(launchDevice(d)),
+    });
     await store.saveDevice(device);
     return device;
   }
@@ -267,13 +254,10 @@ export function createSyncService(deps: SyncServiceDeps) {
       );
   };
 
-  async function createLink(input: SyncLinkInput): Promise<SyncLink> {
-    await load();
-    if (localPlatform === 'win32') throw new SyncError('Project Sync runs on macOS and Linux.');
-    if (!input.credentialsAck)
-      throw new SyncError('Confirm that credential files such as .env are copied too.', 400);
+  /** A catalog project and its real folder here: never the home folder itself. */
+  async function projectOf(projectId: string) {
     const catalog = deps.catalog.getCatalog();
-    const project = catalog.projects.find((p) => p.id === input.projectId);
+    const project = catalog.projects.find((p) => p.id === projectId);
     if (!project || !project.exists || project.isHome)
       throw new SyncError('Choose an existing project from Sources (rescan if it is new).');
     let localRoot: string;
@@ -284,6 +268,15 @@ export function createSyncService(deps: SyncServiceDeps) {
     }
     if (localRoot === home || !isAbsolute(localRoot))
       throw new SyncError('The home folder itself cannot be synced.');
+    return { project, localRoot };
+  }
+
+  async function createLink(input: SyncLinkInput): Promise<SyncLink> {
+    await load();
+    if (localPlatform === 'win32') throw new SyncError('Project Sync runs on macOS and Linux.');
+    if (!input.credentialsAck)
+      throw new SyncError('Confirm that credential files such as .env are copied too.', 400);
+    const { project, localRoot } = await projectOf(input.projectId);
     const direction = input.direction ?? 'two-way';
     if (direction === 'two-way') await twoWayRoot(localRoot);
     const d = await deviceOf(input.deviceId);
@@ -312,6 +305,7 @@ export function createSyncService(deps: SyncServiceDeps) {
       deviceId: d.id,
       remoteRoot: input.remoteRoot,
       direction,
+      ...(input.conflictPolicy === 'local' ? { conflictPolicy: 'local' as const } : {}),
       excludes: input.excludes,
       credentialsAckAt: now,
       hasBase: false,
@@ -326,7 +320,12 @@ export function createSyncService(deps: SyncServiceDeps) {
 
   async function updateLink(
     id: string,
-    patch: { name?: string; excludes?: string[]; direction?: SyncDirection },
+    patch: {
+      name?: string;
+      excludes?: string[];
+      direction?: SyncDirection;
+      conflictPolicy?: SyncConflictPolicy;
+    },
   ) {
     await load();
     const l = link(id);
@@ -347,6 +346,11 @@ export function createSyncService(deps: SyncServiceDeps) {
       l.direction = patch.direction!;
       stale ??= 'The sync direction changed after this compare. Compare again.';
     }
+    if (patch.conflictPolicy !== undefined && patch.conflictPolicy !== policyOf(l)) {
+      if (patch.conflictPolicy === 'local') l.conflictPolicy = 'local';
+      else delete l.conflictPolicy;
+      stale ??= 'The “When both changed” setting changed after this compare. Compare again.';
+    }
     if (stale) {
       const last = l.lastRunId ? runs.find((x) => x.id === l.lastRunId) : undefined;
       if (last && last.state !== 'running' && last.state !== 'comparing') {
@@ -362,7 +366,7 @@ export function createSyncService(deps: SyncServiceDeps) {
 
   async function removeLink(id: string) {
     await load();
-    link(id);
+    const gone = link(id);
     if (working && runs.find((r) => r.id === working)?.linkId === id)
       throw new SyncError('Wait for the running compare or run to finish.');
     for (const r of runs.filter((x) => x.linkId === id)) {
@@ -372,6 +376,17 @@ export function createSyncService(deps: SyncServiceDeps) {
     runs = runs.filter((r) => r.linkId !== id);
     links = links.filter((l) => l.id !== id);
     await store.deleteLink(id);
+    // Its undo journals have no run left to undo: removed on both sides, in the background.
+    void deviceOf(gone.deviceId)
+      .then((d) =>
+        purgeJournals(
+          [{ launch: launchDevice(d) }, { launch: launchLocal, side: 'local' }],
+          id,
+          [],
+          0,
+        ),
+      )
+      .catch(() => {});
   }
 
   // -------------------------------------------------------------------------
@@ -438,10 +453,12 @@ export function createSyncService(deps: SyncServiceDeps) {
           localPlatform,
           devicePlatform: d.platform,
           direction: l.direction,
+          conflictPolicy: policyOf(l),
           ...(fold ? { foldLocal: fold } : {}),
         });
         r.groups = plan.groups;
         r.warnings = warningsFor(plan.entries, l.direction);
+        if (plan.settled) r.warnings.unshift(localWinsWarning(plan.settled));
         if (restart)
           r.warnings.unshift(
             R.missing
@@ -465,7 +482,7 @@ export function createSyncService(deps: SyncServiceDeps) {
         await saveRunAndLink(r).catch((e) =>
           log.error('project-sync', `Compare not saved: ${clean(e)}`),
         );
-        await pruneRuns(linkId).catch((e) =>
+        await pruneRuns(l, d).catch((e) =>
           log.warn('project-sync', `Old runs not pruned: ${clean(e)}`),
         );
       }
@@ -553,6 +570,9 @@ export function createSyncService(deps: SyncServiceDeps) {
       const entries = await entriesOf(runId);
       const ask = massDeleteAsk(entries);
       if (ask && !opts.confirmDeletes) throw new SyncError(ask, 409, 'mass-delete');
+      const b = r.bytes;
+      await ensureRoom(spaceOf, launchDevice(d), l.remoteRoot, b.toSend - b.sent, 'the server');
+      await ensureRoom(spaceOf, launchLocal, l.localRoot, (b.toGet ?? 0) - (b.got ?? 0), 'this computer');
       entryCache.set(r.id, entries);
       const before = { state: r.state, startedAt: r.startedAt, error: r.error };
       const was = entries.map((e) => ({ state: e.state, error: e.error }));
@@ -662,79 +682,12 @@ export function createSyncService(deps: SyncServiceDeps) {
     try {
       const d = await deviceOf(l.deviceId);
       await check(d);
-      const entries = await entriesOf(r.id);
-      const toServer = entries.some((e) => SERVER_ACTIONS.has(e.action));
-      const toLocal = entries.some((e) => LOCAL_ACTIONS.has(e.action));
-      // Reach the server before anything changes: one that cannot answer would leave the run
-      // stale and the base forgotten with nothing put back.
-      if (toServer)
-        try {
-          await probe(launchDevice(d));
-        } catch (e) {
-          throw new SyncError(`Could not reach the server: ${clean(e)} Nothing was undone.`);
-        }
-      const before = await store.loadBase(l.id);
-      const staleBefore = r.stale;
-      /** Nothing was put back: the base and the plan still hold. */
-      const rollBack = async () => {
-        r.stale = staleBefore;
-        if (r.stale === undefined) delete r.stale;
-        await saveBase(store, l, before);
-        await saveRunAndLink(r);
-      };
-      // Once undo begins, this plan describes neither side: a Retry would rebuild the base from it.
-      r.stale =
-        'Undo began on this run. Undo again to finish it; a new compare gives up the rest of the undo.';
-      try {
-        await saveRunAndLink(r);
-        // Forget the base before anything is put back: an undo that stops partway leaves neither
-        // side matching it, and a stale base would read the undone files as fresh edits. The
-        // next compare runs as a first run, which never deletes.
-        await saveBase(store, l, new Map());
-      } catch (e) {
-        await rollBack().catch((err) =>
-          log.error('project-sync', `Undo not rolled back: ${clean(err)}`),
-        );
-        throw new SyncError(`Could not start the undo: ${clean(e)} Nothing was undone.`);
-      }
-      const result = { restored: 0, skipped: 0 };
-      let sides = 0;
-      const undoSide = async (launch: Launcher, header: Parameters<typeof undoRun>[1]) => {
-        try {
-          const x = await undoRun(launch, header);
-          result.restored += x.restored;
-          result.skipped += x.skipped;
-          sides++;
-        } catch (e) {
-          // That side never received anything from this run.
-          if (!(e instanceof Error && e.message.startsWith('Nothing to undo'))) throw e;
-        }
-      };
-      try {
-        if (toServer)
-          await undoSide(launchDevice(d), { root: l.remoteRoot, linkId: l.id, runId: r.id });
-        if (toLocal)
-          await undoSide(launchLocal, {
-            root: l.localRoot,
-            linkId: l.id,
-            runId: r.id,
-            side: 'local',
-          });
-      } catch (e) {
-        throw new SyncError(`Undo stopped partway: ${clean(e)} Undo again to finish.`);
-      }
-      if (!sides) {
-        // Neither side holds anything of this run: the base was still true, and so is the plan.
-        await rollBack();
-        throw new SyncError('Nothing from this run changed either side.');
-      }
-      r.state = 'undone';
-      delete r.stale;
-      r.warnings = [
-        `Undo restored ${result.restored} item${result.restored === 1 ? '' : 's'}${result.skipped ? `; ${result.skipped} changed since and were left alone` : ''}.`,
-        ...r.warnings,
-      ];
-      await saveRunAndLink(r);
+      const result = await undoRunSides(
+        { store, launchLocal, launchDevice: launchDevice(d), saveRun: saveRunAndLink },
+        r,
+        l,
+        await entriesOf(r.id),
+      );
       return { run: copy(r), ...result };
     } finally {
       working = null;
@@ -788,6 +741,29 @@ export function createSyncService(deps: SyncServiceDeps) {
     });
   }
 
+  const pulls = createPulls({
+    launchLocal,
+    launchDevice: (d) => launchDevice(d),
+    deviceOf,
+    check,
+    projectRoot: async (projectId) => {
+      const { project, localRoot } = await projectOf(projectId);
+      // Each part's undo journal lives under the home folder, on the same volume.
+      if (!isWithin(await homeReal(), localRoot))
+        throw new SyncError('Pulled files land in a project inside your home folder.');
+      return { root: localRoot, display: project.path };
+    },
+    claim: (id) => {
+      busyGuard();
+      working = id;
+    },
+    release: (id) => {
+      if (working === id) working = null;
+    },
+    spaceOf,
+    journalMinAgeMs: deps.journalMinAgeMs,
+  });
+
   return {
     load,
     overview: async (): Promise<SyncOverview> => {
@@ -815,6 +791,22 @@ export function createSyncService(deps: SyncServiceDeps) {
     },
     entries: page,
     diff,
+    /** One level of a folder on a saved server, inside its home (default: home). */
+    browse: async (deviceId: string, path?: string) => {
+      await load();
+      const d = await deviceOf(deviceId);
+      await check(d);
+      return browseFolder(launchDevice(d), d.home, path);
+    },
+    planPull: async (input: SyncPullInput) => {
+      await load();
+      if (localPlatform === 'win32') throw new SyncError('Project Sync runs on macOS and Linux.');
+      return pulls.planPull(input);
+    },
+    startPull: pulls.startPull,
+    getPull: pulls.getPull,
+    cancelPull: pulls.cancelPull,
+    undoPull: pulls.undoPull,
   };
 }
 export type SyncService = ReturnType<typeof createSyncService>;

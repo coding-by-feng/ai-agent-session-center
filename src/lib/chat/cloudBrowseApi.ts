@@ -4,7 +4,6 @@
  *
  *   GET /api/phone-cloud/status                   connected or not, last sync, problem
  *   GET /api/phone-cloud/browse[?refresh=1]       resources and project records
- *   GET /api/phone-cloud/resources/<id>/versions  one resource's latest versions
  *
  * Nothing here writes: uploads, installs, restores, publishing, clones and
  * account changes stay on the Mac. Every answer is checked before it is drawn;
@@ -48,14 +47,6 @@ const ProjectSchema = z.object({
 });
 export type CloudProject = z.infer<typeof ProjectSchema>;
 
-const VersionSchema = z.object({
-  version: z.number().int().positive(),
-  createdAt: z.string().max(64),
-  bytes: z.number().int().nonnegative(),
-  files: z.number().int().nonnegative(),
-});
-export type CloudVersion = z.infer<typeof VersionSchema>;
-
 const BrowseSchema = z.object({
   ...StatusShape,
   resources: z.array(ResourceSchema).max(2000),
@@ -63,14 +54,6 @@ const BrowseSchema = z.object({
   truncated: z.boolean(),
 });
 export type CloudBrowse = z.infer<typeof BrowseSchema>;
-
-const VersionsSchema = z.object({
-  ...StatusShape,
-  resource: ResourceSchema.nullable(),
-  versions: z.array(VersionSchema).max(100),
-  truncated: z.boolean(),
-});
-export type CloudVersions = z.infer<typeof VersionsSchema>;
 
 /** `missing`: the Mac has no such item for this phone (More → Resources, plan 16). */
 export type CloudFetchProblem = 'unreachable' | 'unsupported' | 'busy' | 'invalid' | 'missing';
@@ -126,8 +109,4 @@ export function fetchCloudStatus(signal?: AbortSignal): Promise<CloudStatus> {
 
 export function fetchCloudBrowse(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<CloudBrowse> {
   return getJson(`/api/phone-cloud/browse${options.refresh ? '?refresh=1' : ''}`, BrowseSchema, options.signal);
-}
-
-export function fetchCloudVersions(resourceId: string, signal?: AbortSignal): Promise<CloudVersions> {
-  return getJson(`/api/phone-cloud/resources/${encodeURIComponent(resourceId)}/versions`, VersionsSchema, signal);
 }

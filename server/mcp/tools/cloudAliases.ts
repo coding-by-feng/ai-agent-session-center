@@ -218,7 +218,7 @@ const remoteAccessRefresh = defineTool({
     const sent = await ctx.client.post(`${CLOUD}/remote-access/refresh`, {}, { signal: ctx.signal });
     const body = cloudWriteBody<unknown>(sent, {
       what: 'This build of AASC cannot refresh remote access.',
-      hint: 'cloud_status shows the cloud connection; the person can look in RESOURCES → Cloud → Remote access.',
+      hint: 'cloud_status shows the cloud connection; the person can look in RESOURCES → Machines (This Mac).',
     });
     // At run time only: cloud.ts lists this module (see the head of this file).
     const { remoteViewOf } = await import('./cloud.js');

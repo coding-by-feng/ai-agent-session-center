@@ -142,7 +142,7 @@ describe('status', () => {
     const phoneCloud = createPhoneCloud({ cloud });
     const browse = await phoneCloud.browse();
     expect(browse).toMatchObject({ connected: false, state: 'revoked', problem: PHONE_CLOUD_PROBLEMS.revoked, resources: [], projects: [] });
-    expect(browse.problem).toMatch(/RESOURCES → Cloud → Connection/);
+    expect(browse.problem).toMatch(/RESOURCES → Cloud account/);
     expect(cloud.calls).toEqual([]);
   });
 

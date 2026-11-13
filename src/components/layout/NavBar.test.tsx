@@ -78,10 +78,35 @@ describe('NavBar — RESOURCES tab', () => {
     expect(screen.queryByRole('link', { name: 'RESOURCES' })).toBeNull();
   });
 
-  it('leaves every existing tab in place for a remote device', () => {
+  it('leaves the tabs a remote device can open in place', () => {
     setDevices([device('me', false)]);
     renderNav();
-    expect(tabLabels()).toEqual(['LIVE', 'AGENDA', 'HISTORY', 'PROMPTS', 'QUEUE', 'REVIEW']);
+    expect(tabLabels()).toEqual(['LIVE', 'AGENDA', 'QUEUE', 'REVIEW']);
+  });
+});
+
+// HISTORY lists every session and PROMPTS reads the cross-session trace; the
+// server answers both 403 HISTORY_HOST_ONLY to a remote device (AASC-29), so a
+// Client app or LAN browser would open a tab that can only show that refusal.
+describe('NavBar — HISTORY and PROMPTS tabs', () => {
+  it('are hidden until presence confirms this device is local', () => {
+    renderNav();
+    expect(screen.queryByRole('link', { name: 'HISTORY' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'PROMPTS' })).toBeNull();
+  });
+
+  it('are hidden on a remote device even while the desktop is connected locally', () => {
+    setDevices([device('desktop', true), device('me', false)]);
+    renderNav();
+    expect(screen.queryByRole('link', { name: 'HISTORY' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'PROMPTS' })).toBeNull();
+  });
+
+  it('are shown on the host machine', () => {
+    setDevices([device('me', true)]);
+    renderNav();
+    expect(screen.getByRole('link', { name: 'HISTORY' }).getAttribute('href')).toBe('/history');
+    expect(screen.getByRole('link', { name: 'PROMPTS' }).getAttribute('href')).toBe('/prompts');
   });
 });
 

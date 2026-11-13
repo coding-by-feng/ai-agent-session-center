@@ -3,7 +3,6 @@
 // `?session=<id>&tab=` links mapped onto the new screens.
 import { describe, it, expect } from 'vitest';
 import {
-  cloudResourcePath,
   projectItemPath,
   resourceItemPath,
   resourcesPath,
@@ -17,6 +16,7 @@ import {
   withTerminalOnTop,
   INFO_PAGES,
   PHONE_TABS,
+  RESOURCES_TABS,
   renameSessionInPath,
   SETTINGS_SECTIONS,
   morePath,
@@ -227,32 +227,40 @@ describe('defaultSegment', () => {
   });
 });
 
-describe('AASC Cloud pages (AASC-51)', () => {
+describe('old links to the resource sync screens (removed Nov 2026) land on Resources → Projects', () => {
   const ID = '0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c';
+  const PROJECTS = { kind: 'resources', tab: 'projects' } as const;
+  const OLD_LINKS = ['/more/cloud', '/more/resources/cloud', `/more/cloud/${ID}`];
 
-  it('round-trips a cloud resource’s versions; More → Cloud is now Resources → Cloud sync (plan 16)', () => {
-    expect(parsePhonePath('/more/cloud')).toEqual({ kind: 'resources', tab: 'cloud' });
-    expect(cloudResourcePath(ID)).toBe(`/more/cloud/${ID}`);
-    expect(parsePhonePath(`/more/cloud/${ID}`)).toEqual({ kind: 'cloud-resource', resourceId: ID });
-    expect(phonePath({ kind: 'cloud-resource', resourceId: ID })).toBe(`/more/cloud/${ID}`);
+  it('/more/cloud (AASC-51’s Cloud) opens Projects', () => {
+    expect(parsePhonePath('/more/cloud')).toEqual(PROJECTS);
   });
 
-  it('takes only a canonical resource id', () => {
-    for (const bad of ['/more/cloud/abc', `/more/cloud/${ID.toUpperCase()}`, `/more/cloud/${ID}/x`, '/more/cloud/', '/more/settings/cloud']) {
-      expect(parsePhonePath(bad), bad).toBeNull();
+  it('/more/resources/cloud (Cloud sync) opens Projects', () => {
+    expect(parsePhonePath('/more/resources/cloud')).toEqual(PROJECTS);
+  });
+
+  it('/more/cloud/<id> (a cloud resource’s versions) opens Projects', () => {
+    expect(parsePhonePath(`/more/cloud/${ID}`)).toEqual(PROJECTS);
+  });
+
+  it('restores the Projects stack in the More tab, also from the address bar', () => {
+    for (const path of OLD_LINKS) {
+      expect(tabOfPath(path), path).toBe('more');
+      expect(pathChain(path), path).toEqual(['/more', '/more/resources/projects']);
+      const href = withPhonePath('http://mac.local:3333/?theme=light', path);
+      expect(phonePathFromSearch(href.slice(href.indexOf('?'))), path).toBe(path);
     }
   });
 
-  it('lives in the More tab, a resource stacked over Cloud sync', () => {
-    expect(tabOfPath('/more/cloud')).toBe('more');
-    expect(tabOfPath(`/more/cloud/${ID}`)).toBe('more');
-    expect(pathChain('/more/cloud')).toEqual(['/more', '/more/resources/cloud']);
-    expect(pathChain(`/more/cloud/${ID}`)).toEqual(['/more', '/more/resources/cloud', `/more/cloud/${ID}`]);
+  it('builds no path to a sync screen any more', () => {
+    for (const path of OLD_LINKS) expect(phonePath(parsePhonePath(path)!), path).toBe('/more/resources/projects');
   });
 
-  it('survives the address bar', () => {
-    const href = withPhonePath('http://mac.local:3333/?theme=light', `/more/cloud/${ID}`);
-    expect(phonePathFromSearch(href.slice(href.indexOf('?')))).toBe(`/more/cloud/${ID}`);
+  it('takes only a canonical resource id under /more/cloud', () => {
+    for (const bad of ['/more/cloud/abc', `/more/cloud/${ID.toUpperCase()}`, `/more/cloud/${ID}/x`, '/more/cloud/', '/more/settings/cloud', '/more/resources/cloud/x']) {
+      expect(parsePhonePath(bad), bad).toBeNull();
+    }
   });
 });
 
@@ -260,9 +268,9 @@ describe('More → Resources (plan 16)', () => {
   const ITEM = '00000000000000a1';
 
   it('round-trips each tab and a Library resource', () => {
+    expect(RESOURCES_TABS).toEqual(['library', 'projects']);
     expect(resourcesPath()).toBe('/more/resources');
     expect(parsePhonePath('/more/resources')).toEqual({ kind: 'resources', tab: 'library' });
-    expect(parsePhonePath('/more/resources/cloud')).toEqual({ kind: 'resources', tab: 'cloud' });
     expect(parsePhonePath('/more/resources/projects')).toEqual({ kind: 'resources', tab: 'projects' });
     expect(resourceItemPath(ITEM)).toBe(`/more/resources/item/${ITEM}`);
     expect(parsePhonePath(`/more/resources/item/${ITEM}`)).toEqual({ kind: 'resource-item', id: ITEM });

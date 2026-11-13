@@ -17,6 +17,10 @@ const term = vi.hoisted(() => ({
   write: vi.fn(),
   close: vi.fn(),
   prefill: vi.fn(() => true),
+  /** What readTerminalScreenCells renders: rows of text, or null for no screen. */
+  screen: null as string[] | null,
+  /** The terminal's foreground program. */
+  foreground: 'claude' as string | null,
 }));
 
 vi.mock('../server/sshManager.js', async (importOriginal) => {
@@ -29,6 +33,9 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
     writeToTerminal: term.write,
     closeTerminal: term.close,
     prefillTerminalOutput: term.prefill,
+    getForegroundProcess: () => term.foreground,
+    readTerminalScreenCells: async () =>
+      term.screen?.map((line) => [...line].map((ch) => ({ ch, dim: false }))) ?? null,
   };
 });
 
@@ -139,5 +146,64 @@ describe('the desktop app (local)', () => {
     expect((await call('GET', '/terminals/t-hidden/output')).status).toBe(200);
     expect((await call('POST', '/terminals/t-hidden/write', {}, { data: 'x' })).status).toBe(200);
     expect((await call('POST', '/terminals/t-hidden/prefill-output', {}, { data: 'eA==' })).status).toBe(200);
+  });
+});
+
+// Nov 13 2026: the queue's "take the text from Claude's input box" types Ctrl+U, so it obeys /write's rules.
+describe('POST /terminals/:id/take-input', () => {
+  const RULE = '─'.repeat(40);
+  const box = (text: string) => [RULE, `❯ ${text}`, RULE];
+  beforeEach(async () => {
+    term.foreground = 'claude';
+    (await import('../server/inputBoxCapture.js')).forgetTerminalWrites();
+  });
+
+  it('hands the desktop the box text and clears the box with Ctrl+U', async () => {
+    term.screen = box('dictated words');
+    const res = await call('POST', '/terminals/t-hidden/take-input', {}, {});
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ success: true, data: { text: 'dictated words' } });
+    expect(term.write).toHaveBeenCalledWith('t-hidden', expect.stringMatching(/^\x15+$/));
+  });
+
+  it('says so, writing nothing, when no input box is on screen', async () => {
+    term.screen = ['Do you want to proceed?', '❯ 1. Yes'];
+    const res = await call('POST', '/terminals/t-shared/take-input', {}, {});
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('NO_INPUT_BOX');
+    expect(term.write).not.toHaveBeenCalled();
+  });
+
+  it('waits out a queue send between its text and its Enter, then takes', async () => {
+    term.screen = box('queued prompt');
+    await call('POST', '/terminals/t-shared/write', {}, { data: 'queued prompt' });
+    term.write.mockClear();
+    const busy = await call('POST', '/terminals/t-shared/take-input', {}, {});
+    expect(busy.status).toBe(409);
+    expect(busy.json.code).toBe('SEND_IN_PROGRESS');
+    expect(term.write).not.toHaveBeenCalled();
+    await call('POST', '/terminals/t-shared/write', {}, { data: '\r' });
+    expect((await call('POST', '/terminals/t-shared/take-input', {}, {})).status).toBe(200);
+  });
+
+  it('refuses when Claude is no longer the program in front', async () => {
+    term.screen = box('stale');
+    term.foreground = 'zsh';
+    const res = await call('POST', '/terminals/t-shared/take-input', {}, {});
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('NOT_AGENT');
+    expect(term.write).not.toHaveBeenCalled();
+  });
+
+  it('is 404 for a terminal with no screen', async () => {
+    term.screen = null;
+    expect((await call('POST', '/terminals/t-shared/take-input', {}, {})).status).toBe(404);
+  });
+
+  it('never reaches a hidden session from a remote device, nor any session anonymously', async () => {
+    term.screen = box('secret');
+    expect((await call('POST', '/terminals/t-hidden/take-input', { ...REMOTE, 'X-AASC-Client-Id': 'phone-1' }, {})).status).toBe(404);
+    expect((await call('POST', '/terminals/t-shared/take-input', REMOTE, {})).status).toBe(409);
+    expect(term.write).not.toHaveBeenCalled();
   });
 });

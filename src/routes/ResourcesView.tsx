@@ -1,5 +1,5 @@
 /**
- * ResourcesView — local resource catalog, restorable Uninstall and portable Cloud resources.
+ * ResourcesView — local resource catalog, restorable Uninstall, projects and machines.
  *
  * One catalog of every Claude Code and Codex resource on this machine —
  * skills, commands, rules, CLAUDE.md/AGENTS.md, memory, agents, hooks, MCP
@@ -7,12 +7,13 @@
  * agent-skills repo copy. Everything arrives through `/api/resources`
  * (src/lib/resourcesApi.ts). Uninstall moves resources into the local trash.
  *
- * One tab row since Oct 23 2026: **Library** (browse; each row shows its cloud
- * state, and a resource is saved, synced, stopped or removed from where it is
- * shown), **Cloud sync**, **Projects**, **Health** (Checks + Sources) and
- * **Connection**. The cloud session (CloudSessionProvider) wraps the whole tab,
- * since the Library needs it too; the cloud views stay in the lazy CloudPanel,
- * which never uses ProjectTab or `/api/files/*`.
+ * Three tabs since Nov 13 2026: **Library** (browse; its **Checks** button shows
+ * Checks + Sources in place of the list, the Health tab before), **Projects**
+ * (the lazy CloudPanel, which never uses ProjectTab or `/api/files/*`) and
+ * **Machines** (This Mac's remote access; scan and SSH machines come next). The
+ * AASC Cloud account is a button at the end of the tab row (the Connection tab
+ * before). Cloud sync (AASC-62) was removed. The cloud session
+ * (CloudSessionProvider) wraps the whole tab: Projects and the account need it.
  *
  * Catalog view state lives in the URL (`section`, `type`, `agent`, `scope`,
  * `project`, `q`, `id`, `plugins`, `sort`), so every view is a link:
@@ -24,7 +25,7 @@ import { useNavigationType, useSearchParams } from 'react-router';
 import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType, UninstallResult } from '@/types/resources';
 import {
   catalogSummaryLine,
-  healthIssues,
+  checkErrors,
   countByType,
   emptyStateMessage,
   filterResources,
@@ -47,38 +48,31 @@ import {
 } from '@/lib/resourcesApi';
 import { showToast } from '@/components/ui/ToastContainer';
 import Button from '@/components/ui/Button';
+import CountBadge from '@/components/ui/CountBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { RefreshListIcon } from '@/components/ui/icons';
 import { useUiStore } from '@/stores/uiStore';
-import { cloudApi } from '@/lib/cloudApi';
 import { buildResourceShortcuts } from '@/lib/commandShortcuts';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import { isNotable, readNoteParams, resourceNoteKey, tagsInUse } from '@/lib/skillNotes';
 import ResourceTypeRail from '@/components/resources/ResourceTypeRail';
-import ResourceList, { type RowCloudState } from '@/components/resources/ResourceList';
+import ResourceList from '@/components/resources/ResourceList';
 import ResourceDetail, { type DetailTab } from '@/components/resources/ResourceDetail';
 import SectionTabs from '@/components/resources/SectionTabs';
 import FilterBar from '@/components/resources/FilterBar';
-import BulkBar from '@/components/resources/BulkBar';
-import CloudControl from '@/components/resources/CloudControl';
-import CloudSummaryLink from '@/components/resources/CloudSummaryLink';
 import HealthPanel from '@/components/resources/HealthPanel';
 import CloudSessionProvider from '@/components/resources/cloud/CloudSessionProvider';
-import CloudActionDialogs from '@/components/resources/cloud/CloudActionDialogs';
-import { useCloudSession } from '@/components/resources/cloud/cloudSession';
-import { cacheKey } from '@/components/resources/cloud/cloudCache';
-import { reloadSyncStatus, useSyncStatus } from '@/components/resources/cloud/syncStatusStore';
-import { useSyncAutoload } from '@/components/resources/cloud/useSyncAutoload';
+import CloudAccountButton, { CLOUD_ACCOUNT_MODAL_ID } from '@/components/resources/cloud/CloudAccountButton';
 import { useResourceUsage } from '@/components/resources/useResourceUsage';
 import { isUsageCounted, readResourceSort, sortByUses } from '@/lib/resourceUsage';
-import type { CloudSection } from '@/components/resources/cloud/CloudPanel';
 import { RESTORE_WINDOW_MS, UNINSTALL_MODAL_ID, UninstallDialog } from '@/components/resources/UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
 import lib from '@/styles/modules/ResourceLibrary.module.css';
-import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceSelection';
 
 const CloudPanel = lazy(() => import('@/components/resources/cloud/CloudPanel'));
-const CLOUD_SECTIONS: readonly ResourceSection[] = ['sync', 'projects', 'connection'];
+const MachinesPanel = lazy(() => import('@/components/resources/machines/MachinesPanel'));
+/** No tab carries a count yet (Machines will: machines that need you). */
+const NO_BADGES: Partial<Record<ResourceSection, number>> = {};
 const POLL_MS = 750;
 /** How often "scanned 2m ago" is re-derived; it has minute resolution. */
 const AGE_TICK_MS = 30_000;
@@ -196,14 +190,12 @@ function ResourcesScreen() {
   const params = useMemo(() => readResourceParams(searchParams), [searchParams]);
   const [extraRoots, setExtraRoots] = useState<string[]>(() => readExtraRoots());
   const [storageOk, setStorageOk] = useState(true);
-  const [resourceSelection, setResourceSelection] = useState<ResourceSelection>([]);
-  const [selectingResources, setSelectingResources] = useState(false);
-  // The cloud views stay mounted once opened (a running job or an open review survives a switch).
-  const cloudSection = CLOUD_SECTIONS.includes(params.section) ? (params.section as CloudSection) : null;
-  const [cloudVisited, setCloudVisited] = useState(false);
-  const [lastCloud, setLastCloud] = useState<CloudSection>('sync');
-  if (cloudSection && !cloudVisited) setCloudVisited(true);
-  if (cloudSection && cloudSection !== lastCloud) setLastCloud(cloudSection);
+  // Projects and Machines stay mounted once opened (a running job or a draft survives a switch,
+  // and Remote access reads Tailscale once per visit).
+  const [projectsVisited, setProjectsVisited] = useState(false);
+  const [machinesVisited, setMachinesVisited] = useState(false);
+  if (params.section === 'projects' && !projectsVisited) setProjectsVisited(true);
+  if (params.section === 'machines' && !machinesVisited) setMachinesVisited(true);
   const [detailTab, setDetailTab] = useState<DetailTab>('preview');
   const { catalog, error, unavailable, now, reload, rescan, rescanPending } = useResourceCatalog(extraRoots);
 
@@ -250,7 +242,6 @@ function ResourcesScreen() {
 
   const resources = catalog?.resources ?? NO_RESOURCES;
   const projects = catalog?.projects ?? NO_PROJECTS;
-  const selectionIds = useMemo(() => new Set(resources.filter(r => resourceIsSelected(r, resourceSelection)).map(r => r.id)), [resources, resourceSelection]);
   const byId = useMemo(() => new Map(resources.map((r) => [r.id, r] as const)), [resources]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
   // Shortcut commands ("Shortcut for /x") ↔ their targets, once per catalog.
@@ -314,7 +305,7 @@ function ResourcesScreen() {
   // Leaving the tab must not strand the modal id with no dialog behind it.
   useEffect(() => () => {
     const ui = useUiStore.getState();
-    if (ui.activeModal === UNINSTALL_MODAL_ID) ui.closeModal();
+    if (ui.activeModal === UNINSTALL_MODAL_ID || ui.activeModal === CLOUD_ACCOUNT_MODAL_ID) ui.closeModal();
   }, []);
 
   // The server already dropped it from the catalog; the rescan refreshes the
@@ -341,55 +332,45 @@ function ResourcesScreen() {
     showToast(`Uninstalled ${result.name}`, 'success', RESTORE_WINDOW_MS, { label: 'Restore', onClick: restore });
   }, [closeDetail, rescan, extraRoots]);
 
-  // ---- Cloud (Oct 23 2026): every row shows its cloud state; the list is read once and shared ----
-  const session = useCloudSession();
-  const binding = session.status.connection;
-  const sync = useSyncStatus(cacheKey(binding));
-  const connected = session.status.state === 'connected' && !session.changed;
-  // Read on connect, on every connection change and after every scan (useSyncAutoload).
-  useSyncAutoload(catalog?.scannedAt ?? null);
-  const rowCloud = useMemo(() => {
-    const map = new Map<string, RowCloudState>();
-    for (const [catalogId, item] of sync.byCatalog)
-      map.set(catalogId, { state: item.state, moving: sync.moving.has(item.resourceId) || sync.moving.has(catalogId) });
-    // A first save in flight has no item yet: it shows as moving.
-    for (const id of sync.moving) if (!map.has(id) && byId.has(id)) map.set(id, { state: 'synced', moving: true });
-    return map;
-  }, [sync.byCatalog, sync.moving, byId]);
-  const badges = useMemo(
-    () => ({
-      sync: connected ? (sync.value?.waiting ?? 0) : 0,
-      health: catalog ? healthIssues(catalog.findings) : 0,
-    }),
-    [connected, sync.value, catalog],
-  );
+  // ---- Tabs, Checks and the cloud account (Nov 13 2026) ----
+  const errors = catalog ? checkErrors(catalog.findings) : 0;
   const goSection = useCallback(
-    (section: ResourceSection) => updateParams({ section: section === 'library' ? null : section, cloudTab: null }),
+    (section: ResourceSection) =>
+      updateParams({ section: section === 'library' ? null : section, cloudTab: null, checks: null }),
     [updateParams],
   );
-  const openConnection = useCallback(() => goSection('connection'), [goSection]);
-  const showCatalogResource = useCallback((catalogId: string) => {
-    const r = byId.get(catalogId);
-    if (r) showResource(r);
-  }, [byId, showResource]);
-  const selected = useMemo(() => resources.filter((r) => selectionIds.has(r.id)), [resources, selectionIds]);
-  const toggleSelecting = useCallback(() => {
-    // Turning Select off drops the selection: nothing stays chosen out of sight.
-    if (selectingResources) setResourceSelection([]);
-    setSelectingResources(!selectingResources);
-  }, [selectingResources]);
-  const uninstallSync = uninstallTarget ? sync.byCatalog.get(uninstallTarget.summary.id) : undefined;
-  const stopSyncing = useCallback(async (resourceId: string) => {
-    if (!binding) throw new Error('Reconnect to the cloud first.');
-    await cloudApi.syncControl({ resourceId, action: 'stop' }, binding);
-    void reloadSyncStatus(binding);
-  }, [binding]);
+  const toggleChecks = useCallback(
+    () => updateParams({ section: null, cloudTab: null, checks: params.checks ? null : '1', id: null }),
+    [updateParams, params.checks],
+  );
+  const openAccount = useCallback(() => openModal(CLOUD_ACCOUNT_MODAL_ID), [openModal]);
+  // An old Connection link (or `account=1`) opens the account dialog once; closing it spends the link.
+  // Not where RESOURCES is unavailable: that screen has no account button to draw the dialog, and a
+  // modal id with no dialog blocks every "no modal open" check (the interrupted-sessions prompt …).
+  useEffect(() => {
+    if (params.account && !unavailable) openModal(CLOUD_ACCOUNT_MODAL_ID);
+    if (unavailable && useUiStore.getState().activeModal === CLOUD_ACCOUNT_MODAL_ID) useUiStore.getState().closeModal();
+  }, [params.account, unavailable, openModal]);
+  // Rewrites the URL from what it resolved to (readResourceParams), so an old link keeps its tab
+  // and Checks with no second copy of the old-link table here.
+  const closeAccount = useCallback(() => {
+    if (!params.account) return;
+    updateParams(
+      {
+        account: null,
+        cloudTab: null,
+        section: params.section === 'library' ? null : params.section,
+        checks: params.checks ? '1' : null,
+      },
+      true,
+    );
+  }, [params.account, params.section, params.checks, updateParams]);
 
   if (unavailable) {
     return (
       <div className={styles.view}>
         <header className={styles.header}>
-          <h1 className={styles.title}>Agent resources</h1>
+          <h1 className={styles.title}>Resources</h1>
         </header>
         <EmptyState fill title={UNAVAILABLE_MESSAGE} />
       </div>
@@ -399,26 +380,29 @@ function ResourcesScreen() {
   const scanning = catalog?.state === 'scanning';
   const busy = scanning || rescanPending;
   const inLibrary = params.section === 'library';
+  const inList = inLibrary && !params.checks;
   // On a phone an open resource takes the whole body; the filters above it
   // cannot change what it shows, so the stylesheet folds them away.
-  const detailOpen = inLibrary && params.id !== null;
+  const detailOpen = inList && params.id !== null;
   return (
     <div className={detailOpen ? `${styles.view} ${styles.viewDetailOpen}` : styles.view}>
       <header className={styles.header}>
         <div className={styles.titleRow}>
-          <h1 className={styles.title}>Agent resources</h1>
-          <SectionTabs baseId={baseId} section={params.section} badges={badges} onSelect={goSection} />
-          <Button
-            className={styles.rescanButton}
-            icon={<RefreshListIcon />}
-            disabled={!catalog || busy}
-            aria-busy={busy || undefined}
-            onClick={() => rescan(extraRoots)}
-          >
-            Rescan
-          </Button>
+          <h1 className={styles.title}>Resources</h1>
+          <SectionTabs baseId={baseId} section={params.section} badges={NO_BADGES} onSelect={goSection} />
+          <div className={styles.titleActions}>
+            <CloudAccountButton onClose={closeAccount} />
+            <Button
+              icon={<RefreshListIcon />}
+              disabled={!catalog || busy}
+              aria-busy={busy || undefined}
+              onClick={() => rescan(extraRoots)}
+            >
+              Rescan
+            </Button>
+          </div>
         </div>
-        {inLibrary && resources.length > 0 && (
+        {inList && resources.length > 0 && (
           <FilterBar
             params={params}
             queryDraft={queryDraft}
@@ -442,8 +426,18 @@ function ResourcesScreen() {
         {catalog && (
           <div className={lib.summaryRow}>
             <p className={styles.countsLine}>{catalogSummaryLine(catalog, showPluginSystem, now)}</p>
-            {/* On Cloud sync itself the link would point at the tab you are on. */}
-            {params.section !== 'sync' && <CloudSummaryLink onSync={() => goSection('sync')} onConnect={openConnection} />}
+            {inLibrary && (
+              // Checks + Sources (the Health tab until Nov 13 2026). The badge counts errors only.
+              <Button size="sm" pressed={params.checks} onClick={toggleChecks}>
+                Checks
+                {errors > 0 && (
+                  <>
+                    {' '}
+                    <CountBadge count={errors} max={99} tone="accent" label={`${errors} ${errors === 1 ? 'error' : 'errors'}`} />
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         )}
       </header>
@@ -467,26 +461,27 @@ function ResourcesScreen() {
         id={`${baseId}-panel`}
         aria-labelledby={`${baseId}-tab-${params.section}`}
       >
-        {!catalog && !error && <EmptyState fill busy title="Loading resources…" />}
-        {!catalog && error && (
+        {/* Machines needs no catalog; its loading and failure belong to the other tabs. */}
+        {!catalog && !error && params.section !== 'machines' && <EmptyState fill busy title="Loading resources…" />}
+        {!catalog && error && params.section !== 'machines' && (
           <EmptyState fill tone="error" title={error} action={<Button onClick={reload}>Retry</Button>} />
         )}
-        {catalog && cloudVisited && (
-          // Kept mounted once opened (hidden, not unmounted) so a running job and its review survive a tab switch.
-          <div hidden={!cloudSection} className={styles.cloudSection}>
-            <Suspense fallback={<EmptyState busy title="Loading Cloud…" />}>
-              <CloudPanel
-                catalog={catalog}
-                section={cloudSection ?? lastCloud}
-                open={!!cloudSection}
-                onSection={goSection}
-                onLibrary={() => goSection('library')}
-                onShowResource={showCatalogResource}
-              />
+        {catalog && projectsVisited && (
+          // Kept mounted once opened (hidden, not unmounted) so a running job and its draft survive a tab switch.
+          <div hidden={params.section !== 'projects'} className={styles.cloudSection}>
+            <Suspense fallback={<EmptyState busy title="Loading Projects…" />}>
+              <CloudPanel catalog={catalog} open={params.section === 'projects'} />
             </Suspense>
           </div>
         )}
-        {catalog && params.section === 'health' && (
+        {machinesVisited && (
+          <div hidden={params.section !== 'machines'} className={styles.cloudSection}>
+            <Suspense fallback={<EmptyState busy title="Loading Machines…" />}>
+              <MachinesPanel open={params.section === 'machines'} onAccount={openAccount} />
+            </Suspense>
+          </div>
+        )}
+        {catalog && inLibrary && params.checks && (
           <HealthPanel
             catalog={catalog}
             byId={byId}
@@ -498,7 +493,7 @@ function ResourcesScreen() {
             onRemoveRoot={(path) => saveExtraRoots(extraRoots.filter((p) => p !== path))}
           />
         )}
-        {catalog && inLibrary && resources.length === 0 && (
+        {catalog && inList && resources.length === 0 && (
           catalog.state === 'error' ? (
             <EmptyState fill title="Nothing to show — the last scan failed before it found anything. Rescan to try again." />
           ) : scanning ? (
@@ -507,12 +502,12 @@ function ResourcesScreen() {
             <EmptyState
               fill
               title="No agent resources were found on this machine."
-              hint="Health → Sources lists every root and what was scanned there."
-              action={<Button onClick={() => goSection('health')}>Open Health</Button>}
+              hint="Checks → Sources lists every root and what was scanned there."
+              action={<Button onClick={toggleChecks}>Open Checks</Button>}
             />
           )
         )}
-        {inLibrary && resources.length > 0 && (
+        {inList && resources.length > 0 && (
           <div className={params.id ? `${styles.library} ${styles.libraryDetailOpen}` : styles.library}>
             <ResourceTypeRail counts={counts} selected={type} onSelect={(t) => updateParams({ type: t, id: null })} />
             <ResourceList
@@ -524,17 +519,9 @@ function ResourcesScreen() {
               scrollResetKey={`${type}|${agent}|${scope}|${projectId ?? ''}|${query}|${showPluginSystem}|${favOnly}|${tagKey}`}
               shortcuts={shortcuts}
               onSelect={selectResource}
-              selectionIds={selectingResources ? selectionIds : undefined}
-              onResourceSelect={(id, include) => setResourceSelection(s => withResourceSelection(s, [{ resourceId: id, include }]))}
-              onToggleSelecting={toggleSelecting}
-              onSelectAll={(ids, include) => setResourceSelection((s) => withResourceSelection(s, ids.map((resourceId) => ({ resourceId, include }))))}
-              cloud={rowCloud}
               usage={usage}
               sort={sort}
               onSort={(next) => updateParams({ sort: next === 'uses' ? 'uses' : null }, true)}
-              footer={selectingResources && selected.length > 0 ? (
-                <BulkBar selected={selected} onClear={() => setResourceSelection([])} onConnect={openConnection} />
-              ) : undefined}
             />
             {params.id ? (
               <ResourceDetail
@@ -552,7 +539,6 @@ function ResourcesScreen() {
                 realNames={realNames}
                 tab={detailTab}
                 onTab={setDetailTab}
-                cloudControl={(summary) => <CloudControl summary={summary} onConnect={openConnection} />}
                 usage={usage}
                 now={now}
               />
@@ -572,11 +558,8 @@ function ResourcesScreen() {
           otherCopies={uninstallTarget.otherCopies}
           trashPath={catalog?.roots.trash}
           onUninstalled={afterUninstall}
-          syncing={uninstallSync && uninstallSync.state !== 'removed' && uninstallSync.state !== 'stopped' ? uninstallSync : undefined}
-          onStopSyncing={stopSyncing}
         />
       )}
-      {catalog && <CloudActionDialogs catalog={catalog} />}
     </div>
   );
 }

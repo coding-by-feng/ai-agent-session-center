@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router';
 import ResourcesView from './ResourcesView';
+import { useUiStore } from '@/stores/uiStore';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import {
@@ -49,59 +50,186 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ResourcesView — shell', () => {
-  it('renders the title and one tab row: Library · Cloud sync · Projects · Health · Connection', async () => {
+  it('renders the title and one tab row: Library · Projects · Machines', async () => {
     renderView();
     await ready();
-    expect(screen.getByRole('heading', { name: /agent resources/i, level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^resources$/i, level: 1 })).toBeInTheDocument();
     const tabs = within(screen.getByRole('tablist', { name: 'Resource sections' })).getAllByRole('tab');
-    // Health carries its count of errors and warnings (four in the fixture), spoken as part of its name.
-    expect(tabs.map((t) => t.textContent)).toEqual([
-      'Library', 'Cloud sync', 'Projects', expect.stringMatching(/^Health 4/), 'Connection',
-    ]);
-    expect(tabs[3]).toHaveAccessibleName(/^Health 4 issues to look at$/);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Projects', 'Machines']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     // Data is Phase D: not even as a disabled tab. There is no second row of tabs.
     expect(screen.queryByRole('tab', { name: /data/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole('tablist')).toHaveLength(1);
   });
 
-  it.each(['transfers', 'devices'])('old_section_urls_fall_back_to_library: %s', async section => {
-    const mock = stubApi(); renderView(`/resources?section=${section}`); await ready();
-    expect(screen.getByRole('tab', {name:'Library'})).toHaveAttribute('aria-selected','true');
-    expect(listRows()).toHaveLength(7);
-    expect(urlsCalled(mock).some(url => /\/(transfers|sync-now)(?:[/?]|$)/.test(url))).toBe(false);
+  // Nov 13 2026: Cloud sync (AASC-62) was removed. No tab, no row chip, no Save to cloud, no
+  // Select mode (it existed only for the cloud's bulk bar), and no read of the sync list.
+  it('cloud_sync_is_gone: no tab, no Library cloud actions, no sync reads', async () => {
+    const mock = stubApi(); renderView(); await ready();
+    expect(screen.queryByRole('tab', { name: /cloud sync/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/cloud sync/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select' })).not.toBeInTheDocument();
+    fireEvent.click(row(/^tdd Codex/));
+    await within(detail()).findByRole('heading', { name: 'TDD', level: 1 }, LAZY);
+    expect(screen.queryByRole('button', { name: /save to cloud/i })).not.toBeInTheDocument();
+    expect(urlsCalled(mock).some((url) => /\/(sync-status|sync-now|sync-control|publish-plans)(?:[/?]|$)/.test(url))).toBe(false);
   });
 
   it.each([
-    ['section=sources', 'Health'],
-    ['section=checks', 'Health'],
-    ['section=cloud&cloudTab=resources', 'Cloud sync'],
+    ['section=transfers', 'Library'],
+    ['section=sync', 'Library'],
+    ['section=cloud&cloudTab=resources', 'Library'],
     ['section=cloud&cloudTab=projects', 'Projects'],
-    ['section=cloud&cloudTab=remote', 'Connection'],
+    ['section=cloud&cloudTab=remote', 'Machines'],
+    ['section=devices', 'Machines'],
   ])('an old link (%s) opens %s', async (query, tab) => {
-    renderView(`/resources?${query}`);
-    await ready();
-    expect(screen.getByRole('tab', { name: new RegExp(`^${tab}`) })).toHaveAttribute('aria-selected', 'true');
+    const mock = stubApi(); renderView(`/resources?${query}`); await ready();
+    expect(screen.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
+    expect(urlsCalled(mock).some((url) => /\/(transfers|sync-now)(?:[/?]|$)/.test(url))).toBe(false);
   });
 
-  it('Select in the list header checks rows, shows the bar under the list, and keeps the selection on a preview click', async () => {
+  // Health became the Library's Checks view: its badge counts errors only (one in the fixture;
+  // its three warnings are listed inside, unbadged), so the count means something again.
+  it('Checks sits in the Library bar, badges errors only, and shows Checks + Sources in place of the list', async () => {
     renderView(); await ready();
-    expect(screen.queryByRole('checkbox', { name: 'Select tdd (codex)' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (codex)' }));
-    const bar = screen.getByRole('region', { name: 'Selected resources' });
-    expect(within(bar).getByText('1 selected')).toBeInTheDocument();
-    fireEvent.click(row(/^tdd Codex/));
-    await within(detail()).findByRole('heading', { name: 'TDD', level: 1 }, LAZY);
-    expect(screen.getByRole('checkbox', { name: 'Select tdd (codex)' })).toBeChecked();
-    expect(screen.queryByRole('button', { name: /Create transfer/ })).not.toBeInTheDocument();
-    // Select all, then Select off: nothing stays chosen out of sight.
-    fireEvent.click(screen.getByRole('checkbox', { name: /Select all 7/ }));
-    expect(within(bar).getByText('7 selected')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    expect(screen.queryByRole('region', { name: 'Selected resources' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    expect(screen.getByRole('checkbox', { name: 'Select tdd (codex)' })).not.toBeChecked();
+    const checks = screen.getByRole('button', { name: /^Checks/ });
+    expect(checks).toHaveAccessibleName('Checks 1 error');
+    expect(checks).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(checks);
+    expect(urlParams().get('checks')).toBe('1');
+    expect(screen.getByRole('button', { name: /^Checks/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'Errors · 1' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Sources' })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'Search resources' })).not.toBeInTheDocument();
+    expect(listRows()).toHaveLength(0);
+    // Pressed again: back to the list.
+    fireEvent.click(screen.getByRole('button', { name: /^Checks/ }));
+    expect(urlParams().get('checks')).toBeNull();
+    expect(listRows()).toHaveLength(7);
+  });
+
+  it.each(['health', 'checks', 'sources'])('an old %s link opens the Library on Checks', async (section) => {
+    renderView(`/resources?section=${section}`); await ready();
+    expect(screen.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /^Checks/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'Warnings · 3' })).toBeInTheDocument();
+  });
+
+  // Connection became the cloud account dialog, opened from the end of the tab row on every tab.
+  it('the cloud account button opens the connection in a dialog', async () => {
+    renderView(); await ready();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /^Cloud account/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Cloud account' });
+    expect(await within(dialog).findByRole('heading', { name: 'Device connection' }, LAZY)).toBeInTheDocument();
+  });
+
+  it.each(['section=connection', 'section=cloud&cloudTab=connection'])('an old link (%s) opens the account dialog over the Library', async (query) => {
+    renderView(`/resources?${query}`); await ready();
+    expect(await screen.findByRole('dialog', { name: 'Cloud account' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Library' })).toHaveAttribute('aria-selected', 'true');
+    // The link is spent: closing the dialog leaves a plain Library URL behind.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(urlParams().get('section')).toBeNull();
+    expect(urlParams().get('account')).toBeNull();
+  });
+
+  // Machines needs no catalog: a first scan in progress or a failed read belongs to the Library
+  // and Projects, not to a full-height screen above This Mac (review, Nov 13).
+  it.each([
+    ['still loading', 'hang' as const],
+    ['failed', { status: 500, error: 'Scan broke' }],
+  ])('Machines with the catalog %s shows This Mac, not the catalog screen', async (_label, reply) => {
+    stubApi({ catalogs: [reply] });
+    renderView('/resources?section=machines');
+    expect(await screen.findByRole('region', { name: 'This Mac' }, LAZY)).toBeInTheDocument();
+    expect(screen.queryByText('Loading resources…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scan broke')).not.toBeInTheDocument();
+  });
+
+  // An old Connection bookmark on a server without RESOURCES (404): the dialog can't render, so
+  // its modal id must not stay set and block every other "no modal open" check.
+  it('an old Connection link leaves no modal open when RESOURCES is unavailable', async () => {
+    stubApi({ catalogs: [{ status: 404, error: 'Not found' }] });
+    renderView('/resources?section=connection');
+    expect(await screen.findByText(/available only on this machine/, undefined, LAZY)).toBeInTheDocument();
+    await act(async () => {});
+    expect(useUiStore.getState().activeModal).toBeNull();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // Closing the dialog spends `account=1` but keeps the tab and Checks the link resolved to.
+  it.each([
+    ['section=cloud&cloudTab=remote&account=1', 'machines', null],
+    ['section=projects&account=1', 'projects', null],
+    ['section=health&account=1', null, '1'],
+  ])('closing the account dialog opened by %s keeps where it was', async (query, section, checks) => {
+    renderView(`/resources?${query}`); await ready();
+    await screen.findByRole('dialog', { name: 'Cloud account' });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(urlParams().get('account')).toBeNull();
+    expect(urlParams().get('cloudTab')).toBeNull();
+    expect(urlParams().get('section')).toBe(section);
+    expect(urlParams().get('checks')).toBe(checks);
+  });
+
+  // A failed status read is not "Not connected": the provider never invents a connection state.
+  it('the account button says the status is unavailable when the read failed', async () => {
+    const { cloudApi } = await import('@/lib/cloudApi');
+    const status = vi.spyOn(cloudApi, 'status').mockRejectedValue(new Error('AASC server unreachable'));
+    renderView(); await ready();
+    const button = await screen.findByRole('button', { name: 'Cloud account: status unavailable' }, LAZY);
+    expect(button).toHaveTextContent('Cloud');
+    expect(screen.queryByRole('button', { name: /not connected/i })).not.toBeInTheDocument();
+    status.mockRestore();
+  });
+
+  // A revoked Mac on Projects: the status bar says so, and the header's account button is the one
+  // Reconnect. The bar used to carry a second one, 150px away, opening the same dialog.
+  it('a revoked Mac offers Reconnect once, on the account button', async () => {
+    const { cloudApi } = await import('@/lib/cloudApi');
+    const binding = {
+      backendOrigin: 'https://fixture.invalid',
+      accountId: '00000000-0000-4000-8000-000000000001',
+      deviceId: '00000000-0000-4000-8000-000000000002',
+      deviceName: 'Fixture',
+      generation: 1,
+    };
+    const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: binding, state: 'revoked', lastError: 'revoked' });
+    const projects = vi.spyOn(cloudApi, 'listProjects').mockResolvedValue({ items: [], nextCursor: null });
+    renderView('/resources?section=projects'); await ready();
+    expect(await screen.findByText(/Cloud · revoked/, undefined, LAZY)).toBeInTheDocument();
+    const reconnect = screen.getAllByRole('button', { name: /reconnect/i });
+    expect(reconnect).toHaveLength(1);
+    fireEvent.click(reconnect[0]);
+    expect(await screen.findByRole('dialog', { name: 'Cloud account' })).toBeInTheDocument();
+    status.mockRestore();
+    projects.mockRestore();
+  });
+
+  // Machines (Nov 13 2026) starts with This Mac: how phones and other computers reach it (the old
+  // Connection › Remote access). Scan and SSH sign-in come next.
+  it('Machines shows This Mac with its remote access', async () => {
+    renderView('/resources?section=machines'); await ready();
+    expect(screen.getByRole('tab', { name: 'Machines' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('region', { name: 'This Mac' }, LAZY)).toBeInTheDocument();
+  });
+
+  it('Machines reads Remote access once it is opened, then stays mounted (hidden) on another tab', async () => {
+    const { cloudApi } = await import('@/lib/cloudApi');
+    const read = vi.spyOn(cloudApi, 'remoteAccess').mockRejectedValue(new Error('no Tailscale here'));
+    renderView(); await ready();
+    expect(read).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Machines' }));
+    const thisMac = await screen.findByRole('region', { name: 'This Mac' }, LAZY);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('tab', { name: 'Library' }));
+    expect(thisMac).not.toBeVisible();
+    expect(screen.getByRole('region', { hidden: true, name: 'This Mac' })).toBe(thisMac);
+    expect(read).toHaveBeenCalledTimes(1);
+    read.mockRestore();
   });
 
   it('shows per-agent totals, the project count and the scan age', async () => {
@@ -570,8 +698,8 @@ describe('ResourcesView — URL state after outside navigation', () => {
   it('a filter change after the RESOURCES nav tab does not resurrect an earlier sub-tab', async () => {
     renderWithNav();
     await ready();
-    fireEvent.click(screen.getByRole('tab', { name: /^Health/ }));
-    await waitFor(() => expect(urlParams().get('section')).toBe('health'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Machines' }));
+    await waitFor(() => expect(urlParams().get('section')).toBe('machines'));
 
     fireEvent.click(screen.getByRole('button', { name: 'nav: RESOURCES tab' }));
     await waitFor(() => expect(urlParams().toString()).toBe(''));
@@ -636,120 +764,29 @@ describe('ResourcesView — shortcut commands', () => {
   });
 });
 
-it('the Connection tab shows the connection status', async () => {
+it('the account dialog shows the connection status', async () => {
   const { cloudApi } = await import('@/lib/cloudApi');
   const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: null, state: 'disconnected', lastError: null });
   renderView('/resources?section=connection');
   await ready();
-  expect(screen.getByRole('tab', { name: 'Connection' })).toHaveAttribute('aria-selected', 'true');
-  expect(await screen.findByRole('heading', { name: 'Device connection' })).toBeInTheDocument();
-  expect(await screen.findByText(/Cloud · disconnected/)).toBeInTheDocument();
+  const dialog = await screen.findByRole('dialog', { name: 'Cloud account' });
+  expect(await within(dialog).findByRole('heading', { name: 'Device connection' }, LAZY)).toBeInTheDocument();
+  expect(await within(dialog).findByText(/Cloud · disconnected/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Cloud account: not connected' })).toBeInTheDocument();
   expect(status).toHaveBeenCalled();
   status.mockRestore();
 });
 
-it('going to Cloud sync and back keeps the Library filters and the selection', async () => {
+it('going to Projects and back keeps the Library filters', async () => {
   const { cloudApi } = await import('@/lib/cloudApi');
   const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: null, state: 'disconnected', lastError: null });
   renderView('/resources?scope=global&agent=claude&type=skill&q=tdd');
   await ready();
-  fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: /Select all 1/ }));
-  // Not connected: the bar says how to get there instead of offering a save that can't run.
-  const bar = screen.getByRole('region', { name: 'Selected resources' });
-  expect(within(bar).getByRole('button', { name: 'Connect to save to cloud' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'Cloud sync' }));
-  await waitFor(() => expect(urlParams().get('section')).toBe('sync'));
+  fireEvent.click(screen.getByRole('tab', { name: 'Projects' }));
+  await waitFor(() => expect(urlParams().get('section')).toBe('projects'));
   expect(urlParams().get('scope')).toBe('global');
   expect(urlParams().get('q')).toBe('tdd');
   fireEvent.click(screen.getByRole('tab', { name: 'Library' }));
-  expect(await screen.findByText('1 selected')).toBeInTheDocument();
   expect(screen.getByLabelText('Search resources')).toHaveValue('tdd');
   status.mockRestore();
-});
-
-// ---------------------------------------------------------------------------
-// Oct 23 2026: syncing from the Library
-// ---------------------------------------------------------------------------
-
-describe('ResourcesView — cloud state in the Library', () => {
-  const cloudBinding = {
-    backendOrigin: 'https://fixture.invalid',
-    accountId: '00000000-0000-4000-8000-000000000001',
-    deviceId: '00000000-0000-4000-8000-000000000002',
-    deviceName: 'Fixture',
-    generation: 1,
-  };
-  const cid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-  async function connect() {
-    const { cloudApi } = await import('@/lib/cloudApi');
-    const { resetSyncStatus } = await import('@/components/resources/cloud/syncStatusStore');
-    resetSyncStatus();
-    localStorage.clear();
-    vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: cloudBinding, state: 'connected', lastError: null });
-    vi.spyOn(cloudApi, 'syncStatus').mockResolvedValue({
-      items: [
-        { resourceId: cid(10), catalogId: 'sk-claude-tdd', name: 'tdd', agent: 'claude', kind: 'skill', scope: 'global', state: 'synced', cloudVersion: 2, syncedVersion: 2, memory: false },
-        { resourceId: cid(11), catalogId: 'sk-codex-tdd', name: 'tdd', agent: 'codex', kind: 'skill', scope: 'global', state: 'local-changed', cloudVersion: 1, syncedVersion: 1, memory: false },
-      ],
-      waiting: 1,
-    });
-    return cloudApi;
-  }
-  afterEach(() => vi.restoreAllMocks());
-
-  it('marks each row that syncs, sums it up, and counts what waits on the Cloud sync tab', async () => {
-    await connect();
-    renderView();
-    await ready();
-    expect(await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' })).toBeInTheDocument();
-    expect(within(row(/^tdd Codex/)).getByRole('img', { name: 'Cloud: Changed on this Mac' })).toBeInTheDocument();
-    expect(within(row(/^research/)).queryByRole('img', { name: /^Cloud:/ })).toBeNull();
-    expect(screen.getByRole('button', { name: /Cloud: 1 synced, 1 to sync/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /^Cloud sync/ })).toHaveAccessibleName(/1 waiting to sync/);
-  });
-
-  it('the bulk bar saves the selection in place and stops the ones that sync', async () => {
-    const cloudApi = await connect();
-    const plan = vi.spyOn(cloudApi, 'buildPublicationPlan').mockResolvedValue({ id: cid(70), items: [], blocked: [] });
-    const control = vi.spyOn(cloudApi, 'syncControl').mockResolvedValue({ resourceId: cid(10), action: 'stop' });
-    renderView();
-    await ready();
-    await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' });
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (claude)' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select research (claude)' }));
-    const bar = screen.getByRole('region', { name: 'Selected resources' });
-    // research is a link: it can't be saved, so the button says how many can.
-    fireEvent.click(within(bar).getByRole('button', { name: 'Save 1 to cloud' }));
-    await waitFor(() =>
-      expect(plan).toHaveBeenCalledWith([{ resourceId: 'sk-claude-tdd', include: true }], expect.anything(), expect.any(AbortSignal)),
-    );
-    expect(await screen.findByRole('dialog', { name: 'Save to cloud' })).toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
-    fireEvent.click(within(bar).getByRole('button', { name: 'Stop syncing 1' }));
-    await waitFor(() =>
-      expect(control).toHaveBeenCalledWith({ resourceId: cid(10), action: 'stop' }, expect.anything(), expect.any(AbortSignal)),
-    );
-    expect(await within(bar).findByText(/Stopped syncing 1 resource on this Mac/)).toBeInTheDocument();
-  });
-
-  it('a stop that fails part-way says why and still reads the list, so the ones stopped show', async () => {
-    const cloudApi = await connect();
-    const { CloudApiError } = await import('@/lib/cloudApi');
-    vi.spyOn(cloudApi, 'syncControl')
-      .mockResolvedValueOnce({ resourceId: cid(10), action: 'stop' })
-      .mockRejectedValueOnce(new CloudApiError('offline', 'The cloud went away.'));
-    renderView();
-    await ready();
-    await within(row(/^tdd Claude/)).findByRole('img', { name: 'Cloud: Synced' });
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (claude)' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select tdd (codex)' }));
-    const bar = screen.getByRole('region', { name: 'Selected resources' });
-    const reads = vi.mocked(cloudApi.syncStatus).mock.calls.length;
-    fireEvent.click(within(bar).getByRole('button', { name: 'Stop syncing 2' }));
-    expect(await within(bar).findByRole('alert')).toHaveTextContent(/offline/i);
-    await waitFor(() => expect(vi.mocked(cloudApi.syncStatus).mock.calls.length).toBeGreaterThan(reads));
-  });
 });

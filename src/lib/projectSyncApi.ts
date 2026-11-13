@@ -1,7 +1,9 @@
 /** Project Sync over HTTP (`/api/resources/sync`, this computer only). */
 import type {
+  RemoteListing,
   SyncAction,
   SyncChange,
+  SyncConflictPolicy,
   SyncDevice,
   SyncDeviceInput,
   SyncDirection,
@@ -11,6 +13,8 @@ import type {
   SyncLink,
   SyncLinkInput,
   SyncOverview,
+  SyncPull,
+  SyncPullInput,
   SyncRun,
 } from '@/types/projectSync';
 
@@ -54,6 +58,7 @@ export interface SyncLinkPatch {
   name?: string;
   excludes?: string[];
   direction?: SyncDirection;
+  conflictPolicy?: SyncConflictPolicy;
 }
 
 export const projectSyncApi = {
@@ -99,4 +104,15 @@ export const projectSyncApi = {
   cancel: (id: string) => request<SyncRun>(`/runs/${enc(id)}/cancel`, {}),
   undo: (id: string) =>
     request<{ run: SyncRun; restored: number; skipped: number }>(`/runs/${enc(id)}/undo`, {}),
+  /** One level of a folder on a saved server, inside its home (default: home). */
+  browse: (deviceId: string, path?: string) =>
+    request<RemoteListing>(
+      `/devices/${enc(deviceId)}/browse${path === undefined ? '' : `?path=${enc(path)}`}`,
+    ),
+  planPull: ({ deviceId, ...body }: SyncPullInput) =>
+    request<SyncPull>(`/devices/${enc(deviceId)}/pulls`, body),
+  pull: (id: string) => request<SyncPull>(`/pulls/${enc(id)}`),
+  startPull: (id: string) => request<SyncPull>(`/pulls/${enc(id)}/start`, {}),
+  cancelPull: (id: string) => request<SyncPull>(`/pulls/${enc(id)}/cancel`, {}),
+  undoPull: (id: string) => request<SyncPull>(`/pulls/${enc(id)}/undo`, {}),
 };

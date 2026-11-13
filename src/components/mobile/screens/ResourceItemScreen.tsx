@@ -7,27 +7,25 @@
  *   NOTES       ♥ Favourite · Abbreviation r · Tags #retouch          (when it has notes)
  *   USES        Used 181× in the last 90 days                          (skills, commands)
  *               120 typed by you · 61 by the agent · last used 4m ago
- *   CLOUD       [Synced] v3 ›                                         (its versions)
  *   ALSO IN     Codex · Global                              12 uses ›
  *   PREVIEW     the text, or the masked fields of a config
  *   FILES       SKILL.md · references/x.md …                           (a tap previews it)
  *
- * Read-only in P1: notes, Save to cloud and Uninstall come in P2 and P3.
+ * Read-only in P1: notes and Uninstall come in P2 and P3.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button, EmptyState, ListRow, ListSection, Screen } from '../kit';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
 import { useClock } from '@/lib/chat/clock';
-import { fetchPhoneLibrary, fetchPhoneResource, fetchPhoneResourceFile, fetchPhoneSync } from '@/lib/chat/phoneResourcesApi';
-import { cloudResourcePath, resourceItemPath } from '@/lib/chat/phoneRoutes';
+import { fetchPhoneLibrary, fetchPhoneResource, fetchPhoneResourceFile } from '@/lib/chat/phoneResourcesApi';
+import { resourceItemPath } from '@/lib/chat/phoneRoutes';
 import {
-  noCountWords, resourceFacts, rowUses, syncItemFor, syncStateWords, usageScopeNote, whereWords, type PhoneProjectRef,
+  noCountWords, resourceFacts, rowUses, usageScopeNote, whereWords, type PhoneProjectRef,
 } from '@/lib/chat/phoneResourcesModel';
 import { AGENT_LABELS, formatBytes, formatFieldValue } from '@/lib/resourceFilters';
 import { isUsageCounted, usageFacts } from '@/lib/resourceUsage';
-import { canSaveToCloud, syncVersionText } from '@/lib/cloudSyncStates';
 import { noteForResource } from '@/lib/skillNotes';
-import type { PhoneLibrary, PhoneResourceDetail, PhoneResourceFile, PhoneSync } from '@/types/phoneResources';
+import type { PhoneLibrary, PhoneResourceDetail, PhoneResourceFile } from '@/types/phoneResources';
 import type { ResourceSummary } from '@/types/resources';
 import { useCloudRead } from './useCloudRead';
 import { usePhoneSkillNotes } from './resources/usePhoneSkillNotes';
@@ -36,7 +34,6 @@ import styles from '@/styles/modules/mobile/Resources.module.css';
 const ChatMarkdown = lazy(() => import('../chat/items/ChatMarkdown'));
 
 const readLibrary = ({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchPhoneLibrary(signal);
-const readSync = ({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchPhoneSync({ signal });
 
 function UsesSection({ summary, library, now }: { summary: ResourceSummary; library: PhoneLibrary | null; now: number }) {
   if (!isUsageCounted(summary.type)) {
@@ -49,35 +46,6 @@ function UsesSection({ summary, library, now }: { summary: ResourceSummary; libr
   return (
     <ListSection header="Uses" footer={[facts.note, scope].filter(Boolean).join(' · ') || undefined}>
       <ListRow title={facts.headline} subtitle={facts.parts.length > 0 ? facts.parts.join(' · ') : undefined} tall={facts.parts.length > 0} testId="resource-uses" />
-    </ListSection>
-  );
-}
-
-function CloudSection({ summary, sync }: { summary: ResourceSummary; sync: PhoneSync | null }) {
-  const push = usePhoneNavStore((s) => s.push);
-  // Unknown is not "not saved": no answer read yet (the Mac scanning, a failed first read) shows nothing.
-  if (!sync?.connected || sync.readAt === null) return null;
-  const item = syncItemFor(summary.id, sync.items);
-  // Hooks, MCP servers, settings and plugin or linked items never go to the cloud: no Cloud section.
-  if (!item && !canSaveToCloud(summary)) return null;
-  if (!item) {
-    return (
-      <ListSection header="Cloud">
-        <ListRow title="Not saved to cloud" subtitle="Save it from your Mac’s Library: RESOURCES → Library." tall testId="resource-cloud" />
-      </ListSection>
-    );
-  }
-  const state = syncStateWords(item);
-  return (
-    <ListSection header="Cloud">
-      <ListRow
-        title={<span className={styles.tag} data-tone={state.tone}>{state.label}</span>}
-        subtitle={syncVersionText(item) || undefined}
-        value={item.cloudVersion ? 'Versions' : undefined}
-        chevron={!!item.cloudVersion}
-        onClick={item.cloudVersion ? () => push(cloudResourcePath(item.resourceId)) : undefined}
-        testId="resource-cloud"
-      />
     </ListSection>
   );
 }
@@ -138,7 +106,6 @@ export default function ResourceItemScreen({ id }: { id: string }) {
   const readItem = useCallback(({ signal }: { refresh: boolean; signal: AbortSignal }) => fetchPhoneResource(id, signal), [id]);
   const item = useCloudRead<PhoneResourceDetail>(readItem);
   const library = useCloudRead<PhoneLibrary>(readLibrary);
-  const sync = useCloudRead<PhoneSync>(readSync);
   const notes = usePhoneSkillNotes();
   const [filePath, setFilePath] = useState<string | null>(null);
   const [file, setFile] = useState<PhoneResourceFile | null>(null);
@@ -180,7 +147,6 @@ export default function ResourceItemScreen({ id }: { id: string }) {
           </ListSection>
         )}
         <UsesSection summary={summary} library={library.data} now={now} />
-        <CloudSection summary={summary} sync={sync.data} />
         <VariantsSection summary={summary} library={library.data} />
         {fileError && <p className={styles.note} role="alert">{fileError}</p>}
         <Preview detail={detail} file={filePath && file?.path === filePath ? file : null} onBack={() => { setFilePath(null); setFile(null); setFileError(null); }} />

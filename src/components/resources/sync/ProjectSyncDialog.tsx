@@ -4,10 +4,17 @@
  * Settings for the direction and what is left out, or to remove the link (files stay).
  */
 import { useState } from 'react';
-import type { SyncDirection, SyncLink } from '@/types/projectSync';
+import type { SyncConflictPolicy, SyncDirection, SyncLink } from '@/types/projectSync';
 import type { ResourceProject } from '@/types/resources';
 import { projectSyncApi } from '@/lib/projectSyncApi';
-import { DIRECTION_HINT, DIRECTION_LABEL, excludesOf, excludesText } from '@/lib/projectSyncFormat';
+import {
+  DIRECTION_HINT,
+  DIRECTION_LABEL,
+  excludesOf,
+  excludesText,
+  POLICY_HINT,
+  POLICY_OPTIONS,
+} from '@/lib/projectSyncFormat';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import EmptyState from '@/components/ui/EmptyState';
@@ -17,6 +24,7 @@ import TextArea from '@/components/ui/TextArea';
 import CloudDialog from '../cloud/CloudDialog';
 import ProjectSyncRun from './ProjectSyncRun';
 import ProjectSyncSetup from './ProjectSyncSetup';
+import PullFromServer from './PullFromServer';
 import type { ProjectSync } from './useProjectSync';
 import styles from '@/styles/modules/ProjectSync.module.css';
 
@@ -31,15 +39,21 @@ function LinkSettings({
 }: {
   link: SyncLink;
   busy: boolean;
-  onSave: (patch: { direction: SyncDirection; excludes: string[] }) => void;
+  onSave: (patch: {
+    direction: SyncDirection;
+    excludes: string[];
+    conflictPolicy: SyncConflictPolicy;
+  }) => void;
   onRemove: () => void;
   onDone: () => void;
 }) {
   const [direction, setDirection] = useState(link.direction);
+  const [policy, setPolicy] = useState<SyncConflictPolicy>(link.conflictPolicy ?? 'ask');
   const [excludes, setExcludes] = useState(excludesText(link.excludes));
   const [removeAsk, setRemoveAsk] = useState(false);
   const changed =
     direction !== link.direction ||
+    policy !== (link.conflictPolicy ?? 'ask') ||
     JSON.stringify(excludesOf(excludes)) !== JSON.stringify(link.excludes);
   return (
     <div className={styles.settings} role="group" aria-label="Sync settings">
@@ -55,6 +69,18 @@ function LinkSettings({
           />
         </Field>
         <p className={`${styles.hint} ${styles.formWide}`}>{DIRECTION_HINT[direction]}</p>
+        {direction === 'two-way' ? (
+          <>
+            <Field label="When both changed" className={`${styles.formField} ${styles.formWide}`}>
+              <NativeSelect<SyncConflictPolicy>
+                value={policy}
+                onChange={setPolicy}
+                options={POLICY_OPTIONS}
+              />
+            </Field>
+            <p className={`${styles.hint} ${styles.formWide}`}>{POLICY_HINT[policy]}</p>
+          </>
+        ) : null}
         <Field
           label="Leave out (one per line)"
           className={`${styles.formField} ${styles.formWide}`}
@@ -69,7 +95,9 @@ function LinkSettings({
           <Button
             variant="primary"
             disabled={busy || !changed}
-            onClick={() => onSave({ direction, excludes: excludesOf(excludes) })}
+            onClick={() =>
+              onSave({ direction, excludes: excludesOf(excludes), conflictPolicy: policy })
+            }
           >
             Save
           </Button>
@@ -86,7 +114,8 @@ function LinkSettings({
       {removeAsk ? (
         <div role="alert" className={styles.confirm}>
           <span>
-            Remove the link? Files stay on both sides; linking again compares them from scratch.
+            Remove the link? Files stay on both sides, but its undo copies are deleted; linking
+            again compares them from scratch.
           </span>
           <Button size="sm" variant="danger" disabled={busy} onClick={onRemove}>
             Remove link
@@ -115,6 +144,7 @@ export default function ProjectSyncDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const overview = sync.overview;
   const link = overview?.links.find((l) => l.projectId === project.id);
   const device = link ? overview?.devices.find((d) => d.id === link.deviceId) : undefined;
@@ -146,15 +176,36 @@ export default function ProjectSyncDialog({
     ) : (
       <EmptyState busy title="Loading project sync…" />
     );
-  else if (!link)
+  else if (pulling)
     body = (
-      <ProjectSyncSetup
+      <PullFromServer
         project={project}
         devices={overview.devices}
-        onDevices={sync.refresh}
-        onLinked={(l) => compare(l.id)}
-        onCancel={onClose}
+        deviceId={link?.deviceId}
+        onDone={() => setPulling(false)}
       />
+    );
+  else if (!link)
+    body = (
+      <>
+        {overview.devices.length ? (
+          <div className={styles.linkHead}>
+            <span className={styles.hint}>Only need a few files from a server?</span>
+            <span className={styles.linkTools}>
+              <Button variant="quiet" onClick={() => setPulling(true)}>
+                Pull files…
+              </Button>
+            </span>
+          </div>
+        ) : null}
+        <ProjectSyncSetup
+          project={project}
+          devices={overview.devices}
+          onDevices={sync.refresh}
+          onLinked={(l) => compare(l.id)}
+          onCancel={onClose}
+        />
+      </>
     );
   else
     body = (
@@ -180,6 +231,13 @@ export default function ProjectSyncDialog({
             )}
             <Button
               variant="quiet"
+              disabled={busy || !!active || !device}
+              onClick={() => setPulling(true)}
+            >
+              Pull files…
+            </Button>
+            <Button
+              variant="quiet"
               aria-expanded={settings}
               disabled={busy}
               onClick={() => setSettings((s) => !s)}
@@ -191,7 +249,7 @@ export default function ProjectSyncDialog({
         {settings ? (
           <LinkSettings
             // Saved settings, not updatedAt: every run's end touches the link, and would wipe edits.
-            key={`${link.direction}\n${link.excludes.join('\n')}`}
+            key={`${link.direction}\n${link.conflictPolicy ?? 'ask'}\n${link.excludes.join('\n')}`}
             link={link}
             busy={busy || !!active}
             onDone={() => setSettings(false)}

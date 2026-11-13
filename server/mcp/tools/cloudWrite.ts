@@ -92,7 +92,7 @@ const notConnected = (): ToolError =>
   new ToolError(
     'UNAVAILABLE',
     'This Mac is not connected to AASC Cloud.',
-    'Ask the person to connect it in RESOURCES → Cloud; cloud_status shows the state.',
+    'Ask the person to connect it in RESOURCES → Cloud account; cloud_status shows the state.',
   );
 
 /**

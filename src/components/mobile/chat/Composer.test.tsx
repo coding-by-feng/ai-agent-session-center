@@ -16,6 +16,8 @@ vi.mock('@/lib/presenceClient', () => ({
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 
 import Composer from './Composer';
+import StatusStrip from './StatusStrip';
+import { resetStopSent } from './useAgentStop';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
@@ -144,8 +146,9 @@ describe('Composer', () => {
     renderComposer(session({ status: 'working' }));
     type('then update the docs');
     expect(sendButton()).toHaveTextContent('Queue');
-    // Stop lives on the status strip above (Oct 20 2026): one Stop, not a second beside Queue.
-    expect(screen.queryByTestId('composer-stop')).toBeNull();
+    // One Stop (Oct 20 2026). Since Nov 13 2026 it is this ■ beside Queue: with a composer the
+    // chat draws no strip (ChatView.test.tsx, "with the composer below it").
+    expect(screen.getAllByRole('button', { name: /Stop the agent/ })).toHaveLength(1);
     fireEvent.click(sendButton());
 
     const items = useQueueStore.getState().queues.get('s1') ?? [];
@@ -505,5 +508,119 @@ describe('Claude’s suggested next prompt (Oct 26 2026)', () => {
     stubMac();
     renderComposer(session());
     expect(screen.queryByRole('button', { name: /Use Claude’s suggestion/ })).toBeNull();
+  });
+});
+
+// Nov 13 2026: the working strip above the box became a chip at the bottom-left of the chips row
+// (the status, its time, and the terminal's last lines on a tap) and a ■ beside the send button
+// (the phone's one Stop, still one tap). The strip stays only in full-screen Chat (ChatView).
+describe('while the agent works: the status chip and Stop', () => {
+  const PEEK_KEY = 'aasc.peekOpen';
+  const working = (extra: Partial<Session> = {}) => session({
+    status: 'working',
+    promptHistory: [{ text: 'run the tests', timestamp: Date.now() - 42_000 }],
+    toolLog: [{ tool: 'Bash', timestamp: Date.now() - 1_000 }],
+    ...extra,
+  } as Partial<Session>);
+  const chip = () => screen.getByRole('button', { name: /the terminal’s last lines$/ });
+
+  beforeEach(() => {
+    localStorage.removeItem(PEEK_KEY);
+    resetStopSent();
+  });
+
+  it('puts the status and its time on a chip, first in the row under the box', () => {
+    stubMac();
+    renderComposer(working());
+    expect(chip()).toHaveAccessibleName(/^Working · Bash · for 0:4\d: show the terminal’s last lines$/);
+    expect(chip()).toHaveTextContent(/^0:4\d$/);
+    expect(chip()).toHaveAttribute('aria-expanded', 'false');
+    expect(chip().parentElement?.firstElementChild).toBe(chip());
+  });
+
+  it('opens and closes the terminal’s last lines from the chip, and the phone remembers', () => {
+    stubMac();
+    renderComposer(working());
+    fireEvent.click(chip());
+    expect(chip()).toHaveAttribute('aria-expanded', 'true');
+    expect(chip()).toHaveAccessibleName(/: hide the terminal’s last lines$/);
+    expect(localStorage.getItem(PEEK_KEY)).toBe('1');
+    fireEvent.click(chip());
+    expect(chip()).toHaveAttribute('aria-expanded', 'false');
+    expect(localStorage.getItem(PEEK_KEY)).toBe('0');
+  });
+
+  it('puts Stop beside the send button: one tap writes Esc, then it holds “Stopping…”', async () => {
+    const calls = stubMac();
+    renderComposer(working());
+    const stop = screen.getByRole('button', { name: 'Stop the agent (Esc)' });
+    expect(stop.compareDocumentPosition(sendButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(stop);
+    await waitFor(() => expect(calls).toContainEqual({ url: '/api/terminals/term-1/write', method: 'POST', body: { data: '\x1b' } }));
+    expect(await screen.findByRole('button', { name: 'Stopping…' })).toHaveAttribute('aria-busy', 'true');
+    expect(chip()).toHaveAccessibleName(/^Stopping · /);
+    expect(calls.filter((c) => c.url.endsWith('/write'))).toHaveLength(1);
+  });
+
+  it('says why when the Mac refuses the Stop', async () => {
+    stubMac();
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (
+      url.endsWith('/write')
+        ? { ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }) }
+        : base(url, init)
+    )));
+    renderComposer(working());
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the agent (Esc)' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/./);
+    expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).not.toHaveAttribute('aria-busy');
+  });
+
+  it('still holds “Stopping…” after going full screen, where the strip’s Stop takes over', async () => {
+    const calls = stubMac();
+    const s = working({ promptHistory: [{ text: 'full screen', timestamp: Date.now() - 7_000 }] } as Partial<Session>);
+    const { unmount } = renderComposer(s);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the agent (Esc)' }));
+    await screen.findByRole('button', { name: 'Stopping…' });
+    unmount(); // ⤢: the composer goes, full-screen Chat draws the strip
+    render(<StatusStrip session={s} peek={[]} onOpenTerminal={() => {}} />);
+    const held = screen.getByRole('button', { name: 'Stopping…' });
+    expect(held).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(held); // a second Esc at the idle prompt would open Claude's rewind menu
+    expect(calls.filter((c) => c.url.endsWith('/write'))).toHaveLength(1);
+  });
+
+  it('drops a failed Stop’s error when the turn ends, so the next turn starts clean', async () => {
+    stubMac();
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (
+      url.endsWith('/write')
+        ? { ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }) }
+        : base(url, init)
+    )));
+    const { rerender } = renderComposer(working());
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the agent (Esc)' }));
+    await screen.findByRole('alert');
+    const idle = session();
+    rerender(<Composer session={idle} card={waitingCardModel(idle)} inputRef={createRef<HTMLTextAreaElement>()} />);
+    const next = working({ promptHistory: [{ text: 'again', timestamp: Date.now() }] } as Partial<Session>);
+    rerender(<Composer session={next} card={waitingCardModel(next)} inputRef={createRef<HTMLTextAreaElement>()} />);
+    expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('offers no Stop while Claude runs its Stop hooks; the chip says “Finishing up”', () => {
+    stubMac();
+    renderComposer(session({ status: 'waiting', stopHooksSince: Date.now() - 12_000 } as Partial<Session>));
+    expect(chip()).toHaveAccessibleName(/^Finishing up · Stop hooks · for 0:1\d: show/);
+    expect(chip()).toHaveAttribute('data-tone', 'quiet');
+    expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull();
+  });
+
+  it('shows neither while the agent waits', () => {
+    stubMac();
+    renderComposer(session());
+    expect(screen.queryByRole('button', { name: /the terminal’s last lines$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull();
   });
 });

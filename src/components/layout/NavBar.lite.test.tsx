@@ -21,4 +21,10 @@ describe('NavBar in the Lite build', () => {
     render(<MemoryRouter><NavBar /></MemoryRouter>);
     expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(['LIVE', 'HISTORY']);
   });
+
+  it('shows LIVE only to a remote Lite Client, which the host refuses history', () => {
+    usePresenceStore.setState({ devices: [{ clientId: 'me', isLocal: false }] } as never);
+    render(<MemoryRouter><NavBar /></MemoryRouter>);
+    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(['LIVE']);
+  });
 });

@@ -12,6 +12,7 @@ vi.mock('@/lib/terminalCompose', () => ({
 vi.mock('@/hooks/useControlBaton', () => ({ useControlBaton: () => ({ mode: 'solo' }) }));
 
 import StatusStrip from './StatusStrip';
+import { resetStopSent } from './useAgentStop';
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -32,6 +33,9 @@ const toolEvent = (detail: string): SessionEvent => ({ type: 'PreToolUse', detai
 function renderStrip(s: Session) {
   return render(<StatusStrip session={s} peek={[]} onOpenTerminal={() => {}} />);
 }
+
+// A written Stop lives outside React (so ⤢ keeps it); start each test without one.
+beforeEach(() => resetStopSent());
 
 describe('StatusStrip Stop', () => {
   beforeEach(() => {

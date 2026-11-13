@@ -29,7 +29,8 @@ const { useComposerDraftStore } = await import('@/stores/composerDraftStore');
 const { useSettingsStore } = await import('@/stores/settingsStore');
 const { useWsStore } = await import('@/stores/wsStore');
 const { ScreenSlotContext } = await import('../kit');
-const { PEEK_OPEN_KEY, writePeekOpen } = await import('@/lib/chat/peekPreference');
+const { PEEK_OPEN_KEY, setPeekOpen, writePeekOpen } = await import('@/lib/chat/peekPreference');
+const { resetStopSent } = await import('./useAgentStop');
 
 /** This device's socket, as the terminal peek sees it: records what is sent, can push messages. */
 class FakeSocket extends EventTarget {
@@ -96,6 +97,7 @@ function session(over: Partial<Session> = {}): Session {
 
 beforeEach(() => {
   localStorage.removeItem(PEEK_OPEN_KEY);
+  resetStopSent();
   fetchChatPage.mockReset();
   writeTerminal.mockClear();
   baton.mode = 'solo';
@@ -499,5 +501,43 @@ describe('ChatView', () => {
     fetchChatPage.mockResolvedValueOnce(claudePage());
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Centre the minimize bar')).toBeInTheDocument();
+  });
+});
+
+// Nov 13 2026: with the composer below, the status and Stop live in it (the chip at the
+// bottom-left of its chips row, ■ beside the send button), so the chat draws no strip. The
+// terminal's last lines still open above the box, from the chip. Full-screen Chat has no
+// composer, so it keeps the strip (the tests above render ChatView alone, like full screen).
+describe('ChatView with the composer below it', () => {
+  it('draws no strip while the agent works', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    render(<ChatView session={session({ status: 'working' })} onTerminal={() => {}} composer />);
+    await screen.findByText('Centre the minimize bar');
+    expect(screen.queryByTestId('chat-status-strip')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull();
+    expect(screen.queryByTestId('chat-terminal-peek')).toBeNull();
+  });
+
+  it('shows the terminal’s last lines above the box when the chip opens them, with the status', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    const onTerminal = vi.fn();
+    render(<ChatView session={session({ status: 'working', toolLog: [{ tool: 'Bash', timestamp: Date.now() }] } as Partial<Session>)} onTerminal={onTerminal} composer />);
+    await screen.findByText('Centre the minimize bar');
+    act(() => setPeekOpen(true));
+    const panel = await screen.findByTestId('chat-peek-panel');
+    expect(panel).toHaveTextContent(/^Working · Bash/);
+    await userEvent.click(within(panel).getByTestId('chat-terminal-peek'));
+    await userEvent.click(within(panel).getByRole('button', { name: 'Open terminal' }));
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+    act(() => setPeekOpen(false));
+    expect(screen.queryByTestId('chat-peek-panel')).toBeNull();
+  });
+
+  it('keeps the peek closed once the turn ends, even when it was left open', async () => {
+    fetchChatPage.mockResolvedValue(claudePage());
+    act(() => setPeekOpen(true));
+    render(<ChatView session={session()} onTerminal={() => {}} composer />);
+    await screen.findByText('Centre the minimize bar');
+    expect(screen.queryByTestId('chat-peek-panel')).toBeNull();
   });
 });

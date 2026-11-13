@@ -1,4 +1,4 @@
-// SectionTabs.test.tsx — the RESOURCES tab row (Oct 23 2026) keeps the open tab in view at narrow
+// SectionTabs.test.tsx — the RESOURCES tab row (Library · Projects · Machines) keeps the open tab in view at narrow
 // widths: again when a count badge loads and widens a tab before it, and by scrolling only the
 // strip, never the page (scrollIntoView would scroll every ancestor too).
 import { render } from '@testing-library/react';
@@ -37,10 +37,10 @@ function layout(list: HTMLElement, tabRight: number) {
 
 it('scrolls the strip again when a badge pushes the open tab past its edge', () => {
   const { rerender, getByRole } = render(
-    <SectionTabs baseId="t" section="health" badges={{}} onSelect={vi.fn()} />,
+    <SectionTabs baseId="t" section="machines" badges={{}} onSelect={vi.fn()} />,
   );
   const scrolled = layout(getByRole('tablist'), 398);
-  rerender(<SectionTabs baseId="t" section="health" badges={{ sync: 5 }} onSelect={vi.fn()} />);
+  rerender(<SectionTabs baseId="t" section="machines" badges={{ projects: 5 }} onSelect={vi.fn()} />);
   expect(scrolled()).toBe(24);
   expect(scrollIntoView).not.toHaveBeenCalled();
 });
@@ -52,7 +52,7 @@ it('brings back an open tab scrolled off the start', () => {
   const list = getByRole('tablist');
   const scrolled = layout(list, 0);
   list.scrollLeft = 140;
-  rerender(<SectionTabs baseId="t" section="library" badges={{ health: 2 }} onSelect={vi.fn()} />);
+  rerender(<SectionTabs baseId="t" section="library" badges={{ machines: 2 }} onSelect={vi.fn()} />);
   // The tab spans -78…0 against a strip that starts at 16: 94px back.
   expect(scrolled()).toBe(46);
   expect(scrollIntoView).not.toHaveBeenCalled();

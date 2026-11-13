@@ -31,6 +31,7 @@ import {
   formatBytes,
   progressLabel,
   groupFindings,
+  checkErrors,
   findingLabel,
   groupCoverage,
   repoChipLabel,
@@ -109,6 +110,8 @@ describe('readResourceParams', () => {
   it('falls back to defaults for an empty query string', () => {
     expect(readResourceParams(new URLSearchParams(''))).toEqual({
       section: 'library',
+      checks: false,
+      account: false,
       type: 'skill',
       id: null,
       ...DEFAULT_FILTERS,
@@ -120,10 +123,10 @@ describe('readResourceParams', () => {
 
   it('reads every known key', () => {
     const p = readResourceParams(new URLSearchParams(
-      'section=health&type=rule&agent=codex&scope=global&q=style&id=r1&plugins=1',
+      'section=machines&type=rule&agent=codex&scope=global&q=style&id=r1&plugins=1',
     ));
     expect(p).toEqual({
-      section: 'health', type: 'rule', agent: 'codex', scope: 'global',
+      section: 'machines', checks: false, account: false, type: 'rule', agent: 'codex', scope: 'global',
       projectId: null, query: 'style', id: 'r1', showPluginSystem: true,
     });
   });
@@ -658,29 +661,61 @@ describe('matchesFilters with skill notes', () => {
 
 // Stale SSH-tool bookmarks must open a usable Library without mounting old panels.
 describe('retired section URLs', () => {
-  it.each(['transfers','devices'])('falls back from %s to Library', section => {
-    expect(readResourceParams(new URLSearchParams({section,agent:'codex',q:'test'}))).toMatchObject({section:'library',agent:'codex',query:'test'});
+  it('falls back from transfers to Library', () => {
+    expect(readResourceParams(new URLSearchParams({section:'transfers',agent:'codex',q:'test'}))).toMatchObject({section:'library',agent:'codex',query:'test'});
+  });
+  // The Devices sub-tab (SSH copies) was retired in Oct 2026; its name now means saved SSH machines.
+  it('opens Machines from devices', () => {
+    expect(readResourceParams(new URLSearchParams({section:'devices'})).section).toBe('machines');
   });
 });
 
-// Oct 23 2026: one tab row (Library · Cloud sync · Projects · Health · Connection). Every link to
-// the old tabs and Cloud views opens where that content lives now.
-describe('links to the tabs before Oct 23 2026', () => {
+// Nov 13 2026: three tabs (Library · Projects · Machines). Cloud sync was removed; Health is the
+// Library's Checks view; Connection is the account dialog; Remote access lives in Machines. Every
+// older link opens where that content lives now.
+describe('links to the tabs before Nov 13 2026', () => {
   it.each([
-    ['section=sources', 'health'],
-    ['section=checks', 'health'],
-    ['section=cloud', 'sync'],
-    ['section=cloud&cloudTab=resources', 'sync'],
-    ['section=cloud&cloudTab=projects', 'projects'],
-    ['section=cloud&cloudTab=connection', 'connection'],
-    ['section=cloud&cloudTab=remote', 'connection'],
-    ['section=cloud&cloudTab=bogus', 'sync'],
-    ['section=projects', 'projects'],
-  ])('%s opens %s', (query, section) => {
-    expect(readResourceParams(new URLSearchParams(query)).section).toBe(section);
+    ['section=sources', 'library', true, false],
+    ['section=checks', 'library', true, false],
+    ['section=health', 'library', true, false],
+    ['section=sync', 'library', false, false],
+    ['section=cloud', 'library', false, false],
+    ['section=cloud&cloudTab=resources', 'library', false, false],
+    ['section=cloud&cloudTab=bogus', 'library', false, false],
+    ['section=cloud&cloudTab=projects', 'projects', false, false],
+    ['section=connection', 'library', false, true],
+    ['section=cloud&cloudTab=connection', 'library', false, true],
+    ['section=cloud&cloudTab=remote', 'machines', false, false],
+    ['section=projects', 'projects', false, false],
+    ['section=machines', 'machines', false, false],
+    ['checks=1', 'library', true, false],
+    ['account=1', 'library', false, true],
+    // Names every object has must not pass for an old section (`in` saw them; review, Nov 13).
+    ['section=toString', 'library', false, false],
+    ['section=__proto__', 'library', false, false],
+    ['section=constructor', 'library', false, false],
+    ['section=hasOwnProperty', 'library', false, false],
+  ])('%s opens %s (checks %s, account %s)', (query, section, checks, account) => {
+    expect(readResourceParams(new URLSearchParams(query))).toMatchObject({ section, checks, account });
   });
 
-  it('the five sections are the tab row, in order', () => {
-    expect(RESOURCE_SECTIONS).toEqual(['library', 'sync', 'projects', 'health', 'connection']);
+  it('Checks belongs to the Library: another tab never shows it', () => {
+    expect(readResourceParams(new URLSearchParams('section=projects&checks=1')).checks).toBe(false);
+  });
+
+  it('the three sections are the tab row, in order', () => {
+    expect(RESOURCE_SECTIONS).toEqual(['library', 'projects', 'machines']);
+  });
+});
+
+// The Library's Checks button badges errors only: warnings are listed inside, unbadged, so the
+// count stays small enough to mean something (the Health tab's "99+" counted warnings too).
+describe('checkErrors', () => {
+  const f = (severity: ResourceFinding['severity']): ResourceFinding =>
+    ({ code: 'broken-symlink', severity, resourceId: 'x', message: 'm' }) as ResourceFinding;
+  it('counts errors, never warnings or info', () => {
+    expect(checkErrors([f('error'), f('warning'), f('warning'), f('info'), f('error')])).toBe(2);
+    expect(checkErrors([f('warning'), f('info')])).toBe(0);
+    expect(checkErrors([])).toBe(0);
   });
 });

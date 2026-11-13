@@ -69,7 +69,7 @@ export function cloudFailure(r: InternalResponse<unknown>): ToolError {
       return new ToolError('INVALID', words, 'Check the arguments in the tool’s input schema.');
     case 401:
     case 403:
-      return new ToolError('UNAVAILABLE', words, 'AASC Cloud no longer accepts this Mac: the person has to reconnect it in RESOURCES → Cloud.');
+      return new ToolError('UNAVAILABLE', words, 'AASC Cloud no longer accepts this Mac: the person has to reconnect it in RESOURCES → Cloud account.');
     case 404:
       return new ToolError('NOT_FOUND', words, 'Check the id with the list tool for what you asked about.');
     case 409:
@@ -162,7 +162,7 @@ export async function cloudStatus(ctx: ToolContext): Promise<CloudStatus> {
 export async function boundTo(ctx: ToolContext): Promise<CloudBinding> {
   const { connection } = await cloudStatus(ctx);
   if (connection === null) {
-    throw new ToolError('UNAVAILABLE', 'This Mac is not connected to AASC Cloud.', 'Ask the person to connect it in RESOURCES → Cloud; cloud_status shows the state.');
+    throw new ToolError('UNAVAILABLE', 'This Mac is not connected to AASC Cloud.', 'Ask the person to connect it in RESOURCES → Cloud account; cloud_status shows the state.');
   }
   return connection;
 }

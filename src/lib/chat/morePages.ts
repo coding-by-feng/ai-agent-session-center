@@ -32,7 +32,7 @@ export const SETTINGS_PAGES: readonly MoreEntry[] = [
 ];
 
 /**
- * More → Resources (plan 16): the desktop RESOURCES tab's Library, Cloud sync and Projects,
- * read through the Mac. It took the place of AASC-51's read-only Cloud row.
+ * More → Resources (plan 16): the desktop RESOURCES tab's Library and Projects, read through
+ * the Mac. It took the place of AASC-51's read-only Cloud row.
  */
-export const RESOURCES_ENTRY = { title: 'Resources', subtitle: 'Library, cloud sync and projects' } as const;
+export const RESOURCES_ENTRY = { title: 'Resources', subtitle: 'Library and projects' } as const;

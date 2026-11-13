@@ -1,5 +1,5 @@
 /**
- * CloudRemoteAccess — RESOURCES → Cloud → Remote access (AASC-60): how a phone away from home
+ * CloudRemoteAccess — RESOURCES → Machines › This Mac (AASC-60; Connection › Remote access until Nov 13 2026): how a phone away from home
  * reaches this Mac. Three cards, top to bottom:
  *
  *  1. Tailscale on this Mac — its state and the next step (install it, open it, sign in, turn it on);
@@ -111,7 +111,8 @@ function publishWords(
       };
     case 'forbidden':
       return {
-        lead: "This Mac's cloud link can't share addresses. Make a new pairing code with mac-paths:publish on the backend, then connect again in Connection.",
+        lead: "This Mac's cloud link can't share addresses. Make a new pairing code with mac-paths:publish on the backend, then connect again in the cloud account.",
+        openConnection: true,
       };
     case 'unsupported':
       return {
@@ -345,7 +346,7 @@ export default function CloudRemoteAccess({
             </div>
             {sharing.openConnection && (
               <div className={styles.toolbar}>
-                <Button onClick={onConnection}>Open Connection</Button>
+                <Button onClick={onConnection}>Open cloud account</Button>
               </div>
             )}
           </section>

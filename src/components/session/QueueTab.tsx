@@ -34,6 +34,8 @@ import {
   queueHoldReason,
 } from '@/lib/queueScheduler';
 import { IS_LITE } from '@/lib/edition';
+import { detectCli } from '@/lib/cliDetect';
+import { insertAtCaret, takeTerminalInput } from '@/lib/takeTerminalInput';
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { recordQueueSent } from '@/stores/queueSentStore';
@@ -118,6 +120,18 @@ function QueueDragGrip() {
     >
       <QueueGripIcon />
     </span>
+  );
+}
+
+/** Arrow into a tray: take the text out of Claude's input box into this one. */
+function TakeInputIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M4 17v3h16v-3" />
+    </svg>
   );
 }
 
@@ -307,6 +321,8 @@ export default function QueueTab({
   const imageInputRef = useRef<HTMLInputElement>(null);
   // A phone's compose box, for the suggestion bar (AASC-20).
   const [composeTextarea, setComposeTextarea] = useState<HTMLTextAreaElement | null>(null);
+  /** A take from Claude's input box is in flight. */
+  const [takingInput, setTakingInput] = useState(false);
   /** Item id open in the edit modal. EDIT on any row (once / loop / schedule)
    *  sets this — there is no separate inline-edit mode. */
   const [chainEditId, setChainEditId] = useState<number | null>(null);
@@ -327,6 +343,51 @@ export default function QueueTab({
   const collapsed = fixedOpen ? false : dockedCollapsed;
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
   const canFloat = !IS_LITE && !floating && !isMobile;
+  /**
+   * "Take the text from Claude's input box" (Nov 13 2026): the user dictates into Claude with its
+   * own hold-Space voice (or types there), and this moves the text here to check and ADD. Claude
+   * cards with a terminal only; desktop Full (a phone has its own Composer; Lite has not opted in).
+   */
+  const canTakeInput = !IS_LITE && !isMobile && !!terminalId && !!currentSession && detectCli(currentSession) === 'claude';
+  // The session this tab shows now: the tab is reused across session switches, and a take can finish
+  // after one.
+  const shownSessionRef = useRef(sessionId);
+  useEffect(() => {
+    shownSessionRef.current = sessionId;
+  }, [sessionId]);
+  const handleTakeInput = useCallback(async () => {
+    if (!terminalId || takingInput) return;
+    // Captured at the click: the text belongs to this session's draft even if the user switches.
+    const sid = sessionId;
+    const tid = terminalId;
+    setTakingInput(true);
+    const out = await takeTerminalInput(tid);
+    setTakingInput(false);
+    const stillShown = shownSessionRef.current === sid;
+    if (out.kind === 'empty') {
+      if (stillShown) showToast("Claude's input box is empty. Hold Space in the terminal to dictate first.", 'info', 3000);
+      return;
+    }
+    if (out.kind === 'error') {
+      showToast(out.message, 'error', 5000);
+      return;
+    }
+    // Read after the await: the user may have typed in the box meanwhile (the button keeps focus there).
+    const latest = useQueueStore.getState().composeDrafts.get(sid)?.text ?? '';
+    const caret = stillShown && composeTextarea && document.activeElement === composeTextarea ? composeTextarea.selectionStart : null;
+    const next = insertAtCaret(latest, out.text, caret);
+    setComposeDraftPatch(sid, { text: next.value });
+    if (stillShown) {
+      requestAnimationFrame(() => {
+        if (!composeTextarea) return;
+        composeTextarea.focus();
+        composeTextarea.setSelectionRange(next.caret, next.caret);
+      });
+    }
+    if (!out.cleared) {
+      showToast("Moved to the queue box, but Claude's box still has text. Check it before you send there.", 'warning', 6000);
+    }
+  }, [sessionId, terminalId, takingInput, composeTextarea, setComposeDraftPatch]);
   /** List and Card are a desktop density choice; a phone has one layout (list rows, actions always shown). */
   const viewMode = isMobile ? 'list' : queueViewMode;
   /** Phone: the row whose "More" sheet is open, and the row waiting on a delete confirmation. */
@@ -1411,6 +1472,21 @@ export default function QueueTab({
           {/* Grouped so all four buttons wrap to a second line together instead
               of squeezing the textarea to an unusable sliver in a narrow panel. */}
           <div className={styles.queueComposeActions}>
+            {canTakeInput && (
+              <button
+                className={`${styles.toolbarBtn} ${styles.queueSnippetBtn} ${styles.queueTakeBtn}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  void handleTakeInput();
+                }}
+                disabled={takingInput}
+                aria-busy={takingInput}
+                title="Take the text from Claude's input box (hold Space in the terminal to dictate)"
+                aria-label="Take the text from Claude's input box"
+              >
+                <TakeInputIcon />
+              </button>
+            )}
             {/* Keep / insert a saved prompt. Two distinct marks on purpose: the
               single bookmark captures THIS text, the bookmark stack opens the
               library. Both are separate from the row-level ★, which saves a

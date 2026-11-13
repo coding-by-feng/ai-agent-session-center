@@ -2,7 +2,7 @@
  * MoreScreen — the More tab's root (AASC-47, design §5.8): a grouped list.
  *
  *   LIBRARY     History · Prompt Trace (on the Mac itself) · Saved prompts · Review · Agenda
- *   RESOURCES   Resources: the desktop's Library, Cloud sync and Projects, through the Mac (plan 16)
+ *   RESOURCES   Resources: the desktop's Library and Projects, through the Mac (plan 16)
  *   SETTINGS    Appearance · Notifications · Voice · Translation · Advanced
  *   THIS PHONE  the paired Mac and how this phone reaches it; lock and unpair; AASC's
  *               version (About folded in here, Oct 20 2026); in the app, Switch AASC → the

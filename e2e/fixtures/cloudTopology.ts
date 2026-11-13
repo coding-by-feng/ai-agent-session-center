@@ -156,7 +156,7 @@ export const test = base.extend<{ topology: CloudTestTopology; a: Page; b: Page 
     const c = await browser.newContext();
     const p = await c.newPage();
     try {
-      await p.goto(topology.aUrl + '/resources?section=cloud&cloudTab=resources');
+      await p.goto(topology.aUrl + '/resources?account=1');
       await use(p);
     } finally {
       await c.close();
@@ -166,7 +166,7 @@ export const test = base.extend<{ topology: CloudTestTopology; a: Page; b: Page 
     const c = await browser.newContext();
     const p = await c.newPage();
     try {
-      await p.goto(topology.bUrl + '/resources?section=cloud&cloudTab=resources');
+      await p.goto(topology.bUrl + '/resources?account=1');
       await use(p);
     } finally {
       await c.close();

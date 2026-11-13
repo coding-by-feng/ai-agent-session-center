@@ -1,8 +1,8 @@
 /**
- * SectionTabs — the RESOURCES tab row (Oct 23 2026): Library · Cloud sync · Projects · Health ·
- * Connection. One row instead of two (the old Cloud section had its own tabs). A count rides on
- * Cloud sync (what is waiting to sync) and on Health (errors and warnings) so neither needs a
- * visit to be noticed. The row scrolls sideways at narrow widths and keeps the open tab in view.
+ * SectionTabs — the RESOURCES tab row (Nov 13 2026): Library · Projects · Machines. Cloud sync was
+ * removed, Health became the Library's Checks view and Connection the cloud account button beside
+ * this row. A tab may carry a count (none does yet). The row scrolls sideways at narrow widths and
+ * keeps the open tab in view.
  */
 import { useEffect, useRef } from 'react';
 import type { ResourceSection } from '@/lib/resourceFilters';
@@ -13,15 +13,11 @@ import lib from '@/styles/modules/ResourceLibrary.module.css';
 
 const SECTION_LABELS: Record<ResourceSection, string> = {
   library: 'Library',
-  sync: 'Cloud sync',
   projects: 'Projects',
-  health: 'Health',
-  connection: 'Connection',
+  machines: 'Machines',
 };
-const BADGE_LABELS: Partial<Record<ResourceSection, (n: number) => string>> = {
-  sync: (n) => `${n} waiting to sync`,
-  health: (n) => `${n} ${n === 1 ? 'issue' : 'issues'} to look at`,
-};
+/** How a tab's count is spoken; none is defined yet, so a count reads as its bare number. */
+const BADGE_LABELS: Partial<Record<ResourceSection, (n: number) => string>> = {};
 
 export default function SectionTabs({
   baseId,

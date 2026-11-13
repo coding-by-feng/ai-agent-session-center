@@ -96,6 +96,17 @@ describe('MoreScreen', () => {
     }
   });
 
+  it('lists Resources as its own section, Library and projects, which opens Resources on the Library', async () => {
+    const user = userEvent.setup();
+    render(<MoreScreen />);
+    const section = screen.getByRole('region', { name: 'Resources' });
+    const row = within(section).getByRole('button', { name: /Resources/ });
+    expect(row.textContent).toContain('Library and projects');
+    expect(row.textContent).not.toMatch(/sync/i);
+    await user.click(row);
+    expect(usePhoneNavStore.getState().stacks.more.at(-1)).toBe('/more/resources');
+  });
+
   it('has no Switch AASC in a phone browser: there is no app list of Macs to go back to', () => {
     render(<MoreScreen />);
     expect(screen.queryByRole('button', { name: /Switch AASC/ })).toBeNull();

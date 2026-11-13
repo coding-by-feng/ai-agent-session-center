@@ -12,9 +12,9 @@ import type { GoogleSignIn, SignInFinish } from './googleSignIn.js';
 
 const PAGES: Record<SignInFinish, { status: number; text: string }> = {
   connected: { status: 200, text: 'Signed in. You can close this tab and go back to AASC.' },
-  'no-pending': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud → Connection.' },
-  'state-mismatch': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud → Connection.' },
-  expired: { status: 400, text: 'This sign-in expired. Start again from RESOURCES → Cloud → Connection.' },
+  'no-pending': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud account.' },
+  'state-mismatch': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud account.' },
+  expired: { status: 400, text: 'This sign-in expired. Start again from RESOURCES → Cloud account.' },
   failed: { status: 502, text: 'Sign-in failed. Go back to AASC to see why, then try again.' },
 };
 

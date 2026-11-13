@@ -7,8 +7,11 @@
  *   fold and open · edit diffs · thinking · the plan · subagents · dividers
  *   queued prompts, dimmed, with Pull back
  *   [ New activity ↓ ]
- *   ● Working · Bash · 0:42                 ■ Stop      (while it works)
- *   terminal peek                (tap: twelve lines and "Open terminal")
+ *   the terminal's last lines, opened from the composer's status chip (while it works)
+ *
+ * While the agent works, the composer below carries the status (a chip at the bottom-left of
+ * its chips row) and Stop (■ beside its send button), Nov 13 2026. Full-screen Chat has no
+ * composer, so there the chat draws the strip instead: "● Working · Bash · 0:42  ⌄  ■ Stop".
  *
  * Fills the segment panel (`flex: 1; min-height: 0`): the composer and the
  * waiting card mount below the panel as its sibling (AASC-42/43).
@@ -35,6 +38,7 @@ import { Button, EmptyState, useScreenSlot } from '../kit';
 import ChatItemView from './items/ChatItemView';
 import ChatSearchBar from './ChatSearchBar';
 import ChatTerminalStart from './ChatTerminalStart';
+import PeekPanel from './PeekPanel';
 import StatusStrip from './StatusStrip';
 import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
 import { ChatTerminalContext } from './chatQuestions';
@@ -61,6 +65,12 @@ export interface ChatViewProps {
   popup?: { rootSessionId: string; terminalId: string };
   /** Open a file of the project, named in the chat, in the Project tab ("/docs/plan.md"). */
   onOpenFile?: (relPath: string) => void;
+  /**
+   * A composer sits under this chat (Nov 13 2026): it shows the status and Stop, so the chat
+   * draws no strip and opens the terminal's last lines above the box from the composer's chip.
+   * Absent (full-screen Chat, or the chat alone) means the strip shows: never no Stop at all.
+   */
+  composer?: boolean;
 }
 
 const EMPTY_QUEUE: never[] = [];
@@ -95,7 +105,7 @@ function openMembersOf(item: ChatItem, opened: Record<string, boolean>): string 
   return item.members.filter((m) => opened[m.key]).map((m) => m.key).join(',');
 }
 
-export default function ChatView({ session, onTerminal, onPullBack, popup, onOpenFile }: ChatViewProps) {
+export default function ChatView({ session, onTerminal, onPullBack, popup, onOpenFile, composer = false }: ChatViewProps) {
   const { sessionId } = session;
   useChatLive(session);
   const data = useChatStore((s) => s.sessions[sessionId]);
@@ -198,6 +208,7 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
       rememberView={rememberView}
       working={busy}
       peek={peek}
+      composer={composer}
       onPullBack={onPullBack}
       onTerminal={onTerminal}
       popup={popup}
@@ -223,6 +234,8 @@ interface ChatBodyProps {
   working: boolean;
   /** The terminal's last lines, from ChatView's one subscription. */
   peek: string[];
+  /** A composer below carries the status and Stop: no strip, the peek opens from its chip. */
+  composer: boolean;
   onPullBack?: (item: QueuedItem) => void;
   onTerminal: () => void;
   popup?: { rootSessionId: string; terminalId: string };
@@ -241,6 +254,7 @@ function ChatBody({
   rememberView,
   working,
   peek,
+  composer,
   onPullBack,
   onTerminal,
   popup,
@@ -391,7 +405,9 @@ function ChatBody({
           </button>
         )}
       </div>
-      {working && <StatusStrip session={session} peek={peek} onOpenTerminal={onTerminal} />}
+      {working && (composer
+        ? <PeekPanel session={session} peek={peek} onOpenTerminal={onTerminal} />
+        : <StatusStrip session={session} peek={peek} onOpenTerminal={onTerminal} />)}
       <SelectionReadAloud sessionId={sessionId} overSheet={!!popup} />
       <Suspense fallback={null}>
         <PhoneConversationAi sessionId={sessionId} popup={popup} />

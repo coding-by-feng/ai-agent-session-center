@@ -344,6 +344,23 @@
 
 @keyframes strip-pulse { 50% { opacity: 0.35; } }
 
+.stripDot[data-tone='quiet'] { background: var(--ph-text-tertiary); animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stripDot { animation: none; }
+}
+
+/* The open peek's header above the composer (Nov 13 2026): the status in words, which the
+   composer's chip shows only as a time. */
+.peekHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-2);
+  min-width: 0;
+  margin: 0;
+  padding-top: var(--ph-space-1);
+}
+
 /* ⌄ shows the terminal's last lines under the strip (hidden by default, Oct 19 2026). */
 .stripToggle {
   appearance: none;

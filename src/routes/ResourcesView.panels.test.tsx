@@ -1,5 +1,5 @@
-// ResourcesView.panels.test.tsx — the RESOURCES tab's Health tab (Checks, then
-// Sources, since Oct 23 2026; old ?section=sources|checks links open it): roots,
+// ResourcesView.panels.test.tsx — the Library's Checks view (Checks, then Sources; the Health
+// tab until Nov 13 2026, so old ?section=health|sources|checks links open it): roots,
 // projects, coverage and added folders; findings grouped by severity and linked
 // back to the Library.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -104,7 +104,7 @@ describe('ResourcesView — Sources', () => {
     // No `type` in the link: the view opens the first type the project has.
     expect(listRows().map((b) => b.textContent)).toEqual([expect.stringMatching(/^app-helper/)]);
     // A project with nothing to show gets no link at all.
-    fireEvent.click(screen.getByRole('tab', { name: /^Health/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Checks/ }));
     expect(screen.queryByRole('link', { name: /Show resources in me/ })).not.toBeInTheDocument();
   });
 

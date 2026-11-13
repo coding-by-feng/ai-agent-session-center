@@ -96,20 +96,6 @@
   white-space: nowrap;
 }
 
-/* The version a resource is at now: a quiet tag, not a button. */
-.current {
-  display: inline-block;
-  margin-left: var(--ph-space-2);
-  padding: 0 var(--ph-space-2);
-  border: 1px solid var(--ph-accent);
-  border-radius: var(--ph-radius-pill);
-  font-size: var(--ph-size-caption);
-  font-weight: 600;
-  line-height: 20px;
-  color: var(--ph-accent);
-  vertical-align: 2px;
-}
-
 .note {
   margin: 0 var(--ph-gutter);
   padding: 0 var(--ph-space-4);

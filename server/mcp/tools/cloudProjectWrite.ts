@@ -223,7 +223,7 @@ const createReviews = new WeakMap<ToolContext, CreateReview>();
 
 const NO_CANDIDATES = {
   what: 'This build of AASC cannot save a project.',
-  hint: 'cloud_project_list lists the projects already saved; the person can save one in RESOURCES → Cloud.',
+  hint: 'cloud_project_list lists the projects already saved; the person can save one in RESOURCES → Projects.',
 };
 
 const cloudProjectCreate = defineTool({
@@ -457,7 +457,7 @@ const cloudProjectSetAccount = defineTool({
     const sent = await cloudSend(ctx, 'put', `${CLOUD}/projects/${seg(args.id)}/account`, { login: args.login }, binding);
     const body = cloudWriteBody<unknown>(sent, {
       what: 'This build of AASC cannot choose a project’s GitHub account.',
-      hint: 'cloud_project_local shows the account the project uses; the person can choose one in RESOURCES → Cloud.',
+      hint: 'cloud_project_local shows the account the project uses; the person can choose one in RESOURCES → Projects.',
     });
     const lead = args.login === null ? 'This Mac now uses its own Git sign-in for the project.' : `This Mac now uses the GitHub account ${args.login} for the project.`;
     return {
@@ -498,7 +498,7 @@ const cloudProjectAssociate = defineTool({
 
 const NO_REMOVE = {
   what: 'This build of AASC cannot remove a project.',
-  hint: 'Nothing was removed; the person can remove it in RESOURCES → Cloud on a newer build of AASC.',
+  hint: 'Nothing was removed; the person can remove it in RESOURCES → Projects on a newer build of AASC.',
 };
 
 const cloudProjectRemove = defineTool({

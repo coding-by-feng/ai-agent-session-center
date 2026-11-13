@@ -23,6 +23,21 @@ const excludes = z
   )
   .max(200);
 const direction = z.enum(['push', 'two-way']);
+const conflictPolicy = z.enum(['ask', 'local']);
+/** An absolute server path: the helper checks it again (inside home, no links on the way). */
+const serverPath = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((p) => p.startsWith('/') && !/[\x00-\x1f]/.test(p), 'Invalid path');
+const pullSchema = z
+  .object({
+    sources: z.array(serverPath).max(50),
+    projectId: z.string().min(1).max(128),
+    into: z.string().max(1024).optional(),
+    replace: z.boolean().optional(),
+  })
+  .strict();
 const linkSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -32,6 +47,7 @@ const linkSchema = z
     excludes,
     credentialsAck: z.boolean(),
     direction: direction.optional(),
+    conflictPolicy: conflictPolicy.optional(),
   })
   .strict();
 const updateSchema = z
@@ -39,6 +55,7 @@ const updateSchema = z
     name: z.string().trim().min(1).max(100).optional(),
     excludes: excludes.optional(),
     direction: direction.optional(),
+    conflictPolicy: conflictPolicy.optional(),
   })
   .strict();
 const deviceSchema = z
@@ -125,6 +142,34 @@ export function createSyncRouter(
     await service.removeDevice(id.parse(req.params.id));
     ok(res, null);
   });
+  router.get('/devices/:id/browse', async (req, res) => {
+    const path = one(req.query.path);
+    ok(
+      res,
+      await service.browse(
+        id.parse(req.params.id),
+        path === undefined ? undefined : serverPath.parse(path),
+      ),
+    );
+  });
+  router.post('/devices/:id/pulls', async (req, res) =>
+    ok(
+      res,
+      await service.planPull({ deviceId: id.parse(req.params.id), ...pullSchema.parse(req.body) }),
+    ),
+  );
+  router.get('/pulls/:id', async (req, res) =>
+    ok(res, await service.getPull(id.parse(req.params.id))),
+  );
+  router.post('/pulls/:id/start', async (req, res) =>
+    ok(res, await service.startPull(id.parse(req.params.id))),
+  );
+  router.post('/pulls/:id/cancel', async (req, res) =>
+    ok(res, await service.cancelPull(id.parse(req.params.id))),
+  );
+  router.post('/pulls/:id/undo', async (req, res) =>
+    ok(res, await service.undoPull(id.parse(req.params.id))),
+  );
   router.post('/links', async (req, res) =>
     ok(res, await service.createLink(linkSchema.parse(req.body))),
   );

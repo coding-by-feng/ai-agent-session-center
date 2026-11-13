@@ -7,7 +7,9 @@
  *
  * Wire format on stdin: frames of [type:1 byte 'J'|'D'][length:uint32 BE][payload].
  * Replies on stdout: one JSON object per line. Ops: probe · manifest · apply · undo · read ·
- * export (streams files out for a two-way pull: the server's helper exports, this machine's applies).
+ * export (streams files out for a two-way pull: the server's helper exports, this machine's applies) ·
+ * list (one folder level inside home, for the server folder picker) · space (free bytes) · purge
+ * (undo journals of runs no longer kept).
  * `side: 'local'` in a header words messages for this computer instead of the server.
  * The source is a String.raw template: never put a backtick or a dollar-brace in it.
  */
@@ -38,6 +40,9 @@ const IGNORABLE_RE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
 const gitFold = (p) => p.normalize('NFKC').replace(IGNORABLE_RE, '').toUpperCase().toLowerCase();
 const HOOKS_RE = /(^|\/)\.git\/(?:(?:modules\/.+|worktrees\/[^/]+)\/)?hooks(\/|$)/;
 const isHookPath = (p) => HOOKS_RE.test(gitFold(p));
+// Credential folders and AASC's journal: never browsed, read as a root, nor written into.
+const PRIVATE_NAMES = ['.ssh', '.gnupg', '.aws', '.kube', '.aasc-project-sync'];
+const isPrivateName = (n) => PRIVATE_NAMES.includes(gitFold(n));
 // A config file inside .git (the repository's, a submodule's, a worktree's): git runs programs
 // it names. .git/Config is git's config on a Mac and a stray file on Linux.
 const GIT_CONFIG_RE = /^(?:(?:modules\/.+|worktrees\/[^/]+)\/)?config(?:\.worktree)?$/;
@@ -113,8 +118,11 @@ async function checkRoot(root, inHome) {
   const home = await fsp.realpath(os.homedir());
   if (root === home || root === path.parse(root).root) fail('The project folder cannot be the home folder or the disk root.');
   if (inHome && !within(home, root)) fail('The folder must be inside the home folder on ' + WHERE + '.');
-  const journal = path.join(home, '.aasc-project-sync');
-  if (within(journal, root) || within(root, journal)) fail('The project folder overlaps the sync journal.');
+  const journal = gitFold(path.join(home, '.aasc-project-sync'));
+  if (within(journal, gitFold(root)) || within(gitFold(root), journal)) fail('The project folder overlaps the sync journal.');
+  const segs = root.slice(path.parse(root).root.length).split(path.sep);
+  if (segs.some((x) => gitFold(x) === '.git')) fail('A folder inside .git holds git' + "'" + 's own files; nothing is read or written there.');
+  if (within(home, root) && root.slice(home.length + 1).split(path.sep).some(isPrivateName)) fail('That folder holds credentials or AASC state.');
   await noLinks(root);
   return home;
 }
@@ -163,6 +171,9 @@ const excluded = (rules, rel, isDir) => rules.some((r) => (!r.dirOnly || isDir) 
 async function manifest(h, it) {
   await checkRoot(h.root, h.inHome === true);
   const rules = compile(h.excludes || []);
+  // A pull of single files reads only these names at the top of the folder.
+  if (h.only !== undefined && (!Array.isArray(h.only) || h.only.length > 1000 || !h.only.every((n) => safeRel(n) && !n.includes('/')))) fail('Invalid file list.');
+  const only = h.only === undefined ? null : new Set(h.only);
   const base = new Map();
   for (;;) {
     const f = await next(it);
@@ -180,7 +191,7 @@ async function manifest(h, it) {
     try { names = (await fsp.readdir(abs)).sort(); }
     catch (e) { if (e.code === 'EACCES' || e.code === 'EPERM') fail('Cannot read ' + (rel || 'the project folder') + ' (permission denied). Exclude it or fix its permissions.'); throw e; }
     for (const n of names) {
-      if (TMP_RE.test(n)) continue;
+      if (TMP_RE.test(n) || (only && depth === 0 && !only.has(n))) continue;
       const r = rel ? rel + '/' + n : n, a = path.join(abs, n);
       const s = await lst(a);
       if (!s) continue;
@@ -522,6 +533,80 @@ async function sendOne(root, g) {
   } finally { await fh.close(); }
 }
 
+// The folder picker: one level of a folder inside home. Credential folders and AASC's journal are
+// never listed nor opened; nothing is followed through a link.
+const LIST_MAX = 2000;
+const plainPath = (p) => typeof p === 'string' && path.isAbsolute(p) && path.normalize(p) === p && (p === path.sep || !p.endsWith(path.sep)) && p.length <= 4096 && !/[\x00-\x1f]/.test(p);
+async function list(h) {
+  if (!plainPath(h.path)) fail('Invalid folder.');
+  const home = await fsp.realpath(os.homedir());
+  if (!within(home, h.path)) fail('Only folders inside the home folder on ' + WHERE + ' can be browsed.');
+  if (h.path.slice(home.length).split(path.sep).some(isPrivateName)) fail('That folder holds credentials or AASC state.');
+  await noLinks(h.path);
+  const top = await lst(h.path);
+  if (!top) { await out({ done: true, home, missing: true }); return; }
+  if (!top.isDirectory()) fail('That is not a folder.');
+  let names;
+  try { names = (await fsp.readdir(h.path)).sort(); }
+  catch (e) { if (e.code === 'EACCES' || e.code === 'EPERM') fail('Cannot read that folder (permission denied).'); throw e; }
+  let count = 0, truncated = false;
+  for (const n of names) {
+    if (TMP_RE.test(n) || isPrivateName(n)) continue;
+    if (count >= LIST_MAX) { truncated = true; break; }
+    const st = await lst(path.join(h.path, n));
+    if (!st) continue;
+    await out({ n, k: st.isSymbolicLink() ? 'l' : st.isDirectory() ? 'd' : st.isFile() ? 'f' : 'o', s: st.isFile() ? st.size : 0, m: Math.floor(st.mtimeMs) });
+    count++;
+  }
+  await out({ done: true, home, truncated });
+}
+
+// Free bytes where a folder is (or would be): statfs on Node 18.15+, else df.
+function dfFree(p) {
+  return new Promise((resolve) => {
+    require('child_process').execFile('df', ['-Pk', p], { timeout: 5000 }, (err, stdout) => {
+      if (err) return resolve(null);
+      const cols = (String(stdout).trim().split('\n')[1] || '').trim().split(/\s+/);
+      const kb = Number(cols[3]);
+      resolve(Number.isFinite(kb) && kb >= 0 ? kb * 1024 : null);
+    });
+  });
+}
+async function space(h) {
+  if (!plainPath(h.path)) fail('Invalid folder.');
+  let p = h.path;
+  for (;;) { if (await lst(p)) break; const up = path.dirname(p); if (up === p) break; p = up; }
+  let free = null;
+  if (typeof fsp.statfs === 'function') { try { const st = await fsp.statfs(p); free = Number(st.bavail) * Number(st.bsize); } catch (e) { free = null; } }
+  if (free === null || !Number.isFinite(free)) free = await dfFree(p);
+  await out({ done: true, free });
+}
+
+// Undo journals of runs AASC no longer keeps. A run folder younger than minAgeMs stays: a run
+// may have started since the caller read its list.
+async function purge(h) {
+  if (!UUID.test(h.linkId) || !Array.isArray(h.keep) || h.keep.length > 1000 || !h.keep.every((k) => typeof k === 'string' && UUID.test(k))) fail('Invalid purge request.');
+  const minAge = Number.isFinite(h.minAgeMs) && h.minAgeMs >= 0 ? h.minAgeMs : 3600000;
+  const home = await fsp.realpath(os.homedir());
+  const root = path.join(home, '.aasc-project-sync'), link = path.join(root, h.linkId), runs = path.join(link, RUNS);
+  await noLinks(runs);
+  if (!(await lst(runs))) { await out({ done: true, removed: 0 }); return; }
+  for (const d of [root, link, runs]) {
+    const st = await fsp.lstat(d);
+    if (!st.isDirectory() || (st.mode & 63) !== 0 || st.uid !== process.getuid()) fail('The sync journal must be private to this user.');
+  }
+  const keep = new Set(h.keep);
+  let removed = 0;
+  for (const n of await fsp.readdir(runs)) {
+    if (!UUID.test(n) || keep.has(n)) continue;
+    const st = await lst(path.join(runs, n));
+    if (!st || !st.isDirectory() || Date.now() - st.mtimeMs < minAge) continue;
+    await fsp.rm(path.join(runs, n), { recursive: true, force: true });
+    removed++;
+  }
+  await out({ done: true, removed });
+}
+
 const beat = setInterval(() => process.stdout.write('{"hb":1}\n'), 5000);
 beat.unref();
 (async () => {
@@ -536,6 +621,9 @@ beat.unref();
   if (h.op === 'undo') return undo(h);
   if (h.op === 'read') return read(h);
   if (h.op === 'export') return exportFiles(h, it);
+  if (h.op === 'list') return list(h);
+  if (h.op === 'space') return space(h);
+  if (h.op === 'purge') return purge(h);
   fatal('Unknown operation.');
 })().catch(async (e) => { await out({ fatal: String((e && e.message) || e).slice(0, 500) }); process.exitCode = 1; });
 `;

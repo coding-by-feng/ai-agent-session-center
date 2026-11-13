@@ -6,6 +6,7 @@ import {
   type SyncEntry,
   type SyncLink,
   type SyncOverview,
+  type SyncPull,
   type SyncRun,
 } from '@/types/projectSync';
 import { useSyncCards } from './useSyncCards';
@@ -226,6 +227,7 @@ describe('Project Sync on the Projects cards', () => {
       excludes: [...DEFAULT_SYNC_EXCLUDES],
       credentialsAck: true,
       direction: 'two-way',
+      conflictPolicy: 'ask',
     });
   });
 
@@ -569,10 +571,199 @@ describe('a two-way review', () => {
       expect(calls.find((c) => c.url.endsWith('/update'))?.body).toEqual({
         direction: 'push',
         excludes: ['node_modules/'],
+        conflictPolicy: 'ask',
       }),
     );
     fireEvent.click(within(settings).getByRole('button', { name: 'Remove link…' }));
     fireEvent.click(within(settings).getByRole('button', { name: 'Remove link' }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/remove'))).toBe(true));
+  });
+});
+
+const HOME_LISTING = {
+  path: '/home/me',
+  home: '/home/me',
+  parent: null,
+  truncated: false,
+  entries: [
+    { name: 'code', path: '/home/me/code', kind: 'dir', size: 0, mtimeMs: 1 },
+    { name: 'data', path: '/home/me/data', kind: 'dir', size: 0, mtimeMs: 1 },
+    { name: 'notes.txt', path: '/home/me/notes.txt', kind: 'file', size: 12, mtimeMs: 1 },
+  ],
+};
+const CODE_LISTING = {
+  path: '/home/me/code',
+  home: '/home/me',
+  parent: '/home/me',
+  truncated: false,
+  entries: [{ name: 'other', path: '/home/me/code/other', kind: 'dir', size: 0, mtimeMs: 1 }],
+};
+const PULL: SyncPull = {
+  id: '55555555-5555-4555-8555-555555555555',
+  deviceId: DEVICE.id,
+  projectId: 'p-app',
+  sources: ['/home/me/data'],
+  into: '',
+  dest: '~/code/app',
+  replace: false,
+  state: 'planned',
+  counts: { new: 3, replace: 0, keep: 1, same: 0, skip: 0 },
+  total: 3,
+  done: 0,
+  failed: 0,
+  bytes: { toGet: 2048, got: 0 },
+  warnings: ['1 executable file comes from the server. Check it before you run it.'],
+  createdAt: 1,
+  updatedAt: 1,
+};
+const browseRoute: [RegExp, Handler] = [/\/browse/, () => ok(HOME_LISTING)];
+
+describe('server folders: when both changed, browsing and pulling', () => {
+  it('links with "This computer wins" and a folder picked on the server', async () => {
+    const calls = stub(overviewOf(), [
+      [/\/browse\?path=%2Fhome%2Fme%2Fcode$/, () => ok(CODE_LISTING)],
+      browseRoute,
+      [/\/links$/, () => ok({ ...LINK, lastRunId: undefined, state: 'never' })],
+      [/\/compare$/, () => ok({ ...RUN, state: 'comparing' })],
+    ]);
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync with a server…' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Browse…' }));
+    const picker = await within(dialog).findByRole('group', { name: 'Folders on mini' });
+    fireEvent.click(await within(picker).findByRole('button', { name: 'Open code' }));
+    await within(picker).findByRole('button', { name: 'Open other' });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Use this folder' }));
+    const folder = within(dialog).getByLabelText('Folder on the server') as HTMLInputElement;
+    expect(folder.value).toBe('/home/me/code');
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'When both changed' }), {
+      target: { value: 'local' },
+    });
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Link and compare' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/compare'))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith('/links'))?.body).toMatchObject({
+      remoteRoot: '/home/me/code',
+      direction: 'two-way',
+      conflictPolicy: 'local',
+    });
+  });
+
+  it('reads the server folder once when Browse opens, not on every keystroke', async () => {
+    const calls = stub(overviewOf(), [browseRoute]);
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync with a server…' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Browse…' }));
+    const picker = await within(dialog).findByRole('group', { name: 'Folders on mini' });
+    await within(picker).findByRole('button', { name: 'Open code' });
+    const reads = () => calls.filter((c) => c.url.includes('/browse')).length;
+    const seen = reads();
+    const folder = within(dialog).getByLabelText('Folder on the server');
+    for (const v of ['/home/me/c', '/home/me/co', '/home/me/cod'])
+      fireEvent.change(folder, { target: { value: v } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reads()).toBe(seen);
+  });
+
+  it('asks nothing about conflicts on a push link', async () => {
+    stub(overviewOf());
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync with a server…' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('combobox', { name: 'When both changed' })).toBeTruthy();
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Direction' }), {
+      target: { value: 'push' },
+    });
+    expect(within(dialog).queryByRole('combobox', { name: 'When both changed' })).toBeNull();
+  });
+
+  it('changes who wins in Settings', async () => {
+    const calls = stub(overviewOf({ links: [LINK], runs: [RUN] }), [
+      [/\/update$/, () => ok({ ...LINK, conflictPolicy: 'local' })],
+    ]);
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync app' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Settings' }));
+    const settings = within(dialog).getByRole('group', { name: 'Sync settings' });
+    fireEvent.change(within(settings).getByRole('combobox', { name: 'When both changed' }), {
+      target: { value: 'local' },
+    });
+    fireEvent.click(within(settings).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.endsWith('/update'))?.body).toMatchObject({
+        conflictPolicy: 'local',
+      }),
+    );
+  });
+
+  it('stops following a pull the server no longer knows (AASC restarted)', async () => {
+    const calls = stub(overviewOf({ links: [LINK], runs: [RUN] }), [
+      browseRoute,
+      [/\/pulls$/, () => ok(PULL)],
+      [/\/start$/, () => ok({ ...PULL, state: 'running' })],
+      [
+        /\/pulls\/5{8}/,
+        () => ({ status: 404, json: { success: false, error: 'Pull not found.' } }),
+      ],
+    ]);
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync app' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Pull files…' }));
+    const panel = await within(dialog).findByRole('group', { name: 'Pull files from the server' });
+    fireEvent.click(await within(panel).findByRole('checkbox', { name: 'data' }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Check what changes' }));
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Pull' }));
+    expect(
+      await within(panel).findByText(/Lost track of this pull/, {}, { timeout: 3000 }),
+    ).toBeTruthy();
+    const polls = () => calls.filter((c) => /\/pulls\/5{8}[^/]*$/.test(c.url)).length;
+    const seen = polls();
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(polls()).toBe(seen);
+    expect(within(panel).queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect(within(panel).getByRole('button', { name: 'Done' })).toBeTruthy();
+  });
+
+  it('pulls a server folder into the project, then can undo it', async () => {
+    const calls = stub(overviewOf({ links: [LINK], runs: [RUN] }), [
+      browseRoute,
+      [/\/pulls$/, () => ok(PULL)],
+      [/\/start$/, () => ok({ ...PULL, state: 'running' })],
+      [
+        /\/undo$/,
+        () => ok({ ...PULL, state: 'undone', done: 3, warnings: ['Undo put back 3 items.'] }),
+      ],
+      [
+        /\/pulls\/5{8}/,
+        () => ok({ ...PULL, state: 'complete', done: 3, bytes: { toGet: 2048, got: 2048 } }),
+      ],
+    ]);
+    render(<Cards paths={[APP]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync app' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Pull files…' }));
+    const panel = await within(dialog).findByRole('group', { name: 'Pull files from the server' });
+    const check = within(panel).getByRole('button', {
+      name: 'Check what changes',
+    }) as HTMLButtonElement;
+    expect(check.disabled).toBe(true);
+    fireEvent.click(await within(panel).findByRole('checkbox', { name: 'data' }));
+    fireEvent.change(within(panel).getByLabelText(/Into/), { target: { value: 'imports' } });
+    fireEvent.click(check);
+    expect(await within(panel).findByText('3 new · 1 kept as it is here')).toBeTruthy();
+    expect(within(panel).getByText(/executable/)).toBeTruthy();
+    expect(calls.find((c) => /\/pulls$/.test(c.url))?.body).toEqual({
+      projectId: 'p-app',
+      sources: ['/home/me/data'],
+      into: 'imports',
+      replace: false,
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Pull' }));
+    expect(await within(panel).findByText(/Pulled 3 items into ~\/code\/app/)).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Undo' }));
+    expect(await within(panel).findByText('Undo put back 3 items.')).toBeTruthy();
   });
 });

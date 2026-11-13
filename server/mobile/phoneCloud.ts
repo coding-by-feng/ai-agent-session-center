@@ -119,8 +119,8 @@ type BudgetKind = keyof typeof BUDGETS;
 
 /** Every problem a phone can be told. Nothing else crosses. */
 export const PHONE_CLOUD_PROBLEMS = {
-  revoked: 'This Mac’s cloud device was revoked. Connect it again on your Mac: RESOURCES → Cloud → Connection.',
-  forbidden: 'AASC Cloud doesn’t let this Mac read resources and projects. Check its device on your Mac: RESOURCES → Cloud.',
+  revoked: 'This Mac’s cloud device was revoked. Connect it again on your Mac: RESOURCES → Cloud account.',
+  forbidden: 'AASC Cloud doesn’t let this Mac read resources and projects. Check its device on your Mac: RESOURCES → Cloud account.',
   offline: 'Your Mac can’t reach AASC Cloud right now. Check its internet connection, then try again.',
   busy: 'AASC Cloud asked your Mac to slow down. Try again in a minute.',
   slow: 'AASC Cloud took too long to answer. Try again.',

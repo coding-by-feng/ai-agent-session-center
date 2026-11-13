@@ -1,7 +1,8 @@
 /**
- * Synthetic UI acceptance for RESOURCES and its cloud tabs (AASC-62 sync list, AASC-63 Projects, and
- * the Oct 23 2026 redesign: one tab row, cloud state on Library rows, Save to cloud from the detail
- * pane and the bulk bar, Stop syncing). No server/index.ts, hooks, real resources, Git, backend or
+ * Synthetic UI acceptance for RESOURCES (Nov 13 2026: Library · Projects · Machines, the Library's
+ * Checks view and the ☁ Cloud account dialog; AASC-63 Projects). Cloud sync's UI (AASC-62: the sync
+ * list, cloud state on Library rows, Save to cloud, the bulk bar) was removed, and this gate checks
+ * an old link to it lands on the Library with no sync reads. No server/index.ts, hooks, real resources, Git, backend or
  * user browser: the real React views run against fixture APIs. Explicit-only:
  * `node test/cloudUiBrowserGate.mjs`. Screenshots: test-screenshots/aasc-62-63/ (three themes,
  * desktop and 390 px).
@@ -184,76 +185,24 @@ try {
   const context = await browser.newContext({ viewport: { width: 1365, height: 1050 } });
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
-  // One tab row since Oct 23 2026: Library · Cloud sync · Projects · Health · Connection.
-  const TAB = { library: /^Library/, sync: /^Cloud sync/, projects: /^Projects/, health: /^Health/, connection: /^Connection/ };
-  const open = async (tab, theme = 'windows-xp') => {
-    await page.goto(`${origin}/resources?section=${tab}&theme=${theme}`);
-    await page.getByRole('tab', { name: TAB[tab] }).waitFor();
+  // Nov 13 2026: Library · Projects · Machines. Health is the Library's Checks view (`checks=1`) and
+  // Connection the ☁ Cloud account dialog (`account=1`); Cloud sync (AASC-62's UI) was removed.
+  const VIEW = { library: '', projects: 'section=projects', machines: 'section=machines', checks: 'checks=1', account: 'account=1' };
+  const TAB = { library: /^Library/, projects: /^Projects/, machines: /^Machines/, checks: /^Library/, account: /^Library/ };
+  const open = async (view, theme = 'windows-xp') => {
+    await page.goto(`${origin}/resources?${VIEW[view]}&theme=${theme}`);
+    await page.getByRole('tab', { name: TAB[view] }).waitFor();
   };
 
-  // An old link still lands: ?section=cloud&cloudTab=resources opens Cloud sync.
+  // An old Cloud sync link lands on the Library, and nothing reads the sync list any more.
   await page.goto(`${origin}/resources?section=cloud&cloudTab=resources&theme=windows-xp`);
-  assert.equal(await page.getByRole('tab', { name: /^Cloud sync/ }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tab', { name: /^Library/ }).getAttribute('aria-selected'), 'true');
+  await page.getByText('Test workflow').first().waitFor();
+  assert.equal(await page.getByRole('tab', { name: /^Cloud sync/ }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Select', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('img', { name: /^Cloud:/ }).count(), 0);
+  assert.ok(!calls.some((c) => /\/(sync-status|sync-now|sync-control|publish-plans)(\/|$)/.test(c.path)), 'something still reads Cloud sync');
 
-  // Cloud sync: grouped by what each needs, a count that leaves the choice and the memory OK out.
-  await open('sync');
-  await page.getByText('Changed in both places').waitFor();
-  await page.getByRole('button', { name: 'Sync now (3)' }).waitFor();
-  await page.screenshot({ animations: 'disabled', fullPage: true, path: join(shots, 'resources-xp-desktop.png') });
-  const conflict = page.getByRole('listitem').filter({ hasText: 'tdd-workflow' });
-  await conflict.getByRole('button', { name: 'Keep mine' }).click();
-  await page.getByRole('listitem').filter({ hasText: 'notes' }).getByLabel('OK to sync this memory file').check();
-  await page.getByRole('button', { name: 'Sync now (5)' }).click();
-  // Done when the list is read again and nothing is left to move. The blocked row says why the sync
-  // left it alone, so no note above the list repeats it.
-  await page.getByRole('button', { name: 'Sync now', exact: true }).waitFor({ timeout: 8000 });
-  assert.equal(await page.getByText('Left as they were in the last sync:').count(), 0);
-  assert.equal(await page.getByText('Something else is already at this location on this device.').count(), 1);
-  const sync = calls.find((c) => c.path.endsWith('/sync-now'));
-  assert.deepEqual(Object.values(sync.body.choices), ['mine']);
-  assert.equal(sync.body.memory.length, 1);
-  await page.screenshot({ animations: 'disabled', fullPage: true, path: join(shots, 'resources-xp-after-sync.png') });
-
-  // Activity: past syncs (with Restore) and Download ZIP, folded away until opened.
-  await page.getByRole('button', { name: /Activity/ }).click();
-  await page.getByRole('button', { name: 'Restore backup' }).first().waitFor();
-  await page.getByLabel('Download as ZIP').selectOption({ label: 'api-design · Claude skill · v1' });
-  await page.getByRole('button', { name: 'Download ZIP' }).click();
-  const downloadEvent = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Save ZIP' }).click();
-  await downloadEvent;
-  await page.screenshot({ animations: 'disabled', fullPage: true, path: join(shots, 'resources-xp-activity.png') });
-
-  // A row's menu: Stop syncing on this Mac moves it to "Stopped on this Mac".
-  syncItems = initialSyncItems;
-  await open('sync');
-  await page.getByRole('listitem').filter({ hasText: 'commit' }).getByRole('button', { name: 'More actions for commit' }).click();
-  await page.getByRole('menuitem', { name: 'Stop syncing on this Mac' }).click();
-  await page.getByRole('region', { name: 'Stopped on this Mac' }).waitFor();
-  assert.ok(calls.some((c) => c.path.endsWith('/sync-control') && c.body.action === 'stop'));
-  syncItems = initialSyncItems;
-
-  // Library: rows show their cloud state; a resource saves from its detail pane or the bulk bar.
-  await open('library');
-  await page.getByRole('img', { name: 'Cloud: Newer in cloud' }).waitFor();
-  await page.getByRole('button', { name: /^code-review/ }).click();
-  await page.getByRole('button', { name: /Get v3 from cloud/ }).waitFor();
-  await page.screenshot({ animations: 'disabled', path: join(shots, 'library-detail-synced-xp.png') });
-  await page.getByRole('button', { name: /^Test workflow/ }).click();
-  await page.getByRole('button', { name: 'Save to cloud', exact: true }).waitFor();
-  await page.screenshot({ animations: 'disabled', path: join(shots, 'library-detail-save-xp.png') });
-  // The bulk bar: blocked items are left out, the rest are saved, the review opens in place.
-  await page.getByRole('button', { name: 'Select', exact: true }).click();
-  await page.getByRole('checkbox', { name: /^Select all/ }).check();
-  const bar = page.getByRole('region', { name: 'Selected resources' });
-  await page.screenshot({ animations: 'disabled', path: join(shots, 'library-bulk-bar-xp.png') });
-  await bar.getByRole('button', { name: /^Save( \d+)? to cloud$/ }).click();
-  await page.getByRole('dialog').getByText("1 resource ready to save · 1 can't be saved").waitFor();
-  await page.screenshot({ animations: 'disabled', path: join(shots, 'save-review-xp.png') });
-  await page.getByRole('button', { name: 'Save 1 resource to cloud' }).click();
-  await page.getByRole('dialog').waitFor({ state: 'detached' });
-  const run = calls.find((c) => /publish-plans\/[^/]+\/run$/.test(c.path));
-  assert.deepEqual(run.body, { skipBlocked: true });
   // The Filters menu sits at the right end of the bar: it must stay inside the window.
   for (const [width, height] of [[1365, 1050], [390, 844]]) {
     await page.setViewportSize({ width, height });
@@ -305,19 +254,18 @@ try {
   assert.equal(created.body.value.name, 'kason-tools');
   await page.getByText('kason-tools', { exact: true }).waitFor();
 
-  // Every theme family, desktop and phone width, with every sync state on screen again;
+  // Every theme family, desktop and phone width: each tab, Checks and the account dialog;
   // nothing may scroll sideways.
-  syncItems = initialSyncItems;
-  const READY = { library: 'Test workflow', sync: 'Saved to cloud', projects: 'Saved projects', health: 'Add folder', connection: 'Phones away from home' };
+  const READY = { library: 'Test workflow', projects: 'Saved projects', machines: 'Tailscale on this Mac', checks: 'Add folder', account: 'Device connection' };
   for (const [theme, label] of [['', 'default'], ['light', 'light'], ['windows-xp', 'xp']]) {
     for (const [width, height] of [[1365, 1050], [390, 844]]) {
       await page.setViewportSize({ width, height });
-      for (const tab of ['library', 'sync', 'projects', 'health', 'connection']) {
-        await open(tab, theme);
-        await page.getByText(READY[tab]).first().waitFor();
+      for (const view of ['library', 'checks', 'projects', 'machines', 'account']) {
+        await open(view, theme);
+        await page.getByText(READY[view]).first().waitFor();
         await page.waitForTimeout(250);
-        assert.ok(await noOverflow(page), `${tab} ${label} ${width}px scrolls sideways`);
-        await page.screenshot({ animations: 'disabled', fullPage: true, path: join(shots, `${tab}-${label}-${width}.png`) });
+        assert.ok(await noOverflow(page), `${view} ${label} ${width}px scrolls sideways`);
+        await page.screenshot({ animations: 'disabled', fullPage: true, path: join(shots, `${view}-${label}-${width}.png`) });
       }
     }
   }

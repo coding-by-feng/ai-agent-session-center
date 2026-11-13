@@ -38,7 +38,9 @@
   flex-shrink: 0;
 }
 
-.titleRow { display: flex; align-items: center; gap: 16px; min-width: 0; }
+/* Wraps so the account button and Rescan drop to their own line before they push a section tab
+   out of the (scrollbar-less) tab strip: at 560px they hid Machines. */
+.titleRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
 
 .title {
   margin: 0;
@@ -85,7 +87,7 @@
 /* ---- Controls ------------------------------------------------------------ */
 
 /* Buttons, inputs, selects, field captions and empty states are the shared
-   primitives in src/components/ui; this sheet only places them (.rescanButton,
+   primitives in src/components/ui; this sheet only places them (.titleActions,
    .search, .filterField …). .button is the same look for what Button cannot be:
    SourcesPanel's "Show" <Link> (a real href; Button renders a <button>), plus
    ResourceDetail's "Try again" and UninstallControls' "Cancel", which have not
@@ -113,7 +115,9 @@
 .button:active:not(:disabled) { background: var(--bg-accent-strong); }
 .button:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
 .button:disabled { opacity: 0.5; cursor: not-allowed; }
-.rescanButton { margin-left: auto; }
+/* The cloud account button and Rescan, pushed to the end of the tab row. They may shrink (the
+   account name truncates) rather than run past the view's clip edge. */
+.titleActions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 1 auto; min-width: 0; }
 
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 

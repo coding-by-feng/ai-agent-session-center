@@ -5,10 +5,10 @@
 import type { CloudProject, CloudResource, CloudState, CloudStatus } from './cloudBrowseApi';
 
 /** Where the cloud connection is made: only the Mac's desktop can do it. */
-export const CLOUD_CONNECT_HINT = 'Connect this Mac to AASC Cloud on the desktop: RESOURCES → Cloud → Connection.';
+export const CLOUD_CONNECT_HINT = 'Connect this Mac to AASC Cloud on the desktop: RESOURCES → Cloud account.';
 
 /** After the Mac's cloud device was revoked: only the desktop can connect it again. */
-export const CLOUD_RECONNECT_HINT = 'Connect it again on the desktop: RESOURCES → Cloud → Connection.';
+export const CLOUD_RECONNECT_HINT = 'Connect it again on the desktop: RESOURCES → Cloud account.';
 
 /** What stays on the Mac, said once on the Cloud screen. */
 export const CLOUD_READ_ONLY_NOTE = 'Read-only on this phone. Publishing, installing, restoring and project changes stay on your Mac.';
@@ -62,13 +62,6 @@ export function firstSentence(text: string): string {
   return end === -1 ? text : text.slice(0, end + 1);
 }
 
-/** A version's full date, in this phone's own time and language. */
-export function versionDate(iso: string): string {
-  const at = Date.parse(iso);
-  if (Number.isNaN(at)) return '';
-  return new Date(at).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
 const KIND_WORDS: Record<CloudResource['kind'], string> = {
   skill: 'Skill',
   command: 'Command',
@@ -86,15 +79,6 @@ const AGENT_WORDS: Record<CloudResource['agent'], string> = {
 
 export const kindWords = (kind: CloudResource['kind']): string => KIND_WORDS[kind];
 export const agentWords = (agent: CloudResource['agent']): string => AGENT_WORDS[agent];
-
-/** "512 B", "2.4 KB", "1.2 MB". */
-export function sizeWords(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-export const filesWords = (n: number): string => (n === 1 ? '1 file' : `${n} files`);
 
 /** A resource row's second line: "Skill · Claude Code · v3". */
 export function resourceLine(r: CloudResource): string {

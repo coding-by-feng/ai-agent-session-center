@@ -402,6 +402,21 @@ export function RefreshListIcon(props: IconProps) {
   );
 }
 
+/** A cloud outline — the AASC Cloud account (RESOURCES' account button). Not a sync state: the
+ *  Library's cloud-state marks are CloudStateGlyph. */
+export function CloudAccountIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <path
+        d="M4 11h6.2a2.6 2.6 0 0 0 .3-5.2A3.6 3.6 0 0 0 3.6 6.4 2.3 2.3 0 0 0 4 11Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Three stacked cards — the phone's session drawer (the list of sessions).
  *  Not the queue badge's three bare lines. */
 export function SessionListIcon(props: IconProps) {

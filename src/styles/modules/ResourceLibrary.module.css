@@ -1,6 +1,6 @@
 /* ResourceLibrary — the Library's layout pieces from the Oct 23 2026 redesign: the tab badge, the
-   filter chips under the bar, the summary row, the list header (Select, Select all), the row's
-   cloud glyph and the bulk bar pinned under the rows. The controls themselves are the shared kit;
+   filter chips under the bar, the summary row, the list header and the row's cloud glyph (the bulk
+   bar went with Cloud sync, Nov 13 2026). The controls themselves are the shared kit;
    this sheet only places them. Spacing on the 4/8px grid like Resources.module.css. */
 
 /* A tab's label with its count. */
@@ -93,46 +93,6 @@
   margin: 0;
   color: var(--text-secondary);
   font-size: 11px;
-}
-
-/* ---- Bulk bar: "3 selected · Save to cloud · Stop syncing · Clear" ---- */
-
-.bulkBar {
-  position: sticky;
-  bottom: 0;
-  z-index: 20;
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid var(--border-accent-strong);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: 0 -4px 12px color-mix(in srgb, var(--bg-primary) 70%, transparent);
-}
-.bulkTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.bulkActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.bulkCount {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.bulkNote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 /* ---- Health: Checks, then Sources ---- */

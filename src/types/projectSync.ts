@@ -157,7 +157,15 @@ export interface SyncLinkInput {
   credentialsAck: boolean;
   /** Default `two-way`. */
   direction?: SyncDirection;
+  /** Two-way only. Default `ask`. */
+  conflictPolicy?: SyncConflictPolicy;
 }
+
+/**
+ * What a two-way link does with a file both sides changed since the last sync: ask, or let this
+ * computer's version win (`local`). A first compare, a repository and a guarded path always ask.
+ */
+export type SyncConflictPolicy = 'ask' | 'local';
 
 export interface SyncLink {
   id: string;
@@ -168,11 +176,78 @@ export interface SyncLink {
   deviceId: string;
   remoteRoot: string;
   direction: SyncDirection;
+  /** Absent on links made before Nov 13 2026: `ask`. */
+  conflictPolicy?: SyncConflictPolicy;
   excludes: string[];
   credentialsAckAt?: number;
   hasBase: boolean;
   lastRunId?: string;
   state: SyncLinkState;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One row of a server folder listing (the folder picker). */
+export interface RemoteDirEntry {
+  name: string;
+  /** Absolute path on the server. */
+  path: string;
+  kind: 'dir' | 'file' | 'link' | 'other';
+  size: number;
+  mtimeMs: number;
+}
+
+/** One level of a server folder inside its home. */
+export interface RemoteListing {
+  path: string;
+  home: string;
+  /** Null at the home folder: the picker goes no higher. */
+  parent: string | null;
+  entries: RemoteDirEntry[];
+  /** More than 2,000 entries: only the first are listed. */
+  truncated: boolean;
+}
+
+/** Copy folders or files from a saved server's home into a project here, without a link. */
+export interface SyncPullInput {
+  deviceId: string;
+  /** Absolute server paths inside its home. */
+  sources: string[];
+  projectId: string;
+  /** Subfolder of the project they land in ('' = the project folder). */
+  into?: string;
+  /** Replace files that differ here (undo keeps them). Default: keep them. */
+  replace?: boolean;
+}
+
+export type SyncPullState =
+  | 'planned'
+  | 'running'
+  | 'complete'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+  | 'undone';
+
+export interface SyncPull {
+  id: string;
+  deviceId: string;
+  projectId: string;
+  sources: string[];
+  into: string;
+  /** Display path where the picked items land (`~/proj/into`). */
+  dest: string;
+  replace: boolean;
+  state: SyncPullState;
+  /** new: absent here · replace/keep: differs here · same: identical · skip: never pulled. */
+  counts: { new: number; replace: number; keep: number; same: number; skip: number };
+  /** Items the pull writes. */
+  total: number;
+  done: number;
+  failed: number;
+  bytes: { toGet: number; got: number };
+  warnings: string[];
+  error?: string;
   createdAt: number;
   updatedAt: number;
 }

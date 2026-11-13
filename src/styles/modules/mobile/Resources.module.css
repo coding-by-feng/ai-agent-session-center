@@ -1,4 +1,4 @@
-/* More → Resources (plan 16): Library, Cloud sync, Projects, and one resource. The lists are the
+/* More → Resources (plan 16): Library, Projects, and one resource. The lists are the
    kit's ListSection/ListRow; this only adds the search field, the filter chips, the state tags and
    the preview. Pull to refresh, the nav action and the tab row reuse Cloud.module.css. */
 

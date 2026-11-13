@@ -4,7 +4,7 @@
  * decision leaves the plan exactly as it was.
  */
 import { randomUUID } from 'crypto';
-import { repoEntryAction } from './classify.js';
+import { repoEntryAction, SETTLED_NOTES } from './classify.js';
 import { SyncError } from './errors.js';
 import {
   possibleActions,
@@ -99,6 +99,7 @@ export function applyDecisions(
       delete e.copyPath;
       delete e.copyId;
     }
+    if (a !== e.action && e.reason && SETTLED_NOTES.includes(e.reason)) delete e.reason;
     e.action = a;
     touched.add(e);
   }

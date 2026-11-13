@@ -13,7 +13,8 @@
  * without pulling anything heavy into the eager chunk; the modal itself is lazy.
  */
 import { showToast } from '@/components/ui/ToastContainer';
-import { sendPromptToTerminal } from '@/lib/terminalSend';
+import { pressEnterInTerminal, sendPromptToTerminal } from '@/lib/terminalSend';
+import { submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { isSendableStatus, latestSessionStartAt } from '@/lib/queueScheduler';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionSnapshot } from '@/lib/workspaceSnapshot';
@@ -71,6 +72,9 @@ export function pickInterrupted(
 interface ReadinessView {
   status: string;
   events?: ReadonlyArray<{ type: string; timestamp?: number }>;
+  terminalId?: string | null;
+  lastActivityAt?: number;
+  userCancelledAt?: number | null;
 }
 
 /**
@@ -133,6 +137,45 @@ function sessionOnTerminal(terminalId: string): ReadinessView | undefined {
   return undefined;
 }
 
+/**
+ * Make sure the continue prompt was actually submitted. A just-resumed CLI is often
+ * still drawing (a "Background agent … didn't finish" notice, SessionStart hooks) when
+ * the Enter lands, and swallows it: the prompt sits typed in the input box (Nov 12
+ * 2026). Same cure as the queue (`submitConfirm.ts`): while no hook acknowledges it
+ * and the session sits idle/waiting, press Enter again on the retry schedule. An
+ * Enter in an empty box is a no-op, so a prompt that was taken is not sent twice.
+ * Resolves true once acknowledged (or no longer safe to press), false on give-up.
+ */
+export async function confirmContinueSubmitted(
+  item: InterruptedItem,
+  enterAt: number,
+  activityAtOpen: number | undefined,
+): Promise<boolean> {
+  let pending: PendingSubmit = { terminalId: item.terminalId, enterAt, activityAtOpen, attempts: 0 };
+  for (;;) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const s = sessionOnTerminal(item.terminalId);
+    if (!s) return true;
+    const decision = submitRetryDecision(pending, {
+      now: Date.now(),
+      status: s.status,
+      activityAt: s.lastActivityAt,
+      terminalId: s.terminalId,
+      userCancelled: (s.userCancelledAt ?? 0) > enterAt,
+      autoEnter: true,
+    });
+    if (decision === 'done') return true;
+    if (decision === 'give-up') {
+      showToast(`"${item.title}" didn't take the continue prompt — it's in the input box; press Enter there.`, 'warning', 10_000);
+      return false;
+    }
+    if (decision === 'retry') {
+      pending = { ...pending, attempts: pending.attempts + 1 };
+      await pressEnterInTerminal(item.terminalId);
+    }
+  }
+}
+
 const plural = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
 /**
@@ -153,8 +196,10 @@ export async function continueInterrupted(
     for (const item of [...pending.values()]) {
       if (!isReadyToContinue(sessionOnTerminal(item.terminalId), restoreStartedAt, Date.now())) continue;
       pending.delete(item.terminalId);
+      const activityAtOpen = sessionOnTerminal(item.terminalId)?.lastActivityAt;
       const ok = await sendPromptToTerminal(item.terminalId, CONTINUE_AFTER_RESTART_PROMPT, true);
       (ok ? sent : skipped).push(item.title);
+      if (ok) void confirmContinueSubmitted(item, Date.now(), activityAtOpen);
     }
     if (pending.size > 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }

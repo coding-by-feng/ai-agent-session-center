@@ -7,10 +7,12 @@
 import log from '../logger.js';
 import { redactSecretsInString } from '../resourceMask.js';
 import { applyOrder, type ApplyOp, type ApplySide } from './classify.js';
-import { clean } from './errors.js';
+import { clean, SyncError } from './errors.js';
 import {
   applyOps,
   openExport,
+  probe,
+  undoRun,
   type Ack,
   type Exporter,
   type FileSource,
@@ -20,6 +22,8 @@ import type { StoredLink, SyncStore } from './store.js';
 import { summarize } from './summary.js';
 import {
   isActing,
+  LOCAL_ACTIONS,
+  SERVER_ACTIONS,
   type FileMeta,
   type SyncEntry,
   type SyncRun,
@@ -226,4 +230,97 @@ export async function saveBase(store: SyncStore, l: StoredLink, base: Map<string
   l.hasBase = base.size > 0;
   l.updatedAt = Date.now();
   await store.saveLink(l);
+}
+
+export interface UndoContext {
+  store: SyncStore;
+  launchLocal: Launcher;
+  /** The link's server, already pinned. */
+  launchDevice: Launcher;
+  saveRun: (r: SyncRun) => Promise<void>;
+}
+
+/**
+ * Puts back what run `r` of link `l` changed, on each side it wrote to (the server first), and
+ * forgets the base. The caller holds the one-at-a-time slot. Throws a SyncError the user can act on.
+ */
+export async function undoRunSides(
+  ctx: UndoContext,
+  r: SyncRun,
+  l: StoredLink,
+  entries: SyncEntry[],
+): Promise<{ restored: number; skipped: number }> {
+  const toServer = entries.some((e) => SERVER_ACTIONS.has(e.action));
+  const toLocal = entries.some((e) => LOCAL_ACTIONS.has(e.action));
+  // Reach the server before anything changes: one that cannot answer would leave the run
+  // stale and the base forgotten with nothing put back.
+  if (toServer)
+    try {
+      await probe(ctx.launchDevice);
+    } catch (e) {
+      throw new SyncError(`Could not reach the server: ${clean(e)} Nothing was undone.`);
+    }
+  const before = await ctx.store.loadBase(l.id);
+  const staleBefore = r.stale;
+  /** Nothing was put back: the base and the plan still hold. */
+  const rollBack = async () => {
+    r.stale = staleBefore;
+    if (r.stale === undefined) delete r.stale;
+    await saveBase(ctx.store, l, before);
+    await ctx.saveRun(r);
+  };
+  // Once undo begins, this plan describes neither side: a Retry would rebuild the base from it.
+  r.stale =
+    'Undo began on this run. Undo again to finish it; a new compare gives up the rest of the undo.';
+  try {
+    await ctx.saveRun(r);
+    // Forget the base before anything is put back: an undo that stops partway leaves neither
+    // side matching it, and a stale base would read the undone files as fresh edits. The
+    // next compare runs as a first run, which never deletes.
+    await saveBase(ctx.store, l, new Map());
+  } catch (e) {
+    await rollBack().catch((err) =>
+      log.error('project-sync', `Undo not rolled back: ${clean(err)}`),
+    );
+    throw new SyncError(`Could not start the undo: ${clean(e)} Nothing was undone.`);
+  }
+  const result = { restored: 0, skipped: 0 };
+  let sides = 0;
+  const undoSide = async (launch: Launcher, header: Parameters<typeof undoRun>[1]) => {
+    try {
+      const x = await undoRun(launch, header);
+      result.restored += x.restored;
+      result.skipped += x.skipped;
+      sides++;
+    } catch (e) {
+      // That side never received anything from this run.
+      if (!(e instanceof Error && e.message.startsWith('Nothing to undo'))) throw e;
+    }
+  };
+  try {
+    if (toServer)
+      await undoSide(ctx.launchDevice, { root: l.remoteRoot, linkId: l.id, runId: r.id });
+    if (toLocal)
+      await undoSide(ctx.launchLocal, {
+        root: l.localRoot,
+        linkId: l.id,
+        runId: r.id,
+        side: 'local',
+      });
+  } catch (e) {
+    throw new SyncError(`Undo stopped partway: ${clean(e)} Undo again to finish.`);
+  }
+  if (!sides) {
+    // Neither side holds anything of this run: the base was still true, and so is the plan.
+    await rollBack();
+    throw new SyncError('Nothing from this run changed either side.');
+  }
+  r.state = 'undone';
+  delete r.stale;
+  r.warnings = [
+    `Undo restored ${result.restored} item${result.restored === 1 ? '' : 's'}${result.skipped ? `; ${result.skipped} changed since and were left alone` : ''}.`,
+    ...r.warnings,
+  ];
+  await ctx.saveRun(r);
+  return result;
 }

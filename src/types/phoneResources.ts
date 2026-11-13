@@ -1,6 +1,7 @@
 /**
  * phoneResources — what the phone's More → Resources reads (Oct 24 2026, plan 16): the desktop
- * RESOURCES tab's Library, Cloud sync and Projects, through the Mac (`server/mobile/phoneResources.ts`).
+ * RESOURCES tab's Library and Projects, through the Mac (`server/mobile/phoneResources.ts`). The
+ * Cloud sync read (`PhoneSync`) left the phone UI on Nov 13 2026; its server route goes next.
  *
  * Shared by the server and the phone. Every path is a display path (`~/…`); config values arrive
  * masked by the catalog, as on the desktop. A resource filed under a project reaches a phone only

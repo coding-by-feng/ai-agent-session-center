@@ -1,9 +1,9 @@
-// cloudBrowse.test.ts — the phone's read-only AASC Cloud view (AASC-51): the three reads through the Mac,
+// cloudBrowse.test.ts — the phone's read-only AASC Cloud view (AASC-51): the reads through the Mac,
 // what each failure says, and the words the screens and rows use.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { CloudFetchError, CLOUD_FETCH_WORDS, fetchCloudBrowse, fetchCloudStatus, fetchCloudVersions, type CloudStatus } from './cloudBrowseApi';
+import { CloudFetchError, CLOUD_FETCH_WORDS, fetchCloudBrowse, fetchCloudStatus, type CloudStatus } from './cloudBrowseApi';
 import {
-  agoWords, agentWords, cloudStateWords, firstSentence, filesWords, kindWords, projectDetail, repoWords, resourceLine, sizeWords, syncWords, versionDate,
+  agoWords, agentWords, cloudStateWords, firstSentence, kindWords, projectDetail, repoWords, resourceLine, syncWords,
 } from './cloudBrowseModel';
 
 const RES = { id: '0b6e7a3c-1f2d-4e5a-9b8c-7d6e5f4a3b2c', name: 'retouch', kind: 'skill', agent: 'claude', scope: 'global', version: 3, updatedAt: '2026-10-14T08:00:00.000Z', bytes: 2500, files: 2 } as const;
@@ -15,19 +15,17 @@ const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body)
 afterEach(() => vi.unstubAllGlobals());
 
 describe('reads through the Mac', () => {
-  it('asks the three phone-cloud routes, never cached, and only refresh=1 as a query', async () => {
+  it('asks the phone-cloud routes, never cached, and only refresh=1 as a query', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith('/status')) return reply(STATUS);
-      if (url.includes('/browse')) return reply({ ...STATUS, resources: [RES], projects: [PROJ], truncated: false });
-      return reply({ ...STATUS, resource: RES, versions: [{ version: 3, createdAt: RES.updatedAt, bytes: 2500, files: 2 }], truncated: false });
+      return reply({ ...STATUS, resources: [RES], projects: [PROJ], truncated: false });
     });
     vi.stubGlobal('fetch', fetchMock);
     expect(await fetchCloudStatus()).toEqual(STATUS);
     expect((await fetchCloudBrowse()).resources).toEqual([RES]);
     await fetchCloudBrowse({ refresh: true });
-    expect((await fetchCloudVersions(RES.id)).versions).toHaveLength(1);
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
-      '/api/phone-cloud/status', '/api/phone-cloud/browse', '/api/phone-cloud/browse?refresh=1', `/api/phone-cloud/resources/${RES.id}/versions`,
+      '/api/phone-cloud/status', '/api/phone-cloud/browse', '/api/phone-cloud/browse?refresh=1',
     ]);
     for (const call of fetchMock.mock.calls) expect((call as unknown as [string, RequestInit])[1]).toMatchObject({ cache: 'no-store' });
   });
@@ -87,20 +85,13 @@ describe('words', () => {
     expect(agoWords('not a date', now)).toBe('');
   });
 
-  it('kinds, agents, sizes and counts, with real plurals', () => {
+  it('kinds, agents and counts, with real plurals', () => {
     expect(kindWords('instruction')).toBe('Instructions');
     expect(agentWords('shared')).toBe('Claude Code and Codex');
-    expect(sizeWords(512)).toBe('512 B');
-    expect(sizeWords(2500)).toBe('2.4 KB');
-    expect(sizeWords(40_000)).toBe('39 KB');
-    expect(sizeWords(3_500_000)).toBe('3.3 MB');
-    expect(filesWords(1)).toBe('1 file');
-    expect(filesWords(4)).toBe('4 files');
     expect(resourceLine(RES)).toBe('Skill · Claude Code · v3');
     expect(repoWords(PROJ)).toBe('github.com/kason/website');
     expect(projectDetail(PROJ)).toBe('Branch main · 4 resources');
     expect(projectDetail({ ...PROJ, resources: 1 })).toBe('Branch main · 1 resource');
-    expect(versionDate(RES.updatedAt)).toMatch(/2026/);
     expect(firstSentence('Your Mac can’t reach AASC Cloud right now. Check its internet connection.')).toBe('Your Mac can’t reach AASC Cloud right now.');
     expect(firstSentence('No full stop')).toBe('No full stop');
   });

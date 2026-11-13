@@ -73,6 +73,11 @@ export function massDeleteAsk(entries: SyncEntry[]): string | null {
   return null;
 }
 
+/** What a compare says when the link's policy settled conflicts for this computer's version. */
+export function localWinsWarning(n: number): string {
+  return `${n} file${n === 1 ? '' : 's'} changed on both sides since the last sync: this computer's version wins (link setting). Undo restores the server's.`;
+}
+
 export function warningsFor(entries: SyncEntry[], direction: SyncDirection): string[] {
   const n = (flag: SyncEntry['flags'][number]) =>
     entries.filter((e) => e.flags.includes(flag) && e.change !== 'same').length;

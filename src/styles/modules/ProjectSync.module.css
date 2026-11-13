@@ -326,3 +326,72 @@
     margin-left: 0;
   }
 }
+
+/* The server folder picker (Nov 13 2026): Up and the path, then one row per entry. Inline in the
+   dialog, never floating: it scrolls inside its own box so a long folder can't stretch the form. */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.pickerHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pickerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 264px;
+  overflow-y: auto;
+}
+.pickerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pickerRow:last-child {
+  border-bottom: none;
+}
+.pickerRow > .hint {
+  margin: 0;
+  flex: none;
+}
+.pickerCheck,
+.pickerName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.pickerCheck {
+  flex: 1;
+  min-height: 40px;
+  cursor: pointer;
+}
+.pickerCheck input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.pullPlan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Two classes: the Modal's `.panel p` margin would otherwise open a 16px gap under the summary. */
+.pullPlan .summary {
+  margin: 0;
+}

@@ -10,8 +10,9 @@ import type { Session } from '@/types';
 
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 vi.mock('../chat/ChatView', () => ({
-  default: ({ onTerminal, onOpenFile }: { onTerminal: () => void; onOpenFile?: (relPath: string) => void }) => (
+  default: ({ onTerminal, onOpenFile, composer }: { onTerminal: () => void; onOpenFile?: (relPath: string) => void; composer?: boolean }) => (
     <>
+      <span data-testid="chat-composer-below">{composer ? 'yes' : 'no'}</span>
       <button type="button" onClick={onTerminal}>chat: open terminal</button>
       <button type="button" onClick={() => onOpenFile?.('/docs/plan.md')}>chat: open docs/plan.md</button>
     </>
@@ -270,8 +271,11 @@ describe('reading the chat full screen', () => {
     const user = userEvent.setup();
     show(claude, 'chat');
     expect(chrome()).toEqual({ tabs: true, back: true, footer: true });
+    // Nov 13 2026: with the composer, it carries the status and Stop; without it, the chat's strip.
+    expect(screen.getByTestId('chat-composer-below')).toHaveTextContent('yes');
     await user.click(screen.getByRole('button', { name: 'Read the chat full screen' }));
     expect(chrome()).toEqual({ tabs: false, back: false, footer: false });
+    expect(screen.getByTestId('chat-composer-below')).toHaveTextContent('no');
     expect(screen.getByRole('button', { name: 'chat: open terminal' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'web' })).toBeInTheDocument();
 

@@ -165,6 +165,7 @@ describe('phoneRuleFor', () => {
     ['POST', '/sessions/abc/summarize'],
     ['GET', '/sessions/history'], ['GET', '/sessions/resume-command'], ['GET', '/sessions/spawn-floating'],
     ['POST', '/terminals/register'], ['POST', '/terminals/t1/prefill-output'],
+    ['POST', '/terminals/t1/take-input'], // Nov 13 2026: desktop queue only
     ['GET', '/teams/x/config'], ['POST', '/teams/x/members/y/terminal'],
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
     ['POST', '/snippets/import'],

@@ -1,6 +1,7 @@
-// ResourcesScreen.test.tsx — More → Resources on the phone (plan 16, P1): the desktop's Library,
-// Cloud sync and Projects, read through the Mac, and one resource. Read-only in P1: no screen offers
-// to sync, save, install, uninstall, clone, pull or push.
+// ResourcesScreen.test.tsx — More → Resources on the phone (plan 16, P1): the desktop's Library and
+// Projects, read through the Mac, and one resource. Resource sync left the phone in Nov 2026: no
+// Cloud sync tab, no cloud state on a resource. Read-only in P1: no screen offers to sync, save,
+// install, uninstall, clone, pull or push.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -51,18 +52,6 @@ const LIBRARY = {
 };
 
 const LINK = { connected: true, state: 'connected', problem: null, readAt: new Date(NOW - 60_000).toISOString() };
-const syncItem = (n: number, over: Record<string, unknown> = {}) => ({
-  resourceId: CLOUD(n), catalogId: ID(n), name: `skill-${n}`, agent: 'claude', kind: 'skill', scope: 'global',
-  state: 'synced', cloudVersion: 3, syncedVersion: 3, memory: false, ...over,
-});
-const SYNC = {
-  ...LINK,
-  items: [
-    syncItem(1, { name: 'rar' }),
-    syncItem(3, { name: 'tdd', state: 'conflict', syncedVersion: 3, cloudVersion: 4 }),
-    syncItem(8, { name: 'retouch', catalogId: null, state: 'cloud-only', syncedVersion: null }),
-  ],
-};
 const PROJECTS = {
   ...LINK,
   accounts: { installed: true, accounts: [{ login: 'kason', active: true, ok: true }, { login: 'other', active: false, ok: true }] },
@@ -82,8 +71,6 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   routes = {
     '/api/phone-resources/library': () => reply(LIBRARY),
-    '/api/phone-resources/sync': () => reply(SYNC),
-    '/api/phone-resources/sync?refresh=1': () => reply(SYNC),
     '/api/phone-resources/projects': () => reply(PROJECTS),
     '/api/skill-notes/favorites': () => reply({ entries: [{ key: 'claude:rar', fav: true, tags: ['retouch'], abbr: 'rr' }], source: 'cloud' }),
     [`/api/phone-resources/item/${ID(1)}`]: () => reply({
@@ -172,6 +159,14 @@ describe('Resources → Library', () => {
     expect(await screen.findByText('Your Mac is scanning its resources…')).toBeTruthy();
   });
 
+  it('offers two tabs, Library and Projects, and never asks the Mac for Cloud sync', async () => {
+    render(<ResourcesScreen tab="library" />);
+    await screen.findAllByTestId('resource-row');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Library', 'Projects']);
+    expect(screen.queryByRole('tab', { name: /sync/i })).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/sync'))).toBe(false);
+  });
+
   it('switching tabs replaces the path, so Back leaves Resources', async () => {
     const user = userEvent.setup();
     usePhoneNavStore.setState({ tab: 'more', stacks: { ...defaultStacks(), more: ['/more', '/more/resources'] } });
@@ -179,56 +174,6 @@ describe('Resources → Library', () => {
     await screen.findAllByTestId('resource-row');
     await user.click(screen.getByRole('tab', { name: 'Projects' }));
     expect(usePhoneNavStore.getState().stacks.more).toEqual(['/more', '/more/resources/projects']);
-  });
-});
-
-describe('Resources → Cloud sync', () => {
-  it('groups each saved resource as the desktop does, folds Synced, and opens a row', async () => {
-    const user = userEvent.setup();
-    render(<ResourcesScreen tab="cloud" />);
-    const needs = await screen.findByRole('region', { name: 'Needs you · 1' });
-    expect(within(needs).getByText('Changed in both places')).toBeTruthy();
-    expect(within(needs).getByText('Claude skill · v3 here · v4 in cloud')).toBeTruthy();
-    const waiting = screen.getByRole('region', { name: 'Waiting · 1' });
-    expect(within(waiting).getByText('Only in cloud')).toBeTruthy();
-    const synced = screen.getByRole('region', { name: 'Synced · 1' });
-    expect(within(synced).queryByText('rar')).toBeNull();
-    await user.click(within(synced).getByRole('button', { name: 'Show 1 resource' }));
-    expect(within(synced).getByText('rar')).toBeTruthy();
-    expect(screen.getByText(/Sync now, Keep mine or Use cloud’s, and Remove from cloud run on your Mac/)).toBeTruthy();
-    expectReadOnly();
-
-    await user.click(within(needs).getAllByRole('button')[0]);
-    expect(top()).toBe(`/more/resources/item/${ID(3)}`);
-    await user.click(within(waiting).getAllByRole('button')[0]);
-    expect(top()).toBe(`/more/cloud/${CLOUD(8)}`);
-  });
-
-  it('without a cloud connection, says how to connect on the Mac', async () => {
-    routes['/api/phone-resources/sync'] = () => reply({ connected: false, state: 'not-connected', problem: null, readAt: null, items: [] });
-    render(<ResourcesScreen tab="cloud" />);
-    expect(await screen.findByText('This Mac isn’t connected to AASC Cloud')).toBeTruthy();
-    expect(screen.getByText(/RESOURCES → Cloud → Connection/)).toBeTruthy();
-  });
-
-  it('while the Mac scans, says so instead of “nothing saved”, and a resource shows no cloud answer', async () => {
-    const scanning = { ...LINK, problem: 'Your Mac is reading its resources. Try again in a moment.', readAt: null, items: [] };
-    routes['/api/phone-resources/sync'] = () => reply(scanning);
-    const { unmount } = render(<ResourcesScreen tab="cloud" />);
-    expect(await screen.findByText('Cloud sync isn’t ready yet')).toBeTruthy();
-    expect(screen.getByText(/Your Mac is reading its resources/)).toBeTruthy();
-    expect(screen.queryByText('Nothing saved to cloud yet')).toBeNull();
-    unmount();
-    render(<ResourceItemScreen id={ID(1)} />);
-    expect(await screen.findByText('Used 17× in the last 90 days')).toBeTruthy();
-    expect(screen.queryByTestId('resource-cloud')).toBeNull();
-    expect(screen.queryByText('Not saved to cloud')).toBeNull();
-  });
-
-  it('says an older Mac plainly', async () => {
-    delete routes['/api/phone-resources/sync'];
-    render(<ResourcesScreen tab="cloud" />);
-    expect(await screen.findByText(/Your Mac’s AASC can’t show Resources on a phone yet/)).toBeTruthy();
   });
 });
 
@@ -279,7 +224,7 @@ describe('a saved project', () => {
 });
 
 describe('a Library resource', () => {
-  it('shows its facts, notes, uses, cloud state, its twin and its preview; a file opens in the preview', async () => {
+  it('shows its facts, notes, uses, its twin and its preview, and no cloud state; a file opens in the preview', async () => {
     const user = userEvent.setup();
     render(<ResourceItemScreen id={ID(1)} />);
     expect(await screen.findByRole('heading', { name: 'rar' })).toBeTruthy();
@@ -288,8 +233,7 @@ describe('a Library resource', () => {
     expect(await screen.findByText('Used 17× in the last 90 days')).toBeTruthy();
     expect(screen.getByText(/12 typed by you · 5 by the agent · last used 2h ago/)).toBeTruthy();
     expect(screen.getByText(/Counted as \/rar · Uses count only the sessions shared with this phone/)).toBeTruthy();
-    expect(await screen.findByText('Synced')).toBeTruthy();
-    expect(screen.getByText('Abbreviation')).toBeTruthy();
+    expect(await screen.findByText('Abbreviation')).toBeTruthy();
     expect(screen.getByText('#retouch')).toBeTruthy();
     const also = screen.getByRole('region', { name: 'Also in' });
     expect(within(also).getByText('Codex · Global')).toBeTruthy();
@@ -302,8 +246,10 @@ describe('a Library resource', () => {
     await user.click(screen.getByRole('button', { name: 'Main file' }));
     expect(await screen.findByRole('heading', { name: 'Retouch' })).toBeTruthy();
 
-    await user.click(within(screen.getByTestId('resource-cloud')).getByRole('button'));
-    expect(top()).toBe(`/more/cloud/${CLOUD(1)}`);
+    expect(screen.queryByTestId('resource-cloud')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Cloud' })).toBeNull();
+    expect(screen.queryByText(/Not saved to cloud|Synced/)).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/sync'))).toBe(false);
   });
 
   it('a rule says why it has no count; a config shows its fields with secrets hidden', async () => {

@@ -1,23 +1,20 @@
 /**
  * phoneResourcesModel.ts — the words More → Resources shows (plan 16). Each comes from the
  * desktop RESOURCES tab's own helper where one exists (resourceFilters, resourceUsage,
- * cloudSyncStates, projectState), so a resource, a sync state or a checkout reads the same on
- * both. Pure: no DOM, no store.
+ * projectState), so a resource or a checkout reads the same on both. Pure: no DOM, no store.
  */
 import type { ResourceSummary, ResourceType } from '@/types/resources';
-import type { SyncItem } from '@/types/cloudResources';
 import type { GithubAccounts } from '@/types/cloudProjects';
 import type { PhoneLibrary, PhoneProject, PhoneUsageScope } from '@/types/phoneResources';
 import type { ResourcesTab } from './phoneRoutes';
 import { AGENT_LABELS, RESOURCE_TYPE_SINGULAR, SCOPE_LABELS, formatBytes, originTag, relativeAge } from '../resourceFilters';
 import { isUsageCounted, totalUses, usesLabel } from '../resourceUsage';
-import { SYNC_GROUPS, SYNC_STATE_INFO, syncGroup, syncVersionText, type SyncGroup, type SyncTone } from '../cloudSyncStates';
-import { cloudCount, resourceKindLabel } from '../cloudFormat';
+import type { SyncTone } from '../cloudSyncStates';
+import { cloudCount } from '../cloudFormat';
 import { projectStatus } from '@/components/resources/cloud/projectState';
 
 export const RESOURCES_TAB_LABELS: Record<ResourcesTab, string> = {
   library: 'Library',
-  cloud: 'Cloud sync',
   projects: 'Projects',
 };
 
@@ -68,39 +65,6 @@ export function noCountWords(type: ResourceType): string | null {
   return type === 'rule' || type === 'instructions' || type === 'memory'
     ? `No use count: ${type === 'memory' ? 'memory' : `a ${RESOURCE_TYPE_SINGULAR[type].toLowerCase()}`} loads into every session, and nothing invokes it.`
     : null;
-}
-
-// ── Cloud sync ───────────────────────────────────────────────────────────────
-
-export interface SyncSection {
-  id: SyncGroup;
-  label: string;
-  items: SyncItem[];
-}
-
-/** The Cloud sync list's groups, in the desktop's order, each sorted by name; empty ones left out. */
-export function syncSections(items: readonly SyncItem[]): SyncSection[] {
-  return SYNC_GROUPS.map(({ id, label }) => ({
-    id,
-    label,
-    items: items.filter((i) => syncGroup(i) === id).sort((a, b) => a.name.localeCompare(b.name)),
-  })).filter((s) => s.items.length > 0);
-}
-
-/** "Claude skill · project · v3 here · v4 in cloud", as the desktop's sync row says it. */
-export function syncMeta(i: SyncItem): string {
-  const version = syncVersionText(i);
-  return [resourceKindLabel(i.agent, i.kind), i.scope === 'project' ? 'project' : '', version].filter(Boolean).join(' · ');
-}
-
-export function syncStateWords(i: Pick<SyncItem, 'state'>): { label: string; tone: SyncTone } {
-  const { label, tone } = SYNC_STATE_INFO[i.state];
-  return { label, tone };
-}
-
-/** The sync row of a Library resource, if it has one. */
-export function syncItemFor(catalogId: string, items: readonly SyncItem[] | undefined): SyncItem | undefined {
-  return items?.find((i) => i.catalogId === catalogId);
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────────

@@ -109,30 +109,65 @@ export function healthIssues(findings: readonly ResourceFinding[]): number {
   return findings.filter((f) => f.severity !== 'info').length;
 }
 
+/** The Library's Checks badge: errors only. Warnings are listed in Checks, unbadged. */
+export function checkErrors(findings: readonly ResourceFinding[]): number {
+  return findings.filter((f) => f.severity === 'error').length;
+}
+
 // ---------------------------------------------------------------------------
 // URL state
 // ---------------------------------------------------------------------------
 
 /**
- * The tab row (Oct 23 2026): Library · Cloud sync · Projects · Health (Checks + Sources) ·
- * Connection (this Mac's cloud link, notes, Remote access). Before it there were two rows:
- * Library · Sources · Checks · Cloud, and inside Cloud: Resources · Projects · Connection · Remote
- * access. `sectionFrom` maps every old link.
+ * The tab row (Nov 13 2026): Library · Projects · Machines. Cloud sync (AASC-62) was removed;
+ * Health is the Library's Checks view (`checks=1`); Connection is the cloud account dialog
+ * (`account=1`); Remote access is Machines › This Mac. Before that (Oct 23 2026) the row was
+ * Library · Cloud sync · Projects · Health · Connection, and before that two rows. `sectionFrom`
+ * maps every old link.
  */
-export const RESOURCE_SECTIONS = ['library', 'sync', 'projects', 'health', 'connection'] as const;
+export const RESOURCE_SECTIONS = ['library', 'projects', 'machines'] as const;
 export type ResourceSection = (typeof RESOURCE_SECTIONS)[number];
+
+/** The sections older links name, and where each opens now. */
+const OLD_SECTIONS: Readonly<Record<string, ResourceSection>> = {
+  health: 'library',
+  checks: 'library',
+  sources: 'library',
+  sync: 'library',
+  connection: 'library',
+  transfers: 'library',
+  devices: 'machines',
+};
 
 /** Where a link opens, old links included (`?section=checks`, `?section=cloud&cloudTab=remote`). */
 function sectionFrom(params: URLSearchParams): ResourceSection {
   const section = params.get('section');
-  if (section === 'sources' || section === 'checks') return 'health';
   if (section === 'cloud') {
     const view = params.get('cloudTab');
     if (view === 'projects') return 'projects';
-    if (view === 'connection' || view === 'remote') return 'connection';
-    return 'sync';
+    if (view === 'remote') return 'machines';
+    return 'library';
   }
+  // hasOwn, not `in`: `in` also matches names every object has (toString, __proto__ …).
+  if (section !== null && Object.hasOwn(OLD_SECTIONS, section)) return OLD_SECTIONS[section];
   return oneOf(section, RESOURCE_SECTIONS, 'library');
+}
+
+/** The Library's Checks view (was the Health tab): `checks=1`, or an old Health/Checks/Sources link. */
+function checksFrom(params: URLSearchParams, section: ResourceSection): boolean {
+  if (section !== 'library') return false;
+  const old = params.get('section');
+  return params.get('checks') === '1' || old === 'health' || old === 'checks' || old === 'sources';
+}
+
+/** The cloud account dialog (was the Connection tab): `account=1`, or an old Connection link. */
+function accountFrom(params: URLSearchParams): boolean {
+  const old = params.get('section');
+  return (
+    params.get('account') === '1' ||
+    old === 'connection' ||
+    (old === 'cloud' && params.get('cloudTab') === 'connection')
+  );
 }
 
 export type AgentFilter = 'all' | ResourceAgent;
@@ -160,6 +195,10 @@ export interface ResourceFilters {
 
 export interface ResourceViewParams extends ResourceFilters {
   section: ResourceSection;
+  /** The Library shows Checks and Sources instead of its list (was the Health tab). */
+  checks: boolean;
+  /** The cloud account dialog is open (was the Connection tab). */
+  account: boolean;
   type: ResourceType;
   id: string | null;
 }
@@ -187,8 +226,11 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[], fa
 export function readResourceParams(params: URLSearchParams): ResourceViewParams {
   const project = params.get('project') || null;
   const scope = oneOf(params.get('scope'), SCOPE_FILTERS, project ? 'project' : 'all');
+  const section = sectionFrom(params);
   return {
-    section: sectionFrom(params),
+    section,
+    checks: checksFrom(params, section),
+    account: accountFrom(params),
     type: oneOf(params.get('type'), RESOURCE_TYPES, 'skill'),
     id: params.get('id') || null,
     agent: oneOf(params.get('agent'), AGENT_FILTERS, 'all'),

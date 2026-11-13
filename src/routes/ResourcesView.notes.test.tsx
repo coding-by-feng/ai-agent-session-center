@@ -109,13 +109,5 @@ describe('ResourcesView — favourites and tags', () => {
     expect(within(detail()).queryByRole('tab', { name: /^Notes/ })).toBeNull();
   });
 
-  it('Select all under a favourites filter selects only those, for the cloud', async () => {
-    renderView();
-    await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Favourites/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: /Select all 2/ }));
-    expect(within(screen.getByRole('region', { name: 'Selected resources' })).getByText('2 selected')).toBeInTheDocument();
-  });
 });
 void rail;

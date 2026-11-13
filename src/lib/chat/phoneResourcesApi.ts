@@ -5,7 +5,6 @@
  *   GET /api/phone-resources/library                the Library: resources this phone may see, their uses
  *   GET /api/phone-resources/item/<id>              one resource: its preview, fields and files
  *   GET /api/phone-resources/item/<id>/file?path=   one file of it
- *   GET /api/phone-resources/sync[?refresh=1]       Cloud sync: each saved resource's state
  *   GET /api/phone-resources/projects[?refresh=1]   Projects: GitHub accounts, each checkout
  *
  * Every answer is checked before it is drawn; a failure is a `CloudFetchError` whose words the
@@ -13,9 +12,8 @@
  */
 import { z } from 'zod';
 import { RESOURCE_TYPES } from '@/types/resources';
-import { SyncItemSchema } from '@/types/cloudResources';
 import { CheckoutStateSchema, GithubAccountsSchema } from '@/types/cloudProjects';
-import type { PhoneLibrary, PhoneProjects, PhoneResourceDetail, PhoneResourceFile, PhoneSync } from '@/types/phoneResources';
+import type { PhoneLibrary, PhoneProjects, PhoneResourceDetail, PhoneResourceFile } from '@/types/phoneResources';
 import { CloudFetchError } from './cloudBrowseApi';
 
 const UNSUPPORTED = 'Your Mac’s AASC can’t show Resources on a phone yet. Update AASC on your Mac.';
@@ -103,8 +101,6 @@ const LinkShape = {
   readAt: z.string().max(64).nullable(),
 };
 
-const SyncSchema = z.object({ ...LinkShape, items: z.array(SyncItemSchema).max(10_000) });
-
 const ProjectsSchema = z.object({
   ...LinkShape,
   accounts: GithubAccountsSchema,
@@ -162,10 +158,6 @@ export function fetchPhoneResource(id: string, signal?: AbortSignal): Promise<Ph
 export function fetchPhoneResourceFile(id: string, path: string, signal?: AbortSignal): Promise<PhoneResourceFile> {
   const query = new URLSearchParams({ path });
   return getJson(`/api/phone-resources/item/${encodeURIComponent(id)}/file?${query}`, FileSchema, signal, true);
-}
-
-export function fetchPhoneSync(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<PhoneSync> {
-  return getJson(`/api/phone-resources/sync${refreshQuery(options.refresh)}`, SyncSchema, options.signal);
 }
 
 export function fetchPhoneProjects(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<PhoneProjects> {

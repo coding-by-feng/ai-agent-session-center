@@ -29,6 +29,7 @@ import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
 import type { FaultMatch } from './interruptionDetector.js';
 import { noteBtwChunk, clearBtwState, type BtwCaptureDeps } from './btwCapture.js';
+import { renderScreenCells, type ScreenCell } from './headlessScreen.js';
 import { armSuggestionWatch, clearSuggestionState, disarmSuggestion, isTypingInput, noteSuggestionChunk, type SuggestionCaptureDeps } from './promptSuggestionCapture.js';
 import type { BtwAnswer, PromptSuggestion } from '../src/types/session.js';
 import type { PendingLink } from '../src/types/session.js';
@@ -110,6 +111,12 @@ function screenSnapshot(terminalId: string): { bytes: Buffer; cols: number; rows
   const geometry = getTerminalGeometry(terminalId);
   if (!term || !geometry || ringLength(term) === 0) return null;
   return { bytes: ringSnapshot(term), ...geometry };
+}
+
+/** A terminal's screen as it looks now, cell by cell; null once it is gone or empty (inputBoxCapture.ts). */
+export async function readTerminalScreenCells(terminalId: string): Promise<ScreenCell[][] | null> {
+  const screen = screenSnapshot(terminalId);
+  return screen ? renderScreenCells(screen) : null;
 }
 
 const btwDeps: BtwCaptureDeps = {
