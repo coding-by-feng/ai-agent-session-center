@@ -127,7 +127,7 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // 2026): it signs in with a device key like a phone, but its session is a password
 // session's in every other respect (no phone allow-list, no phone-only limits), so
 // it never carries `deviceId`; revoking it ends its sessions all the same.
-type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string; hosted?: HostedIdentity; hostedExpiresAt?: number };
+type TokenEntry = { createdAt: number; lineage: string; deviceId?: string; computerId?: string; hosted?: HostedIdentity; hostedExpiresAt?: number; hostedLaunchId?: string };
 const tokens = new Map<string, TokenEntry>();
 
 /**
@@ -180,11 +180,21 @@ export function createComputerToken(computerId: string, hosted?: HostedIdentity)
 }
 
 /** Hosted customer identity survives new iframe sessions and token rotation. Never a local identity. */
-export function createHostedToken(orderId: string, principalHash: string, authority?: HostedIdentity): string {
+export function createHostedToken(orderId: string, principalHash: string, authority?: HostedIdentity, launchId?: string): string {
   const token = issueToken(`hosted:${orderId}:${principalHash}`);
   tokens.get(token)!.hostedExpiresAt = Date.now() + TOKEN_TTL_MS;
+  if (launchId) tokens.get(token)!.hostedLaunchId = launchId;
   if (authority) tokens.get(token)!.hosted = authority;
   return token;
+}
+/** Per-launch revocation remains narrower than the shared principal/client lineage. */
+export function getTokenHostedLaunchId(token: string | null): string | null {
+  return token && validateToken(token) ? tokens.get(token)?.hostedLaunchId ?? null : null;
+}
+export function revokeHostedLaunch(orderId: string, launchId: string): void {
+  for (const [token, entry] of tokens) {
+    if (entry.lineage.startsWith(`hosted:${orderId}:`) && entry.hostedLaunchId === launchId) tokens.delete(token);
+  }
 }
 export function getTokenHostedIdentity(token: string | null): HostedIdentity | null {
   return token && validateToken(token) ? tokens.get(token)?.hosted ?? null : null;
@@ -260,6 +270,7 @@ export function refreshToken(oldToken: string | null, renewHosted = false): stri
   tokens.delete(oldToken);
   const token = issueToken(lineage, entry?.deviceId, entry?.computerId);
   if (entry?.hosted) tokens.get(token)!.hosted = entry.hosted;
+  if (entry?.hostedLaunchId) tokens.get(token)!.hostedLaunchId = entry.hostedLaunchId;
   if (entry?.hostedExpiresAt) tokens.get(token)!.hostedExpiresAt = renewHosted ? Date.now() + TOKEN_TTL_MS : entry.hostedExpiresAt;
   return token;
 }

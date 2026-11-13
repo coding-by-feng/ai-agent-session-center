@@ -27,6 +27,7 @@ import {
   getTokenDeviceId,
   getTokenComputerId,
   getTokenHostedIdentity,
+  revokeHostedLaunch,
   validateToken,
   revokeHostedTokens,
   TOKEN_TTL_SECONDS,
@@ -68,7 +69,7 @@ function durableCreate(file: string, value: string): void {
     closeSync(parent);
   }
 }
-export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => void = () => {}, options: {uiRoot?: string} = {}) {
+export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => void = () => {}, options: {uiRoot?: string; onSessionLogout?: (launchId: string) => void} = {}) {
   const directory = join(config.dataDir, 'hosted-launch');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const principalFile = join(directory, 'principal');
@@ -94,7 +95,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         'Hosted data directory belongs to another order or has an invalid order binding',
       );
   }
-  function inspect(ticket: unknown, pairing = false, check = false) {
+  function inspect(ticket: unknown, pairing = false, check = false, revocation = false) {
     if (typeof ticket !== 'string' || ticket.length > 4096) throw new Error('Invalid launch');
     const parts = ticket.split('.');
     if (parts.length !== 3 || parts.some((p) => !/^[A-Za-z0-9_-]+$/.test(p)))
@@ -131,7 +132,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
       !Number.isSafeInteger(claims.exp) ||
       // Bound issuer clock skew; expiration remains strict.
       claims.iat > now + 5 ||
-      claims.exp <= now ||
+      (!revocation && claims.exp <= now) ||
       claims.exp <= claims.iat ||
       claims.exp - claims.iat > 60
     )
@@ -228,6 +229,45 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
     };
   }
   const router = express.Router();
+  // A failed launch or unloaded bundle has no postMessage listener. This form
+  // endpoint revokes its browser session before the standalone receipt runs.
+  router.post('/hosted/logout', express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const requestId = req.body?.requestId;
+    if (req.headers.origin !== config.websiteOrigin || typeof requestId !== 'string' || !UUID.test(requestId)) {
+      res.status(403).json({ error: 'Invalid workspace disconnect' });
+      return;
+    }
+    try {
+      const claims = inspect(req.body?.ticket, false, false, true);
+      // Consume the nonce before acknowledging, including when launch is still
+      // awaiting authority. This also survives a restart before ticket expiry.
+      try {
+        durableCreate(join(directory, claims.jti.toLowerCase()), JSON.stringify({
+          orderId: config.orderId, accessMode: claims.accessMode, exp: claims.exp,
+        }));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      const launchId = createHash('sha256').update(req.body.ticket).digest('hex');
+      revokeHostedLaunch(config.orderId, launchId);
+      options.onSessionLogout?.(launchId);
+    } catch {
+      res.status(403).json({ error: 'Invalid workspace disconnect' });
+      return;
+    }
+    // No Set-Cookie: another tab or a fresh launch may already own that cookie.
+    res.type('html').send(`<!doctype html><title>Workspace disconnected</title><p>Workspace disconnected.</p><script src="/hosted/logout-receipt.js?requestId=${requestId}"></script>`);
+  });
+  router.get('/hosted/logout-receipt.js', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const requestId = req.query.requestId;
+    if (typeof requestId !== 'string' || !UUID.test(requestId)) {
+      res.status(400).end();
+      return;
+    }
+    res.type('js').send(`window.parent.postMessage(${JSON.stringify({ type: 'aasc:hosted-logged-out', requestId })},${JSON.stringify(config.websiteOrigin)});`);
+  });
   router.post('/hosted/admin-check',express.json({limit:'8kb'}),async(req,res)=>{
     res.setHeader('Cache-Control','no-store');
     try {
@@ -276,7 +316,7 @@ export function createHostedAccess(config: HostedConfig, onOwnerChanged: () => v
         const identity = consume(req.body?.ticket);
         res.setHeader(
           'Set-Cookie',
-          hostedCookie(createHostedToken(config.orderId, identity.principal, identity)),
+          hostedCookie(createHostedToken(config.orderId, identity.principal, identity, createHash('sha256').update(req.body.ticket).digest('hex'))),
         );
         const entry = claims.edition ? `/ui/${claims.edition}/` : '/';
         res.redirect(303, entry + (req.body?.pair === '1' ? '?hostedPair=1' : ''));

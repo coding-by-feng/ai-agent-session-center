@@ -88,6 +88,7 @@ function call(
   path: string,
   options: {
     ticket?: string;
+    form?: Record<string, string>;
     origin?: string;
     cookie?: string;
     method?: string;
@@ -96,7 +97,7 @@ function call(
   } = {},
 ): Promise<{ status: number; body: string; headers: import('node:http').IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    const body = options.json
+    const body = options.form ? new URLSearchParams(options.form).toString() : options.json
       ? JSON.stringify(options.json)
       : options.ticket
         ? new URLSearchParams({ ticket: options.ticket }).toString()
@@ -746,4 +747,81 @@ it('diagnostics distinguish absent interfaces from runnable edition entry assets
  expect(JSON.parse((await check()).body).interfaces.lite).toBe(false);
  writeFileSync(join(dir,'ui','lite','assets','main.js'),'console.log("fixture")');
  expect(JSON.parse((await check()).body).interfaces).toEqual({lite:true,full:false});
+});
+
+describe('server-confirmed recovery without a running app bundle', () => {
+  it('revokes only the original launch across rotation, even when a sibling replaced its cookie', async () => {
+    const proof = ticket();
+    const first = await call('/hosted/launch', { ticket: proof });
+    const second = await call('/hosted/launch', { ticket: ticket() });
+    const firstToken = first.headers['set-cookie']![0].split(';')[0].slice('auth_token='.length);
+    const rotated = refreshToken(firstToken)!;
+    const independent = second.headers['set-cookie']![0].split(';')[0];
+    expect((await call('/api/private', { cookie: 'auth_token=' + rotated })).status).toBe(200);
+    const requestId = randomUUID();
+    const logout = await call('/hosted/logout', { cookie: independent, form: { requestId, ticket: proof } });
+    expect(logout.status).toBe(200);
+    // A late response must never erase a newly launched or sibling tab cookie.
+    expect(logout.headers['set-cookie']).toBeUndefined();
+    expect(logout.headers['cache-control']).toBe('no-store');
+    expect(logout.body).toContain(`/hosted/logout-receipt.js?requestId=${requestId}`);
+    expect((await call('/api/private', { cookie: 'auth_token=' + rotated })).status).toBe(401);
+    expect((await call('/api/private', { cookie: independent })).status).toBe(200);
+  });
+
+  it('accepts an expired signed launch only for revocation, without needing a cookie', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const proof = ticket({ iat: now - 61, exp: now - 1 });
+    expect((await call('/hosted/launch', { ticket: proof })).status).toBe(403);
+    const logout = await call('/hosted/logout', { form: { requestId: randomUUID(), ticket: proof } });
+    expect(logout.status).toBe(200);
+    expect(logout.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('cancels an in-flight launch before acknowledging so it cannot mint a late session', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const waiting = new Promise<void>(resolve => { started = resolve; });
+    vi.stubGlobal('fetch', async () => {
+      started();
+      await new Promise<void>(resolve => { release = resolve; });
+      return new Response(JSON.stringify({ authorized: true }));
+    });
+    const proof = ticket();
+    const pending = call('/hosted/launch', { ticket: proof });
+    await waiting;
+    const logout = await call('/hosted/logout', { form: { requestId: randomUUID(), ticket: proof } });
+    release();
+    expect(logout.status).toBe(200);
+    expect((await pending).status).toBe(403);
+  });
+
+  it('rejects foreign origins, invalid proofs and malformed correlation IDs without revoking sessions', async () => {
+    const proof = ticket();
+    const launch = await call('/hosted/launch', { ticket: proof });
+    const cookie = launch.headers['set-cookie']![0].split(';')[0];
+    for (const options of [
+      { origin: 'https://foreign.example', form: { requestId: randomUUID(), ticket: proof } },
+      { form: { requestId: '"><script>alert(1)</script>', ticket: proof } },
+      { form: { requestId: randomUUID(), ticket: 'forged' } },
+      { form: { requestId: randomUUID(), ticket: ticket({ orderId: randomUUID() }) } },
+    ]) {
+      expect((await call('/hosted/logout', { cookie, ...options })).status).toBe(403);
+      expect((await call('/api/private', { cookie })).status).toBe(200);
+    }
+    expect((await call('/hosted/logout')).status).toBe(404);
+  });
+
+  it('runs a receipt that identifies the request and only addresses the configured website', async () => {
+    const { runInNewContext } = await import('node:vm');
+    const requestId = randomUUID();
+    const script = await call('/hosted/logout-receipt.js?requestId=' + requestId);
+    expect(script.status).toBe(200);
+    const postMessage = vi.fn();
+    runInNewContext(script.body, { window: { parent: { postMessage } } });
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'aasc:hosted-logged-out', requestId }, 'https://xclaude.dev',
+    );
+    expect((await call('/hosted/logout-receipt.js?requestId=bad')).status).toBe(400);
+  });
 });
