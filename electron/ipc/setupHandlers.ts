@@ -130,7 +130,8 @@ export function registerSetupHandlers() {
       debug: c.debug === true,
       sessionHistoryHours: typeof c.sessionHistoryHours === 'number'
         && Number.isFinite(c.sessionHistoryHours)
-        && c.sessionHistoryHours > 0
+        // 0 = "Keep all" (setup's retention choice).
+        && c.sessionHistoryHours >= 0
         && c.sessionHistoryHours <= 8760
         ? c.sessionHistoryHours : 24,
       // A plaintext `password` (setup wizard) is hashed here; a pre-computed

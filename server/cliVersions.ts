@@ -260,10 +260,13 @@ export function createCliVersions(deps: CliVersionsDeps): CliVersionsService {
 
 // ── The real process and registry ──────────────────────────────────────────
 
+/** What `runCli` may run: a version read, an update, or the sign-in read (`cliAuth.ts`). */
+export type CliAction = 'version' | 'update' | 'authStatus';
+
 /** Fixed command lines: nothing from a request is ever part of them. */
-const COMMANDS: Record<AgentCli, Record<'version' | 'update', string>> = {
-  claude: { version: 'claude --version', update: 'claude update' },
-  codex: { version: 'codex --version', update: 'codex update' },
+const COMMANDS: Record<AgentCli, Record<CliAction, string>> = {
+  claude: { version: 'claude --version', update: 'claude update', authStatus: 'claude auth status' },
+  codex: { version: 'codex --version', update: 'codex update', authStatus: 'codex login status' },
 };
 
 /** Keep only the tail of a stream, so a chatty installer can't grow memory without bound. */
@@ -290,7 +293,7 @@ function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
  */
 export function runCli(
   cli: AgentCli,
-  action: 'version' | 'update',
+  action: CliAction,
   timeoutMs: number,
   onOutput?: (stream: UpdateStream, chunk: string) => void,
 ): Promise<CliRunResult> {

@@ -35,6 +35,7 @@ import { useSessionRoomDrag, type GripHandlers, type SessionDrag } from './useSe
 import { useIsHostDevice } from '../views/hostAccess';
 import SessionListRow from './SessionListRow';
 import ConnectionBanner from './ConnectionBanner';
+import CliLoginBanner from './CliLoginBanner';
 import NewSessionSheet from './NewSessionSheet';
 import SessionSheets, { type SessionSheetKind } from './info/SessionSheets';
 import { forkBlocker, useSessionActions } from './info/useSessionActions';
@@ -583,7 +584,7 @@ export default function SessionsScreen() {
   }
 
   return (
-    <Screen title="Sessions" banner={<ConnectionBanner />} actions={actions} testId="phone-sessions">
+    <Screen title="Sessions" banner={<><ConnectionBanner /><CliLoginBanner /></>} actions={actions} testId="phone-sessions">
       <div
         ref={pullHost}
         className={styles.pullHost}

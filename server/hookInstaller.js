@@ -72,9 +72,11 @@ export function ensureHooksInstalled(config) {
   let density = config.hookDensity || 'medium';
   let enabledClis = config.enabledClis || ['claude'];
 
-  // Also check data/server-config.json for overrides
+  // Also check the data folder's server-config.json for overrides (APP_USER_DATA, as
+  // serverConfig.ts reads it; <package>/data otherwise)
   try {
-    const serverConfig = JSON.parse(readFileSync(join(__dirname, '..', 'data', 'server-config.json'), 'utf8'));
+    const configDir = process.env.APP_USER_DATA || join(__dirname, '..', 'data');
+    const serverConfig = JSON.parse(readFileSync(join(configDir, 'server-config.json'), 'utf8'));
     if (serverConfig.hookDensity) density = serverConfig.hookDensity;
     if (serverConfig.enabledClis) enabledClis = serverConfig.enabledClis;
   } catch {}

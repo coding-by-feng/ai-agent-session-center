@@ -158,6 +158,22 @@ describe('pairing codes', () => {
     expect(auth.redeem({ code: typed, label: 'x', platform: 'android' })).not.toBeNull();
   });
 
+  it('can be withdrawn by their reference, which is not the code (aasc-server pair on cancel)', () => {
+    const { code, codeRef } = auth.createPairingCode();
+    expect(codeRef).toMatch(/^[0-9a-f]{32}$/);
+    expect(code).not.toContain(codeRef);
+    expect(auth.cancelPairingCode('0'.repeat(32))).toBe(false);
+    expect(auth.cancelPairingCode(codeRef)).toBe(true);
+    expect(auth.redeem({ code, label: 'late', platform: 'ios' })).toBeNull();
+    expect(auth.cancelPairingCode(codeRef)).toBe(false);
+  });
+
+  it('withdraw nothing once redeemed', () => {
+    const { code, codeRef } = auth.createPairingCode();
+    expect(auth.redeem({ code, label: 'first', platform: 'ios' })).not.toBeNull();
+    expect(auth.cancelPairingCode(codeRef)).toBe(false);
+  });
+
   it('are single use — a second phone scanning the same QR gets nothing', () => {
     const { code } = auth.createPairingCode();
     expect(auth.redeem({ code, label: 'first', platform: 'ios' })).not.toBeNull();

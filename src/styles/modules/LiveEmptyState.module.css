@@ -157,6 +157,11 @@
   font-family: var(--font-mono);
 }
 
+/* A command to type: never broken at its hyphen ("aasc-" / "server share-default on"). */
+.command {
+  white-space: nowrap;
+}
+
 .footer {
   display: flex;
   align-items: center;

@@ -145,7 +145,7 @@ export function getEventSeq(): number {
 
 // ---- Snapshot persistence ----
 // Use persistent APP_USER_DATA directory (Electron userData) when available;
-// fall back to /tmp only for non-Electron (standalone server) usage.
+// fall back to the hook-queue folder (hookQueueDir.ts) only for a dev server without one.
 const SNAPSHOT_DIR = process.env.APP_USER_DATA
   ? join(process.env.APP_USER_DATA, 'data')
   : hookQueueDir();

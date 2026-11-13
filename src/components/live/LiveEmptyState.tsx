@@ -13,17 +13,22 @@
  * only, so an external `codex` does not show up on a fresh install.
  *
  * A device that is not this machine (a phone or a LAN browser) sees only the
- * sessions someone shared with it (server/sessionVisibility.ts), and a session
- * it starts stays hidden from it as well — so it gets a "not shared" card
- * instead, without the steps that would promise a card. It is told apart by
- * presence (`isLocal` false) or, before presence has loaded, by the snapshot's
- * `hiddenCount`; with neither known it is treated as this machine.
+ * sessions someone shared with it (server/sessionVisibility.ts), so it gets a
+ * "not shared" card instead. A session it starts itself IS shared with it (the
+ * server marks a remote launch `remoteVisible`), so that card keeps + NEW and
+ * DIRS (Oct 29 2026); only "run claude in any terminal" is left out. How the
+ * host's other sessions get shared depends on the host: a desktop shares one from
+ * its session panel, a headless server (no screen) with `aasc-server
+ * share-default on`. A remote device is told apart by presence (`isLocal` false)
+ * or, before presence has loaded, by the snapshot's `hiddenCount`; with neither
+ * known it is treated as this machine.
  */
 import { useId } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import { useWsStore } from '@/stores/wsStore';
+import { useServerHeadless } from '@/stores/serverEditionStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { IS_LITE } from '@/lib/edition';
@@ -46,7 +51,29 @@ function ThreeDFooter() {
   );
 }
 
+/** + NEW and DIRS: the two ways to start a session from the dashboard, on every card that offers any. */
+function LaunchSteps() {
+  const openModal = useUiStore((s) => s.openModal);
+  return (
+    <>
+      <li className={styles.step}>
+        <span className={styles.num} aria-hidden="true">1</span>
+        <button type="button" className={styles.action} onClick={() => openModal('new-session')}>
+          + NEW
+        </button>
+        <span className={styles.desc}>Start Claude Code or Codex in a folder you choose</span>
+      </li>
+      <li className={styles.step}>
+        <span className={styles.num} aria-hidden="true">2</span>
+        <WorkdirLauncher label="DIRS" triggerClassName={actionClass} />
+        <span className={styles.desc}>Pick a project you have worked in before</span>
+      </li>
+    </>
+  );
+}
+
 function NotSharedCard({ titleId, hiddenCount }: { titleId: string; hiddenCount: number }) {
+  const headless = useServerHeadless();
   return (
     <section className={styles.card} aria-labelledby={titleId}>
       <h2 id={titleId} className={styles.title}>No sessions shared with this device</h2>
@@ -55,10 +82,21 @@ function NotSharedCard({ titleId, hiddenCount }: { titleId: string; hiddenCount:
           ? `${hiddenCount} ${hiddenCount === 1 ? 'session is' : 'sessions are'} running on the host but not shared with this device.`
           : 'Nothing on the host is shared with this device yet.'}
       </p>
-      <p className={styles.lead}>
-        Sessions stay on the host until someone shares one from there with the HOST ONLY button in its
-        session panel (it then reads SHARED). Releasing control on the host does not share it.
-      </p>
+      <p className={styles.lead}>Start one here: a session you start from this device is shared with it.</p>
+      <ol className={styles.steps}>
+        <LaunchSteps />
+      </ol>
+      {headless ? (
+        <p className={styles.lead}>
+          This server has no screen. Sessions started on it directly (over ssh, in a terminal) stay hidden
+          from your devices unless its owner runs <code className={`${styles.code} ${styles.command}`}>aasc-server share-default on</code> there.
+        </p>
+      ) : (
+        <p className={styles.lead}>
+          Sessions started on the host stay there until someone shares one from there with the HOST ONLY
+          button in its session panel (it then reads SHARED). Releasing control on the host does not share it.
+        </p>
+      )}
       <ThreeDFooter />
     </section>
   );
@@ -77,7 +115,6 @@ interface LiveEmptyStateProps {
 
 export default function LiveEmptyState({ overScene = false, outsideCount = 0 }: LiveEmptyStateProps) {
   const titleId = useId();
-  const openModal = useUiStore((s) => s.openModal);
   const hiddenCount = useWsStore((s) => s.hiddenCount);
   // Presence unknown (no devices yet) reads as "unknown", not as remote.
   const knownRemote = usePresenceStore((s) => s.devices.length > 0 && !isLocalDevice(s.devices, getClientId()));
@@ -107,18 +144,7 @@ export default function LiveEmptyState({ overScene = false, outsideCount = 0 }: 
         )}
 
         <ol className={styles.steps}>
-          <li className={styles.step}>
-            <span className={styles.num} aria-hidden="true">1</span>
-            <button type="button" className={styles.action} onClick={() => openModal('new-session')}>
-              + NEW
-            </button>
-            <span className={styles.desc}>Start Claude Code or Codex in a folder you choose</span>
-          </li>
-          <li className={styles.step}>
-            <span className={styles.num} aria-hidden="true">2</span>
-            <WorkdirLauncher label="DIRS" triggerClassName={actionClass} />
-            <span className={styles.desc}>Pick a project you have worked in before</span>
-          </li>
+          <LaunchSteps />
           {!overScene && (
             <li className={styles.step}>
               <span className={styles.num} aria-hidden="true">3</span>

@@ -25,6 +25,19 @@ export interface ServerConfig {
    */
   remoteListenerPort?: number | null;
   /**
+   * The interface the main listener binds, e.g. `127.0.0.1` or this box's Tailscale address. Absent =
+   * every interface, as before. `AASC_BIND_ADDRESS` overrides it; an invalid value stops the start.
+   */
+  bindAddress?: string;
+  /**
+   * A reverse proxy that sets X-Forwarded-For (Caddy) is in front of the remote-only listener, so its
+   * login and pairing rate limits may bucket by that header. Absent = off. `AASC_TRUST_PROXY=1` / `0`
+   * overrides it. Never turn it on for a relay that passes the client's headers through.
+   */
+  trustForwardedFor?: boolean;
+  /** Write <data>/owner.token on this server too (aasc-server always does). AASC_OWNER_TOKEN=1/0 wins. */
+  ownerToken?: boolean;
+  /**
    * Offer "Pair a phone" on the desktop. Absent means on; `false` turns it off
    * (it was off until the phone app shipped, AASC-30). `AASC_PHONE_PAIRING=1` / `0`
    * overrides it. Phones paired before are listed and revocable either way.

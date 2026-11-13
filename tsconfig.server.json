@@ -14,6 +14,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["server", "src/types"],
+  "include": ["server", "src/types", "cli/server", "cli/client"],
   "exclude": ["src/components", "src/hooks", "src/stores", "src/pages", "src/main.tsx", "src/App.tsx"]
 }

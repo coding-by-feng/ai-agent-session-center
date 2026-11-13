@@ -30,6 +30,7 @@ import { Router, type Request, type Response, type RequestHandler } from 'expres
 import { z } from 'zod';
 import { isLocalResourceRequest, isSameOriginWrite } from '../resourceRouter.js';
 import { REMOTE_REQUIRES_PASSWORD } from '../authManager.js';
+import { rateLimitAddress } from '../requestLocality.js';
 import { TooManyPairingCodesError, toView, type DeviceAuth } from './deviceAuth.js';
 import type { BackendCodeOutcome, PhoneBackendCodes } from './phoneBackendCode.js';
 import type { CloudPhoneAudit } from './cloudPhoneAudit.js';
@@ -68,6 +69,8 @@ export interface MobileRouterDeps {
   pairingOffered?: () => boolean;
   /** Does this phone have an open socket right now (`isPhoneDeviceOnline`)? Omitted: never online. */
   isPhoneOnline?: (deviceId: string) => boolean;
+  /** A paired computer has a live socket; computers carry no phone deviceId (wsManager isPairedComputerOnline). */
+  isComputerOnline?: (deviceId: string) => boolean;
   /** The dashboard's own sign-in check (authMiddleware), required on desktop routes. */
   requireSession: RequestHandler;
   /** Mint the normal one-hour session token, bound to the device. */
@@ -136,6 +139,8 @@ function chosenTarget(target: PairingTarget, include: readonly AddressKind[]): P
     ...(include.includes('public') && target.publicAddress ? { publicAddress: target.publicAddress } : {}),
   };
 }
+
+const CodeRef = z.string().regex(/^[0-9a-f]{32}$/);
 
 const PairBody = z.object({
   code: z.string().min(4).max(32),
@@ -276,8 +281,9 @@ function backendCodeRefusal(out: Exclude<BackendCodeOutcome, { ok: true }>): [nu
   }
 }
 
+/** The rate-limit bucket: the peer, or the proxy's X-Forwarded-For entry on a remote-only socket. */
 function clientIp(req: Request): string {
-  return req.ip || req.socket?.remoteAddress || 'unknown';
+  return rateLimitAddress(req);
 }
 
 /** Public routes: JSON only, and never from a cross-site browser page. */
@@ -369,7 +375,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       });
       return;
     }
-    let pairing: { code: string; expiresAt: number };
+    let pairing: { code: string; expiresAt: number; codeRef: string };
     try {
       pairing = deps.deviceAuth.createPairingCode();
     } catch (err) {
@@ -385,11 +391,27 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       success: true,
       data: {
         code: pairing.code,
+        codeRef: pairing.codeRef,
         expiresAt: pairing.expiresAt,
         link: buildPairingLink(target, pairing.code),
         target,
       },
     });
+  });
+
+  // Withdraw an unused code (P2 review L4): `aasc-server pair` calls it on Ctrl-C, SIGTERM or expiry,
+  // so a cancelled link stops working now. Behind the /pairing gate above, like POST /pairing.
+  router.delete('/pairing/:codeRef', (req, res) => {
+    const codeRef = CodeRef.safeParse(req.params.codeRef);
+    if (!codeRef.success) {
+      res.status(400).json({ error: 'Not a pairing code reference' });
+      return;
+    }
+    if (!deps.deviceAuth.cancelPairingCode(codeRef.data)) {
+      res.status(404).json({ error: 'No such pairing code: it was used, expired or withdrawn' });
+      return;
+    }
+    res.json({ success: true });
   });
 
   // What the desktop's address choices show before a link is made (Oct 28 2026).
@@ -400,8 +422,12 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
 
   router.get('/devices', (_req, res) => {
     // `online` feeds the header chip's 📱 count (Oct 22 2026): a paired phone with its app closed has no socket.
-    const isOnline = deps.isPhoneOnline ?? (() => false);
-    const devices = deps.deviceAuth.list().map((d) => ({ ...d, online: isOnline(d.id) }));
+    const isPhoneOnline = deps.isPhoneOnline ?? (() => false);
+    const isComputerOnline = deps.isComputerOnline ?? (() => false);
+    const devices = deps.deviceAuth.list().map((d) => ({
+      ...d,
+      online: d.platform === 'desktop' ? isComputerOnline(d.id) : isPhoneOnline(d.id),
+    }));
     res.json({
       success: true,
       data: {

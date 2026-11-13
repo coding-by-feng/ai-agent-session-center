@@ -37,6 +37,25 @@ function escapeTomlString(value) {
     .replace(/\t/g, '\\t');
 }
 
+// Ported from install-hooks-core.js; test/codexHooksToml.test.ts runs both copies.
+/** A top-level `notify` key (any value). Codex allows one: a second is a "duplicate key" and the whole file fails. */
+const NOTIFY_KEY = /^\s*notify\s*=/;
+
+/**
+ * Our own `notify` line: its command (the string, or the array's first element) is the dashboard hook.
+ * A foreign notify can carry our command further in (Codex Computer Use chains the previous notify as
+ * `--previous-notify "[...dashboard-hook...]"`); that line is the user's and must stay.
+ */
+function isOwnNotifyLine(line, hookPattern) {
+  const first = line.match(/^\s*notify\s*=\s*\[?\s*"((?:[^"\\]|\\.)*)"/);
+  return Boolean(first && first[1].includes(hookPattern));
+}
+
+/**
+ * Remove dashboard-owned Codex hook blocks from config.toml.
+ * Handles the old notify= form and the current [[hooks.Event]] form while
+ * preserving unrelated Codex config and third-party hooks.
+ */
 function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
   const lines = String(toml || '').split('\n');
   const kept = [];
@@ -45,9 +64,10 @@ function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+
     if (
       line.includes(`[${hookSource}]`) ||
-      (line.includes(hookPattern) && trimmed.startsWith('notify'))
+      isOwnNotifyLine(line, hookPattern)
     ) {
       removed++;
       continue;
@@ -106,11 +126,15 @@ function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
       }
 
       if (remainingHookBlocks.length > 0) {
-        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) kept.pop();
+        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) {
+          kept.pop();
+        }
         kept.push(...prefix, ...remainingHookBlocks.flat());
       } else {
         if (hookBlocks.length === 0) removed++;
-        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) kept.pop();
+        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) {
+          kept.pop();
+        }
       }
       continue;
     }
@@ -123,17 +147,35 @@ function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
 
 function configureCodexHooksToml(toml, events, hookCommand, hookPattern, hookSource) {
   const cleaned = removeAllCodexHooksToml(toml, hookPattern, hookSource);
-  let nextToml = cleaned.toml.trimEnd();
   const command = escapeTomlString(hookCommand);
-  // Codex emits Stop / agent-turn-complete only through the legacy `notify`
-  // entry, never through [[hooks.X]] blocks. Keep both forms so the dashboard
-  // gets the full lifecycle: notify → Stop (red ! attention badge), plus the
-  // new [[hooks.X]] blocks → PreToolUse / PostToolUse (orange working state).
-  const blocks = [
+
+  // The legacy `notify` key is a top-level Codex setting. It MUST live above
+  // any [section] header — otherwise TOML parses it as `<last-section>.notify`
+  // (e.g. `features.notify`) and Codex rejects it as the wrong type.
+  // Split the cleaned toml into (top-level lines) + (first [section] onward).
+  const cleanedLines = cleaned.toml.split('\n');
+  let firstSectionIdx = cleanedLines.findIndex(l => /^\s*\[/.test(l));
+  if (firstSectionIdx === -1) firstSectionIdx = cleanedLines.length;
+
+  const head = cleanedLines.slice(0, firstSectionIdx);
+  const tail = cleanedLines.slice(firstSectionIdx);
+
+  // Drop trailing blank lines from head so the inserted block sits flush.
+  while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
+
+  // The user's own notify (e.g. Codex Computer Use) wins: a second `notify` key breaks the whole file,
+  // and the [[hooks.Stop]] block below still reports the end of a turn.
+  const notifyBlock = head.some(l => NOTIFY_KEY.test(l)) ? [''] : [
     '',
     `# [${hookSource}] Dashboard hook -- safe to remove with "npm run reset"`,
-    `notify = "${command}"`,
+    `notify = ["${command}"]`,
     '',
+  ];
+
+  // Codex emits Stop / agent-turn-complete through the top-level `notify`
+  // entry; PreToolUse / PostToolUse / etc. flow through [[hooks.X]] blocks.
+  // Keep both forms so the dashboard gets the full lifecycle.
+  const hookBlocks = [
     `# [${hookSource}] Dashboard Codex lifecycle hooks`,
     ...events.flatMap(event => [
       `[[hooks.${event}]]`,
@@ -142,10 +184,13 @@ function configureCodexHooksToml(toml, events, hookCommand, hookPattern, hookSou
       `command = "${command}"`,
       '',
     ]),
-  ].join('\n');
+  ];
 
-  nextToml += blocks;
+  const rebuilt = [...head, ...notifyBlock, ...tail];
+  let nextToml = rebuilt.join('\n').trimEnd();
+  nextToml += '\n\n' + hookBlocks.join('\n');
   if (!nextToml.endsWith('\n')) nextToml += '\n';
+  nextToml = nextToml.replace(/\n{3,}/g, '\n\n');
   return { toml: nextToml, added: events.length, removed: cleaned.removed };
 }
 

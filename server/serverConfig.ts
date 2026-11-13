@@ -12,6 +12,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const CONFIG_PATH = process.env.APP_USER_DATA
   ? join(process.env.APP_USER_DATA, 'server-config.json')
   : join(__dirname, '..', 'data', 'server-config.json');
+/** The folder server-config.json lives in: the data folder, and where the folder lock goes. */
+export const CONFIG_DIR = dirname(CONFIG_PATH);
 
 const DEFAULTS: ServerConfig = {
   port: 3333,

@@ -3,7 +3,7 @@
  * Resolves the server listen port (--port flag > PORT env > config > 3333) and provides
  * killPortProcess() to detect and terminate processes occupying the target port via lsof/netstat.
  */
-import { execSync } from 'child_process';
+import { execSync, execFile } from 'child_process';
 import type { ServerConfig } from '../src/types/settings.js';
 
 /**
@@ -52,4 +52,27 @@ export function killPortProcess(port: number): void {
   } catch {
     // No process found on port — nothing to kill
   }
+}
+
+/** How long the port-holder lookup may take before it gives up. */
+const PORT_HOLDER_LOOKUP_TIMEOUT_MS = 3000;
+
+/**
+ * Who listens on `port`, for the message when a headless server refuses a busy port (it never kills
+ * the holder). Read-only: `lsof` as an argument array, no shell. Resolves to e.g. "pid 4121 (node)",
+ * or a generic phrase when lsof is missing or finds nothing.
+ */
+export function describePortHolder(port: number): Promise<string> {
+  const unknown = 'another process';
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || process.platform === 'win32') {
+    return Promise.resolve(unknown);
+  }
+  return new Promise((resolve) => {
+    execFile('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], { timeout: PORT_HOLDER_LOOKUP_TIMEOUT_MS }, (err, stdout) => {
+      if (err && !stdout) { resolve(unknown); return; }
+      const pid = /^p(\d+)$/m.exec(stdout)?.[1];
+      const command = /^c(.+)$/m.exec(stdout)?.[1];
+      resolve(pid ? `pid ${pid}${command ? ` (${command})` : ''}` : unknown);
+    });
+  });
 }

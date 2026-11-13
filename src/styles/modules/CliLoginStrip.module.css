@@ -1,0 +1,79 @@
+/* CliLoginStrip — the "isn't logged in · Log in" strip at the top of the LIVE page: in the flat view's
+ * flow above the board (so it never covers the board's header), floating over the 3D scene. */
+
+.strip {
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-orange);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Lined up with the board's 24px side padding. */
+.inline {
+  flex: none;
+  align-self: center;
+  max-width: calc(100% - 48px);
+  margin: 16px 24px 0;
+}
+
+/* Over the scene: sticky tier of the z-scale, centred, 16px clear of each side. */
+.over {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: calc(100% - 32px);
+}
+
+.icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-orange);
+  color: var(--bg-card);
+  font-weight: 700;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+}
+
+.lead {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+
+/* Narrow windows (a docked panel, a small remote window): the buttons go under the words. */
+@media (max-width: 640px) {
+  .strip {
+    flex-wrap: wrap;
+  }
+  .actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

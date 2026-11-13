@@ -100,6 +100,35 @@ AASC runs on your computer; other devices connect to it. Set a password first (t
 
 Without a password every device but this computer is refused. Sessions stay on this computer until you share them (or turn on **Share new sessions with my devices**), and any device you let in can type into a shared session. Anyone with the password can run terminals on this machine, so treat it like SSH access. The connection is plain HTTP: stay on a network you trust, or use a VPN such as Tailscale.
 
+## Headless server and terminal client
+
+Run the server on a Linux box with no desktop (a VPS, a home server), and reach its sessions from a browser, the phone app, or the `aasc` terminal client.
+
+**Server (Linux x64, Node 22, jq).** Download `ai-agent-session-center-<version>-node22-linux-x64.tgz` and its `.sha256` from the [latest release](https://github.com/coding-by-feng/ai-agent-session-center/releases/latest), plus `install-server.sh`, then:
+
+```bash
+bash install-server.sh ai-agent-session-center-<version>-node22-linux-x64.tgz   # checks the SHA-256 first
+aasc-server setup             # the wizard, including the password a headless server needs
+aasc-server install-service   # a systemd user service that starts at boot
+aasc-server doctor            # what this box is missing, with the command that fixes each
+```
+
+The tarball carries its compiled native modules; on another platform or Node use `npm install -g ai-agent-session-center` (needs a C++ toolchain). `aasc-server status` and `aasc-server logs` show what it is doing.
+
+**Pair.** `aasc-server pair` prints a link and a text QR code. Open it from the phone app, or give it to the client, then answer `y` on the server. `aasc-server devices` lists and revokes them.
+
+**Client (any OS, Node 22+).**
+
+```bash
+npm install -g aasc
+aasc add '<pairing link>' --name vps   # or: aasc add --ssh you@host  (owner mode over SSH, no pairing)
+aasc ls                                # sessions and their status
+aasc attach 2                          # this terminal on session 2's; Ctrl-] detaches
+aasc send 2 "run the tests"            # or: aasc queue 2 "…" · aasc watch --notify
+```
+
+A paired client sees only the sessions you share. The queue, loops and auto-resume still need a dashboard open somewhere (see [Known limitations](#known-limitations)).
+
 ---
 
 ## Commands

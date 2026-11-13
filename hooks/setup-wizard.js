@@ -1,13 +1,21 @@
 import { createInterface } from 'readline';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { scryptSync, randomBytes } from 'crypto';
+import { resolveDataDir, ensureDataDir } from './dataDir.js';
+import { offerLogins } from './cliLogin.js';
+import { readShareDefault, writeShareDefault } from './shareDefaultFile.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
-const CONFIG_PATH = join(PROJECT_ROOT, 'data', 'server-config.json');
+// The folder the server reads (dataDir.js): APP_USER_DATA when `aasc-server setup` set it,
+// <repo>/data in a checkout, the desktop's own folder otherwise.
+const DATA_DIR = resolveDataDir({ projectRoot: PROJECT_ROOT }).dir;
+const CONFIG_PATH = join(DATA_DIR, 'server-config.json');
+// A headless server refuses to start without a password (startupGuard.ts), so it isn't optional there.
+const HEADLESS = process.env.AASC_HEADLESS === '1';
 
 // ── ANSI colors ──
 const RESET   = '\x1b[0m';
@@ -114,7 +122,9 @@ async function askPassword(prompt) {
 }
 
 // ── Main ──
-const TOTAL = 6;
+// A headless server asks one more question (step 6, sharing); the password is always last.
+const TOTAL = HEADLESS ? 7 : 6;
+const PASSWORD_STEP = TOTAL;
 
 console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
 console.log(`${CYAN}│${RESET}  ${BOLD}AI Agent Session Center — Setup Wizard${RESET}        ${CYAN}│${RESET}`);
@@ -175,11 +185,25 @@ const historyOptions = [
   { label: `24 hours`, value: 24 },
   { label: `48 hours`, value: 48 },
   { label: `7 days`, value: 168 },
+  { label: `Keep all`, value: 0 },
 ];
-const currentHistIdx = historyOptions.findIndex(o => o.value === (existing.sessionHistoryHours || 24));
+// `??`, not `||`: 0 is "Keep all", not "unset".
+const currentHistIdx = historyOptions.findIndex(o => o.value === (existing.sessionHistoryHours ?? 24));
 const history = await choose(5, TOTAL, 'Session history retention', historyOptions, currentHistIdx >= 0 ? currentHistIdx : 1);
 
-// 6. Dashboard password
+// 6. (headless only) Share sessions started on the box. A desktop has a Settings toggle for this; a
+// headless server has no screen, so a session started over ssh would stay hidden from every device.
+// Off by default: sharing shows a session to every paired phone and computer.
+let shareNew = null;
+if (HEADLESS) {
+  const shareOptions = [
+    { label: `Off ${DIM}— sessions started on this server (ssh, a terminal) stay hidden from your devices${RESET}`, value: false },
+    { label: `On ${DIM}— every new session shows on every paired phone and computer${RESET}`, value: true },
+  ];
+  shareNew = await choose(6, TOTAL, 'Share sessions started on this server with paired devices?', shareOptions, readShareDefault(DATA_DIR) ? 1 : 0);
+}
+
+// 6 (7 on a headless server). Dashboard password
 const hasExistingPassword = Boolean(existing.passwordHash);
 let passwordHash = null;
 
@@ -187,9 +211,9 @@ if (hasExistingPassword) {
   const pwOptions = [
     { label: `Keep current password`, value: 'keep' },
     { label: `Change password`, value: 'change' },
-    { label: `Remove password ${DIM}— no login required${RESET}`, value: 'remove' },
+    ...(HEADLESS ? [] : [{ label: `Remove password ${DIM}— no login required${RESET}`, value: 'remove' }]),
   ];
-  const pwChoice = await choose(6, TOTAL, 'Dashboard password', pwOptions, 0);
+  const pwChoice = await choose(PASSWORD_STEP, TOTAL, 'Dashboard password', pwOptions, 0);
   if (pwChoice.value === 'keep') {
     passwordHash = existing.passwordHash;
   } else if (pwChoice.value === 'change') {
@@ -216,10 +240,10 @@ if (hasExistingPassword) {
   }
 } else {
   const pwOptions = [
-    { label: `No password ${DIM}— open access on localhost${RESET}`, value: 'none' },
+    ...(HEADLESS ? [] : [{ label: `No password ${DIM}— open access on localhost${RESET}`, value: 'none' }]),
     { label: `Set a password ${DIM}— require login${RESET}`, value: 'set' },
   ];
-  const pwChoice = await choose(6, TOTAL, 'Dashboard password (optional)', pwOptions, 1);
+  const pwChoice = await choose(PASSWORD_STEP, TOTAL, HEADLESS ? 'Dashboard password (required on a server)' : 'Dashboard password (optional)', pwOptions, pwOptions.length - 1);
   if (pwChoice.value === 'set') {
     rl.close(); rlClosed = true;
     console.log(`  ${DIM}Requirements: 8+ chars, uppercase, lowercase, digit, special char${RESET}`);
@@ -244,7 +268,10 @@ if (hasExistingPassword) {
 if (!rlClosed) { rl.close(); rlClosed = true; }
 
 // ── Save config ──
+// Keys this wizard doesn't ask about (phone pairing, MCP, a desktop's own settings) are kept.
+const { passwordHash: _previousHash, ...kept } = existing;
 const configData = {
+  ...kept,
   port,
   enabledClis: cliChoice.value,
   hookDensity: density.value,
@@ -253,19 +280,27 @@ const configData = {
   ...(passwordHash ? { passwordHash } : {}),
 };
 
-const dataDir = join(PROJECT_ROOT, 'data');
-if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-writeFileSync(CONFIG_PATH, JSON.stringify(configData, null, 2) + '\n');
+ensureDataDir(DATA_DIR);
+// Temp file + rename, 0600 before it holds the hash: a crash can't truncate the config, and the
+// password hash isn't world-readable on a shared machine.
+const tmpPath = `${CONFIG_PATH}.tmp`;
+writeFileSync(tmpPath, JSON.stringify(configData, null, 2) + '\n', { mode: 0o600 });
+renameSync(tmpPath, CONFIG_PATH);
 console.log('');
-ok(`Config saved to ${DIM}data/server-config.json${RESET}`);
+ok(`Config saved to ${DIM}${CONFIG_PATH}${RESET}`);
+if (shareNew !== null) {
+  // A running server keeps the setting it read at start; `aasc-server share-default on|off` changes it at once.
+  writeShareDefault(DATA_DIR, shareNew.value);
+}
 
 // ── Print chosen config ──
 info(`Port: ${BOLD}${configData.port}${RESET}`);
 info(`Enabled CLIs: ${BOLD}${configData.enabledClis.join(', ')}${RESET}`);
 info(`Hook density: ${BOLD}${configData.hookDensity}${RESET}`);
 info(`Debug: ${BOLD}${configData.debug ? 'ON' : 'OFF'}${RESET}`);
-info(`History retention: ${BOLD}${configData.sessionHistoryHours}h${RESET}`);
+info(`History retention: ${BOLD}${configData.sessionHistoryHours === 0 ? 'Keep all' : `${configData.sessionHistoryHours}h`}${RESET}`);
 info(`Password: ${BOLD}${configData.passwordHash ? 'Enabled' : 'Disabled'}${RESET}`);
+if (shareNew !== null) info(`Share new sessions: ${BOLD}${shareNew.value ? 'On' : 'Off'}${RESET} ${DIM}(aasc-server share-default on|off)${RESET}`);
 
 // ── Install hooks with chosen density ──
 console.log('');
@@ -279,10 +314,30 @@ try {
   console.log(`  ${RED}✗${RESET} Hook installation failed: ${e.message}`);
 }
 
+// ── Sign in to the enabled CLIs (Oct 29 2026) ──
+// A session can't do anything until its CLI is logged in. Only in a terminal: a piped setup can't log in.
+if (process.stdin.isTTY) {
+  console.log('');
+  info('Checking that the enabled CLIs are logged in...');
+  // One question at a time on a fresh interface, closed before a login takes the terminal.
+  const askOnce = (question) => new Promise((resolve) => {
+    const once = createInterface({ input: process.stdin, output: process.stdout });
+    once.question(`  ${question}`, (answer) => { once.close(); resolve(answer); });
+  });
+  await offerLogins(configData.enabledClis, {
+    ask: askOnce,
+    pause: () => {},
+    resume: () => {},
+    out: { ok, info, warn: (msg) => console.log(`  ${YELLOW}!${RESET} ${msg}`) },
+    // Codex's browser login answers on localhost: over ssh or on a server it needs the device code.
+    remote: HEADLESS || Boolean(process.env.SSH_CONNECTION),
+  });
+}
+
 console.log(`\n${GREEN}────────────────────────────────────────────────${RESET}`);
 console.log(`  ${GREEN}✓ Setup complete!${RESET}`);
 console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
-console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...\n`);
+if (!HEADLESS) console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...\n`);
 
 // Unref stdin so the event loop can exit naturally (askPassword's resume() keeps it alive)
 process.stdin.unref();

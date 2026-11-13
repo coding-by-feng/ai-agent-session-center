@@ -186,6 +186,35 @@ describe('POST /pairing (desktop)', () => {
   });
 });
 
+// P2 review L4: `aasc-server pair` withdraws its unused code on Ctrl-C, SIGTERM or expiry.
+describe('DELETE /pairing/:codeRef (desktop)', () => {
+  it('withdraws an unused code, so its link stops working now', async () => {
+    const made = await call('POST', '/pairing', { body: {} });
+    const { code, codeRef } = made.body.data;
+    expect(codeRef).toMatch(/^[0-9a-f]{32}$/);
+    expect((await call('DELETE', `/pairing/${codeRef}`)).status).toBe(200);
+    expect((await call('POST', '/pair', { body: { code, label: 'Late', platform: 'ios' } })).status).not.toBe(201);
+    expect((await call('DELETE', `/pairing/${codeRef}`)).status).toBe(404);
+  });
+
+  it('sits behind the same gate as POST /pairing: a session, and this machine only', async () => {
+    const { codeRef } = (await call('POST', '/pairing', { body: {} })).body.data;
+    signedIn = false;
+    expect((await call('DELETE', `/pairing/${codeRef}`)).status).toBe(401);
+    signedIn = true;
+    for (const headers of [
+      { 'sec-fetch-site': 'cross-site' }, { host: 'attacker.example' }, { 'x-forwarded-for': '203.0.113.9' },
+    ]) {
+      expect((await call('DELETE', `/pairing/${codeRef}`, { headers })).status).toBe(404);
+    }
+    expect((await call('DELETE', `/pairing/${codeRef}`)).status).toBe(200);
+  });
+
+  it('refuses a malformed reference', async () => {
+    expect((await call('DELETE', '/pairing/not-a-ref')).status).toBe(400);
+  });
+});
+
 // Oct 28 2026: the desktop picks which addresses a new link carries.
 describe('POST /pairing — chosen addresses', () => {
   const withPublic = (): PairingTarget => ({ name: 'claude-desktop', port: 3333, lan: '192.168.1.20', tailnet: '100.74.194.86', publicAddress: '45.63.31.79' });

@@ -148,3 +148,61 @@ jobs:
             ${{ matrix.output }}/SHA256SUMS-*.txt
           if-no-files-found: error
           retention-days: 30
+
+  server:
+    # The headless server's release tarball (terminal-editions plan P4.1): native modules compiled for
+    # Node 22 on linux-x64, so a box without build tools can install it with scripts/install-server.sh.
+    name: Build headless server (node22-linux-x64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          architecture: x64
+          cache: 'npm'
+
+      - name: Confirm Node 22 on x64
+        run: node -e "if(process.arch !== 'x64' || process.versions.node.split('.')[0] !== '22') throw new Error('Expected Node 22 on x64, got ' + process.version + ' ' + process.arch)"
+
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 jq
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate contracts
+        run: npm run typecheck:all
+
+      - name: Test the server package and its installer
+        run: npm test -- test/packServerManifest.test.ts test/installServer.test.ts test/serviceUnit.test.ts test/dataDir.test.ts test/instanceLock.test.ts
+
+      - name: Build the client and the server bundle
+        run: npm run build && npm run build:server
+
+      - name: Pack with compiled native modules
+        run: node scripts/pack-server.mjs --bundle-deps
+
+      - name: Check the native modules load from the staged package
+        working-directory: dist/pack/server
+        run: |
+          node -e "new (require('better-sqlite3'))(':memory:').close(); require('node-pty'); console.log('native modules load on', process.version)"
+          node bin/cli.js help
+
+      - name: Verify the checksum
+        working-directory: dist/pack
+        run: sha256sum -c ./*-node22-linux-x64.tgz.sha256
+
+      - name: Upload the server tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-server-node22-linux-x64
+          path: |
+            dist/pack/*-node22-linux-x64.tgz
+            dist/pack/*-node22-linux-x64.tgz.sha256
+            scripts/install-server.sh
+          if-no-files-found: error
+          retention-days: 30

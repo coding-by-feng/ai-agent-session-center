@@ -5,6 +5,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { installHooks } from './install-hooks-api.js';
+import { resolveDataDir } from './dataDir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -26,7 +27,7 @@ let enabledClis = ['claude'];
 
 // Read saved config first; explicit CLI flags below override it.
 try {
-  const configPath = join(PROJECT_ROOT, 'data', 'server-config.json');
+  const configPath = join(resolveDataDir({ projectRoot: PROJECT_ROOT }).dir, 'server-config.json');
   const savedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
   if (savedConfig.hookDensity && VALID_DENSITIES.includes(savedConfig.hookDensity)) {
     density = savedConfig.hookDensity;

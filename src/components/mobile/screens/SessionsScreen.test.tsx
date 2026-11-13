@@ -25,6 +25,8 @@ vi.mock('@/lib/launchSession', async (importOriginal) => ({
   launchSession: vi.fn(async () => ({ ok: true, terminalId: 'term-new', deduplicated: false })),
 }));
 vi.mock('@/lib/sessionRefresh', () => ({ refreshSessionList: vi.fn(async () => true) }));
+// The login banner reads /api/cli-auth on mount; its own test covers it (CliLoginBanner.test.tsx).
+vi.mock('./CliLoginBanner', () => ({ default: () => null }));
 vi.mock('@/lib/alarmEngine', () => ({ muteSession: vi.fn(), unmuteSession: vi.fn(), alertSession: vi.fn(), unalertSession: vi.fn() }));
 vi.mock('@/hooks/useKnownProjects', () => ({
   useKnownProjects: () => ['/w/agent-manager', '/w/site'],

@@ -74,8 +74,15 @@ export interface DevicePresence {
   address: string;
   /** True when the device connected over loopback (the Electron app or a local browser). */
   isLocal: boolean;
+  /**
+   * Every open connection is a terminal client (`aasc`, role=cli): never the workspace writer and
+   * never the restore owner (D10). One dashboard connection under the id keeps it a candidate.
+   */
+  cli: boolean;
   /** Open WebSocket count for this device — two tabs of one browser is 2. */
   connections: number;
+  /** Of those, how many are terminal clients. `cli` is `cliConnections === connections`. */
+  cliConnections: number;
   connectedAt: number;
   lastSeenAt: number;
 }
@@ -166,8 +173,11 @@ export function registerClient(args: {
   address: string;
   /** Decided by `isLocalRequest` (requestLocality.ts); falls back to the address alone. */
   isLocal?: boolean;
+  /** Declared by the client (clientRole.ts): a terminal client, not a dashboard. */
+  cli?: boolean;
 }): DevicePresence {
   const isLocal = args.isLocal ?? isLoopbackAddress(args.address);
+  const cli = args.cli === true;
   const clientId = args.clientId;
   const label = sanitizeDeviceLabel(args.label);
   const at = now();
@@ -180,7 +190,9 @@ export function registerClient(args: {
       label,
       address: args.address,
       isLocal,
+      cli: existing.cliConnections + (cli ? 1 : 0) === existing.connections + 1,
       connections: existing.connections + 1,
+      cliConnections: existing.cliConnections + (cli ? 1 : 0),
       lastSeenAt: at,
     };
     devices.set(clientId, updated);
@@ -192,7 +204,9 @@ export function registerClient(args: {
     label,
     address: args.address,
     isLocal,
+    cli,
     connections: 1,
+    cliConnections: cli ? 1 : 0,
     connectedAt: at,
     lastSeenAt: at,
   };
@@ -201,13 +215,17 @@ export function registerClient(args: {
   return created;
 }
 
-/** Drop one connection for a device; forgets the device when the last one closes. */
-export function unregisterClient(clientId: string): void {
+/**
+ * Drop one connection for a device; forgets the device when the last one closes. `cli` says which
+ * kind closed, so a dashboard sharing an id with an `aasc` client stays a writer candidate.
+ */
+export function unregisterClient(clientId: string, { cli = false }: { cli?: boolean } = {}): void {
   const existing = devices.get(clientId);
   if (!existing) return;
   const connections = existing.connections - 1;
   if (connections > 0) {
-    devices.set(clientId, { ...existing, connections, lastSeenAt: now() });
+    const cliConnections = Math.min(connections, Math.max(0, existing.cliConnections - (cli ? 1 : 0)));
+    devices.set(clientId, { ...existing, connections, cliConnections, cli: cliConnections === connections, lastSeenAt: now() });
     return;
   }
   devices.delete(clientId);
@@ -265,6 +283,13 @@ export function claimWorkspaceRestore(args: {
   liveSessionCount: number;
 }): { granted: boolean; reason?: 'already-restored'; by?: string; claimedAt?: number } {
   const label = sanitizeDeviceLabel(args.label);
+
+  // A terminal client never restores the workspace (D10): the first DASHBOARD to connect does,
+  // and a CLI holding the one-shot claim would leave it nothing to claim.
+  if (devices.get(args.clientId)?.cli) {
+    log.info('presence', `Workspace restore denied for ${label} — a terminal client never restores`);
+    return { granted: false };
+  }
 
   if (restoreClaim && !isReclaimable(restoreClaim, args.liveSessionCount)) {
     const by = labelFor(restoreClaim.clientId, restoreClaim.label);
@@ -439,7 +464,9 @@ export function dropControl(sessionId: string): void {
  * the role transfers by itself when the current writer disconnects.
  */
 export function getWorkspaceWriter(): string | null {
-  const connected = listDevices().filter((d) => d.connections > 0);
+  // Terminal clients are never candidates (D10): an `aasc --ssh` client is local and a long
+  // `aasc watch` is the oldest, and either would take the role from every dashboard.
+  const connected = listDevices().filter((d) => d.connections > 0 && !d.cli);
   if (connected.length === 0) return null;
   const local = connected.filter((d) => d.isLocal);
   return (local.length > 0 ? local : connected)[0].clientId;
@@ -447,6 +474,7 @@ export function getWorkspaceWriter(): string | null {
 
 /** True when this device may persist the workspace, including when nobody is registered. */
 export function canWriteWorkspace(clientId: string): boolean {
+  if (devices.get(clientId)?.cli) return false;
   const writer = getWorkspaceWriter();
   // No registered devices at all → an HTTP-only caller (tests, curl, a client
   // whose socket has not landed yet) is not blocked from saving.

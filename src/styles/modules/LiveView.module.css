@@ -10,6 +10,16 @@
      gap. LiveBoard and LiveEmptyState leave this much room below their content,
      so whatever is last can always scroll up clear of the HUD. */
   --hud-clear-bottom: 232px;
+  /* The login strip (when shown) sits above the board instead of covering its header. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Everything under the login strip: the board, the empty card and the loading note each fill it. */
+.flatBody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 /* The desktop flat view's one line while the session list has not arrived
