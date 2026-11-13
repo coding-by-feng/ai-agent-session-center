@@ -25,6 +25,7 @@
 import type { IncomingHttpHeaders, Server } from 'http';
 import type { Socket } from 'net';
 import { isLoopbackAddress } from './presenceManager.js';
+import { getHostedConfig } from './hostedConfig.js';
 
 /** Sockets accepted by a remote-only listener. Weak, so closed sockets drop out. */
 const remoteOnlySockets = new WeakSet<Socket>();
@@ -97,6 +98,7 @@ export function namesThisMachine(headers: IncomingHttpHeaders | undefined): bool
 
 /** The fields this module reads, so Express requests, upgrade requests and test doubles all fit. */
 export interface LocalityRequest {
+  url?: string;
   ip?: string;
   socket?: Socket | { remoteAddress?: string };
   headers?: IncomingHttpHeaders;
@@ -104,6 +106,9 @@ export interface LocalityRequest {
 
 /** True only for a request made directly from this machine to the main listener. */
 export function isLocalRequest(req: LocalityRequest): boolean {
+  // A hosted browser/phone session never gains host privileges, even through a proxy that
+  // rewrites Host to localhost. Unauthenticated loopback CLI hooks still work normally.
+  if (getHostedConfig() && (req.headers?.cookie?.includes('auth_token=') || req.headers?.authorization || req.url?.includes('token='))) return false;
   const socket = req.socket as Socket | undefined;
   if (socket && remoteOnlySockets.has(socket)) return false;
   if (hasForwardingHeaders(req.headers)) return false;

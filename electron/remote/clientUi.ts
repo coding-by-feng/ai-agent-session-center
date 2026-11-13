@@ -326,7 +326,7 @@ export async function serveBundledUi(ses: Session, origin: string, root: string,
   ses.on('will-download', (event, item) => {
     if (!isOwnDownload(item.getURL(), state.origin)) event.preventDefault()
   })
-  ses.protocol.handle('http', createUiHandler({
+  const handler = createUiHandler({
     origin: () => state.origin,
     root,
     read: (file) => readFile(file),
@@ -336,5 +336,7 @@ export async function serveBundledUi(ses: Session, origin: string, root: string,
       const res = await ses.fetch(url, { bypassCustomProtocolHandlers: true, signal: AbortSignal.timeout(REACHABLE_TIMEOUT_MS) })
       return res.ok
     },
-  }))
+  })
+  ses.protocol.handle('http', handler)
+  ses.protocol.handle('https', handler)
 }

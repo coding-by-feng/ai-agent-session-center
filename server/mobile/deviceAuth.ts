@@ -198,7 +198,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const now = opts.now ?? Date.now;
   const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
   /** Open pairing codes, keyed by their hash. In memory on purpose: they live ten minutes. */
-  const codes = new Map<string, { expiresAt: number }>();
+  const codes = new Map<string, { expiresAt: number; platform?: 'phone' | 'desktop'; autoApprove?: boolean }>();
   /** Open sign-in challenges, keyed by nonce. */
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
   /** Keys macProof's decoy: the same question gets the same wrong answer, as a real phone's would. */
@@ -241,12 +241,20 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
 
 
   return {
-    createPairingCode(): { code: string; expiresAt: number } {
+    hasPairingCode(code: string): boolean {
+      pruneCodes();
+      return codes.has(hashSecret(normalizePairingCode(code)));
+    },
+    invalidatePairingCode(code: string): void {
+      codes.delete(hashSecret(normalizePairingCode(code)));
+    },
+    clearPairingCodes(): void { codes.clear(); },
+    createPairingCode(options: { platform?: 'phone' | 'desktop'; autoApprove?: boolean } = {}): { code: string; expiresAt: number } {
       pruneCodes();
       if (codes.size >= MAX_OUTSTANDING_CODES) throw new TooManyPairingCodesError();
       const code = newPairingCode();
       const expiresAt = now() + PAIRING_CODE_TTL_MS;
-      codes.set(hashSecret(code), { expiresAt });
+      codes.set(hashSecret(code), { expiresAt, platform: options.platform, autoApprove: options.platform === 'desktop' && options.autoApprove === true });
       return { code, expiresAt };
     },
 
@@ -262,6 +270,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const hash = hashSecret(normalizePairingCode(input.code));
       const entry = codes.get(hash);
       if (!entry) return null;
+      if (entry.platform && (input.platform === 'desktop' ? 'desktop' : 'phone') !== entry.platform) return null;
       codes.delete(hash); // single use, even if the rest fails
       const deviceToken = randomBytes(32).toString('base64url');
       const device: MobileDeviceRecord = {
@@ -269,14 +278,14 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         label: cleanLabel(input.label) || (input.platform === 'desktop' ? 'Computer' : 'Phone'),
         platform: input.platform,
         tokenHash: hashSecret(deviceToken),
-        status: 'pending',
+        status: entry.autoApprove ? 'active' : 'pending',
         confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
         // Issued later, to the approved phone only (bindBackendCode).
         beCodeRef: null,
         beCodeRefMacBound: false,
         credentialEpoch: currentEpoch(),
         createdAt: now(),
-        approvedAt: null,
+        approvedAt: entry.autoApprove ? now() : null,
         lastSeenAt: null,
         revokedAt: null,
       };
