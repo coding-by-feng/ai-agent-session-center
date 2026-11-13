@@ -35,7 +35,7 @@ it('announces ready only after authenticated API status and a live server snapsh
   expect(parent).not.toHaveBeenCalled();
   act(() => useContinuationState.setState({ready:true}));
   await waitFor(() =>
-    expect(parent).toHaveBeenCalledWith({ type: 'aasc:hosted-ready', edition:'full', editions:['lite','full'] }, 'https://xclaude.dev'),
+    expect(parent).toHaveBeenCalledWith({ type: 'aasc:hosted-ready', edition:'full', editions:['lite','full'], logout:'launch' }, 'https://xclaude.dev'),
   );
 });
 it('reports cookie/auth failure and provides an actionable order reentry link', async () => {

@@ -1,3 +1,4 @@
+import { getTokenHostedLaunchId } from './authManager.js';
 import { hostedOriginAllowed } from './hostedConfig.js';
 // index.ts — Express + WS server entry point (thin orchestrator)
 // Quick start: npm start -> auto-installs hooks, starts server, opens browser
@@ -189,7 +190,12 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
   const hosted = getHostedConfig(); // Validate before startup side effects; incomplete configuration is fatal.
   let hostedOwnerChanged = (): void => {};
-  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged(), {uiRoot:join(__dirname, '..', 'dist', 'hosted')}) : null;
+  const hostedAccess = hosted ? createHostedAccess(hosted, () => hostedOwnerChanged(), {
+    uiRoot: join(__dirname, '..', 'dist', 'hosted'),
+    onSessionLogout: launchId => {
+      for (const ws of hostedLaunchSockets.get(launchId) ?? []) ws.terminate();
+    },
+  }) : null;
   const args = process.argv.slice(2);
   // Resolved up front: the locks record it, and the routes below take it as a plain number.
   const PORT = port ?? resolvePort(args, config);
@@ -251,6 +257,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const app = express();
   const server = createServer(app);
   const hostedSockets = new Map<string, Set<WebSocket>>();
+  const hostedLaunchSockets = new Map<string, Set<WebSocket>>();
   let hostedAccessRevoked = (): void => {};
   // Keep the current AASC frame limit and compression for hosted and local clients.
   const wss = new WebSocketServer({ server, ...WS_SERVER_OPTIONS });
@@ -850,6 +857,16 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       const lineage = getTokenLineage(token)!;
       const sockets = hostedSockets.get(lineage) ?? new Set<WebSocket>();
       sockets.add(ws); hostedSockets.set(lineage, sockets);
+      const launchId = getTokenHostedLaunchId(token);
+      const launchSockets = launchId ? hostedLaunchSockets.get(launchId) ?? new Set<WebSocket>() : null;
+      if (launchId && launchSockets) {
+        launchSockets.add(ws);
+        hostedLaunchSockets.set(launchId, launchSockets);
+        ws.once('close', () => {
+          launchSockets.delete(ws);
+          if (!launchSockets.size) hostedLaunchSockets.delete(launchId);
+        });
+      }
       const expiry = setTimeout(() => ws.terminate(), getTokenTTL(token));
       expiry.unref();
       const identity = getTokenHostedIdentity(token) ?? currentHostedOwner(hosted);

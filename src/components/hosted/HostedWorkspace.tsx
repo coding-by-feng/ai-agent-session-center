@@ -240,7 +240,7 @@ export default function HostedWorkspace({ needsLogin }: { needsLogin: boolean })
   useEffect(() => {
     if (parent && authenticated && connected && snapshot && continuationReady && !sent.current) {
       sent.current = true;
-      window.parent.postMessage({ type: 'aasc:hosted-ready', edition:IS_LITE?'lite':'full', editions:['lite','full'] }, parent);
+      window.parent.postMessage({ type: 'aasc:hosted-ready', edition:IS_LITE?'lite':'full', editions:['lite','full'], logout:'launch' }, parent);
     }
   }, [parent, authenticated, connected, snapshot, continuationReady]);
   useEffect(() => {
