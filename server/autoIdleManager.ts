@@ -168,11 +168,14 @@ export function startPendingResumeCleanup(
         const session = sessions.get(pending.oldSessionId);
         // Only clean up if session is still in CONNECTING — if it transitioned
         // to another status, the resume succeeded and we just clean the entry
-        if (session && session.status === SESSION_STATUS.CONNECTING) {
+        if (session && session.status === SESSION_STATUS.CONNECTING && session.terminalId === termId) {
           session.status = SESSION_STATUS.IDLE;
           session.animationState = ANIMATION_STATE.IDLE;
-          session.terminalId = null;
-          log.info('session', `RESUME TIMEOUT: reverted session ${pending.oldSessionId?.slice(0, 8)} to idle (preserved)`);
+          // No hook is not proof the PTY died. Keep its exact association so the
+          // person can inspect it and a late hook can still re-key this card.
+          // The explicit unconfirmed marker prevents Chat treating idle as ready.
+          session.startHeard = false;
+          log.info('session', `RESUME TIMEOUT: startup unconfirmed for ${pending.oldSessionId?.slice(0, 8)} (terminal preserved)`);
           broadcastFn({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } }).catch(() => {});
         }
         pendingResume.delete(termId);

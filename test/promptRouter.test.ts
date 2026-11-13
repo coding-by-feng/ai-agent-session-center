@@ -362,6 +362,17 @@ describe('who may send', () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
+  it('refuses an unconfirmed startup after timeout, including interrupt, without typing or claiming control', async () => {
+    sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'idle', startHeard: false });
+    for (const mode of ['now', 'interrupt']) {
+      const res = await send('s1', { key: `key-unheard-${mode}`, mode }, REMOTE('phone-a'));
+      expect(res.status).toBe(409);
+      expect(res.json.code).toBe('agent_not_ready');
+    }
+    expect(submit).not.toHaveBeenCalled();
+    expect(baton.has('s1')).toBe(false);
+  });
+
   it('answers 409 AGENT_NOT_RUNNING for an ended session', async () => {
     sessions.set('s1', { sessionId: 's1', terminalId: 'term-1', status: 'ended' });
     const res = await send('s1', { mode: 'interrupt' });

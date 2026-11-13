@@ -49,7 +49,9 @@ fi
 # ── Startup command capture (SessionStart only) ──
 STARTUP_CMD=""
 if [ "$EVENT_CHECK" = "SessionStart" ] && [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
-  STARTUP_CMD=$(ps -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
+  # Linux ps honors COLUMNS even when piped. A phone-width terminal can cut
+  # --continue into --cont, poisoning the saved command used on restart.
+  STARTUP_CMD=$(ps -ww -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
 fi
 
 # ── Single jq pass: enrich JSON + extract event/session_id/cwd ──

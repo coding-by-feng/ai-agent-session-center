@@ -50,11 +50,15 @@ export function phoneStatus(status: string, interrupted = false, compacting = fa
   return known ? { ...known, glyph: status } : { tone: 'idle', label: status || 'Unknown', glyph: 'idle' };
 }
 
-type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting' | 'stopHooksSince'>;
+type SubtitleFields = Pick<Session, 'status' | 'interruption' | 'model' | 'runtime' | 'effortLevel' | 'compacting' | 'stopHooksSince' | 'startHeard'>
+  & Partial<Pick<Session, 'terminalId' | 'isExternal'>>;
 
 /** A session screen's subtitle: "Working · Opus 5.5 · high" (live model and effort first). */
 export function sessionSubtitle(session: SubtitleFields): string {
-  const { label } = phoneStatus(session.status, !!session.interruption, isCompacting(session), isFinishingUp(session));
+  const recovery = session.status !== 'ended' && session.status !== 'connecting'
+    && ((session.terminalId === null && !session.isExternal) || session.startHeard === false);
+  const label = recovery ? 'Needs recovery'
+    : phoneStatus(session.status, !!session.interruption, isCompacting(session), isFinishingUp(session)).label;
   // The model as people say it (`claude-opus-5-5` → `Opus 5.5`); other CLIs' names stay as they are.
   const rawModel = session.runtime?.model || session.model;
   const model = rawModel ? formatModelLabel(rawModel) : rawModel;

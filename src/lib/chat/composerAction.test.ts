@@ -10,6 +10,19 @@ function input(extra: Partial<ComposerInput> = {}): ComposerInput {
 }
 
 describe('composerAction', () => {
+  it.each([
+    { terminalId: null },
+    { terminalId: 'term-1', startHeard: false },
+  ])('blocks send, queue and quick reply until the session has recovered: %j', (readiness) => {
+    for (const status of ['idle', 'working', 'approval']) {
+      const d = composerAction(input({ status, ...readiness, queueWaiting: 2 }));
+      expect(d.canSend).toBe(false);
+      expect(d.holdAction).toBeNull();
+      expect(d.blockedReason).toMatch(/terminal|startup/i);
+      expect(d.fieldDisabledReason).toBeUndefined();
+    }
+  });
+
   it.each(['waiting', 'idle'])('sends at once when the agent is %s', (status) => {
     const d = composerAction(input({ status }));
     expect(d).toMatchObject({ action: 'send', label: 'Send', canSend: true, holdAction: null });

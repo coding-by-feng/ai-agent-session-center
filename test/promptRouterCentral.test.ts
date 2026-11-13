@@ -215,10 +215,14 @@ describe('a card that went idle by the connecting timeout (startHeard: false)', 
     expect(sends).toHaveLength(1);
   });
 
-  it('a person’s own prompt to it is unchanged', async () => {
+  it('a person also recovers an explicitly unconfirmed startup in Terminal before sending a chat prompt', async () => {
     notStarted();
-    expect((await prompt('key-person-own1', {}, 'desktop-1')).status).toBe(202);
-    expect((await prompt('key-person-own2', {}, '')).status).toBe(202);
+    for (const [key, client] of [['key-person-own1', 'desktop-1'], ['key-person-own2', '']]) {
+      const result = await prompt(key, {}, client);
+      expect(result.status).toBe(409);
+      expect(result.json.code).toBe('agent_not_ready');
+    }
+    expect(sends).toEqual([]);
   });
 });
 

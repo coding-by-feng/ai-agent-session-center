@@ -12,7 +12,7 @@
  * so the decay now also requires the terminal to have gone quiet.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { startAutoIdle, stopAutoIdle } from '../server/autoIdleManager.js';
+import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from '../server/autoIdleManager.js';
 import { noteTerminalOutput, resetTerminalActivity } from '../server/terminalActivity.js';
 import type { Session } from '../src/types/session.js';
 
@@ -49,7 +49,31 @@ beforeEach(() => {
 
 afterEach(() => {
   stopAutoIdle();
+  stopPendingResumeCleanup();
   vi.useRealTimers();
+});
+
+describe('resume hook timeout', () => {
+  it('keeps the terminal reachable and marks startup unconfirmed instead of presenting a sendable idle session', () => {
+    const s = makeSession({ status: 'connecting' });
+    const pending = new Map([['term-1', { oldSessionId: 's1', timestamp: T0 }]]);
+    const broadcast = vi.fn(async () => {});
+    startPendingResumeCleanup(pending, new Map([['s1', s]]), broadcast);
+    vi.advanceTimersByTime(135_000);
+    expect(s.terminalId).toBe('term-1');
+    expect(s.startHeard).toBe(false);
+    expect(broadcast.mock.calls[0]?.[0]).toMatchObject({ session: { terminalId: 'term-1', startHeard: false } });
+    expect(pending.size).toBe(0);
+  });
+
+  it('an old timeout cannot change a newer reconnect of the same card', () => {
+    const s = makeSession({ status: 'connecting', terminalId: 'term-new' });
+    const pending = new Map([['term-old', { oldSessionId: 's1', timestamp: T0 }]]);
+    startPendingResumeCleanup(pending, new Map([['s1', s]]), async () => {});
+    vi.advanceTimersByTime(135_000);
+    expect(s).toMatchObject({ status: 'connecting', terminalId: 'term-new' });
+    expect(s.startHeard).toBeUndefined();
+  });
 });
 
 describe('prompting auto-decay', () => {

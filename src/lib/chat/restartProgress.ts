@@ -4,9 +4,9 @@
  *
  *   stopping  POST /restart-terminal is in flight (the Mac stops the old agent)
  *   starting  the Mac answered { ok, terminalId }; the card is `connecting` on it
- *   done      the card left `connecting` on that new terminal (the agent's SessionStart)
+ *   done      the card left `connecting` on that new terminal with no unconfirmed-start marker
  *   failed    the request failed, the card was left `ended` (failSessionRestart), its
- *             terminal was unlinked (the Mac's 2-minute RESUME TIMEOUT), the card is gone,
+ *             startup timed out, its terminal was unlinked, the card is gone,
  *             or nothing came for RESTART_GIVE_UP_MS (the phone missed the Mac's word)
  *
  * The Mac's reply can beat its broadcast, so a card still on the OLD terminal is waiting,
@@ -52,6 +52,9 @@ export function restartStep(
   if (!session) return { phase: 'failed', error: 'The session was closed.' };
   if (session.status === 'ended') {
     return { phase: 'failed', error: 'The Mac couldn’t restart it. Use Resume in Info to try again.' };
+  }
+  if (session.status !== 'connecting' && session.terminalId === track.terminalId && session.startHeard === false) {
+    return { phase: 'failed', error: `${track.cli} startup was not confirmed. Open its terminal to recover.` };
   }
   if (session.status !== 'connecting' && session.terminalId === track.terminalId) return { phase: 'done', error: null };
   if (session.status !== 'connecting' && !session.terminalId) {

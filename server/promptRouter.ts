@@ -67,7 +67,7 @@ export interface PromptRouterSession {
   handsOff?: boolean;
   /** The person stopped its turn with Esc (sessionStore): a central's prompt stops until they prompt it again. */
   userCancelledAt?: number | null;
-  /** `false`: the connecting timeout turned it idle before its terminal sent a hook; a central's prompt is refused. */
+  /** `false`: startup timed out before a hook confirmed readiness; prompts are refused until Terminal recovery. */
   startHeard?: boolean;
   /** How the card relaunches (RECONNECT): an SSH card, or one whose launch line AASC captured. */
   source?: string;
@@ -455,7 +455,8 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     }
     // Its CLI may be showing a question that fires no hook (its folder-trust prompt), where a central's text would
     // answer it. Every mode: an interrupt's Esc would answer it too. Positive (Ruling P4-50): the terminal must have
-    // been heard, whatever the card's command. A person sees the terminal and is not refused.
+    // been heard, whatever the card's command. A person can recover through the terminal; Chat below also refuses
+    // a startup explicitly marked unconfirmed, while keeping the central's stronger heard-terminal rule.
     const unheard = session.startHeard === false || (!!session.terminalId && !heard(session.terminalId));
     if (unheard && deps.clientIdOf(req).startsWith(MCP_CLIENT_PREFIX)) {
       res.status(409).json({ success: false, error: `${NOT_STARTED_ERROR} ${NOT_STARTED_HINT}`, code: 'not_started', hint: NOT_STARTED_HINT });
@@ -465,6 +466,10 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     if (!terminalId || session.status === SESSION_STATUS.ENDED || !deps.terminalExists(terminalId)
       || !isAgentProcessName(deps.foregroundProcess(terminalId))) {
       refuse(res, 409, 'AGENT_NOT_RUNNING', 'The agent is not running in this session’s terminal');
+      return;
+    }
+    if (session.startHeard === false) {
+      refuse(res, 409, 'agent_not_ready', 'Agent startup was not confirmed. Open Terminal to recover the session');
       return;
     }
     if (DIALOG_STATUSES.has(session.status)) {

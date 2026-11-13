@@ -15,6 +15,11 @@ function session(over: Partial<Session> = {}): Session {
 }
 
 describe('restartStep', () => {
+  it('does not call a restart successful when its hook timed out but the terminal was preserved', () => {
+    const step = restartStep(track(), session({ status: 'idle', startHeard: false }), T + 135_000);
+    expect(step?.phase).toBe('failed');
+    expect(step?.error).toMatch(/terminal/i);
+  });
   it('waits while the agent is still starting on the new terminal', () => {
     expect(restartStep(track(), session(), T + 1_000)).toBeNull();
   });

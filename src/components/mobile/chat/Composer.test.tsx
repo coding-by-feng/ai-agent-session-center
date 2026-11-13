@@ -91,6 +91,25 @@ afterEach(() => {
 });
 
 describe('Composer', () => {
+  it.each([{ terminalId: null }, { startHeard: false }])('keeps the draft and blocks every send until recovery: %j', async (readiness) => {
+    const calls = stubMac();
+    const s = session({ status: 'idle', ...readiness });
+    const view = renderComposer(s);
+    type('hi');
+    expect(sendButton()).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(sendButton());
+    fireEvent.click(screen.getByTestId('composer-quick-reply'));
+    expect(calls.some((c) => c.url.endsWith('/prompt'))).toBe(false);
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('hi');
+    expect(screen.getByTestId('composer-input')).not.toBeDisabled();
+    const recovered = session({ status: 'idle', terminalId: 'term-recovered', startHeard: true });
+    view.rerender(<Composer session={recovered} card={null} inputRef={createRef<HTMLTextAreaElement>()} />);
+    expect(screen.getByTestId('composer-input')).toHaveValue('hi');
+    expect(sendButton()).not.toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/prompt'))).toHaveLength(1));
+  });
+
   it('sends at once when the agent waits, through the Mac’s confirmed send', async () => {
     const calls = stubMac();
     renderComposer(session());

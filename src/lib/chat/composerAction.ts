@@ -28,6 +28,10 @@ export type ComposerHold = 'send-now' | 'send-ahead' | 'queue';
 
 export interface ComposerInput {
   status: string;
+  /** Explicit null means the terminal is disconnected; omitted by legacy callers. */
+  terminalId?: string | null;
+  /** False after startup timed out without confirmation. */
+  startHeard?: boolean;
   cli: 'claude' | 'codex' | null;
   /** Text or photos in the box. */
   hasContent: boolean;
@@ -79,6 +83,14 @@ export function composerAction(input: ComposerInput): ComposerDecision {
       fieldDisabledReason: `${input.driverLabel ?? 'Another device'} is driving`,
       placeholder: reply,
       holdAction: null,
+    };
+  }
+  if (input.terminalId === null || input.startHeard === false) {
+    return {
+      action: 'send', label: 'Send', canSend: false, placeholder: reply, holdAction: null,
+      blockedReason: input.terminalId === null
+        ? 'No connected terminal. Open Terminal to reconnect.'
+        : 'Agent startup was not confirmed. Open Terminal to recover.',
     };
   }
   if (input.card) {

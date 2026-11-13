@@ -28,6 +28,15 @@ describe('phoneStatus', () => {
 });
 
 describe('sessionSubtitle', () => {
+  it('shows recovery rather than Idle when startup timed out or the terminal was lost', () => {
+    expect(sessionSubtitle({ status: 'idle', model: '', terminalId: 't1', startHeard: false })).toBe('Needs recovery');
+    expect(sessionSubtitle({ status: 'idle', model: '', terminalId: null })).toBe('Needs recovery');
+    expect(sessionSubtitle({ status: 'connecting', model: '', terminalId: 't1', startHeard: false })).toBe('Connecting');
+    expect(sessionSubtitle({ status: 'ended', model: '', terminalId: null })).toBe('Ended');
+  });
+  it('keeps the activity of a healthy external session that intentionally has no managed terminal', () => {
+    expect(sessionSubtitle({ status: 'working', model: '', terminalId: null, isExternal: true })).toBe('Working');
+  });
   const base = { status: 'working', interruption: null, projectName: 'agent-manager', model: 'claude-opus-5-5' } as const;
 
   it('prefers the live model and effort for the session subtitle', () => {
