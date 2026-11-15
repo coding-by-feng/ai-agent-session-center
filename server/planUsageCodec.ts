@@ -33,6 +33,37 @@ export const MERGE_HORIZON_MS = 6 * 60 * 60 * 1000;
  */
 export const SAME_WINDOW_TOLERANCE_MS = 5 * 60 * 1000;
 
+/**
+ * A plan can be reset before its time — the meter goes back to ~0% while `resets_at`
+ * stays where it was — so "usage only grows inside one window" stops being true. A
+ * FRESH reading (see `PlanObservation.freshAt`) this many points below what was
+ * known marks such a reset. Wide enough that rounding and a re-render of a slightly
+ * older reply never look like one, narrow enough to catch a reset taken at 30%.
+ */
+export const RESET_DROP_POINTS = 10;
+
+/**
+ * A reading as the service hands it to the merge. `source` names the snapshot it
+ * came from (a Claude session id); `freshAt` is set only when the service saw this
+ * reading's numbers CHANGE — a new API reply — and is that reading's write time. A
+ * re-render repeats a session's last numbers, so it is never fresh; neither is
+ * anything on disk at the first read after a start (nothing to compare it with).
+ * `previous` is that session's prior windows, when its numbers changed. None of
+ * these reach the merged value: it is built field by field.
+ */
+export interface PlanObservation extends PlanUsage {
+  source?: string;
+  freshAt?: number;
+  previous?: readonly PlanUsageWindow[];
+}
+
+/** An early reset of one window instance, seen in the fresh reading written at `at`. */
+export interface EarlyReset {
+  minutes: number;
+  resetsAt: number | null;
+  at: number;
+}
+
 /** An observation dated further ahead of the clock than this is not believed: clock skew, a copied file, a forged one. */
 export const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 /** No limit window is longer than a week; one that resets further ahead than this is not believed. */
@@ -224,6 +255,62 @@ function newestWins(winner: PlanUsage, peers: readonly PlanUsage[]): PlanUsage {
   };
 }
 
+/** One reading of one window instance, with what is known about how fresh it is. */
+interface InstanceReading {
+  window: PlanUsageWindow;
+  asOf: number;
+  freshAt?: number;
+  previous?: PlanUsageWindow;
+}
+
+/** Fresh readings in the order they landed (write time, then `asOf`). */
+const landedBefore = (a: InstanceReading, b: InstanceReading): boolean =>
+  (a.freshAt ?? Number.NEGATIVE_INFINITY) < (b.freshAt ?? Number.NEGATIVE_INFINITY);
+
+/**
+ * The percent of one window instance, and the early reset in force for it (null:
+ * none). With no reset, the fullest reading — or `known` — wins, whatever its age.
+ * A fresh reading at least `RESET_DROP_POINTS` below everything that came before it
+ * (earlier readings, its own session's previous numbers, `known` when that was
+ * worked out before the reading landed) is an early reset; from then on only
+ * readings fresh since it count, so a session still re-rendering its pre-reset
+ * numbers is ignored until it replies again.
+ */
+function instanceLevel(
+  anchor: PlanUsageWindow,
+  readings: readonly InstanceReading[],
+  knownWindow: PlanUsageWindow | null,
+  knownAt: number,
+  mark: EarlyReset | null,
+): { window: PlanUsageWindow; mark: EarlyReset | null } {
+  let at = mark?.at ?? null;
+  const eligible = (r: InstanceReading): boolean => at === null || (r.freshAt !== undefined && r.freshAt >= at);
+  const knownEligible = (): boolean => knownWindow !== null && (at === null || knownAt >= at);
+
+  const fresh = readings.filter((r) => r.freshAt !== undefined).sort((a, b) => (a.freshAt! - b.freshAt!) || (a.asOf - b.asOf));
+  for (const r of fresh) {
+    if (at !== null && r.freshAt! <= at) continue;
+    let before = Number.NEGATIVE_INFINITY;
+    for (const o of readings) {
+      if (o !== r && eligible(o) && landedBefore(o, r)) before = Math.max(before, o.window.usedPercent);
+    }
+    if (r.previous && sameInstance(r.previous, anchor)) before = Math.max(before, r.previous.usedPercent);
+    if (knownEligible() && knownAt <= r.freshAt!) before = Math.max(before, knownWindow!.usedPercent);
+    if (r.window.usedPercent <= before - RESET_DROP_POINTS) at = r.freshAt!;
+  }
+
+  let best: PlanUsageWindow | null = null;
+  const consider = (c: PlanUsageWindow): void => {
+    if (best === null || fuller(c, best)) best = c;
+  };
+  for (const r of readings) if (eligible(r)) consider(r.window);
+  if (knownEligible()) consider(knownWindow!);
+  return {
+    window: { ...(best ?? anchor) },
+    mark: at === null ? null : { minutes: anchor.minutes, resetsAt: anchor.resetsAt, at },
+  };
+}
+
 /**
  * Claude's `asOf` is when a session WROTE its snapshot, not when it learned the
  * numbers: a session that merely re-rendered its status line (a mode toggle, say)
@@ -236,7 +323,9 @@ function newestWins(winner: PlanUsage, peers: readonly PlanUsage[]): PlanUsage {
  *  - its percent is the fullest reading of that instance whatever the reading's age —
  *    usage only grows inside one window, so an old reading can only raise it, and
  *    that is what stops a stale re-render after a quiet night from undercutting what
- *    was already known.
+ *    was already known;
+ *  - except after an early reset (`instanceLevel`), when only readings fresh since
+ *    the reset count.
  *
  * `known`, the previous merged value, is NOT a reading: it never picks the winner,
  * the time or the windows, and counts only toward the percent of the same instance.
@@ -244,9 +333,15 @@ function newestWins(winner: PlanUsage, peers: readonly PlanUsage[]): PlanUsage {
  * it — which is how those numbers expire by themselves (feeding the merged value
  * back in as an observation stamped it with the newest time every poll, so they never did).
  */
-function reconcileByInstance(winner: PlanUsage, peers: readonly PlanUsage[], known: PlanUsage | null | undefined): PlanUsage {
+function reconcileByInstance(
+  winner: PlanObservation,
+  peers: readonly PlanObservation[],
+  known: PlanUsage | null | undefined,
+  marks: readonly EarlyReset[],
+): { usage: PlanUsage; resets: EarlyReset[] } {
   const recent = peers.filter((o) => o.asOf >= winner.asOf - MERGE_HORIZON_MS);
-  const knownWindows = known && known.cli === winner.cli ? known.windows : [];
+  const knownUsage = known && known.cli === winner.cli ? known : null;
+  const resets: EarlyReset[] = [];
 
   const windows = winner.windows.map((w) => {
     let anchor = w;
@@ -255,37 +350,62 @@ function reconcileByInstance(winner: PlanUsage, peers: readonly PlanUsage[], kno
         if (c.minutes === w.minutes && (c.resetsAt ?? -1) > (anchor.resetsAt ?? -1)) anchor = c;
       }
     }
-    let best = anchor;
-    const consider = (c: PlanUsageWindow): void => {
-      if (sameInstance(c, anchor) && fuller(c, best)) best = c;
-    };
-    for (const o of peers) for (const c of o.windows) consider(c);
-    for (const c of knownWindows) consider(c);
-    return { ...best };
+    const readings: InstanceReading[] = [];
+    for (const o of peers) {
+      for (const c of o.windows) {
+        if (!sameInstance(c, anchor)) continue;
+        const previous = o.previous?.find((p) => p.minutes === c.minutes);
+        readings.push({
+          window: c,
+          asOf: o.asOf,
+          ...(o.freshAt !== undefined ? { freshAt: o.freshAt } : {}),
+          ...(previous ? { previous } : {}),
+        });
+      }
+    }
+    const knownWindow = knownUsage?.windows.find((c) => sameInstance(c, anchor)) ?? null;
+    const mark = marks.find((m) => sameInstance({ minutes: m.minutes, usedPercent: 0, resetsAt: m.resetsAt }, anchor)) ?? null;
+    const level = instanceLevel(anchor, readings, knownWindow, knownUsage?.asOf ?? Number.NEGATIVE_INFINITY, mark);
+    if (level.mark) resets.push(level.mark);
+    return level.window;
   });
 
   const plan = winner.plan ?? newestPlan(recent);
   return {
-    cli: winner.cli,
-    windows,
-    ...(plan ? { plan } : {}),
-    // Derived from what is shown: copying the newest reading's flag put "limit reached" beside a 2% that had rolled over.
-    ...(windows.some((w) => w.usedPercent >= 100) ? { limitReached: true } : {}),
-    asOf: winner.asOf,
+    usage: {
+      cli: winner.cli,
+      windows,
+      ...(plan ? { plan } : {}),
+      // Derived from what is shown: copying the newest reading's flag put "limit reached" beside a 2% that had rolled over.
+      ...(windows.some((w) => w.usedPercent >= 100) ? { limitReached: true } : {}),
+      asOf: winner.asOf,
+    },
+    resets,
   };
 }
 
 /**
- * Combine the observations of ONE CLI into the freshest view of it. The newest
- * decides which CLI that is (others are ignored); how it is combined with the rest
- * depends on whether the CLI's timestamps can be trusted — see `newestWins` and
- * `reconcileByInstance`. Inputs are never modified.
+ * Combine the observations of ONE CLI into the freshest view of it, carrying the
+ * early resets in force (`marks` in, `resets` out — the caller keeps them between
+ * reads). The newest decides which CLI that is (others are ignored); how it is
+ * combined with the rest depends on whether the CLI's timestamps can be trusted —
+ * see `newestWins` and `reconcileByInstance`. Inputs are never modified.
  */
-export function mergeObservations(observations: readonly PlanUsage[], known?: PlanUsage | null): PlanUsage | null {
-  if (observations.length === 0) return null;
+export function mergeWithEarlyResets(
+  observations: readonly PlanObservation[],
+  known: PlanUsage | null | undefined,
+  marks: readonly EarlyReset[],
+): { usage: PlanUsage | null; resets: EarlyReset[] } {
+  if (observations.length === 0) return { usage: null, resets: [] };
   const winner = observations.reduce((best, o) => (o.asOf >= best.asOf ? o : best));
   const peers = observations.filter((o) => o.cli === winner.cli);
-  return winner.cli === 'codex' ? newestWins(winner, peers) : reconcileByInstance(winner, peers, known);
+  if (winner.cli === 'codex') return { usage: newestWins(winner, peers), resets: [] };
+  return reconcileByInstance(winner, peers, known, marks);
+}
+
+/** `mergeWithEarlyResets` with no early reset in force — its readings carry no freshness. */
+export function mergeObservations(observations: readonly PlanObservation[], known?: PlanUsage | null): PlanUsage | null {
+  return mergeWithEarlyResets(observations, known, []).usage;
 }
 
 /**
@@ -295,7 +415,7 @@ export function mergeObservations(observations: readonly PlanUsage[], known?: Pl
  * observation left with no window is dropped. Returns the input itself when nothing
  * had to go; never modifies it.
  */
-export function sanitizeObservation(usage: PlanUsage, now: number): PlanUsage | null {
+export function sanitizeObservation<T extends PlanUsage>(usage: T, now: number): T | null {
   if (usage.asOf > now + MAX_FUTURE_SKEW_MS) return null;
   const windows = usage.windows.filter((w) => w.resetsAt === null || w.resetsAt <= now + MAX_RESET_AHEAD_MS);
   if (windows.length === 0) return null;

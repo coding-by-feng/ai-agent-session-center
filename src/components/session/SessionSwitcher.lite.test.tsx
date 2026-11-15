@@ -1,5 +1,5 @@
-// SessionSwitcher.lite.test.tsx — the session header in the Lite build: no model, context or plan-usage chips, and
-// no detach button (a pop-out window is not on Lite's list).
+// SessionSwitcher.lite.test.tsx — the session header in the Lite build: it keeps the model · effort · context chip
+// and the plan-usage chip (moved into Lite Nov 15 2026), and has no detach button (a pop-out window is not on Lite's list).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -30,11 +30,15 @@ describe('SessionSwitcher in the Lite build', () => {
 
   const open = () => render(<SessionSwitcher currentSession={session} sessions={new Map([['s1', session]])} onSwitch={vi.fn()} model={session.model} />);
 
-  it('hides the plan-usage and model chips', () => {
+  it('shows the plan-usage chip', () => {
+    open();
+    expect(screen.getByTestId('plan-usage')).toBeInTheDocument();
+  });
+
+  it('shows the model · effort chip', () => {
     const { container } = open();
-    expect(screen.queryByTestId('plan-usage')).not.toBeInTheDocument();
-    expect(screen.queryByRole('status', { name: /^Model / })).not.toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/opus/i);
+    expect(container.textContent).toMatch(/opus/i);
+    expect(container.textContent).toMatch(/high/i);
   });
 
   it('hides the detach button, even in the desktop app', () => {

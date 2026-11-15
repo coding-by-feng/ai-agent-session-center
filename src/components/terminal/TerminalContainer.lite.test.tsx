@@ -67,7 +67,7 @@ describe('TerminalContainer in the Lite build', () => {
     for (const props of toolbar.all) {
       expect(props.onRestart).toBe(actions.onRestart);
       expect(props.onReconnect).toBe(actions.onReconnect);
-      for (const kept of ['onToggleAutoScroll', 'onScrollToBottom', 'onFullscreen', 'onToggleAiPopup']) {
+      for (const kept of ['onToggleAutoScroll', 'onScrollToBottom', 'onFullscreen', 'onToggleAiPopup', 'onClearOutput']) {
         expect(props[kept], kept).toEqual(expect.any(Function));
       }
     }
@@ -76,7 +76,7 @@ describe('TerminalContainer in the Lite build', () => {
   it('hides the rest on the desktop, fullscreen included', () => {
     mount();
     for (const props of toolbar.all) {
-      for (const hidden of ['onFork', 'onClone', 'onPopOut', 'onRefreshOutput', 'onClearOutput', 'onToggleWrapMode', 'wrapMode']) {
+      for (const hidden of ['onFork', 'onClone', 'onPopOut', 'onRefreshOutput', 'onToggleWrapMode', 'wrapMode']) {
         expect(props[hidden], hidden).toBeUndefined();
       }
       expect(props.ttsEnabled).toBeFalsy();

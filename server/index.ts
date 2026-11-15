@@ -82,6 +82,7 @@ import { createPhoneResources } from './mobile/phoneResources.js';
 import { createPhoneResourcesRouter } from './mobile/phoneResourcesRouter.js';
 import { createCloudReadLog } from './mobile/cloudReadLog.js';
 import { createServerPromptRouter } from './promptWiring.js';
+import { createServerVoice } from './voice/wiring.js';
 import { createSkillNoteOpsWiring } from './skillNoteOpsWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
 import { createTranscriptWatch } from './chat/transcriptWatch.js';
@@ -673,6 +674,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // A prompt the Mac types and confirms (AASC-42). In front of apiRouter, behind the
   // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
   const promptRouter = createServerPromptRouter();
+  // Voice calls (Nov 15 2026): GPT-Live audio on the device, the Voice central doing the work (server/voice/).
+  const voice = createServerVoice();
   // Answering a waiting request from a card (AASC-43). Mounted before apiRouter with
   // apiRouter's own visibility gate, so it is gated whatever the mount order.
   const requestAnswer = createRequestAnswerRouter({
@@ -777,7 +780,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     closeTerminal: closeTerminalAndWait,
   });
   if (hosted) app.use('/api/workspace/continuation', authMiddleware, phoneProfile, createHostedContinuationRouter(hosted, (_req, id) => canSeeSession(false, getSession(id))));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -1140,6 +1143,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       // Then the dashboard's feeds and P2's runtime (its prune timer and the ledger's wiring): best effort, the
       // server stops either way. The /mcp sessions were told first, as one may be mid-write.
       try { centralsRouter.close(); } catch { /* best effort */ }
+      try { voice.close(); } catch { /* best effort */ }
       try { stopSessionSleep(); } catch { /* best effort */ }
       try { phoneConfirms.close(); } catch { /* best effort */ }
       try { mcpDeliver?.close(); } catch { /* best effort */ }

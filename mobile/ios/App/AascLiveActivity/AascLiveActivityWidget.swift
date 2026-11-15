@@ -23,8 +23,9 @@ private struct Mark: View {
         case "working":
             Image(systemName: "circle.fill").font(.system(size: 9)).foregroundStyle(Palette.working)
         case "proceed":
-            // The amber P the app shows on a session whose answer asks the user to reply "proceed".
-            Text("P").font(.system(size: 15, weight: .heavy, design: .rounded)).foregroundStyle(Palette.needs)
+            // An amber ▶ ("go on") on a session whose answer asks the user to reply "proceed" (the app's amber P;
+            // the island drew it as a letter until Nov 15 2026, which read as "paused" / "parking").
+            Image(systemName: "play.fill").font(.system(size: 12, weight: .heavy)).foregroundStyle(Palette.needs)
         case "idle":
             Image(systemName: "moon.zzz").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.idle)
         default:
@@ -54,7 +55,7 @@ private func headerText(_ card: LiveActivityCard) -> String {
     return card.headline == "idle" ? "Idle" : "Finished"
 }
 
-/// The island's mark when no timer runs: "!" if anything waits on you (P when that is only a "proceed" owed, which the
+/// The island's mark when no timer runs: "!" if anything waits on you (▶ when that is only a "proceed" owed, which the
 /// Mac counts in `needs` and leads with only when no real request waits), else working, else idle or done.
 private func restingMark(_ card: LiveActivityCard) -> String {
     if card.needs > 0 { return card.rows.first?.mark == "proceed" ? "proceed" : "needs" }
@@ -96,7 +97,7 @@ private struct Header: View {
 }
 
 /// The lead session: bold title with its timer, then a grey preview line. A working lead has no mark, like the
-/// title of a running task; one that waits on you keeps its "!" (or P), a finished one its ✓, an idle one its moon.
+/// title of a running task; one that waits on you keeps its "!" (or ▶), a finished one its ✓, an idle one its moon.
 private struct Lead: View {
     let row: LiveActivityRow
 

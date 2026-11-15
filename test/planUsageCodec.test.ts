@@ -12,6 +12,8 @@ import {
   latestCodexUsage,
   parseClaudeSnapshot,
   mergeObservations,
+  mergeWithEarlyResets,
+  RESET_DROP_POINTS,
   sameInstance,
   sameNumbers,
   sanitizeObservation,
@@ -19,6 +21,7 @@ import {
 } from '../server/planUsageCodec.js';
 import { detectCli } from '../src/lib/cliDetect';
 import type { PlanUsage } from '../src/types/session.js';
+import type { PlanObservation } from '../server/planUsageCodec.js';
 
 // A real Codex `token_count` line, shape taken from a local rollout (numbers only).
 const RESETS_AT_S = 1791581013;
@@ -512,6 +515,105 @@ describe('mergeObservations', () => {
     ]);
     expect(merged?.plan).toBe('pro');
     expect(merged?.limitReached).toBe(true);
+  });
+});
+
+describe('mergeWithEarlyResets: a plan reset before its time (resets_at unchanged)', () => {
+  // Readings from the machine this was built on, Nov 15 2026: the weekly meter was reset early to 0%
+  // while `resets_at` stayed Wed 10:00; one idle session went on re-rendering its old 97%.
+  const RESET = 1_794_949_200_000;
+  const t = (hhmmss: string): number => {
+    const [h, m, s] = hhmmss.split(':').map(Number);
+    return Date.UTC(2026, 10, 15, h - 13, m, s); // NZDT = UTC+13
+  };
+  const obs = (source: string, pct: number, asOf: number, freshAt?: number, resetsAt = RESET): PlanObservation => ({
+    cli: 'claude',
+    windows: [{ minutes: WEEK_MINUTES, usedPercent: pct, resetsAt }],
+    asOf,
+    source,
+    ...(freshAt === undefined ? {} : { freshAt }),
+  });
+  const known = (pct: number): PlanUsage => ({
+    cli: 'claude',
+    windows: [{ minutes: WEEK_MINUTES, usedPercent: pct, resetsAt: RESET }],
+    ...(pct >= 100 ? { limitReached: true } : {}),
+    asOf: t('17:26:00'),
+  });
+  const realDisk = (): PlanObservation[] => [
+    obs('e18e505f', 99, t('16:58:15'), t('16:58:15')),
+    obs('e6aaac18', 0, t('17:30:32'), t('17:30:32')), // was 99: this session's own number went down
+    obs('39c32416', 0, t('17:30:51'), t('17:30:51')),
+    obs('699af656', 97, t('17:31:01'), t('16:40:00')), // ghost: numbers unchanged since before the reset
+    obs('bc655544', 1, t('17:31:51'), t('17:31:51')),
+    obs('1c25c6b8', 1, t('17:31:54'), t('17:31:54')),
+  ];
+
+  it('follows the drop and clears "limit reached" — the ghost re-render and the remembered 100% are ignored', () => {
+    const { usage: merged, resets } = mergeWithEarlyResets(realDisk(), known(100), []);
+    expect(merged?.windows[0].usedPercent).toBe(1);
+    expect(merged).not.toHaveProperty('limitReached');
+    expect(resets).toEqual([{ minutes: WEEK_MINUTES, resetsAt: RESET, at: t('17:30:32') }]);
+  });
+
+  it('keeps the reset on the next read, when what was known is already the low number', () => {
+    const first = mergeWithEarlyResets(realDisk(), known(100), []);
+    const ghostAgain = [...realDisk(), obs('699af656', 97, t('17:32:30'), t('16:40:00'))];
+    const second = mergeWithEarlyResets(ghostAgain, first.usage, first.resets);
+    expect(second.usage?.windows[0].usedPercent).toBe(1);
+    expect(second.resets).toEqual(first.resets);
+  });
+
+  it('counts the ghost session again once it has replied since the reset', () => {
+    const first = mergeWithEarlyResets(realDisk(), known(100), []);
+    const replied = realDisk().map((o) => (o.source === '699af656' ? obs('699af656', 3, t('17:40:00'), t('17:40:00')) : o));
+    expect(mergeWithEarlyResets(replied, first.usage, first.resets).usage?.windows[0].usedPercent).toBe(3);
+  });
+
+  it('a drop smaller than RESET_DROP_POINTS is not a reset: the fullest reading still wins', () => {
+    const merged = mergeWithEarlyResets([
+      obs('a', 50, 1000, 1000),
+      obs('b', 50 - RESET_DROP_POINTS + 1, 2000, 2000),
+    ], null, []);
+    expect(merged.usage?.windows[0].usedPercent).toBe(50);
+    expect(merged.resets).toEqual([]);
+  });
+
+  it('a stale re-render (never fresh) cannot fake a reset, however low', () => {
+    const merged = mergeWithEarlyResets([obs('a', 80, 1000, 1000), obs('quiet', 5, 9000)], null, []);
+    expect(merged.usage?.windows[0].usedPercent).toBe(80);
+    expect(merged.resets).toEqual([]);
+  });
+
+  it('a real rollover (a new reset time) drops the remembered early reset', () => {
+    const first = mergeWithEarlyResets(realDisk(), known(100), []);
+    const nextWeek = [obs('a', 4, t('17:50:00'), t('17:50:00'), RESET + 7 * 86_400_000)];
+    const after = mergeWithEarlyResets(nextWeek, first.usage, first.resets);
+    expect(after.usage?.windows[0]).toEqual({ minutes: WEEK_MINUTES, usedPercent: 4, resetsAt: RESET + 7 * 86_400_000 });
+    expect(after.resets).toEqual([]);
+  });
+
+  it('a second early reset in the same window is followed too', () => {
+    const first = mergeWithEarlyResets(realDisk(), known(100), []);
+    const climbed = [obs('a', 60, t('20:00:00'), t('20:00:00'))];
+    const mid = mergeWithEarlyResets(climbed, first.usage, first.resets);
+    expect(mid.usage?.windows[0].usedPercent).toBe(60);
+    const again = [obs('a', 60, t('20:00:00'), t('20:00:00')), obs('b', 0, t('21:00:00'), t('21:00:00'))];
+    const second = mergeWithEarlyResets(again, mid.usage, mid.resets);
+    expect(second.usage?.windows[0].usedPercent).toBe(0);
+    expect(second.resets[0].at).toBe(t('21:00:00'));
+  });
+
+  it('never puts an observation\'s source or freshAt on the merged value', () => {
+    const { usage: merged } = mergeWithEarlyResets(realDisk(), known(100), []);
+    expect(merged).not.toHaveProperty('source');
+    expect(merged).not.toHaveProperty('freshAt');
+  });
+
+  it('leaves Codex to the newest reading, as before', () => {
+    const codex = [{ ...obs('x', 60, 1000, 1000), cli: 'codex' as const }, { ...obs('y', 10, 2000, 2000), cli: 'codex' as const }];
+    const merged = mergeWithEarlyResets(codex, null, []);
+    expect(merged.usage?.windows[0].usedPercent).toBe(10);
+    expect(merged.resets).toEqual([]);
   });
 });
 

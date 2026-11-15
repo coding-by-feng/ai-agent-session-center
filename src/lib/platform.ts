@@ -180,3 +180,15 @@ export function nativeShellReauthUrl(back: string, userAgent?: string): string |
   const path = back.startsWith('/') ? back : '/';
   return `${SHELL_ORIGINS[platform]}/?reauth=1&back=${encodeURIComponent(path)}`;
 }
+
+/**
+ * The shell page that makes a voice call to this server's AASC and comes back to `back` (Nov 15 2026,
+ * mobile/shell/src/voiceCall.ts). The shell's own origin is a secure context, so it may use the
+ * microphone; this page, served over plain http to a phone, may not. Null outside the app.
+ */
+export function nativeShellCallUrl(back: string, userAgent?: string): string | null {
+  const platform = nativeAppPlatform(userAgent);
+  if (!platform) return null;
+  const path = back.startsWith('/') && !back.startsWith('//') ? back : '/';
+  return `${SHELL_ORIGINS[platform]}/?call=1&back=${encodeURIComponent(path)}`;
+}

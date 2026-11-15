@@ -20,7 +20,7 @@ import { lstat, open, readdir, readFile, rm, stat } from 'fs/promises';
 import type { PlanCli, PlanUsage } from '../src/types/session.js';
 import { hookQueueDir } from './hookQueueDir.js';
 import log from './logger.js';
-import { latestCodexUsage, parseClaudeSnapshot } from './planUsageCodec.js';
+import { latestCodexUsage, parseClaudeSnapshot, type PlanObservation } from './planUsageCodec.js';
 import { globalRootPaths } from './resourceRoots.js';
 
 // Same directory the hook message queue lives in (see mqReader.ts): /tmp on
@@ -56,7 +56,7 @@ const ROLLOUT_NAME_RE = /^rollout-.*\.jsonl$/;
 /** One place plan limits can be read from. `read` returns every observation currently on disk. */
 export interface UsageSource {
   cli: PlanCli;
-  read(now?: number): Promise<PlanUsage[]>;
+  read(now?: number): Promise<PlanObservation[]>;
   /**
    * Optional: call `onChange` whenever new numbers may have landed, so they are read at
    * once instead of at the next poll. Returns what stops the watch, or null when there is
@@ -161,7 +161,7 @@ export function createClaudeSnapshotSource(
         return [];
       }
 
-      const found: PlanUsage[] = [];
+      const found: PlanObservation[] = [];
       const seen = new Set<string>();
 
       for (const name of await namesIn(dir)) {
@@ -192,7 +192,8 @@ export function createClaudeSnapshotSource(
           usage = parseClaudeSnapshot(raw);
           cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, usage });
         }
-        if (usage) found.push(usage);
+        // The session id (the file name) lets the service tell a re-render from a new reply.
+        if (usage) found.push({ ...usage, source: name.slice(0, -'.json'.length) });
       }
 
       for (const key of [...cache.keys()]) if (!seen.has(key)) cache.delete(key);

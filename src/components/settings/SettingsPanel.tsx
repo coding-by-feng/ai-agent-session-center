@@ -15,6 +15,7 @@ import TranslationSettings from './TranslationSettings';
 import ShortcutSettings from './ShortcutSettings';
 import AgentCliSettings from './AgentCliSettings';
 import CentralSessionsSetting from './CentralSessionsSetting';
+import VoiceCallSetting from './VoiceCallSetting';
 import SessionSleepSetting from './SessionSleepSetting';
 import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import { APP_BUILD, APP_VERSION, versionSummary } from '@/lib/appVersion';
@@ -407,6 +408,7 @@ function AdvancedSettings({
       <AgentCliSettings />
       <SessionSleepSetting />
       <CentralSessionsSetting />
+      <VoiceCallSetting />
 
       <div className={styles.section}>
         <h4>Import / Export</h4>

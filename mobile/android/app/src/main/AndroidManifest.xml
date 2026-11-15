@@ -86,6 +86,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice calls to AASC (Nov 15 2026): the shell page records the microphone over WebRTC. Capacitor's
+         WebChromeClient asks for these at the first call. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- The push plugin asks for this. Push stays off until the Firebase config exists: to turn
          it on, put google-services.json in android/app/, delete this line and the
          NotificationPermission line in app/lint.xml, then rebuild (mobile/README.md, AASC-19). -->

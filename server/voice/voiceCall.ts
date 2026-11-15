@@ -1,0 +1,272 @@
+// voiceCall.ts — one voice call, driven from the Mac over GPT-Live's sideband.
+//
+//   attached            → session.thinking.append(status digest)       silent context for instant answers
+//   transcript deltas   → the call's own transcript (transcriptLog.ts)
+//   delegation.created  → brain.ask(what the person said since the last one)
+//                       → session.commentary.append(answer, that delegation's id)   the voice says it
+//   sessions change     → a fresh digest if it changed (silent), and "X finished" / "X needs you" said aloud
+//   session.closed, end(), or IDLE_MS of silence → the call ends
+//   sideband lost       → re-attached (REATTACH_DELAYS_MS); OpenAI replays the last 3 s, de-duplicated here
+//
+// Delegations run one after another (the brain answers one question at a time). Interrupting the voice does not
+// cancel anything: work already handed to the Voice central keeps running. Ending the call drops the questions
+// still waiting (their AbortSignal), so a new call never waits behind an old one's.
+
+import log from '../logger.js';
+import { buildDigest, statusChanges, type DigestSession } from './digest.js';
+import type { AskOptions } from './brain.js';
+import type { LiveEvent, Sideband } from './liveApi.js';
+import { createTranscriptLog, type TranscriptLine } from './transcriptLog.js';
+import { BRAIN_CONTEXT_MAX, brainPrompt, toSpeakable } from './voiceText.js';
+
+/** A call with no speech for this long hangs up: GPT-Live bills every minute, silence included. */
+export const IDLE_MS = 10 * 60_000;
+
+/** After a delegation, wait this long for the transcript of what was just said to arrive. */
+const TRANSCRIPT_SETTLE_MS = 600;
+
+/** Session changes are gathered this long before a digest or an announcement is sent. */
+const CHANGES_DEBOUNCE_MS = 2_000;
+
+/** …but never longer than this: busy agents send updates several times a second, which would starve a pure debounce. */
+const CHANGES_MAX_WAIT_MS = 5_000;
+
+/** Waits before each try at re-attaching a lost sideband; after the last one fails the call is given up. */
+export const REATTACH_DELAYS_MS = [1_000, 2_000, 4_000];
+
+/** Event ids remembered across re-attaches (OpenAI replays the last 3 s on each attach). */
+const SEEN_EVENTS_MAX = 500;
+
+/** After `session.close`, the socket is dropped this long later if OpenAI has not closed it. */
+const CLOSE_GRACE_MS = 3_000;
+
+export interface VoiceCallDeps {
+  sideband: Sideband;
+  /** A new sideband on the same OpenAI session, for when the first one drops. */
+  reattach?: () => Sideband;
+  brain: { ask(compose: (tag: string) => string, opts: AskOptions): Promise<string> };
+  /** A call from this Mac; a remote call may only ask a shared central (re-checked per question). */
+  isLocal: boolean;
+  /** Questions this call may hand the Voice central per minute (a phone's prompt budget); unlimited by default. */
+  asksPerMinute?: number;
+  /** The sessions this call may hear about (already filtered for the calling device). */
+  sessions(): DigestSession[];
+  onSessionsChanged(listener: () => void): () => void;
+  now?: () => number;
+  idleMs?: number;
+  /** Test seam for REATTACH_DELAYS_MS. */
+  reattachDelaysMs?: readonly number[];
+}
+
+export interface VoiceCall {
+  isActive(): boolean;
+  end(): void;
+  onEnded(listener: (reason: string) => void): () => void;
+  transcript(): readonly TranscriptLine[];
+}
+
+const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** The words a failed brain call is answered with. */
+function spokenFailure(err: unknown): string {
+  const spoken = (err as { spoken?: unknown } | null)?.spoken;
+  return typeof spoken === 'string' ? spoken : 'Something went wrong in AASC, so I could not do that.';
+}
+
+export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
+  const now = deps.now ?? Date.now;
+  const idleMs = deps.idleMs ?? IDLE_MS;
+  const reattachDelays = deps.reattachDelaysMs ?? REATTACH_DELAYS_MS;
+  let sb = deps.sideband;
+  const log_ = createTranscriptLog();
+  const aborter = new AbortController();
+  const seenEvents = new Set<string>();
+  const askTimes: number[] = [];
+  const endedListeners = new Set<(reason: string) => void>();
+
+  let active = true;
+  let seq = 0;
+  let lastDigest = '';
+  let lastDelegationOffset = 0;
+  let statuses = new Map(deps.sessions().map((s) => [s.sessionId, s.status]));
+  let work: Promise<void> = Promise.resolve();
+  let changeTimer: ReturnType<typeof setTimeout> | undefined;
+  let changesSince: number | null = null;
+  let reattachTimer: ReturnType<typeof setTimeout> | undefined;
+  let sidebandUnsubs: Array<() => void> = [];
+  let reattachTries = 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const send = (event: LiveEvent): void => {
+    if (active) sb.send({ ...event, event_id: `aasc_${(seq += 1)}` });
+  };
+
+  function sendDigest(): void {
+    const digest = buildDigest(deps.sessions(), now());
+    if (digest === lastDigest) return;
+    lastDigest = digest;
+    send({ type: 'session.thinking.append', delegation_id: null, content: digest });
+  }
+
+  function armIdle(): void {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      log.info('voice', 'Hanging up a call that has been silent too long');
+      end();
+    }, idleMs);
+  }
+
+  function announceChanges(): void {
+    changesSince = null;
+    if (!active) return;
+    const next = deps.sessions();
+    const { finished, needsUser } = statusChanges(statuses, next);
+    statuses = new Map(next.map((s) => [s.sessionId, s.status]));
+    sendDigest();
+    const said: string[] = [];
+    if (finished.length > 0) said.push(`${finished.map((t) => `"${t}"`).join(', ')} ${finished.length === 1 ? 'has' : 'have'} finished.`);
+    if (needsUser.length > 0) said.push(`${needsUser.map((t) => `"${t}"`).join(', ')} ${needsUser.length === 1 ? 'needs' : 'need'} the user's answer.`);
+    if (said.length > 0) send({ type: 'session.commentary.append', delegation_id: null, content: `AASC update: ${said.join(' ')}` });
+  }
+
+  function onSessionsChanged(): void {
+    const at = now();
+    changesSince ??= at;
+    clearTimeout(changeTimer);
+    const wait = Math.max(0, Math.min(CHANGES_DEBOUNCE_MS, changesSince + CHANGES_MAX_WAIT_MS - at));
+    changeTimer = setTimeout(announceChanges, wait);
+  }
+
+  /** Whether a remote call still has room in its per-minute question budget (and counts this one). */
+  function takeAsk(): boolean {
+    const limit = deps.asksPerMinute ?? Infinity;
+    if (!Number.isFinite(limit)) return true;
+    const at = now();
+    while (askTimes.length > 0 && at - askTimes[0] >= 60_000) askTimes.shift();
+    if (askTimes.length >= limit) return false;
+    askTimes.push(at);
+    return true;
+  }
+
+  function onDelegation(delegationId: string, offsetMs: number): void {
+    const since = lastDelegationOffset;
+    lastDelegationOffset = offsetMs;
+    work = work.then(async () => {
+      await new Promise((r) => setTimeout(r, TRANSCRIPT_SETTLE_MS));
+      if (!active) return;
+      const request = log_.userSince(since);
+      const context = log_.recent(BRAIN_CONTEXT_MAX);
+      let content: string;
+      try {
+        if (!takeAsk()) {
+          content = 'That is a lot of requests in one minute. Wait a moment and ask me again.';
+        } else {
+          const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag }), { isLocal: deps.isLocal, signal: aborter.signal });
+          content = toSpeakable(answer);
+        }
+      } catch (err) {
+        log.warn('voice', `A delegation failed: ${err instanceof Error ? err.message : String(err)}`);
+        content = spokenFailure(err);
+      }
+      send({ type: 'session.commentary.append', delegation_id: delegationId, content });
+    });
+  }
+
+  function onEvent(event: LiveEvent): void {
+    // A re-attach replays the last 3 s: each event is handled once across sidebands.
+    if (typeof event.event_id === 'string') {
+      if (seenEvents.has(event.event_id)) return;
+      seenEvents.add(event.event_id);
+      if (seenEvents.size > SEEN_EVENTS_MAX) seenEvents.delete(seenEvents.values().next().value as string);
+    }
+    switch (event.type) {
+      case 'session.input_transcript.delta':
+      case 'session.output_transcript.delta': {
+        if (typeof event.delta !== 'string') return;
+        const role = event.type === 'session.input_transcript.delta' ? 'user' : 'assistant';
+        log_.add(role, event.delta, num(event.start_ms), num(event.end_ms, num(event.start_ms)));
+        if (role === 'user') armIdle();
+        return;
+      }
+      case 'session.delegation.created': {
+        const d = event.delegation as { id?: unknown; target?: unknown } | undefined;
+        if (typeof d?.id === 'string' && d.target === 'client') onDelegation(d.id, num(event.offset_ms));
+        return;
+      }
+      case 'session.closed':
+        finish(typeof event.reason === 'string' ? event.reason : 'closed');
+        return;
+      case 'error': {
+        const e = event.error as { code?: unknown; message?: unknown } | undefined;
+        log.warn('voice', `GPT-Live error ${String(e?.code ?? '')}: ${String(e?.message ?? '').slice(0, 200)}`);
+        return;
+      }
+      default:
+    }
+  }
+
+  function bindSideband(next: Sideband): void {
+    sb = next;
+    sidebandUnsubs = [next.onEvent(onEvent), next.onClose(() => onSidebandLost(next))];
+    next.ready.then(() => {
+      if (!active || sb !== next) return;
+      reattachTries = 0;
+      sendDigest();
+    }, () => {});
+  }
+
+  /** The Mac lost its line to the call while OpenAI and the phone may still be talking: attach again. */
+  function onSidebandLost(lost: Sideband): void {
+    if (!active || sb !== lost) return;
+    for (const u of sidebandUnsubs) u();
+    sidebandUnsubs = [];
+    if (!deps.reattach || reattachTries >= reattachDelays.length) { finish('connection_lost'); return; }
+    const delay = reattachDelays[reattachTries];
+    reattachTries += 1;
+    log.warn('voice', `Lost the call's sideband; attaching again (try ${reattachTries})`);
+    reattachTimer = setTimeout(() => {
+      if (!active || sb !== lost) return;
+      try {
+        lastDigest = '';
+        bindSideband((deps.reattach as () => Sideband)());
+      } catch {
+        onSidebandLost(lost);
+      }
+    }, delay);
+  }
+
+  const unsubscribers = [deps.onSessionsChanged(onSessionsChanged)];
+
+  function finish(reason: string): void {
+    if (!active) return;
+    active = false;
+    aborter.abort();
+    clearTimeout(changeTimer);
+    clearTimeout(idleTimer);
+    clearTimeout(closeTimer);
+    clearTimeout(reattachTimer);
+    for (const u of [...unsubscribers, ...sidebandUnsubs]) u();
+    sb.close();
+    for (const l of [...endedListeners]) l(reason);
+  }
+
+  function end(): void {
+    if (!active) return;
+    send({ type: 'session.close' });
+    closeTimer = setTimeout(() => finish('close_requested'), CLOSE_GRACE_MS);
+  }
+
+  bindSideband(sb);
+  armIdle();
+
+  return {
+    isActive: () => active,
+    end,
+    onEnded(listener) {
+      endedListeners.add(listener);
+      return () => endedListeners.delete(listener);
+    },
+    transcript: () => log_.lines(),
+  };
+}

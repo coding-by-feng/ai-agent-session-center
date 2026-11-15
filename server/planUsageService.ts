@@ -16,9 +16,18 @@
  */
 import log from './logger.js';
 import { EVENT_TYPES } from './constants.js';
-import { MAX_FUTURE_SKEW_MS, mergeObservations, planCliOf, sameNumbers, sanitizeObservation } from './planUsageCodec.js';
+import {
+  MAX_FUTURE_SKEW_MS,
+  mergeWithEarlyResets,
+  planCliOf,
+  sameInstance,
+  sameNumbers,
+  sanitizeObservation,
+  type EarlyReset,
+  type PlanObservation,
+} from './planUsageCodec.js';
 import type { UsageSource } from './planUsageSources.js';
-import type { PlanCli, PlanUsage, Session } from '../src/types/session.js';
+import type { PlanCli, PlanUsage, PlanUsageWindow, Session } from '../src/types/session.js';
 
 const DEFAULT_INTERVAL_MS = 15_000;
 
@@ -52,6 +61,28 @@ export const STOP_KICK_DELAY_MS = 2500;
  * nothing anyone can see: the broadcast after the read waits 300 ms anyway.
  */
 export const WATCH_READ_WINDOW_MS = 250;
+
+/**
+ * A session first seen after the service's first read counts as a new reply only if it
+ * wrote within this: Claude Code writes no status line before a session's first API
+ * reply, so a new snapshot is a reply — unless it is an old file the first read missed.
+ */
+export const NEW_SESSION_FRESH_MS = 5 * 60 * 1000;
+
+/** What the service remembers of a session's numbers is dropped once unseen this long (the source sweeps its file then too). */
+const SEEN_FORGET_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Same windows, same reset instances, same percents: a re-render, not a new reply. */
+const sameWindows = (a: readonly PlanUsageWindow[], b: readonly PlanUsageWindow[]): boolean =>
+  a.length === b.length && a.every((w, i) => sameInstance(w, b[i]) && w.usedPercent === b[i].usedPercent);
+
+/** One session's last numbers, and since when it has had them (`freshAt` absent: since before the first read). */
+interface SeenSession {
+  windows: readonly PlanUsageWindow[];
+  freshAt?: number;
+  previous?: readonly PlanUsageWindow[];
+  seenAt: number;
+}
 
 /** A host that cannot say which CLIs are live is reported at most this often (watch reads ask it several times a second). */
 export const LIVE_CLIS_WARN_INTERVAL_MS = 60_000;
@@ -128,6 +159,42 @@ export function createPlanUsageService(
   /** One pending watch-triggered read per CLI. Not `kicks`: a pending 2.5 s Stop kick must not hold it back. */
   const watchReads = new Map<PlanCli, ReturnType<typeof setTimeout>>();
   let liveWarnedAt = Number.NEGATIVE_INFINITY;
+  /** Each session's last numbers, keyed `cli:source` — how a new reply is told from a re-render. */
+  const seen = new Map<string, SeenSession>();
+  /** CLIs read once already: what is on disk at the first read is a baseline, never fresh. */
+  const baselined = new Set<PlanCli>();
+  /** The early resets in force per CLI (see `mergeWithEarlyResets`). */
+  const earlyResets = new Map<PlanCli, EarlyReset[]>();
+
+  /**
+   * Mark each reading fresh when its session's numbers changed since the last read (a new
+   * API reply), or when it is a session first seen after the first read that wrote just now.
+   * A reading with no `source` (Codex) is passed through.
+   */
+  function annotate(cli: PlanCli, observations: readonly PlanObservation[], now: number): PlanObservation[] {
+    const out = observations.map((o): PlanObservation => {
+      if (!o.source) return o;
+      const key = `${cli}:${o.source}`;
+      const prev = seen.get(key);
+      let next: SeenSession;
+      if (!prev) {
+        const isNew = baselined.has(cli) && now - o.asOf <= NEW_SESSION_FRESH_MS;
+        next = { windows: o.windows, seenAt: now, ...(isNew ? { freshAt: o.asOf } : {}) };
+      } else if (!sameWindows(prev.windows, o.windows)) {
+        next = { windows: o.windows, freshAt: o.asOf, previous: prev.windows, seenAt: now };
+      } else {
+        next = { ...prev, seenAt: now };
+      }
+      seen.set(key, next);
+      return {
+        ...o,
+        ...(next.freshAt !== undefined ? { freshAt: next.freshAt } : {}),
+        ...(next.previous ? { previous: next.previous } : {}),
+      };
+    });
+    for (const [key, entry] of seen) if (now - entry.seenAt > SEEN_FORGET_MS) seen.delete(key);
+    return out;
+  }
 
   /**
    * One source's observations, or nothing if it fails, takes longer than
@@ -161,7 +228,8 @@ export function createPlanUsageService(
 
   async function readAndPublish(cli: PlanCli): Promise<void> {
     const now = Date.now();
-    const observations: PlanUsage[] = [];
+    const observations: PlanObservation[] = [];
+    let readFailed = false;
     for (const source of sources) {
       if (source.cli !== cli) continue;
       try {
@@ -170,15 +238,29 @@ export function createPlanUsageService(
           if (usable) observations.push(usable);
         }
       } catch (err) {
+        readFailed = true;
         log.debug('plan-usage', `${cli} source failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const annotated = annotate(cli, observations, now);
+    if (!readFailed) baselined.add(cli);
     // What was already known is NOT an observation. With none on disk right now (a swept
     // snapshot) the chip keeps it; with some, it can only raise the percent of the same
     // window (mergeObservations) — fed back in as one it was re-stamped with the newest
     // time on every poll, so a window that was no longer current could never age out.
     const known = latest.get(cli) ?? null;
-    const merged = observations.length > 0 ? mergeObservations(observations, known) : known;
+    let merged = known;
+    if (annotated.length > 0) {
+      const before = earlyResets.get(cli) ?? [];
+      const result = mergeWithEarlyResets(annotated, known, before);
+      merged = result.usage;
+      earlyResets.set(cli, result.resets);
+      for (const r of result.resets) {
+        if (!before.some((b) => b.at === r.at && b.minutes === r.minutes)) {
+          log.info('plan-usage', `${cli} ${r.minutes}-minute limit was reset early (reading of ${new Date(r.at).toISOString()})`);
+        }
+      }
+    }
     if (!merged) return;
     latest.set(cli, merged);
     try {

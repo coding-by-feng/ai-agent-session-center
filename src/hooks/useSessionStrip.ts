@@ -14,12 +14,22 @@ import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { detectCli } from '@/lib/cliDetect';
-import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
+import { isListedSession, numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS } from '@/lib/recentSessions';
 import { buildStripItems, filterByRooms, filterBySearch, type StripItem } from '@/lib/sessionStrip';
 import { useLabelStore } from '@/stores/labelStore';
 import { nextCompletionAttention } from '@/lib/sessionAttention';
 import type { Session } from '@/types';
+
+/**
+ * The RECENT frame's session ids, newest work first. Only listed sessions: an AI popup
+ * (`isFloating`) belongs to its popup, and listing it left a card behind after the popup
+ * was closed, until the CLI's SessionEnd arrived.
+ */
+export function recentRailIds(sessions: ReadonlyMap<string, Session>, now: number): string[] {
+  const listed = [...sessions.values()].filter(isListedSession);
+  return pickRecentSessions(listed, now).map((s) => s.sessionId);
+}
 
 export interface SessionStrip {
   /** Every listed session in strip order (status order; recency in the Recent view). */
@@ -123,8 +133,7 @@ export function useSessionStrip(
   // joins, leaves or moves, so everything downstream stays put otherwise.
   const recentIdsKey = useMemo(() => {
     if (sessionSortMode === 'activity') return '';
-    const live = [...sessions.values()].filter((s) => s.status !== 'ended');
-    return pickRecentSessions(live, recentNow).map((s) => s.sessionId).join('\n');
+    return recentRailIds(sessions, recentNow).join('\n');
   }, [sessions, sessionSortMode, recentNow]);
 
   // Rooms that have at least one session in the current active list

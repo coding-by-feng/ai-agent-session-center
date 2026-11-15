@@ -584,7 +584,7 @@ export default memo(function TerminalContainer({
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
         onRefreshOutput={liteDesktop ? undefined : refreshOutput}
-        onClearOutput={liteDesktop ? undefined : clearOutput}
+        onClearOutput={clearOutput}
         aiPopupEnabled={aiPopupEnabled}
         onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
         autoScrollEnabled={autoScrollEnabled}
@@ -731,7 +731,7 @@ export default memo(function TerminalContainer({
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
               onRefreshOutput={liteDesktop ? undefined : refreshOutput}
-              onClearOutput={liteDesktop ? undefined : clearOutput}
+              onClearOutput={clearOutput}
                           aiPopupEnabled={aiPopupEnabled}
               onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
               autoScrollEnabled={autoScrollEnabled}

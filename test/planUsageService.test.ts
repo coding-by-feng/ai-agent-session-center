@@ -7,11 +7,13 @@ import {
   STOP_KICK_DELAY_MS,
   SOURCE_TIMEOUT_MS,
   WATCH_READ_WINDOW_MS,
+  NEW_SESSION_FRESH_MS,
   type PlanUsageHost,
 } from '../server/planUsageService.js';
 import { MAX_FUTURE_SKEW_MS, MAX_RESET_AHEAD_MS } from '../server/planUsageCodec.js';
 import log from '../server/logger.js';
 import type { UsageSource } from '../server/planUsageSources.js';
+import type { PlanObservation } from '../server/planUsageCodec.js';
 import type { PlanCli, PlanUsage, Session } from '../src/types/session.js';
 
 // The service drops readings that cannot be right about NOW (dated in the future, a window that
@@ -136,6 +138,72 @@ describe('createPlanUsageService', () => {
     reading = [{ cli: 'claude', windows: [{ minutes: 300, usedPercent: 3, resetsAt: R + 18_000_000 }], asOf: 9000 }];
     await service.refresh('claude');
     expect(service.latest('claude')?.windows[0].usedPercent).toBe(3);
+  });
+
+  describe('an early plan reset (the meter drops, resets_at does not move)', () => {
+    const W = 10_080;
+    const snap = (source: string, pct: number, asOf: number): PlanObservation =>
+      ({ cli: 'claude', windows: [{ minutes: W, usedPercent: pct, resetsAt: R }], asOf, source });
+    const pctNow = (service: ReturnType<typeof createPlanUsageService>) => service.latest('claude')?.windows[0].usedPercent;
+
+    it('follows a session whose own number went down, and ignores another still re-rendering its old one', async () => {
+      let feed: PlanObservation[] = [snap('a', 99, NOW - 60_000), snap('ghost', 97, NOW - 120_000)];
+      const h = host(['claude']);
+      const service = createPlanUsageService(h, [source('claude', async () => feed)]);
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(99);
+      expect(service.latest('claude')?.limitReached).toBeUndefined();
+
+      vi.setSystemTime(NOW + 60_000);
+      feed = [snap('a', 0, NOW + 30_000), snap('ghost', 97, NOW + 50_000)]; // ghost = re-render, newest write
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(0);
+
+      vi.setSystemTime(NOW + 120_000);
+      feed = [snap('a', 1, NOW + 100_000), snap('ghost', 97, NOW + 110_000)];
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(1); // the reset holds on later reads
+
+      vi.setSystemTime(NOW + 180_000);
+      feed = [snap('a', 1, NOW + 100_000), snap('ghost', 3, NOW + 170_000)]; // the ghost session replied
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(3);
+
+      const applied = h.apply.mock.calls.at(-1)?.[1] as PlanUsage;
+      expect(applied).not.toHaveProperty('source');
+      expect(applied).not.toHaveProperty('freshAt');
+      expect(applied).not.toHaveProperty('previous');
+    });
+
+    it('clears "limit reached" when a new session reports the reset', async () => {
+      let feed: PlanObservation[] = [snap('a', 100, NOW - 60_000)];
+      const service = createPlanUsageService(host(['claude']), [source('claude', async () => feed)]);
+      await service.refresh('claude');
+      expect(service.latest('claude')?.limitReached).toBe(true);
+      vi.setSystemTime(NOW + 60_000);
+      feed = [snap('a', 100, NOW + 50_000), snap('new', 0, NOW + 55_000)];
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(0);
+      expect(service.latest('claude')?.limitReached).toBeUndefined();
+    });
+
+    it('takes nothing on disk at the first read as fresh: a quiet-night re-render cannot fake a reset', async () => {
+      const feed: PlanObservation[] = [snap('busy', 80, NOW - 60_000), snap('quiet', 5, NOW - 1000)];
+      const service = createPlanUsageService(host(['claude']), [source('claude', async () => feed)]);
+      await service.refresh('claude');
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(80);
+    });
+
+    it('does not take a session first seen with an old write as fresh', async () => {
+      let feed: PlanObservation[] = [snap('a', 90, NOW - 60_000)];
+      const service = createPlanUsageService(host(['claude']), [source('claude', async () => feed)]);
+      await service.refresh('claude');
+      vi.setSystemTime(NOW + 60_000);
+      feed = [snap('a', 90, NOW - 60_000), snap('late', 5, NOW + 60_000 - NEW_SESSION_FRESH_MS - 1)];
+      await service.refresh('claude');
+      expect(pctNow(service)).toBe(90);
+    });
   });
 
   describe('over time, through the service', () => {

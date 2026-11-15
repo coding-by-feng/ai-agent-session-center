@@ -491,7 +491,7 @@ export default function SessionSwitcher({
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
               .switcherMeta below: that row's icon count is what the rail is sized for. */}
-          {!IS_LITE && <PlanUsageChip session={currentSession} />}
+          <PlanUsageChip session={currentSession} />
           {/* The session's number — the badge its card carries, and what the switch
               shortcuts use. The status dot that sat beside it repeated the status
               badge below, so it is gone (AASC-11); the number now says what it is. */}
@@ -684,13 +684,13 @@ export default function SessionSwitcher({
           )}
           {/* Claude: the model · effort it runs on NOW, following /model and /effort live.
               Others (Codex) report neither, so they keep the launch model as plain text. */}
-          {!IS_LITE && (hasRuntimeChip ? (
+          {hasRuntimeChip ? (
             <SessionRuntimeChip session={currentSession} />
           ) : model && (
             /* title: the badge is clamped to one ellipsised line (see
                .detailModel), so hover is the only way to read a long id. */
             <span className={styles.detailModel} title={model}>{model}</span>
-          ))}
+          )}
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}

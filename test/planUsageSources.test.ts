@@ -61,6 +61,12 @@ describe('createClaudeSnapshotSource', () => {
     expect(got.every((u) => u.cli === 'claude')).toBe(true);
   });
 
+  it('names the session each observation came from (the file name), so the service can tell a re-render from a reply', async () => {
+    put('aaa.json', snap(10));
+    const got = await createClaudeSnapshotSource(dir).read(NOW);
+    expect(got.map((u) => u.source)).toEqual(['aaa']);
+  });
+
   it('skips what is not a finished snapshot: temp files, other names, bad JSON, no limits, oversize', async () => {
     put('.abc.123.tmp', snap(10));
     put('notes.txt', snap(10));

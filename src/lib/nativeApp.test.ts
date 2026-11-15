@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import {
-  nativeAppPlatform, nativeAppVersion, isNativeMobileApp, useIsMobile, nativeShellReauthUrl, nativeAppViewport, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
+  nativeAppPlatform, nativeAppVersion, isNativeMobileApp, useIsMobile, nativeShellReauthUrl, nativeShellCallUrl, nativeAppViewport, MOBILE_MEDIA_QUERY, NATIVE_APP_UA_TOKEN,
 } from './platform';
 import { mayDrivePtyGeometry, defaultWidthMode } from './terminalGeometry';
 import { parseSessionDeepLink, stripSessionDeepLink } from './deepLink';
@@ -42,6 +42,13 @@ describe('native app detection', () => {
     // Never an absolute URL as the way back: only a path on this server.
     expect(nativeShellReauthUrl('https://evil.example/x', IOS_UA)).toBe('capacitor://localhost/?reauth=1&back=%2F');
     expect(nativeShellReauthUrl('/x', SAFARI_UA)).toBeNull();
+  });
+
+  it('sends a voice call to the bundled shell, the only page that may use the microphone (Nov 15 2026)', () => {
+    expect(nativeShellCallUrl('/more', IOS_UA)).toBe('capacitor://localhost/?call=1&back=%2Fmore');
+    expect(nativeShellCallUrl('/?session=a', ANDROID_UA)).toBe('https://localhost/?call=1&back=%2F%3Fsession%3Da');
+    expect(nativeShellCallUrl('https://evil.example/x', IOS_UA)).toBe('capacitor://localhost/?call=1&back=%2F');
+    expect(nativeShellCallUrl('/x', SAFARI_UA)).toBeNull();
   });
 
   // The strings the shells really send (seen on an iPhone 17, Oct 2026): no "(ios)"/"(android)" suffix,

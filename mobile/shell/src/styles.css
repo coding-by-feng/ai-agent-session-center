@@ -415,3 +415,11 @@ select.input { appearance: auto; }
 }
 /* Review M2: the sign-in match code, read against the confirm page (letters, so a little more spacing). */
 .match-code { letter-spacing: 0.24em; text-indent: 0.24em; } /* the indent balances the last letter's trailing space */
+
+/* Voice call (Nov 15 2026) */
+.call-clock { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.call-transcript { list-style: none; margin: 16px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.call-line { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.call-you { background: var(--surface-2); }
+.call-who { font-size: 0.8em; font-weight: 600; color: var(--text-muted); }
+.call-text { color: var(--text); }

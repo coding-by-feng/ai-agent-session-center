@@ -7,6 +7,7 @@ import type { RawShare } from '../native.js';
 import type { PairingLink } from '../pairingLink.js';
 import type { SavedMac } from '../savedMacs.js';
 import type { ShareTarget } from '../shareToQueue.js';
+import type { CallTranscriptLine } from '../voiceCall.js';
 
 export type ApproveState = 'waiting' | 'unreachable' | 'stalled' | 'refused' | 'error' | 'cancelling';
 export type UnpairStep = 'idle' | 'confirm' | 'busy' | 'unreachable';
@@ -68,7 +69,22 @@ export type Screen =
   /** AASC-21: the biometric lock; what follows the unlock is the app's, not the screen's. */
   | { name: 'locked'; busy: boolean; failed: boolean }
   /** AASC-21 / AASC-19: this phone's own settings (lock, notifications). */
-  | { name: 'phone'; notice: string | null };
+  | { name: 'phone'; notice: string | null }
+  /**
+   * Nov 15 2026: a voice call to AASC on `macId`; `back` is the Mac page to return to. `now` is the clock the screen
+   * draws (redrawn each second while live); `lines` the transcript so far.
+   */
+  | {
+      name: 'call';
+      macId: string;
+      back: string;
+      phase: 'starting' | 'live' | 'ended' | 'failed';
+      message: string | null;
+      muted: boolean;
+      lines: CallTranscriptLine[];
+      startedAt: number | null;
+      now: number;
+    };
 
 export type ScreenName = Screen['name'];
 
@@ -113,6 +129,10 @@ export interface Actions {
   toggleAccountMenu(): void;
   refreshAccount(): void;
   enrollMac(deviceId: string): void;
+  /** Nov 15 2026: the voice call screen. End also leaves for the Mac's page. */
+  endCall(): void;
+  toggleMute(): void;
+  retryCall(): void;
 }
 
 /** Plan 17: the signed-in AASC Cloud account, as the screens show it (nothing secret). */

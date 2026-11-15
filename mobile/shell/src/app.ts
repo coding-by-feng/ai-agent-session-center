@@ -17,6 +17,9 @@ import { manualLink } from './manualEntry.js';
 import type { ShellDeps } from './native.js';
 import { pairingLinkRefusal, readPairingLink, type PairingLink } from './pairingLink.js';
 import { parseReauthRequest } from './reauth.js';
+import { parseCallRequest } from './voiceCall.js';
+import { browserRtcEnv } from './voiceRtc.js';
+import { createCallWiring, openCallLine } from './callWiring.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
 import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
 import { cleanLabel } from './text.js';
@@ -27,6 +30,7 @@ import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
 import { PATH_LABEL } from './ui/parts.js';
 import type { Actions, Screen, ScreenContext, UnpairStep } from './ui/screen.js';
 import { renderApprove, renderConnecting, renderLanOffer, renderOffline } from './ui/statusScreens.js';
+import { renderCall } from './ui/callScreen.js';
 import { lanOfferDue, markLanOffered } from './lanOffer.js';
 
 /** How often the approval screen asks the Mac. */
@@ -151,6 +155,23 @@ export function createShellApp(
         tryingText,
       })
     : null;
+  // Nov 15 2026: a voice call to AASC, asked for by the Mac's page (`?call=1`).
+  const call = deps
+    ? createCallWiring({
+        requester: deps.requester,
+        openLine: (mac) => serial(() => openCallLine(deps, macs, mac)),
+        macs: () => macs,
+        setMacs: (next) => {
+          macs = next;
+        },
+        screen: () => screen,
+        show,
+        update,
+        backToMac: (mac, back) => void connect(mac, back, false),
+        rtcEnv: browserRtcEnv,
+        now: Date.now,
+      })
+    : null;
   const noop = () => undefined;
   const extrasActions = () => extras?.actions ?? {
     shareTo: noop, shareSession: noop, finishShare: noop, unlock: noop, showPhone: noop, setLockEnabled: noop, setRelockMinutes: noop,
@@ -216,6 +237,7 @@ export function createShellApp(
         if (s.name === 'settings') return renderSettings(s, mac, ctx);
         if (s.name === 'connecting') return renderConnecting(s, mac, ctx);
         if (s.name === 'lan-offer') return renderLanOffer(mac, ctx);
+        if (s.name === 'call') return renderCall(s, mac, ctx);
         return renderOffline(s, mac, ctx);
       }
     }
@@ -526,6 +548,7 @@ export function createShellApp(
     ...(account?.actions ?? {
       signInWithGoogle: noop, confirmAccountMatch: noop, cancelAccountMatch: noop, signOutAccount: noop, toggleAccountMenu: noop, refreshAccount: noop, enrollMac: noop,
     }),
+    ...(call?.actions ?? { endCall: noop, toggleMute: noop, retryCall: noop }),
   };
 
   function openLink(url: string): void {
@@ -543,6 +566,14 @@ export function createShellApp(
   /** The rest of the start once the lock (if any) let it through. */
   async function boot(d: ShellDeps, search: string): Promise<void> {
     if (await extras?.takeShare()) return;
+    const callAsk = parseCallRequest(search);
+    if (callAsk) {
+      // The Mac's page asked for a call: on the Mac it showed, back to the same page afterwards.
+      const mac = await lastOrOnlyMac(d);
+      if (mac && call) await call.start(mac, callAsk.back);
+      else show(homeScreen(null));
+      return;
+    }
     const reauth = resumeBack(search) ?? parseReauthRequest(search);
     if (reauth) {
       // The Mac UI sent the WebView back: sign in again on the Mac it showed.
@@ -595,6 +626,7 @@ export function createShellApp(
     },
     dispose() {
       extras?.dispose();
+      call?.dispose();
       offLink?.();
       stopPoll();
       gen += 1;

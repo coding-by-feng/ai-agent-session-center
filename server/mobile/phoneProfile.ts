@@ -145,6 +145,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // them into the session's own agent terminal. The route checks visibility, the baton
   // and a per-device limit itself.
   route('POST', '/sessions/:id/requests/[^/]+/answer', 'answer'),
+  // A voice call to the Voice central (Nov 15 2026): the route itself refuses one not shared with remote devices.
+  route('GET', '/voice/status', 'allow'),
+  route('POST', '/voice/call', 'allow'),
+  route('POST', '/voice/call/:id/end', 'allow'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session, and the folder browser that finds where (AASC-54): folder names under home.
   route('POST', '/terminals', 'launch'),
