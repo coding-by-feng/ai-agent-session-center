@@ -44,6 +44,12 @@ describe('parseSuggestionScreen', () => {
     expect(parseSuggestionScreen([row(RULE), row('❯ run the tests', (i) => i > 6), row(RULE)])).toBeNull();
   });
 
+  it('reads the suggestion when the top rule carries the session name (Claude Code 2.1.325 `-n`)', () => {
+    const dim = dimAfter(2);
+    expect(parseSuggestionScreen([row(`${'─'.repeat(28)} Phonedesk ─`), row('❯ run the tests', dim), row(RULE)])).toBe('run the tests');
+    expect(parseSuggestionScreen([row(' Translate → 简体中文 · a long ti… ─'), row('❯ run the tests', dim), row(RULE)])).toBe('run the tests');
+  });
+
   it('joins a suggestion that wraps onto a second row', () => {
     const rows = [row(RULE), row('❯ update the docs for the', dimAfter(2)), row('  new flag', dimAfter(2)), row(RULE)];
     expect(parseSuggestionScreen(rows)).toBe('update the docs for the new flag');

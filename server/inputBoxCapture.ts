@@ -5,7 +5,7 @@
  * own voice feature types the transcript into its ❯ box, and one click moves it into the queue
  * compose box, where the user checks it and clicks ADD. Nothing is added or sent here.
  *
- *   ──────────────────────────────────────
+ *   ───────────────────────── Phonedesk ─    ← top rule, with the session's -n name (2.1.325)
  *   ❯ fix the queue so a paused item can     ← typed / dictated text (not dim): taken
  *     be edited without losing its schedule
  *   ──────────────────────────────────────
@@ -39,11 +39,7 @@
  * write with no Enter after it, and the take refuses until the Enter comes or SEND_PENDING_MS pass.
  */
 import type { ScreenCell } from './headlessScreen.js';
-
-/** The input box's top and bottom rules. */
-const RULE_RE = /^\s*─{10,}\s*$/;
-/** The prompt glyph that starts the box's first row. */
-const PROMPT_RE = /^\s*[❯>]\s?/u;
+import { PROMPT_RE, RULE_RE, TOP_RULE_RE } from './claudeInputBoxRules.js';
 /** Claude's stand-ins for a paste or an image: the real content is not on screen. */
 const ATTACHMENT_RE = /\[(?:Pasted text|Image) #\d+[^\]]*\]/;
 /** CJK scripts, written without spaces between words. */
@@ -112,8 +108,9 @@ export function parseInputBox(rows: readonly ScreenCell[][]): InputBoxReading | 
   if (footer.length > MAX_FOOTER_ROWS || footer.some((r) => PROMPT_RE.test(textOf(r)))) return null;
 
   let top = close - 1;
-  while (top >= 0 && close - top <= MAX_BOX_ROWS + 1 && !RULE_RE.test(textOf(rows[top]))) top--;
-  if (top < 0 || top === close - 1 || !RULE_RE.test(textOf(rows[top]))) return null;
+  // The top rule may carry the session's name (claudeInputBoxRules.ts); the bottom one never does.
+  while (top >= 0 && close - top <= MAX_BOX_ROWS + 1 && !TOP_RULE_RE.test(textOf(rows[top]))) top--;
+  if (top < 0 || top === close - 1 || !TOP_RULE_RE.test(textOf(rows[top]))) return null;
   const first = textOf(rows[top + 1]);
   if (!PROMPT_RE.test(first)) return null;
 

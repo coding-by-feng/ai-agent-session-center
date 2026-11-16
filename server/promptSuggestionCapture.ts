@@ -24,6 +24,7 @@
  */
 import { renderScreenCells, type ScreenCell, type TerminalScreen } from './headlessScreen.js';
 import type { PromptSuggestion } from '../src/types/session.js';
+import { PROMPT_RE, RULE_RE, TOP_RULE_RE } from './claudeInputBoxRules.js';
 
 /** How long after a `Stop` a suggestion may still appear (it usually takes 1–3 s). */
 const WATCH_MS = 10_000;
@@ -40,10 +41,6 @@ const MAX_BOX_ROWS = 6;
 const DIM_SGR_RE = /\x1b\[(?:[\d;]*;)?2(?:;[\d;]*)?m/;
 /** Mouse reports (SGR and legacy X10): a click or wheel in the terminal is not typing. */
 const MOUSE_REPORT_RE = /\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[M[\s\S]{3}/g;
-/** The input box's top and bottom rules. */
-const RULE_RE = /^\s*─{10,}\s*$/;
-/** The prompt glyph that starts the box's first row. */
-const PROMPT_RE = /^\s*[❯>]\s?/u;
 /** Claude's own dim hints in an empty box, which are not suggestions. */
 const HINT_RE = /^(Press up to |Message @|Try "|Showing fewer prompt suggestions)/;
 
@@ -71,7 +68,7 @@ const textOf = (cells: readonly ScreenCell[]): string => cells.map((c) => c.ch).
 export function parseSuggestionScreen(rows: readonly ScreenCell[][]): string | null {
   for (let i = rows.length - 1; i > 0; i--) {
     const text = textOf(rows[i]);
-    if (!PROMPT_RE.test(text) || !RULE_RE.test(textOf(rows[i - 1]))) continue;
+    if (!PROMPT_RE.test(text) || !TOP_RULE_RE.test(textOf(rows[i - 1]))) continue;
     const glyph = PROMPT_RE.exec(text)?.[0].length ?? 0;
     const box: ScreenCell[] = [...rows[i].slice(glyph)];
     for (let j = i + 1; j < rows.length && j <= i + MAX_BOX_ROWS; j++) {

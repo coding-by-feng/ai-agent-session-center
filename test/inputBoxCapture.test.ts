@@ -87,6 +87,29 @@ describe('parseInputBox', () => {
     expect(parseInputBox(rows)?.text).toBe('new text');
   });
 
+  // Claude Code 2.1.325 draws the session's `-n` name into the box's top rule (tmux probe, Nov 16
+  // 2026), and every dashboard Claude session is launched with one: `──── Phonedesk ─`. A name too
+  // long for the row pushes every leading dash out: ` Translate → 简体中文 · … th… ─`.
+  it('reads a box whose top rule carries the session name', () => {
+    const named = row(`${'─'.repeat(W - 12)} Phonedesk ─`);
+    expect(parseInputBox([named, row('❯ is the phone wireless?'), row(RULE), FOOTER]))
+      .toEqual({ text: 'is the phone wireless?', rows: 1 });
+  });
+
+  it('reads a box whose long session name fills the whole top rule', () => {
+    const named = row(' Translate → 简体中文 · a very long session ti… ─');
+    expect(parseInputBox([row('output'), named, row('❯ hello there box'), row('  second row'), row(RULE), FOOTER])?.text)
+      .toBe('hello there box second row');
+  });
+
+  it('still refuses a dialog under an old named box', () => {
+    const rows = [
+      row(`${'─'.repeat(W - 12)} Phonedesk ─`), row('❯ already sent'), row(RULE),
+      row(' Do you want to proceed?'), row(' ❯ 1. Yes'), row('   2. No'),
+    ];
+    expect(parseInputBox(rows)).toBeNull();
+  });
+
   it('reads an empty box off a real Claude Code screen (dim suggestion only)', async () => {
     const fixture = JSON.parse(
       readFileSync(new URL('./fixtures/claude-prompt-suggestion.json', import.meta.url), 'utf8'),
