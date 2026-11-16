@@ -212,6 +212,10 @@ export const tooltips = {
     description: 'Search this terminal’s output, scrollback included. Enter and Shift+Enter step through the matches; Esc closes.',
     shortcut: 'Cmd+F',
   },
+  termReader: {
+    label: 'Reader view',
+    description: 'Read this session’s replies as formatted text: headings, lists, code and tables. The terminal keeps running underneath; toggle back anytime.',
+  },
   termFullscreen: {
     label: 'Fullscreen terminal',
     description: 'Maximize the terminal to take over the panel.',

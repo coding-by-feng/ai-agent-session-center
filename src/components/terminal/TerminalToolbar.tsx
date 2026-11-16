@@ -274,6 +274,13 @@ function EscIcon() {
   );
 }
 
+const ReaderIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+    <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
+  </svg>
+);
+
 interface TerminalToolbarProps {
   themeName: string;
   onThemeChange: (theme: string) => void;
@@ -307,6 +314,9 @@ interface TerminalToolbarProps {
   /** Open / close find-in-terminal (Nov 6 2026); no button without it. */
   onToggleSearch?: () => void;
   searchOpen?: boolean;
+  /** Reader view (formatted transcript over the terminal); no button without it. */
+  onToggleReader?: () => void;
+  readerOpen?: boolean;
   isFullscreen: boolean;
   showReconnect?: boolean;
   /** Show hold-to-speak mic button (TTS enabled in settings). */
@@ -348,6 +358,8 @@ export default function TerminalToolbar({
   onPopOut,
   onToggleSearch,
   searchOpen = false,
+  onToggleReader,
+  readerOpen = false,
   isFullscreen,
   showReconnect = false,
   ttsEnabled = false,
@@ -606,6 +618,20 @@ export default function TerminalToolbar({
             aria-pressed={searchOpen}
           >
             <SearchIcon />
+          </button>
+        </Tooltip>
+      )}
+
+      {onToggleReader && (
+        <Tooltip {...tooltips.termReader}>
+          <button
+            className={`${styles.toolbarBtn} ${readerOpen ? styles.autoScrollActiveBtn : ''}`}
+            onClick={onToggleReader}
+            aria-label={tooltips.termReader.label}
+            aria-pressed={readerOpen}
+            data-testid="terminal-reader-toggle"
+          >
+            <ReaderIcon />
           </button>
         </Tooltip>
       )}

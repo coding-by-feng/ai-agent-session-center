@@ -27,9 +27,12 @@ import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
 import { useReadAloud, useReadAloudReady } from '@/hooks/useReadAloud';
 import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
 import { fetchLatestAnswer } from '@/lib/latestAnswer';
+import { readReaderMode, writeReaderMode } from '@/lib/readerMode';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
+
+const TerminalReader = lazy(() => import('./TerminalReader'));
 
 // A phone's input, actions sheet and full-screen bar (AASC-18/20) load on a phone
 // only (AASC-31): imported statically, they and everything they draw with sat in
@@ -502,6 +505,22 @@ export default memo(function TerminalContainer({
     if (originSessionId) toggleAiPopup(originSessionId);
   }, [originSessionId, toggleAiPopup]);
 
+  // Reader view (desktop Full, agent terminals): the session's transcript as formatted
+  // Markdown over the terminal, which stays mounted and laid out underneath.
+  const readerSessionId = controlSessionId ?? originSessionId ?? null;
+  const readerAvailable = !isPhone && !liteDesktop && !!terminalCli && !!readerSessionId;
+  const [readerFor, setReaderFor] = useState<{ id: string | null; on: boolean }>(
+    () => ({ id: readerSessionId, on: readReaderMode(readerSessionId) }),
+  );
+  const readerOn = readerFor.id === readerSessionId ? readerFor.on : readReaderMode(readerSessionId);
+  const toggleReader = useCallback(() => {
+    if (!readerSessionId) return;
+    const next = !readerOn;
+    writeReaderMode(readerSessionId, next);
+    setReaderFor({ id: readerSessionId, on: next });
+  }, [readerSessionId, readerOn]);
+  const showReader = readerAvailable && readerOn && !isFullscreen;
+
   const popup = useSelectionPopup({
     enabled: translationEnabled && !!originSessionId && aiPopupEnabled,
     trigger: translationTrigger,
@@ -598,6 +617,8 @@ export default memo(function TerminalContainer({
         onPopOut={liteDesktop ? undefined : onPopOut}
         onToggleSearch={toggleSearch}
         searchOpen={search.open}
+        onToggleReader={readerAvailable ? toggleReader : undefined}
+        readerOpen={showReader}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (terminalIsClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
@@ -648,7 +669,12 @@ export default memo(function TerminalContainer({
             )}
           </div>
         )}
-        {!isFullscreen && searchBar}
+        {!isFullscreen && !showReader && searchBar}
+        {showReader && readerSessionId && (
+          <Suspense fallback={null}>
+            <TerminalReader sessionId={readerSessionId} onTerminal={toggleReader} />
+          </Suspense>
+        )}
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}

@@ -1,0 +1,115 @@
+/* The desktop terminal's Reader view: the phone Chat's rows over the terminal.
+   The phone tokens (phoneTokens.css, loaded only in the phone chunk) are
+   declared here from the desktop theme's own variables, so every theme applies. */
+
+.reader {
+  /* Type: the desktop reads at 100 % (the phone's base is 0.8). */
+  --ph-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --ph-font-mono: var(--font-mono, 'JetBrains Mono', 'SF Mono', Menlo, monospace);
+  --ph-text-scale: 0.9;
+  --ph-size-large-title: calc(32px * var(--ph-text-scale));
+  --ph-line-large-title: calc(40px * var(--ph-text-scale));
+  --ph-size-body: calc(17px * var(--ph-text-scale));
+  --ph-line-body: calc(26px * var(--ph-text-scale));
+  --ph-size-secondary: calc(15px * var(--ph-text-scale));
+  --ph-line-secondary: calc(20px * var(--ph-text-scale));
+  --ph-size-caption: calc(13px * var(--ph-text-scale));
+  --ph-line-caption: calc(18px * var(--ph-text-scale));
+  --ph-size-tab: calc(12px * var(--ph-text-scale));
+
+  --ph-space-1: 4px;
+  --ph-space-2: 8px;
+  --ph-space-3: 12px;
+  --ph-space-4: 16px;
+  --ph-space-6: 24px;
+  --ph-gutter: 24px;
+
+  --ph-radius-sm: 6px;
+  --ph-radius: 8px;
+  --ph-radius-card: 10px;
+  --ph-radius-sheet: 12px;
+  --ph-radius-pill: 999px;
+
+  --ph-target: 32px;
+  --ph-button: 36px;
+  --ph-row: 44px;
+  --ph-row-tall: 56px;
+  --ph-navbar: 40px;
+  --ph-tabbar: 48px;
+
+  --ph-motion-push: 250ms;
+  --ph-motion-sheet: 300ms;
+  --ph-motion-fast: 150ms;
+  --ph-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --ph-safe-top: 0px;
+  --ph-safe-right: 0px;
+  --ph-safe-bottom: 0px;
+  --ph-safe-left: 0px;
+
+  --ph-z-bar: 20;
+  --ph-z-swipe: 30;
+  --ph-z-sheet: 40;
+  --ph-z-menu: 40;
+  --ph-z-toast: 50;
+
+  /* Colour: the desktop theme. */
+  --ph-bg: var(--bg-panel, var(--bg-primary));
+  --ph-surface: var(--bg-card, var(--bg-panel));
+  --ph-surface-raised: var(--bg-card-hover, var(--bg-card));
+  --ph-bar-bg: var(--bg-header, var(--bg-panel));
+  --ph-sheet-bg: var(--bg-panel);
+  --ph-sheet-group: var(--bg-card);
+  --ph-segment-selected: var(--bg-card-hover);
+  --ph-fill: var(--bg-subtle, color-mix(in srgb, var(--text-primary) 8%, transparent));
+  --ph-fill-strong: var(--bg-subtle-strong, color-mix(in srgb, var(--text-primary) 16%, transparent));
+  --ph-separator: var(--border-subtle);
+  --ph-text: var(--text-primary);
+  --ph-text-secondary: var(--text-secondary);
+  --ph-text-tertiary: var(--text-dim);
+  --ph-overlay: var(--overlay-bg, rgba(0, 0, 0, 0.4));
+  --ph-neutral-action: var(--text-dim);
+  --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.12);
+  --ph-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.2);
+
+  --ph-accent: var(--accent-cyan);
+  --ph-on-accent: var(--bg-primary);
+  --ph-danger: var(--accent-red);
+  --ph-on-danger: #ffffff;
+  --ph-badge: var(--accent-red);
+  --ph-status-approval: var(--accent-yellow);
+  --ph-status-question: var(--accent-purple);
+  --ph-status-working: var(--accent-cyan);
+  --ph-status-finished: var(--accent-green);
+  --ph-status-error: var(--ph-danger);
+  --ph-status-idle: var(--ph-text-tertiary);
+  --ph-accent-tint: color-mix(in srgb, var(--ph-accent) 12%, transparent);
+  --ph-danger-tint: color-mix(in srgb, var(--ph-danger) 12%, transparent);
+  --ph-warning-tint: color-mix(in srgb, var(--ph-status-approval) 14%, transparent);
+  --ph-focus: var(--ph-accent);
+  --ph-terminal-bg: var(--bg-primary);
+
+  position: absolute;
+  inset: 0;
+  z-index: 10; /* over the terminal and its scroll buttons; under dropdowns */
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--ph-bg);
+  color: var(--ph-text);
+  font-family: var(--ph-font);
+}
+
+/* A readable line length; the rows' own tables scroll sideways when wider. */
+.column {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 820px;
+  min-height: 0;
+}
+
+.note {
+  padding: var(--ph-space-6);
+  color: var(--ph-text-secondary);
+}
