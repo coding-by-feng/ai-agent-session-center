@@ -153,3 +153,22 @@ describe('NavBar — no session launchers', () => {
     expect(screen.queryByText('DIRS')).toBeNull();
   });
 });
+
+// Nov 17 2026: ＋ New leads the bar, so starting a session has one obvious home while no panel is open.
+describe('＋ New', () => {
+  it('is the first control in the bar and opens the quick-create menu', async () => {
+    const { useQuickCreateStore } = await import('@/stores/quickCreateStore');
+    useQuickCreateStore.setState({ open: false });
+    render(
+      <MemoryRouter>
+        <NavBar />
+      </MemoryRouter>,
+    );
+    const button = screen.getByRole('button', { name: 'New session or room' });
+    expect(button).toHaveAttribute('data-quick-create-anchor');
+    expect(button.compareDocumentPosition(screen.getByRole('link', { name: /LIVE/ })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    button.click();
+    expect(useQuickCreateStore.getState().open).toBe(true);
+    useQuickCreateStore.setState({ open: false });
+  });
+});

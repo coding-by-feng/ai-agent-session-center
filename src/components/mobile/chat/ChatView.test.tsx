@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
 import type { ChatEntry, ChatPage } from '@/types/chat';
 import type { ApiResult, PageCursor } from '@/lib/chat/chatApi';
+import { resetFileRefCacheForTest } from '@/lib/fileRefResolve';
 
 const fetchChatPage = vi.fn<(id: string, cursor?: PageCursor) => Promise<ApiResult<ChatPage>>>();
 vi.mock('@/lib/chat/chatApi', () => ({ fetchChatPage: (id: string, cursor?: PageCursor) => fetchChatPage(id, cursor) }));
@@ -394,9 +395,9 @@ describe('ChatView', () => {
       expect(bare[0].closest('a')).toBeNull();
       expect(screen.getByRole('link', { name: 'site' })).toHaveAttribute('href', 'https://example.com');
       await userEvent.click(screen.getByRole('link', { name: /^the plan\s*\(open in Project\)$/ }));
-      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md');
+      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md', expect.objectContaining({ anchor: expect.anything() }));
       await userEvent.click(screen.getByRole('link', { name: /^\/p\/reports\/q3\.pdf:4\s*\(open in Project\)$/ }));
-      expect(onOpenFile).toHaveBeenLastCalledWith('/reports/q3.pdf');
+      expect(onOpenFile).toHaveBeenLastCalledWith('/reports/q3.pdf', expect.anything());
     });
 
     it('opens the file a tool wrote from its expanded row', async () => {
@@ -404,7 +405,77 @@ describe('ChatView', () => {
       const row = (await screen.findAllByRole('button', { expanded: false })).find((b) => b.textContent?.includes('plan.md'));
       await userEvent.click(row!);
       await userEvent.click(screen.getByRole('link', { name: /^\/p\/docs\/plans\/plan\.md\s*\(open in Project\)$/ }));
-      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md');
+      expect(onOpenFile).toHaveBeenCalledWith('/docs/plans/plan.md', expect.anything());
+    });
+
+    // Nov 18 2026 (the Exmouth Video screenshot): "Files are in `<folder>`:" then bare names in a list.
+    describe('a folder, and bare names listed under it', () => {
+      const listed = (): ApiResult<ChatPage> => ({
+        ok: true,
+        data: {
+          entries: [entry({
+            kind: 'assistant',
+            text: 'Files are in `/p/docs`:\n\n- video-series-plan.md\n- video-series-plan.zh-CN.md\n- missing-one.md\n\nAlso see docs/guide.md and Node.js, or [site](https://example.com).',
+          })],
+          before: 'b0', after: 'a9', cli: 'claude', hasMore: false,
+        },
+      });
+      const onMac: Record<string, 'file' | 'dir'> = {
+        '/p/docs': 'dir', '/p/docs/video-series-plan.md': 'file', '/p/docs/video-series-plan.zh-CN.md': 'file',
+      };
+      const stubMac = () => vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo) => {
+        const url = new URL(String(input), 'http://x');
+        const path = url.searchParams.get('path') ?? '';
+        if (url.pathname === '/api/files/resolve' && onMac[path]) return new Response(JSON.stringify({ absolute: path, kind: onMac[path] }), { status: 200 });
+        if (url.pathname === '/api/files/search') return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        return new Response(JSON.stringify({ error: 'Path does not exist' }), { status: 404 });
+      }));
+
+      it('links the folder, the names found in it and a path in plain prose; the rest stays text', async () => {
+        resetFileRefCacheForTest();
+        stubMac();
+        fetchChatPage.mockResolvedValue(listed());
+        const onOpenFile = vi.fn();
+        render(<ChatView session={session({ projectPath: '/p' })} onTerminal={() => {}} onOpenFile={onOpenFile} />);
+        await screen.findByRole('link', { name: 'site' });
+        await waitFor(() => expect(fileLinks().map((a) => [a.dataset.fileKind, a.dataset.fileLink])).toEqual([
+          ['dir', '/docs'],
+          ['file', '/docs/video-series-plan.md'],
+          ['file', '/docs/video-series-plan.zh-CN.md'],
+          ['file', '/docs/guide.md'],
+        ]));
+        expect(screen.getByText(/missing-one\.md/).closest('a')).toBeNull();
+        expect(screen.getByText(/Node\.js/).closest('a')).toBeNull();
+        await userEvent.click(screen.getByRole('link', { name: /^\/p\/docs\s*\(open in Project\)$/ }));
+        expect(onOpenFile).toHaveBeenLastCalledWith('/docs', expect.objectContaining({ kind: 'dir' }));
+        await userEvent.click(screen.getByRole('link', { name: /^video-series-plan\.md\s*\(open in Project\)$/ }));
+        expect(onOpenFile).toHaveBeenLastCalledWith('/docs/video-series-plan.md', expect.not.objectContaining({ kind: 'dir' }));
+        vi.unstubAllGlobals();
+      });
+
+      it('a folder outside the project stays text on a phone, and is a link where the chat may open it (Reader)', async () => {
+        resetFileRefCacheForTest();
+        vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo) => {
+          const path = new URL(String(input), 'http://x').searchParams.get('path') ?? '';
+          return path === '/elsewhere/notes'
+            ? new Response(JSON.stringify({ absolute: path, kind: 'dir' }), { status: 200 })
+            : new Response('{}', { status: 404 });
+        }));
+        const page = (): ApiResult<ChatPage> => ({ ok: true, data: { entries: [entry({ kind: 'assistant', text: 'Look in `/elsewhere/notes` or [site](https://example.com).' })], before: 'b0', after: 'a9', cli: 'claude', hasMore: false } });
+        fetchChatPage.mockResolvedValue(page());
+        const { unmount } = render(<ChatView session={session({ projectPath: '/p' })} onTerminal={() => {}} onOpenFile={vi.fn()} />);
+        await screen.findByRole('link', { name: 'site' });
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(fileLinks()).toEqual([]);
+        unmount();
+        fetchChatPage.mockResolvedValue(page());
+        const onOpenFile = vi.fn();
+        render(<ChatView session={session({ projectPath: '/p' })} onTerminal={() => {}} onOpenFile={onOpenFile} openOutsideFiles />);
+        await waitFor(() => expect(fileLinks().map((a) => a.dataset.fileLink)).toEqual(['/elsewhere/notes']));
+        await userEvent.click(fileLinks()[0]);
+        expect(onOpenFile).toHaveBeenLastCalledWith('/elsewhere/notes', expect.objectContaining({ kind: 'dir', outside: true }));
+        vi.unstubAllGlobals();
+      });
     });
 
     it('leaves every name plain without a way to open it', async () => {

@@ -14,16 +14,84 @@
 // offers "1. Submit answers  2. Cancel". Keys sent in one burst ("321") are dropped; each must
 // arrive on its own, so this returns them as separate steps.
 //
+// Typed answers and multi-select (probed on 2.1.327, Nov 18 2026). Every question's list ends with
+// "N+1. Type something." and "Chat about this".
+//   single-select   the N+1 digit focuses the text line, the text is typed in place, Enter answers
+//                   (alone: at once; among several: on to the next tab)
+//   multi-select    "N. [ ] Label": a digit ticks a box and the cursor stays on row 1. Pressing the
+//                   text line's digit only ticks an EMPTY box, which the review drops: the line is
+//                   reached with ↓ × N and typing there fills and ticks it. Tab leaves the question
+//                   (next tab, or the review), except from the text line, where Tab lands on the
+//                   "Next" / "Submit" row and Enter leaves.
+//   a call with tabs (several questions, or one multi-select) ends on "1. Submit answers".
+//
 // test/answerKeys.test.ts pins this table: change a key only after probing the installed
 // CLI again. Plan approval (ExitPlanMode) changes its options between versions, so it
 // stays unknown and the card sends the user to the terminal.
 
-import type { PendingRequest } from '../../src/types/session.js';
-import type { Answer } from './types.js';
+import type { PendingRequest, PendingRequestQuestion } from '../../src/types/session.js';
+import type { Answer, QuestionAnswer } from './types.js';
 
 const ESC = '\x1b';
 /** "1. Submit answers" on the review screen after the last question. */
 const SUBMIT_ANSWERS = '1';
+
+const ENTER = '\r';
+const TAB = '\t';
+const DOWN = '\x1b[B';
+/** The longest typed answer. */
+export const TYPED_ANSWER_MAX = 500;
+
+/**
+ * A typed answer as the Mac types it: one line of printable characters. Control bytes go (an Esc
+ * would cancel the dialog, an Enter would answer early), line breaks and tabs become spaces.
+ */
+export function cleanTypedAnswer(raw: string): string {
+  return raw
+    .replace(/[\r\n\t]+/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+    .slice(0, TYPED_ANSWER_MAX);
+}
+
+/** The keys that answer one question, or null. `tabs`: the call shows tabs (several questions, or a multi-select). */
+function questionKeys(question: Pick<PendingRequestQuestion, 'options' | 'multiSelect'>, answer: QuestionAnswer | undefined): string[] | null {
+  if (!answer || !Array.isArray(answer.picks)) return null;
+  const count = question.options.length;
+  const picks = answer.picks;
+  if (!picks.every((p) => Number.isInteger(p) && p >= 0 && p < count) || new Set(picks).size !== picks.length) return null;
+  const typed = answer.other === undefined ? '' : cleanTypedAnswer(answer.other);
+  if (answer.other !== undefined && typed === '') return null;
+  if (question.multiSelect) {
+    if (picks.length === 0 && !typed) return null;
+    const ticks = [...picks].sort((a, b) => a - b).map((p) => String(p + 1));
+    return typed ? [...ticks, ...Array<string>(count).fill(DOWN), typed, TAB, ENTER] : [...ticks, TAB];
+  }
+  if (typed) {
+    // "Type something" is choice N+1: with nine choices it has no digit.
+    if (picks.length !== 0 || count + 1 > 9) return null;
+    return [String(count + 1), typed, ENTER];
+  }
+  return picks.length === 1 ? [String(picks[0] + 1)] : null;
+}
+
+/** `answers`: one per question, in order (Nov 18 2026). */
+function answersKeys(request: PendingRequest, answers: QuestionAnswer[] | undefined): string[] | null {
+  if (!Array.isArray(answers)) return null;
+  // One single-select question (`options`) has no tabs and no review screen.
+  const alone = !request.questions && request.options ? [{ options: request.options }] : null;
+  const questions = request.questions ?? alone;
+  if (!questions || answers.length !== questions.length) return null;
+  const keys: string[] = [];
+  for (let i = 0; i < questions.length; i += 1) {
+    const step = questionKeys(questions[i], answers[i]);
+    if (!step) return null;
+    keys.push(...step);
+  }
+  return alone ? keys : [...keys, SUBMIT_ANSWERS];
+}
 
 const PERMISSION_KEYS: Readonly<Record<string, string>> = {
   allow_once: '1',
@@ -37,7 +105,10 @@ export function claudeAnswerKeys(request: PendingRequest, answer: Answer): strin
     if (answer.choice === 'allow_always' && request.canAlwaysAllow !== true) return null;
     return PERMISSION_KEYS[answer.choice] ?? null;
   }
+  if (request.kind === 'question' && answer.choice === 'answers') return answersKeys(request, answer.answers);
   if (request.kind === 'question' && answer.choice === 'options') {
+    // The older shape: one pick each, single-select questions only.
+    if (request.questions?.some((q) => q.multiSelect)) return null;
     const { questions } = request;
     const picks = answer.optionIndexes;
     if (!questions || !picks || picks.length !== questions.length) return null;

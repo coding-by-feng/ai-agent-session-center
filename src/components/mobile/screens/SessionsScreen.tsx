@@ -26,6 +26,7 @@ import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '.
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
 import { CloneIcon, ForkIcon, KillIcon, PinIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { pinnedMoveOrder } from '@/lib/pinMove';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
 import { CentralGroupHeader, PinnedGroupHeader, ProjectGroupHeader, RecentGroupHeader, RoomGroupHeader, RoomGroupSheets } from './RoomGroupParts';
@@ -136,6 +137,9 @@ interface RoomGrouping {
   onToggleCentral: () => void;
   recentCollapsed: boolean;
   onToggleRecent: () => void;
+  /** Recent lists 20, not 10 (this phone's ⌄⌄; the desktop keeps its own choice). */
+  recentExpanded: boolean;
+  onToggleRecentLimit: () => void;
   pinnedCollapsed: boolean;
   onTogglePinned: () => void;
   onRoomMenu: (roomId: string) => void;
@@ -178,6 +182,25 @@ interface GroupProps {
   onNewHere?: (dir: string) => void;
 }
 
+/** This phone's Recent limit: '20' or '10' (absent = 10). The desktop's own key is separate. */
+const RECENT_EXPANDED_KEY = 'aasc.phone.recentExpanded';
+function readRecentExpanded(): boolean {
+  try { return localStorage.getItem(RECENT_EXPANDED_KEY) === '20'; } catch { return false; }
+}
+
+/** "Move up / down in Pinned" for a pinned row, leaving out a step past either end. */
+function pinnedStepItems(
+  sessions: Iterable<Session>,
+  id: string,
+  setPinnedOrder: (ids: readonly string[]) => void,
+): ContextMenuItem[] {
+  const list = [...sessions];
+  return ([[-1, 'pin-up', 'Move up in Pinned'], [1, 'pin-down', 'Move down in Pinned']] as const).flatMap(([step, itemId, label]) => {
+    const order = pinnedMoveOrder(list, id, step);
+    return order ? [{ id: itemId, label, onSelect: () => setPinnedOrder(order) }] : [];
+  });
+}
+
 function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, rowProps, onOpen, rooms, projects, onNewHere }: GroupProps) {
   const count = group.sessions.length;
   const roomId = group.room?.id ?? null;
@@ -203,7 +226,12 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
   ) : rooms && group.kind === 'pinned' ? (
     <PinnedGroupHeader count={count} collapsed={frameFolded} onToggle={rooms.onTogglePinned} />
   ) : rooms && group.kind === 'recent' ? (
-    <RecentGroupHeader count={count} collapsed={frameFolded} onToggle={rooms.onToggleRecent} />
+    <RecentGroupHeader
+      count={count}
+      collapsed={frameFolded}
+      onToggle={rooms.onToggleRecent}
+      limit={group.recentHasMore ? { expanded: rooms.recentExpanded, onToggle: rooms.onToggleRecentLimit } : undefined}
+    />
   ) : rooms && group.room ? (
     <RoomGroupHeader
       room={group.room}
@@ -285,6 +313,7 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
 
 export default function SessionsScreen() {
   const sessions = useSessionStore((s) => s.sessions);
+  const setPinnedOrder = useSessionStore((s) => s.setPinnedOrder);
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   const connected = useWsStore((s) => s.connected);
   const hiddenCount = useWsStore((s) => s.hiddenCount);
@@ -334,9 +363,18 @@ export default function SessionsScreen() {
   }, []);
 
   const showCentral = useCentralSessionsShown();
+  // Recent's 10 ↔ 20 on this phone (Nov 18 2026): 10 until asked, so the rooms stay near the top.
+  const [recentExpanded, setRecentExpanded] = useState(readRecentExpanded);
+  const toggleRecentLimit = useCallback(() => {
+    setRecentExpanded((was) => {
+      const next = !was;
+      try { localStorage.setItem(RECENT_EXPANDED_KEY, next ? '20' : '10'); } catch { /* lasts until reload */ }
+      return next;
+    });
+  }, []);
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral, projectOrder }),
-    [sessions, groupBy, filter, query, rooms, reads, now, showCentral, projectOrder],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded }),
+    [sessions, groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded],
   );
   // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
   const contentHits = useMemo(() => {
@@ -390,6 +428,8 @@ export default function SessionsScreen() {
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
       // The desktop's PINNED frame and respawn (Nov 2 2026; AASC-50 had kept a phone from pinning).
       { id: 'pin', label: s.pinned ? 'Unpin' : 'Pin', icon: <PinIcon />, onSelect: () => void setPinned(s, !s.pinned) },
+      // The desktop drags PINNED cards; the phone steps them (Nov 18 2026). Only where a step is possible.
+      ...pinnedStepItems(sessions.values(), id, setPinnedOrder),
       { id: 'rename', label: 'Rename', icon: <RenameIcon />, onSelect: () => openSheet(id, 'rename') },
       { id: 'remark', label: 'Remark…', onSelect: () => openSheet(id, 'remark') },
       { id: 'room', label: 'Move to room…', icon: <RoomIcon />, onSelect: () => openSheet(id, 'move-room') },
@@ -399,7 +439,7 @@ export default function SessionsScreen() {
       { id: 'kill', label: 'Kill…', icon: <KillIcon />, destructive: true, disabledReason: ended ? 'It has already ended.' : undefined, onSelect: () => openSheet(id, 'kill') },
     ];
     return { swipeActions, menuItems };
-  }, [reads, markRead, setNotifications, setPinned, openSheet, copy]);
+  }, [reads, markRead, setNotifications, setPinned, setPinnedOrder, sessions, openSheet, copy]);
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);
@@ -474,6 +514,8 @@ export default function SessionsScreen() {
     onToggleCentral: toggleCentral,
     recentCollapsed,
     onToggleRecent: toggleRecent,
+    recentExpanded,
+    onToggleRecentLimit: toggleRecentLimit,
     pinnedCollapsed,
     onTogglePinned: togglePinned,
     onToggleRoom: toggleRoom,
@@ -485,7 +527,7 @@ export default function SessionsScreen() {
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, pinnedCollapsed, togglePinned, toggleRoom, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts,
+  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, recentExpanded, toggleRecentLimit, pinnedCollapsed, togglePinned, toggleRoom, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts,
     registerFrameEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const projectFrames = useMemo<ProjectFrames | undefined>(() => (byProject ? {

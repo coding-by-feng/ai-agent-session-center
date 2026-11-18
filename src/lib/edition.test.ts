@@ -36,8 +36,8 @@ describe('liteSessionTabs', () => {
 
 describe('liteAllowsShortcut', () => {
   it.each([
-    'toggleFullscreen', 'scrollToBottom', 'terminalToggleAutoScroll', 'switchSession1', 'switchSession9',
-    'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabQueue',
+    'scrollToBottom', 'terminalToggleAutoScroll', 'switchSession1', 'switchSession9',
+    'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabAiPopups', 'switchTabQueue',
     'fileBrowserSearch', 'floatMinimize', 'floatMaximize', 'floatClose',
   ])('keeps %s', (actionId) => {
     expect(liteAllowsShortcut(actionId)).toBe(true);

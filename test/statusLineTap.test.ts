@@ -468,7 +468,7 @@ describe.skipIf(realPlatform === 'win32')('what is typed into the terminal (sshM
         ['-c', `${line.replace(/^tmux new-session -s /, 'set -- ')}; printf '%s' "$2"`],
         { encoding: 'utf8' },
       );
-      expect(argv).toBe(`export AGENT_MANAGER_TERMINAL_ID='${id}' && claude${FLAG} --dangerously-skip-permissions -n "T"`);
+      expect(argv).toBe(`export AGENT_MANAGER_TERMINAL_ID='${id}' && unset AASC_HOOK_LEVEL && claude${FLAG} --dangerously-skip-permissions -n "T"`);
     });
 
     it('does not put the tap into the command the terminal (or the caller) keeps', async () => {

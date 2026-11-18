@@ -232,6 +232,74 @@ describe('SessionsScreen', () => {
     });
   });
 
+  describe('Move up / down in Pinned from the row menu (Nov 18 2026)', () => {
+    const pinnedFixtures = () => {
+      const sessions = fixtures();
+      sessions.set('s2', { ...sessions.get('s2')!, pinned: true, pinOrder: 1 });
+      sessions.set('s3', { ...sessions.get('s3')!, pinned: true, pinOrder: 2 });
+      sessions.set('s4', { ...sessions.get('s4')!, pinned: true, pinOrder: 3 });
+      return sessions;
+    };
+
+    it('offers only the steps that are possible', async () => {
+      useSessionStore.setState({ sessions: pinnedFixtures() });
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      expect(await screen.findByRole('menuitem', { name: 'Move down in Pinned' })).toBeTruthy();
+      expect(screen.queryByRole('menuitem', { name: 'Move up in Pinned' })).toBeNull();
+    });
+
+    it('moves the card one place and sends the new order to the Mac', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      useSessionStore.setState({ sessions: pinnedFixtures() });
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s3'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Move up in Pinned' }));
+      expect(useSessionStore.getState().sessions.get('s3')?.pinOrder).toBe(1);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/pinned-order', expect.objectContaining({
+        method: 'PUT', body: JSON.stringify({ sessionIds: ['s3', 's2', 's4'] }),
+      })));
+    });
+
+    it('a session that is not pinned gets neither', async () => {
+      render(<SessionsScreen />);
+      fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+      await screen.findByRole('menuitem', { name: 'Pin' });
+      expect(screen.queryByRole('menuitem', { name: /in Pinned$/ })).toBeNull();
+    });
+  });
+
+  describe('Recent 10 ↔ 20 (Nov 18 2026)', () => {
+    const busy = () => new Map(Array.from({ length: 12 }, (_, i) => {
+      const id = `r${i}`;
+      return [id, session(id, `Busy ${i}`, 'working', { promptHistory: [{ text: 'go', timestamp: NOW - (i + 1) * 60_000 }] as never })];
+    }));
+
+    it('lists 10 until asked, then 20, and remembers it on this phone', async () => {
+      const user = userEvent.setup();
+      localStorage.setItem('aasc.phoneSessionsGroup', 'room');
+      useRoomStore.setState({ rooms: [] });
+      useSessionStore.setState({ sessions: busy() });
+      const { unmount } = render(<SessionsScreen />);
+      expect(screen.getByRole('heading', { level: 2, name: /^Recent/ }).textContent).toBe('Recent · 10');
+      await user.click(screen.getByRole('button', { name: 'Show the 20 most recent' }));
+      expect(screen.getByRole('heading', { level: 2, name: /^Recent/ }).textContent).toBe('Recent · 12');
+      expect(localStorage.getItem('aasc.phone.recentExpanded')).toBe('20');
+      expect(screen.getByRole('button', { name: 'Show only the 10 most recent' })).toHaveAttribute('aria-pressed', 'true');
+      unmount();
+      render(<SessionsScreen />);
+      expect(screen.getByRole('heading', { level: 2, name: /^Recent/ }).textContent).toBe('Recent · 12');
+    });
+
+    it('has no toggle when 10 or fewer qualify', () => {
+      localStorage.setItem('aasc.phoneSessionsGroup', 'room');
+      render(<SessionsScreen />);
+      expect(screen.queryByRole('button', { name: /most recent$/ })).toBeNull();
+    });
+  });
+
   it('renames from the long-press menu, never saving an untouched name', async () => {
     const user = userEvent.setup();
     const setTitle = vi.spyOn(useSessionStore.getState(), 'setSessionTitle');

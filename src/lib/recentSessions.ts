@@ -21,6 +21,9 @@ import type { PromptEntry, Session, SessionEvent } from '@/types/session';
  */
 export const RECENT_LIMIT = 10;
 
+/** The desktop rail's extended RECENT, after its ⌄⌄ header toggle (Nov 17 2026). */
+export const RECENT_EXPANDED_LIMIT = 20;
+
 /** How often the rail re-ranks, so the order follows time even though no update arrives to say so. */
 export const RECENT_TICK_MS = 60_000;
 
@@ -104,20 +107,21 @@ export function recencyOf(session: RecentCandidate, now: number): number {
 }
 
 /**
- * The RECENT frame's contents: the `RECENT_LIMIT` sessions that worked most
- * recently (`recencyOf`), listed pinned first (as in every session ordering
+ * The RECENT frame's contents: the `limit` sessions (default `RECENT_LIMIT`) that
+ * worked most recently (`recencyOf`), listed pinned first (as in every session ordering
  * here), then newest prompt first. Deliberately not ordered by the latest
  * event: two working sessions fire tool events every few seconds, and cards
  * that swap places on each one cannot be clicked. A prompt only changes when
  * one is sent. Never-prompted sessions go last; title, then id, make the
  * order total. Returns a new array.
  */
-export function pickRecentSessions<T extends RecentCandidate>(sessions: readonly T[], now: number): T[] {
+export function pickRecentSessions<T extends RecentCandidate>(sessions: readonly T[], now: number, limit = RECENT_LIMIT): T[] {
   return sessions
     .map((s) => ({ s, at: recencyOf(s, now) }))
     .filter(({ at }) => at > 0)
     .sort((a, b) => b.at - a.at)
-    .slice(0, RECENT_LIMIT)
+    // Cut by recency first, then order: the 10 are the newest 10, not the first 10 of a longer list.
+    .slice(0, limit)
     .map(({ s }) => ({ s, promptAt: lastPromptAt(s) }))
     .sort((a, b) => {
       if (!!a.s.pinned !== !!b.s.pinned) return a.s.pinned ? -1 : 1;

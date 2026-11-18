@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createFilePathRegex,
+  linkTarget,
   mapLineColumns,
   type FilePathBufferLine,
 } from './filePathLink';
@@ -112,3 +113,58 @@ describe('mapLineColumns', () => {
     expect(text).toBe('a b');
   });
 });
+
+// Nov 17 2026: a printed absolute path was sent to the file routes as-is, which read every path as
+// relative to the session's folder: `/Users/…/x.md` became `<root>/Users/…/x.md`, so all three
+// chooser actions found nothing. linkTarget turns a link into the (root, path) the routes understand.
+describe('linkTarget', () => {
+  const R = '/Users/me/aasc/public/website';
+
+  it('keeps a relative path relative to the session folder', () => {
+    expect(linkTarget('src/a.md', R)).toEqual({ projectPath: R, filePath: 'src/a.md' });
+    expect(linkTarget('./src/a.md', R)).toEqual({ projectPath: R, filePath: 'src/a.md' });
+  });
+
+  it('makes an absolute path inside the session folder relative to it', () => {
+    expect(linkTarget(`${R}/src/a.md`, R)).toEqual({ projectPath: R, filePath: 'src/a.md' });
+    expect(linkTarget(`${R}/src/a.md`, `${R}/`)).toEqual({ projectPath: `${R}/`, filePath: 'src/a.md' });
+  });
+
+  it('roots an absolute path outside the session folder at the file’s own folder', () => {
+    expect(linkTarget('/Users/me/aasc/private/docs/plan.md', R)).toEqual({
+      projectPath: '/Users/me/aasc/private/docs',
+      filePath: 'plan.md',
+      hostProjectPath: R,
+    });
+  });
+
+  it('is not fooled by a sibling folder that shares the prefix', () => {
+    expect(linkTarget('/Users/me/aasc/public/website-old/x.md', R)).toEqual({
+      projectPath: '/Users/me/aasc/public/website-old',
+      filePath: 'x.md',
+      hostProjectPath: R,
+    });
+  });
+
+  it('with no session folder, an absolute path still has a root; a relative one stays as it was', () => {
+    expect(linkTarget('/Users/me/docs/x.md', '')).toEqual({ projectPath: '/Users/me/docs', filePath: 'x.md', hostProjectPath: '' });
+    expect(linkTarget('src/a.md', '')).toEqual({ projectPath: '', filePath: 'src/a.md' });
+  });
+});
+
+// Nov 18 2026: a folder link, and a path the Mac confirmed (fileRefResolve).
+describe('dirLinkTarget / resolvedLinkTarget', () => {
+  it('roots a folder at itself, hosted by the session folder', async () => {
+    const { dirLinkTarget } = await import('./filePathLink');
+    expect(dirLinkTarget('/Users/me/exmouth/docs/', '/Users/me/proj')).toEqual({
+      projectPath: '/Users/me/exmouth/docs', filePath: '/', hostProjectPath: '/Users/me/proj', kind: 'dir',
+    });
+  });
+
+  it('sends a confirmed file through linkTarget and a confirmed folder through dirLinkTarget', async () => {
+    const { resolvedLinkTarget } = await import('./filePathLink');
+    expect(resolvedLinkTarget({ kind: 'file', absolute: '/Users/me/proj/docs/a.md' }, '/Users/me/proj')).toEqual({ projectPath: '/Users/me/proj', filePath: 'docs/a.md' });
+    expect(resolvedLinkTarget({ kind: 'dir', absolute: '/Users/me/proj/docs' }, '/Users/me/proj')).toMatchObject({ kind: 'dir', projectPath: '/Users/me/proj/docs' });
+  });
+});
+

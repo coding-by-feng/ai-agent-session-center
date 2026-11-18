@@ -5,8 +5,9 @@ import Foundation
 
 /// One session line on the card.
 struct LiveActivityRow: Codable, Hashable {
-    /// "needs" (approval / input), "working" (prompting / working), "done" (waiting), "idle" (idle) or "proceed" (its
-    /// answer asks the user to reply "proceed"); LiveActivityRules turns the Mac's flagged done rows into the last two.
+    /// "needs" (a request of unknown kind), "approval" / "input" (Nov 18 2026), "working" (prompting / working), "done"
+    /// (waiting), "idle" (idle) or "proceed" (its answer asks the user to reply "proceed"); LiveActivityRules turns the
+    /// Mac's flagged needs and done rows into the kinds and the last two.
     let mark: String
     let title: String
     /// When the turn (working), request (needs) or "proceed" ask (proceed) began: the widget draws a timer from it, which iOS keeps counting

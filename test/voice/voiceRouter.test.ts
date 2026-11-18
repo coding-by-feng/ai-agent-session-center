@@ -45,6 +45,7 @@ function app(over: Partial<VoiceRouterDeps> = {}, local = true) {
     startCall: vi.fn(async () => ({ callId: 'call-1', sdp: 'v=0 answer' })),
     endCall: vi.fn(() => true),
     activeCall: () => null,
+    transcribe: vi.fn(async () => ''),
     ...over,
   };
   const a = express();

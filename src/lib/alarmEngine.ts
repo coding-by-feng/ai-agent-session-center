@@ -4,7 +4,9 @@
  *
  * - Approval alarm: repeating sound every 10s while session is in 'approval' status
  * - Input notification: one-time sound when session enters 'input' status
- * - Event sounds: maps hook events to sound actions
+ * - Event sounds: maps hook events to sound actions, once per event
+ * - Alert (Nov 18 2026): an alerted session sounds a loud siren for approval (every 5 s) and loud
+ *   bells for completion, over mute, the global sound switch and the CLI's own mapping
  */
 import type { Session, SessionEvent } from '@/types';
 import type { SoundAction, SoundName } from './soundEngine';
@@ -37,11 +39,28 @@ const approvalTimers = new Map<string, ReturnType<typeof setInterval>>();
 /** 'input-' + sessionId -> true for one-shot input notification */
 const inputFired = new Map<string, true>();
 
-/** Set of muted session IDs (managed externally) */
+/** Sessions muted by a click in this window (the session's own `muted` flag wins once it has one). */
 const mutedSessions = new Set<string>();
 
-/** Set of alerted session IDs — play louder, more noticeable sounds */
+/** Sessions alerted by a click in this window (the session's own `alerted` flag wins once it has one). */
 const alertedSessions = new Set<string>();
+
+/**
+ * Alert is the session's flag (the server keeps it and restores it), so it holds after a reload and
+ * when it was set on another device. This window's click counts only while the session has no flag yet.
+ */
+function alertOn(session: Session): boolean {
+  return session.alerted ?? alertedSessions.has(session.sessionId);
+}
+
+function mutedOn(session: Session): boolean {
+  return session.muted ?? mutedSessions.has(session.sessionId);
+}
+
+/** Has this event already made its sound? Same type and time as the previous update's last event. */
+function sameEvent(a: SessionEvent | undefined, b: SessionEvent | undefined): boolean {
+  return !!a && !!b && a.type === b.type && a.timestamp === b.timestamp;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -96,9 +115,6 @@ export function clearAllAlarms(): void {
   inputFired.clear();
 }
 
-/** Volume boost multiplier for alerted sessions (capped at 1.0) */
-const ALERT_VOLUME_BOOST = 2.5;
-
 /** Approval alarm repeat interval for alerted sessions (faster) */
 const ALERT_APPROVAL_INTERVAL = 5_000;
 
@@ -108,13 +124,10 @@ const NORMAL_APPROVAL_INTERVAL = 10_000;
 /**
  * Resolve the sound to play for a given action, respecting per-CLI profiles.
  * Falls back to the global soundEngine.play() if no CLI match or CLI is disabled.
- * Alerted sessions play at boosted volume.
  */
 function playForCli(session: Session, action: SoundAction): void {
   const state = useSettingsStore.getState();
   if (!state.soundSettings.enabled) return;
-
-  const isAlert = alertedSessions.has(session.sessionId);
 
   // Determine CLI name from model + events (session.source is terminal type, not CLI)
   const cli = detectCli(session);
@@ -125,37 +138,35 @@ function playForCli(session: Session, action: SoundAction): void {
     const soundName = (cliConfig.actions[action] ?? 'none') as SoundName;
     if (soundName !== 'none') {
       const prevVol = soundEngine.getVolume();
-      const baseVol = state.soundSettings.volume * cliConfig.volume;
-      soundEngine.setVolume(isAlert ? Math.min(1, baseVol * ALERT_VOLUME_BOOST) : baseVol);
+      soundEngine.setVolume(state.soundSettings.volume * cliConfig.volume);
       soundEngine.preview(soundName);
       soundEngine.setVolume(prevVol);
     }
     return;
   }
 
-  // Fallback: use global sound engine defaults, boosted for alerted sessions
-  if (isAlert) {
-    const prevVol = soundEngine.getVolume();
-    soundEngine.setVolume(Math.min(1, state.soundSettings.volume * ALERT_VOLUME_BOOST));
-    soundEngine.play(action);
-    soundEngine.setVolume(prevVol);
-  } else {
-    soundEngine.play(action);
-  }
+  soundEngine.play(action);
 }
 
 /**
- * Handle event-based sounds for a session update.
- * Call this when a session receives new events.
+ * Handle event-based sounds for a session update. Pass the session as it was before this update
+ * (`prev`), so an update that still ends on the same event (a status decay, a title) stays quiet.
  */
-export function handleEventSounds(session: Session): void {
+export function handleEventSounds(session: Session, prev?: Session): void {
   const events = session.events;
   if (!events || events.length === 0) return;
-  // Muted sessions never play sounds (unless alerted — alert overrides mute)
-  if (mutedSessions.has(session.sessionId) && !alertedSessions.has(session.sessionId)) return;
-
   const lastEvt = events[events.length - 1];
   if (!lastEvt) return;
+  if (sameEvent(lastEvt, prev?.events?.[prev.events.length - 1])) return;
+
+  const alert = alertOn(session);
+  // An alerted session's completion: loud bells, heard over mute and over sounds being off.
+  if (alert && lastEvt.type === 'Stop') {
+    soundEngine.playLoud('bells');
+    return;
+  }
+  // Muted sessions never play sounds (unless alerted — alert overrides mute)
+  if (mutedOn(session) && !alert) return;
 
   switch (lastEvt.type) {
     case 'SessionStart':
@@ -197,23 +208,29 @@ export function checkAlarms(
   const sid = session.sessionId;
 
   // ---- Approval alarm (repeating) ----
-  // Alerted sessions repeat every 5s; normal sessions every 10s
-  const interval = alertedSessions.has(sid) ? ALERT_APPROVAL_INTERVAL : NORMAL_APPROVAL_INTERVAL;
-  if (session.status === 'approval' && !mutedSessions.has(sid)) {
+  // Alerted sessions: the loud siren every 5s, over mute; normal sessions: their sound every 10s.
+  const audible = (s: Session) => alertOn(s) || !mutedOn(s);
+  const approvalSound = (s: Session) => {
+    if (alertOn(s)) soundEngine.playLoud('siren');
+    else playForCli(s, 'approvalNeeded');
+  };
+  const interval = alertOn(session) ? ALERT_APPROVAL_INTERVAL : NORMAL_APPROVAL_INTERVAL;
+  if (session.status === 'approval' && audible(session)) {
     if (!approvalTimers.has(sid)) {
-      playForCli(session, 'approvalNeeded');
+      approvalSound(session);
       const intervalId = setInterval(() => {
         const current = getSessions().get(sid);
-        if (!current || current.status !== 'approval' || mutedSessions.has(sid)) {
+        if (!current || current.status !== 'approval' || !audible(current)) {
           clearInterval(intervalId);
           approvalTimers.delete(sid);
           return;
         }
-        playForCli(current, 'approvalNeeded');
+        approvalSound(current);
       }, interval);
       approvalTimers.set(sid, intervalId);
     }
-  } else if (session.status !== 'approval' && approvalTimers.has(sid)) {
+  } else if (approvalTimers.has(sid)) {
+    // Answered, or muted with Alert off: stop the repeat.
     const timer = approvalTimers.get(sid)!;
     clearInterval(timer);
     approvalTimers.delete(sid);
@@ -221,7 +238,7 @@ export function checkAlarms(
 
   // ---- Input notification (one-shot) ----
   const inputKey = `input-${sid}`;
-  if (session.status === 'input' && !mutedSessions.has(sid)) {
+  if (session.status === 'input' && !mutedOn(session)) {
     if (!inputFired.has(inputKey)) {
       playForCli(session, 'inputNeeded');
       inputFired.set(inputKey, true);

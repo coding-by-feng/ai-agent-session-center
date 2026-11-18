@@ -260,3 +260,63 @@ describe('SessionTerminal', () => {
     expect(term.clearOutput).toHaveBeenCalledTimes(1);
   });
 });
+
+// Hold-to-talk dictation (Nov 16 2026): in the app, a mic before Enter fills the raw line; nothing is typed
+// into the terminal until the person presses Enter themselves.
+describe('SessionTerminal: the hold-to-talk mic', () => {
+  function installApp() {
+    const posted: Array<{ id: string; action: string }> = [];
+    (window as unknown as { webkit?: unknown }).webkit = { messageHandlers: { aascDictation: { postMessage: (m: { id: string; action: string }) => posted.push(m) } } };
+    const answer = (detail: Record<string, unknown>) => act(() => { window.dispatchEvent(new CustomEvent('aasc-dictation', { detail })); });
+    return { posted, answer };
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { webkit?: unknown }).webkit;
+  });
+
+  it('is not there without the app’s recorder', () => {
+    render(<SessionTerminal session={session} />);
+    expect(screen.queryByTestId('dictate-button')).toBeNull();
+  });
+
+  it('puts the spoken words on the line, on one line, and writes nothing to the terminal', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => ({ success: true, data: { text: 'status\nand log' } }) };
+    }));
+    const app = installApp();
+    render(<SessionTerminal session={session} />);
+    fireEvent.change(screen.getByTestId('raw-input'), { target: { value: 'git' } });
+    const mic = screen.getByTestId('dictate-button');
+    fireEvent.pointerDown(mic);
+    expect(screen.getByTestId('dictation-line')).toHaveTextContent(/Listening/);
+    fireEvent.pointerUp(mic);
+    app.answer({ id: app.posted[0].id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 1500 });
+    await waitFor(() => expect(screen.getByTestId('raw-input')).toHaveValue('git status and log'));
+    expect(urls).toEqual(['/api/voice/dictate']);
+    expect(term.sendKeys).not.toHaveBeenCalled();
+  });
+
+  it('shows a failure in the notice, which dismisses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ success: false, code: 'no_key', error: 'Add an OpenAI API key in Settings → Voice on the Mac to dictate.' }) })));
+    const app = installApp();
+    render(<SessionTerminal session={session} />);
+    const mic = screen.getByTestId('dictate-button');
+    fireEvent.pointerDown(mic);
+    fireEvent.pointerUp(mic);
+    app.answer({ id: app.posted[0].id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 1500 });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Add an OpenAI API key in Settings → Voice on the Mac to dictate.');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('follows the line: on while another device typed last (no baton for people), as typing is', () => {
+    installApp();
+    presence(true);
+    render(<SessionTerminal session={session} />);
+    expect(screen.getByTestId('raw-input')).not.toBeDisabled();
+    expect(screen.getByTestId('dictate-button')).not.toBeDisabled();
+  });
+});

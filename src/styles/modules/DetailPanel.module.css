@@ -938,7 +938,8 @@
 }
 .switcherBarVertical .switcherViewMenu { order: 6; }
 .switcherBarVertical .switcherLaunch { order: 7; }
-/* Same slot, after the launch pair in DOM order: + · folder · Pinned room. */
+/* Same slot, after the launch group in DOM order: ＋ New · « · Pinned room (« took the
+   recent-directories folder's place, Nov 18 2026). */
 .switcherBarVertical .switcherPinnedToggle { order: 7; }
 .switcherBarVertical .switcherMinimizeBtn {
   order: 8;
@@ -950,9 +951,9 @@
    there (Button.module.css), and at 230px the title row (5 × 44 + the kill's 8px) ran
    39px past the rail's edge while − and « fell onto a line of their own. So, touch only:
 
-     [⚲][✎][⌂][▤]               [☠]    5 × 44 + 8 = 228 ≤ 239 (256 − 1 − 2 × 8)
-     [View ▾]                 [−][«]    the panel itself
-     [+][🗀][⌂]                          starting a session, the PINNED frame
+     [⚲][✎][⌂][▤] [☠]                  5 × 44 + 8 = 228 ≤ 239 (256 − 1 − 2 × 8)
+     [View ▾]                    [−]    the panel itself
+     [+ New][«][⌂]                      starting a session, folding the rail, the PINNED frame
 
    One panel row would need 63 + 4 + 5 × 44 = 287px, a 304px rail; two rows by job keep
    it at 256. The glyphs grow to 16px (data-touch-icons, set on .switcherToggle). A mouse
@@ -969,6 +970,10 @@
   }
   .switcherBarVertical .switcherLaunch {
     gap: 0;
+  }
+  /* The row's gap is 0 here, so the kill's whole 8px is its own. */
+  .switcherBarVertical .titleActionKill {
+    padding-left: 8px;
   }
   /* Its own line, as at 230px: 26px more let it climb beside the model chip as "Store…". */
   .switcherBarVertical .roomSelect {
@@ -1174,9 +1179,8 @@
   padding-right: 4px;
 }
 
-/* + (new session) and the folder (recent directories): where sessions are
-   started while any exists (the top bar's + NEW and DIRS were removed, Oct 2026).
-   One child of .switcherMeta, so a wrap never splits the pair. */
+/* ＋ New, and in the left rail the collapse « beside it (the recent-directories folder
+   was removed Nov 18 2026). One child of .switcherMeta, so a wrap never splits them. */
 .switcherLaunch {
   display: flex;
   align-items: center;
@@ -1210,6 +1214,11 @@
   min-width: 0;
 }
 
+/* Rename, right after the name (Nov 18 2026). Never squeezed: a long name clamps instead. */
+.switcherRenameBtn {
+  flex-shrink: 0;
+}
+
 .switcherNameText {
   min-width: 0;
   overflow: hidden;
@@ -1230,12 +1239,13 @@
   gap: 4px;
   flex-shrink: 0;
 }
-/* Kill is destructive: pushed to the far end of the actions row, away from the
-   others — and away from the Mute / Share / Alert toggles below (AASC-11). */
+/* Kill is destructive: set apart from the others by a fixed 8px (the row's 4px gap + 4px),
+   and away from the Mute / Share / Alert toggles below (AASC-11). Never `margin-left: auto`
+   (Nov 18 2026): in a rail whose width changes it drifted to the far edge and stopped
+   reading as part of the group. */
 .titleActionKill {
   display: inline-flex;
-  margin-left: auto;
-  padding-left: 8px;
+  padding-left: 4px;
 }
 /* The remark button stays lit while the session carries a remark. Two classes:
    one would tie with the kit's `.iconButton { color }` and win only by load order. */
@@ -1613,9 +1623,22 @@
   border-radius: 50%;
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent-yellow, #ffd700) 70%, transparent);
   z-index: 3;
-  pointer-events: none;
+  /* A click sends "proceed" (Nov 17 2026, SessionSwitcher handleProceedClick). */
+  cursor: pointer;
+  transition: transform 150ms ease, filter 150ms ease;
   animation: proceedBadgeHalo 2.4s ease-in-out infinite;
 }
+
+/* A bigger hit area than the 15px dot, without moving it. */
+.sessionTabProceedBadge::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+
+.sessionTabProceedBadge:hover { transform: scale(1.2); filter: brightness(1.1); }
+.sessionTabProceedBadge:active { transform: scale(0.95); }
 
 @keyframes proceedBadgeHalo {
   0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--accent-yellow, #ffd700) 60%, transparent); }
@@ -1623,7 +1646,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sessionTabProceedBadge { animation: none; }
+  .sessionTabProceedBadge { animation: none; transition: none; }
 }
 
 /* Per-status glyph badge (top-right). Shown for every status except the
@@ -2131,6 +2154,38 @@
 .roomDragActive .sessionTabRoomGroup {
   translate: 0 var(--room-shift, 0px);
   transition: box-shadow 0.2s, translate 180ms ease-out;
+}
+
+/* PINNED drag (Nov 18 2026): each pinned card sits in a slot that takes the card's place in the
+   frame (like .sessionTabTrigger), and the same carry preview as a room — passed cards slide by
+   --pin-shift, the lifted one follows --room-drag-dy at LIFT_SCALE. Own variable names, so a
+   shift never leaks into a room frame and back. */
+.pinnedCardSlot {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.switcherBarVertical .pinnedCardSlot {
+  width: 100%;
+}
+.roomDragActive .pinnedCardSlot {
+  translate: 0 var(--pin-shift, 0px);
+  transition: translate 180ms ease-out;
+}
+.roomDragActive .pinnedCardSlot.pinnedCardDragging {
+  position: relative;
+  z-index: 1;
+  translate: 0 var(--room-drag-dy, 0px);
+  scale: 1.02;
+  transition: scale 150ms ease-out;
+}
+.roomDragActive .pinnedCardDragging .sessionTabCard {
+  /* Opaque while carried: --bg-card is translucent in some themes, and the cards it passes
+     would show through it. The card's tint is layered over the page colour. */
+  background: linear-gradient(var(--bg-card), var(--bg-card)), var(--bg-primary);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* The lifted room. --room-drag-dy is written by the hook on every move (no
@@ -2874,34 +2929,41 @@
   padding-left: 4px;
 }
 
-/* ---- Left rail: its own full-width first line, with the bar and the countdown. ---- */
-.switcherBarVertical .planUsageSlot {
+/* ---- Left rail (Nov 18 2026): one usage line at the top, the plan chip beside the
+   model · effort · context chip, which had a row of its own further down. The plan chip is
+   the compact readout (mark · window · %): its bar and reset time are in its tooltip, which
+   lists every window. If the two don't fit (a wide mono theme) the runtime chip wraps under it.
+
+     [✳ wk 13%] [⬡ Fable 5.2 │⚡high │◔55%]
+*/
+.switcherBarVertical .switcherUsageLine {
   display: flex;
   flex: 0 0 100%;
-}
-/* The Tooltip's wrapper is the slot's only child: let it take the whole row, so
-   the bar can grow and the countdown sits at the right edge. */
-.switcherBarVertical .planUsageSlot > * {
-  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
 }
-.switcherBarVertical .planUsageChip {
-  width: 100%;
+.switcherBarVertical .switcherUsageLine:empty {
+  display: none;
 }
-.switcherBarVertical .planUsageWindow {
-  display: block;
+/* As wide as its content (the name row's 213px falls in the 220px "tight" tier, whose fixed
+   64px is for the top bar). The window label (5h / wk) is in the tooltip. */
+.switcherBarVertical .planUsageChip {
+  width: auto;
 }
 .switcherBarVertical .planUsageValue {
   flex: 0 0 auto;
-  min-width: 40px;
 }
-.switcherBarVertical .planUsageBar {
-  display: block;
+/* Rail line only: the runtime chip as wide as its text, never past the line, and without its
+   model glyph (as in the top bar). With the plan chip's window label also out, the pair fits
+   213px in a mono theme too: "✳ 13%" ≈ 50px + "Fable 5.2 │⚡high │◔55%" ≈ 152px. */
+.switcherBarVertical .switcherUsageLine .runtimeChip {
+  max-width: 100%;
 }
-.switcherBarVertical .planUsageReset {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+.switcherBarVertical .switcherUsageLine .runtimeModelIcon,
+.switcherBarVertical .switcherUsageLine .planUsageWindow {
+  display: none;
 }
 /* The reset time's clock. The arrow ↻ it replaces now means "sync": the chip is the button for it. */
 .planUsageResetIcon {

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push (Nov 18 2026): lets APNs issue the token pushRegistration.ts sends to the backend. Xcode's automatic
+	     signing turns on Push for work.aasc.mobile; an App Store / TestFlight export signs it as production. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

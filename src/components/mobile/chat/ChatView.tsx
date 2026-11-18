@@ -40,7 +40,7 @@ import ChatSearchBar from './ChatSearchBar';
 import ChatTerminalStart from './ChatTerminalStart';
 import PeekPanel from './PeekPanel';
 import StatusStrip from './StatusStrip';
-import { FileLinkContext, type ChatFileLinks } from './fileLinkContext';
+import { FileLinkContext, type ChatFileLinks, type OpenFileOptions } from './fileLinkContext';
 import { ChatTerminalContext } from './chatQuestions';
 import SelectionReadAloud from './SelectionReadAloud';
 import { useChatLive } from './useChatLive';
@@ -63,8 +63,10 @@ export interface ChatViewProps {
    * but shows the new popup under the root session, and the empty state speaks of the answer.
    */
   popup?: { rootSessionId: string; terminalId: string };
-  /** Open a file of the project, named in the chat, in the Project tab ("/docs/plan.md"). */
-  onOpenFile?: (relPath: string) => void;
+  /** Open a file or folder of the project, named in the chat, in the Project tab ("/docs/plan.md"). */
+  onOpenFile?: (relPath: string, options?: OpenFileOptions) => void;
+  /** Also link paths outside the project (the desktop Reader: the Mac may open them; a phone may not). */
+  openOutsideFiles?: boolean;
   /**
    * A composer sits under this chat (Nov 13 2026): it shows the status and Stop, so the chat
    * draws no strip and opens the terminal's last lines above the box from the composer's chip.
@@ -105,7 +107,7 @@ function openMembersOf(item: ChatItem, opened: Record<string, boolean>): string 
   return item.members.filter((m) => opened[m.key]).map((m) => m.key).join(',');
 }
 
-export default function ChatView({ session, onTerminal, onPullBack, popup, onOpenFile, composer = false }: ChatViewProps) {
+export default function ChatView({ session, onTerminal, onPullBack, popup, onOpenFile, openOutsideFiles = false, composer = false }: ChatViewProps) {
   const { sessionId } = session;
   useChatLive(session);
   const data = useChatStore((s) => s.sessions[sessionId]);
@@ -120,8 +122,8 @@ export default function ChatView({ session, onTerminal, onPullBack, popup, onOpe
   const { projectPath } = session;
   // Files the chat names open in the Project tab (FileLink); without a folder they stay text.
   const fileLinks = useMemo<ChatFileLinks | null>(
-    () => (onOpenFile && projectPath ? { projectPath, open: onOpenFile } : null),
-    [onOpenFile, projectPath],
+    () => (onOpenFile && projectPath ? { projectPath, open: onOpenFile, openOutside: openOutsideFiles } : null),
+    [onOpenFile, projectPath, openOutsideFiles],
   );
 
   // /btw side answers never reach the transcript: the server reads them off the terminal.

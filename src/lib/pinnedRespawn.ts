@@ -98,6 +98,7 @@ export function buildRespawnBody(session: Session): Record<string, unknown> | nu
     originalSessionId: originalId || undefined,
     resumeSessionId: looksLikeRealSessionId ? resumeId : undefined,
     pinned: true,
+    pinOrder: session.pinOrder,
     accentColor: session.accentColor || undefined,
     characterModel: session.characterModel || undefined,
     // A respawned clone/fork keeps its kill-guard so killing it later can't

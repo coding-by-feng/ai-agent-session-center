@@ -177,6 +177,28 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     expect(send.mock.calls[0][1]).toBe('forced prompt');
   });
 
+  it('a ⚡-forced /model waits for the turn to end (Claude declines it mid-turn), then goes', async () => {
+    setSession({ status: 'working' });
+    const forced: QueueItem = { id: 3, sessionId: 's1', text: '/model sonnet', position: 0, createdAt: T0, type: 'once', forceStart: true };
+    useQueueStore.setState({ queues: new Map([['s1', [forced]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(4000);
+    expect(send).not.toHaveBeenCalled();
+    act(() => { setSession({ status: 'waiting', lastActivityAt: Date.now() }); });
+    await advance(4000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1]).toBe('/model sonnet');
+  });
+
+  it('a ⚡-forced ordinary prompt still goes while Claude works', async () => {
+    setSession({ status: 'working' });
+    const forced: QueueItem = { id: 4, sessionId: 's1', text: 'forced prompt', position: 0, createdAt: T0, type: 'once', forceStart: true };
+    useQueueStore.setState({ queues: new Map([['s1', [forced]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(4000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('a whole turn landing between two ticks still waits out the settle', async () => {
     // Held by subagents while `waiting` settles. Then, inside one tick gap,
     // the subagents finish and a new turn ends (same status, newer activity),

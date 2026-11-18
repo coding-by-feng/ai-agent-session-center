@@ -15,7 +15,7 @@ import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
-import { RECENT_LIMIT } from '@/lib/recentSessions';
+import { RECENT_EXPANDED_LIMIT, RECENT_LIMIT } from '@/lib/recentSessions';
 import { SESSION_SEARCH_FOCUS_EVENT, stripSessionOrder } from '@/lib/sessionStrip';
 import SearchInput from '@/components/ui/SearchInput';
 import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
@@ -23,12 +23,15 @@ import LabelPicker, { LabelChip } from './LabelPicker';
 import CentralBadge from './CentralBadge';
 import WorkerBadge from './WorkerBadge';
 import HandsOffToggle from './HandsOffToggle';
+import AutomationToggle from './AutomationToggle';
 import PlanUsageChip from './PlanUsageChip';
 import { IS_LITE } from '@/lib/edition';
 import SessionRuntimeChip from './SessionRuntimeChip';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import ProjectFrameHeader from './ProjectFrameHeader';
 import SessionViewMenu from './SessionViewMenu';
+import RecentLimitToggle from './RecentLimitToggle';
+import NewButton from './NewButton';
 import BuiltinFrame from './BuiltinFrame';
 import { FrameCollapseIcon } from './SessionFrameIcons';
 import DetachIcon from '@/components/ui/DetachIcon';
@@ -40,7 +43,6 @@ import {
   MinimizeIcon,
   MoveRoomDownIcon,
   MoveRoomUpIcon,
-  NewSessionIcon,
   NoteIcon,
   PinIcon,
   PinnedFrameIcon,
@@ -51,29 +53,27 @@ import {
 } from '@/components/ui/icons';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import { useShortcutStore } from '@/stores/shortcutStore';
-import { keyComboToString } from '@/lib/shortcutKeys';
-import buttonStyles from '@/styles/modules/Button.module.css';
+import { keyComboToGlyphs, keyComboToString } from '@/lib/shortcutKeys';
 import chipStyles from '@/styles/modules/Chip.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import SessionPromptPeek from './SessionPromptPeek';
 import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
-import { ASLEEP, COMPACTING, PROCEED, STATUS_COLORS, STATUS_LEGEND, owesProceed, showsCompacting, statusColor, statusLabel as statusWords, statusOrCompacting } from '@/lib/sessionStatusStyle';
+import { ASLEEP, LIMIT, PROCEED, STATUS_COLORS, STATUS_LEGEND, busyMark, isUsageLimited, limitLabel, owesProceed, statusColor, statusLabel as statusWords, statusOrCompacting } from '@/lib/sessionStatusStyle';
 import { detectCli } from '@/lib/cliDetect';
 import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
-import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const RECENT_FRAME_KEY = 'builtin:recent';
 /** Where a built-in frame's cards are listed again: their room, or in the Projects view their project. */
 const alsoListedIn = (mode: SessionSortMode) => `Each is also listed in its own ${mode === 'project' ? 'project' : 'room'}.`;
-const recentFrameTitle = (mode: SessionSortMode) =>
-  `Recent: the ${RECENT_LIMIT} most recently active sessions. ${alsoListedIn(mode)}`;
+const recentFrameTitle = (mode: SessionSortMode, expanded: boolean) =>
+  `Recent: the ${expanded ? RECENT_EXPANDED_LIMIT : RECENT_LIMIT} most recently active sessions. ${alsoListedIn(mode)}`;
 const PINNED_FRAME_KEY = 'builtin:pinned';
-const pinnedFrameTitle = (mode: SessionSortMode) => `Pinned: every pinned session. ${alsoListedIn(mode)}`;
+const pinnedFrameTitle = (mode: SessionSortMode) => `Pinned: every pinned session. Drag a card to reorder. ${alsoListedIn(mode)}`;
 const CENTRAL_FRAME_KEY = 'builtin:central';
 const CENTRAL_FRAME_TITLE = 'Central: every central session (it reaches other sessions over MCP). Each is also listed in its own room.';
 
@@ -91,11 +91,6 @@ function getCliBadge(session: Session): string | null {
   }
   return null;
 }
-
-/** The recent-directories trigger is drawn as the row's IconButtons (WorkdirLauncher
- *  renders its own button, so it takes the kit's classes). Open = the pressed look,
- *  from the kit's `[aria-expanded='true']` rule. */
-const dirsTriggerClass = (): string => `${buttonStyles.iconButton} ${buttonStyles.iconSm}`;
 
 interface Props {
   currentSession: Session;
@@ -140,6 +135,7 @@ export default function SessionSwitcher({
   const toggleProjectCollapsed = useUiStore((s) => s.toggleProjectCollapsed);
   const recentRoomCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
+  const recentRoomExpanded = useUiStore((s) => s.recentRoomExpanded);
   const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
   const togglePinnedRoomHidden = useUiStore((s) => s.togglePinnedRoomHidden);
   const pinnedRoomCollapsed = useUiStore((s) => s.pinnedRoomCollapsed);
@@ -177,6 +173,7 @@ export default function SessionSwitcher({
     matchedSessions,
     searching,
     items: tabRenderItems,
+    recentHasMore,
   } = useSessionStrip(sessions, currentSession.sessionId, stripQuery);
 
   // The `searchSessions` shortcut (`/`): bring the list back if it is folded or
@@ -249,6 +246,33 @@ export default function SessionSwitcher({
 
   const roomDrag = useRoomDragReorder(visibleRoomIds, getRoomDragRects, commitRoomOrder, getRoomEl);
 
+  // ---- Drag to reorder the PINNED frame (Nov 18 2026) ----
+  // The whole card is the handle (card mode: a click that never travels is still a click). Rail
+  // only, like rooms: the drop maths compares Y. Not while a search or a room filter hides some
+  // pinned cards, or the order sent would skip them.
+  const pinnedIdsKey = useMemo(() => {
+    const frame = tabRenderItems.find((i) => i.type === 'pinned');
+    return frame && frame.type === 'pinned' ? frame.sessions.map((s) => s.sessionId).join('\n') : '';
+  }, [tabRenderItems]);
+  const pinnedIds = useMemo(() => (pinnedIdsKey ? pinnedIdsKey.split('\n') : []), [pinnedIdsKey]);
+  const pinnedDragOn = isVertical && !searching && selectedRoomIds.size === 0 && pinnedIds.length > 1;
+  const pinnedElsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const registerPinnedEl = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) pinnedElsRef.current.set(id, el);
+    else pinnedElsRef.current.delete(id);
+  }, []);
+  const getPinnedRects = useCallback((): RoomDragRect[] => pinnedIds.flatMap((id) => {
+    const el = pinnedElsRef.current.get(id);
+    if (!el) return [];
+    const r = el.getBoundingClientRect();
+    return [{ id, top: r.top, bottom: r.bottom }];
+  }), [pinnedIds]);
+  const commitPinnedOrder = useCallback((ids: string[]) => {
+    useSessionStore.getState().setPinnedOrder(ids);
+  }, []);
+  const getPinnedEl = useCallback((id: string) => pinnedElsRef.current.get(id), []);
+  const pinnedDrag = useRoomDragReorder(pinnedIds, getPinnedRects, commitPinnedOrder, getPinnedEl);
+
   const moveRoom = useCallback((roomId: string, direction: -1 | 1) => {
     const idx = visibleRoomIds.indexOf(roomId);
     const swapIdx = idx + direction;
@@ -294,6 +318,24 @@ export default function SessionSwitcher({
         needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
       />
     ));
+
+  // PINNED's cards, each in a slot the drag lifts and slides (the carry preview, as for rooms).
+  const pinnedCards = (list: Session[]) =>
+    list.map((s) => {
+      const shift = pinnedDrag.shifts.get(s.sessionId);
+      return (
+        <div
+          key={s.sessionId}
+          ref={(el) => registerPinnedEl(s.sessionId, el)}
+          data-pinned-slot={s.sessionId}
+          className={`${styles.pinnedCardSlot}${pinnedDrag.draggingId === s.sessionId ? ` ${styles.pinnedCardDragging}` : ''}`}
+          style={shift ? ({ '--pin-shift': `${shift}px` } as React.CSSProperties) : undefined}
+          onPointerDown={pinnedDragOn ? (e) => pinnedDrag.onPointerDown(e, s.sessionId, { card: true }) : undefined}
+        >
+          {copyCards([s])}
+        </div>
+      );
+    });
 
   // ---- Inline rename for the header title (currentSession) ----
   const [headerEditing, setHeaderEditing] = useState(false);
@@ -406,6 +448,14 @@ export default function SessionSwitcher({
 
   // Pop the whole session out into its own native window. Electron only — the
   // same guard FloatingTerminalPanel uses for its own pop-out button.
+  // Fold the left rail to a thin strip (left dock only).
+  const collapseRail = isVertical ? (
+    <span className={styles.switcherCollapseBtn}>
+      <IconButton size="sm" label="Collapse session panel" onClick={toggleNavRailCollapsed}>
+        <CollapseRailIcon />
+      </IconButton>
+    </span>
+  ) : null;
   const canPopOutSession = !IS_LITE && typeof window !== 'undefined' && !!window.electronAPI?.openSessionWindow;
   const handleDetachSession = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -436,7 +486,7 @@ export default function SessionSwitcher({
   };
   const searchShortcut = useShortcutStore((st) => {
     const combo = st.bindings.find((b) => b.actionId === 'searchSessions')?.combo ?? null;
-    return combo ? keyComboToString(combo) : '';
+    return combo ? keyComboToGlyphs(combo) : '';
   });
   const stripSearchBox = (
     <div className={styles.stripSearch} role="search">
@@ -490,8 +540,17 @@ export default function SessionSwitcher({
       <div className={styles.switcherToggle} data-touch-icons={isVertical ? 'roomy' : undefined}>
         <div className={styles.switcherNameDisplay}>
           {/* The CLI's plan limits — first, so it is the top-left corner. Never in
-              .switcherMeta below: that row's icon count is what the rail is sized for. */}
-          <PlanUsageChip session={currentSession} />
+              .switcherMeta below: that row's icon count is what the rail is sized for.
+              The left rail (Nov 18 2026) seats the model · effort · context chip beside it on
+              one usage line; the top bar keeps that chip in .switcherMeta. */}
+          {isVertical ? (
+            <div className={styles.switcherUsageLine}>
+              <PlanUsageChip session={currentSession} />
+              {hasRuntimeChip && <SessionRuntimeChip session={currentSession} />}
+            </div>
+          ) : (
+            <PlanUsageChip session={currentSession} />
+          )}
           {/* The session's number — the badge its card carries, and what the switch
               shortcuts use. The status dot that sat beside it repeated the status
               badge below, so it is gone (AASC-11); the number now says what it is. */}
@@ -543,6 +602,11 @@ export default function SessionSwitcher({
                 >
                   <span className={styles.switcherNameText}>{primaryName}</span>
                 </Tooltip>
+                {/* Rename sits by the name it renames (Nov 18 2026), not in the actions row below.
+                    Inside the name, so a double-click on it starts the same rename. */}
+                <IconButton size="sm" label="Rename session" className={styles.switcherRenameBtn} onClick={beginHeaderEdit}>
+                  <EditIcon />
+                </IconButton>
               </span>
               {/* The title's actions. A sibling of the name, not inside it: in the 213px
                   left rail five buttons beside the name squeezed it to "Exmouth …", so
@@ -566,10 +630,13 @@ export default function SessionSwitcher({
                 {/* Hands off (server/mcp): the other flag on the session, so it follows Pin. Offered only where it
                     can work (this Mac, central sessions on) and never on a central itself. Keyed by the session:
                     a change still out for one session must not make the next one's switch look busy. */}
-                <HandsOffToggle key={currentSession.sessionId} session={currentSession} />
-                <IconButton size="sm" label="Rename session" onClick={beginHeaderEdit}>
-                  <EditIcon />
-                </IconButton>
+                {/* Since Nov 18 2026 only on a session that is hands off: the switch left the row, but it is the
+                    one control that turns the flag off, so a session already set keeps a way back. */}
+                {currentSession.handsOff === true && (
+                  <HandsOffToggle key={currentSession.sessionId} session={currentSession} />
+                )}
+                {/* Automation (lite hooks): how the session reports, so it sits with the other per-session flags. */}
+                <AutomationToggle session={currentSession} />
                 <IconButton
                   size="sm"
                   label={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
@@ -605,9 +672,10 @@ export default function SessionSwitcher({
                     <DetachIcon size={13} />
                   </IconButton>
                 )}
-                {/* Kill: destructive, so set apart at the far end of this row and
-                    never among the Mute / Share / Alert toggles (AASC-11). Same
-                    confirm dialog as before. */}
+                {/* Kill: destructive, so set apart from the others by a fixed 8px (Nov 18 2026:
+                    it used to float to the row's far end, where it stopped reading as part
+                    of the group), and never among the Mute / Share / Alert toggles (AASC-11).
+                    Same confirm dialog as before. */}
                 {/* The wrapper is the flex item (Tooltip wraps the button in a span). */}
                 <span className={styles.titleActionKill}>
                   <IconButton
@@ -685,7 +753,7 @@ export default function SessionSwitcher({
           {/* Claude: the model · effort it runs on NOW, following /model and /effort live.
               Others (Codex) report neither, so they keep the launch model as plain text. */}
           {hasRuntimeChip ? (
-            <SessionRuntimeChip session={currentSession} />
+            !isVertical && <SessionRuntimeChip session={currentSession} />
           ) : model && (
             /* title: the badge is clamped to one ellipsised line (see
                .detailModel), so hover is the only way to read a long id. */
@@ -715,16 +783,14 @@ export default function SessionSwitcher({
             maximized={maximized}
             onToggleMaximized={toggleMaximized}
           />
-          {/* Start a session: + (the new-session form) and the recent-directories
-              launcher — the app's one home for both while any session exists. One
-              child, so a wrap never splits them. Main window only: a popped-out
-              session window does not mount NewSessionModal. */}
+          {/* Start a session: ＋ New (its menu starts one by project, so the recent-directories
+              folder that sat here was removed Nov 18 2026). In the left rail the collapse «
+              sits in the folder's old slot, so it no longer wraps onto a line of its own.
+              Main window only: a popped-out session window does not mount NewSessionModal. */}
           {!isPopoutWindow() && (
             <div className={styles.switcherLaunch}>
-              <IconButton size="sm" label="New session" onClick={() => openModal('new-session')}>
-                <NewSessionIcon />
-              </IconButton>
-              <WorkdirLauncher triggerClassName={dirsTriggerClass} />
+              <NewButton />
+              {collapseRail}
             </div>
           )}
           {/* Hide or reshow the built-in PINNED frame. Rooms view only (the other
@@ -754,14 +820,8 @@ export default function SessionSwitcher({
               </IconButton>
             </span>
           )}
-          {/* Fold the left rail to a thin strip (left dock only). */}
-          {isVertical && (
-            <span className={styles.switcherCollapseBtn}>
-              <IconButton size="sm" label="Collapse session panel" onClick={toggleNavRailCollapsed}>
-                <CollapseRailIcon />
-              </IconButton>
-            </span>
-          )}
+          {/* A popped-out window has no launch group: « keeps its own place at the end there. */}
+          {isPopoutWindow() && collapseRail}
         </div>
       </div>
 
@@ -779,7 +839,7 @@ export default function SessionSwitcher({
 
       {/* ── Session tab strip ── (hidden when the panel is maximized) */}
       {!maximized && filteredSessions.length > 0 && (
-        <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
+        <div className={`${styles.sessionTabStrip}${roomDrag.draggingId || pinnedDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {!isVertical && stripSearchBox}
           {searching && matchedSessions.length === 0 && (
             <p className={styles.stripSearchEmpty}>
@@ -813,7 +873,7 @@ export default function SessionSwitcher({
                   onToggleCollapse={togglePinnedRoomCollapsed}
                   count={item.sessions.length}
                 >
-                  {copyCards(item.sessions)}
+                  {pinnedCards(item.sessions)}
                 </BuiltinFrame>
               );
             }
@@ -822,11 +882,12 @@ export default function SessionSwitcher({
                 <BuiltinFrame
                   key={RECENT_FRAME_KEY}
                   label="Recent"
-                  title={recentFrameTitle(sessionSortMode)}
+                  title={recentFrameTitle(sessionSortMode, recentRoomExpanded && recentHasMore)}
                   className={styles.recentRoomGroup}
                   collapsed={recentRoomCollapsed}
                   onToggleCollapse={toggleRecentRoomCollapsed}
                   count={item.sessions.length}
+                  headerControl={recentHasMore ? <RecentLimitToggle /> : undefined}
                 >
                   {copyCards(item.sessions)}
                 </BuiltinFrame>
@@ -1033,7 +1094,7 @@ export default function SessionSwitcher({
 /** The rail P's name (Oct 23 2026): what is owed, and since when. */
 function proceedTitle(at: number | null | undefined): string {
   const since = at ? ` (since ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})` : '';
-  return `Asks you to proceed${since}: review it, then reply`;
+  return `Asks you to proceed${since}. Click to send “proceed”`;
 }
 
 function SessionTabCard({
@@ -1057,14 +1118,19 @@ function SessionTabCard({
   index: number;
   needsAttention?: boolean;
 }) {
-  // A compaction is busy whatever the status says, so it shows over the P and the ✓ below.
-  const compacting = showsCompacting(session);
-  const color = compacting ? statusColor(COMPACTING) : STATUS_COLORS[session.status] ?? 'var(--text-dim)';
-  const railStatus = session.asleepAt ? ASLEEP : compacting ? COMPACTING : session.status;
+  // A compaction, or background shells still running, is busy whatever the status says, so it
+  // shows over the P and the ✓ below.
+  const busy = busyMark(session);
+  // Stopped on the plan's usage limit (Nov 18 2026): the hourglass outranks the busy marks, the P and the ✓.
+  const limited = isUsageLimited(session);
+  const color = limited ? statusColor(LIMIT) : busy ? statusColor(busy) : STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+  const railStatus = session.asleepAt ? ASLEEP : limited ? LIMIT : busy ?? session.status;
   const statusTitle = session.asleepAt
     ? `${statusWords(ASLEEP)} — open to resume`
-    : compacting
-      ? statusWords(COMPACTING)
+    : limited
+      ? limitLabel(session.interruption)
+      : busy
+      ? statusWords(busy)
       : STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
@@ -1080,6 +1146,14 @@ function SessionTabCard({
   const handlePinClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     useSessionStore.getState().togglePin(session.sessionId);
+  }, [session.sessionId]);
+
+  // The amber P sends "proceed" at once (Nov 17 2026), without switching cards. Its sender lives
+  // with the prompt route's client in lib/chat, loaded on click to stay out of the entry chunk.
+  const handleProceedClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const sessionId = session.sessionId;
+    void import('@/lib/chat/sendProceed').then(({ sendProceed }) => sendProceed(sessionId));
   }, [session.sessionId]);
 
   // ---- Inline rename state ----
@@ -1168,18 +1242,20 @@ function SessionTabCard({
           shows the green ✓ "completed" badge; otherwise it shows a distinct
           per-status glyph (approval "!", input "?", working spinner, etc.) so
           statuses are tellable apart by icon, not colour alone. */}
-      {!compacting && owesProceed(session) ? (
+      {!busy && !limited && owesProceed(session) ? (
         // Its last answer asks you to reply "proceed" (Oct 23 2026): outranks the ✓, and shows on
         // the current card too, since looking at it is not the reply.
         <span
           className={styles.sessionTabProceedBadge}
+          onClick={handleProceedClick}
+          data-testid="session-tab-proceed"
           role="img"
           aria-label={proceedTitle(session.pendingProceedAt)}
           title={proceedTitle(session.pendingProceedAt)}
         >
           <StatusGlyph status={PROCEED} />
         </span>
-      ) : !compacting && needsAttention ? (
+      ) : !busy && !limited && needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
           role="img"

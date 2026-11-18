@@ -16,6 +16,7 @@
  */
 import type { Session } from '@/types';
 import type { InterruptedOffer } from '@/lib/interruptedRestore';
+import { stoppedLine } from './inboxModel';
 import { waitingCardModel } from './waitingCardModel';
 
 export type InboxKind = 'approval' | 'question' | 'interrupted' | 'continue-all' | 'finished';
@@ -129,7 +130,7 @@ export function inboxItems(sessions: ReadonlyMap<string, Session>, opts: InboxOp
         sessionId: session.sessionId,
         sessionIds: [session.sessionId],
         title: titleOf(session),
-        line: oneLine(`Stopped: ${session.interruption.line}`),
+        line: oneLine(stoppedLine(session.interruption)),
         at: session.interruption.detectedAt,
         waiting: true,
       });

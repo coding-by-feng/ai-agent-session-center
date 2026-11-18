@@ -34,6 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
   ended: 'Disconnected',
   connecting: 'Connecting',
   compacting: 'Compacting',
+  background: 'Working',
 };
 
 /** Keys that are only modifiers: pressing them neither types nor cancels. */

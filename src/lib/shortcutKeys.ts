@@ -26,15 +26,20 @@ function sw(key: string): KeyCombo {
     : { key, altKey: true, ctrlKey: true };
 }
 
-/** Build a tab-switch KeyCombo: Cmd+Shift+N on macOS, Ctrl+Shift+N elsewhere. */
+/**
+ * Build a tab-switch KeyCombo: Ctrl+Cmd+N on macOS, Ctrl+Shift+N elsewhere (Nov 18 2026). Not Cmd+Shift+N on
+ * a Mac: macOS keeps Cmd+Shift+3/4/5 for screenshots, so the Commands and Conversation keys never arrived.
+ */
 function tb(key: string): KeyCombo {
   return isMac
-    ? { key, shiftKey: true, metaKey: true }
+    ? { key, ctrlKey: true, metaKey: true }
     : { key, shiftKey: true, ctrlKey: true };
 }
 
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
-  toggleFullscreen:           { label: 'Toggle fullscreen',             section: 'Terminal',      combo: { key: 'F11', altKey: true } },
+  // The ＋ New menu. A modifier-switch combo (Cmd/Ctrl+Alt), so it also fires while a terminal has focus; not
+  // Cmd/Ctrl+N, which a browser keeps for a new window and a terminal's shell for the next history line.
+  newSession:                 { label: 'New session or room',           section: 'Create',         combo: sw('n') },
   scrollToBottom:             { label: 'Scroll to bottom',              section: 'Terminal',      combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
   // Terminal toolbar buttons — unbound by default; the user assigns keys in Settings.
   terminalToggleAutoScroll:   { label: 'Toggle auto-scroll',            section: 'Terminal',      combo: null },
@@ -45,8 +50,9 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: isMac ? { key: 'p', shiftKey: true, metaKey: true } : { key: 'p', shiftKey: true, ctrlKey: true } },
   // Opens the "go to session #" box: type any badge number (1…9 only reach so far).
   jumpToSession:              { label: 'Go to session by number',       section: 'Session Switch', combo: sw('0') },
-  // Plain `/` while not typing (a focused terminal keeps it), like a web page's search key.
-  searchSessions:             { label: 'Search sessions',               section: 'Session Switch', combo: { key: '/' } },
+  // Cmd+K on a Mac, also from a focused terminal (Cmd never reaches the shell); Ctrl+K elsewhere, outside a
+  // terminal only, where Ctrl+K is the shell's kill-line (Nov 18 2026). Plain `/` before: the terminal kept it.
+  searchSessions:             { label: 'Search sessions',               section: 'Session Switch', combo: isMac ? { key: 'k', metaKey: true } : { key: 'k', ctrlKey: true } },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
   switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },
@@ -56,13 +62,14 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   switchSession7:             { label: 'Switch to session 7',           section: 'Session Switch', combo: sw('7') },
   switchSession8:             { label: 'Switch to session 8',           section: 'Session Switch', combo: sw('8') },
   switchSession9:             { label: 'Switch to session 9',           section: 'Session Switch', combo: sw('9') },
-  // Detail panel tabs
+  // Detail panel tabs: the digit is the tab's position (DetailTabs' BASE_TABS).
   switchTabProject:           { label: 'Switch to Project tab',         section: 'Detail Tabs',    combo: tb('1') },
   switchTabTerminal:          { label: 'Switch to Terminal tab',        section: 'Detail Tabs',    combo: tb('2') },
   switchTabCommands:          { label: 'Switch to Commands tab',        section: 'Detail Tabs',    combo: tb('3') },
-  switchTabPrompts:           { label: 'Switch to Prompts tab',         section: 'Detail Tabs',    combo: tb('4') },
-  switchTabNotes:             { label: 'Switch to Notes tab',           section: 'Detail Tabs',    combo: tb('5') },
+  switchTabPrompts:           { label: 'Switch to Conversation tab',    section: 'Detail Tabs',    combo: tb('4') },
+  switchTabAiPopups:          { label: 'Switch to AI Popups tab',       section: 'Detail Tabs',    combo: tb('5') },
   switchTabQueue:             { label: 'Switch to Queue tab',           section: 'Detail Tabs',    combo: tb('6') },
+  switchTabAgents:            { label: 'Switch to Agents tab',          section: 'Detail Tabs',    combo: tb('7') },
   // File Browser — all unbound by default
   fileBrowserSearch:          { label: 'Search files',                  section: 'File Browser',  combo: null },
   fileBrowserNewFile:         { label: 'New file',                      section: 'File Browser',  combo: null },
@@ -83,7 +90,8 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 
 /** All action IDs in display order. */
 export const ACTION_IDS: ShortcutActionId[] = [
-  'toggleFullscreen', 'scrollToBottom',
+  'newSession',
+  'scrollToBottom',
   'terminalToggleAutoScroll', 'terminalRefresh',
   'terminalClone', 'terminalFork', 'terminalPopOut',
   'switchLatestSession',
@@ -93,7 +101,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
   'switchTabProject', 'switchTabTerminal', 'switchTabCommands',
-  'switchTabPrompts', 'switchTabNotes', 'switchTabQueue',
+  'switchTabPrompts', 'switchTabAiPopups', 'switchTabQueue', 'switchTabAgents',
   'fileBrowserSearch', 'fileBrowserNewFile', 'fileBrowserNewFolder',
   'fileBrowserRefresh', 'fileBrowserOpenNewTab', 'fileBrowserFormat',
   'fileBrowserToggleOutline', 'fileBrowserToggleBookmark', 'fileBrowserToggleWordWrap',
@@ -102,7 +110,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'Floating Window', 'File Browser'];
+export const SECTION_ORDER = ['Create', 'Session Switch', 'Detail Tabs', 'Terminal', 'Floating Window', 'File Browser'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(
@@ -149,6 +157,17 @@ export function keyComboToString(combo: KeyCombo | null): string {
   return parts.join('+');
 }
 
+/**
+ * A short form for tight places such as a placeholder (Nov 18 2026): macOS key symbols in
+ * Apple's order (⌃⌥⇧⌘K) on a Mac, the same text as `keyComboToString` elsewhere.
+ */
+export function keyComboToGlyphs(combo: KeyCombo | null, mac: boolean = isMac): string {
+  if (combo === null || !mac) return keyComboToString(combo);
+  const mods = `${combo.ctrlKey ? '⌃' : ''}${combo.altKey ? '⌥' : ''}${combo.shiftKey ? '⇧' : ''}${combo.metaKey ? '⌘' : ''}`;
+  const key = keyComboToString({ key: combo.key });
+  return `${mods}${key}`;
+}
+
 /** Extract a KeyCombo from a KeyboardEvent. */
 export function keyEventToCombo(e: KeyboardEvent): KeyCombo {
   const combo: KeyCombo = { key: e.key };
@@ -186,6 +205,11 @@ export function comboMatchesEvent(combo: KeyCombo | null, e: KeyboardEvent): boo
     keyMatch = e.code === `Digit${combo.key}`;
   } else {
     keyMatch = normalizeKey(combo.key) === normalizeKey(e.key);
+    // Alt+letter on macOS types another character (Alt+B → ∫) or starts a dead key (Alt+N → "Dead"):
+    // a letter binding that needs Alt also matches the physical key.
+    if (!keyMatch && combo.altKey && e.altKey && /^[a-z]$/i.test(combo.key)) {
+      keyMatch = e.code === `Key${combo.key.toUpperCase()}`;
+    }
   }
   if (!keyMatch) return false;
 
@@ -199,6 +223,20 @@ export function comboMatchesEvent(combo: KeyCombo | null, e: KeyboardEvent): boo
 
   if (!!combo.shiftKey !== e.shiftKey) return false;
   return true;
+}
+
+/**
+ * May this key, pressed in a focused terminal, reach the app's shortcuts (Nov 18 2026)? Cmd/Ctrl with Alt or
+ * Shift (the session-switch and Win/Linux tab keys), Ctrl+Cmd (the Mac tab keys) and, on a Mac, Cmd alone
+ * (⌘K: Cmd never reaches the shell). A bare Ctrl+key stays the terminal's: Ctrl+K kills the line, Ctrl+C stops.
+ */
+export function isTerminalPassThrough(
+  e: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
+  mac: boolean = isMac,
+): boolean {
+  if ((e.altKey || e.shiftKey) && (e.metaKey || e.ctrlKey)) return true;
+  if (e.metaKey && e.ctrlKey) return true;
+  return mac && e.metaKey;
 }
 
 /** Keys that are modifier-only (no action key). */

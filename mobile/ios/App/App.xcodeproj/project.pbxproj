@@ -31,6 +31,8 @@
 		A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000003 /* LiveActivityBridge.swift */; };
 		A1F0C002000000000000000A /* FileSaveRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000009 /* FileSaveRules.swift */; };
 		A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000A /* FileSaveBridge.swift */; };
+		A1F0C002000000000000000C /* DictationRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000B /* DictationRules.swift */; };
+		A1F0C002000000000000000D /* DictationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000C /* DictationBridge.swift */; };
 		A1F0C0020000000000000004 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
 		A1F0C0020000000000000009 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
 		A1F0C0020000000000000005 /* AascActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000002 /* AascActivityAttributes.swift */; };
@@ -67,6 +69,8 @@
 		A1F0C0010000000000000003 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000009 /* FileSaveRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveRules.swift; sourceTree = "<group>"; };
 		A1F0C001000000000000000A /* FileSaveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveBridge.swift; sourceTree = "<group>"; };
+		A1F0C001000000000000000B /* DictationRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationRules.swift; sourceTree = "<group>"; };
+		A1F0C001000000000000000C /* DictationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBridge.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityBundle.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000005 /* AascLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityWidget.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -157,6 +161,8 @@
 				A1F0C0010000000000000003 /* LiveActivityBridge.swift */,
 				A1F0C0010000000000000009 /* FileSaveRules.swift */,
 				A1F0C001000000000000000A /* FileSaveBridge.swift */,
+				A1F0C001000000000000000B /* DictationRules.swift */,
+				A1F0C001000000000000000C /* DictationBridge.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -307,6 +313,8 @@
 				A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */,
 				A1F0C002000000000000000A /* FileSaveRules.swift in Sources */,
 				A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */,
+				A1F0C002000000000000000C /* DictationRules.swift in Sources */,
+				A1F0C002000000000000000D /* DictationBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,7 +474,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ZKV5T6HS8A;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -474,7 +482,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -489,7 +497,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ZKV5T6HS8A;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -497,7 +505,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -510,7 +518,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ZKV5T6HS8A;
 				INFOPLIST_FILE = AascLiveActivity/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
@@ -519,7 +527,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile.LiveActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -533,7 +541,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ZKV5T6HS8A;
 				INFOPLIST_FILE = AascLiveActivity/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
@@ -542,7 +550,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = work.aasc.mobile.LiveActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

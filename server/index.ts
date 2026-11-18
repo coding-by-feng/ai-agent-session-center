@@ -27,6 +27,7 @@ import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue, getProjectActivity } from './db.js';
 import { createSessionMemory } from './sessionMemory.js';
 import { createSessionSleepRouter, startSessionSleep } from './sessionSleep.js';
+import { createCloseSuggestionsRouter } from './closeSuggestions.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
 import apiRouter, { hookRateLimitMiddleware, requireVisibleSession, clientIdFromRequest, currentRooms } from './apiRouter.js';
 import { createRequestAnswerRouter } from './requestAnswer.js';
@@ -82,7 +83,7 @@ import { createPhoneResources } from './mobile/phoneResources.js';
 import { createPhoneResourcesRouter } from './mobile/phoneResourcesRouter.js';
 import { createCloudReadLog } from './mobile/cloudReadLog.js';
 import { createServerPromptRouter } from './promptWiring.js';
-import { createServerVoice } from './voice/wiring.js';
+import { createServerVoice, dictateBodyParser, DICTATE_PATH } from './voice/wiring.js';
 import { createSkillNoteOpsWiring } from './skillNoteOpsWiring.js';
 import { createChatRouter } from './chat/chatRouter.js';
 import { createTranscriptWatch } from './chat/transcriptWatch.js';
@@ -279,6 +280,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // small bodies (64 KB); notes batches and the rest up to 1 MB.
   app.use('/api/resources/cloud/aliases', aliasJsonParser());
   app.use('/api/resources/cloud', cloudJsonParser());
+  // A dictation clip is at most ~2.7 MB of JSON: refused past that while it is read (Nov 16 2026).
+  app.use(DICTATE_PATH, ...dictateBodyParser());
   app.use(express.json({ limit: '50mb' }));
 
   // -- Security headers --
@@ -757,13 +760,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
   const openTerminalIds = () => new Set(getTerminals().map((t) => t.terminalId));
   const foldedFrom = new Map<string, string>(); // real id -> the terminal id a folded split card was keyed by
+  // A folded card's queue can still be stored under the card's terminal id (foldedFrom, below).
+  const hasArmedQueue = (sessionId: string): boolean => [sessionId, foldedFrom.get(sessionId)].some((id) => !!id &&
+    (getSessionQueue(id)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true));
   const stopSessionSleep = startSessionSleep({
     sessions: () => Object.values(getAllSessions()),
     terminalSleepable: (terminalId) => openTerminalIds().has(terminalId) && !isTmuxBackedTerminal(terminalId),
     lastOutputAt: terminalLastOutputAt,
-    // A folded card's queue can still be stored under the card's terminal id (foldedFrom, below).
-    hasArmedQueue: (sessionId) => [sessionId, foldedFrom.get(sessionId)].some((id) => !!id &&
-      (getSessionQueue(id)?.items ?? []).some((i) => (i as { disabled?: unknown } | null)?.disabled !== true)),
+    hasArmedQueue,
     // A split pair is judged and sleeps as one card (sessionStore.healSplitCard): its pin, hands-off and queue
     // count, and opening it resumes the thread. Asleep alone, the twin closed the card's terminal and the card's
     // Reconnect opened a fresh CLI (Oct 30 2026). A twin's card is the one keyed by the twin's terminal.
@@ -779,8 +783,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     markAsleep: (sessionId, at) => { setSessionAsleep(sessionId, at); },
     closeTerminal: closeTerminalAndWait,
   });
+  // "Sessions to close" (Nov 17 2026): the header memory chip's list of idle and unused sessions. It only
+  // suggests; closing goes through the ordinary kill route. This Mac only.
+  const closeSuggestionsRouter = createCloseSuggestionsRouter({
+    sessions: () => Object.values(getAllSessions()),
+    hasArmedQueue,
+  });
   if (hosted) app.use('/api/workspace/continuation', authMiddleware, phoneProfile, createHostedContinuationRouter(hosted, (_req, id) => canSeeSession(false, getSession(id))));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), closeSuggestionsRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

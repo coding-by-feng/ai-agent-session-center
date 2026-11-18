@@ -243,16 +243,18 @@ describe('DetailPanel', () => {
     expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
   });
 
-  // NotesTab is lazy() — it resolves a tick after mount, so this must await
-  // rather than assert synchronously.
-  it('passes notes tab with session ID', async () => {
+  // NOTES left the desktop tabs (Nov 18 2026): the panel no longer hands DetailTabs any notes.
+  // The NotesTab mock stays so a regression would render its text and fail here.
+  it('passes no notes tab', async () => {
     const session = makeSession();
     useSessionStore.setState({
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    expect(await screen.findByText('Notes for sess-1')).toBeInTheDocument();
+    await screen.findByTestId('detail-tabs');
+    expect(screen.getByTestId('notes-tab')).toBeEmptyDOMElement();
+    expect(screen.queryByText('Notes for sess-1')).toBeNull();
   });
 
   // The queue strip under the terminal sits in a row with its own dragged height.

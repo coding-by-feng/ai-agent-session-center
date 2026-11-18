@@ -9,9 +9,14 @@ interface ModalProps {
   title?: string;
   onClose?: () => void;
   panelClassName?: string;
+  /**
+   * While true, Escape, the backdrop, Back and the corner button do not close the dialog: for a
+   * dialog in the middle of work that closing would not stop (the person would read it as a cancel).
+   */
+  locked?: boolean;
 }
 
-export default function Modal({ modalId, children, title, onClose, panelClassName }: ModalProps) {
+export default function Modal({ modalId, children, title, onClose, panelClassName, locked = false }: ModalProps) {
   const activeModal = useUiStore((s) => s.activeModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -20,9 +25,10 @@ export default function Modal({ modalId, children, title, onClose, panelClassNam
   const isOpen = activeModal === modalId;
 
   const handleClose = useCallback(() => {
+    if (locked) return;
     closeModal();
     onClose?.();
-  }, [closeModal, onClose]);
+  }, [closeModal, onClose, locked]);
   // In the phone app, Android's back closes the dialog, not the screen under it (AASC-48).
   useBackLayer(isOpen, handleClose);
 
@@ -100,7 +106,7 @@ export default function Modal({ modalId, children, title, onClose, panelClassNam
         {title && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3>{title}</h3>
-            <button onClick={handleClose} aria-label="Close" className={styles.closeBtn}>
+            <button onClick={handleClose} aria-label="Close" className={styles.closeBtn} disabled={locked}>
               x
             </button>
           </div>

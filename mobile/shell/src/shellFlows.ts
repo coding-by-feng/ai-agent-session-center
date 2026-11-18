@@ -235,9 +235,16 @@ export async function signInAndOpen(
   const { linkMs = LINK_BUDGET_MS, retireMs = RETIRE_BUDGET_MS, proceed = () => true } = opts;
   let found = await reachOrRescan(deps, saved, onTry, opts);
   if (!found) return { kind: 'offline', mac: saved, tried: candidates(saved) };
-  const creds = await readMacCredentials(deps.vault, saved.id).catch(() => null);
+  let creds: MacCredentials | null;
+  try {
+    creds = await readMacCredentials(deps.vault, saved.id);
+  } catch {
+    // The key couldn't be READ (a locked phone, the Keychain refusing for now): it may well be there, so nothing
+    // is wiped. Treating this as "key gone" cost a phone its Mac on the first launch after an install (Nov 17 2026).
+    return { kind: 'error', mac: saved, message: `This phone couldn’t read its key for ${saved.name}. Unlock the phone and try again.` };
+  }
   if (!creds) {
-    // The pairing key is gone (vault wiped, biometrics re-enrolled): this Mac must be paired again.
+    // The vault answered and holds no key (vault wiped, biometrics re-enrolled): this Mac must be paired again.
     return { kind: 'revoked', mac: saved, macs: await forgetMac(deps, macs, saved), why: 'key-missing' };
   }
   let session = await openSession(deps.http, found.reached.origin, creds);

@@ -259,6 +259,40 @@ describe('uiStore', () => {
     });
   });
 
+  // RECENT shows the 20 newest sessions by default (Nov 18 2026), or 10 after its toggle; the choice survives a reload.
+  describe('recentRoomExpanded', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('recent-room-limit');
+      localStorage.removeItem('recent-room-expanded');
+      if (stored !== null) localStorage.setItem('recent-room-limit', stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts at 20 when nothing is stored, and restores a stored 10', async () => {
+      expect((await freshStore(null)).getState().recentRoomExpanded).toBe(true);
+      expect((await freshStore('10')).getState().recentRoomExpanded).toBe(false);
+      expect((await freshStore('20')).getState().recentRoomExpanded).toBe(true);
+    });
+
+    it('ignores the pre-release key, so an old fold to 10 cannot hide the new default', async () => {
+      localStorage.setItem('recent-room-expanded', '0');
+      const store = await freshStore(null);
+      expect(store.getState().recentRoomExpanded).toBe(true);
+    });
+
+    it('toggles and persists both ways', async () => {
+      const store = await freshStore(null);
+      store.getState().toggleRecentRoomExpanded();
+      expect(store.getState().recentRoomExpanded).toBe(false);
+      expect(localStorage.getItem('recent-room-limit')).toBe('10');
+      store.getState().toggleRecentRoomExpanded();
+      expect(store.getState().recentRoomExpanded).toBe(true);
+      expect(localStorage.getItem('recent-room-limit')).toBe('20');
+    });
+  });
+
   // The rail's built-in PINNED frame: the toolbar toggle hides or shows it,
   // and its header folds it, like RECENT's.
   describe.each([

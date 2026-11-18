@@ -96,3 +96,10 @@
     align-items: center;
   }
 }
+
+/* ＋ New: first in the bar, centred on the tabs' line, 8px clear of the first tab. */
+.newButton {
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 8px;
+}

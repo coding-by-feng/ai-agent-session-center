@@ -2,7 +2,7 @@
  * useKnownProjects - Fetches known Claude Code project paths from the server
  * (derived from ~/.claude/projects/) and merges them with localStorage
  * workdir-history so they appear in all working-directory dropdowns.
- * The server lists them most used first.
+ * The server lists them most recently active first.
  *
  * useRankedProjects - The phone's New session sheet: the server's ranking on
  * top, this browser's history only appended, and null until the server answers,

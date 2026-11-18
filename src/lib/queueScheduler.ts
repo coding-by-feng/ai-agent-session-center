@@ -13,6 +13,8 @@
  * actually sending the prompt — this module never touches the DOM or fetch.
  */
 import type { ChainStep, ChainExecState, ExcludeWindow, QueueItem, QueueItemType } from '@/stores/queueStore';
+import { isEffortCommand } from './queueEffort';
+import { isModelCommand } from './queueModel';
 
 /**
  * Treat anything without an explicit `type` as 'once' so legacy queue rows
@@ -321,6 +323,19 @@ export function getActiveStep(item: QueueItem): { text: string; images?: ChainSt
     return { text: step.text, images: step.images };
   }
   return { text: item.text, images: item.images };
+}
+
+/**
+ * Must `item` wait for the session to be at rest before it types? True only when its next step is a
+ * local command (`/model <name>`, `/effort <level>`) and the session is busy. Claude Code runs such a
+ * command mid-turn and declines it: on Nov 16 2026 a ⚡-forced `/model sonnet` answered "Kept model as
+ * `Opus 5.5`". A forced row skips every timing rule (pickNext PRIORITY 0.5, pickWhileHeld) but not this
+ * one. An ordinary prompt is never held: typed mid-turn, the CLI queues it itself.
+ */
+export function holdsForRest(item: QueueItem, sessionWaiting: boolean): boolean {
+  if (sessionWaiting) return false;
+  const { text } = getActiveStep(item);
+  return isModelCommand(text) || isEffortCommand(text);
 }
 
 /**

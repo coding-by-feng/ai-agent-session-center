@@ -526,6 +526,25 @@
 }
 .tool[data-pending='true']:active { background: color-mix(in srgb, var(--ph-status-approval) 30%, transparent); }
 
+/* Hold-to-talk dictation (Nov 16 2026, the app only): held, the mic fills in the accent; while the
+   Mac turns the clip into text it keeps the accent and breathes. A hold must not scroll the page. */
+.mic { touch-action: none; }
+.mic[data-phase='recording'] {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+.mic[data-phase='recording']:active:not(:disabled) { background: var(--ph-accent); }
+.mic[data-phase='transcribing'] {
+  color: var(--ph-accent);
+  animation: micWait 1.2s ease-in-out infinite;
+}
+@keyframes micWait {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic[data-phase='transcribing'] { animation: none; }
+}
+
 /* The quick reply stays holdable while it can't send (a hold edits it), so it is aria-disabled. */
 .tool[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
 .tool[aria-disabled='true']:active { background: transparent; }
@@ -534,6 +553,17 @@
    stay in ＋, which lists commands and files too. */
 @media (max-width: 374px) {
   .toolbar:has(.stop) .inPlus { display: none; }
+}
+
+/* The mic takes a place too: on a phone / and @ stay in ＋ beside it. */
+@media (max-width: 430px) {
+  .toolbar:has(.mic) .inPlus { display: none; }
+}
+
+/* The smallest phones (320px): ＋, the quick reply, the mic, ■ Stop and the main button don't fit one
+   row, so the quick reply waits until the agent stops. */
+@media (max-width: 339px) {
+  .toolbar:has(.stop):has(.mic) .optional { display: none; }
 }
 
 /* A long main label ("Deny and tell Claude") needs the room: / and @ stay in ＋. */
@@ -691,3 +721,9 @@
 }
 
 .planPart { white-space: nowrap; }
+
+/* In the desktop terminal's Reader view (TerminalReader, Nov 18 2026) the queue and agents
+   chips would open phone screens that don't exist there: the desktop has its QUEUE bar and
+   AGENTS tab. */
+[data-desktop-reader] .queueChip,
+[data-desktop-reader] .agentsChip { display: none; }

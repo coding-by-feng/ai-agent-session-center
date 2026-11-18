@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
@@ -21,6 +22,9 @@ public class MainActivity extends BridgeActivity {
 
     /** A notification tap just sent the WebView back to the shell, which checks the lock itself. */
     private boolean returningForTap = false;
+
+    /** The hold-to-talk mic in Chat and the terminal's compose box (DictationBridge.kt, Nov 16 2026). */
+    private DictationBridge dictation;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -39,6 +43,10 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().setDownloadListener(this::onDownload);
         }
+        // The hold-to-talk mic: a Mac's page asks the app to record for it (it has no microphone of its own).
+        // Created here, before the activity starts, because it registers the permission request.
+        dictation = new DictationBridge(this);
+        if (getBridge() != null) dictation.install(getBridge());
         // Added after the plugins (super), so it is asked first: on a Mac's page the page decides
         // (BackRules, AASC-48); the shell and an older Mac UI get Capacitor's own back.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -56,6 +64,13 @@ public class MainActivity extends BridgeActivity {
                 });
             }
         });
+    }
+
+    /** Every touch passes here first: the hold-to-talk mic records only just after a finger went down. */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (dictation != null && event.getActionMasked() == MotionEvent.ACTION_DOWN) dictation.onTouchDown();
+        return super.dispatchTouchEvent(event);
     }
 
     /** A download from the WebView: only a Mac page's own file route, saved by DownloadManager with the page's cookie. */
@@ -110,6 +125,8 @@ public class MainActivity extends BridgeActivity {
     public void onPause() {
         // Before Android 13: secure while in the background, so the switcher's snapshot is blank.
         if (Build.VERSION.SDK_INT < 33) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        // A clip still recording is dropped: the app never records in the background.
+        if (dictation != null) dictation.onPause();
         super.onPause();
         pausedAt = System.currentTimeMillis();
     }

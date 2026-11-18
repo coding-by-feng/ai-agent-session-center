@@ -12,6 +12,8 @@
  *   is in the terminal; on a refusal it keeps the text and says why.
  * - While another device drives the session, everything here is disabled and the
  *   banner says who drives and how to get control.
+ * - In the app, a hold-to-talk mic sits beside Send (Nov 16 2026, `DictateButton`): the
+ *   spoken words fill the box and are never sent for you.
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useControlBaton } from '@/hooks/useControlBaton';
@@ -23,6 +25,9 @@ import {
   submitComposed,
   type PhoneKey,
 } from '@/lib/terminalCompose';
+import { insertDictation } from '@/lib/phoneDictation';
+import { usePhoneDictation } from '@/hooks/usePhoneDictation';
+import DictateButton from './DictateButton';
 import PhoneControlBanner from './PhoneControlBanner';
 import PhoneSuggestionBar from './PhoneSuggestionBar';
 import { ArrowDownKey, ArrowUpKey, EnterKey, ToolsIcon } from './phoneIcons';
@@ -75,7 +80,6 @@ export default function PhoneTerminalInput({
   // The compose box, for the suggestion bar's caret (AASC-20).
   const [composeEl, setComposeEl] = useState<HTMLTextAreaElement | null>(null);
   const text = composedText(draft);
-  const notice = sendError ?? socketNotice;
   // The draft as it is now, for the moment the text has landed: words typed
   // during the send's pause are a new message and must not be wiped.
   const draftRef = useRef(draft);
@@ -83,10 +87,23 @@ export default function PhoneTerminalInput({
     draftRef.current = draft;
   }, [draft]);
 
+  // Hold-to-talk dictation: at the caret when the box has the focus, else at the end.
+  const onSpoken = useCallback((spoken: string) => {
+    const focused = !!composeEl && document.activeElement === composeEl;
+    const next = insertDictation(draftRef.current, focused ? composeEl.selectionStart : null, spoken);
+    onDraftChange(next.text);
+    if (focused) requestAnimationFrame(() => composeEl.setSelectionRange(next.caret, next.caret));
+  }, [composeEl, onDraftChange]);
+  const dictation = usePhoneDictation(onSpoken);
+  const dictationError = dictation.line?.tone === 'error' ? dictation.line.text : null;
+  const dismissDictation = dictation.dismiss;
+  const notice = sendError ?? socketNotice ?? dictationError;
+
   const dismissNotice = useCallback(() => {
     setSendError(null);
     onDismissSocketNotice();
-  }, [onDismissSocketNotice]);
+    dismissDictation();
+  }, [onDismissSocketNotice, dismissDictation]);
 
   const send = useCallback(async () => {
     if (disabled || sending || !text) return;
@@ -156,6 +173,9 @@ export default function PhoneTerminalInput({
           disabled={disabled}
         />
       )}
+      {dictation.line && !dictationError && (
+        <p className={styles.dictateLine} role="status" data-testid="dictation-line">{dictation.line.text}</p>
+      )}
       <form className={styles.composeRow} onSubmit={onSubmit}>
         <button
           type="button"
@@ -181,6 +201,7 @@ export default function PhoneTerminalInput({
           autoComplete="off"
           spellCheck
         />
+        <DictateButton dictation={dictation} disabled={disabled} className={`${styles.toolsBtn} ${styles.micBtn}`} />
         <button type="submit" className={styles.sendBtn} disabled={disabled || sending || !text} aria-busy={sending || undefined}>
           {sending ? 'Sending' : 'Send'}
         </button>

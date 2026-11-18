@@ -8,7 +8,8 @@
  *
  * Kill and Restart confirm in a ConfirmSheet (a misfired tap must not stop an
  * agent); everything else changes something that can be changed back. Only what
- * a paired phone may do is offered: no Pin (AASC-50), no Share.
+ * a paired phone may do is offered: no Share. A pinned session's Edit section can step it up or down in
+ * PINNED (Nov 18 2026); the sheet stays open, so several taps move it several places.
  */
 import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import type { Session } from '@/types';
@@ -20,6 +21,7 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { restartNeedsConfirm } from '@/lib/restartSession';
 import { useRestartProgressStore } from '@/stores/restartProgressStore';
 import { requestSessionKill } from '@/lib/sessionActions';
+import { pinnedMoveOrder } from '@/lib/pinMove';
 import { killMessage, restartBlocker, restartMessage } from '@/lib/chat/sessionInfoModel';
 import { forkBlocker, useSessionActions } from './useSessionActions';
 import styles from '@/styles/modules/mobile/SessionSheets.module.css';
@@ -99,6 +101,14 @@ function ActionsSheet({
   onOpenTerminal?: () => void;
 }) {
   const { busy, copy, resume } = useSessionActions();
+  const id = session.sessionId;
+  const canMoveUp = useSessionStore((st) => pinnedMoveOrder(st.sessions.values(), id, -1) !== null);
+  const canMoveDown = useSessionStore((st) => pinnedMoveOrder(st.sessions.values(), id, 1) !== null);
+  const setPinnedOrder = useSessionStore((st) => st.setPinnedOrder);
+  const step = (by: -1 | 1) => () => {
+    const order = pinnedMoveOrder(useSessionStore.getState().sessions.values(), id, by);
+    if (order) setPinnedOrder(order);
+  };
   const ended = session.status === 'ended';
   const restartWhyNot = restartBlocker(session);
   const forkWhyNot = forkBlocker(session);
@@ -119,6 +129,8 @@ function ActionsSheet({
         <ListRow title="Rename" chevron onClick={to('rename')} />
         <ListRow title="Remark" chevron onClick={to('remark')} />
         <ListRow title="Move to room" chevron onClick={to('move-room')} />
+        {canMoveUp && <ListRow title="Move up in Pinned" onClick={step(-1)} />}
+        {canMoveDown && <ListRow title="Move down in Pinned" onClick={step(1)} />}
       </ListSection>
       <ListSection header="New session from this one">
         <ListRow

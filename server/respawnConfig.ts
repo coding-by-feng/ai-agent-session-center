@@ -4,9 +4,14 @@
 // connection fields and the session's trust choice carry over. Rebuilt field by field, so a
 // field left out here is silently lost on every restart: AASC-54's `autoConfirmTrust: false`
 // was, which let a restart answer Claude's "trust this folder" prompt for a phone's new folder.
+// The Automation mark (lite hooks) lives on the card itself, not on sshConfig, and is carried too.
+
+import { hookLevelConfigOf } from './sessionHookLevel.js';
+import type { SessionHookLevel } from '../src/types/session.js';
 
 export interface RespawnSource {
   projectPath?: string;
+  hookLevel?: SessionHookLevel;
   sshConfig?: {
     host?: string;
     port?: number;
@@ -29,6 +34,7 @@ export interface RespawnTerminalConfig {
   workingDir: string;
   command: '';
   autoConfirmTrust?: false;
+  hookLevel?: SessionHookLevel;
 }
 
 export function respawnTerminalConfig(session: RespawnSource): RespawnTerminalConfig {
@@ -42,5 +48,6 @@ export function respawnTerminalConfig(session: RespawnSource): RespawnTerminalCo
     workingDir: cfg.workingDir || session.projectPath || '~',
     command: '',
     ...(cfg.autoConfirmTrust === false ? { autoConfirmTrust: false as const } : {}),
+    ...hookLevelConfigOf(session),
   };
 }

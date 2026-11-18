@@ -75,3 +75,91 @@
 .empty {
   color: #aab0d0;
 }
+
+/* The status line and, at its right end, the Summary button (Nov 18 2026). */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.head .meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Same fixed colours as the rest of the bubble (always dark navy): #e0e0ff on #07071a is ~15:1. */
+.recapButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(170, 176, 208, 0.45);
+  border-radius: 12px;
+  background: transparent;
+  color: #e0e0ff;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.recapButton:hover {
+  border-color: #c9b8ff;
+  background: rgba(201, 184, 255, 0.14);
+}
+.recapButton:active {
+  background: rgba(201, 184, 255, 0.26);
+}
+.recapButton:focus-visible {
+  outline: 2px solid #7fd4ff;
+  outline-offset: 2px;
+}
+.recapButton:disabled {
+  border-color: rgba(170, 176, 208, 0.25);
+  background: transparent;
+  color: #aab0d0;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .recapButton {
+    transition: none;
+  }
+}
+
+.spark {
+  flex: none;
+  color: #c9b8ff;
+}
+
+/* What the session has done, in a few lines: above the prompts, set apart by a rule. */
+.recap {
+  display: grid;
+  row-gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(170, 176, 208, 0.25);
+}
+.recapHead,
+.recapText,
+.recapError {
+  margin: 0;
+}
+.recapHead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #aab0d0;
+  font-size: 10px;
+}
+.recapText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* #ffb4b4 on #07071a measures about 11:1. */
+.recapError {
+  color: #ffb4b4;
+}
+

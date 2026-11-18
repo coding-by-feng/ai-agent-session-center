@@ -16,6 +16,15 @@ describe('sortSessionsByActivity', () => {
     expect(sortSessionsByActivity(list).map((x) => x.title)).toEqual(['newest', 'middle', 'old']);
   });
 
+  it('keeps pinned sessions in their pinOrder, whatever their activity', () => {
+    const list = [
+      s({ title: 'second', pinned: true, pinOrder: 2, lastActivityAt: 9_000 }),
+      s({ title: 'first', pinned: true, pinOrder: 1, lastActivityAt: 1_000 }),
+      s({ title: 'loose', lastActivityAt: 99_000 }),
+    ];
+    expect(sortSessionsByActivity(list).map((x) => x.title)).toEqual(['first', 'second', 'loose']);
+  });
+
   it('floats pinned sessions above every unpinned one, however recent', () => {
     const list = [
       s({ title: 'busiest', lastActivityAt: 9_999 }),
@@ -114,6 +123,21 @@ describe('numberedSessions', () => {
       s({ sessionId: 't', title: 'alpha', status: 'idle' }),
     ];
     expect(numberedSessions(list).map((x) => x.sessionId)).toEqual(['n', 't', 'p']);
+  });
+
+  // PINNED drag (Nov 18 2026): the order the person set outranks status, so a pinned card's
+  // number no longer moves each time its status changes.
+  it('orders pinned sessions by pinOrder before status, unplaced pins after the placed ones', () => {
+    const list = [
+      s({ title: 'p-working', status: 'working', pinned: true, pinOrder: 3 }),
+      s({ title: 'p-idle', status: 'idle', pinned: true, pinOrder: 1 }),
+      s({ title: 'p-unplaced-working', status: 'working', pinned: true }),
+      s({ title: 'p-waiting', status: 'waiting', pinned: true, pinOrder: 2 }),
+      s({ title: 'loose-working', status: 'working', pinOrder: 0 }),
+    ];
+    expect(numberedSessions(list).map((x) => x.title)).toEqual([
+      'p-idle', 'p-waiting', 'p-working', 'p-unplaced-working', 'loose-working',
+    ]);
   });
 
   it('does not reorder its input', () => {

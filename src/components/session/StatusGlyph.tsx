@@ -47,6 +47,7 @@ export default function StatusGlyph({ status }: { status: string }) {
         </svg>
       );
     case 'compacting': // compacting its context: busy, whatever its status says (sessionStatusStyle.COMPACTING)
+    case 'background': // its background shells still run after the turn ended (sessionStatusStyle.BACKGROUND)
     case 'working': // tool running — spinner
       return (
         <svg {...GLYPH_PROPS}>
@@ -80,6 +81,13 @@ export default function StatusGlyph({ status }: { status: string }) {
       return (
         <svg {...GLYPH_PROPS}>
           <path d="M5 11.4V2.6h2.9a2.45 2.45 0 0 1 0 4.9H5" />
+        </svg>
+      );
+    case 'limit': // stopped on the plan's usage limit until its reset — hourglass (sessionStatusStyle.LIMIT)
+      return (
+        <svg {...GLYPH_PROPS}>
+          <path d="M3.6 2h6.8M3.6 12h6.8" />
+          <path d="M4.6 2v1.5c0 1.6 2.4 2.3 2.4 3.5s-2.4 1.9-2.4 3.5V12M9.4 2v1.5c0 1.6-2.4 2.3-2.4 3.5s2.4 1.9 2.4 3.5V12" />
         </svg>
       );
     case 'asleep': // CLI stopped to free memory, card kept — z (sessionStatusStyle.ASLEEP)

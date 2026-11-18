@@ -15,6 +15,7 @@ import type { DevicePresence } from '@/types/websocket';
 import { readFileSync } from 'node:fs';
 import { useCentralFeatureStore, __resetCentralFeatureForTest } from '@/stores/centralFeatureStore';
 import { resolve } from 'node:path';
+import { useQuickCreateStore } from '@/stores/quickCreateStore';
 
 // The feature switch's answer is known up front, so no test sees its one GET /api/config among the calls it counts.
 beforeEach(() => useCentralFeatureStore.setState({ on: true }));
@@ -24,6 +25,8 @@ beforeEach(() => useCentralFeatureStore.setState({ on: true }));
 // array: a fresh literal per call re-runs the menu's effect forever.
 const { KNOWN_PROJECTS } = vi.hoisted(() => ({ KNOWN_PROJECTS: [] as string[] }));
 vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => KNOWN_PROJECTS }));
+const sendProceed = vi.fn<(id: string) => Promise<boolean>>(async () => true);
+vi.mock('@/lib/chat/sendProceed', () => ({ sendProceed: (id: string) => sendProceed(id) }));
 
 /**
  * Progress remark — the note icon in the title row is the entry point for the
@@ -391,6 +394,43 @@ describe('SessionSwitcher — queue hint badge', () => {
         <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} statusLabel="IDLE" />,
       );
       expect(container.querySelector('[data-status="compacting"]')).toHaveTextContent('Compacting');
+    });
+  });
+
+  // Nov 17 2026: a turn that ended with background shells still running reads as work.
+  describe('while background shells still run', () => {
+    const shells = { backgroundTaskCount: 2, backgroundTasks: { items: [], agents: 0, shells: 2, activeShells: 2, at: Date.now() } };
+    const cardOf = (title: string) => screen.getAllByText(title)[0].closest('button') as HTMLElement;
+
+    it('the card shows the working spinner in its colour, not the completed tick', () => {
+      const current = makeSession({ sessionId: 'cur', title: 'Current' });
+      const view = (carded: Session) => (
+        <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])} onSwitch={vi.fn()} />
+      );
+      const bake = { sessionId: 's2', title: 'Playroom' };
+      const { rerender } = render(view(makeSession({ ...bake, status: 'working' })));
+      rerender(view(makeSession({ ...bake, status: 'waiting', ...shells })));
+      const card = cardOf('Playroom');
+      expect(within(card).queryByRole('img', { name: /^Completed/ })).toBeNull();
+      expect(within(card).getByRole('img', { name: 'Working in the background' }).querySelector('path')).not.toBeNull();
+      expect(card.style.getPropertyValue('--robot-color')).toBe('var(--accent-orange)');
+
+      // The shells ended: the next Stop lists none, and the tick comes back.
+      rerender(view(makeSession({ ...bake, status: 'waiting', backgroundTaskCount: 0 })));
+      expect(within(cardOf('Playroom')).getByRole('img', { name: /^Completed/ })).toBeInTheDocument();
+    });
+
+    it('leaves a card that needs an approval alone', () => {
+      renderWithCard(makeSession({ sessionId: 's2', title: 'Playroom', status: 'approval', ...shells }));
+      expect(within(cardOf('Playroom')).getByRole('img', { name: 'Approval needed' })).toBeInTheDocument();
+    });
+
+    it('the panel header says so too', () => {
+      const current = makeSession({ sessionId: 'cur', title: 'Current', status: 'waiting', ...shells });
+      const { container } = render(
+        <SessionSwitcher currentSession={current} sessions={new Map([[current.sessionId, current]])} onSwitch={vi.fn()} statusLabel="WAITING" />,
+      );
+      expect(container.querySelector('[data-status="background"]')).toHaveTextContent('Working in the background');
     });
   });
 
@@ -1042,6 +1082,18 @@ describe('SessionSwitcher — the current session is listed too', () => {
     expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe(label);
   });
 
+  it('a turn stopped on the usage limit shows the hourglass and the reset, not the ✓', () => {
+    const { container, rerender, b } = finishedWhileAway();
+    const limited = {
+      ...b,
+      status: 'waiting',
+      interruption: { kind: 'usage_limit', line: "You've hit your weekly limit · resets Nov 21 at 7pm (Pacific/Auckland)", detectedAt: 9 },
+    } as Session;
+    switchTo(rerender, [cur, limited], 'cur');
+    expect(attentionOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Limit reached · resets Nov 21 at 7pm');
+  });
+
   it('…but it survives auto-idle: a finished session nobody has looked at is still ready for review', () => {
     const { container, rerender, b } = finishedWhileAway();
     switchTo(rerender, [cur, { ...b, status: 'idle' } as Session], 'cur');
@@ -1069,6 +1121,17 @@ describe('SessionSwitcher — the current session is listed too', () => {
     const { container } = renderSwitcher([sms, exm], [b, cur]); // the first session is the current one
     expect(cardOf(container, 'Exmouth').getAttribute('aria-current')).toBe('true');
     expect(proceedOf(container)).toBeTruthy();
+  });
+
+  it('clicking the P sends "proceed" to that session, without switching to it', async () => {
+    sendProceed.mockClear();
+    const b = makeSession({ sessionId: 'x', title: 'Exmouth', status: 'waiting', pendingProceedAt: 1_800_000_000_000 });
+    const { container, onSwitch } = renderSwitcher([sms, exm], [cur, b]);
+    const p = proceedOf(container)!;
+    expect(p.getAttribute('aria-label')).toMatch(/Click to send “proceed”$/);
+    fireEvent.click(p);
+    await vi.waitFor(() => expect(sendProceed).toHaveBeenCalledWith('x'));
+    expect(onSwitch).not.toHaveBeenCalled();
   });
 
   it('an approval outranks P', () => {
@@ -1296,14 +1359,14 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     useUiStore.setState({
       activeModal: null, roomKillTargetId: null, sessionSortMode: 'room',
       navPosition: 'left', maximized: false, navRailCollapsed: false,
-      selectedRoomIds: new Set(), recentRoomCollapsed: false,
+      selectedRoomIds: new Set(), recentRoomCollapsed: false, recentRoomExpanded: false,
     });
   });
 
   afterEach(() => {
     vi.useRealTimers();
     useRoomStore.setState({ rooms: [] });
-    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), recentRoomCollapsed: false, sessionSortMode: 'room' });
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set(), recentRoomCollapsed: false, recentRoomExpanded: false, sessionSortMode: 'room' });
   });
 
   it('sits above every room and lists recent sessions, newest prompt first', () => {
@@ -1360,6 +1423,48 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     expect(titlesIn(recent)).toEqual([]);
     expect(recent.querySelector('[class*="roomCollapsedCount"]')!.textContent).toBe('3');
     expect(within(recent).getByRole('button', { name: 'Expand Recent' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  describe('10 or 20', () => {
+    /** `n` sessions that all worked, newest first (one minute apart), in one room. */
+    const many = (n: number) => Array.from({ length: n }, (_, i) =>
+      makeSession({ sessionId: `m${i}`, title: `Worked ${i}`, ...worked(i + 1) }));
+    const roomOf = (sessions: Session[]) => [makeRoom({ id: 'room-m', name: 'MANY', sessionIds: sessions.map((s) => s.sessionId), roomIndex: 0 })];
+    const showMore = (frame: HTMLElement) => within(frame).queryByRole('button', { name: 'Show the 20 most recent' });
+
+    it('shows 10, and extends to 20 with the header toggle, remembered in the ui store', () => {
+      const sessions = many(25);
+      const { container } = renderSwitcher(sessions, roomOf(sessions));
+      expect(titlesIn(recentOf(container)!)).toHaveLength(10);
+      expect(recentOf(container)!.getAttribute('title')).toMatch(/^Recent: the 10 most recently active sessions\./);
+
+      fireEvent.click(showMore(recentOf(container)!)!);
+      expect(useUiStore.getState().recentRoomExpanded).toBe(true);
+      const recent = recentOf(container)!;
+      expect(titlesIn(recent)).toHaveLength(20);
+      expect(titlesIn(recent)).toContain('Worked 19');
+      expect(recent.getAttribute('title')).toMatch(/^Recent: the 20 most recently active sessions\./);
+
+      const fold = within(recent).getByRole('button', { name: 'Show only the 10 most recent' });
+      expect(fold).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.click(fold);
+      expect(titlesIn(recentOf(container)!)).toHaveLength(10);
+      expect(useUiStore.getState().recentRoomExpanded).toBe(false);
+    });
+
+    it('offers no toggle when 10 or fewer sessions qualify: there is nothing more to show', () => {
+      const sessions = many(10);
+      const { container } = renderSwitcher(sessions, roomOf(sessions));
+      expect(showMore(recentOf(container)!)).toBeNull();
+      expect(within(recentOf(container)!).queryByRole('button', { name: 'Show only the 10 most recent' })).toBeNull();
+    });
+
+    it('hides the toggle while the frame is folded', () => {
+      const sessions = many(15);
+      const { container } = renderSwitcher(sessions, roomOf(sessions));
+      fireEvent.click(within(recentOf(container)!).getByRole('button', { name: 'Collapse Recent' }));
+      expect(showMore(recentOf(container)!)).toBeNull();
+    });
   });
 
   it('marks only the real-room copy of the current session as aria-current', () => {
@@ -1641,10 +1746,58 @@ describe('SessionSwitcher — built-in PINNED frame', () => {
     try {
       renderSwitcher();
       expect(toggle()).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'New session' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'New session or room' })).toBeNull();
     } finally {
       window.history.replaceState({}, '', before);
     }
+  });
+
+  // Drag to reorder PINNED (Nov 18 2026): the cards come in pinOrder, a drag sends the new order.
+  describe('drag to reorder', () => {
+    const placed = [
+      { ...exm3d, pinOrder: 3 },
+      { ...krt, pinOrder: 1 },
+      { ...sms, pinOrder: 2 },
+      phone,
+    ] as Session[];
+    const slotsOf = (frame: HTMLElement) => [...frame.querySelectorAll('[data-pinned-slot]')] as HTMLElement[];
+
+    it('lists the pinned cards in their pinOrder, each in a draggable slot', () => {
+      const { container } = renderSwitcher(placed, phone);
+      const frame = pinnedOf(container)!;
+      expect(titlesIn(frame)).toEqual(['Exmouth KRT', 'SMS', 'Exmouth 3D']);
+      expect(slotsOf(frame).map((el) => el.dataset.pinnedSlot)).toEqual(['krt', 'sms', 'x3']);
+    });
+
+    it('a mouse drag from a card down past another sends the new order', () => {
+      const setPinnedOrder = vi.fn();
+      useSessionStore.setState({ setPinnedOrder } as never);
+      const { container } = renderSwitcher(placed, phone);
+      const slots = slotsOf(pinnedOf(container)!);
+      slots.forEach((el, i) => {
+        el.getBoundingClientRect = () => ({ top: i * 50, bottom: i * 50 + 40, left: 0, right: 200, width: 200, height: 40, x: 0, y: i * 50, toJSON: () => ({}) }) as DOMRect;
+      });
+      const card = within(slots[0]).getByRole('button', { name: /Exmouth KRT/ });
+      fireEvent.pointerDown(card, { clientX: 20, clientY: 20, button: 0, pointerType: 'mouse' });
+      act(() => { fireEvent(window, new MouseEvent('pointermove', { clientX: 20, clientY: 40, bubbles: true, cancelable: true })); });
+      expect(slots[0].className).toMatch(/pinnedCardDragging/);
+      act(() => { fireEvent(window, new MouseEvent('pointermove', { clientX: 20, clientY: 85, bubbles: true, cancelable: true })); });
+      act(() => { fireEvent(window, new Event('pointerup', { bubbles: true })); });
+      expect(setPinnedOrder).toHaveBeenCalledWith(['sms', 'krt', 'x3']);
+    });
+
+    it('offers no drag while a room filter hides some pinned cards', () => {
+      useUiStore.setState({ selectedRoomIds: new Set(['room-exm']) });
+      const setPinnedOrder = vi.fn();
+      useSessionStore.setState({ setPinnedOrder } as never);
+      const { container } = renderSwitcher(placed, phone);
+      const slots = slotsOf(pinnedOf(container)!);
+      const card = within(slots[0]).getByRole('button', { name: /Exmouth KRT/ });
+      fireEvent.pointerDown(card, { clientX: 20, clientY: 20, button: 0, pointerType: 'mouse' });
+      act(() => { fireEvent(window, new MouseEvent('pointermove', { clientX: 20, clientY: 85, bubbles: true, cancelable: true })); });
+      act(() => { fireEvent(window, new Event('pointerup', { bubbles: true })); });
+      expect(setPinnedOrder).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -2121,7 +2274,26 @@ describe('SessionSwitcher — plan usage chip', () => {
     const { container } = renderSwitcher(makeSession({ planUsage: usage() }));
     expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
     expect(chips(container)).toHaveLength(1);
-    expect(nameRow(container).firstElementChild?.className).toMatch(/planUsageSlot/);
+    // Nov 18 2026: the rail's first line is the usage line, the plan chip first in it.
+    const line = nameRow(container).firstElementChild!;
+    expect(line.className).toMatch(/switcherUsageLine/);
+    expect(line.firstElementChild?.className).toMatch(/planUsageSlot/);
+  });
+
+  it('shares its rail line with the model · effort chip, which leaves the meta row (Nov 18 2026)', () => {
+    useUiStore.setState({ navPosition: 'left' });
+    const { container } = renderSwitcher(makeSession({ planUsage: usage(), model: 'claude-opus-4-1', runtime: { model: 'claude-opus-4-1', modelAt: 1, effort: 'high', effortAt: 1 } } as never));
+    const line = nameRow(container).firstElementChild!;
+    expect(line.querySelector('[class*="runtimeChip"]')).toBeTruthy();
+    expect(container.querySelectorAll('[class*="runtimeChip"]')).toHaveLength(1);
+    expect(container.querySelector('[class*="switcherMeta"] [class*="runtimeChip"]')).toBeNull();
+  });
+
+  it('keeps the model · effort chip in the meta row in the top bar', () => {
+    useUiStore.setState({ navPosition: 'top' });
+    const { container } = renderSwitcher(makeSession({ planUsage: usage(), model: 'claude-opus-4-1', runtime: { model: 'claude-opus-4-1', modelAt: 1, effort: 'high', effortAt: 1 } } as never));
+    expect(container.querySelector('[class*="switcherUsageLine"]')).toBeNull();
+    expect(container.querySelector('[class*="switcherMeta"] [class*="runtimeChip"]')).toBeTruthy();
   });
 
   it('follows the session it is switched to', () => {
@@ -2171,16 +2343,44 @@ describe('SessionSwitcher — start a session without leaving the panel', () => 
     vi.unstubAllGlobals();
   });
 
-  it('the + icon opens the new-session form', () => {
+  // Nov 17 2026: the bare + became the labelled ＋ New, which opens the quick-create menu (QuickCreateMenu,
+  // drawn by App) instead of going straight to the nine-field form; the form is the menu's "More options…".
+  it('＋ New opens the quick-create menu, and closes it again', () => {
     renderSwitcher();
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
-    expect(useUiStore.getState().activeModal).toBe('new-session');
+    const button = screen.getByRole('button', { name: 'New session or room' });
+    expect(button).toHaveTextContent('New');
+    fireEvent.click(button);
+    expect(useQuickCreateStore.getState().open).toBe(true);
+    expect(useUiStore.getState().activeModal).toBeNull();
+    fireEvent.click(button);
+    expect(useQuickCreateStore.getState().open).toBe(false);
   });
 
-  it('the folder icon opens the recent-directories menu', () => {
+  // Nov 18 2026: the recent-directories folder left this row (＋ New's menu starts a session by
+  // project); in the left rail the collapse « took its slot, so it no longer wraps to a line of its own.
+  it('has no recent-directories button', () => {
     renderSwitcher();
-    fireEvent.click(screen.getByRole('button', { name: 'Recent directories' }));
-    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Recent directories' })).toBeNull();
+  });
+
+  it('in the left rail, « sits in the launch group right after ＋ New', () => {
+    const prev = useUiStore.getState().navPosition;
+    useUiStore.setState({ navPosition: 'left' });
+    try {
+      const { container } = renderSwitcher();
+      const launch = container.querySelector('[class*="switcherLaunch"]')!;
+      const names = [...launch.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
+      expect(names).toEqual(['New session or room', 'Collapse session panel']);
+      expect(screen.getAllByRole('button', { name: 'Collapse session panel' })).toHaveLength(1);
+    } finally {
+      act(() => useUiStore.setState({ navPosition: prev }));
+    }
+  });
+
+  it('in the top bar there is no «', () => {
+    const { container } = renderSwitcher();
+    expect(container.querySelector('[class*="switcherBarVertical"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Collapse session panel' })).toBeNull();
   });
 
   // A popped-out session window renders DetailPanel too, but not AppLayout,
@@ -2191,21 +2391,19 @@ describe('SessionSwitcher — start a session without leaving the panel', () => 
     window.history.replaceState({}, '', '/?popout=session&sessionId=s1');
     try {
       renderSwitcher();
-      expect(screen.queryByRole('button', { name: 'New session' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Recent directories' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'New session or room' })).toBeNull();
     } finally {
       window.history.replaceState({}, '', before);
     }
   });
 
-  it('both are there in the left rail too', () => {
+  it('＋ New is there in the left rail too', () => {
     const prev = useUiStore.getState().navPosition;
     useUiStore.setState({ navPosition: 'left' });
     try {
       const { container } = renderSwitcher();
       expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'New session' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Recent directories' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'New session or room' })).toBeInTheDocument();
     } finally {
       act(() => useUiStore.setState({ navPosition: prev }));
     }
@@ -2265,14 +2463,23 @@ describe('SessionSwitcher — title actions row', () => {
     expect(row).not.toBeNull();
     expect(name.contains(row)).toBe(false);
     expect(name.nextElementSibling).toBe(row);
-    expect(name.querySelectorAll('button')).toHaveLength(0);
   });
 
-  it('holds pin, rename, label and remark', () => {
+  // Nov 18 2026: rename sits by the name it renames, not in the row of actions.
+  it('puts Rename right after the name, and nothing else inside it', () => {
+    const { container } = renderSwitcher();
+    const name = nameOf(container);
+    const buttons = [...name.querySelectorAll('button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Rename session']);
+    expect(within(actions(container) as HTMLElement).queryByRole('button', { name: 'Rename session' })).toBeNull();
+    fireEvent.click(buttons[0]);
+    expect(screen.getByRole('textbox', { name: 'Session title' })).toBeInTheDocument();
+  });
+
+  it('holds pin, label and remark', () => {
     const { container } = renderSwitcher();
     const row = within(actions(container) as HTMLElement);
     expect(row.getByRole('button', { name: 'Pin session' })).toBeInTheDocument();
-    expect(row.getByRole('button', { name: 'Rename session' })).toBeInTheDocument();
     expect(row.getByRole('button', { name: 'Set session label' })).toBeInTheDocument();
     expect(row.getByRole('button', { name: 'Add a session remark' })).toBeInTheDocument();
   });
@@ -2943,7 +3150,10 @@ describe('SessionSwitcher — worker badge', () => {
  * and a button with a word squeezed the title to nothing in a 1100px top bar (rendered check, Oct 2026).
  */
 describe('SessionSwitcher — Hands off', () => {
+  // Since Nov 18 2026 the switch shows only on a session that is hands off, so that it can be turned off:
+  // these tests start from one.
   const makeSession = (over: Partial<Session> = {}): Session => ({
+    handsOff: true,
     sessionId: 's1',
     title: 'Backend worker',
     projectName: 'agent-manager',
@@ -2978,10 +3188,16 @@ describe('SessionSwitcher — Hands off', () => {
     vi.restoreAllMocks();
   });
 
-  it('is offered in the title actions when this window may drive centrals', () => {
+  it('is gone from a session that is not hands off (Nov 18 2026)', () => {
+    const { container } = renderHeader(makeSession({ handsOff: false }));
+
+    expect(handsOff(container)).toBeNull();
+  });
+
+  it('stays on a session that is hands off, so it can be turned off', () => {
     const { container } = renderHeader(makeSession());
 
-    expect(handsOff(container)).toHaveAttribute('aria-pressed', 'false');
+    expect(handsOff(container)).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('comes right after Pin, before the buttons that annotate the session', () => {
@@ -2991,7 +3207,9 @@ describe('SessionSwitcher — Hands off', () => {
     const pin = names.findIndex((n) => /pin session/i.test(n ?? ''));
     expect(pin).toBe(0);
     expect(names[pin + 1]).toBe('Hands off');
-    expect(names[pin + 2]).toBe('Rename session');
+    // Automation (lite hooks) is the other per-session flag: it follows Hands off.
+    expect(names[pin + 2]).toBe('Automation');
+    expect(names[pin + 3]).toBe('Set session label');
   });
 
   it('shows the flag the session carries', () => {
@@ -3025,7 +3243,7 @@ describe('SessionSwitcher — Hands off', () => {
     expect(handsOff(container)).toBeInTheDocument();
   });
 
-  it('asks the server to switch it on when it is clicked', async () => {
+  it('asks the server to switch it off when it is clicked', async () => {
     const { container } = renderHeader(makeSession());
     useSessionStore.getState().addSession(makeSession());
 
@@ -3033,7 +3251,7 @@ describe('SessionSwitcher — Hands off', () => {
 
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
       '/api/mcp/sessions/s1/hands-off',
-      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ on: true }) }),
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ on: false }) }),
     ));
   });
 

@@ -23,3 +23,27 @@ export function writeReaderMode(sessionId: string, on: boolean): void {
     // Storage full or blocked: the toggle still works for this view.
   }
 }
+
+/** On <body> while any Reader is open: the kit's portaled sheets and menus get the --ph-* tokens. */
+export const READER_BODY_CLASS = 'aasc-reader-tokens';
+
+interface TypeThroughEvent {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  target: EventTarget | null;
+  currentTarget: EventTarget | null;
+  nativeEvent?: { isComposing?: boolean };
+}
+
+/**
+ * Reader type-through (Nov 18 2026): a plain character typed on the chat itself (the reader
+ * has focus, not the composer or a button) goes back to the terminal, typed there.
+ * Shortcuts, Space (scroll), arrows and IME composition stay in Reader.
+ */
+export function isTypeThrough(e: TypeThroughEvent): boolean {
+  if (e.target !== e.currentTarget) return false;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent?.isComposing) return false;
+  return e.key.length === 1 && e.key !== ' ';
+}

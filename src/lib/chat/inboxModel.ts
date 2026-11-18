@@ -7,6 +7,7 @@
  * the session screen's "N more need you ›" jump. Pure; built only from what the
  * phone already receives, so a session hidden from this device is simply absent.
  */
+import { limitLabel } from '@/lib/sessionStatusStyle';
 import type { Session } from '@/types';
 
 type WaitingFields = Pick<Session, 'sessionId' | 'status' | 'lastActivityAt' | 'interruption'>;
@@ -40,6 +41,14 @@ export function nextWaitingSession(sessions: ReadonlyMap<string, WaitingFields>,
   return order[(at + 1) % order.length];
 }
 
+/**
+ * Why the last turn stopped, for a one-line row: the banner as printed, except a usage limit, which leads
+ * with the limit and its reset ("Limit reached · resets 1:30pm") so a narrow row does not cut the time off.
+ */
+export function stoppedLine(interruption: NonNullable<Session['interruption']>): string {
+  return interruption.kind === 'usage_limit' ? limitLabel(interruption) : `Stopped: ${interruption.line}`;
+}
+
 /** What a waiting session waits for, in words ("Wants to run: npm test"). */
 export function waitingLine(session: AskFields): string {
   if (session.status === 'approval') {
@@ -47,6 +56,6 @@ export function waitingLine(session: AskFields): string {
     return what ? `Wants to run: ${what}` : 'Wants your approval';
   }
   if (session.status === 'input') return session.waitingDetail ? `Asks: ${session.waitingDetail}` : 'Has a question for you';
-  if (session.interruption) return `Stopped: ${session.interruption.line}`;
+  if (session.interruption) return stoppedLine(session.interruption);
   return 'Waiting for you';
 }

@@ -109,6 +109,9 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // Pinned (Nov 2 2026, reversing AASC-50): a shared session's PINNED flag, so the Mac brings it back if it
   // ends. No more than Restart or Resume already let a phone do to the same session; kill still unpins first.
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|pinned|accent-color|character-model|ai-popup)', 'allow'),
+  // The PINNED order (Nov 18 2026: the row sheet's Move up / Move down). The route takes only shared
+  // sessions from a remote device and leaves the pins it can't see where they are.
+  route('PUT', '/pinned-order', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
   // An AI popup (AASC-20): a floating fork of a shared session, started from its
@@ -149,6 +152,8 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/voice/status', 'allow'),
   route('POST', '/voice/call', 'allow'),
   route('POST', '/voice/call/:id/end', 'allow'),
+  // Hold-to-talk dictation (Nov 16 2026): a clip in, text out; the route limits each device itself.
+  route('POST', '/voice/dictate', 'allow'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session, and the folder browser that finds where (AASC-54): folder names under home.
   route('POST', '/terminals', 'launch'),

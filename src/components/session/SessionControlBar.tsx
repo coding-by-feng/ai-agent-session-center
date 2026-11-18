@@ -19,6 +19,8 @@ import Tooltip from '@/components/ui/Tooltip';
 import Button from '@/components/ui/Button';
 import { AlertIcon, MuteIcon, ResumeIcon, ShareIcon } from '@/components/ui/icons';
 import { faultLabel } from '@/lib/resumeWatchdog';
+import { usageLimitReset } from '@/lib/sessionStatusStyle';
+import StatusGlyph from './StatusGlyph';
 import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -147,14 +149,22 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
 
   return (
     <div className={styles.ctrlBar}>
-      {session.interruption && (
+      {session.interruption && (session.interruption.kind === 'usage_limit' ? (
+        <span
+          className={styles.ctrlInterrupted}
+          title={`Stopped on the usage limit: nothing runs until the plan resets it.\n${session.interruption.line}`}
+        >
+          <StatusGlyph status="limit" /> {faultLabel(session.interruption.kind)}
+          {usageLimitReset(session.interruption.line) ? ` · ${usageLimitReset(session.interruption.line)}` : ''}
+        </span>
+      ) : (
         <span
           className={styles.ctrlInterrupted}
           title={`Turn ended on a transient failure, not a finished task:\n${session.interruption.line}`}
         >
           ⚠ {faultLabel(session.interruption.kind)}
         </span>
-      )}
+      ))}
       {isDisconnected && (
         <Tooltip {...tooltips.ctrlResume}>
           <Button

@@ -41,6 +41,9 @@ class ShellBridgePlugin : Plugin() {
     @Volatile
     private var allowed: Set<String> = emptySet()
 
+    /** Is `origin` one of the paired Macs' pages? (DictationBridge asks before it records for a page.) */
+    internal fun allows(origin: String): Boolean = origin in allowed
+
     @PluginMethod
     fun setSessionCookie(call: PluginCall) = fromShellOnly(call) {
         val origin = ShellRules.macOrigin(call.getString("origin"))

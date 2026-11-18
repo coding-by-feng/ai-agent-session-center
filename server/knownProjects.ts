@@ -89,6 +89,7 @@ export interface ProjectActivity {
 
 /**
  * The known folders, most used first: sessions in the window, then the newest activity, then path.
+ * This orders the RESOURCES Projects list; New session's suggestions use `rankRecentProjects`.
  * A folder no session has used goes last, in path order. Only `paths` are ranked; the activity
  * rows never add a folder (the list a phone is shown must stay the list it is checked against).
  */
@@ -99,6 +100,59 @@ export function rankProjects(paths: readonly string[], activity: readonly Projec
   return [...paths].sort((a, b) => {
     if (recent(a) !== recent(b)) return recent(b) - recent(a);
     if (last(a) !== last(b)) return last(b) - last(a);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+/** A session's folder inside one of a project's worktrees (`<project>/.claude/worktrees/<name>`). */
+const WORKTREE_RE = /[\\/]\.claude[\\/]worktrees[\\/]/;
+
+/** The project a session's folder counts toward: a worktree counts toward the project it belongs to. */
+function projectOf(path: string): string {
+  const at = path.search(WORKTREE_RE);
+  return at > 0 ? path.slice(0, at) : path;
+}
+
+/**
+ * The sessions in memory, as activity rows. The stored `last_activity_at` can lag a session that is
+ * running, so the folder being worked in this minute is ranked by the live time. Each row counts no
+ * session (`recent: 0`): the table already counted it.
+ */
+export function liveProjectActivity(
+  sessions: Iterable<{ projectPath?: string | null; lastActivityAt?: number | null }>,
+): ProjectActivity[] {
+  const rows: ProjectActivity[] = [];
+  for (const s of sessions) {
+    if (s.projectPath && typeof s.lastActivityAt === 'number' && s.lastActivityAt > 0) {
+      rows.push({ project_path: s.projectPath, recent: 0, last: s.lastActivityAt });
+    }
+  }
+  return rows;
+}
+
+/**
+ * The known folders for New session's recent projects (Nov 18 2026, by request): the folder a session
+ * was active in most recently first, then sessions in the window, then path. Ranking by the count alone
+ * (`rankProjects`) kept the month's busiest folder on top long after work had moved elsewhere. Several
+ * rows for one folder are merged (newest time, counts added), and a session in a project's worktree
+ * counts toward the project. As in `rankProjects`, a folder no session has used goes last in path
+ * order, and the rows never add a folder.
+ */
+export function rankRecentProjects(paths: readonly string[], activity: readonly ProjectActivity[]): string[] {
+  const byProject = new Map<string, { recent: number; last: number }>();
+  for (const row of activity) {
+    const key = projectOf(row.project_path);
+    const seen = byProject.get(key) ?? { recent: 0, last: -Infinity };
+    byProject.set(key, {
+      recent: seen.recent + (Number(row.recent) || 0),
+      last: Math.max(seen.last, row.last ?? -Infinity),
+    });
+  }
+  const recent = (p: string): number => byProject.get(p)?.recent ?? 0;
+  const last = (p: string): number => byProject.get(p)?.last ?? -Infinity;
+  return [...paths].sort((a, b) => {
+    if (last(a) !== last(b)) return last(b) - last(a);
+    if (recent(a) !== recent(b)) return recent(b) - recent(a);
     return a < b ? -1 : a > b ? 1 : 0;
   });
 }

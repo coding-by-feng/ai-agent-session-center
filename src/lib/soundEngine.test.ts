@@ -19,6 +19,7 @@ function createMockAudioContext() {
     frequency: {
       setValueAtTime: vi.fn(),
       exponentialRampToValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
       value: 440,
     },
     connect: vi.fn(),
@@ -31,8 +32,12 @@ function createMockAudioContext() {
     currentTime: 0,
     state: 'running' as AudioContextState,
     destination: {},
-    createOscillator: vi.fn(() => ({ ...mockOsc })),
-    createGain: vi.fn(() => ({ ...mockGain })),
+    createOscillator: vi.fn(() => ({ ...mockOsc, start: vi.fn(), frequency: { ...mockOsc.frequency } })),
+    createGain: vi.fn(() => ({ ...mockGain, gain: { ...mockGain.gain, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() } })),
+    createDynamicsCompressor: vi.fn(() => ({
+      threshold: { setValueAtTime: vi.fn() }, ratio: { setValueAtTime: vi.fn() }, knee: { setValueAtTime: vi.fn() },
+      attack: { setValueAtTime: vi.fn() }, release: { setValueAtTime: vi.fn() }, connect: vi.fn(),
+    })),
     resume: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
   };
@@ -189,8 +194,39 @@ describe('SoundEngine', () => {
       expect(names).toContain('alarm');
       expect(names).toContain('urgentAlarm');
       expect(names).toContain('fanfare');
+      expect(names).toContain('siren');
+      expect(names).toContain('bells');
       expect(names).toContain('none');
-      expect(names.length).toBe(16);
+      expect(names.length).toBe(18);
+    });
+  });
+
+  // Alert (Nov 18 2026): an alerted session's sounds are loud whatever the slider says, and are
+  // scheduled on the audio clock — the old boost was restored before setTimeout'd notes fired.
+  describe('playLoud', () => {
+    it('plays the siren for about 2.4 s on the audio clock, with no timers', () => {
+      engine.setVolume(0.1);
+      engine.playLoud('siren');
+      expect(vi.getTimerCount()).toBe(0);
+      const starts = mockCtx.createOscillator.mock.results.map((r) => (r.value.start as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+      expect(starts.length).toBe(8);
+      expect(Math.max(...starts)).toBeCloseTo(1.8);
+    });
+
+    it('is at full level through a compressor, whatever the slider says', () => {
+      engine.setVolume(0.05);
+      engine.playLoud('bells');
+      expect(mockCtx.createDynamicsCompressor).toHaveBeenCalledTimes(1);
+      const levels = mockCtx.createGain.mock.results.flatMap((r) =>
+        (r.value.gain.exponentialRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as number));
+      expect(Math.max(...levels)).toBeCloseTo(0.5);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('reuses one compressor while the audio context lives', () => {
+      engine.playLoud('bells');
+      engine.playLoud('siren');
+      expect(mockCtx.createDynamicsCompressor).toHaveBeenCalledTimes(1);
     });
   });
 

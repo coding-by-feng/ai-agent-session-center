@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  RECENT_EXPANDED_LIMIT,
   RECENT_LIMIT,
   recencyOf,
   lastPromptAt,
@@ -98,6 +99,26 @@ describe('pickRecentSessions', () => {
     expect(picked).toContain('run'); // ranked as now, though its prompt is the oldest
     expect(picked).not.toContain('q9'); // the oldest quiet ones fall off
     expect(picked).not.toContain('q11');
+  });
+
+  it(`keeps up to ${RECENT_EXPANDED_LIMIT} when asked for the extended list`, () => {
+    const quiet = Array.from({ length: 25 }, (_, i) =>
+      make({ sessionId: `q${i}`, title: `Q${i}`, promptHistory: [prompt(100 + i * 10)] }));
+    const picked = pickRecentSessions(quiet, NOW, RECENT_EXPANDED_LIMIT).map((s) => s.sessionId);
+    expect(picked).toHaveLength(RECENT_EXPANDED_LIMIT);
+    expect(picked).toContain('q19');
+    expect(picked).not.toContain('q20');
+    expect(pickRecentSessions(quiet, NOW)).toHaveLength(RECENT_LIMIT);
+  });
+
+  it('cuts by recency before ordering pinned first: the 10 are the newest 10, not the first 10 of the 20', () => {
+    const quiet = Array.from({ length: 15 }, (_, i) =>
+      make({ sessionId: `q${i}`, title: `Q${i}`, promptHistory: [prompt(100 + i * 10)] }));
+    const oldPinned = make({ sessionId: 'pin', title: 'Pin', pinned: true, promptHistory: [prompt(900)] });
+    const ten = pickRecentSessions([...quiet, oldPinned], NOW).map((s) => s.sessionId);
+    const twenty = pickRecentSessions([...quiet, oldPinned], NOW, RECENT_EXPANDED_LIMIT).map((s) => s.sessionId);
+    expect(ten).not.toContain('pin');
+    expect(twenty[0]).toBe('pin');
   });
 
   it('orders by prompt, not by the latest event, so busy cards do not swap places', () => {

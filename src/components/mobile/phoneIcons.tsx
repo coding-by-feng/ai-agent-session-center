@@ -213,3 +213,12 @@ export const ToolsIcon = (p: IconProps) => (
     <line x1="17" y1="16" x2="23" y2="16" />
   </Svg>
 );
+
+/** Hold-to-talk dictation (Nov 16 2026): a microphone, filled while it records. */
+export const MicIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <Svg {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" fill={filled ? 'currentColor' : 'none'} />
+    <path d="M6 11a6 6 0 0 0 12 0" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </Svg>
+);

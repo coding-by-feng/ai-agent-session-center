@@ -6,6 +6,7 @@
  * Also detects hook source (terminal type) from environment variables.
  */
 import { tryLinkByWorkDir, getTerminalByPtyChild, consumePendingLink } from './sshManager.js';
+import { hookCliOf, isOtherAgent } from './agentCli.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import log from './logger.js';
 import { toArchivedSession } from './sessionTrim.js';
@@ -261,8 +262,8 @@ export function isInheritedTerminalClaim(
  */
 /** What the person set on a card, or its launch gave it: kept when a split pair rejoins. */
 const CARD_IDENTITY_KEYS = [
-  'title', 'remark', 'accentColor', 'characterModel', 'colorIndex', 'muted', 'pinned', 'alerted',
-  'remoteVisible', 'aiPopupEnabled', 'central', 'handsOff', 'effortLevel', 'queueCount',
+  'title', 'remark', 'accentColor', 'characterModel', 'colorIndex', 'muted', 'pinned', 'pinOrder', 'alerted',
+  'remoteVisible', 'aiPopupEnabled', 'central', 'handsOff', 'hookLevel', 'effortLevel', 'queueCount',
   'terminalId', 'opsTerminalId', 'hadOpsTerminal', 'sshHost', 'sshCommand', 'sshConfig',
   'startupCommand', 'source', 'projectName', 'projectPath', 'previousSessions',
 ] as const satisfies readonly (keyof Session)[];
@@ -534,8 +535,9 @@ export function matchSession(
       preSession.replacesId = hookData.agent_terminal_id;
       session = preSession;
       sessions.set(session_id, session);
-      // Consume pendingLink so Priority 2 doesn't create a duplicate match
-      consumePendingLink(preSession.projectPath || '');
+      // Consume THIS terminal's pendingLink so Priority 2 doesn't create a duplicate match. Never the
+      // folder's oldest: that can be another agent's in the same folder (Nov 17 2026).
+      consumePendingLink(preSession.projectPath || '', hookData.agent_terminal_id);
       log.info('session', `Re-keyed terminal session ${hookData.agent_terminal_id} -> ${session_id?.slice(0, 8)} (via terminal ID)`);
     }
   }
@@ -567,7 +569,7 @@ export function matchSession(
         (s.terminalId === termId || s.lastTerminalId === termId)
       ) {
         session = reKeyResumedSession(sessions, s, session_id, key, pidToSession);
-        consumePendingLink(s.projectPath || '');
+        consumePendingLink(s.projectPath || '', termId);
         log.info('session', `Re-keyed resumed session ${key?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via terminalId scan, agent_terminal_id=${termId?.slice(0, 8)})`);
         break;
       }
@@ -592,7 +594,7 @@ export function matchSession(
       const isDiscovered = existingSessionId.startsWith('external-');
       if (existingSession && (hook_event_name === EVENT_TYPES.SESSION_START || isDiscovered)) {
         session = reKeyResumedSession(sessions, existingSession, session_id, existingSessionId, pidToSession);
-        consumePendingLink(existingSession.projectPath || '');
+        consumePendingLink(existingSession.projectPath || '', existingSession.terminalId || undefined);
         log.info('session', `Re-keyed session ${existingSessionId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via cached PID=${pid}${isDiscovered ? ', discovered-card upgrade' : ', same process new session_id'})`);
       }
     }
@@ -609,7 +611,8 @@ export function matchSession(
   const isPathStartup = isSessionStart && mayBindByPath;
   // Priority 2: Match via pending workDir link
   if (!session) {
-    const linkedTerminalId = isPathStartup ? tryLinkByWorkDir(cwd || '', session_id) : null;
+    const hookCli = hookCliOf(hookData.cli_source);
+    const linkedTerminalId = isPathStartup ? tryLinkByWorkDir(cwd || '', session_id, hookCli) : null;
     if (linkedTerminalId) {
       // Check if there's a pre-created terminal session with this terminalId as its key
       let preSession = sessions.get(linkedTerminalId);
@@ -654,7 +657,8 @@ export function matchSession(
       // and on a tty (mayBindByPath, AASC-59).
       if (isPathStartup) {
         for (const [key, s] of sessions) {
-          if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath) {
+          // Never another agent's placeholder: a Claude and a Codex card can share the folder.
+          if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath && !isOtherAgent(hookCli, s.cliSource)) {
             const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
             if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
               connectingMatches.push({ key, s });

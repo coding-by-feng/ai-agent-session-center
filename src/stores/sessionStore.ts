@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import type { Session } from '@/types';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
 import { isListedSession } from '@/lib/sessionSort';
+import { nextPinOrder, planPinnedOrder } from '@/lib/pinOrder';
+
+/** The answer to an Automation (lite hooks) change: see `setHookLevel`. */
+export type HookLevelResult =
+  | { ok: true; appliesOnRestart: boolean }
+  | { ok: false; error: string };
 
 /** How many sessions `recentSelectedIds` remembers. */
 const RECENT_SELECTED_MAX = 20;
@@ -39,10 +45,20 @@ interface SessionState {
   leaveSession: (goneId: string) => string | null;
   setSessions: (sessions: Map<string, Session>) => void;
   togglePin: (sessionId: string) => void;
+  /**
+   * The PINNED frame's cards top to bottom after a drag (Nov 18 2026): renumbers `pinOrder` at
+   * once, then `PUT /api/pinned-order`; a refusal puts the old places back.
+   */
+  setPinnedOrder: (sessionIds: readonly string[]) => void;
   toggleMute: (sessionId: string) => void;
   toggleAlert: (sessionId: string) => void;
   toggleRemoteVisible: (sessionId: string) => void;
   toggleAiPopup: (sessionId: string) => void;
+  /**
+   * Mark the session Automation (lite hooks) or clear it. Optimistic; the old value comes back when the server
+   * refuses. Resolves with the server's answer: `appliesOnRestart` when the agent running now keeps its old level.
+   */
+  setHookLevel: (sessionId: string, lite: boolean) => Promise<HookLevelResult>;
   setSessionTitle: (sessionId: string, title: string) => void;
   /** Set the inline progress remark. Empty string clears it. */
   setSessionRemark: (sessionId: string, remark: string) => void;
@@ -143,7 +159,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (!session) return state;
       const pinned = !session.pinned;
       const next = new Map(state.sessions);
-      next.set(sessionId, { ...session, pinned });
+      // A new pin goes to the end of PINNED, unpinning gives up the place; the server does the
+      // same (sessionStore.setSessionPinned), so the next update agrees.
+      next.set(sessionId, {
+        ...session,
+        pinned,
+        pinOrder: pinned ? nextPinOrder(state.sessions.values()) : undefined,
+      });
       // Persist to server. A refusal (a session not shared with this device) puts
       // the old value back instead of showing a pin the Mac never made. The phone
       // pins through useSessionActions.setPinned, which also says why (Nov 2 2026).
@@ -159,6 +181,43 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           const reverted = new Map(later.sessions);
           reverted.set(sessionId, { ...current, pinned: !pinned });
           return { sessions: reverted };
+        });
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  setPinnedOrder: (sessionIds) =>
+    set((state) => {
+      const pinned = [...state.sessions.values()].filter((s) => s.pinned && s.status !== 'ended');
+      const plan = planPinnedOrder(pinned, sessionIds);
+      const before = new Map(pinned.map((s) => [s.sessionId, s.pinOrder]));
+      const next = new Map(state.sessions);
+      let changed = false;
+      for (const s of pinned) {
+        const order = plan.get(s.sessionId);
+        if (order === undefined || s.pinOrder === order) continue;
+        next.set(s.sessionId, { ...s, pinOrder: order });
+        changed = true;
+      }
+      if (!changed) return state;
+      fetch('/api/pinned-order', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionIds: [...sessionIds] }),
+      }).then((res) => {
+        if (res.ok) return;
+        // Refused (a session not shared with this device): back to the places it had,
+        // unless a later drag or update has moved a card since.
+        set((later) => {
+          const reverted = new Map(later.sessions);
+          let undone = false;
+          for (const [id, order] of before) {
+            const current = later.sessions.get(id);
+            if (!current || current.pinOrder !== plan.get(id)) continue;
+            reverted.set(id, { ...current, pinOrder: order });
+            undone = true;
+          }
+          return undone ? { sessions: reverted } : later;
         });
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
@@ -235,6 +294,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),
+
+  setHookLevel: async (sessionId, lite) => {
+    const before = get().sessions.get(sessionId);
+    if (!before) return { ok: false, error: 'Session not found' };
+    const flip = (on: boolean) => set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const { hookLevel: _old, ...rest } = session;
+      void _old;
+      const next = new Map(state.sessions);
+      next.set(sessionId, on ? { ...rest, hookLevel: 'lite' } : rest);
+      return { sessions: next };
+    });
+    flip(lite);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/hook-level`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hookLevel: lite ? 'lite' : null }),
+      });
+      const body: { error?: string; appliesOnRestart?: boolean } | null = await res.json().catch(() => null);
+      if (!res.ok) {
+        flip(before.hookLevel === 'lite');
+        return { ok: false, error: body?.error || `Could not change Automation (HTTP ${res.status})` };
+      }
+      return { ok: true, appliesOnRestart: body?.appliesOnRestart === true };
+    } catch (err) {
+      flip(before.hookLevel === 'lite');
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not change Automation' };
+    }
+  },
 
   setSessionTitle: (sessionId, title) =>
     set((state) => {

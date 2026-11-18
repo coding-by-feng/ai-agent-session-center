@@ -121,7 +121,7 @@ describe('phoneRuleFor', () => {
     ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['GET', '/sessions/abc/subagents/a1b2/transcript'],
     ['PUT', '/sessions/abc/queue'],
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
-    ['PUT', '/sessions/abc/title'], ['PUT', '/sessions/abc/pinned'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
+    ['PUT', '/sessions/abc/title'], ['PUT', '/sessions/abc/pinned'], ['PUT', '/pinned-order'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
@@ -1172,5 +1172,23 @@ describe('AASC Cloud from a paired phone (AASC-51)', () => {
       await new Promise<void>((r) => cloudServer.close(() => r()));
       auth.revokeTokensForDevice('dev-phone-cloud');
     }
+  });
+});
+
+// ── Hold-to-talk dictation (Nov 16 2026) ─────────────────────────────────────────────────────────────────
+
+describe('dictation from a phone', () => {
+  it('is open on the dictate route only', () => {
+    expect(phoneRuleFor('POST', '/voice/dictate')).toBe('allow');
+  });
+
+  it.each([
+    ['GET', '/voice/dictate'],
+    ['PUT', '/voice/dictate'],
+    ['POST', '/voice/dictate/now'],
+    ['GET', '/voice/settings'],
+    ['PUT', '/voice/settings'],
+  ])('stays closed for %s %s', (method, path) => {
+    expect(phoneRuleFor(method, path)).toBeNull();
   });
 });

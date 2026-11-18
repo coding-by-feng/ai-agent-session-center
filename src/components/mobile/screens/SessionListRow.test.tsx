@@ -79,6 +79,18 @@ describe('SessionListRow — asks you to proceed', () => {
     expect(row().getAttribute('aria-label')).toContain('Asks you to proceed');
   });
 
+  it('shows a turn stopped on the usage limit as an hourglass, not a working spinner or "Interrupted"', () => {
+    renderWith({
+      status: 'working',
+      interruption: { kind: 'usage_limit', line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)", detectedAt: NOW },
+    });
+    const ring = row().querySelector('[data-tone]');
+    expect(ring?.getAttribute('data-tone')).toBe('error');
+    expect(ring?.hasAttribute('data-spin')).toBe(false);
+    expect(ring?.getAttribute('aria-label')).toBe('Limit reached');
+    expect(row().getAttribute('aria-label')).toContain('Limit reached · resets 1:30pm');
+  });
+
   it('shows the plain status once nobody owes a reply', () => {
     renderWith({ status: 'idle', pendingProceedAt: null });
     expect(row().querySelector('[data-proceed]')).toBeNull();

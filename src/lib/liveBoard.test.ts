@@ -93,6 +93,13 @@ describe('the board filters', () => {
     expect(boardCounts(list)).toEqual({ all: 3, working: 2, 'needs-you': 0 });
   });
 
+  it('counts a session whose background shells still run under Working, not as finished', () => {
+    const shells = { backgroundTaskCount: 2, backgroundTasks: { items: [], agents: 0, shells: 2, activeShells: 2, at: Date.now() } };
+    const list = [s('a', { status: 'waiting', ...shells }), s('b', { status: 'waiting' }), s('c', { status: 'approval', ...shells })];
+    expect(boardCounts(list)).toEqual({ all: 3, working: 1, 'needs-you': 1 });
+    expect(matchesBoardFilter('background', 'working')).toBe(true);
+  });
+
   it('counts a session that asks you to proceed under Needs you, as the phone does', () => {
     const list = [s('a', { status: 'idle', pendingProceedAt: 5 }), s('b', { status: 'waiting' }), s('c', { status: 'approval', pendingProceedAt: 5 })];
     expect(boardCounts(list)).toEqual({ all: 3, working: 0, 'needs-you': 2 });
@@ -299,6 +306,12 @@ describe('quietFor — how long a quiet session has been quiet', () => {
     const compacting = { since: NOW - 1_000, trigger: 'auto' as const };
     expect(quietFor(stoppedAgo(5 * 60_000, { compacting }), NOW)).toBeNull();
     expect(quietFor(stoppedAgo(5 * 60_000, { status: 'approval', compacting }), NOW)).toBe('5m');
+  });
+
+  it('is not shown while background shells still run', () => {
+    const shells = { backgroundTaskCount: 1, backgroundTasks: { items: [], agents: 0, shells: 1, activeShells: 1, at: NOW - 5 * 60_000 } };
+    expect(quietFor(stoppedAgo(5 * 60_000, shells), NOW)).toBeNull();
+    expect(quietFor(stoppedAgo(5 * 60_000, { ...shells, backgroundTaskCount: 0 }), NOW)).toBe('5m');
   });
 
   it.each(['idle', 'waiting', 'approval', 'input'])('is shown for a %s session', (status) => {

@@ -344,6 +344,38 @@
 .rawSend:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 .rawSend:disabled { color: var(--ph-text-tertiary); cursor: not-allowed; }
 
+/* Hold-to-talk dictation (Nov 16 2026, the app only): the mic before Enter, and its one status line.
+   Held, it fills in the accent; while the Mac turns the clip into text it keeps the accent and breathes. */
+.rawMic {
+  color: var(--ph-text-secondary);
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.rawMic[data-phase='recording'],
+.rawMic[data-phase='recording']:active:not(:disabled) {
+  background: var(--ph-accent);
+  color: var(--ph-on-accent);
+}
+.rawMic[data-phase='transcribing'] {
+  color: var(--ph-accent);
+  animation: rawMicWait 1.2s ease-in-out infinite;
+}
+@keyframes rawMicWait {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rawMic[data-phase='transcribing'] { animation: none; }
+}
+
+.dictateLine {
+  margin: 0;
+  padding-left: var(--ph-space-1);
+  font-size: var(--ph-size-caption);
+  line-height: var(--ph-line-caption);
+  color: var(--ph-text-secondary);
+}
+
 .keyBar {
   display: flex;
   gap: var(--ph-space-1);

@@ -15,6 +15,8 @@ enum LiveActivityRules {
     static let macMax = 40
     private static let marks: Set<String> = ["needs", "working", "done"]
     private static let headlines: Set<String> = ["needs", "working", "finished"]
+    /// The kinds of request a needs row may name (`ask`, Nov 18 2026).
+    private static let asks: Set<String> = ["approval", "input"]
 
     /// One line, no control characters, at most `max` characters; nil when nothing is left.
     static func clean(_ raw: Any?, max: Int) -> String? {
@@ -55,6 +57,12 @@ enum LiveActivityRules {
         return min(date, now)
     }
 
+    /// "approval" or "input" when a needs row names one of them, else "needs" (the "!" an older Mac's rows get).
+    private static func needsMark(_ raw: Any?) -> String {
+        guard let ask = raw as? String, asks.contains(ask) else { return "needs" }
+        return ask
+    }
+
     /// A JSON `true` (WebKit hands booleans over as NSNumber, so 1 is not one).
     private static func flag(_ raw: Any?) -> Bool {
         guard let raw = raw as? NSNumber, CFGetTypeID(raw) == CFBooleanGetTypeID() else { return false }
@@ -67,7 +75,9 @@ enum LiveActivityRules {
     /// done: here it becomes the "idle" mark, and a finished card whose every live session (rows + more) is idle
     /// becomes the "idle" headline (counted against the rows as posted: one dropped here may be a finished session).
     /// A done row flagged `proceed` (its answer asks the user to reply "proceed", Nov 8 2026) becomes the "proceed"
-    /// mark, which beats idle and keeps its timer (when it asked). None of these is accepted as posted.
+    /// mark, which beats idle and keeps its timer (when it asked). A needs row flagged `ask` "approval" / "input"
+    /// (Nov 18 2026) becomes that mark, for its own island icon; an older app draws it as needs ("!"). None of these
+    /// is accepted as posted.
     static func card(_ body: Any?, mac: String, now: Date = Date()) -> LiveActivityCard? {
         guard let object = body as? [String: Any], (object["v"] as? Int) == 1,
               let posted = object["headline"] as? String, headlines.contains(posted) else { return nil }
@@ -75,7 +85,8 @@ enum LiveActivityRules {
         let rows = postedRows.compactMap { raw -> LiveActivityRow? in
             guard let row = raw as? [String: Any], let posted = row["mark"] as? String, marks.contains(posted),
                   let title = clean(row["title"], max: titleMax) else { return nil }
-            let mark = posted != "done" ? posted : flag(row["proceed"]) ? "proceed" : flag(row["idle"]) ? "idle" : posted
+            let mark = posted == "needs" ? needsMark(row["ask"])
+                : posted != "done" ? posted : flag(row["proceed"]) ? "proceed" : flag(row["idle"]) ? "idle" : posted
             return LiveActivityRow(mark: mark, title: title, startedAt: mark == "done" || mark == "idle" ? nil : startTime(row["startedAt"], now: now),
                                    detail: clean(row["detail"], max: detailMax))
         }.enumerated().map { index, row in

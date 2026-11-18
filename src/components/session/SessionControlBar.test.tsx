@@ -151,3 +151,29 @@ describe('SessionControlBar — the three toggles (AASC-11)', () => {
     expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
   });
 });
+
+describe('SessionControlBar — how the last turn was stopped', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    useRoomStore.setState({ rooms: [] });
+  });
+
+  it('names a usage limit with its reset, as a limit rather than a transient failure', () => {
+    useSessionStore.getState().addSession(makeSession({
+      interruption: { kind: 'usage_limit', line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)", detectedAt: 1 },
+    }));
+    render(<Harness sessionId="s1" />);
+    const badge = screen.getByText(/usage limit/);
+    expect(badge.textContent).toBe(' usage limit · resets 1:30pm');
+    expect(badge.querySelector('svg')).not.toBeNull(); // the rail's hourglass, not a character a font may lack
+    expect(badge.getAttribute('title')).toContain('until the plan');
+  });
+
+  it('keeps the warning sign for a transient failure', () => {
+    useSessionStore.getState().addSession(makeSession({
+      interruption: { kind: 'api_error', line: 'API Error: 529 Overloaded', detectedAt: 1 },
+    }));
+    render(<Harness sessionId="s1" />);
+    expect(screen.getByText(/API error/).textContent).toBe('⚠ API error');
+  });
+});

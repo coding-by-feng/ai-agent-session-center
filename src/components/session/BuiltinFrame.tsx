@@ -2,7 +2,8 @@
  * BuiltinFrame — the session strip's built-in frames, CENTRAL, PINNED and RECENT. None
  * is a Room: each is worked out from the sessions (the central marker, the pin flag, recent work),
  * nothing stores it, and it takes no part in room reordering. So the header's
- * one control is the fold toggle: no grip, no ▲▼, no rename, no kill-all.
+ * controls are the fold toggle and, for RECENT, its 10 ↔ 20 toggle (`headerControl`): no grip, no ▲▼,
+ * no rename, no kill-all.
  *
  * The caller draws the cards, which are second listings: each session is also
  * in its own room, under the same number.
@@ -22,10 +23,12 @@ interface Props {
   onToggleCollapse: () => void;
   /** How many sessions it holds: the folded frame's count. */
   count: number;
+  /** One more header control beside the fold toggle, shown only while the frame is open. */
+  headerControl?: ReactNode;
   children: ReactNode;
 }
 
-export default function BuiltinFrame({ label, title, className, collapsed, onToggleCollapse, count, children }: Props) {
+export default function BuiltinFrame({ label, title, className, collapsed, onToggleCollapse, count, headerControl, children }: Props) {
   const toggleName = collapsed ? `Expand ${label}` : `Collapse ${label}`;
   return (
     <div
@@ -47,7 +50,7 @@ export default function BuiltinFrame({ label, title, className, collapsed, onTog
         >
           <FrameCollapseIcon collapsed={collapsed} />
         </button>
-        {collapsed && <span className={styles.roomCollapsedCount}>{count}</span>}
+        {collapsed ? <span className={styles.roomCollapsedCount}>{count}</span> : headerControl}
       </div>
       {!collapsed && children}
     </div>

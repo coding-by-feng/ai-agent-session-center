@@ -3,7 +3,7 @@
  * Captures session configs, project tab layouts, room assignments,
  * and session metadata so the workspace can be recreated later.
  */
-import type { Session, SessionCentralMarker, SshConfig } from '@/types';
+import type { Session, SessionCentralMarker, SessionHookLevel, SshConfig } from '@/types';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -42,12 +42,16 @@ export interface SessionSnapshot {
   accentColor?: string;
   characterModel?: string;
   pinned?: boolean;
+  /** Its place in PINNED (Session.pinOrder). */
+  pinOrder?: number;
   muted?: boolean;
   /**
    * The person's hands-off switch (server/mcp): no central may type into, task or queue for this session. Only
    * ever `true`: absent already means a central may steer it. A restore sends it back with the new terminal.
    */
   handsOff?: boolean;
+  /** The Automation mark (lite hooks, server/sessionHookLevel.ts). Only ever `'lite'`; a restore relaunches with it. */
+  hookLevel?: SessionHookLevel;
   alerted?: boolean;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
@@ -252,8 +256,10 @@ export function buildSnapshot(
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
+      ...(session.pinned && session.pinOrder !== undefined ? { pinOrder: session.pinOrder } : {}),
       muted: session.muted,
       ...(session.handsOff === true ? { handsOff: true as const } : {}),
+      ...(session.hookLevel === 'lite' ? { hookLevel: 'lite' as const } : {}),
       alerted: session.alerted,
       enableOpsTerminal: !!session.opsTerminalId || !!session.hadOpsTerminal,
       sshConfig: { ...session.sshConfig },
@@ -549,8 +555,10 @@ function foldSplitCard(card: Session, twin: Session): Session {
     accentColor: card.accentColor ?? twin.accentColor,
     characterModel: card.characterModel ?? twin.characterModel,
     pinned: card.pinned ?? twin.pinned,
+    pinOrder: card.pinOrder ?? twin.pinOrder,
     muted: card.muted ?? twin.muted,
     handsOff: card.handsOff ?? twin.handsOff,
+    hookLevel: card.hookLevel ?? twin.hookLevel,
     alerted: card.alerted ?? twin.alerted,
     remoteVisible: card.remoteVisible ?? twin.remoteVisible,
     central: card.central ?? twin.central,
@@ -957,8 +965,10 @@ export async function importSnapshot(
           // Include metadata in creation so the first WS broadcast has them.
           // Previously these were fire-and-forget PUTs that raced with auto-save.
           pinned: sessionSnap.pinned || undefined,
+          pinOrder: sessionSnap.pinned ? sessionSnap.pinOrder : undefined,
           muted: sessionSnap.muted || undefined,
           handsOff: sessionSnap.handsOff === true ? true : undefined,
+          hookLevel: sessionSnap.hookLevel === 'lite' ? 'lite' : undefined,
           alerted: sessionSnap.alerted || undefined,
           accentColor: sessionSnap.accentColor || undefined,
           characterModel: sessionSnap.characterModel || undefined,

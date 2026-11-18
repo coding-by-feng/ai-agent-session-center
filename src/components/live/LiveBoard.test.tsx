@@ -86,6 +86,17 @@ describe('LiveBoard — the cards', () => {
     expect(card.getAttribute('data-needs-you')).toBe('true');
   });
 
+  it('marks a session stopped on its usage limit, with the reset the CLI printed', () => {
+    renderBoard([s('a', {
+      status: 'working',
+      interruption: { kind: 'usage_limit', line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)", detectedAt: 5 },
+    })]);
+    const card = cards()[0];
+    expect(within(card).getByText('Limit reached · resets 1:30pm')).toBeInTheDocument();
+    expect(card.getAttribute('aria-label')).toContain('Limit reached · resets 1:30pm');
+    expect(card.getAttribute('data-status')).toBe('working'); // the real status is still there
+  });
+
   it('marks a session whose answer asks you to proceed: P, the words, and the coloured frame', () => {
     renderBoard([s('a', { status: 'idle', pendingProceedAt: 5 })]);
     const card = cards()[0];

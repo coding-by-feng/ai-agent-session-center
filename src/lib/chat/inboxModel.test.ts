@@ -76,4 +76,9 @@ describe('waitingLine', () => {
     expect(waitingLine(session('a', 'waiting', { interruption: { kind: 'x', line: 'API Error: 529', detectedAt: 1 } as unknown as Session['interruption'] })))
       .toBe('Stopped: API Error: 529');
   });
+
+  it('says a usage limit and its reset first, where a narrow row would cut the banner off', () => {
+    expect(waitingLine(session('a', 'waiting', { interruption: { kind: 'usage_limit', line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)", detectedAt: 1 } as Session['interruption'] })))
+      .toBe('Limit reached · resets 1:30pm');
+  });
 });

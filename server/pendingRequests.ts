@@ -134,33 +134,44 @@ function optionOf(raw: unknown): PendingRequestOption | null {
 /** Most questions one AskUserQuestion call carries (Claude's tool allows 1–4). */
 export const MAX_ANSWERABLE_QUESTIONS = 4;
 
-/** One single-select question's 1–9 choices, or undefined. */
-function singleSelectOptions(raw: unknown): PendingRequestOption[] | undefined {
+/** One question's 1–9 choices, or undefined. */
+function choicesOf(raw: unknown): PendingRequestOption[] | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const { multiSelect, options } = raw as Record<string, unknown>;
-  if (multiSelect === true || !Array.isArray(options)) return undefined;
+  const { options } = raw as Record<string, unknown>;
+  if (!Array.isArray(options)) return undefined;
   if (options.length < 1 || options.length > MAX_ANSWERABLE_OPTIONS) return undefined;
   const parsed = options.map(optionOf);
   return parsed.every((option): option is PendingRequestOption => option !== null) ? parsed : undefined;
 }
 
+const isMultiSelect = (raw: unknown): boolean => !!raw && typeof raw === 'object' && (raw as Record<string, unknown>).multiSelect === true;
+
+/** One single-select question's 1–9 choices, or undefined. */
+function singleSelectOptions(raw: unknown): PendingRequestOption[] | undefined {
+  return isMultiSelect(raw) ? undefined : choicesOf(raw);
+}
+
 /**
- * Several single-select questions in one call (Nov 6 2026): Claude shows them as tabs, a
- * digit picks and moves to the next, and a review screen ends in "1. Submit answers".
- * Undefined unless there are 2–4 and every one is single-select with 1–9 choices.
+ * Questions Claude shows as tabs (Nov 6 2026): several in one call, and since Nov 18 2026 also a
+ * multi-select one, alone or among others (`multiSelect: true`; probed on 2.1.327). A digit picks
+ * (single-select) or ticks (multi-select), and a review screen ends in "1. Submit answers".
+ * Undefined for one single-select question (that is `answerableOptions`), for more than four,
+ * and when any has no choices or more than nine.
  */
 export function answerableQuestions(input: unknown): PendingRequestQuestion[] | undefined {
   const questions = questionsOf(input);
-  if (questions.length < 2 || questions.length > MAX_ANSWERABLE_QUESTIONS) return undefined;
+  if (questions.length < 1 || questions.length > MAX_ANSWERABLE_QUESTIONS) return undefined;
+  if (questions.length === 1 && !isMultiSelect(questions[0])) return undefined;
   const out: PendingRequestQuestion[] = [];
   for (const raw of questions) {
-    const options = singleSelectOptions(raw);
+    const options = choicesOf(raw);
     const { question, header } = (raw ?? {}) as Record<string, unknown>;
     if (!options || typeof question !== 'string' || question === '') return undefined;
     out.push({
       question: question.slice(0, MAX_DESCRIPTION_CHARS),
       ...(typeof header === 'string' && header !== '' ? { header: header.slice(0, MAX_LABEL_CHARS) } : {}),
       options,
+      ...(isMultiSelect(raw) ? { multiSelect: true as const } : {}),
     });
   }
   return out;
@@ -195,6 +206,8 @@ function raisedRequest(hook: Record<string, unknown>, source: Source, cli: Cli, 
     ...(truncated ? { inputTruncated: true } : {}),
     ...(options ? { options } : {}),
     ...(questions ? { questions } : {}),
+    // Claude's question dialog ends its choices with "Type something" (probed on 2.1.327).
+    ...(cli === 'claude' && (options || questions) ? { canType: true as const } : {}),
     ...(canAlwaysAllow ? { canAlwaysAllow: true } : {}),
     ...(ambiguous ? { ambiguous: true } : {}),
     raisedAt: now,

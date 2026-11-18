@@ -103,6 +103,7 @@ export function backoffFor(attemptIndex: number, jitter: number): number {
 
 /** Human-readable reason for the UI badge. */
 export function faultLabel(kind: FaultKind): string {
+  if (kind === 'usage_limit') return 'usage limit';
   return kind === 'rate_limit' ? 'rate limit' : kind === 'network' ? 'network' : 'API error';
 }
 
@@ -122,6 +123,17 @@ export function decideResume(
   // goes back to work, so this is the recovery path — but the ledger is KEPT
   // (see the module header) until its entries age out on their own.
   if (!interruption) {
+    if (attempts.length === 0) return { state: null, send: false, justExhausted: false };
+    return {
+      state: { phase: 'idle', attempts, nextAttemptAt: 0, sentAt: 0, faultAt: 0 },
+      send: false,
+      justExhausted: false,
+    };
+  }
+
+  // A plan usage limit lasts until its reset (hours, or days): a resume before then only hits it
+  // again, and would spend the whole budget in minutes. Left alone; the ledger is kept as on recovery.
+  if (interruption.kind === 'usage_limit') {
     if (attempts.length === 0) return { state: null, send: false, justExhausted: false };
     return {
       state: { phase: 'idle', attempts, nextAttemptAt: 0, sentAt: 0, faultAt: 0 },

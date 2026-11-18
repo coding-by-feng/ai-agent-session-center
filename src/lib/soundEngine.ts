@@ -24,7 +24,16 @@ export type SoundName =
   | 'alarm'
   | 'thud'
   | 'urgentAlarm'
+  // Alert (Nov 18 2026): the loud, unmistakable pair for an alerted session (see playLoud)
+  | 'siren'
+  | 'bells'
   | 'none';
+
+/** The sounds an alerted session makes: a siren for approval, bells for completion. */
+export type LoudSoundName = 'siren' | 'bells';
+
+/** One frequency step of a voice: `at` seconds after the voice starts, glide (linearly) to `hz`. */
+interface FreqStep { at: number; hz: number }
 
 /** Action names that trigger sounds */
 export type SoundAction =
@@ -132,11 +141,17 @@ export const ACTION_CATEGORIES: ActionCategory[] = [
 // Engine
 // ---------------------------------------------------------------------------
 
+/** The loud path (Alert): compressor threshold and the gain after it. Tuned by rendering in Chrome. */
+const LOUD_THRESHOLD_DB = -18;
+const LOUD_MAKEUP_GAIN = 1.7;
+
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private unlocked = false;
   private volume = 0.5;
   private actionOverrides: Partial<Record<SoundAction, SoundName>> = {};
+  /** The loud path's compressor, made once per AudioContext: full-level layers stay unclipped. */
+  private loudBus: { ctx: AudioContext; node: AudioNode } | null = null;
 
   /** Lazily create / resume AudioContext. */
   private getCtx(): AudioContext {
@@ -179,6 +194,77 @@ export class SoundEngine {
     freqs.forEach((f, i) => {
       setTimeout(() => this.playTone(f, duration, type), i * spacing * 1000);
     });
+  }
+
+  /**
+   * One voice scheduled on the audio clock (not setTimeout), so its level is fixed when it is
+   * queued. `playSequence` reads `this.volume` when each timer fires, which is why the old
+   * alert boost (set, play, restore) never reached the notes of a sequence sound.
+   */
+  private voice(
+    out: AudioNode, level: number, type: OscillatorType,
+    start: number, dur: number, steps: FreqStep[], decay = false,
+  ): void {
+    const ctx = this.getCtx();
+    const t0 = ctx.currentTime + start;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(steps[0].hz, t0);
+    for (const step of steps.slice(1)) osc.frequency.linearRampToValueAtTime(step.hz, t0 + step.at);
+    gain.gain.setValueAtTime(0.0001, t0);
+    // A 25 ms onset, not 10: the compressor (2 ms attack) catches it, so the bells don't overshoot 1.0.
+    gain.gain.exponentialRampToValueAtTime(Math.max(level, 0.0002), t0 + 0.025);
+    if (!decay) gain.gain.setValueAtTime(Math.max(level, 0.0002), t0 + dur - 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(out);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  /** A two-tone siren, about 2.4 s: four rising and falling sweeps, square over a saw an octave down. */
+  private siren(out: AudioNode, level: number): void {
+    const SWEEP = 0.6;
+    for (let i = 0; i < 4; i += 1) {
+      const start = i * SWEEP;
+      const steps = [{ at: 0, hz: 650 }, { at: SWEEP / 2, hz: 1350 }, { at: SWEEP, hz: 650 }];
+      this.voice(out, level * 0.35, 'square', start, SWEEP, steps);
+      this.voice(out, level * 0.2, 'sawtooth', start, SWEEP, steps.map((s) => ({ ...s, hz: s.hz / 2 })));
+    }
+  }
+
+  /** Bells, about 1.6 s: a bright rising arpeggio, rung twice, each note left to ring out. */
+  private bells(out: AudioNode, level: number): void {
+    const NOTES = [784, 988, 1175, 1568];
+    for (const pass of [0, 0.8]) {
+      NOTES.forEach((hz, i) => {
+        const start = pass + i * 0.12;
+        this.voice(out, level * 0.5, 'triangle', start, 0.5, [{ at: 0, hz }], true);
+        this.voice(out, level * 0.16, 'square', start, 0.3, [{ at: 0, hz: hz * 2 }], true);
+      });
+    }
+  }
+
+  /**
+   * The loud path's output: a compressor, then make-up gain, so the sound is as loud as it can be
+   * without clipping (measured in Chrome: peak under 1.0, RMS 2-3x the normal alarm's).
+   */
+  private loudOut(): AudioNode {
+    const ctx = this.getCtx();
+    if (this.loudBus?.ctx === ctx) return this.loudBus.node;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(LOUD_THRESHOLD_DB, ctx.currentTime);
+    comp.knee.setValueAtTime(6, ctx.currentTime);
+    comp.ratio.setValueAtTime(12, ctx.currentTime);
+    comp.attack.setValueAtTime(0.002, ctx.currentTime);
+    comp.release.setValueAtTime(0.1, ctx.currentTime);
+    const makeUp = ctx.createGain();
+    makeUp.gain.setValueAtTime(LOUD_MAKEUP_GAIN, ctx.currentTime);
+    comp.connect(makeUp);
+    makeUp.connect(ctx.destination);
+    this.loudBus = { ctx, node: comp };
+    return comp;
   }
 
   // ---- Sound library -------------------------------------------------------
@@ -277,6 +363,9 @@ export class SoundEngine {
         osc2.stop(t + offset + 0.3);
       }
     },
+    // In the library too, so Settings can preview and assign them (at the slider's volume there).
+    siren: () => this.siren(this.getCtx().destination, this.volume),
+    bells: () => this.bells(this.getCtx().destination, this.volume),
     none: () => {},
   };
 
@@ -345,12 +434,24 @@ export class SoundEngine {
     if (fn) fn();
   }
 
+  /**
+   * An alerted session's sound (Nov 18 2026): at full level whatever the volume slider says,
+   * through a compressor. Like `preview`, it doesn't wait for the unlock: Electron allows audio
+   * without a gesture, and a browser that doesn't simply stays silent.
+   */
+  playLoud(name: LoudSoundName): void {
+    const out = this.loudOut();
+    if (name === 'siren') this.siren(out, 1);
+    else this.bells(out, 1);
+  }
+
   /** Tear down the AudioContext. */
   dispose(): void {
     if (this.ctx) {
       this.ctx.close().catch(() => {});
       this.ctx = null;
     }
+    this.loudBus = null;
     this.unlocked = false;
   }
 }

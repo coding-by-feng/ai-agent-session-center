@@ -41,6 +41,8 @@ import { getInterruptedOffer, subscribeInterrupted } from '@/lib/interruptedRest
 import { IS_LITE } from '@/lib/edition';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 import { hostedParent, hostedBase } from '@/lib/hosted';
+import { useQuickCreateStore } from '@/stores/quickCreateStore';
+import { ROOM_MANAGER_MODAL_ID } from '@/lib/quickCreate';
 const HostedWorkspace = lazy(() => import('@/components/hosted/HostedWorkspace'));
 const HostedPhonePair = lazy(() => import('@/components/hosted/HostedPhonePair'));
 const WorkspaceContinuation = lazy(() => import('@/components/hosted/WorkspaceContinuation'));
@@ -55,11 +57,27 @@ const ReviewView = /* @__PURE__ */ lazy(() => import('@/routes/ReviewView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 const ResourcesView = /* @__PURE__ */ lazy(() => import('@/routes/ResourcesView'));
 // Only after a restore that cut sessions off mid-turn (lib/interruptedRestore.ts).
+// The ＋ New menu and the Rooms dialog load when first opened (quickCreateStore / the 'manage-rooms' modal).
+const QuickCreateMenu = lazy(() => import('@/components/session/QuickCreateMenu'));
+const RoomManagerModal = lazy(() => import('@/components/modals/RoomManagerModal'));
 const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
 const UpdateReadyBanner = lazy(() => import('@/components/layout/UpdateReadyBanner'));
 // The phone app (AASC-38, every phone since AASC-48): its own chunk, never part
 // of the desktop's first download (phoneChunkBoundary.test.ts).
 const PhoneAppFrame = lazy(() => import('@/components/mobile/app/PhoneAppFrame'));
+
+/** Mounts the ＋ New menu and the Rooms dialog only while one is open, so neither is in the entry chunk. */
+function QuickCreateHost() {
+  const menuOpen = useQuickCreateStore((s) => s.open);
+  const roomsOpen = useUiStore((s) => s.activeModal === ROOM_MANAGER_MODAL_ID);
+  if (!menuOpen && !roomsOpen) return null;
+  return (
+    <Suspense fallback={null}>
+      {menuOpen && <QuickCreateMenu />}
+      {roomsOpen && <RoomManagerModal />}
+    </Suspense>
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -122,6 +140,7 @@ function AppLayout() {
       <ConfirmStack />
       <SettingsPanel />
       <NewSessionModal />
+      <QuickCreateHost />
       <ShortcutsPanel />
       <ShortcutSettingsModal />
       {!IS_LITE && <GlobalSearchModal />}

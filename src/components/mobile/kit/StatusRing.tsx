@@ -11,7 +11,8 @@ import styles from '@/styles/modules/mobile/StatusRing.module.css';
 
 export interface StatusRingProps {
   status: string;
-  interrupted?: boolean;
+  /** `faultMark(session)`: `'limit'` draws the usage limit's hourglass, `true` the interruption mark. */
+  interrupted?: boolean | 'limit';
   size?: 'small' | 'regular';
   /** Show the words next to the ring (otherwise they are only spoken). */
   withLabel?: boolean;

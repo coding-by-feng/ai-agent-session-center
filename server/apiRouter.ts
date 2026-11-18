@@ -13,7 +13,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setPinnedOrder, setSessionRecap, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionHookLevel, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
@@ -24,8 +24,9 @@ import { terminateProcessTree } from './processMonitor.js';
 import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
+import { createRecapService } from './sessionRecap.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
-import { listKnownProjects, rankProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
+import { listKnownProjects, liveProjectActivity, rankRecentProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { appendPausedItem, isStaleQueueWrite } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
@@ -54,6 +55,7 @@ import { pipeline } from 'stream';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
+import { hookLevelConfigOf, isLiteHookLevel } from './sessionHookLevel.js';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags, sanitizeModelInCommand } from './config.js';
 import { stripCentralLaunch } from './mcp/launch.js';
@@ -567,9 +569,13 @@ const terminalCreateSchema = z.object({
     .optional(),
   /** Session metadata from workspace snapshot — included in creation so the first WS broadcast has them */
   pinned: z.boolean().optional(),
+  /** The card's place in PINNED (Session.pinOrder). A bad value is dropped, never a 400 (see above). */
+  pinOrder: z.number().int().positive().max(100_000).optional().catch(undefined),
   muted: z.boolean().optional(),
   /** The person's hands-off switch (server/mcp), carried through a restore like `muted`. Only ever `true` here. */
   handsOff: z.boolean().optional(),
+  /** The Automation mark (server/sessionHookLevel.ts), carried through a restore. Anything but 'lite' is dropped, never a 400. */
+  hookLevel: z.literal('lite').optional().catch(undefined),
   alerted: z.boolean().optional(),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
@@ -662,6 +668,11 @@ const sessionQueueSchema = z.object({
   (v) => JSON.stringify(v.items).length <= MAX_QUEUE_PAYLOAD_BYTES,
   { message: 'Queue payload too large to sync (over 8MB — likely oversized image attachments)' },
 );
+
+/** PUT /api/pinned-order: the PINNED frame's cards top to bottom, after a drag. */
+const pinnedOrderSchema = z.object({
+  sessionIds: z.array(z.string().min(1).max(200)).min(1).max(500),
+});
 
 const pinnedSchema = z.object({
   pinned: z.boolean(),
@@ -1229,9 +1240,10 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     // Create terminal with command='' to skip auto-launch (the resume command
     // contains || which can't pass shell metacharacter validation).
     // We write the command ourselves after the shell initializes.
+    // The Automation mark (sessionHookLevel.ts) comes back with the agent.
     const baseConfig: TerminalConfig = cfg && cfg.username
-      ? { ...cfg, workingDir: cfg.workingDir || '~', command: '' }
-      : { host: 'localhost', workingDir: session.projectPath || '~', command: '' };
+      ? { ...cfg, workingDir: cfg.workingDir || '~', command: '', ...hookLevelConfigOf(session) }
+      : { host: 'localhost', workingDir: session.projectPath || '~', command: '', ...hookLevelConfigOf(session) };
     // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
     // session when the central cannot be established again (Ruling 16).
     const plan = prepareCentralRelaunch(session, { command: resumeCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, centralCaller(req));
@@ -1351,7 +1363,7 @@ async function openCardTerminal(sessionId: string, healed: boolean, caller: Cent
       const launchCmd = reconnectResumeLine(session, healed)
         ?? relaunchLineOf(session.central ? bareCliCommand(storedCmd) : storedCmd, session.title);
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
-      const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
+      const baseConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '', ...hookLevelConfigOf(session) };
       // A central's card gets its central back in the new PTY, with a new token, or comes back as a plain
       // session when the central cannot be established again (Ruling 16).
       const plan = prepareCentralRelaunch(session, { command: launchCmd, workingDir: baseConfig.workingDir || '~', remoteHost: !!isRemote }, caller);
@@ -1389,6 +1401,7 @@ async function openCardTerminal(sessionId: string, healed: boolean, caller: Cent
         host: 'localhost',
         workingDir: session.projectPath || '~',
         command: '',
+        ...hookLevelConfigOf(session),
       };
       // As above: a central's command with a bare claude / codex word, a Claude line's name rebuilt from the card's
       // title, and its central in the new PTY (or a plain session when the central cannot be established again).
@@ -2185,6 +2198,30 @@ router.put('/sessions/:id/ai-popup', async (req: Request, res: Response) => {
   res.json({ ok: true, aiPopupEnabled: enabled });
 });
 
+/**
+ * Mark a session Automation (lite hooks) or clear it: `{ hookLevel: 'lite' }` on, `{ hookLevel: null }` off
+ * (server/sessionHookLevel.ts). The agent running now keeps its level until its next launch, which the reply
+ * says (`appliesOnRestart`). A remote SSH session is refused: the variable lives in this Mac's PTY.
+ */
+const hookLevelBodySchema = z.object({ hookLevel: z.literal('lite').nullable() });
+
+router.put('/sessions/:id/hook-level', (req: Request, res: Response) => {
+  const id = str(req.params.id);
+  const session = getSession(id);
+  if (!session) { res.status(404).json({ success: false, error: 'Session not found' }); return; }
+  const parsed = hookLevelBodySchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ success: false, error: "hookLevel must be 'lite' or null" }); return; }
+  const host = session.sshConfig?.host;
+  if (parsed.data.hookLevel === 'lite' && host && !isLocalHost(host)) {
+    res.status(409).json({ success: false, error: 'Automation (lite hooks) works for sessions on this computer only' });
+    return;
+  }
+  const updated = setSessionHookLevel(id, parsed.data.hookLevel);
+  if (!updated) { res.status(404).json({ success: false, error: 'Session not found' }); return; }
+  // A running agent (in a dashboard terminal or started outside AASC) keeps its level until AASC next launches it.
+  res.json({ success: true, hookLevel: updated.hookLevel ?? null, appliesOnRestart: updated.status !== 'ended' });
+});
+
 router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   if (!requestIsLocal(req)) {
     log.warn('api', 'Blocked remote attempt to change session visibility');
@@ -2258,6 +2295,21 @@ router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
   if (!body) return;
   setSessionPinned(str(req.params.id), body.pinned);
   res.json({ ok: true });
+});
+
+// The PINNED frame's order after a drag (Nov 18 2026). Not under /sessions/:id, which would read
+// "pinned-order" as a session id. A remote device may only place the sessions shared with it.
+router.put('/pinned-order', (req: Request, res: Response) => {
+  const body = validateBody(pinnedOrderSchema, req.body, res);
+  if (!body) return;
+  const local = requestIsLocal(req);
+  if (!local && body.sessionIds.some((id) => !canSeeSession(false, getSession(id)))) {
+    res.status(404).json({ ok: false, error: 'Session not found' });
+    return;
+  }
+  // A phone (Nov 18 2026) sends only the pins it can see; the ones it can't keep their places.
+  const visible = local ? undefined : (id: string) => canSeeSession(false, getSession(id));
+  res.json({ ok: true, changed: setPinnedOrder(body.sessionIds, visible) });
 });
 
 // Update session muted state
@@ -2360,6 +2412,32 @@ router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
     log.error('api', `Summarize error: ${msg}`);
     res.status(500).json({ success: false, error: 'Summarize failed' });
   }
+});
+
+// The peek's Summary (Nov 18 2026): a few lines on what the session has done, from its newest prompts and
+// last replies only (server/sessionRecap.ts caps the input). Answers 202 at once; the summary arrives on the
+// session (`recap`) as an update. It does NOT archive, unlike /summarize above. Runs the same tool-less,
+// MCP-less `claude -p` on the small model.
+const recapService = createRecapService({
+  getSession,
+  setRecap: setSessionRecap,
+  runModel: (prompt) => new Promise<string>((resolve, reject) => {
+    const child = execFile('claude', [...SUMMARIZE_CLAUDE_ARGS], { timeout: 60000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      if (error) return reject(error);
+      resolve(stdout.trim());
+    });
+    child.stdin!.write(prompt);
+    child.stdin!.end();
+  }),
+});
+
+router.post('/sessions/:id/recap', (req: Request, res: Response) => {
+  const outcome = recapService.request(str(req.params.id));
+  if (!outcome.ok) {
+    res.status(outcome.status).json({ success: false, error: outcome.error });
+    return;
+  }
+  res.status(202).json({ ok: true, state: outcome.state });
 });
 
 // ── SSH Keys ──
@@ -2489,8 +2567,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.model) config.model = body.model;
     if (body.remoteControlName) config.remoteControlName = body.remoteControlName;
     if (body.pinned) config.pinned = body.pinned;
+    if (body.pinned && body.pinOrder !== undefined) config.pinOrder = body.pinOrder;
     if (body.muted) config.muted = body.muted;
     if (body.handsOff) config.handsOff = true;
+    if (isLiteHookLevel(body.hookLevel)) config.hookLevel = 'lite';
     if (body.alerted) config.alerted = body.alerted;
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
@@ -2629,6 +2709,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
         label: undefined,
         isOps: true,          // excluded from the session budget (terminalCapacity.ts)
         central: undefined,   // a central's token goes in one PTY: the agent's, never its ops shell
+        hookLevel: undefined, // the Automation mark is the agent's; an agent started by hand in the ops shell reports in full
       };
       opsTerminalId = await createTerminal(opsConfig, null);
     }
@@ -3314,11 +3395,13 @@ router.get('/sessions/history', (req: Request, res: Response) => {
   res.json(db.getAllPersistedSessions());
 });
 
-// ---- Known Claude Code projects (from ~/.claude/projects/), most used first ----
+// ---- Known Claude Code projects (from ~/.claude/projects/), most recently active first ----
 
 router.get('/known-projects', (_req: Request, res: Response) => {
-  const activity = db.getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS);
-  res.json({ paths: rankProjects(listKnownProjects(), activity) });
+  const stored = db.getProjectActivity(Date.now() - PROJECT_ACTIVITY_WINDOW_MS);
+  // The sessions in memory too: the table's time can lag one that is running.
+  const live = liveProjectActivity(Object.values(getAllSessions()));
+  res.json({ paths: rankRecentProjects(listKnownProjects(), [...stored, ...live]) });
 });
 
 // ---- File Browser (Project Tab) ----

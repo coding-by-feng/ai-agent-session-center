@@ -3,6 +3,7 @@
  */
 
 import type { SessionCentralMarker } from './central.js';
+import type { SessionHookLevel } from './session.js';
 
 // ---------------------------------------------------------------------------
 // Terminal scrollback replay buffer (configurable)
@@ -144,12 +145,19 @@ export interface TerminalConfig {
   remoteControlName?: string;
   /** Session metadata — set during workspace import so the first WS broadcast includes them */
   pinned?: boolean;
+  /** The card's place in PINNED (Session.pinOrder), carried through a restore or respawn with `pinned`. */
+  pinOrder?: number;
   muted?: boolean;
   /**
    * The person's hands-off switch (server/mcp): no central may type into, task or queue for the session.
    * Carried through a workspace restore like `muted`; only ever `true`, since absent already means steerable.
    */
   handsOff?: boolean;
+  /**
+   * The Automation mark (server/sessionHookLevel.ts): the PTY starts with `AASC_HOOK_LEVEL=lite`, so its agent
+   * sends only lifecycle hooks. Set on the card at creation, carried through restore and every relaunch.
+   */
+  hookLevel?: SessionHookLevel;
   alerted?: boolean;
   accentColor?: string;
   characterModel?: string;

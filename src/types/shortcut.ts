@@ -11,7 +11,8 @@ export interface KeyCombo {
 }
 
 export type ShortcutActionId =
-  | 'toggleFullscreen'
+  // Open the ＋ New menu (QuickCreateMenu): a session by project, a room, or the full form
+  | 'newSession'
   | 'scrollToBottom'
   // Terminal toolbar buttons (act on the selected session's terminal)
   | 'terminalToggleAutoScroll'
@@ -38,8 +39,9 @@ export type ShortcutActionId =
   | 'switchTabTerminal'
   | 'switchTabCommands'
   | 'switchTabPrompts'
-  | 'switchTabNotes'
+  | 'switchTabAiPopups'
   | 'switchTabQueue'
+  | 'switchTabAgents'
   // File Browser
   | 'fileBrowserSearch'
   | 'fileBrowserNewFile'

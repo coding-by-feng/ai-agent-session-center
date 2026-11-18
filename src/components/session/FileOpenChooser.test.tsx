@@ -11,6 +11,8 @@ const providerMocks = vi.hoisted(() => ({
 vi.mock('@/lib/fileSystemProvider', () => ({
   getFileSystemProvider: () => providerMocks,
 }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock('@/components/ui/ToastContainer', () => ({ showToast: toast }));
 
 function openChooser(filePath = 'docs/report.pdf', projectPath = '/Users/me/proj') {
   act(() => {
@@ -100,4 +102,74 @@ describe('FileOpenChooser', () => {
     expect(screen.getByText(/Reveal in/)).toBeDisabled();
     expect(screen.getByText('Open in app')).not.toBeDisabled();
   });
+
+  // Nov 17 2026: both Mac-side actions used to fire and forget, so a refused path did nothing.
+  it('says why when the Mac refuses to open the file', async () => {
+    providerMocks.openExternal.mockRejectedValueOnce(new Error('Path not found'));
+    toast.mockClear();
+    render(<FileOpenChooser />);
+    openChooser();
+    fireEvent.click(screen.getByText('Open with default app'));
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Couldn’t open report.pdf: Path not found', 'error'));
+  });
+
+  it('says why when the Mac refuses to reveal the file', async () => {
+    providerMocks.reveal.mockRejectedValueOnce(new Error('Path outside project root'));
+    toast.mockClear();
+    render(<FileOpenChooser />);
+    openChooser();
+    fireEvent.click(screen.getByText(/Reveal in/));
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Couldn’t reveal report.pdf: Path outside project root', 'error'));
+  });
+
+  it('Open in app keeps the host session of a file outside its folder', () => {
+    render(<FileOpenChooser />);
+    act(() => {
+      useUiStore.getState().openFileChooser('plan.md', '/Users/me/private/docs', { x: 1, y: 1 }, '/Users/me/proj');
+    });
+    fireEvent.click(screen.getByText('Open in app'));
+    expect(useUiStore.getState().pendingFileOpen).toEqual({
+      filePath: 'plan.md',
+      projectPath: '/Users/me/private/docs',
+      hostProjectPath: '/Users/me/proj',
+    });
+  });
 });
+
+// Nov 18 2026: a folder link (rooted at itself, filePath "/").
+describe('FileOpenChooser: a folder', () => {
+  beforeEach(() => {
+    useUiStore.setState({ pendingFileChooser: null, pendingFileOpen: null });
+    providerMocks.openExternal.mockClear();
+    providerMocks.reveal.mockClear();
+  });
+  const openFolder = () => act(() => {
+    useUiStore.getState().openFileChooser('/', '/Users/me/exmouth/docs', { x: 100, y: 100 }, '/Users/me/proj', 'dir');
+  });
+
+  it('is headed by the folder name and offers Open in app and Reveal, not a default app', () => {
+    render(<FileOpenChooser />);
+    openFolder();
+    expect(screen.getByText('docs')).toBeInTheDocument();
+    expect(screen.getByText('Open in app')).toBeInTheDocument();
+    expect(screen.queryByText('Open with default app')).toBeNull();
+    expect(screen.getByText(/Reveal in/)).toBeInTheDocument();
+  });
+
+  it('Open in app asks the host session for a folder tab', () => {
+    render(<FileOpenChooser />);
+    openFolder();
+    fireEvent.click(screen.getByText('Open in app'));
+    expect(useUiStore.getState().pendingFileOpen).toEqual({
+      filePath: '/', projectPath: '/Users/me/exmouth/docs', hostProjectPath: '/Users/me/proj', kind: 'dir',
+    });
+  });
+
+  it('Reveal shows the folder itself', () => {
+    render(<FileOpenChooser />);
+    openFolder();
+    fireEvent.click(screen.getByText(/Reveal in/));
+    expect(providerMocks.reveal).toHaveBeenCalledWith('/Users/me/exmouth/docs', '/');
+  });
+});
+

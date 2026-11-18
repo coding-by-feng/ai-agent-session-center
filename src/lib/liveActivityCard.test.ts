@@ -25,6 +25,31 @@ describe('buildLiveActivityCard', () => {
     expect(buildLiveActivityCard([s('waiting', 1), s('idle', 4)]).rows[0].title).toBe('t4');
   });
 
+  it('lists every session waiting on you before working ones, so "2 needs you" shows both (Nov 18 2026)', () => {
+    const proceedAsk = s('waiting', 1, 'asked to proceed', { pendingProceedAt: 1 });
+    const card = buildLiveActivityCard([
+      proceedAsk, s('working', 9), s('working', 8), s('working', 7), s('approval', 2, 'deploy'), s('waiting', 10),
+    ]);
+    // A request, then the proceed ask (older than every working row), then working, then done.
+    expect(card.rows.map((r) => r.title)).toEqual(['deploy', 'asked to proceed', 't9', 't8']);
+    expect(card.needs).toBe(2);
+    expect(card.more).toBe(2);
+  });
+
+  it('rows after the lead go request, proceed, working, done; newest first within each', () => {
+    const card = buildLiveActivityCard([
+      s('waiting', 9), s('working', 3), s('input', 1), s('working', 5),
+    ]);
+    expect(card.rows.map((r) => r.title)).toEqual(['t1', 't5', 't3', 't9']);
+  });
+
+  it('says which kind of request a waiting row is, for the island icon (an older app ignores it)', () => {
+    const card = buildLiveActivityCard([s('approval', 3), s('input', 2), s('working', 1)]);
+    expect(card.rows.map((r) => [r.title, r.ask])).toEqual([
+      ['t3', 'approval'], ['t2', 'input'], ['t1', undefined],
+    ]);
+  });
+
   it('marks each status and leaves ended or starting sessions off', () => {
     const card = buildLiveActivityCard([
       s('approval', 6), s('input', 5), s('prompting', 4), s('working', 3), s('ended', 9), s('connecting', 8),
@@ -64,7 +89,8 @@ describe('buildLiveActivityCard', () => {
       s('waiting', 9), s('idle', 4, 'KTS', { pendingProceedAt: 3_000 }), s('working', 5),
     ]);
     expect(card.rows.map((r) => [r.title, r.mark, r.proceed, r.idle, r.startedAt])).toEqual([
-      ['KTS', 'done', true, undefined, 3_000], ['t9', 'done', undefined, undefined, undefined], ['t5', 'working', undefined, undefined, 5],
+      // Working before done since Nov 18 2026 (rows go by urgency, not only the lead).
+      ['KTS', 'done', true, undefined, 3_000], ['t5', 'working', undefined, undefined, 5], ['t9', 'done', undefined, undefined, undefined],
     ]);
   });
 

@@ -15,7 +15,10 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWsStore } from '@/stores/wsStore';
 import { installAltScreenMouseReset } from '@/lib/terminalMouseReset';
-import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
+import { createPtyResizeSettler, type PtyResizeSettler } from '@/lib/ptyResizeSettle';
+import { linkTarget, mapLineColumns, resolvedLinkTarget, type LinkTarget } from '@/lib/filePathLink';
+import { findFileRefs } from '@/lib/fileRefs';
+import { resolveFileRef } from '@/lib/fileRefResolve';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 import {
   resolveRenderCols,
@@ -46,6 +49,8 @@ interface ActiveTerminal {
   /** Find-in-terminal (Nov 6 2026); null if the addon failed to load. */
   searchAddon: SearchAddon | null;
   resizeObserver: ResizeObserver;
+  /** Sends a window resize to the PTY only once the size has settled (ptyResizeSettle.ts, Nov 18 2026). */
+  ptyResize: PtyResizeSettler;
   /** Watches container visibility so we can refit+repaint when the tab is switched
    *  back to terminal. Without this, xterm's canvas stays blank because
    *  display:none → display:flex doesn't reliably trigger a useful ResizeObserver
@@ -848,6 +853,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
       // Clear active terminal's batched output buffer
       pendingOutputRef.current.delete(`__active__${terminalId}`);
       activeRef.current.resizeObserver.disconnect();
+      activeRef.current.ptyResize.cancel();
       activeRef.current.visibilityObserver?.disconnect();
       disposeAfterOpenTimers(activeRef.current.term);
       activeRef.current = null;
@@ -1162,34 +1168,47 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
               activate: (event: MouseEvent) => void;
               tooltip?: string;
             }> = [];
-            const filePathRe = createFilePathRegex();
-            let match: RegExpExecArray | null;
-            while ((match = filePathRe.exec(text)) !== null) {
-              const filePath = match[0];
-              const startIdx = match.index;
-              const endIdx = startIdx + filePath.length - 1;
-              const startX = startCol[startIdx] + 1; // xterm columns are 1-indexed
-              const endX = endCol[endIdx] + 1;       // inclusive, wide-char aware
+            const pp = projectPathRef.current || '';
+            const addLink = (token: { start: number; end: number; text: string }, activate: (event: MouseEvent) => void) => {
               links.push({
                 range: {
-                  start: { x: startX, y: bufferLineNumber },
-                  end: { x: endX, y: bufferLineNumber },
+                  start: { x: startCol[token.start] + 1, y: bufferLineNumber }, // xterm columns are 1-indexed
+                  end: { x: endCol[token.end - 1] + 1, y: bufferLineNumber },   // inclusive, wide-char aware
                 },
-                text: filePath,
+                text: token.text,
                 tooltip: 'Click to choose how to open',
-                activate(event: MouseEvent) {
-                  const clean = filePath.replace(/^\.\//, '');
-                  const pp = projectPathRef.current;
-                  // A phone opens the file in the app's viewer at once: the chooser's
-                  // other two choices (default app, Finder) act on the Mac, and a
-                  // paired phone may not call them (AASC-18).
-                  if (isMobileRef.current) {
-                    useUiStore.getState().openFileInProject(clean, pp || '');
-                    return;
-                  }
-                  useUiStore.getState().openFileChooser(clean, pp || '', { x: event.clientX, y: event.clientY });
-                },
+                activate,
               });
+            };
+            const open = (target: LinkTarget, event: MouseEvent) => {
+              // A phone opens it in the app's viewer at once: the chooser's other two choices
+              // (default app, Finder) act on the Mac, and a paired phone may not call them (AASC-18).
+              if (isMobileRef.current) {
+                const absolute = target.kind === 'dir' ? target.projectPath : `${target.projectPath.replace(/\/+$/, '')}/${target.filePath}`;
+                useUiStore.getState().openFileInProject(target.projectPath === pp ? target.filePath : absolute, pp, undefined, target.kind);
+                return;
+              }
+              useUiStore.getState().openFileChooser(target.filePath, target.projectPath, { x: event.clientX, y: event.clientY }, target.hostProjectPath, target.kind);
+            };
+            // A folder, a bare name or a ~ path links only once the Mac says it exists (Nov 18 2026);
+            // xterm asks per hovered line, so the lookups are few. No message here: a bare name is
+            // looked for at the project root, then in its file list.
+            const checks: Array<Promise<void>> = [];
+            for (const token of findFileRefs(text)) {
+              if (token.kind === 'file' && !token.text.startsWith('~')) {
+                // An absolute path is made relative to the session folder, or rooted at its own folder
+                // when it lives outside it (linkTarget, Nov 17 2026).
+                addLink(token, (event) => open(linkTarget(token.text.replace(/^\.\//, ''), pp), event));
+                continue;
+              }
+              if (!pp) continue;
+              checks.push(resolveFileRef(token.text, token.kind === 'bare' ? 'bare' : 'dir', { projectPath: pp }).then((found) => {
+                if (found) addLink(token, (event) => open(resolvedLinkTarget(found, pp), event));
+              }));
+            }
+            if (checks.length > 0) {
+              void Promise.all(checks).then(() => callback(links.length > 0 ? links : undefined));
+              return;
             }
             callback(links.length > 0 ? links : undefined);
           },
@@ -1240,6 +1259,10 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           // shortcuts — prevent xterm from processing these and let the event
           // bubble to the global handler in useKeyboardShortcuts.
           if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
+            return false;
+          }
+          // Ctrl+Cmd+1-7 (macOS): the detail-tab keys (Nov 18 2026). Never typed into the program.
+          if (isMac && e.ctrlKey && e.metaKey && /^Digit[0-9]$/.test(e.code)) {
             return false;
           }
           // ⌘V (macOS) / Ctrl+V: xterm skips the key but the browser keeps its default, so a native paste event
@@ -1331,7 +1354,14 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           sendInput(wsRef.current, terminalId, data);
         });
 
-        // Resize observer — 200ms debounce (#83: was 50ms, caused excessive resize messages)
+        // Resize observer — 200ms debounce (#83: was 50ms, caused excessive resize messages).
+        // xterm re-fits at once; the PTY hears the size only once a drag has settled
+        // (ptyResizeSettle.ts, Nov 18 2026): each resize it hears leaves Claude's old frame in
+        // scrollback. It sends the size xterm has THEN, so a later direct resize is never undone.
+        const ptyResize = createPtyResizeSettler(() => {
+          if (activeRef.current?.terminalId !== terminalId) return;
+          sendResize(wsRef.current, terminalId, term.cols, term.rows);
+        });
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
@@ -1343,13 +1373,13 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
             // the terminal is empty and viewportY=0 would overwrite the saved position.
             if (activeRef.current?.pendingScrollRestore !== undefined) {
               fitAddon.fit();
-              sendResize(wsRef.current, terminalId, term.cols, term.rows);
+              ptyResize.request(term.cols, term.rows);
               term.refresh(0, term.rows - 1);
               return;
             }
             const savedViewportY = term.buffer.active.viewportY;
             fitAddon.fit();
-            sendResize(wsRef.current, terminalId, term.cols, term.rows);
+            ptyResize.request(term.cols, term.rows);
             // Force canvas repaint — required when container transitions from
             // display:none to visible (tab switch), otherwise canvas stays blank.
             term.refresh(0, term.rows - 1);
@@ -1399,7 +1429,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         });
         visibilityObserver.observe(container);
 
-        activeRef.current = { terminalId, term, fitAddon, searchAddon, resizeObserver, visibilityObserver, layoutReady: false, pendingScrollRestore };
+        activeRef.current = { terminalId, term, fitAddon, searchAddon, resizeObserver, ptyResize, visibilityObserver, layoutReady: false, pendingScrollRestore };
         echoCreditRef.current = null;
         probePaintRef.current = false;
         probeRef.current = isTypingProbeEnabled() ? createTypingProbe(terminalId) : null;
@@ -1824,8 +1854,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         if (!newContainer.offsetWidth || !newContainer.offsetHeight) return;
         const savedViewportY = activeRef.current.term.buffer.active.viewportY;
         activeRef.current.fitAddon.fit();
-        sendResize(wsRef.current, activeRef.current.terminalId,
-          activeRef.current.term.cols, activeRef.current.term.rows);
+        activeRef.current.ptyResize.request(activeRef.current.term.cols, activeRef.current.term.rows);
         activeRef.current.term.refresh(0, activeRef.current.term.rows - 1);
         activeRef.current.term.scrollToLine(savedViewportY);
       }, 200); // #83: match main resize debounce
@@ -1996,6 +2025,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
       }
       if (activeRef.current) {
         activeRef.current.resizeObserver.disconnect();
+        activeRef.current.ptyResize.cancel();
         disposeAfterOpenTimers(activeRef.current.term);
         activeRef.current = null;
       }

@@ -7,6 +7,14 @@ $input_json = [Console]::In.ReadToEnd()
 
 if (-not $input_json) { exit 0 }
 
+# Per-session lite hooks (the AASC "Automation" mark): with AASC_HOOK_LEVEL=lite only lifecycle
+# events go on (start, prompt, approval, stop, end). Keep the list in step with LITE_HOOK_EVENTS
+# (server/sessionHookLevel.ts); test/sessionHookLevel.test.ts pins it.
+if ($env:AASC_HOOK_LEVEL -eq 'lite') {
+    $liteMatch = [regex]::Match($input_json, '"hook_event_name"\s*:\s*"([A-Za-z]+)"')
+    if ($liteMatch.Success -and @('SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd') -notcontains $liteMatch.Groups[1].Value) { exit 0 }
+}
+
 # Gather environment info
 $claude_pid = (Get-Process -Id $PID).Parent.Id  # Parent of PowerShell = Claude process
 $vscode_pid = $env:VSCODE_PID

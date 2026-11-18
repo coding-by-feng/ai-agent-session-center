@@ -505,7 +505,7 @@ export default memo(function TerminalContainer({
     if (originSessionId) toggleAiPopup(originSessionId);
   }, [originSessionId, toggleAiPopup]);
 
-  // Reader view (desktop Full, agent terminals): the session's transcript as formatted
+  // Formatted view, internally Reader (desktop Full, agent terminals): the session's transcript as formatted
   // Markdown over the terminal, which stays mounted and laid out underneath.
   const readerSessionId = controlSessionId ?? originSessionId ?? null;
   const readerAvailable = !isPhone && !liteDesktop && !!terminalCli && !!readerSessionId;
@@ -520,6 +520,14 @@ export default memo(function TerminalContainer({
     setReaderFor({ id: readerSessionId, on: next });
   }, [readerSessionId, readerOn]);
   const showReader = readerAvailable && readerOn && !isFullscreen;
+  // A character typed on the Reader's chat: back to the live terminal, with it typed there.
+  const typeToTerminal = useCallback((key: string) => {
+    if (!readerSessionId) return;
+    writeReaderMode(readerSessionId, false);
+    setReaderFor({ id: readerSessionId, on: false });
+    sendKeys(key);
+    focusTerminal();
+  }, [readerSessionId, sendKeys, focusTerminal]);
 
   const popup = useSelectionPopup({
     enabled: translationEnabled && !!originSessionId && aiPopupEnabled,
@@ -672,7 +680,7 @@ export default memo(function TerminalContainer({
         {!isFullscreen && !showReader && searchBar}
         {showReader && readerSessionId && (
           <Suspense fallback={null}>
-            <TerminalReader sessionId={readerSessionId} onTerminal={toggleReader} />
+            <TerminalReader sessionId={readerSessionId} onTerminal={toggleReader} onTypeToTerminal={typeToTerminal} />
           </Suspense>
         )}
         <div className={styles.terminalRow}>

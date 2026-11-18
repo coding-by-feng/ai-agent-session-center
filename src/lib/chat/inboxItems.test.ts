@@ -87,6 +87,13 @@ describe('inboxItems', () => {
     expect(item).toMatchObject({ kind: 'interrupted', line: 'Stopped: API Error: 529', waiting: true, at: NOW - 60_000, id: `interrupted:c:${NOW - 60_000}` });
   });
 
+  it('lists a turn stopped on the usage limit with its reset', () => {
+    const [item] = inboxItems(map(session('c', 'waiting', {
+      interruption: { kind: 'usage_limit', line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)", detectedAt: 1 } as Session['interruption'],
+    })), { titleOf, now: NOW });
+    expect(item).toMatchObject({ kind: 'interrupted', line: 'Limit reached · resets 1:30pm' });
+  });
+
   it('lists a finished turn with the start of its answer, not as waiting', () => {
     const [item] = inboxItems(map(session('d', 'waiting', {
       responseLog: [{ text: 'Updated the pricing page and checked the build.', timestamp: NOW - 720_000 }],

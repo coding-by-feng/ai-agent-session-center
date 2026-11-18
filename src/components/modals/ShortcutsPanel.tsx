@@ -14,10 +14,21 @@ import styles from '@/styles/modules/Modal.module.css';
 /** Non-customizable shortcuts shown alongside the store bindings. */
 const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: string }[] }[] = [
   {
+    // Plain keys (useKeyboardShortcuts), outside a text field or terminal only.
+    section: 'Session Switch',
+    items: [
+      { key: '[', description: 'Back to the previous session' },
+      { key: ']', description: 'Latest session that finished' },
+    ],
+  },
+  {
     section: 'Terminal',
     // Lite has no Refresh button to pair this key with.
-    items: IS_LITE ? [] : [
-      { key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' },
+    items: [
+      // useTerminal's own key: the terminal takes over the panel (the page-wide fullscreen
+      // that also fired on it was removed Nov 18 2026; the window menu has ⌃⌘F / F11).
+      { key: 'Alt+F11', description: 'Fullscreen terminal' },
+      ...(IS_LITE ? [] : [{ key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' }]),
     ],
   },
   {

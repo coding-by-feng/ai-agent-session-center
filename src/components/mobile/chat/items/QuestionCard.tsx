@@ -14,9 +14,11 @@
  * - Claude: live while this call is the session's open, answerable request (one single-select
  *   question, at most nine options): the answer goes through the Mac's checked route, as the
  *   waiting card's does (useRequestAnswer), and the waiting card then stops repeating the choices.
- *   Several single-select questions (Nov 6 2026): pick one each, then Send answers; the Mac types
- *   a digit per question and Claude's Submit. A question only the terminal can answer (multi-select,
- *   more than nine choices) says so.
+ *   Several questions (Nov 6 2026): answer each, then Send answers; the Mac presses Claude's keys
+ *   for each and its Submit. Since Nov 18 2026 the card takes what Claude Code's own dialog takes:
+ *   a multi-select question (tick any), and a typed answer of your own ("Type something") for
+ *   every question. Only a question with more than nine choices still needs the terminal.
+ * - An answered card marks the picks, and shows an answer you typed in your own words.
  * - Codex asks without waiting and reads your next message as the answer, so a tap sends the
  *   option as that message (with several questions: pick one each, then Send answers). It closes
  *   once you send anything.
@@ -26,6 +28,7 @@ import type { PendingRequest } from '@/types';
 import type { QuestionItem } from '@/lib/chat/buildChatItems';
 import type { ChatQuestion } from '@/lib/chat/questionItem';
 import { answerableRequest, codexReply } from '@/lib/chat/questionItem';
+import type { QuestionAnswer } from '@/lib/chat/answerApi';
 import type { CardChoice } from '@/lib/chat/waitingCardModel';
 import { composerAction, macWindowOpen } from '@/lib/chat/composerAction';
 import { getClientId } from '@/lib/deviceIdentity';
@@ -41,6 +44,7 @@ import { sendStatusLine, usePromptSender } from '../usePromptSender';
 import { useDriverName } from '../useDriverName';
 import { useAnswerInChat, useChatTerminal } from '../chatQuestions';
 import MultiQuestionPicker from '../MultiQuestionPicker';
+import { TYPED_ANSWER_MAX, canTypeAnswer } from '@/lib/chat/typedAnswer';
 import styles from '@/styles/modules/mobile/ChatItems.module.css';
 
 export interface QuestionCardProps {
@@ -73,9 +77,11 @@ function QuestionText({ question, several }: { question: ChatQuestion; several: 
   );
 }
 
-/** A question's options as they were offered, the picks marked. */
+/** A question's options as they were offered, the picks marked, and after them any answer typed in your own words. */
 function StaticOptions({ question, picked }: { question: ChatQuestion; picked: readonly string[] | null }) {
-  if (question.options.length === 0) return null;
+  const labels = new Set(question.options.map((o) => o.label));
+  const typed = (picked ?? []).filter((answer) => answer !== '' && !labels.has(answer));
+  if (question.options.length === 0 && typed.length === 0) return null;
   return (
     <ul className={styles.questionPicks}>
       {question.options.map((o) => {
@@ -90,6 +96,14 @@ function StaticOptions({ question, picked }: { question: ChatQuestion; picked: r
           </li>
         );
       })}
+      {typed.map((answer) => (
+        <li key={`typed:${answer}`} className={`${styles.questionPick} ${styles.questionPickTyped}`} data-chosen="" data-typed="">
+          <span className={styles.questionMark} aria-hidden="true"><CheckIcon size={16} /></span>
+          <span className={styles.questionPickText}>
+            <span>{answer}<span className={styles.srOnly}> (your own answer)</span></span>
+          </span>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -149,7 +163,10 @@ function OptionButton({ label, description, onClick, loading, chosen }: {
 function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { request: PendingRequest }) {
   useAnswerInChat(sessionId, request.id);
   const { busy, outcome, confirm, cancelConfirm, answer, spectator, driver } = useRequestAnswer(sessionId, request.id, 'Claude');
-  const [picked, setPicked] = useState<string[] | null>(null);
+  // What was sent, per question: the labels picked and/or the words typed.
+  const [picked, setPicked] = useState<string[][] | null>(null);
+  const [own, setOwn] = useState('');
+  // Claude shows these as tabs: several questions, or one multi-select.
   const several = !!request.questions?.length;
   const settled = outcome?.kind === 'sent' || outcome?.kind === 'stale';
   const choices: CardChoice[] = (request.options ?? []).map((option, optionIndex) => ({
@@ -166,7 +183,7 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
         {item.questions.map((q, i) => (
           <div key={i} className={styles.questionBlock}>
             <QuestionText question={q} several={several} />
-            <StaticOptions question={q} picked={outcome?.kind === 'sent' && picked?.[i] ? [picked[i]] : null} />
+            <StaticOptions question={q} picked={outcome?.kind === 'sent' ? picked?.[i] ?? null : null} />
           </div>
         ))}
         {outcome?.kind === 'sent' && <p className={styles.questionState} role="status">Answered. Waiting for Claude to go on…</p>}
@@ -181,16 +198,24 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
     );
   }
 
-  const sendAll = (optionIndexes: number[]) => {
+  const sendAll = (answers: QuestionAnswer[]) => {
     const questions = request.questions ?? [];
-    setPicked(optionIndexes.map((pick, i) => questions[i]?.options[pick]?.label ?? ''));
-    answer({ answer: { choice: 'options', optionIndexes }, label: 'Send answers', tone: 'primary' });
+    setPicked(answers.map((a, i) => [...a.picks.map((pick) => questions[i]?.options[pick]?.label ?? ''), ...(a.other ? [a.other] : [])]));
+    answer({ answer: { choice: 'answers', answers }, label: 'Send answers', tone: 'primary' });
+  };
+  // One single-select question: a tap on a choice answers at once; your own words go through the field.
+  const ownText = own.trim();
+  const typedHere = !several && request.canType === true && canTypeAnswer({ options: request.options ?? [] });
+  const sendOwn = () => {
+    if (!ownText) return;
+    setPicked([[ownText]]);
+    answer({ answer: { choice: 'answers', answers: [{ picks: [], other: ownText }] }, label: 'Send', tone: 'primary' });
   };
 
   return (
     <Shell item={item}>
       {several ? (
-        <MultiQuestionPicker questions={request.questions ?? []} onSend={sendAll} loading={busy?.startsWith('options:')} />
+        <MultiQuestionPicker questions={request.questions ?? []} canType={request.canType === true} onSend={sendAll} loading={busy?.startsWith('answers:')} />
       ) : (
       <div className={styles.questionBlock}>
         <QuestionText question={question} several={false} />
@@ -202,12 +227,39 @@ function ClaudeQuestion({ item, sessionId, request }: QuestionCardProps & { requ
               description={choice.description}
               loading={busy === choiceKey(choice.answer)}
               onClick={() => {
-                setPicked([choice.label]);
+                setPicked([[choice.label]]);
                 answer(choice);
               }}
             />
           ))}
         </div>
+        {typedHere && (
+          <form
+            className={styles.questionTypedRow}
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendOwn();
+            }}
+          >
+            <input
+              type="text"
+              className={styles.questionTyped}
+              value={own}
+              maxLength={TYPED_ANSWER_MAX}
+              placeholder="Type your own answer…"
+              aria-label="Your own answer"
+              enterKeyHint="send"
+              autoCapitalize="sentences"
+              onChange={(e) => setOwn(e.target.value)}
+            />
+            {/* Shown once there is something to send: an idle Send beside an empty field is noise. */}
+            {ownText && (
+              <Button small variant="primary" type="submit" loading={busy?.startsWith('answers:')}>
+                Send
+              </Button>
+            )}
+          </form>
+        )}
       </div>
       )}
       {spectator && <p className={styles.questionState}>{driver} is driving. Answering takes control.</p>}

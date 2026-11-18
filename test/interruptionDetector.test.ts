@@ -24,9 +24,25 @@ describe('matchFault', () => {
 
   it('classifies rate limiting ahead of the generic api_error shape', () => {
     expect(matchFault('API Error: 429 Too Many Requests')?.kind).toBe('rate_limit');
-    expect(matchFault('You have hit your usage limit reached for this hour')?.kind).toBe(
+    expect(matchFault('Rate limited by the provider, usage limit reached for this hour')?.kind).toBe(
       'rate_limit',
     );
+  });
+
+  it('tells a plan usage limit apart, in the words Claude Code and Codex print today', () => {
+    // Claude Code 2.1.3xx (recorded in real transcripts, Nov 2026), drawn under its ⎿ gutter.
+    const claude = matchFault("  ⎿  You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)\n");
+    expect(claude).toEqual({ kind: 'usage_limit', line: "⎿  You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)" });
+    expect(matchFault("You've hit your weekly limit · resets Nov 21 at 7pm (Pacific/Auckland)")?.kind).toBe('usage_limit');
+    expect(matchFault("You’ve hit your session limit · resets 7pm (Pacific/Auckland)")?.kind).toBe('usage_limit');
+    // Codex, and Claude Code's older wording.
+    expect(matchFault('■ You\'ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again in 2 days 3 hours.')?.kind).toBe('usage_limit');
+    expect(matchFault('Claude AI usage limit reached|1794920000')?.kind).toBe('usage_limit');
+    expect(matchFault('You have hit your usage limit reached for this hour')?.kind).toBe('usage_limit');
+  });
+
+  it('does not take prose that quotes the limit message for the message itself', () => {
+    expect(matchFault("● When a session prints You've hit your 5-hour limit, the rail shows an hourglass.")).toBeNull();
   });
 
   it('classifies connection failures as network', () => {

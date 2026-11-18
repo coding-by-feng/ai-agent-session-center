@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handsOffIntentChanged, shareIntentChanged } from './shareIntentDiff';
+import { handsOffIntentChanged, hookLevelIntentChanged, shareIntentChanged } from './shareIntentDiff';
 import type { Session } from '@/types';
 
 const s = (id: string, remoteVisible?: boolean) => ({ sessionId: id, remoteVisible }) as unknown as Session;
@@ -66,5 +66,20 @@ describe('handsOffIntentChanged', () => {
 
   it('sees a flip on any one session among many', () => {
     expect(handsOffIntentChanged(map(h('a'), h('b'), h('c')), map(h('a'), h('b'), h('c', true)))).toBe(true);
+  });
+});
+
+// Automation (lite hooks): a restore relaunches each agent at the level the snapshot holds, so a flip saves quickly.
+describe('hookLevelIntentChanged', () => {
+  const lite = (id: string, on: boolean) => ({ sessionId: id, ...(on ? { hookLevel: 'lite' } : {}) }) as unknown as Session;
+
+  it('sees Automation turned on and off', () => {
+    expect(hookLevelIntentChanged(map(lite('a', false)), map(lite('a', true)))).toBe(true);
+    expect(hookLevelIntentChanged(map(lite('a', true)), map(lite('a', false)))).toBe(true);
+  });
+
+  it('is false while the mark stays, and ignores the other switches', () => {
+    expect(hookLevelIntentChanged(map(lite('a', true)), map(lite('a', true)))).toBe(false);
+    expect(hookLevelIntentChanged(map(h('a')), map(h('a', true)))).toBe(false);
   });
 });

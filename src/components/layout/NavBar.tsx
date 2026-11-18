@@ -7,6 +7,8 @@ import { openLiveSession } from '@/lib/liveSession';
 import { useLiveHint } from '@/hooks/useLiveBoard';
 import { IS_LITE, LITE_NAV_ROUTES } from '@/lib/edition';
 import CountBadge from '@/components/ui/CountBadge';
+import NewButton from '@/components/session/NewButton';
+import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/NavBar.module.css';
 
 interface NavItem {
@@ -68,11 +70,11 @@ export default function NavBar() {
 
   return (
     <nav className={styles.nav}>
-      {/* The route tabs only. + NEW and DIRS used to lead the bar; starting a
-          session now lives in the session panel's strip (+ and the recent-
-          directories icon) and, with no session yet, on the LIVE page's card
-          (Oct 2026). The `?` shortcuts button and <DevicePresenceChip /> live
-          in Header's `.stats` cluster with the other icon-only controls. */}
+      {/* ＋ New leads the bar (Nov 17 2026): the one obvious way to start a session or make a room while
+          no session panel is open; the session rail's strip carries the same button while one is. (From
+          Oct 2026 until then the bar held the route tabs only and creation lived in the strip's small +.)
+          The `?` shortcuts button and <DevicePresenceChip /> live in Header's `.stats` cluster. */}
+      {!isPopoutWindow() && <NewButton className={styles.newButton} />}
       {navItems.map((item) => (
         <NavLink
           key={item.to}

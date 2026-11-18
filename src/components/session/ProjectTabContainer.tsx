@@ -61,7 +61,8 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
   const [navigateToFile, setNavigateToFile] = useState<string | null>(null);
 
   useEffect(() => {
-    if (pendingFileOpen && (pendingFileOpen.projectPath === projectPath || !pendingFileOpen.projectPath)) {
+    // A file outside the session's folder (linkTarget) belongs to the host's container, handled below.
+    if (pendingFileOpen && pendingFileOpen.hostProjectPath === undefined && (pendingFileOpen.projectPath === projectPath || !pendingFileOpen.projectPath)) {
       setNavigateToFile(pendingFileOpen.filePath);
       clearPendingFileOpen();
       // Clear after a tick so the prop change is picked up by ProjectTab
@@ -87,6 +88,35 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
     }]);
     setActiveSubTab(tabId);
   }, []);
+
+  // A file outside this session's folder (Nov 17 2026): open it in a sub-tab rooted at its own folder, or
+  // bring back the sub-tab already showing it. Only the container of the session that clicked it acts.
+  const subTabsRef = useRef(subTabs);
+  useEffect(() => { subTabsRef.current = subTabs; }, [subTabs]);
+  useEffect(() => {
+    const handle = (request: ReturnType<typeof useUiStore.getState>['pendingFileOpen']) => {
+      if (!request || request.hostProjectPath === undefined || request.hostProjectPath !== projectPath) return;
+      useUiStore.getState().clearPendingFileOpen();
+      // A folder (Nov 18 2026) is its own root: a sub-tab at it, or the one already there.
+      if (request.kind === 'dir') {
+        const there = subTabsRef.current.find((t) => t.projectPath === request.projectPath && !t.initialIsFile && (!t.initialPath || t.initialPath === '/'));
+        if (there) setActiveSubTab(there.id);
+        else handleOpenBrowserTab(request.projectPath, '/', false);
+        return;
+      }
+      const open = subTabsRef.current.find((t) => t.projectPath === request.projectPath && t.initialPath === request.filePath);
+      if (open) setActiveSubTab(open.id);
+      else handleOpenBrowserTab(request.projectPath, request.filePath, true);
+    };
+    const first = setTimeout(() => handle(useUiStore.getState().pendingFileOpen), 0);
+    const unsubscribe = useUiStore.subscribe((s, prev) => {
+      if (s.pendingFileOpen !== prev.pendingFileOpen) handle(s.pendingFileOpen);
+    });
+    return () => {
+      clearTimeout(first);
+      unsubscribe();
+    };
+  }, [projectPath, handleOpenBrowserTab]);
 
   const handleCloseSubTab = useCallback((tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();

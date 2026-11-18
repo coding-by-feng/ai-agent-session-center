@@ -66,10 +66,12 @@ enum LiveActivityController {
 
     #if DEBUG
     /// `-AASCLiveActivityDemo` (Xcode scheme or `simctl launch`): a sample card, to check the drawing without a Mac;
-    /// `-AASCLiveActivityDemoIdle`: one where every session is idle.
+    /// `-AASCLiveActivityDemoIdle`: one where every session is idle; `-AASCLiveActivityDemoNeeds` (Nov 18 2026): an
+    /// approval and a "proceed" waiting on you, for the island's ✋ + count.
     static func showDemoIfAsked() {
         let arguments = ProcessInfo.processInfo.arguments
-        guard arguments.contains("-AASCLiveActivityDemo") || arguments.contains("-AASCLiveActivityDemoIdle") else { return }
+        guard arguments.contains("-AASCLiveActivityDemo") || arguments.contains("-AASCLiveActivityDemoIdle")
+            || arguments.contains("-AASCLiveActivityDemoNeeds") else { return }
         NSLog("AASC Live Activity demo: enabled=%d running=%d", ActivityAuthorizationInfo().areActivitiesEnabled ? 1 : 0,
               Activity<AascActivityAttributes>.activities.count)
         if arguments.contains("-AASCLiveActivityDemoIdle") {
@@ -85,6 +87,19 @@ enum LiveActivityController {
             return
         }
         let now = Date()
+        if arguments.contains("-AASCLiveActivityDemoNeeds") {
+            show(LiveActivityCard(
+                mac: "kason-mac", headline: "needs",
+                rows: [
+                    LiveActivityRow(mark: "approval", title: "Website deploy", startedAt: now.addingTimeInterval(-42),
+                                    detail: "Bash · npm run deploy:prod"),
+                    LiveActivityRow(mark: "proceed", title: "Exmouth Development", startedAt: now.addingTimeInterval(-19_235)),
+                    LiveActivityRow(mark: "input", title: "Claude Code Video", startedAt: now.addingTimeInterval(-661)),
+                    LiveActivityRow(mark: "working", title: "AASC Optimization", startedAt: now.addingTimeInterval(-45)),
+                ],
+                more: 47, needs: 3, working: 1))
+            return
+        }
         show(LiveActivityCard(
             mac: "kason-mac.local", headline: "working",
             rows: [

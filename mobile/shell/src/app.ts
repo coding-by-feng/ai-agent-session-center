@@ -32,6 +32,7 @@ import type { Actions, Screen, ScreenContext, UnpairStep } from './ui/screen.js'
 import { renderApprove, renderConnecting, renderLanOffer, renderOffline } from './ui/statusScreens.js';
 import { renderCall } from './ui/callScreen.js';
 import { lanOfferDue, markLanOffered } from './lanOffer.js';
+import { withVaultCopy } from './vaultCopy.js';
 
 /** How often the approval screen asks the Mac. */
 export const APPROVAL_POLL_MS = 3_000;
@@ -92,8 +93,10 @@ export interface ShellTiming {
 }
 
 export function createShellApp(
-  root: HTMLElement, deps: ShellDeps | null, timing: ShellTiming = { pollMs: APPROVAL_POLL_MS, pollMaxMs: APPROVAL_POLL_MAX_MS },
+  root: HTMLElement, givenDeps: ShellDeps | null, timing: ShellTiming = { pollMs: APPROVAL_POLL_MS, pollMaxMs: APPROVAL_POLL_MAX_MS },
 ): ShellApp {
+  // The saved Macs survive an app delete through their copy in the vault (vaultCopy.ts, Nov 17 2026).
+  const deps: ShellDeps | null = givenDeps ? { ...givenDeps, store: withVaultCopy(givenDeps.store, givenDeps.vault) } : null;
   let screen: Screen = pairScreen();
   let macs: SavedMac[] = [];
   let gen = 0;

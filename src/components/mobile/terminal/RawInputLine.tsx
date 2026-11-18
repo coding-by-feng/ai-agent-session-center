@@ -5,7 +5,7 @@
  * pasted newline). With Ctrl armed, the next character typed becomes its
  * control code at once (Ctrl, then C sends ^C) and never lands in the line.
  */
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { typeWithCtrl } from '@/lib/chat/terminalKeys';
 import { EnterKeyIcon } from '../chat/chatIcons';
 import styles from '@/styles/modules/mobile/PhoneTerminal.module.css';
@@ -22,9 +22,11 @@ export interface RawInputLineProps {
   placeholder: string;
   sending: boolean;
   onSubmit: () => void;
+  /** A control between the line and its Enter (the app's hold-to-talk mic). */
+  trailing?: ReactNode;
 }
 
-export default function RawInputLine({ value, onChange, ctrl, onCtrlCode, onCtrlRelease, disabled, placeholder, sending, onSubmit }: RawInputLineProps) {
+export default function RawInputLine({ value, onChange, ctrl, onCtrlCode, onCtrlRelease, disabled, placeholder, sending, onSubmit, trailing }: RawInputLineProps) {
   const change = (e: ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value;
     if (ctrl && next.length === value.length + 1) {
@@ -61,6 +63,7 @@ export default function RawInputLine({ value, onChange, ctrl, onCtrlCode, onCtrl
         spellCheck={false}
         data-testid="raw-input"
       />
+      {trailing}
       <button
         type="submit"
         className={styles.rawSend}

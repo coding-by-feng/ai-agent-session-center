@@ -148,7 +148,8 @@ describe('matchSession — a tty-less hook binds no terminal by folder', () => {
       vi.mocked(tryLinkByWorkDir).mockReturnValue(TERM);
       sessions.set(TERM, makeSession({ status: SESSION_STATUS.IDLE as Session['status'] }));
       expect(run({ tty_path: '/dev/ttys012', claude_pid: 4_200_004 })?.terminalId).toBe(TERM);
-      expect(tryLinkByWorkDir).toHaveBeenCalledWith(CWD, OUTSIDER);
+      // The hook's agent rides along so a Codex hook never takes a Claude terminal's link (Nov 17 2026).
+      expect(tryLinkByWorkDir).toHaveBeenCalledWith(CWD, OUTSIDER, 'codex');
     });
   });
 });

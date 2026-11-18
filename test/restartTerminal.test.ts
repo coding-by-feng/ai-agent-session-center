@@ -367,6 +367,22 @@ describe('POST /api/sessions/:id/restart-terminal — what a restart must not ge
     expect(mocks.maybeInjectUltracode).not.toHaveBeenCalled();
   });
 
+  // The Automation mark (server/sessionHookLevel.ts) is read when a PTY starts: a restart is how it reaches the agent.
+  it('relaunches a session marked Automation with lite hooks', async () => {
+    await liveSession();
+    store.setSessionHookLevel(UUID, 'lite');
+    await restart(UUID);
+    expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({ hookLevel: 'lite' }), null);
+    expect(store.getSession(UUID)?.hookLevel).toBe('lite');
+  });
+
+  it('leaves the hook level out for an unmarked session', async () => {
+    await liveSession();
+    await restart(UUID);
+    expect(mocks.createTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.createTerminal.mock.calls[0][0]).not.toHaveProperty('hookLevel');
+  });
+
   it('does not archive the run into "previous sessions": --resume keeps the same session and its prompts', async () => {
     await liveSession();
     await restart(UUID);

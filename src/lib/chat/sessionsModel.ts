@@ -16,13 +16,13 @@ import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { needsYou, waitingLine } from './inboxModel';
 import { buildStripItems } from '@/lib/sessionStrip';
-import { pickRecentSessions } from '@/lib/recentSessions';
+import { pickRecentSessions, RECENT_EXPANDED_LIMIT, RECENT_LIMIT } from '@/lib/recentSessions';
 import { applyProjectOrder } from './projectsListModel';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
 import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { owesProceed, showsCompacting } from '@/lib/sessionStatusStyle';
+import { busyMark, owesProceed } from '@/lib/sessionStatusStyle';
 
 export type SessionsFilter = 'all' | 'needs-you' | 'working';
 /** `activity`: one list, most recently active first: the desktop strip's Recent activity view (Oct 20 2026). */
@@ -56,7 +56,7 @@ export const IDLE_FOLD_AT = 4;
 /** When this device last read each session (opened it, or marked it read), by id. */
 export type ReadMap = Readonly<Record<string, number>>;
 
-type SectionFields = Pick<Session, 'sessionId' | 'status' | 'interruption' | 'lastActivityAt' | 'pendingProceedAt' | 'compacting'>;
+type SectionFields = Pick<Session, 'sessionId' | 'status' | 'interruption' | 'lastActivityAt' | 'pendingProceedAt' | 'compacting' | 'backgroundTaskCount' | 'backgroundTasks'>;
 
 /** A finished turn you haven't seen: it finished after you last read the session. */
 export function isUnreadFinish(session: SectionFields, reads: ReadMap): boolean {
@@ -65,8 +65,9 @@ export function isUnreadFinish(session: SectionFields, reads: ReadMap): boolean 
 
 export function statusSection(session: SectionFields, reads: ReadMap = {}): StatusSection {
   if (needsYou(session)) return 'needs-you';
-  // Compacting (Nov 3 2026): its ring spins, so it is busy whatever its status says; a P comes back after.
-  if (showsCompacting(session)) return 'working';
+  // Compacting (Nov 3 2026) or background shells still running (Nov 17 2026): its ring spins, so it
+  // is busy whatever its status says; a P comes back after.
+  if (busyMark(session)) return 'working';
   // Its last answer asks you to reply "proceed" (Oct 23 2026): under Idle it would fold away.
   if (owesProceed(session)) return 'needs-you';
   if (session.status === 'working' || session.status === 'prompting') return 'working';
@@ -75,8 +76,8 @@ export function statusSection(session: SectionFields, reads: ReadMap = {}): Stat
 }
 
 export function matchesFilter(session: SectionFields, filter: SessionsFilter): boolean {
-  if (filter === 'needs-you') return needsYou(session) || (owesProceed(session) && !showsCompacting(session));
-  if (filter === 'working') return !needsYou(session) && (session.status === 'working' || session.status === 'prompting' || showsCompacting(session));
+  if (filter === 'needs-you') return needsYou(session) || (owesProceed(session) && !busyMark(session));
+  if (filter === 'working') return !needsYou(session) && (session.status === 'working' || session.status === 'prompting' || !!busyMark(session));
   return true;
 }
 
@@ -168,6 +169,8 @@ export interface SessionGroup {
   /** Project groups: where a new session starts, and whether it can start here. */
   launchPath?: string;
   local?: boolean;
+  /** The Recent group: more than RECENT_LIMIT sessions qualify, so its 10 ↔ 20 toggle has something to show. */
+  recentHasMore?: boolean;
 }
 
 export interface GroupInput {
@@ -183,6 +186,8 @@ export interface GroupInput {
   showCentral?: boolean;
   /** By project: the order this phone keeps (project keys); A to Z without one. */
   projectOrder?: readonly string[];
+  /** Recent lists up to RECENT_EXPANDED_LIMIT instead of RECENT_LIMIT (this phone's ⌄⌄, Nov 18 2026). */
+  recentExpanded?: boolean;
 }
 
 const byRecent = (a: Session, b: Session) =>
@@ -193,7 +198,7 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true, projectOrder = [] }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true, projectOrder = [], recentExpanded = false }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
   const listed = numberedSessions(sessions).filter(
     (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
@@ -220,7 +225,10 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
   // (sessionStrip.ts, recentSessions.ts), narrowed by the filter and search; each session also
   // stays in its room.
   const byRoom = groupBy === 'room';
-  const recentIds = byRoom ? pickRecentSessions(listed, now).map((s) => s.sessionId) : [];
+  // Picked with the real limit, never sliced from the 20: the list is ordered pinned-first after the cut.
+  const wideRecent = byRoom ? pickRecentSessions(listed, now, RECENT_EXPANDED_LIMIT) : [];
+  const recentHasMore = wideRecent.length > RECENT_LIMIT;
+  const recentIds = (recentExpanded || !recentHasMore ? wideRecent : pickRecentSessions(listed, now)).map((s) => s.sessionId);
   const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom && showCentral });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
@@ -247,7 +255,7 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
     } else if (item.type === 'pinned') {
       groups.push({ key: 'pinned', kind: 'pinned', title: 'Pinned', sessions: item.sessions });
     } else if (item.type === 'recent') {
-      groups.push({ key: 'recent', kind: 'recent', title: 'Recent', sessions: item.sessions });
+      groups.push({ key: 'recent', kind: 'recent', title: 'Recent', sessions: item.sessions, recentHasMore });
     } else if (item.type === 'room') {
       placeEmptyBefore(item.room);
       groups.push(roomGroup(item.room, item.sessions, item.color));

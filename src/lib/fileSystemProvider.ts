@@ -108,6 +108,19 @@ function isTextByName(name: string): boolean {
 // API Provider (default — fetches from Express backend)
 // ---------------------------------------------------------------------------
 
+
+/** POST `{ root, path }` to a file action route; throws the server's `error` (or the status) on a refusal. */
+async function postFileAction(url: string, root: string, path: string): Promise<void> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, path }),
+  });
+  if (res.ok) return;
+  const data = await res.json().catch(() => null) as { error?: unknown } | null;
+  throw new Error(typeof data?.error === 'string' && data.error ? data.error : `HTTP ${res.status}`);
+}
+
 export class ApiFileSystemProvider implements FileSystemProvider {
   readonly kind = 'api' as const;
 
@@ -215,20 +228,14 @@ export class ApiFileSystemProvider implements FileSystemProvider {
     return res.json();
   }
 
+  // Both throw the server's reason on a refusal (Nov 17 2026): they used to swallow it, so a path the
+  // server couldn't find opened nothing and said nothing (FileOpenChooser, ProjectTab's Reveal).
   async reveal(projectRoot: string, relPath: string) {
-    await fetch('/api/files/reveal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root: projectRoot, path: relPath }),
-    }).catch(() => {});
+    await postFileAction('/api/files/reveal', projectRoot, relPath);
   }
 
   async openExternal(projectRoot: string, relPath: string) {
-    await fetch('/api/files/open-external', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root: projectRoot, path: relPath }),
-    }).catch(() => {});
+    await postFileAction('/api/files/open-external', projectRoot, relPath);
   }
 
   async invalidateSearchCache(projectRoot: string) {

@@ -30,7 +30,7 @@ import { requestRoomChange, useIsRoomWriter } from '@/lib/roomSync';
 import { reorderOpFor } from '@/lib/chat/roomsListModel';
 import { killSharedRoomSessions, roomKillSummary, sharedRoomTargets } from '@/lib/chat/phoneRoomKill';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { RECENT_LIMIT } from '@/lib/recentSessions';
+import { RECENT_EXPANDED_LIMIT, RECENT_LIMIT } from '@/lib/recentSessions';
 import type { RoomOp } from '@/types';
 import styles from '@/styles/modules/mobile/SessionRooms.module.css';
 
@@ -207,7 +207,15 @@ export function ProjectGroupHeader({ projectKey, title, count, color, collapsed,
  * RECENT frame. It folds like a room but is not one, so no ≡ and no ⋯; the space
  * where ≡ sits keeps its title in line with the rooms' titles.
  */
-export function RecentGroupHeader({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+export function RecentGroupHeader({ count, collapsed, onToggle, limit }: {
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  /** The 10 ↔ 20 toggle (Nov 18 2026), given only when more than 10 qualify; shown while open. */
+  limit?: { expanded: boolean; onToggle: () => void };
+}) {
+  const shown = limit?.expanded ? RECENT_EXPANDED_LIMIT : RECENT_LIMIT;
+  const name = limit?.expanded ? `Show only the ${RECENT_LIMIT} most recent` : `Show the ${RECENT_EXPANDED_LIMIT} most recent`;
   return (
     <BuiltinGroupHeader
       title="Recent"
@@ -215,8 +223,25 @@ export function RecentGroupHeader({ count, collapsed, onToggle }: { count: numbe
       count={count}
       collapsed={collapsed}
       onToggle={onToggle}
-      describe={`the ${RECENT_LIMIT} most recently active`}
-    />
+      describe={`the ${shown} most recently active`}
+    >
+      {limit && !collapsed && (
+        <button type="button" className={styles.menuButton} onClick={limit.onToggle} aria-label={name} aria-pressed={limit.expanded}>
+          <RecentLimitGlyph expanded={limit.expanded} />
+        </button>
+      )}
+    </BuiltinGroupHeader>
+  );
+}
+
+/** ⌄⌄ offers more rows, ⌃⌃ fewer: stroked, so it reads apart from the solid fold chevron. */
+function RecentLimitGlyph({ expanded }: { expanded: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {expanded
+        ? <path d="M2.5 6.5 6 3l3.5 3.5M2.5 10 6 6.5 9.5 10" />
+        : <path d="M2.5 2 6 5.5 9.5 2M2.5 6.5 6 10l3.5-3.5" />}
+    </svg>
   );
 }
 
@@ -230,7 +255,7 @@ export function CentralGroupHeader({ count, collapsed, onToggle }: { count: numb
   return <BuiltinGroupHeader title="Central" icon={<StarGlyph />} count={count} collapsed={collapsed} onToggle={onToggle} describe="central" />;
 }
 
-function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe }: {
+function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe, children }: {
   title: string;
   icon: ReactNode;
   count: number;
@@ -238,6 +263,8 @@ function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe 
   onToggle: () => void;
   /** What its sessions have in common, for the spoken name ("pinned"). */
   describe: string;
+  /** A control at the header's right end (Recent's 10 ↔ 20). */
+  children?: ReactNode;
 }) {
   return (
     <div className={styles.header}>
@@ -255,6 +282,7 @@ function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe 
           <span className={styles.titleText}>{title} · {count}</span>
         </button>
       </h2>
+      {children}
     </div>
   );
 }

@@ -251,9 +251,10 @@ function SessionFrame({ session, segment }: { session: Session; segment: Session
     setPromptToOpen(null);
     show('prompts');
   }, [show]);
-  const openFile = useCallback((relPath: string) => {
+  const openFile = useCallback((relPath: string, options?: { kind?: 'dir' }) => {
     if (!projectPath) return;
-    useUiStore.getState().openFileInProject(`${projectPath.replace(/\/+$/, '')}${relPath}`, projectPath);
+    // A folder (Nov 18 2026) opens the Project tab at it; the browser reads `kind`.
+    useUiStore.getState().openFileInProject(`${projectPath.replace(/\/+$/, '')}${relPath === '/' ? '' : relPath}` || '/', projectPath, undefined, options?.kind);
     show('project');
   }, [projectPath, show]);
   // Back from a tab leaves the session: past any other screen of it left under this

@@ -134,6 +134,23 @@ export function AlertIcon(props: IconProps) {
   );
 }
 
+/** Gear — the Automation mark (lite hooks). Not the bolt (that is effort) or arrows (restart, refresh). `filled`
+ *  when it is on, so the state is in the glyph itself, like Pin and Hands off beside it. */
+export function AutomationIcon({ filled = false, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <svg {...svg(12, '0 0 16 16', props)}>
+      <path
+        d="M12.76 6.84 L14.54 7.08 L14.54 8.92 L12.76 9.16 L12.19 10.54 L13.27 11.97 L11.97 13.27 L10.54 12.19 L9.16 12.76 L8.92 14.54 L7.08 14.54 L6.84 12.76 L5.46 12.19 L4.03 13.27 L2.73 11.97 L3.81 10.54 L3.24 9.16 L1.46 8.92 L1.46 7.08 L3.24 6.84 L3.81 5.46 L2.73 4.03 L4.03 2.73 L5.46 3.81 L6.84 3.24 L7.08 1.46 L8.92 1.46 L9.16 3.24 L10.54 3.81 L11.97 2.73 L13.27 4.03 L12.19 5.46 Z M10 8 A2 2 0 1 0 6 8 A2 2 0 1 0 10 8 Z"
+        fill={filled ? 'currentColor' : 'none'}
+        fillRule="evenodd"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** No-entry sign — keep centrals' hands off this session. `filled` when it is on: the state is in the glyph itself
  *  (as the pin's is), so a protected session reads as protected, not as a selected tab. A ring with a bar while off,
  *  the same disc with the bar cut out of it while on. Not the skull (kill) or the speaker with a slash (mute): the

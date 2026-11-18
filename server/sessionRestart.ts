@@ -45,6 +45,7 @@ import {
 } from './sshManager.js';
 import { refreshPendingSessionUpdate } from './hookProcessor.js';
 import { WS_TYPES } from './constants.js';
+import { hookLevelConfigOf } from './sessionHookLevel.js';
 import log from './logger.js';
 import { prepareCentralRelaunch, spawnCentralTerminal, type CentralCaller } from './mcp/centralLaunch.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -192,6 +193,8 @@ async function restartLiveSession(session: Session, resumeCommand: string, calle
     command: '',
     ...(kept.apiKey ? { apiKey: kept.apiKey } : {}),
     ...(central ? { central } : {}),
+    // The Automation mark (sessionHookLevel.ts): a restart is how a change to it reaches the agent.
+    ...hookLevelConfigOf(session),
   };
 
   // Open the replacement BEFORE anything is stopped: a directory the shell cannot

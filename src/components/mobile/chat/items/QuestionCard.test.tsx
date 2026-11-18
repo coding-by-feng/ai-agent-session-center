@@ -210,7 +210,7 @@ describe('QuestionCard — Claude, several questions in one call', () => {
     expect(calls).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: /^AASC/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
-    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'options', optionIndexes: [1, 0] }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'answers', answers: [{ picks: [1] }, { picks: [0] }] }));
     expect(calls[0]?.url).toContain('/api/sessions/s1/requests/toolu_2q/answer');
     expect(await screen.findByText('Answered. Waiting for Claude to go on…')).toBeInTheDocument();
   });
@@ -222,7 +222,99 @@ describe('QuestionCard — Claude, several questions in one call', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Warm/ }));
     fireEvent.click(screen.getByRole('button', { name: /^General/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
-    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'options', optionIndexes: [0, 1] }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'answers', answers: [{ picks: [0] }, { picks: [1] }] }));
+  });
+});
+
+// Nov 18 2026 (probed on Claude Code 2.1.327): the card takes what Claude's own dialog takes: a typed
+// answer ("Type something") and multi-select questions, so they no longer need the terminal.
+describe('QuestionCard — Claude, typed answers and multi-select', () => {
+  const mixedAsk = {
+    questions: [
+      { question: 'Which color?', header: 'Color', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] },
+      { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Ham' }, { label: 'Olives' }] },
+    ],
+  };
+  const mixedRequest: PendingRequest = {
+    id: 'toolu_mix', toolUseId: 'toolu_mix', kind: 'question', cli: 'claude', tool: 'AskUserQuestion', raisedAt: 1, source: 'pre_tool_use', canType: true,
+    input: mixedAsk,
+    questions: [
+      { question: 'Which color?', header: 'Color', options: [{ label: 'Red' }, { label: 'Blue' }] },
+      { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Ham' }, { label: 'Olives' }] },
+    ],
+  };
+  const mixedEntries = stream({ kind: 'user', text: 'order' }, { kind: 'tool_use', id: 'toolu_mix', name: 'AskUserQuestion', input: mixedAsk });
+  const entries = stream({ kind: 'user', text: 'build it' }, { kind: 'tool_use', id: 'toolu_q', name: 'AskUserQuestion', input: ask });
+
+  it('one question: your own words go to the Mac as a typed answer', async () => {
+    const calls = stubAnswer();
+    setSession({ pendingRequest: { ...request, canType: true } });
+    render(<QuestionCard item={questionOf(entries, true)} sessionId="s1" />);
+    const field = screen.getByRole('textbox', { name: 'Your own answer' });
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+    fireEvent.change(field, { target: { value: '  A table instead  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'answers', answers: [{ picks: [], other: 'A table instead' }] }));
+    expect(await screen.findByText('Answered. Waiting for Claude to go on…')).toBeInTheDocument();
+    expect(screen.getByText('(your own answer)').closest('li')).toHaveTextContent('A table instead');
+  });
+
+  it('one question: no typed field when the request does not say the dialog takes one', () => {
+    setSession({ pendingRequest: request });
+    render(<QuestionCard item={questionOf(entries, true)} sessionId="s1" />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('several: a typed answer replaces the pick, a multi-select ticks any, and all go together', async () => {
+    const calls = stubAnswer();
+    setSession({ pendingRequest: mixedRequest });
+    render(<QuestionCard item={questionOf(mixedEntries, true)} sessionId="s1" />);
+    expect(screen.getByText('Pick any that apply.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Red/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your own answer to Color' }), { target: { value: 'Teal' } });
+    expect(screen.getByRole('button', { name: /^Red/ })).not.toHaveTextContent('(chosen)');
+    const olives = screen.getByRole('button', { name: /Olives/ });
+    expect(olives).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(olives);
+    fireEvent.click(screen.getByRole('button', { name: /Cheese/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Olives/ }));
+    expect(screen.getByRole('button', { name: /Cheese/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Olives/ })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Something else for Toppings' }), { target: { value: 'Corn' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'answers', answers: [{ picks: [], other: 'Teal' }, { picks: [0], other: 'Corn' }] }));
+  });
+
+  it('several: Send answers waits until every question has a pick, a tick or words', () => {
+    const calls = stubAnswer();
+    setSession({ pendingRequest: mixedRequest });
+    render(<QuestionCard item={questionOf(mixedEntries, true)} sessionId="s1" />);
+    fireEvent.click(screen.getByRole('button', { name: /^Blue/ }));
+    expect(screen.getByRole('button', { name: 'Send answers' })).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }));
+    expect(calls).toHaveLength(0);
+  });
+
+  it('one multi-select question is answered here too', async () => {
+    const calls = stubAnswer();
+    const ask1 = { questions: [mixedAsk.questions[1]] };
+    setSession({ pendingRequest: { ...mixedRequest, id: 'toolu_one', toolUseId: 'toolu_one', input: ask1, questions: [mixedRequest.questions![1]] } });
+    render(<QuestionCard item={questionOf(stream({ kind: 'tool_use', id: 'toolu_one', name: 'AskUserQuestion', input: ask1 }), true)} sessionId="s1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Ham/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Olives/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    await waitFor(() => expect(calls[0]?.body).toEqual({ choice: 'answers', answers: [{ picks: [1, 2] }] }));
+  });
+
+  it('an answered card shows words you typed, and a multi-select’s ticks with them', () => {
+    const item = questionOf(stream(
+      { kind: 'tool_use', id: 'toolu_mix', name: 'AskUserQuestion', input: mixedAsk },
+      { kind: 'tool_result', toolUseId: 'toolu_mix', isError: false, output: 'User has answered your questions: "Which color?"="Teal", "Which toppings?"="Cheese, Corn". You can now continue', truncated: false },
+    ));
+    render(<QuestionCard item={item} sessionId="s1" />);
+    const typed = screen.getAllByText('(your own answer)').map((el) => el.closest('li')?.textContent);
+    expect(typed).toEqual(['Teal (your own answer)', 'Corn (your own answer)']);
+    expect(screen.getByText('(chosen)').closest('li')).toHaveTextContent('Cheese');
   });
 });
 

@@ -31,3 +31,8 @@ export function shareIntentChanged(before: Map<string, Session>, after: Map<stri
 export function handsOffIntentChanged(before: Map<string, Session>, after: Map<string, Session>): boolean {
   return flagFlipped(before, after, (session) => session.handsOff);
 }
+
+/** Automation (lite hooks, server/sessionHookLevel.ts): a restore relaunches each card at the level in the snapshot. */
+export function hookLevelIntentChanged(before: Map<string, Session>, after: Map<string, Session>): boolean {
+  return flagFlipped(before, after, (session) => session.hookLevel === 'lite');
+}

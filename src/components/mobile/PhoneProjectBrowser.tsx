@@ -167,6 +167,12 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
         setNotice(`${request.filePath} is outside this project.`);
         return;
       }
+      // A folder named in the chat or the terminal (Nov 18 2026): the tab opens at it.
+      if (request.kind === 'dir') {
+        setNotice(null);
+        setStack(dirStack(rel));
+        return;
+      }
       // "second-brain/02-study/x.md" in second-brain (Nov 6 2026): the path as written
       // wins when it exists; only a 404 for it opens the reading without the name.
       const other = withoutProjectName(rel, projectPath);

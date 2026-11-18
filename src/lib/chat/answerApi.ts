@@ -2,7 +2,9 @@
  * answerApi.ts — answer a waiting request from its card (AASC-43).
  *
  * `POST /api/sessions/:id/requests/:requestId/answer` with `{ choice,
- * optionIndex? }`: intent, never keystrokes and never text. The Mac answers
+ * optionIndex? }`: intent, never keystrokes. The one text it carries is a typed answer to a
+ * question (`answers[].other`, Nov 18 2026), which the Mac cleans and types into the dialog's
+ * own "Type something" line. The Mac answers
  * only if the session still waits on that very request (else 409 stale:
  * "Already answered on your Mac"), this phone may drive it (423 names who
  * does), and it knows which keys the CLI's dialog takes (422: only the
@@ -10,7 +12,15 @@
  */
 import type { PromptDriver } from './promptApi';
 
-export type AnswerChoice = 'allow_once' | 'allow_always' | 'deny' | 'option' | 'options';
+export type AnswerChoice = 'allow_once' | 'allow_always' | 'deny' | 'option' | 'options' | 'answers';
+
+/** One question's answer (Nov 18 2026): the choices picked, and/or a typed one ("Type something"). */
+export interface QuestionAnswer {
+  /** 0-based. One for a single-select question (none with `other`); any number for a multi-select. */
+  picks: number[];
+  /** A typed answer. The Mac cleans it to one line and types it into the dialog's own text line. */
+  other?: string;
+}
 
 export interface Answer {
   choice: AnswerChoice;
@@ -18,6 +28,8 @@ export interface Answer {
   optionIndex?: number;
   /** 0-based, one per question, for `options` (several questions in one call, Nov 6 2026). */
   optionIndexes?: number[];
+  /** One per question, for `answers` (Nov 18 2026): picks, multi-select ticks and typed answers. */
+  answers?: QuestionAnswer[];
 }
 
 export type AnswerErrorCode =
@@ -112,7 +124,9 @@ export async function answerRequest(sessionId: string, requestId: string, answer
     ? { choice: 'option', optionIndex: answer.optionIndex }
     : answer.choice === 'options'
       ? { choice: 'options', optionIndexes: answer.optionIndexes }
-      : { choice: answer.choice };
+      : answer.choice === 'answers'
+        ? { choice: 'answers', answers: answer.answers }
+        : { choice: answer.choice };
   let res: Response;
   try {
     res = await fetch(

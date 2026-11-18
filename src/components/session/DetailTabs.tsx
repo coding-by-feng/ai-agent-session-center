@@ -1,7 +1,8 @@
 import { hostedUiPath } from '@/lib/hosted';
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
- * Tabs: Project | Terminal | Commands | Conversation | AI Popups | Notes | Queue | Agents
+ * Tabs: Project | Terminal | Commands | Conversation | AI Popups | Queue | Agents
+ * (NOTES left the desktop tabs Nov 18 2026; the phone's Info › Notes still shows a session's notes.)
  * (+ Activity, last, for a central session only: the panel passes `activityContent` for one)
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
@@ -16,7 +17,6 @@ import DetachIcon from '@/components/ui/DetachIcon';
 import { tooltips } from '@/lib/tooltips';
 import { activeProjectFile, postOpenFile } from '@/lib/projectPopoutFile';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useNotesStore } from '@/stores/notesStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { IS_LITE, liteSessionTabs } from '@/lib/edition';
 import { countLiveAgents } from '@/lib/agentFlow';
@@ -34,7 +34,6 @@ interface DetailTabsProps {
   terminalContent: ReactNode;
   promptsContent: ReactNode;
   aiPopupsContent?: ReactNode;
-  notesContent: ReactNode;
   queueContent: ReactNode;
   agentsContent?: ReactNode;
   /** A central session's log of what it did (server/mcp). Only a central has the ACTIVITY tab: leave it out for any other session. */
@@ -66,7 +65,6 @@ const BASE_TABS = [
   { id: 'commands', label: 'COMMANDS' },
   { id: 'conversation', label: 'CONVERSATION' },
   { id: 'aiPopups', label: 'AI POPUPS' },
-  { id: 'notes', label: 'NOTES' },
   { id: 'queue', label: 'QUEUE' },
   { id: 'agents', label: 'AGENTS' },
 ] as const;
@@ -77,8 +75,7 @@ const ACTIVITY_TAB = { id: 'activity', label: 'ACTIVITY' } as const;
 /** Hover/screen-reader text for a tab's count badge (the digit alone is mute). */
 function countTitle(tabId: string, count: number): string {
   if (tabId === 'agents') return `${count} agent${count === 1 ? '' : 's'} working or waiting on you`;
-  const noun = tabId === 'notes' ? 'note' : 'queued prompt';
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+  return `${count} queued prompt${count === 1 ? '' : 's'}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +301,6 @@ export default function DetailTabs({
   terminalContent,
   promptsContent,
   aiPopupsContent,
-  notesContent,
   queueContent,
   agentsContent,
   activityContent,
@@ -377,20 +373,12 @@ export default function DetailTabs({
   const projectPath = useSessionStore((s) =>
     sessionId ? s.sessions.get(sessionId)?.projectPath : undefined);
 
-  // Counts badged onto the NOTES / QUEUE tabs. Both read client stores so the
-  // number is live while the tab itself is unmounted — `session.queueCount` is
-  // never synced to the client (the update_queue_count WS message is unused).
-  const notesCount = useNotesStore((s) =>
-    sessionId ? s.notes.get(sessionId)?.length ?? 0 : 0);
+  // The QUEUE count (queueCount, below) reads the client store so the number is live while the tab
+  // itself is unmounted — `session.queueCount` is never synced to the client (the
+  // update_queue_count WS message is unused).
   // Subagents working now plus teammates working or waiting on the user.
   const agentsCount = useSessionStore((s) =>
     sessionId ? countLiveAgents(s.sessions.get(sessionId), s.sessions) : 0);
-
-  // NOTES mounts on demand, so the tab bar warms the notes cache itself —
-  // otherwise the badge would read 0 until the tab was opened at least once.
-  useEffect(() => {
-    if (sessionId) void useNotesStore.getState().loadNotes(sessionId);
-  }, [sessionId]);
 
   // The strip scrolls sideways with its scrollbar hidden, so on a narrow
   // panel the active tab (AGENTS, last) can sit past the edge with nothing
@@ -553,7 +541,6 @@ export default function DetailTabs({
     conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
     aiPopups: <div key="scroll-aiPopups" className={styles.tabScroll}>{aiPopupsContent}</div>,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
-    notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
     agents: <div key="scroll-agents" className={styles.tabScroll}>{agentsContent}</div>,
     ...(activityContent
       ? { activity: <div key="scroll-activity" className={styles.tabScroll}>{activityContent}</div> }
@@ -600,8 +587,7 @@ export default function DetailTabs({
           const isActive = combinedTermProj
             ? shownTab === 'terminal' || shownTab === 'project'
             : shownTab === tab.id;
-          const count = tab.id === 'notes' ? notesCount
-            : tab.id === 'queue' ? queueCount
+          const count = tab.id === 'queue' ? queueCount
               : tab.id === 'agents' ? agentsCount : 0;
 
           return (

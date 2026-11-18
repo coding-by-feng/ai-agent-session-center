@@ -10,6 +10,7 @@ export type {
   Emote,
   EventType,
   SessionSource,
+  SessionHookLevel,
   PromptEntry,
   ToolLogEntry,
   SubagentRun,

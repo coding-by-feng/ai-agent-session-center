@@ -31,7 +31,7 @@ import {
   type HistoryFilters,
 } from '@/lib/historyQuery';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
+import { faultMark, isCompacting, phoneStatus } from '@/lib/chat/phoneStatus';
 import { requestSessionResume } from '@/lib/sessionActions';
 import { useSessionStore } from '@/stores/sessionStore';
 import { SessionDetailBody } from '@/components/history/SessionDetailDialog';
@@ -290,7 +290,7 @@ function SharedHistory() {
             {rows.map((s) => {
               const title = sessionDisplayTitle(s);
               const project = s.projectName && s.projectName !== title ? s.projectName : '';
-              const status = phoneStatus(s.status, !!s.interruption, isCompacting(s, now));
+              const status = phoneStatus(s.status, faultMark(s), isCompacting(s, now));
               return (
                 <li key={s.sessionId} className={styles.row} style={{ '--row-accent': `var(--ph-status-${status.tone})` } as CSSProperties}>
                   <button type="button" className={`${styles.rowButton} ${styles.rowAccent}`} onClick={() => setOpenId(s.sessionId)}>

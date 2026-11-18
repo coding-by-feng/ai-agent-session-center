@@ -262,3 +262,27 @@ describe('faultLabel', () => {
     expect(faultLabel('network')).toBe('network');
   });
 });
+
+describe('a plan usage limit', () => {
+  const limit = (at = T0): SessionInterruption => ({
+    kind: 'usage_limit',
+    line: "You've hit your 5-hour limit · resets 1:30pm (Pacific/Auckland)",
+    detectedAt: at,
+  });
+
+  it('is never resumed automatically: a retry before the reset can only fail again', () => {
+    const d = decideResume(null, input({ interruption: limit(), now: T0 + SETTLE_MS + BACKOFF_MS[2] * 4 }));
+    expect(d.send).toBe(false);
+    expect(d.state).toBeNull();
+  });
+
+  it('keeps the ledger of earlier resumes', () => {
+    const d = decideResume({ phase: 'idle', attempts: [T0], nextAttemptAt: 0, sentAt: 0, faultAt: 0 }, input({ interruption: limit(), now: T0 + 1000 }));
+    expect(d.send).toBe(false);
+    expect(d.state?.attempts).toEqual([T0]);
+  });
+
+  it('is named for what it is', () => {
+    expect(faultLabel('usage_limit')).toBe('usage limit');
+  });
+});

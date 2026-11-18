@@ -5,6 +5,8 @@ import { LIVE_HINT_STORAGE_KEY } from '@/lib/liveHint';
  *  in the modal component) so `openRoomKill` can reference it without a store↔
  *  component import cycle; the modal and DetailPanel import it from the store. */
 export const ROOM_KILL_MODAL_ID = 'room-kill-confirm';
+/** The header memory chip's "Sessions to close" list (CloseSuggestionsModal). */
+export const CLOSE_SUGGESTIONS_MODAL_ID = 'close-suggestions';
 
 /** Modal id for the kill confirm a LIVE board card opens. Its own id, not the
  *  panel's `KILL_MODAL_ID`: the board names its session in
@@ -19,6 +21,10 @@ export const QUEUE_PANEL_COLLAPSED_KEY = 'queue-panel-collapsed';
 interface PendingFileOpen {
   filePath: string;
   projectPath: string;
+  /** An absolute path outside the session's folder (linkTarget): the session folder whose PROJECT tab opens it. */
+  hostProjectPath?: string;
+  /** The target is a folder (Nov 18 2026): the PROJECT tab opens at it, no file. */
+  kind?: 'dir';
 }
 
 export interface PendingFileChooser {
@@ -26,6 +32,10 @@ export interface PendingFileChooser {
   projectPath: string;
   /** Viewport coordinates the chooser popover anchors to (click position). */
   anchor: { x: number; y: number };
+  /** See PendingFileOpen.hostProjectPath. */
+  hostProjectPath?: string;
+  /** See PendingFileOpen.kind. */
+  kind?: 'dir';
 }
 
 export type CardDisplayMode = 'detailed' | 'compact';
@@ -102,6 +112,9 @@ interface UiState {
    *  this cannot live on room.collapsed. Persisted to
    *  localStorage['recent-room-collapsed']. */
   recentRoomCollapsed: boolean;
+  /** The desktop rail's RECENT shows 20 (the default since Nov 18 2026) rather than 10; its header toggle
+   *  flips it. Persisted to localStorage['recent-room-limit'] as '20' / '10'. */
+  recentRoomExpanded: boolean;
   /** Has the toolbar's Pinned room toggle hidden the rail's built-in PINNED
    *  frame? Hidden is gone, not folded. Persisted to
    *  localStorage['pinned-room-hidden']. */
@@ -159,12 +172,14 @@ interface UiState {
   setDetailPanelOpen: (open: boolean) => void;
   minimizeDetailPanel: () => void;
   restoreDetailPanel: () => void;
-  openFileInProject: (filePath: string, projectPath: string) => void;
+  openFileInProject: (filePath: string, projectPath: string, hostProjectPath?: string, kind?: 'dir') => void;
   clearPendingFileOpen: () => void;
   openFileChooser: (
     filePath: string,
     projectPath: string,
     anchor: { x: number; y: number },
+    hostProjectPath?: string,
+    kind?: 'dir',
   ) => void;
   clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
@@ -176,6 +191,7 @@ interface UiState {
   toggleMaximized: () => void;
   setNavRailCollapsed: (on: boolean) => void;
   toggleNavRailCollapsed: () => void;
+  toggleRecentRoomExpanded: () => void;
   toggleRecentRoomCollapsed: () => void;
   togglePinnedRoomHidden: () => void;
   togglePinnedRoomCollapsed: () => void;
@@ -269,6 +285,26 @@ function loadFlag(key: string): boolean {
 function saveFlag(key: string, on: boolean): void {
   try {
     localStorage.setItem(key, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+/** RECENT's 20 ↔ 10 choice. Anything but a stored '10' is 20. The key replaced the unreleased
+ *  'recent-room-expanded' (Nov 18 2026), so a fold to 10 saved while trying that toggle can't hide the new default. */
+const RECENT_ROOM_LIMIT_KEY = 'recent-room-limit';
+
+function loadRecentRoomExpanded(): boolean {
+  try {
+    return localStorage.getItem(RECENT_ROOM_LIMIT_KEY) !== '10';
+  } catch {
+    return true;
+  }
+}
+
+function saveRecentRoomExpanded(expanded: boolean): void {
+  try {
+    localStorage.setItem(RECENT_ROOM_LIMIT_KEY, expanded ? '20' : '10');
   } catch {
     /* ignore */
   }
@@ -377,6 +413,7 @@ export const useUiStore = create<UiState>((set) => ({
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
   recentRoomCollapsed: loadFlag('recent-room-collapsed'),
+  recentRoomExpanded: loadRecentRoomExpanded(),
   pinnedRoomHidden: loadFlag('pinned-room-hidden'),
   pinnedRoomCollapsed: loadFlag('pinned-room-collapsed'),
   centralRoomCollapsed: loadFlag('central-room-collapsed'),
@@ -402,10 +439,11 @@ export const useUiStore = create<UiState>((set) => ({
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
   minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),
-  openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
+  openFileInProject: (filePath, projectPath, hostProjectPath, kind) =>
+    set({ pendingFileOpen: { filePath, projectPath, ...(hostProjectPath !== undefined ? { hostProjectPath } : {}), ...(kind ? { kind } : {}) } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
-  openFileChooser: (filePath, projectPath, anchor) =>
-    set({ pendingFileChooser: { filePath, projectPath, anchor } }),
+  openFileChooser: (filePath, projectPath, anchor, hostProjectPath, kind) =>
+    set({ pendingFileChooser: { filePath, projectPath, anchor, ...(hostProjectPath !== undefined ? { hostProjectPath } : {}), ...(kind ? { kind } : {}) } }),
   clearFileChooser: () => set({ pendingFileChooser: null }),
   toggleCardDisplayMode: () =>
     set((s) => {
@@ -481,6 +519,12 @@ export const useUiStore = create<UiState>((set) => ({
       const next = !s.recentRoomCollapsed;
       saveFlag('recent-room-collapsed', next);
       return { recentRoomCollapsed: next };
+    }),
+  toggleRecentRoomExpanded: () =>
+    set((s) => {
+      const next = !s.recentRoomExpanded;
+      saveRecentRoomExpanded(next);
+      return { recentRoomExpanded: next };
     }),
   togglePinnedRoomHidden: () =>
     set((s) => {

@@ -8,8 +8,8 @@ android {
         applicationId "work.aasc.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.0.1"
+        versionCode 4
+        versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -67,6 +67,9 @@ dependencies {
     implementation "androidx.biometric:biometric:$androidxBiometricVersion"
     // Google sign-in for the phone (plan 17): a Custom Tab, answered by the /auth/google App Link.
     implementation "androidx.browser:browser:$androidxBrowserVersion"
+    // The hold-to-talk mic (Nov 16 2026): a WebMessageListener, so a Mac's page can ask the app to record
+    // (DictationBridge.kt). The same version Capacitor itself builds against.
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     // JVM unit tests read the widget model with org.json (Android's own is a stub there).
     testImplementation "org.json:json:$orgJsonVersion"
     testImplementation "junit:junit:$junitVersion"

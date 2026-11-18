@@ -1,0 +1,101 @@
+/* RoomManagerModal — the rooms list in the "Rooms" dialog. */
+/* The dialog's own width: the shared panel is 400px, too narrow for a name, a count and two buttons. The
+   module is loaded with the dialog, after Modal.module.css, and the selector is as specific as `.panel`. */
+.panel {
+  max-width: 520px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.create,
+.rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary, #e0e0e0);
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.name {
+  flex: 1 1 120px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.confirm {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@media (pointer: coarse) {
+  .input { min-height: 44px; }
+}

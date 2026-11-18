@@ -56,17 +56,27 @@ export async function killOneSession(session: Session): Promise<boolean> {
 }
 
 /**
- * Kill `targets` (a snapshot taken before any store churn), toast the summary,
- * and drop the selection if the OPEN session was actually killed — not merely
- * targeted: a survivor (network error, or a process that outlived SIGKILL)
- * stays selected, as with the single-session kill.
+ * Kill `targets` (a snapshot taken before any store churn) and drop the selection
+ * if the OPEN session was actually killed — not merely targeted: a survivor
+ * (network error, or a process that outlived SIGKILL) stays selected, as with
+ * the single-session kill. The caller words the summary.
  */
-export async function killRoomSessions(roomName: string, targets: readonly Session[]): Promise<{ killed: number; failed: number }> {
-  const count = targets.length;
+export async function killSessions(targets: readonly Session[]): Promise<{ killed: number; failed: number }> {
   const { selectedSessionId } = useSessionStore.getState();
   const results = await Promise.all(targets.map(killOneSession)); // index-aligned with targets
   const killed = results.filter(Boolean).length;
-  const failed = count - killed;
+
+  const openSessionKilled = !!selectedSessionId
+    && targets.some((s, i) => results[i] && s.sessionId === selectedSessionId);
+  if (openSessionKilled) useSessionStore.getState().deselectSession();
+
+  return { killed, failed: targets.length - killed };
+}
+
+/** Kill a room's `targets` through `killSessions` and toast the summary. */
+export async function killRoomSessions(roomName: string, targets: readonly Session[]): Promise<{ killed: number; failed: number }> {
+  const count = targets.length;
+  const { killed, failed } = await killSessions(targets);
 
   if (failed === 0) {
     showToast(`Terminated ${killed} session${killed === 1 ? '' : 's'} in ${roomName}`, 'success');
@@ -75,10 +85,6 @@ export async function killRoomSessions(roomName: string, targets: readonly Sessi
   } else {
     showToast(`Terminated ${killed} of ${count} in ${roomName} — ${failed} survived`, 'error');
   }
-
-  const openSessionKilled = !!selectedSessionId
-    && targets.some((s, i) => results[i] && s.sessionId === selectedSessionId);
-  if (openSessionKilled) useSessionStore.getState().deselectSession();
 
   return { killed, failed };
 }

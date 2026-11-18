@@ -7,7 +7,8 @@
  *   │                              [↓ Latest]  │  only while scrolled up
  *   └──────────────────────────────────────────┘
  *   Your Mac is driving            [Take control]  only when this phone can't type
- *   [ Type into the terminal…               ⏎ ]   raw input line, not the chat's box
+ *   [ Type into the terminal…            🎙 ⏎ ]   raw input line, not the chat's box; in the app a
+ *                                                  hold-to-talk mic fills it (Nov 16 2026, never sends)
  *   esc tab ctrl ↑ ↓ ← → 1 2 3 ⏎                   key bar, scrolls sideways
  *
  * The phone never resizes the shared PTY (`mayDrivePtyGeometry` is false on
@@ -34,6 +35,9 @@ import DrivingBanner from '../chat/DrivingBanner';
 import ZoomViewport from '../terminal/ZoomViewport';
 import PhoneKeyBar from '../terminal/PhoneKeyBar';
 import RawInputLine from '../terminal/RawInputLine';
+import DictateButton from '../DictateButton';
+import { usePhoneDictation } from '@/hooks/usePhoneDictation';
+import { insertDictation } from '@/lib/phoneDictation';
 import TerminalMoreSheet, { type CommandsRow } from '../terminal/TerminalMoreSheet';
 import { useAtBottom } from '../terminal/useAtBottom';
 import { ExitFullscreenIcon } from '../phoneIcons';
@@ -216,6 +220,18 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
     setSending(false);
     if (!result.ok) setNotice(result.message);
   };
+  // ---- Hold-to-talk dictation (the app only): the words join the line, on one line, and are never sent ----
+  const onSpoken = useCallback((spoken: string) => {
+    const flat = spoken.replace(/\s*\n+\s*/g, ' ');
+    setLine((cur) => insertDictation(cur, null, flat).text);
+  }, []);
+  const dictation = usePhoneDictation(onSpoken);
+  const dictationError = dictation.line?.tone === 'error' ? dictation.line.text : null;
+  const shownNotice = notice ?? dictationError;
+  const dismissNotice = () => {
+    setNotice(null);
+    dictation.dismiss();
+  };
   // ---- Ask AI (agent terminals only) ----
   const aiScope = phoneTerminalAiScope(terminalId);
   // On once the terminal's AI host (PhoneSelectionAi, lazy) has registered: it holds the
@@ -252,13 +268,16 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
   const inputs = (
     <div className={styles.inputs} data-keyboard={keyboardOpen || isFullscreen ? '' : undefined}>
       {controlSessionId && <DrivingBanner sessionId={controlSessionId} />}
-      {notice && (
+      {shownNotice && (
         <p className={styles.notice} role="alert">
-          <span>{notice}</span>
-          <button type="button" className={styles.noticeClose} onClick={() => setNotice(null)} aria-label="Dismiss">
+          <span>{shownNotice}</span>
+          <button type="button" className={styles.noticeClose} onClick={dismissNotice} aria-label="Dismiss">
             <CloseIcon />
           </button>
         </p>
+      )}
+      {dictation.line && !dictationError && (
+        <p className={styles.dictateLine} role="status" data-testid="dictation-line">{dictation.line.text}</p>
       )}
       <RawInputLine
         value={line}
@@ -273,6 +292,7 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
         placeholder={placeholder}
         sending={sending}
         onSubmit={() => void sendLine()}
+        trailing={<DictateButton dictation={dictation} disabled={typingOff} className={`${styles.rawSend} ${styles.rawMic}`} />}
       />
       <PhoneKeyBar ctrl={ctrl} disabled={typingOff} onKey={onKey} />
     </div>

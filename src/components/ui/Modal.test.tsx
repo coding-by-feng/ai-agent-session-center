@@ -133,4 +133,29 @@ describe('Modal', () => {
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
   });
+
+  it('does not close by Escape, backdrop or corner button while locked', () => {
+    useUiStore.setState({ activeModal: 'test' });
+    const onClose = vi.fn();
+    const { container, rerender } = render(
+      <Modal modalId="test" title="Busy" onClose={onClose} locked>
+        <p>Working</p>
+      </Modal>,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(container.firstElementChild!);
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+    expect(useUiStore.getState().activeModal).toBe('test');
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Unlocked again, it closes as usual.
+    rerender(
+      <Modal modalId="test" title="Busy" onClose={onClose}>
+        <p>Working</p>
+      </Modal>,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useUiStore.getState().activeModal).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

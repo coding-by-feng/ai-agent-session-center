@@ -51,7 +51,7 @@ export interface LiveSessionCreated {
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
-function failureOf(status: number): LiveFailure {
+export function failureOf(status: number): LiveFailure {
   if (status === 401) return 'key';
   if (status === 403) return 'access';
   if (status === 429) return 'rate';
@@ -60,7 +60,7 @@ function failureOf(status: number): LiveFailure {
 }
 
 /** OpenAI's own error message, short and with the key taken out. */
-async function upstreamMessage(res: Response, apiKey: string): Promise<string> {
+export async function upstreamMessage(res: Response, apiKey: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: { message?: unknown } };
     const message = typeof body.error?.message === 'string' ? body.error.message : `HTTP ${res.status}`;

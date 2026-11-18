@@ -15,7 +15,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { detectCli } from '@/lib/cliDetect';
 import { isListedSession, numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
-import { pickRecentSessions, RECENT_TICK_MS } from '@/lib/recentSessions';
+import { pickRecentSessions, RECENT_EXPANDED_LIMIT, RECENT_LIMIT, RECENT_TICK_MS } from '@/lib/recentSessions';
 import { buildStripItems, filterByRooms, filterBySearch, type StripItem } from '@/lib/sessionStrip';
 import { useLabelStore } from '@/stores/labelStore';
 import { nextCompletionAttention } from '@/lib/sessionAttention';
@@ -26,9 +26,9 @@ import type { Session } from '@/types';
  * (`isFloating`) belongs to its popup, and listing it left a card behind after the popup
  * was closed, until the CLI's SessionEnd arrived.
  */
-export function recentRailIds(sessions: ReadonlyMap<string, Session>, now: number): string[] {
+export function recentRailIds(sessions: ReadonlyMap<string, Session>, now: number, limit = RECENT_LIMIT): string[] {
   const listed = [...sessions.values()].filter(isListedSession);
-  return pickRecentSessions(listed, now).map((s) => s.sessionId);
+  return pickRecentSessions(listed, now, limit).map((s) => s.sessionId);
 }
 
 export interface SessionStrip {
@@ -50,6 +50,8 @@ export interface SessionStrip {
   searching: boolean;
   /** The frames and loose cards, in the order they are drawn. */
   items: StripItem[];
+  /** More than `RECENT_LIMIT` sessions qualify for RECENT: its 10 ↔ 20 toggle has something to show. */
+  recentHasMore: boolean;
 }
 
 export function useSessionStrip(
@@ -60,6 +62,7 @@ export function useSessionStrip(
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const pinnedRoomHidden = useUiStore((s) => s.pinnedRoomHidden);
+  const recentExpanded = useUiStore((s) => s.recentRoomExpanded);
   // No CENTRAL frame while central sessions are off (centralFeatureStore).
   const showCentral = useCentralSessionsShown();
   const rooms = useRoomStore((s) => s.rooms);
@@ -83,9 +86,12 @@ export function useSessionStrip(
       // move frames without waiting for some other field to change.
       // pendingProceedAt: the card's P (its answer asks you to proceed) comes and goes with no other change.
       // compacting: so does its spinner, since a compaction leaves the status alone.
+      // backgroundTaskCount: so does "working in the background" (a later Stop lists the shells as finished).
+      // interruption: so does the usage limit's hourglass, which leaves the status alone too.
       // detectCli: the card's Claude/Codex mark, when the CLI is identified after the card first drew.
       // remark: the search box reads it, and a remark can change from another device with nothing else.
-      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.compacting?.since ?? ''}|${detectCli(s) ?? ''}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}|${s.remark ?? ''}${activity}`);
+      // pinOrder: a drag in PINNED (here or on another device) moves cards and their numbers, nothing else.
+      parts.push(`${s.sessionId}|${s.status}|${s.pendingProceedAt ?? ''}|${s.compacting?.since ?? ''}|${s.backgroundTaskCount ?? 0}|${s.interruption?.kind ?? ''}:${s.interruption?.detectedAt ?? ''}|${detectCli(s) ?? ''}|${s.pinned ? 1 : 0}:${s.pinOrder ?? ''}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}|${s.remark ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');
@@ -131,10 +137,15 @@ export function useSessionStrip(
   // The RECENT ids in order, as one string. It is rebuilt from the fresh
   // `sessions` on every update and tick, but it only changes when a session
   // joins, leaves or moves, so everything downstream stays put otherwise.
-  const recentIdsKey = useMemo(() => {
-    if (sessionSortMode === 'activity') return '';
-    return recentRailIds(sessions, recentNow).join('\n');
-  }, [sessions, sessionSortMode, recentNow]);
+  // 10, or 20 after the frame's toggle. Picked with the real limit, never sliced from the 20: the
+  // list is ordered pinned-first after the cut, so its first 10 are not the 10 newest.
+  const { recentIdsKey, recentHasMore } = useMemo(() => {
+    if (sessionSortMode === 'activity') return { recentIdsKey: '', recentHasMore: false };
+    const wide = recentRailIds(sessions, recentNow, RECENT_EXPANDED_LIMIT);
+    const hasMore = wide.length > RECENT_LIMIT;
+    const ids = recentExpanded || !hasMore ? wide : recentRailIds(sessions, recentNow);
+    return { recentIdsKey: ids.join('\n'), recentHasMore: hasMore };
+  }, [sessions, sessionSortMode, recentNow, recentExpanded]);
 
   // Rooms that have at least one session in the current active list
   const activeSessionIds = useMemo(() => {
@@ -182,7 +193,7 @@ export function useSessionStrip(
 
   return {
     sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms,
-    filteredSessions, matchedSessions, searching, items,
+    filteredSessions, matchedSessions, searching, items, recentHasMore,
   };
 }
 

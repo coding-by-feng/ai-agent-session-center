@@ -52,6 +52,22 @@ describe('Your Macs', () => {
     expect(t.navigations).toEqual([`${TAILNET}/`]);
   });
 
+  // Nov 17 2026: deleting the app wipes Preferences but not the iOS Keychain. The iPhone 17 was paired again with a
+  // QR code after each reinstall although the Mac still had it; the copy of the list in the vault brings it back.
+  it('opens the Mac used last after a reinstall: Preferences wiped, the Keychain kept', async () => {
+    const before = createHarness();
+    await seedMac(before, KASON_MBP);
+    await before.app.start();
+    await until(before.root, () => before.navigations.length > 0);
+    document.body.replaceChildren();
+
+    const after = createHarness({ fakeMac: before.mac, vault: Object.fromEntries(before.vault) });
+    await after.app.start();
+    await until(after.root, () => after.navigations.length > 0);
+    expect(after.navigations).toEqual([`${TAILNET}/`]);
+    expect(JSON.parse(after.store.get('aasc.macs.v1') ?? '[]').map((m: { id: string }) => m.id)).toEqual([KASON_MBP.id]);
+  });
+
   // Oct 21 2026: with two Macs saved (re-pairing leaves two rows for one Mac), every launch stopped at the list.
   it('opens the Mac used last on launch when several are paired', async () => {
     const t = createHarness({ mac: { reachable: [TAILNET, 'http://100.88.1.7:3333'] }, store: { [LAST_MAC_KEY]: STUDIO.id } });
@@ -229,6 +245,26 @@ describe('Your Macs', () => {
       await until(t.root, () => rowsText(t).length === 1);
       expect(rowsText(t)).toEqual(['Studio']);
     });
+  });
+
+  // Nov 17 2026: a key that can't be READ is not a key that is gone. The iPhone 13 Pro lost its only Mac on the first
+  // launch after an install: any failed vault read was treated as "key missing" and wiped the row and both tokens.
+  it('keeps the Mac and its key when the key can’t be read, and opens it once it can', async () => {
+    const t = createHarness();
+    await seedMac(t, KASON_MBP);
+    t.faults.vaultRead = true;
+    await t.app.start();
+    await until(t.root, () => t.root.textContent?.includes('couldn’t read its key') === true);
+    expect(t.root.textContent).toContain('Unlock the phone and try again.');
+    expect(t.navigations).toEqual([]);
+    expect(JSON.parse(t.store.get('aasc.macs.v1') ?? '[]').map((m: { id: string }) => m.id)).toEqual([KASON_MBP.id]);
+    expect(t.vault.has(`mac.${KASON_MBP.id}`)).toBe(true);
+    expect(t.cleared).toEqual([]);
+
+    t.faults.vaultRead = false;
+    click(t.root, 'Try again');
+    await until(t.root, () => t.navigations.length > 0);
+    expect(t.navigations).toEqual([`${TAILNET}/`]);
   });
 
   it('forgets a Mac that removed this phone, and says so', async () => {

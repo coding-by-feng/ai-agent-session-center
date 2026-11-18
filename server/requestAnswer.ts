@@ -56,11 +56,18 @@ export interface RequestAnswerDeps {
 
 const AnswerSchema = z
   .object({
-    choice: z.enum(['allow_once', 'allow_always', 'deny', 'option', 'options']),
+    choice: z.enum(['allow_once', 'allow_always', 'deny', 'option', 'options', 'answers']),
     optionIndex: z.number().int().min(0).max(99).optional(),
     optionIndexes: z.array(z.number().int().min(0).max(99)).min(1).max(8).optional(),
+    // Nov 18 2026: one per question. `other` is the only client text this route types, and the
+    // key map cleans it to one line of printable characters first (cleanTypedAnswer).
+    answers: z.array(z.object({
+      picks: z.array(z.number().int().min(0).max(99)).max(9),
+      other: z.string().max(2000).optional(),
+    }).strict()).min(1).max(8).optional(),
   })
   .strict()
+  .refine((body) => body.choice !== 'answers' || body.answers !== undefined, { message: 'answers is required' })
   .refine((body) => body.choice !== 'option' || body.optionIndex !== undefined, { message: 'optionIndex is required' })
   .refine((body) => body.choice !== 'options' || body.optionIndexes !== undefined, { message: 'optionIndexes is required' });
 
@@ -198,7 +205,11 @@ export function createRequestAnswerRouter(deps: RequestAnswerDeps): Router {
     }
     const updated = deps.clearPendingRequest(sessionId, requestId);
     if (updated) deps.broadcastSession(updated);
-    const option = answer.optionIndex !== undefined ? ` option=${answer.optionIndex}` : answer.optionIndexes ? ` options=${answer.optionIndexes.join(',')}` : '';
+    // A typed answer is logged by its length only, never its text.
+    const typedOrPicks = (a: { picks: number[]; other?: string }) => `${a.picks.join('+')}${a.other !== undefined ? `~${a.other.length}` : ''}`;
+    const option = answer.optionIndex !== undefined ? ` option=${answer.optionIndex}`
+      : answer.optionIndexes ? ` options=${answer.optionIndexes.join(',')}`
+      : answer.answers ? ` answers=${answer.answers.map(typedOrPicks).join(',')}` : '';
     log.info('answer', `session=${sessionId.slice(0, 8)} request=${requestId.slice(0, 64)} choice=${answer.choice}${option} device=${device.slice(0, 15)} client=${clientId.slice(0, 12) || '-'}`);
     res.status(202).json({ success: true, data: { accepted: true } });
   });

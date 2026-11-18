@@ -1,0 +1,142 @@
+/* CloseSuggestionsModal — "Sessions to close", on the shared Modal panel.
+   `.panel.panel` outranks Modal.module.css's one-class `.panel` (400px) whatever the bundle order. */
+.panel.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-width: none;
+  max-height: 85vh;
+  box-sizing: border-box;
+}
+
+/* Wraps as two whole items in a narrow window: the summary never breaks inside its figure. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.summary {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* One line for loading, empty and failure. `.note.note` beats Modal's `.panel p`. */
+.note.note {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+}
+
+.list > li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* The whole row is the checkbox's label. The title takes the slack and truncates; the reason and
+   the memory keep their width, so a long title never wraps them. */
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 72px;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 32px;
+  padding: 4px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.row:hover {
+  background-color: var(--bg-subtle);
+}
+
+.row:active {
+  background-color: var(--bg-subtle-strong);
+}
+
+.row:focus-within {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: -2px;
+}
+
+.row:has(.check:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-cyan);
+  cursor: inherit;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.reason,
+.memory {
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.memory {
+  text-align: right;
+}
+
+/* Narrow window: the reason drops under the title, so the title keeps a readable width. */
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'check title memory'
+      'check reason memory';
+    column-gap: 8px;
+    padding: 8px;
+  }
+  .check { grid-area: check; }
+  .title { grid-area: title; }
+  .reason { grid-area: reason; }
+  .memory { grid-area: memory; }
+}
+
+@media (pointer: coarse) {
+  .row { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row { transition: none; }
+}

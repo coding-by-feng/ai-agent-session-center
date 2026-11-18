@@ -26,3 +26,26 @@ export function FrameCollapseIcon({ collapsed }: { collapsed: boolean }) {
     </svg>
   );
 }
+
+/** Double chevron for RECENT's 10 ↔ 20 toggle: pointing down offers more rows, up offers fewer. Stroked, so it
+ *  reads as a different control from the solid fold triangle beside it. */
+export function RecentLimitIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      {expanded
+        ? <path d="M2.5 6.5 6 3l3.5 3.5M2.5 10 6 6.5 9.5 10" />
+        : <path d="M2.5 2 6 5.5 9.5 2M2.5 6.5 6 10l3.5-3.5" />}
+    </svg>
+  );
+}

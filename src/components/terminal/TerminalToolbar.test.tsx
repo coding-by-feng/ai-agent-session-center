@@ -134,20 +134,20 @@ describe('TerminalToolbar — agent CLI voice', () => {
   });
 });
 
-describe('TerminalToolbar — Reader view', () => {
+describe('TerminalToolbar — Formatted view', () => {
   it('is a pressed-state icon button that calls back on click', () => {
     const onToggleReader = vi.fn();
     const { rerender } = render(<TerminalToolbar {...base} onToggleReader={onToggleReader} />);
-    const btn = screen.getByRole('button', { name: 'Reader view' });
+    const btn = screen.getByRole('button', { name: 'Formatted view' });
     expect(btn.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(btn);
     expect(onToggleReader).toHaveBeenCalledTimes(1);
     rerender(<TerminalToolbar {...base} onToggleReader={onToggleReader} readerOpen />);
-    expect(screen.getByRole('button', { name: 'Reader view' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Formatted view' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('is not offered without a handler', () => {
     render(<TerminalToolbar {...base} />);
-    expect(screen.queryByRole('button', { name: 'Reader view' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Formatted view' })).toBeNull();
   });
 });

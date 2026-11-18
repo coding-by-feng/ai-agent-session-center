@@ -30,8 +30,8 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { isCompacting, isFinishingUp, phoneStatus } from '@/lib/chat/phoneStatus';
-import { displayStatus } from '@/lib/sessionStatusStyle';
+import { faultMark, isCompacting, isFinishingUp, phoneStatus } from '@/lib/chat/phoneStatus';
+import { LIMIT, displayStatus, limitLabel } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
 import { detectCli } from '@/lib/cliDetect';
@@ -107,7 +107,9 @@ export default function SessionListRow({
   const clock = useClock();
   const title = sessionDisplayTitle(session);
   const shown = displayStatus(session); // the P while the last answer asks you to proceed
-  const status = phoneStatus(shown, !!session.interruption, isCompacting(session), isFinishingUp(session)).label;
+  const status = shown === LIMIT
+    ? limitLabel(session.interruption) // "Limit reached · resets 1:30pm"
+    : phoneStatus(shown, faultMark(session), isCompacting(session), isFinishingUp(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
   const cli = detectCli(session);
@@ -130,7 +132,7 @@ export default function SessionListRow({
       data-testid={`session-row-${session.sessionId}`}
     >
       <span className={styles.avatar}>
-        <StatusRing status={shown} interrupted={!!session.interruption} />
+        <StatusRing status={shown} interrupted={faultMark(session)} />
         <CliMark cli={cli} />
       </span>
       <span className={styles.text}>

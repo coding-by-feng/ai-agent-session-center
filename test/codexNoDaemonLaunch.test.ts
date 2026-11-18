@@ -123,7 +123,7 @@ describe.skipIf(realPlatform === 'win32')('Codex launch lines (sshManager)', () 
       // The card's id is exported inside tmux: a tmux server gives the CLI its own environment (Ruling P4-59).
       expect(typed[0]).toBe(
         `tmux new-session -s '${/^tmux new-session -s '([^']+)'/.exec(typed[0])?.[1]}' ` +
-          `'export AGENT_MANAGER_TERMINAL_ID='\\''${id}'\\'' && codex --no-daemon --no-alt-screen --dangerously-bypass-approvals-and-sandbox'\r`,
+          `'export AGENT_MANAGER_TERMINAL_ID='\\''${id}'\\'' && unset AASC_HOOK_LEVEL && codex --no-daemon --no-alt-screen --dangerously-bypass-approvals-and-sandbox'\r`,
       );
     });
 

@@ -67,11 +67,13 @@ import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUs
 import { launchFlagsFromRuntime, mergeRuntime, runtimeVisiblyChanged, type RuntimeReading } from './sessionRuntime.js';
 import { createRuntimeWatch } from './sessionRuntimeWatch.js';
 import { findCodexRollout } from './codexRollout.js';
-import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent, PlanCli } from '../src/types/session.js';
+import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent, PlanCli, SessionHookLevel } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { TeamSerialized } from '../src/types/team.js';
 import { initialRemoteVisible, isShareNewSessionsOn } from './shareDefault.js';
+import { inferCliSource } from './agentCli.js';
+import { nextPinOrder, placeVisiblePins, planPinnedOrder } from '../src/lib/pinOrder.js';
 
 const sessions = new Map<string, Session>();
 const projectSessionCounters = new Map<string, number>();
@@ -500,14 +502,6 @@ export function stopPeriodicSave(): void {
     clearInterval(snapshotTimer);
     snapshotTimer = null;
   }
-}
-
-function inferCliSource(command: string | undefined | null): string | undefined {
-  const cmd = (command || '').trim().toLowerCase();
-  if (!cmd) return undefined;
-  if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
-  if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
-  return undefined;
 }
 
 // Summarize tool input for the tool log detail panel
@@ -1772,6 +1766,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
       ...(config.central ? { central: { ...config.central } } : {}),
       // A restore that comes back hands-off says so; the card's own flag (spread above) stays when it does not.
       ...(config.handsOff ? { handsOff: true } : {}),
+      ...(config.hookLevel === 'lite' ? { hookLevel: 'lite' as const } : {}),
     };
     sessions.set(existingKey, updated);
     invalidateSessionsCache();
@@ -1836,9 +1831,13 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // Without this, metadata set via separate PUTs after creation would be missing from the
   // initial broadcast, causing auto-save to overwrite the snapshot with stale data.
   if (config.pinned) session.pinned = config.pinned;
+  // Its place in PINNED, else the end: a restored pin keeps its slot, a new one goes last.
+  if (config.pinned) session.pinOrder = config.pinOrder ?? nextPinOrder(sessions.values());
   if (config.muted) session.muted = config.muted;
   // Hands-off (server/mcp) survives a restore like muted does, and is on the first broadcast.
   if (config.handsOff) session.handsOff = true;
+  // The Automation mark is on the card from its first broadcast, so the next auto-save keeps it.
+  if (config.hookLevel === 'lite') session.hookLevel = 'lite';
   if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
@@ -2184,7 +2183,45 @@ export function setSessionAsleep(sessionId: string, at: number): Session | null 
 
 export function setSessionPinned(sessionId: string, pinned: boolean): void {
   const session = sessions.get(sessionId);
-  if (session) { session.pinned = pinned; invalidateSessionsCache(); }
+  if (!session) return;
+  // A new pin goes to the bottom of PINNED; unpinning gives up the place (server/pinOrder.ts).
+  if (pinned && !session.pinned) session.pinOrder = nextPinOrder(sessions.values());
+  if (!pinned) delete session.pinOrder;
+  session.pinned = pinned;
+  invalidateSessionsCache();
+}
+
+/**
+ * The peek's AI Summary (Nov 18 2026, server/sessionRecap.ts): kept on the session in memory and
+ * sent to every device that may see it. Never written to SQLite.
+ */
+export function setSessionRecap(sessionId: string, recap: NonNullable<Session['recap']>): void {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  session.recap = recap;
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+}
+
+/**
+ * The PINNED frame's order after a drag (Nov 18 2026): `ids` first in that order, every other
+ * pinned session after them, renumbered 1..N. Broadcasts each card whose place changed and
+ * returns how many did.
+ */
+export function setPinnedOrder(ids: readonly string[], visible?: (id: string) => boolean): number {
+  const pinned = [...sessions.values()].filter((s) => s.pinned && s.status !== 'ended');
+  // A remote device lists only the pins it can see: the others keep their slots.
+  const plan = planPinnedOrder(pinned, visible ? placeVisiblePins(pinned, ids, visible) : ids);
+  let changed = 0;
+  for (const s of pinned) {
+    const order = plan.get(s.sessionId);
+    if (order === undefined || s.pinOrder === order) continue;
+    s.pinOrder = order;
+    changed += 1;
+    void broadcastSessionUpdate(s);
+  }
+  if (changed > 0) invalidateSessionsCache();
+  return changed;
 }
 
 /**
@@ -2204,6 +2241,23 @@ export function setSessionRemoteVisible(sessionId: string, remoteVisible: boolea
 export function setSessionAiPopupEnabled(sessionId: string, aiPopupEnabled: boolean): void {
   const session = sessions.get(sessionId);
   if (session) { session.aiPopupEnabled = aiPopupEnabled; invalidateSessionsCache(); }
+}
+
+/**
+ * Mark a session Automation (lite hooks) or clear the mark (server/sessionHookLevel.ts). In place like every
+ * setter here, and told to every window at once. The agent running now keeps the level it was launched with:
+ * the mark reaches it at its next launch. Follows a re-keyed id; returns a copy of the card, or null.
+ */
+export function setSessionHookLevel(sessionId: string, hookLevel: SessionHookLevel | null): Session | null {
+  const id = resolveSessionId(sessionId);
+  const session = id === null ? undefined : sessions.get(id);
+  if (id === null || !session) return null;
+  if (hookLevel === 'lite') session.hookLevel = 'lite';
+  else delete session.hookLevel;
+  invalidateSessionsCache();
+  dropPendingSessionUpdates(session.sessionId);
+  void broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+  return { ...session };
 }
 
 export function setSessionMuted(sessionId: string, muted: boolean): void {

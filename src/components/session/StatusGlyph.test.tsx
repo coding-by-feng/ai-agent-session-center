@@ -6,7 +6,8 @@ import { render } from '@testing-library/react';
 import StatusGlyph from './StatusGlyph';
 
 // 'proceed' is not a status but the P reminder (sessionStatusStyle.displayStatus), drawn in the same slots.
-const STATUSES = ['working', 'prompting', 'approval', 'input', 'waiting', 'idle', 'connecting', 'ended', 'proceed'];
+// 'limit' is the usage-limit display status (sessionStatusStyle.LIMIT): an hourglass of its own.
+const STATUSES = ['working', 'prompting', 'approval', 'input', 'waiting', 'idle', 'connecting', 'ended', 'proceed', 'limit'];
 
 function markup(status: string): string {
   const { container, unmount } = render(<StatusGlyph status={status} />);
@@ -29,6 +30,11 @@ describe('StatusGlyph', () => {
 
   it('draws an unknown status like idle rather than nothing', () => {
     expect(markup('mystery')).toBe(markup('idle'));
+  });
+
+  it('draws background shells with the working spinner too', () => {
+    expect(markup('background')).toBe(markup('working'));
+    expect(markup('background')).not.toBe(markup('waiting'));
   });
 
   it('draws a compaction with the working spinner: the session is busy, not idle', () => {

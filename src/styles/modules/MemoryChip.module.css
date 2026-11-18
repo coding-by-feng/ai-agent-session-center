@@ -1,5 +1,5 @@
-/* MemoryChip — a quiet readout in Header's `.stats` row: the same height and border as the
-   device chip beside it, but no hover or pointer, because it is not a button. */
+/* MemoryChip — the memory readout in Header's `.stats` row: the same height, border and hover as the
+   device chip beside it. A button since Nov 17 2026 (it opens "Sessions to close"). */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -9,11 +9,29 @@
   box-sizing: border-box;
   border: 1px solid var(--border-subtle, #2a2a44);
   border-radius: 6px;
+  background: transparent;
   color: var(--text-secondary, #8a8aa8);
+  font-family: inherit;
   font-size: 11px;
   line-height: 1;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.chip:hover {
+  color: var(--accent-text, var(--accent-cyan));
+  border-color: var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 10%, transparent);
+}
+
+.chip:active {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 20%, transparent);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 2px;
 }
 
 .value {
@@ -21,7 +39,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The sleeping count stays dim until the chip is hovered, when the whole chip takes the accent. */
 .asleep {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+.chip:hover .asleep {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip { transition: none; }
 }

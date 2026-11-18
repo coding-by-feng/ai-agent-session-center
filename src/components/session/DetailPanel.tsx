@@ -17,10 +17,6 @@ import ConversationView from './ConversationView';
 // AI POPUPS is an on-demand tab, but a static import still put its
 // react-markdown/remark dependency (via PopupResponse) in the eager entry chunk.
 const AiPopupHistory = lazy(() => import('./AiPopupHistory'));
-// NOTES is on-demand too, and its editor + Markdown renderer are heavier than
-// the tab itself. Only `notesStore` needs to be eager (DetailTabs reads it for
-// the tab's count badge).
-const NotesTab = lazy(() => import('./NotesTab'));
 const AgentsTab = lazy(() => import('./AgentsTab'));
 // ACTIVITY (a central session's log of what it did) exists for central sessions only.
 const CentralActivity = lazy(() => import('./CentralActivity'));
@@ -892,11 +888,6 @@ export default function DetailPanel() {
                 sessionId={displaySession.sessionId}
                 projectPath={displaySession.projectPath}
               />
-            </Suspense>
-          }
-          notesContent={
-            <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
-              <NotesTab sessionId={displaySession.sessionId} projectPath={displaySession.projectPath} />
             </Suspense>
           }
           agentsContent={

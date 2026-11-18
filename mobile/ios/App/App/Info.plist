@@ -36,7 +36,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>AASC uses the camera to scan the pairing QR code your Mac shows, and to take the photos and videos you attach to a message.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>AASC uses the microphone for voice calls to AASC on your Mac, and to record the sound of a video you attach to a message.</string>
+	<string>AASC uses the microphone for voice calls and dictation to AASC on your Mac, and to record the sound of a video you attach to a message.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>AASC uses Face ID to unlock the app and to confirm stopping or restarting a session.</string>
 	<key>NSBonjourServices</key>

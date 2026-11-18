@@ -28,8 +28,9 @@ import { createCallManager, type CallManager } from './callManager.js';
 import type { DigestSession } from './digest.js';
 import { attachSideband, createLiveSession, type SidebandSocketLike } from './liveApi.js';
 import { startVoiceCall } from './voiceCall.js';
-import { createVoiceRouter, type BrainStatus } from './voiceRouter.js';
+import { createVoiceRouter, dictateBodyParser, type BrainStatus } from './voiceRouter.js';
 import { readVoiceSettings, saveVoiceSettings } from './voiceSettings.js';
+import { transcribeAudio } from './dictation.js';
 
 const markerOf = (s: Session): SessionCentralMarker | undefined => (s as Session & { central?: SessionCentralMarker }).central;
 
@@ -94,6 +95,10 @@ export interface ServerVoice {
   close(): void;
 }
 
+/** Where the dictate route's own body parser mounts (server/index.ts, before the global parser). */
+export const DICTATE_PATH = '/api/voice/dictate';
+export { dictateBodyParser };
+
 export function createServerVoice(): ServerVoice {
   const bDeps = brainDeps();
   const brain = createBrain(bDeps);
@@ -139,6 +144,7 @@ export function createServerVoice(): ServerVoice {
     startCall: (input) => calls.start(input),
     endCall: (id, caller) => calls.end(id, caller),
     activeCall: () => calls.active(),
+    transcribe: (input) => transcribeAudio(input),
   });
 
   return { router, close: () => calls.close() };

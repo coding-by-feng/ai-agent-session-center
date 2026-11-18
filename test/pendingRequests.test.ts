@@ -105,9 +105,20 @@ describe('answerableQuestions', () => {
     ]);
   });
 
-  it('leaves one question to answerableOptions, and refuses a multi-select one, >9 choices or >4 questions', () => {
+  // Nov 18 2026 (probed on 2.1.327): a multi-select question can be answered too, alone or among others.
+  it('marks a multi-select question, alone or among others', () => {
+    expect(answerableQuestions({ questions: [q('A', ['x']), q('B', ['y', 'z'], { multiSelect: true })] })).toEqual([
+      { header: 'A', question: 'Pick A?', options: [{ label: 'x' }] },
+      { header: 'B', question: 'Pick B?', options: [{ label: 'y' }, { label: 'z' }], multiSelect: true },
+    ]);
+    expect(answerableQuestions({ questions: [q('Only', ['y', 'z'], { multiSelect: true })] })).toEqual([
+      { header: 'Only', question: 'Pick Only?', options: [{ label: 'y' }, { label: 'z' }], multiSelect: true },
+    ]);
+    expect(answerableOptions({ questions: [q('Only', ['y', 'z'], { multiSelect: true })] })).toBeUndefined();
+  });
+
+  it('leaves one single-select question to answerableOptions, and refuses >9 choices or >4 questions', () => {
     expect(answerableQuestions({ questions: [q('A', ['x', 'y'])] })).toBeUndefined();
-    expect(answerableQuestions({ questions: [q('A', ['x']), q('B', ['y'], { multiSelect: true })] })).toBeUndefined();
     expect(answerableQuestions({ questions: [q('A', ['x']), q('B', Array.from({ length: 10 }, (_, i) => `o${i}`))] })).toBeUndefined();
     expect(answerableQuestions({ questions: ['A', 'B', 'C', 'D', 'E'].map((h) => q(h, ['x'])) })).toBeUndefined();
     expect(answerableQuestions({ questions: [q('A', ['x']), { header: 'B', options: [{ label: 'y' }] }] })).toBeUndefined();

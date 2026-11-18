@@ -10,8 +10,8 @@
  *
  * One tap starts Claude or Codex in a project you have worked in; the new
  * session is selected, and the frame's selection bridge opens its Chat.
- * The projects come most used first (GET /known-projects ranks them by
- * sessions in the last 30 days, then latest activity); this phone's own
+ * The projects come most recently active first (GET /known-projects ranks them by
+ * the newest session activity, then sessions in the last 30 days; Nov 18 2026); this phone's own
  * history doesn't jump the queue, and no rows show until that ranking arrives,
  * so a row never moves under a tap. Browse and More options sit above the list
  * so a long list never pushes them out of sight.
@@ -173,7 +173,7 @@ function NewSessionList({ onClose, preferDir, blocker }: { onClose: () => void; 
         </ListSection>
       )}
       {dirs.length > 0 ? (
-        <ListSection header="Recent projects" footer="Most used first. One tap starts the session and opens its chat.">
+        <ListSection header="Recent projects" footer="Most recent first. One tap starts the session and opens its chat.">
           {dirs.map((dir) => (
             <ProjectRow key={dir} dir={dir} pending={pending} blocker={blocker} onLaunch={requestLaunch} />
           ))}

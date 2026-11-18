@@ -318,6 +318,16 @@ describe('PhoneProjectBrowser — a file link from the terminal', () => {
   });
 });
 
+describe('PhoneProjectBrowser — a folder link from the chat (Nov 18 2026)', () => {
+  it('opens the tab at that folder', async () => {
+    renderBrowser();
+    await within(root()).findByRole('button', { name: 'Folder docs' });
+    act(() => useUiStore.getState().openFileInProject(`${ROOT}/src/lib`, ROOT, undefined, 'dir'));
+    expect(await within(root()).findByRole('button', { name: 'a.ts' })).toBeInTheDocument();
+    expect(useUiStore.getState().pendingFileOpen).toBeNull();
+  });
+});
+
 describe('PhoneProjectBrowser — a link that repeats the project\'s name (Nov 6 2026)', () => {
   const resolves = () => fetchMock.mock.calls.filter(([u]) => u.startsWith('/api/files/resolve')).map(([u]) => new URL(u, 'http://phone').searchParams.get('path'));
 

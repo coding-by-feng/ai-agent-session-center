@@ -24,6 +24,7 @@ import {
   ringReset as resetRing,
 } from './ptyRing.js';
 import { fanOutToSockets, type SubscriberSocket } from './ptySubscribers.js';
+import { hookLevelExport, withHookLevelEnv } from './sessionHookLevel.js';
 import { flushOutputProbe } from './typingProbe.js';
 import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
@@ -34,6 +35,7 @@ import { armSuggestionWatch, clearSuggestionState, disarmSuggestion, isTypingInp
 import type { BtwAnswer, PromptSuggestion } from '../src/types/session.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
+import { inferCliSource, isOtherAgent } from './agentCli.js';
 
 // Callback type for notifying session store of terminal exit
 type OnTerminalExitCallback = (terminalId: string) => void;
@@ -622,10 +624,14 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       const parentEnv = stripInheritedClaudeSessionEnv(process.env);
       // Force Claude Code's classic renderer (no alt screen / mouse capture) so
       // xterm selection and the AI popup keep working — see CLAUDE_TUI_ENV_DEFAULTS.
-      const env: Record<string, string> = withClaudeTuiEnvDefaults({
+      // The Automation mark (server/sessionHookLevel.ts): a lite session's hooks send only lifecycle events.
+      // Set only by this launch's own config, never inherited from the server's environment. Never in a tmux
+      // launch's PTY: it may start the tmux server, which would hand lite to every later pane, so the pane's own
+      // command sets it instead (hookLevelExport).
+      const env: Record<string, string> = withHookLevelEnv(withClaudeTuiEnvDefaults({
         ...parentEnv,
         AGENT_MANAGER_TERMINAL_ID: terminalId,
-      });
+      }), config.useTmux || config.tmuxSession ? undefined : config.hookLevel, local);
 
       if (config.apiKey) {
         env[apiKeyEnvForCommand(command)] = config.apiKey;
@@ -736,7 +742,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // Claude's SessionStart hook can bind to the correct terminal card when
       // multiple sessions share a workDir.
       if (!skipAutoLaunch || config.deferredLaunch) {
-        addPendingLink(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
+        addPendingLink(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now(), cli: inferCliSource(config.command || config.startupCommand) });
       }
 
       // #19: Store disposables for proper cleanup on terminal close
@@ -833,6 +839,8 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             // its own environment (the first PTY's, or one AASC never started), not this PTY's — a hook without
             // this card's id never counts as its start (Rulings P4-53, P4-59).
             innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
+            // The same for the Automation mark: a local tmux pane does not inherit this PTY's environment.
+            innerCmd += hookLevelExport(config.hookLevel, local);
             if (!local) {
               // Classic Claude renderer on the remote side too (env doesn't cross
               // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
@@ -959,10 +967,11 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
       // Then attach to that session targeting the specific pane
       const shell = getDefaultShell();
       const tmuxParentEnv = stripInheritedClaudeSessionEnv(process.env);
-      const env: Record<string, string> = withClaudeTuiEnvDefaults({
+      // No Automation mark here, and none the server inherited (server/sessionHookLevel.ts).
+      const env: Record<string, string> = withHookLevelEnv(withClaudeTuiEnvDefaults({
         ...tmuxParentEnv,
         AGENT_MANAGER_TERMINAL_ID: terminalId,
-      });
+      }), undefined, true);
       // Never a central's token the server inherited (see createTerminal): a tmux pane is no central.
       delete env[MCP_TOKEN_ENV];
 
@@ -1272,7 +1281,7 @@ function findPendingLinksKey(workDir: string): string | null {
   return null;
 }
 
-export function tryLinkByWorkDir(workDir: string, sessionId: string): string | null {
+export function tryLinkByWorkDir(workDir: string, sessionId: string, cli?: string): string | null {
   const key = findPendingLinksKey(workDir);
   if (!key) return null;
   const arr = pendingLinks.get(key);
@@ -1280,8 +1289,11 @@ export function tryLinkByWorkDir(workDir: string, sessionId: string): string | n
     pendingLinks.delete(key);
     return null;
   }
-  // FIFO — shift the front entry (oldest first registered)
-  const link = arr.shift()!;
+  // FIFO — the oldest link for this agent. A Codex hook never takes a Claude terminal's link, or the
+  // other way round, when both share the folder (Nov 17 2026); a link of unknown agent still matches.
+  const index = cli ? arr.findIndex((l) => !isOtherAgent(cli, l.cli)) : 0;
+  if (index < 0) return null;
+  const [link] = arr.splice(index, 1);
   if (arr.length === 0) pendingLinks.delete(key);
   linkSession(link.terminalId, sessionId);
   return link.terminalId;

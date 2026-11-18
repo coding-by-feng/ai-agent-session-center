@@ -117,6 +117,16 @@ describe('parseInputBox', () => {
     const rows = await renderScreenCells({ bytes: Buffer.from(fixture.chunks.join('')), cols: fixture.cols, rows: fixture.rows });
     expect(parseInputBox(rows)?.text).toBe('');
   });
+
+  it('reads typed text off a real named box with a background agent listed under it', async () => {
+    // Claude Code 2.1.326, mid-turn: `──── Probe box ─` top rule, then `⏺ main` / `◯ general-purpose …` in the footer.
+    // The parser before the named-rule fix (still in the Nov 16 10:34 desktop build) returned null on these bytes.
+    const fixture = JSON.parse(
+      readFileSync(new URL('./fixtures/claude-named-box-background-agent.json', import.meta.url), 'utf8'),
+    ) as { cols: number; rows: number; chunks: string[] };
+    const rows = await renderScreenCells({ bytes: Buffer.from(fixture.chunks.join('')), cols: fixture.cols, rows: fixture.rows });
+    expect(parseInputBox(rows)).toEqual({ text: 'fix the queue so a paused item keeps its place', rows: 1 });
+  });
 });
 
 describe('clearKeysFor', () => {

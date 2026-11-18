@@ -255,6 +255,38 @@
   margin: 0;
 }
 
+/* Hold-to-talk dictation (Nov 16 2026, the app only): the mic beside Send, and its one status line. */
+.micBtn {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.micBtn[data-phase='recording'],
+.micBtn[data-phase='recording']:active:not(:disabled) {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 22%, var(--bg-panel));
+  color: var(--accent-cyan);
+  transform: none;
+}
+.micBtn[data-phase='transcribing'] {
+  color: var(--accent-cyan);
+  animation: micWait 1.2s ease-in-out infinite;
+}
+@keyframes micWait {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .micBtn[data-phase='transcribing'] { animation: none; }
+}
+
+.dictateLine {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
 .compose {
   flex: 1 1 auto;
   min-width: 0;

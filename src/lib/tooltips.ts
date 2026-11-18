@@ -213,8 +213,8 @@ export const tooltips = {
     shortcut: 'Cmd+F',
   },
   termReader: {
-    label: 'Reader view',
-    description: 'Read this session’s replies as formatted text: headings, lists, code and tables. The terminal keeps running underneath; toggle back anytime.',
+    label: 'Formatted view',
+    description: 'Replies as formatted chat (headings, lists, code, tables) with a reply box underneath. Stays tidy when you resize the window; the terminal keeps running underneath.',
   },
   termFullscreen: {
     label: 'Fullscreen terminal',
@@ -390,6 +390,14 @@ export const tooltips = {
   ctrlAlertOn: {
     label: 'Disable alerts',
     description: 'Stop alerting for this session’s state changes.',
+  },
+  ctrlAutomationOff: {
+    label: 'Automation',
+    description: 'Lite hooks: this session reports only start, prompt, approval, stop and end. Saves work on long unattended runs; tool activity and subagents stop showing live. Applies from its next launch.',
+  },
+  ctrlAutomationOn: {
+    label: 'Automation on',
+    description: 'This session reports only start, prompt, approval, stop and end. Turn off for full live activity from its next launch.',
   },
   // Both say what happens to a task a central already handed over (pinned by HandsOffToggle.test.tsx).
   ctrlHandsOffOff: {

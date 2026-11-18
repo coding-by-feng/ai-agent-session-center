@@ -111,7 +111,18 @@ export interface RoomDragState {
   /** Attach to the drag-handle element (NOT the whole frame — a room frame
    *  contains session cards, the collapse chevron, and the kill button, and
    *  starting a drag from any of those would hijack them). */
-  onPointerDown: (e: React.PointerEvent, id: string) => void;
+  onPointerDown: (e: React.PointerEvent, id: string, opts?: DragPressOptions) => void;
+}
+
+/** How a press starts a drag. */
+export interface DragPressOptions {
+  /**
+   * The press is on a whole card that is itself a <button> (the PINNED frame's session cards,
+   * Nov 18 2026), not on a grip. A press inside a button then counts (a text box still doesn't),
+   * and the press is never preventDefault-ed: the card's mousedown, click and double-click stay
+   * its own. A click that never travels MOUSE_DRAG_START_PX is still just a click.
+   */
+  card?: boolean;
 }
 
 /**
@@ -206,11 +217,13 @@ export function useRoomDragReorder(
     setDragRects(g.rects);
   }, [getRects, getFrameEl]);
 
-  const onPointerDown = useCallback((e: React.PointerEvent, id: string) => {
+  const onPointerDown = useCallback((e: React.PointerEvent, id: string, opts?: DragPressOptions) => {
     // The handle itself is a non-button span (see the component), but guard
     // anyway in case a future edit moves onPointerDown onto a richer element.
+    // A card is a button, so in card mode only a text field inside it (rename) opts out.
     const target = e.target as HTMLElement | null;
-    if (target?.closest('button, a, input, textarea, select')) return;
+    const card = opts?.card === true;
+    if (target?.closest(card ? 'a, input, textarea, select' : 'button, a, input, textarea, select')) return;
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     if (gesture.current) reset();
 
@@ -283,7 +296,7 @@ export function useRoomDragReorder(
 
     if (holdFirst) {
       gesture.current.holdTimer = setTimeout(lift, HOLD_MS);
-    } else {
+    } else if (!card) {
       // Stop the browser starting a text selection at the press point: the
       // drag now begins on movement, and a mouse drag across the rail would
       // otherwise paint a selection over every session card it crosses. Safe

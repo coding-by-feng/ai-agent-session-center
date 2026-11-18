@@ -278,6 +278,27 @@ describe('groupSessions', () => {
       expect(byRoom({ query: 'gone' }).map((g) => g.title)).toEqual([]);
     });
 
+    // The desktop's 10 ↔ 20 toggle on the phone (Nov 18 2026): 10 unless this phone asked for 20.
+    describe('10 or 20', () => {
+      const many = Array.from({ length: 14 }, (_, i) => mk(`s${String(i).padStart(2, '0')}`, { status: 'waiting', ...prompted(N - (i + 1) * MIN) }));
+      const recentOf = (over: Partial<GroupInput> = {}) =>
+        groupSessions(input(many, { groupBy: 'room', rooms: [], now: N, ...over })).find((g) => g.kind === 'recent')!;
+
+      it('lists 10 by default and says that more qualify', () => {
+        const recent = recentOf();
+        expect(recent.sessions).toHaveLength(10);
+        expect(recent.recentHasMore).toBe(true);
+      });
+
+      it('lists up to 20 once expanded', () => {
+        expect(recentOf({ recentExpanded: true }).sessions).toHaveLength(14);
+      });
+
+      it('has nothing more to offer when 10 or fewer qualify', () => {
+        expect(byRoom().find((g) => g.kind === 'recent')!.recentHasMore).toBe(false);
+      });
+    });
+
     it('is only in the By room view, as on the desktop', () => {
       for (const groupBy of ['status', 'project', 'activity'] as const) {
         expect(byRoom({ groupBy }).some((g) => g.kind === 'recent'), groupBy).toBe(false);
@@ -295,6 +316,12 @@ describe('groupSessions', () => {
         mk('e', { status: 'ended', pinned: true }),
       ];
       const pinned = (over: Partial<GroupInput> = {}) => groupSessions(input(pins, { groupBy: 'room', rooms: pinRooms, now: N, ...over }));
+
+      it('lists them in the order dragged on the desktop (pinOrder, Nov 18 2026)', () => {
+        const placed = pins.map((p) => (p.sessionId === 'd' ? { ...p, pinOrder: 1 } : p.sessionId === 'a' ? { ...p, pinOrder: 2 } : p.sessionId === 'b' ? { ...p, pinOrder: 3 } : p));
+        const groups = groupSessions(input(placed, { groupBy: 'room', rooms: pinRooms, now: N }));
+        expect(groups.find((g) => g.kind === 'pinned')!.sessions.map((x) => x.sessionId)).toEqual(['d', 'a', 'b']);
+      });
 
       it('lists the live pinned sessions first, each also in its room or under No room', () => {
         const groups = pinned();
@@ -420,5 +447,29 @@ describe('formatAge', () => {
     expect(formatAge(4 * 60_000)).toBe('4m');
     expect(formatAge(2 * 3_600_000)).toBe('2h');
     expect(formatAge(3 * 86_400_000)).toBe('3d');
+  });
+});
+
+// Nov 17 2026: the row's ring spins while background shells run, so its section and filter agree.
+describe('a session whose background shells still run', () => {
+  const shells = { backgroundTaskCount: 2, backgroundTasks: { items: [], agents: 0, shells: 2, activeShells: 2, at: Date.now() } };
+
+  it('sits under Working, not Finished, and in the Working filter', () => {
+    const row = mk('a', { status: 'waiting', lastActivityAt: Date.now(), ...shells });
+    expect(statusSection(row)).toBe('working');
+    expect(matchesFilter(row, 'working')).toBe(true);
+  });
+
+  it('still needs you when it asks for an approval', () => {
+    const row = mk('a', { status: 'approval', ...shells });
+    expect(statusSection(row)).toBe('needs-you');
+    expect(matchesFilter(row, 'working')).toBe(false);
+  });
+
+  it('outranks the proceed reminder until the shells end', () => {
+    const owing = { status: 'idle' as const, pendingProceedAt: 5 };
+    expect(statusSection(mk('a', { ...owing, ...shells }))).toBe('working');
+    expect(matchesFilter(mk('a', { ...owing, ...shells }), 'needs-you')).toBe(false);
+    expect(statusSection(mk('a', { ...owing }))).toBe('needs-you');
   });
 });

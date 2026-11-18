@@ -29,6 +29,8 @@ export interface ButtonProps {
   type?: 'button' | 'submit';
   className?: string;
   'aria-label'?: string;
+  /** A toggle (a multi-select answer's tick): sets `aria-pressed`. Leave out for a plain button. */
+  pressed?: boolean;
 }
 
 export default function Button({
@@ -44,6 +46,7 @@ export default function Button({
   type = 'button',
   className,
   'aria-label': ariaLabel,
+  pressed,
 }: ButtonProps) {
   const reasonId = useId();
   const inert = !!disabledReason || !!loading;
@@ -70,6 +73,7 @@ export default function Button({
       aria-busy={loading ? true : undefined}
       aria-describedby={disabledReason ? reasonId : undefined}
       aria-label={loading && loadingLabel ? loadingLabel : ariaLabel}
+      aria-pressed={pressed}
       data-loading={loading ? '' : undefined}
     >
       {loading ? <span className={styles.spinner} aria-hidden="true" /> : icon}

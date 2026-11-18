@@ -14,6 +14,7 @@ package work.aasc.mobile
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.getcapacitor.JSObject
@@ -22,6 +23,7 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -68,9 +70,18 @@ class DeviceVaultPlugin : Plugin() {
 internal class KeystoreVault(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private fun key(): SecretKey {
+    /**
+     * The vault key when there is one. Never creates it: a read that made a new key because the old one failed to
+     * load would leave every stored entry unreadable. An alias that exists but won't load is an error, not "no key".
+     */
+    private fun existingKey(): SecretKey? {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        if (!store.containsAlias(ALIAS)) return null
+        return store.getKey(ALIAS, null) as? SecretKey ?: throw IllegalStateException("vault key unavailable")
+    }
+
+    private fun key(): SecretKey {
+        existingKey()?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -93,19 +104,36 @@ internal class KeystoreVault(context: Context) {
         }
     }
 
-    /** Null when absent, or when it can't be opened (a reset Keystore key): such an entry is dropped. */
+    /**
+     * Null when absent, or when it can never be opened again (the Keystore key is gone or was replaced, or the entry
+     * was altered): only such an entry is dropped. Any other failure (the Keystore busy or locked for now) is thrown,
+     * and the plugin answers FAILED: the entry may be fine, so it stays. Before Nov 17 2026 every exception dropped
+     * the entry, so one bad read cost the phone its pairing for good.
+     */
     fun read(name: String): String? {
         val stored = prefs.getString(name, null) ?: return null
+        val key = existingKey() ?: return dropped(name)
+        val sealed = try {
+            Base64.decode(stored, Base64.NO_WRAP)
+        } catch (e: IllegalArgumentException) {
+            return dropped(name)
+        }
+        if (sealed.size <= IV_BYTES) return dropped(name)
         return try {
-            val sealed = Base64.decode(stored, Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, sealed, 0, IV_BYTES))
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, sealed, 0, IV_BYTES))
             cipher.updateAAD(name.toByteArray(Charsets.UTF_8))
             String(cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES), Charsets.UTF_8)
-        } catch (e: Exception) {
-            remove(name)
-            null
+        } catch (e: AEADBadTagException) {
+            dropped(name) // sealed under another key, or altered
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            dropped(name)
         }
+    }
+
+    private fun dropped(name: String): String? {
+        remove(name)
+        return null
     }
 
     fun remove(name: String) {

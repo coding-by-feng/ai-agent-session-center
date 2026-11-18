@@ -101,6 +101,34 @@ describe('SessionMenuSheet', () => {
     expect(onOpenTerminal).toHaveBeenCalledTimes(1);
   });
 
+  it('steps a pinned session up or down in Pinned and stays open (Nov 18 2026)', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', fetchMock);
+    useSessionStore.setState({ sessions: new Map([
+      ['p1', make({ sessionId: 'p1', title: 'one', pinned: true, pinOrder: 1 })],
+      ['s1', make({ pinned: true, pinOrder: 2 })],
+      ['p3', make({ sessionId: 'p3', title: 'three', pinned: true, pinOrder: 3 })],
+    ]) });
+    const onSheet = vi.fn();
+    render(<SessionSheets sessionId="s1" sheet="actions" onSheet={onSheet} />);
+    const sheet = screen.getByTestId('session-actions-sheet');
+    await user.click(within(sheet).getByRole('button', { name: 'Move up in Pinned' }));
+    expect(useSessionStore.getState().sessions.get('s1')?.pinOrder).toBe(1);
+    expect(useSessionStore.getState().sessions.get('p1')?.pinOrder).toBe(2);
+    expect(fetchMock).toHaveBeenCalledWith('/api/pinned-order', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ sessionIds: ['s1', 'p1', 'p3'] }) }));
+    expect(onSheet).not.toHaveBeenCalled();
+    // Now on top: no Move up, still Move down.
+    expect(within(sheet).queryByRole('button', { name: 'Move up in Pinned' })).toBeNull();
+    expect(within(sheet).getByRole('button', { name: 'Move down in Pinned' })).toBeTruthy();
+  });
+
+  it('offers no Move up / down for a session that is not pinned', () => {
+    useSessionStore.setState({ sessions: new Map([['s1', make()]]) });
+    render(<SessionSheets sessionId="s1" sheet="actions" onSheet={vi.fn()} />);
+    expect(within(screen.getByTestId('session-actions-sheet')).queryByRole('button', { name: /in Pinned$/ })).toBeNull();
+  });
+
   it('restarts only after a confirm', async () => {
     const user = userEvent.setup();
     const { sheet, onClose } = setup();

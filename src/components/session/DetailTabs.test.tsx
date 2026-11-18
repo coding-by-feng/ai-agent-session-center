@@ -12,7 +12,6 @@ describe('DetailTabs', () => {
     promptsContent: <div>Prompts Content</div>,
     aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
-    notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
   };
 
@@ -21,7 +20,7 @@ describe('DetailTabs', () => {
     try { localStorage.removeItem('active-tab'); } catch { /* ignore */ }
   });
 
-  it('renders all 8 tab buttons', () => {
+  it('renders all 7 tab buttons', () => {
     render(<DetailTabs {...defaultProps} />);
     expect(screen.getByText('PROJECT')).toBeInTheDocument();
     expect(screen.getByText('TERMINAL')).toBeInTheDocument();
@@ -29,8 +28,9 @@ describe('DetailTabs', () => {
     expect(screen.getByText('CONVERSATION')).toBeInTheDocument();
     expect(screen.getByText('AI POPUPS')).toBeInTheDocument();
     expect(screen.getByText('AGENTS')).toBeInTheDocument();
-    expect(screen.getByText('NOTES')).toBeInTheDocument();
     expect(screen.getByText('QUEUE')).toBeInTheDocument();
+    // NOTES left the desktop tabs (Nov 18 2026); the phone's Info › Notes keeps them.
+    expect(screen.queryByText('NOTES')).toBeNull();
   });
 
   it('shows terminal content by default', () => {
@@ -50,29 +50,35 @@ describe('DetailTabs', () => {
     expect(screen.getByText('AI Popups Content')).toBeInTheDocument();
   });
 
-  it('switches to notes tab on click', () => {
+  it('switches to queue tab on click', () => {
     render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('NOTES'));
-    expect(screen.getByText('Notes Content')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('QUEUE'));
+    expect(screen.getByText('Queue Content')).toBeInTheDocument();
   });
 
   it('calls onTabChange callback when tab changes', () => {
     const onTabChange = vi.fn();
     render(<DetailTabs {...defaultProps} onTabChange={onTabChange} />);
-    fireEvent.click(screen.getByText('NOTES'));
-    expect(onTabChange).toHaveBeenCalledWith('notes');
+    fireEvent.click(screen.getByText('QUEUE'));
+    expect(onTabChange).toHaveBeenCalledWith('queue');
   });
 
   it('persists active tab to localStorage', () => {
     render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('NOTES'));
-    expect(localStorage.getItem('active-tab')).toBe('notes');
+    fireEvent.click(screen.getByText('QUEUE'));
+    expect(localStorage.getItem('active-tab')).toBe('queue');
   });
 
   it('restores active tab from localStorage', () => {
+    localStorage.setItem('active-tab', 'queue');
+    render(<DetailTabs {...defaultProps} />);
+    expect(screen.getByText('Queue Content')).toBeInTheDocument();
+  });
+
+  it('a stored NOTES tab (removed Nov 18 2026) opens TERMINAL instead', () => {
     localStorage.setItem('active-tab', 'notes');
     render(<DetailTabs {...defaultProps} />);
-    expect(screen.getByText('Notes Content')).toBeInTheDocument();
+    expect(screen.getByText('Terminal Content')).toBeInTheDocument();
   });
 });
 
@@ -82,7 +88,6 @@ describe('DetailTabs — open Project in a native window', () => {
     promptsContent: <div>Prompts Content</div>,
     aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
-    notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
   };
   const seedSession = (projectPath?: string) => {
@@ -192,26 +197,18 @@ describe('DetailTabs — open Project in a native window', () => {
   });
 });
 
-describe('DetailTabs — NOTES / QUEUE count badges', () => {
+describe('DetailTabs — QUEUE count badge', () => {
   const defaultProps = {
     terminalContent: <div>Terminal Content</div>,
     promptsContent: <div>Prompts Content</div>,
     aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
-    notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
   };
 
   const tabText = (tabId: string) =>
     document.querySelector(`[data-tab="${tabId}"]`)?.textContent ?? '';
 
-  const seedNotes = (sessionId: string, count: number) => {
-    useNotesStore.setState({
-      notes: new Map([[sessionId, Array.from({ length: count }, (_, i) => ({
-        id: i + 1, sessionId, text: `n${i}`, createdAt: i, updatedAt: i,
-      }))]]),
-    });
-  };
 
   const seedQueue = (sessionId: string, count: number) => {
     useQueueStore.setState({
@@ -237,33 +234,27 @@ describe('DetailTabs — NOTES / QUEUE count badges', () => {
     vi.restoreAllMocks();
   });
 
-  it('badges the NOTES and QUEUE tabs with their counts', () => {
-    seedNotes('s1', 3);
+  it('badges the QUEUE tab with its count', () => {
     seedQueue('s1', 2);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
-    expect(tabText('notes')).toBe('NOTES3');
     expect(tabText('queue')).toBe('QUEUE2');
   });
 
-  it('shows no chip when a tab is empty', () => {
-    seedNotes('s1', 0);
-    seedQueue('s1', 1);
+  it('shows no chip when the queue is empty', () => {
+    seedQueue('s1', 0);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
-    expect(tabText('notes')).toBe('NOTES');
-    expect(tabText('queue')).toBe('QUEUE1');
+    expect(tabText('queue')).toBe('QUEUE');
   });
 
   it('counts only the displayed session', () => {
-    seedNotes('other', 5);
     seedQueue('other', 5);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
-    expect(tabText('notes')).toBe('NOTES');
     expect(tabText('queue')).toBe('QUEUE');
   });
 
@@ -276,16 +267,14 @@ describe('DetailTabs — NOTES / QUEUE count badges', () => {
   });
 
   it('labels the count for screen readers instead of a bare digit', () => {
-    seedNotes('s1', 1);
     seedQueue('s1', 4);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
-    expect(screen.getByLabelText('1 note')).toBeInTheDocument();
     expect(screen.getByLabelText('4 queued prompts')).toBeInTheDocument();
   });
 
-  it('warms the notes cache on mount so the badge is right before NOTES is opened', () => {
+  it('no longer fetches notes: there is no NOTES tab to badge', () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       urls.push(url);
@@ -294,7 +283,7 @@ describe('DetailTabs — NOTES / QUEUE count badges', () => {
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
-    expect(urls).toContain('/api/db/sessions/s1/notes');
+    expect(urls.some((u) => u.includes('/notes'))).toBe(false);
   });
 });
 
@@ -304,7 +293,6 @@ describe('DetailTabs — AGENTS tab', () => {
     promptsContent: <div>Prompts Content</div>,
     aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
-    notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
     agentsContent: <div>Agents Content</div>,
   };
@@ -353,7 +341,7 @@ describe('DetailTabs — AGENTS tab', () => {
 describe('DetailTabs — active tab stays in view', () => {
   const props = {
     terminalContent: <div />, promptsContent: <div />, aiPopupsContent: <div />, projectContent: <div />,
-    notesContent: <div />, queueContent: <div />, agentsContent: <div>Agents Content</div>,
+    queueContent: <div />, agentsContent: <div>Agents Content</div>,
   };
 
   afterEach(() => {
@@ -387,7 +375,6 @@ describe('DetailTabs — the ACTIVITY tab of a central session', () => {
     promptsContent: <div>Prompts Content</div>,
     aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
-    notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
     agentsContent: <div>Agents Content</div>,
   };
@@ -401,17 +388,17 @@ describe('DetailTabs — the ACTIVITY tab of a central session', () => {
     try { localStorage.clear(); } catch { /* ignore */ }
   });
 
-  it('is not a tab for a session that is no central: the strip stays the eight it had', () => {
+  it('is not a tab for a session that is no central: the strip stays the seven it had', () => {
     render(<DetailTabs {...baseProps} />);
 
-    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'notes', 'queue', 'agents']);
+    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'queue', 'agents']);
     expect(screen.queryByText('ACTIVITY')).toBeNull();
   });
 
   it('is the last tab, after AGENTS, when the panel gives it content', () => {
     render(<DetailTabs {...withActivity} />);
 
-    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'notes', 'queue', 'agents', 'activity']);
+    expect(tabIds()).toEqual(['project', 'terminal', 'commands', 'conversation', 'aiPopups', 'queue', 'agents', 'activity']);
     expect(screen.getByText('ACTIVITY')).toBeInTheDocument();
   });
 
@@ -480,8 +467,8 @@ describe('DetailTabs — the ACTIVITY tab of a central session', () => {
   it('leaves the other tabs as they were', () => {
     render(<DetailTabs {...withActivity} />);
 
-    fireEvent.click(screen.getByText('NOTES'));
-    expect(screen.getByText('Notes Content')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('QUEUE'));
+    expect(screen.getByText('Queue Content')).toBeInTheDocument();
     fireEvent.click(screen.getByText('AGENTS'));
     expect(screen.getByText('Agents Content')).toBeInTheDocument();
     expect(screen.queryByText('Activity Content')).toBeNull();

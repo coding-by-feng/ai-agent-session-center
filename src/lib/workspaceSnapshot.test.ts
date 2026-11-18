@@ -1059,6 +1059,14 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(buildSnapshot(new Map([['sess-hands-false', explicitFalse]]), []).sessions[0]).not.toHaveProperty('handsOff');
   });
 
+  // The Automation mark (lite hooks, server/sessionHookLevel.ts): a restore relaunches each agent at its level.
+  it('keeps the Automation mark, and nothing for a session without it', () => {
+    const lite = { ...loopSession('sess-lite'), hookLevel: 'lite' } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-lite', lite]]), []).sessions[0].hookLevel).toBe('lite');
+    const plain = loopSession('sess-full') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-full', plain]]), []).sessions[0]).not.toHaveProperty('hookLevel');
+  });
+
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
     // Non-Claude session: session.model is the raw launch command (has spaces).
     const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
@@ -1214,6 +1222,22 @@ describe('importSnapshot — loop round-trip', () => {
     const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
     expect(bodies.map((b) => b.handsOff)).toEqual(saved.sessions.map((snap) => snap.handsOff ? true : undefined));
     expect(bodies.filter((b) => b.handsOff === true)).toHaveLength(1);
+  });
+
+  it('round-trips the Automation mark: what a snapshot saved is what the restore POSTs', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-lite-1' }),
+    });
+    const lite = { ...loopSession('sess-lite-1'), hookLevel: 'lite' } as unknown as Session;
+    const full = loopSession('sess-lite-2') as unknown as Session;
+    const saved = buildSnapshot(new Map([['sess-lite-1', lite], ['sess-lite-2', full]]), []);
+
+    await importSnapshot(saved, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.hookLevel)).toEqual(saved.sessions.map((snap) => snap.hookLevel === 'lite' ? 'lite' : undefined));
+    expect(bodies.filter((b) => b.hookLevel === 'lite')).toHaveLength(1);
   });
 
   it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {

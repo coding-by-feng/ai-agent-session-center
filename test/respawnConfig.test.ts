@@ -30,4 +30,11 @@ describe('respawnTerminalConfig', () => {
     expect(respawnTerminalConfig({ sshConfig: { host: '' } }).workingDir).toBe('~');
     expect(respawnTerminalConfig({ sshConfig: { host: '' } }).host).toBe('localhost');
   });
+
+  // The Automation mark (lite hooks) is on the card, not in sshConfig: a respawn that dropped it would show
+  // Automation on a card whose agent sends every hook.
+  it('keeps a session marked Automation on lite hooks after a restart, and adds nothing otherwise', () => {
+    expect(respawnTerminalConfig({ ...base, hookLevel: 'lite' })).toMatchObject({ hookLevel: 'lite' });
+    expect(respawnTerminalConfig(base)).not.toHaveProperty('hookLevel');
+  });
 });

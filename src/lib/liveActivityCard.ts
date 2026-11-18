@@ -11,6 +11,9 @@
  * A session whose last answer asks the user to reply "proceed" (`pendingProceedAt`, the amber P) is a
  * done row flagged `proceed` (Nov 8 2026) for the same reason, timed from when it asked; it leads after
  * a real request and counts in `needs`, as it does on the phone's Sessions list.
+ * Rows go by urgency (Nov 18 2026): requests, then "proceed" asks, then working, then done, newest first
+ * within each, so a second session waiting on you is never hidden under "+N more". A request row says
+ * which kind it is (`ask`), which the island draws as its own icon; an older app ignores the key.
  *
  * The Mac page builds it and hands it to the native app (`useLiveActivityFeed`), which adds the
  * Mac's name from its own saved pairing and draws it. Import-free apart from the title rule, so it
@@ -37,6 +40,8 @@ export interface LiveActivityRow {
   idle?: true;
   /** A done row whose last answer asks the user to reply "proceed"; it carries `startedAt` (when it asked). */
   proceed?: true;
+  /** A needs row: a tool approval or a question (Nov 18 2026), drawn as ✋ or 💬. */
+  ask?: 'approval' | 'input';
 }
 
 export interface LiveActivityCard {
@@ -126,10 +131,11 @@ function detailOf({ s, mark }: LiveEntry): string | undefined {
   return line || undefined;
 }
 
-/** Waiting on you first (a request, then a "proceed" owed), then working, then done; the newest of each. */
-function leadOf(live: LiveEntry[]): LiveEntry | undefined {
-  return live.find((x) => x.mark === 'needs') ?? live.find((x) => x.proceed)
-    ?? live.find((x) => x.mark === 'working') ?? live[0];
+/** How urgent a row is: a request, then a "proceed" owed, then working, then done (lower first). */
+function urgency({ mark, proceed }: LiveEntry): number {
+  if (mark === 'needs') return 0;
+  if (proceed) return 1;
+  return mark === 'working' ? 2 : 3;
 }
 
 function rowOf(entry: LiveEntry, lead: boolean): LiveActivityRow {
@@ -141,24 +147,24 @@ function rowOf(entry: LiveEntry, lead: boolean): LiveActivityRow {
     ...(start !== undefined && { startedAt: start }),
     ...(detail !== undefined && { detail }),
     ...(entry.proceed ? { proceed: true as const } : entry.s.status === 'idle' && { idle: true as const }),
+    ...(entry.mark === 'needs' && { ask: entry.s.status === 'approval' ? 'approval' as const : 'input' as const }),
   };
 }
 
-/** The card for these sessions: the lead, then the rest most recently active first; no rows means "end the activity". */
+/** The card for these sessions, most urgent first (the first row is the lead); no rows means "end the activity". */
 export function buildLiveActivityCard(sessions: Iterable<LiveActivitySession>): LiveActivityCard {
   const live = [...sessions]
     .filter((s) => !s.muted)
     .map((s) => { const mark = markOf(s.status); return { s, mark, proceed: owesProceed(s, mark) }; })
     .filter((x): x is LiveEntry => x.mark !== null)
-    .sort((a, b) => b.s.lastActivityAt - a.s.lastActivityAt);
+    .sort((a, b) => urgency(a) - urgency(b) || b.s.lastActivityAt - a.s.lastActivityAt);
   const needs = live.filter((x) => x.mark === 'needs' || x.proceed).length;
   const working = live.filter((x) => x.mark === 'working').length;
-  const lead = leadOf(live);
-  const ordered = lead ? [lead, ...live.filter((x) => x !== lead)] : [];
+  const lead = live[0];
   return {
     v: 1,
     headline: needs > 0 ? 'needs' : working > 0 ? 'working' : 'finished',
-    rows: ordered.slice(0, LIVE_ACTIVITY_ROWS).map((x) => rowOf(x, x === lead)),
+    rows: live.slice(0, LIVE_ACTIVITY_ROWS).map((x) => rowOf(x, x === lead)),
     more: Math.max(0, live.length - LIVE_ACTIVITY_ROWS),
     needs,
     working,

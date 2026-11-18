@@ -54,6 +54,9 @@ export type EventType =
   | 'agent-turn-complete';
 
 /** Session source — where Claude was launched from */
+/** A session's own hook level (the Automation mark): `'lite'` sends only lifecycle hooks. */
+export type SessionHookLevel = 'lite';
+
 export type SessionSource =
   | 'ssh'
   | 'vscode'
@@ -77,6 +80,24 @@ export type SessionSource =
 export interface PromptEntry {
   text: string;
   timestamp: number;
+}
+
+/**
+ * A few lines on what a session has done, made when its peek's Summary button is clicked
+ * (`POST /api/sessions/:id/recap`, `server/sessionRecap.ts`). Never archived, never persisted:
+ * it is cheap to make again. Unlike `Session.summary`, making it does not archive the session.
+ */
+export interface SessionRecap {
+  /** `running`: being made now (`text` is then the previous summary, if any). */
+  state: 'running' | 'done' | 'error';
+  /** The summary: up to RECAP_LINES short lines. */
+  text?: string;
+  /** Why the last try failed, in words for the person. */
+  error?: string;
+  /** When this state was set (ms). */
+  at: number;
+  /** The newest prompt the summary covers (its timestamp): a later prompt makes it stale. */
+  promptAt: number;
 }
 
 /** A single tool log entry */
@@ -197,7 +218,8 @@ export interface ArchivedSession {
 // ---------------------------------------------------------------------------
 
 /** Class of transient failure recognised in a terminal's output. */
-export type FaultKind = 'api_error' | 'rate_limit' | 'network';
+/** `usage_limit`: the plan's 5-hour / weekly / session limit, which lasts until its reset (never auto-resumed). */
+export type FaultKind = 'api_error' | 'rate_limit' | 'network' | 'usage_limit';
 
 /**
  * A transient failure banner observed in the session's PTY output. Produced by
@@ -277,11 +299,13 @@ export interface PendingRequestOption {
   description?: string;
 }
 
-/** One of several single-select questions asked in one AskUserQuestion call (Nov 6 2026). */
+/** One question of an AskUserQuestion call that Claude shows as tabs (Nov 6 2026). */
 export interface PendingRequestQuestion {
   header?: string;
   question: string;
   options: PendingRequestOption[];
+  /** Nov 18 2026: several choices may be ticked. Absent = pick one. */
+  multiSelect?: true;
 }
 
 /**
@@ -308,9 +332,12 @@ export interface PendingRequest {
   /** AskUserQuestion's choices, present only when the answer route can pick one:
    *  a single, single-select question with at most 9 choices. */
   options?: PendingRequestOption[];
-  /** Nov 6 2026: 2–4 single-select questions in one call, each with 1–9 choices: one pick per
-   *  question, then Claude's "Submit answers". Absent when `options` is set. */
+  /** Nov 6 2026: 2–4 questions in one call, each with 1–9 choices, then Claude's "Submit answers";
+   *  since Nov 18 2026 also one multi-select question. Absent when `options` is set. */
   questions?: PendingRequestQuestion[];
+  /** Nov 18 2026: the dialog has a "Type something" line, so an answer may be typed text
+   *  (`choice: 'answers'`). Set for Claude's AskUserQuestion when `options` or `questions` is. */
+  canType?: true;
   /** The dialog has an "always allow" line: its PermissionRequest suggested a rule to save.
    *  Without one, Claude's option 2 is "Yes, and switch to auto mode", so Always allow is
    *  neither offered nor answered. */
@@ -428,6 +455,8 @@ export interface Session {
   projectPath: string;
   title: string;
   summary?: string;
+  /** The peek's AI Summary (Nov 18 2026): made on request, in memory only. See SessionRecap. */
+  recap?: SessionRecap;
   /**
    * Short user-authored note on what this session is currently doing, shown
    * inline under the title in the detail rail so it is readable without opening
@@ -587,6 +616,12 @@ export interface Session {
   muted?: boolean;
   pinned?: boolean;
   /**
+   * This pinned card's place in the PINNED frame, 1 = top (Nov 18 2026): set by dragging a card
+   * there (`PUT /api/pinned-order`); a new pin goes to the end. Absent on unpinned sessions, and on
+   * pins made before it existed, which sort after the placed ones by status and title as before.
+   */
+  pinOrder?: number;
+  /**
    * When AASC put this idle session to sleep (Oct 28 2026, server/sessionSleep.ts): its CLI was
    * stopped to free memory and the card kept; opening it resumes with `--resume`. Absent when awake.
    */
@@ -645,6 +680,13 @@ export interface Session {
    */
   handsOff?: boolean;
   /**
+   * The person marked this session Automation: its agent sends only lifecycle hooks (start, prompt, approval,
+   * stop, end), so a long unattended run costs the dashboard less. Read when its PTY starts
+   * (`AASC_HOOK_LEVEL`, server/sessionHookLevel.ts), so a change applies from the next launch. Local sessions
+   * only. Absent means the global hook density; only ever `'lite'` when set.
+   */
+  hookLevel?: SessionHookLevel;
+  /**
    * `false` when the connecting timeout turned this card idle before its CLI was heard from (no hook from its
    * terminal yet): the CLI may still be showing a question, such as its folder-trust prompt, so nothing may type
    * into it for a central (Rulings P4-35, P4-41). Absent or `true` means the CLI was heard. Cleared per terminal
@@ -697,6 +739,8 @@ export interface PendingLink {
   terminalId: string;
   host: string;
   createdAt: number;
+  /** The agent the terminal launches ('claude' | 'codex'); unset when unknown (a resume writes it later). */
+  cli?: string;
 }
 
 // ---------------------------------------------------------------------------

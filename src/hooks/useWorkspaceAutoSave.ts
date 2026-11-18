@@ -14,7 +14,8 @@
  * restart restored the old share state. It takes the quick save too. So does a
  * Hands off flip (server/mcp): the restore recreates each card with `handsOff` from
  * the snapshot alone, so a flip that missed it brings the session back open to
- * centrals while the person believes it protected.
+ * centrals while the person believes it protected. Automation (lite hooks) too: a restore
+ * relaunches each agent at the level the snapshot holds.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -22,7 +23,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { scheduleAutoSave, scheduleAutomationSave, cancelAutoSave } from '@/lib/workspaceSnapshot';
 import { automationIntentChanged } from '@/lib/queueAutomationDiff';
-import { handsOffIntentChanged, shareIntentChanged } from '@/lib/shareIntentDiff';
+import { handsOffIntentChanged, hookLevelIntentChanged, shareIntentChanged } from '@/lib/shareIntentDiff';
 
 // Read at save time, so the debounced callback always sees the latest state.
 const currentSessions = () => useSessionStore.getState().sessions;
@@ -43,7 +44,7 @@ export function useWorkspaceAutoSave(): void {
   useEffect(() => {
     const before = seenSessions.current;
     seenSessions.current = sessions;
-    if (shareIntentChanged(before, sessions) || handsOffIntentChanged(before, sessions)) {
+    if (shareIntentChanged(before, sessions) || handsOffIntentChanged(before, sessions) || hookLevelIntentChanged(before, sessions)) {
       scheduleAutomationSave(currentSessions, currentRooms);
     }
   }, [sessions]);

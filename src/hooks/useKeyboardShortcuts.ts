@@ -6,10 +6,13 @@ import { useEffect } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
+import { isTerminalPassThrough } from '@/lib/shortcutKeys';
 import { showToast } from '@/components/ui/ToastContainer';
 import { jumpToSessionNumber } from '@/lib/sessionJump';
 import { SESSION_SEARCH_FOCUS_EVENT } from '@/lib/sessionStrip';
 import { IS_LITE } from '@/lib/edition';
+import { useQuickCreateStore } from '@/stores/quickCreateStore';
+import { isPopoutWindow } from '@/lib/windowRole';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,12 +95,12 @@ export function useKeyboardShortcuts(): void {
       }
 
       // Don't intercept when typing in form fields.
-      // Exception: Alt+1-9 session-switch shortcuts fire even when xterm is focused
-      //   (xterm uses a hidden <textarea> so isTyping() returns true)
+      // Exception: modifier combos fire even when xterm is focused (xterm uses a hidden <textarea>, so
+      // isTyping() is true): Cmd/Ctrl with Alt or Shift, Ctrl+Cmd (the Mac tab keys), and on a Mac Cmd alone
+      // (⌘K), which never reaches the shell. A bare Ctrl+letter stays the terminal's (Ctrl+K kills the line).
       if (isTyping(e)) {
         const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
-        const isModifierSwitch = (e.altKey || e.shiftKey) && (e.metaKey || e.ctrlKey);
-        if (!inXterm || !isModifierSwitch) return;
+        if (!inXterm || !isTerminalPassThrough(e)) return;
         // fall through to shortcut lookup
       }
 
@@ -120,13 +123,6 @@ export function useKeyboardShortcuts(): void {
 
 function dispatchAction(actionId: string): void {
   switch (actionId) {
-    case 'toggleFullscreen':
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      } else {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-      break;
     case 'scrollToBottom':
       document.dispatchEvent(new CustomEvent('terminal:scrollToBottom'));
       break;
@@ -135,6 +131,12 @@ function dispatchAction(actionId: string): void {
       break;
     case 'jumpToSession':
       useUiStore.getState().openSessionJump();
+      break;
+    case 'newSession':
+      // Not behind a dialog (it would open under it), and not in a popped-out session window, which
+      // mounts neither the menu nor the new-session form.
+      if (useUiStore.getState().activeModal || isPopoutWindow()) return;
+      useQuickCreateStore.getState().toggle();
       break;
     case 'searchSessions':
       // SessionSwitcher owns the box (and opens a folded rail first). Not behind a
@@ -198,8 +200,9 @@ const TAB_ACTION_MAP: Record<string, string> = {
   switchTabTerminal: 'terminal',
   switchTabCommands: 'commands',
   switchTabPrompts: 'conversation',
-  switchTabNotes: 'notes',
+  switchTabAiPopups: 'aiPopups',
   switchTabQueue: 'queue',
+  switchTabAgents: 'agents',
 };
 
 const TERMINAL_ACTION_MAP: Record<string, string> = {

@@ -27,7 +27,9 @@
 .actions { display: flex; gap: 12px; justify-content: flex-end; }
 
 .closeBtn { background: none; border: none; color: var(--text-secondary); font-size: 22px; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
-.closeBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.closeBtn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-subtle); }
+/* A locked dialog (Modal `locked`): the corner button is there but does nothing. */
+.closeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Alert input */
 .alertInputRow { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }

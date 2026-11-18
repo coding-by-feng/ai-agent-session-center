@@ -6,7 +6,7 @@
  * verified fresh for this hook rather than assumed identical.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, createEvent } from '@testing-library/react';
 import { Profiler, useCallback, useRef } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -222,6 +222,62 @@ describe('useRoomDragReorder — mouse/trackpad', () => {
     act(() => { vi.advanceTimersByTime(HOLD_MS * 2); });
     act(() => { release(); });
     expect(onReorder).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Card mode (Nov 18 2026): the PINNED frame drags a whole session card, which is a <button>.
+ * A press inside it must start the drag, and must not be preventDefault-ed, or the card's own
+ * mousedown/dblclick (switch, rename) stop working.
+ */
+describe('useRoomDragReorder — card mode', () => {
+  function CardHarness({ onReorder }: { onReorder: (ids: string[]) => void }) {
+    const drag = useRoomDragReorder(['a', 'b', 'c'], () => RECTS, onReorder);
+    return (
+      <div>
+        {['a', 'b', 'c'].map((id) => (
+          <div key={id} data-testid={`slot-${id}`} data-dragging={drag.draggingId === id}
+            onPointerDown={(e) => drag.onPointerDown(e, id, { card: true })}>
+            <button type="button">card {id}</button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  it('starts a drag from a press inside the card button and reorders on drop', () => {
+    const onReorder = vi.fn();
+    render(<CardHarness onReorder={onReorder} />);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'card a' }), { clientX: 20, clientY: 20, button: 0, pointerType: 'mouse' });
+    act(() => { movePointer(20, 40); });
+    expect(screen.getByTestId('slot-a').dataset.dragging).toBe('true');
+    act(() => { movePointer(20, 135); });
+    act(() => { release(); });
+    expect(onReorder).toHaveBeenCalledWith(['b', 'c', 'a']);
+  });
+
+  it('leaves the press alone so the card still gets its mousedown and click', () => {
+    render(<CardHarness onReorder={vi.fn()} />);
+    const down = createEvent.pointerDown(screen.getByRole('button', { name: 'card a' }), { clientX: 20, clientY: 20, button: 0, pointerType: 'mouse' });
+    fireEvent(screen.getByRole('button', { name: 'card a' }), down);
+    expect(down.defaultPrevented).toBe(false);
+    act(() => { release(); });
+  });
+
+  it('a press inside a text box in the card is still not a drag (inline rename)', () => {
+    function WithInput() {
+      const drag = useRoomDragReorder(['a'], () => RECTS.slice(0, 1), vi.fn());
+      return (
+        <div data-testid="slot" data-dragging={drag.draggingId === 'a'} onPointerDown={(e) => drag.onPointerDown(e, 'a', { card: true })}>
+          <input aria-label="rename" />
+        </div>
+      );
+    }
+    render(<WithInput />);
+    fireEvent.pointerDown(screen.getByLabelText('rename'), { clientX: 20, clientY: 20, button: 0, pointerType: 'mouse' });
+    act(() => { movePointer(20, 60); });
+    expect(screen.getByTestId('slot').dataset.dragging).toBe('false');
+    act(() => { release(); });
   });
 });
 

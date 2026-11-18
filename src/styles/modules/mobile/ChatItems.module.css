@@ -832,6 +832,72 @@
   overflow-wrap: anywhere;
 }
 
+/* The questions answered together, then Send answers: a clear step between each (Nov 18 2026:
+   with a typed field ending a block, the next question sat right under it). */
+.questionPicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ph-space-4);
+  min-width: 0;
+}
+
+/* "Pick any that apply." after a multi-select question (Nov 18 2026). */
+.questionHint {
+  color: var(--ph-text-secondary);
+  font-weight: 400;
+}
+
+/* A typed answer: Claude's "Type something" line, under a question's choices (Nov 18 2026). */
+.questionTyped {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ph-target);
+  margin: 0;
+  padding: var(--ph-space-2) var(--ph-space-3);
+  border: 1px solid var(--ph-separator);
+  border-radius: var(--ph-radius);
+  background: var(--ph-sheet-group);
+  color: var(--ph-text);
+  font: inherit;
+  font-family: var(--ph-font);
+  /* 16px at least: a smaller field makes iOS zoom the page on focus. */
+  font-size: max(16px, var(--ph-size-body));
+  line-height: var(--ph-line-body);
+  transition: border-color var(--ph-motion-fast) ease;
+}
+@media (hover: hover) {
+  .questionTyped:hover:not(:focus) { border-color: var(--ph-text-tertiary); }
+}
+.questionTyped:focus-visible,
+.questionTyped:focus {
+  outline: 2px solid var(--ph-focus);
+  outline-offset: 0;
+  border-color: transparent;
+}
+.questionTyped:disabled {
+  cursor: not-allowed;
+  color: var(--ph-text-secondary);
+}
+.questionTyped::placeholder { color: var(--ph-text-secondary); }
+@media (prefers-reduced-motion: reduce) {
+  .questionTyped { transition: none; }
+}
+
+/* One question's own typed answer and its Send, side by side. */
+.questionTypedRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ph-space-2);
+}
+.questionTypedRow .questionTyped {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* An answer you typed, in the answered card: marked like a pick, in your own words. */
+.questionPickTyped { font-style: italic; }
+
 .questionOptionNote {
   font-size: var(--ph-size-caption);
   font-weight: 400;

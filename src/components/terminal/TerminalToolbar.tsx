@@ -314,7 +314,7 @@ interface TerminalToolbarProps {
   /** Open / close find-in-terminal (Nov 6 2026); no button without it. */
   onToggleSearch?: () => void;
   searchOpen?: boolean;
-  /** Reader view (formatted transcript over the terminal); no button without it. */
+  /** Formatted view (internally Reader: formatted chat + composer over the terminal); no button without it. */
   onToggleReader?: () => void;
   readerOpen?: boolean;
   isFullscreen: boolean;

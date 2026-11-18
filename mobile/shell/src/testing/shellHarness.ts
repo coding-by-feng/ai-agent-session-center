@@ -28,6 +28,8 @@ export interface HarnessOptions {
   store?: Record<string, string>;
   vault?: Record<string, string>;
   vaultFails?: boolean;
+  /** Vault reads throw (a locked phone: the Keychain item is there but can't be read). `faults.vaultRead` flips it later. */
+  vaultReadFails?: boolean;
   timing?: ShellTiming;
   /** AASC-19/21 extras; each absent unless given. */
   push?: { configured: boolean; permission?: 'granted' | 'prompt' | 'denied' };
@@ -47,6 +49,7 @@ export function createHarness(opts: HarnessOptions = {}) {
   const mac = opts.fakeMac ?? createFakeMac({ reachable: [TAILNET], approveAfter: null, confirmCode: '482913', ...opts.mac });
   const vault = new Map<string, string>(Object.entries(opts.vault ?? {}));
   const store = new Map<string, string>(Object.entries(opts.store ?? {}));
+  const faults = { vaultRead: opts.vaultReadFails ?? false };
   const cookies: Array<{ origin: string; token: string; maxAgeSeconds: number }> = [];
   const cleared: string[] = [];
   const navigations: string[] = [];
@@ -121,7 +124,10 @@ export function createHarness(opts: HarnessOptions = {}) {
     os: opts.os ?? 'android',
     formFactor: opts.formFactor,
     vault: {
-      get: async (k) => vault.get(k) ?? null,
+      get: async (k) => {
+        if (faults.vaultRead) throw new Error('keychain locked');
+        return vault.get(k) ?? null;
+      },
       set: async (k, v) => {
         if (opts.vaultFails) throw new Error('keystore unavailable');
         vault.set(k, v);
@@ -192,7 +198,7 @@ export function createHarness(opts: HarnessOptions = {}) {
   document.body.append(root);
   const app: ShellApp = createShellApp(root, deps, opts.timing ?? { pollMs: 5, pollMaxMs: 60_000 });
 
-  return { app, root, mac, deps, vault, store, cookies, cleared, navigations, allowed, extras, openLink: (url: string) => linkListener?.(url) };
+  return { app, root, mac, deps, vault, store, faults, cookies, cleared, navigations, allowed, extras, openLink: (url: string) => linkListener?.(url) };
 }
 
 export type Harness = ReturnType<typeof createHarness>;

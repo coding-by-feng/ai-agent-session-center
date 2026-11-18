@@ -13,6 +13,22 @@
 SENT_AT=$(date +%s)
 INPUT=$(cat)
 
+# ── Per-session lite hooks (the AASC "Automation" mark) ──
+# A session marked Automation runs with AASC_HOOK_LEVEL=lite in its PTY: only its lifecycle events
+# go on (start, prompt, approval, stop, end). Any other event ends here, before ps, jq or the queue
+# write. Builtins only (no subprocess): this runs on every tool call. A payload without a readable
+# event name goes on as usual. Keep the list in step with LITE_HOOK_EVENTS
+# (server/sessionHookLevel.ts); test/sessionHookLevel.test.ts pins it.
+if [ "${AASC_HOOK_LEVEL:-}" = "lite" ]; then
+  LITE_EVENT_RE='"hook_event_name"[[:space:]]*:[[:space:]]*"([A-Za-z]+)"'
+  if [[ "$INPUT" =~ $LITE_EVENT_RE ]]; then
+    case "${BASH_REMATCH[1]}" in
+      SessionStart|UserPromptSubmit|PermissionRequest|Stop|SessionEnd) ;;
+      *) exit 0 ;;
+    esac
+  fi
+fi
+
 # --- Everything below runs in background so the hook returns instantly ---
 {
 

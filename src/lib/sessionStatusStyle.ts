@@ -83,37 +83,122 @@ export function isFinishingUp(session: { status: string; stopHooksSince?: number
   return !!since && session.status === 'waiting' && now - since < STOP_HOOKS_STALE_MS;
 }
 
+/**
+ * "Working in the background" (Nov 17 2026): the turn ended, but Claude still has background shells
+ * or monitors running (`Session.backgroundTaskCount`, set from each Stop's background list). A card
+ * with the finished ✓ while a 26-minute bake runs reads as done when it is not. Display only, like a
+ * compaction: the status stays `waiting`/`idle`, and the queue's own hold (`queueHoldReason`) is
+ * what keeps prompts back. Drawn as work: the working colour and glyph.
+ */
+export const BACKGROUND = 'background';
+const BACKGROUND_LABEL = 'Working in the background';
+/**
+ * How old the report may be. The count changes only at a Stop: a shell that ends wakes Claude,
+ * whose next Stop lists it finished. If that Stop is lost, the mark must not stay for good. Much
+ * longer than the queue's 15-minute hold, because the shells this is for run for an hour.
+ */
+export const BACKGROUND_WORK_STALE_MS = 2 * 60 * 60_000;
+/**
+ * "Limit reached" (Nov 18 2026): the turn stopped on the plan's usage limit (`Session.interruption` of
+ * kind `usage_limit`, server/interruptionDetector.ts), and nothing will run until its reset. Shown over
+ * working, finished and idle (a limited turn can be left "working" with no Stop), over the busy marks and
+ * the P; never over what still needs you (an approval, a question), the end, or sleep.
+ */
+export const LIMIT = 'limit';
+const LIMIT_LABEL = 'Limit reached';
+const LIMIT_COLOR = 'var(--accent-red)';
+/** `Session.interruption`, spelled out because this module stays import-free. */
+interface InterruptionMark { kind: string; line: string; detectedAt: number }
+const LIMIT_NEVER_OVER: ReadonlySet<string> = new Set(['approval', 'input', 'ended']);
+
+export function isUsageLimited(session: { status: string; interruption?: InterruptionMark | null }): boolean {
+  return session.interruption?.kind === 'usage_limit' && !LIMIT_NEVER_OVER.has(session.status);
+}
+
+/**
+ * When the limit lifts, in the CLI's own words (it already wrote them in the user's time zone):
+ * Claude "resets 1:30pm" / "resets Nov 21 at 7pm", Codex "try again in 2 days 3 hours"; null when unsaid.
+ */
+export function usageLimitReset(line: string): string | null {
+  const claude = /\bresets ([^(·|\n]+?)\s*(?:\(|·|$)/i.exec(line);
+  if (claude) return `resets ${claude[1].trim()}`;
+  const codex = /\btry again ((?:in|at) [^.\n]+)/i.exec(line);
+  return codex ? `try again ${codex[1].trim()}` : null;
+}
+
+/** "Limit reached · resets 1:30pm", or just "Limit reached" when the banner gave no time. */
+export function limitLabel(interruption: InterruptionMark | null | undefined): string {
+  const reset = interruption ? usageLimitReset(interruption.line) : null;
+  return reset ? `${LIMIT_LABEL} · ${reset}` : LIMIT_LABEL;
+}
+
+/** The fields the rule reads, spelled out because this module stays import-free. */
+interface BackgroundWorkFields {
+  status: string;
+  backgroundTaskCount?: number;
+  /** `Session.backgroundTasks`: `at` is when the Stop that listed the shells arrived. */
+  backgroundTasks?: { at: number } | null;
+  lastActivityAt?: number;
+}
+
+/** Did this finished or idle session's last Stop report background shells still running, recently enough to trust? */
+export function showsBackgroundWork(session: BackgroundWorkFields, now = Date.now()): boolean {
+  if (session.status !== 'waiting' && session.status !== 'idle') return false;
+  if ((session.backgroundTaskCount ?? 0) <= 0) return false;
+  const reportedAt = session.backgroundTasks?.at ?? session.lastActivityAt ?? 0;
+  return now - reportedAt < BACKGROUND_WORK_STALE_MS;
+}
+
+/**
+ * The display status of a session that is busy whatever its status says: `COMPACTING`, or
+ * `BACKGROUND` while its shells run; null when its own status stands. Outranks the proceed
+ * reminder and the rail's ✓, which come back after.
+ */
+export function busyMark(
+  session: BackgroundWorkFields & { compacting?: CompactingMark | null },
+  now = Date.now(),
+): typeof COMPACTING | typeof BACKGROUND | null {
+  if (showsCompacting(session, now)) return COMPACTING;
+  return showsBackgroundWork(session, now) ? BACKGROUND : null;
+}
+
 /** Should the session's status mark say so? Outranks the proceed reminder and the rail's ✓, which come back after. */
 export function showsCompacting(session: { status: string; compacting?: CompactingMark | null }, now = Date.now()): boolean {
   return isCompacting(session, now) && !OUTRANK_COMPACTING.has(session.status);
 }
 
-/** The status with only the compaction swapped in, for a mark that shows neither the P nor asleep. */
-export function statusOrCompacting(session: { status: string; compacting?: CompactingMark | null }): string {
-  return showsCompacting(session) ? COMPACTING : session.status;
+/** The status with only the busy marks swapped in (a compaction, background shells), for a mark that shows neither the P nor asleep. */
+export function statusOrCompacting(session: BackgroundWorkFields & { compacting?: CompactingMark | null }): string {
+  return busyMark(session) ?? session.status;
 }
 
 export function owesProceed(session: { status: string; pendingProceedAt?: number | null }): boolean {
   return !!session.pendingProceedAt && (session.status === 'waiting' || session.status === 'idle');
 }
 
-/** The status to draw: `ASLEEP` while asleep, `COMPACTING` while compacting, `PROCEED` while a reply is owed, else the session's own. */
-export function displayStatus(session: {
-  status: string;
+/**
+ * The status to draw: `ASLEEP` while asleep, `LIMIT` while stopped on the usage limit, `COMPACTING`
+ * while compacting, `BACKGROUND` while its shells still run, `PROCEED` while a reply is owed, else the
+ * session's own.
+ */
+export function displayStatus(session: BackgroundWorkFields & {
   pendingProceedAt?: number | null;
   asleepAt?: number;
   compacting?: CompactingMark | null;
+  interruption?: InterruptionMark | null;
 }): string {
   if (session.asleepAt) return ASLEEP;
-  if (showsCompacting(session)) return COMPACTING;
-  return owesProceed(session) ? PROCEED : session.status;
+  if (isUsageLimited(session)) return LIMIT;
+  return busyMark(session) ?? (owesProceed(session) ? PROCEED : session.status);
 }
 
 /** The status in words; an unknown status is shown as it is. */
 export function statusLabel(status: string): string {
   if (status === PROCEED) return PROCEED_LABEL;
   if (status === ASLEEP) return ASLEEP_LABEL;
+  if (status === LIMIT) return LIMIT_LABEL;
   if (status === COMPACTING) return COMPACTING_LABEL;
+  if (status === BACKGROUND) return BACKGROUND_LABEL;
   return STATUS_LEGEND.find((s) => s.status === status)?.label ?? status;
 }
 
@@ -121,6 +206,7 @@ export function statusLabel(status: string): string {
 export function statusColor(status: string): string {
   if (status === PROCEED) return PROCEED_COLOR;
   if (status === ASLEEP) return ASLEEP_COLOR;
-  if (status === COMPACTING) return STATUS_COLORS.working;
+  if (status === LIMIT) return LIMIT_COLOR;
+  if (status === COMPACTING || status === BACKGROUND) return STATUS_COLORS.working;
   return STATUS_COLORS[status] ?? 'var(--text-dim)';
 }

@@ -32,7 +32,7 @@ import {
   type CardRoom,
 } from '@/lib/liveBoard';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
-import { PROCEED, displayStatus, statusColor, statusLabel } from '@/lib/sessionStatusStyle';
+import { LIMIT, PROCEED, displayStatus, limitLabel, statusColor, statusLabel } from '@/lib/sessionStatusStyle';
 import { formatMemory } from '@/lib/memoryFormat';
 import { useSessionMemoryStore } from '@/stores/sessionMemoryStore';
 import { detectCli } from '@/lib/cliDetect';
@@ -77,7 +77,8 @@ function BoardCard({ session, room, now, onOpen, onKill }: BoardCardProps) {
   const title = sessionDisplayTitle(session);
   // While its last answer asks you to proceed the card shows that, not "Idle" (Oct 23 2026).
   const shown = displayStatus(session);
-  const label = statusLabel(shown);
+  // A usage limit says when it lifts: "Limit reached · resets 1:30pm".
+  const label = shown === LIMIT ? limitLabel(session.interruption) : statusLabel(shown);
   const project = session.projectName && session.projectName !== title ? session.projectName : '';
   const cli = detectCli(session);
   const quiet = quietFor(session, now);

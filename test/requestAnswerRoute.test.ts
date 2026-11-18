@@ -212,6 +212,47 @@ describe('answering a waiting request', () => {
     }
   });
 
+  // Nov 18 2026 (probed on 2.1.327): a typed answer, and a multi-select, one step at a time.
+  it('types a typed answer and a multi-select’s ticks as separate steps, then Submit', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const { id, requestId } = await waitingSession({
+        events: [['PreToolUse', {
+          tool_name: 'AskUserQuestion',
+          tool_use_id: 'toolu_typed',
+          tool_input: { questions: [
+            { question: 'Color?', header: 'Color', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] },
+            { question: 'Toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Ham' }] },
+          ] },
+        }]],
+      });
+      expect(store.getSession(id)?.pendingRequest).toMatchObject({ canType: true, questions: [{ header: 'Color' }, { header: 'Toppings', multiSelect: true }] });
+      const res = await answer(id, requestId, { choice: 'answers', answers: [{ picks: [], other: 'Teal\x1b\nplease' }, { picks: [1, 0] }] });
+      expect(res.status).toBe(202);
+      // Cleared at once, before the later steps: checked here, since advancing the clock by seconds
+      // also runs the approval timer, which raises a guessed wait of its own.
+      expect(store.getSession(id)?.pendingRequest).toBeNull();
+      vi.advanceTimersByTime(ANSWER_KEY_GAP_MS * 6);
+      expect(pty.write.mock.calls.map(([, keys]) => keys)).toEqual(['3', 'Teal please', '\r', '1', '2', '\t', '1']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses an answer the dialog cannot take, and types nothing', async () => {
+    const { id, requestId } = await waitingSession({
+      events: [['PreToolUse', {
+        tool_name: 'AskUserQuestion',
+        tool_use_id: 'toolu_bad',
+        tool_input: { questions: [{ question: 'Color?', header: 'Color', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] }] },
+      }]],
+    });
+    expect((await answer(id, requestId, { choice: 'answers', answers: [{ picks: [0, 1] }] })).status).toBe(422);
+    expect((await answer(id, requestId, { choice: 'answers' })).status).toBe(400);
+    expect((await answer(id, requestId, { choice: 'answers', answers: [{ picks: [0], extra: true }] })).status).toBe(400);
+    expect(pty.write).not.toHaveBeenCalled();
+  });
+
   it('a question’s option types its digit', async () => {
     const { id, requestId } = await waitingSession({
       events: [['PreToolUse', {

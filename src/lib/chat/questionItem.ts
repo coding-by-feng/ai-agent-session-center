@@ -86,7 +86,11 @@ export function claudeAnswers(output: string, questions: readonly ChatQuestion[]
     if (!q.multiSelect) return [text];
     const labels = new Set(q.options.map((o) => o.label));
     const parts = text.split(', ');
-    return parts.every((p) => labels.has(p)) ? parts : [text];
+    if (parts.every((p) => labels.has(p))) return parts;
+    // Ticks plus words of your own ("Cheese, Corn", Nov 18 2026): the ticks, then the rest as typed.
+    const ticked = parts.filter((p) => labels.has(p));
+    const typed = parts.filter((p) => !labels.has(p)).join(', ');
+    return ticked.length > 0 && typed ? [...ticked, typed] : [text];
   });
 }
 

@@ -218,6 +218,52 @@ describe('sessionStore', () => {
     });
   });
 
+  // PINNED drag (Nov 18 2026): a pinned card's place, kept by the server as pinOrder.
+  describe('pin order', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('pins a session at the end of PINNED, and unpinning clears its place', () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+      const store = useSessionStore.getState();
+      store.addSession(makeSession('a', { pinned: true, pinOrder: 4 } as Partial<Session>));
+      store.addSession(makeSession('b', { pinned: false } as Partial<Session>));
+      useSessionStore.getState().togglePin('b');
+      expect(useSessionStore.getState().sessions.get('b')?.pinOrder).toBe(5);
+      useSessionStore.getState().togglePin('b');
+      expect(useSessionStore.getState().sessions.get('b')?.pinOrder).toBeUndefined();
+    });
+
+    it('setPinnedOrder renumbers at once and sends the order to the Mac', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchSpy);
+      const store = useSessionStore.getState();
+      store.addSession(makeSession('a', { pinned: true, pinOrder: 1 } as Partial<Session>));
+      store.addSession(makeSession('b', { pinned: true, pinOrder: 2 } as Partial<Session>));
+      store.addSession(makeSession('c', { pinned: true, pinOrder: 3 } as Partial<Session>));
+      useSessionStore.getState().setPinnedOrder(['c', 'a', 'b']);
+      const order = (id: string) => useSessionStore.getState().sessions.get(id)?.pinOrder;
+      expect([order('c'), order('a'), order('b')]).toEqual([1, 2, 3]);
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('/api/pinned-order');
+      expect(init.method).toBe('PUT');
+      expect(JSON.parse(init.body)).toEqual({ sessionIds: ['c', 'a', 'b'] });
+    });
+
+    it('puts the old places back when the Mac refuses', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+      const store = useSessionStore.getState();
+      store.addSession(makeSession('a', { pinned: true, pinOrder: 1 } as Partial<Session>));
+      store.addSession(makeSession('b', { pinned: true, pinOrder: 2 } as Partial<Session>));
+      useSessionStore.getState().setPinnedOrder(['b', 'a']);
+      expect(useSessionStore.getState().sessions.get('b')?.pinOrder).toBe(1);
+      await vi.waitFor(() => expect(useSessionStore.getState().sessions.get('b')?.pinOrder).toBe(2));
+      expect(useSessionStore.getState().sessions.get('a')?.pinOrder).toBe(1);
+    });
+  });
+
   describe('toggleAiPopup', () => {
     let fetchSpy: ReturnType<typeof vi.fn>;
 

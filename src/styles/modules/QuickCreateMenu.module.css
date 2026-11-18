@@ -1,0 +1,186 @@
+/* QuickCreateMenu — the "＋ New" menu. Portaled to <body> and fixed at --qc-top / --qc-left (the component
+   measures the visible ＋ New button and clamps 8px inside the window), in the band of the other <body>
+   overlays (WorkdirLauncher / queueMovePicker 10050). Fade only. */
+.menu {
+  position: fixed;
+  top: var(--qc-top, 72px);
+  left: var(--qc-left, 8px);
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 16px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel, #0d0d2b);
+  border: 1px solid var(--border-accent, #1a1a3e);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 10050;
+  animation: qcFade 0.15s ease;
+}
+
+@keyframes qcFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu { animation: none; }
+}
+
+.search {
+  margin: 8px;
+  min-height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary, #e0e0e0);
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+}
+
+.search:focus-visible,
+.roomInput:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.heading {
+  padding: 8px 12px 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.rowActive {
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launchers {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.launch,
+.footerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-primary, #e0e0e0);
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.launch:hover,
+.footerBtn:hover:not(:disabled) {
+  border-color: var(--accent-cyan, #00e5ff);
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.launch:active,
+.footerBtn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.launch:focus-visible,
+.footerBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+
+.footerBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+.footerEnd {
+  margin-left: auto;
+}
+
+.roomInput {
+  flex: 1;
+  min-width: 120px;
+  min-height: 28px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+}
+
+/* Touch: 44px targets for the things a finger presses. */
+@media (pointer: coarse) {
+  .launch,
+  .footerBtn,
+  .search,
+  .roomInput {
+    min-height: 44px;
+  }
+}

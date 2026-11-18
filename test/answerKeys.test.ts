@@ -37,6 +37,73 @@ describe('Claude Code: several questions in one call', () => {
   });
 });
 
+// Probed on Claude Code 2.1.327 (Nov 18 2026). Each dialog ends its choices with "N+1. Type something."
+// and "Chat about this". Single-select: the N+1 digit focuses the text line, the text is typed there,
+// Enter answers (and, among several questions, moves on). Multi-select: a digit ticks a box and the
+// cursor stays on row 1; the text line is reached with ↓ × N (pressing its digit only ticks an empty
+// box, which is dropped); Tab leaves the question, except from the text line, where Tab lands on the
+// "Next"/"Submit" row and Enter leaves. Any call with tabs ends on "1. Submit answers".
+describe('Claude Code: typed answers and multi-select (choice "answers")', () => {
+  const DOWN = '\x1b[B';
+  const one = () => question({ options: [{ label: 'Red' }, { label: 'Blue' }] });
+  const several = () => question({
+    options: undefined,
+    questions: [
+      { question: 'Color?', header: 'Color', options: [{ label: 'Red' }, { label: 'Blue' }] },
+      { question: 'Toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Ham' }, { label: 'Olives' }] },
+      { question: 'Size?', header: 'Size', options: [{ label: 'Small' }, { label: 'Large' }] },
+    ],
+  });
+  const multiOnly = () => question({
+    options: undefined,
+    questions: [{ question: 'Toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Ham' }, { label: 'Olives' }] }],
+  });
+
+  it('one single-select question: a pick is its digit; a typed answer is the next digit, the text, Enter', () => {
+    expect(answerKeysFor(one(), { choice: 'answers', answers: [{ picks: [1] }] }, {})).toEqual(['2']);
+    expect(answerKeysFor(one(), { choice: 'answers', answers: [{ picks: [], other: 'Green please' }] }, {})).toEqual(['3', 'Green please', '\r']);
+  });
+
+  it('several questions: each in turn, then Submit', () => {
+    const keys = answerKeysFor(several(), { choice: 'answers', answers: [{ picks: [], other: 'Teal' }, { picks: [2, 0] }, { picks: [1] }] }, {});
+    expect(keys).toEqual(['3', 'Teal', '\r', '1', '3', '\t', '2', '1']);
+  });
+
+  it('a multi-select with a typed answer: ticks, ↓ to the text line, the text, Tab, Enter', () => {
+    const keys = answerKeysFor(several(), { choice: 'answers', answers: [{ picks: [0] }, { picks: [1], other: 'Corn' }, { picks: [0] }] }, {});
+    expect(keys).toEqual(['1', '2', DOWN, DOWN, DOWN, 'Corn', '\t', '\r', '1', '1']);
+  });
+
+  it('one multi-select question still goes through the review', () => {
+    expect(answerKeysFor(multiOnly(), { choice: 'answers', answers: [{ picks: [0, 2] }] }, {})).toEqual(['1', '3', '\t', '1']);
+    expect(answerKeysFor(multiOnly(), { choice: 'answers', answers: [{ picks: [], other: 'Corn' }] }, {})).toEqual([DOWN, DOWN, DOWN, 'Corn', '\t', '\r', '1']);
+  });
+
+  it('types the text as one line of plain characters: no control bytes, no line breaks, at most 500', () => {
+    const typed = (other: string) => (answerKeysFor(one(), { choice: 'answers', answers: [{ picks: [], other }] }, {}) as string[])[1];
+    expect(typed('  two\nlines\x1b[A\x03 here\t ')).toBe('two lines[A here');
+    expect(typed('x'.repeat(900))).toHaveLength(500);
+  });
+
+  it('refuses what the dialog cannot take', () => {
+    const no = (request: PendingRequest, answers: Array<{ picks: number[]; other?: string }>) =>
+      expect(answerKeysFor(request, { choice: 'answers', answers }, {})).toBeNull();
+    no(one(), []);                                                   // no answer
+    no(one(), [{ picks: [0] }, { picks: [0] }]);                     // more answers than questions
+    no(one(), [{ picks: [] }]);                                      // nothing picked or typed
+    no(one(), [{ picks: [0, 1] }]);                                  // two picks in a single-select
+    no(one(), [{ picks: [0], other: 'x' }]);                         // a pick and a text in a single-select
+    no(one(), [{ picks: [2] }]);                                     // out of range
+    no(one(), [{ picks: [], other: ' \n ' }]);                       // text that is empty once cleaned
+    no(several(), [{ picks: [0] }, { picks: [] }, { picks: [0] }]);  // a multi-select with nothing
+    no(several(), [{ picks: [0] }, { picks: [1, 1] }, { picks: [0] }]); // the same box twice
+    // Nine choices leave no digit for "Type something" in a single-select.
+    no(question({ options: Array.from({ length: 9 }, (_, i) => ({ label: `o${i}` })) }), [{ picks: [], other: 'x' }]);
+    no(request(), [{ picks: [0] }]);                                  // not a question
+    no(question({ cli: 'codex' }), [{ picks: [0] }]);                 // Codex: never probed
+  });
+});
+
 describe('Claude Code', () => {
   it('permission: allow once = 1, always allow = 2, deny = Esc', () => {
     expect(answerKeysFor(request(), { choice: 'allow_once' }, {})).toBe('1');

@@ -110,7 +110,11 @@ export function useWebSocket(token: string | null): WsClient | null {
 
           // Capture the prior status BEFORE updateSession so we can detect a
           // fresh transition into 'ended' (for pinned auto-respawn).
-          const prevStatus = useSessionStore.getState().sessions.get(session.sessionId)?.status;
+          const known = useSessionStore.getState().sessions;
+          const prevStatus = known.get(session.sessionId)?.status;
+          // For the sounds: a re-key's first update arrives under the new id, and its previous self is the old one.
+          const prevSession = known.get(session.sessionId)
+            ?? (session.replacesId ? known.get(session.replacesId) : undefined);
 
           // Fix 6: handle replacesId migration in IndexedDB
           // Note: do NOT call removeSession() here — updateSession() handles
@@ -152,8 +156,9 @@ export function useWebSocket(token: string | null): WsClient | null {
             onSessionEnded(session);
           }
 
-          // Sound system: play event sounds and manage alarms
-          handleEventSounds(session);
+          // Sound system: play event sounds and manage alarms. `prevSession` keeps an update that
+          // still ends on the same event (a status decay, a title) from replaying its sound.
+          handleEventSounds(session, prevSession);
           checkAlarms(session, () => useSessionStore.getState().sessions);
           break;
         }

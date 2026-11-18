@@ -172,8 +172,9 @@ export default function WaitingCard({ session, card, onTerminal, onTell }: Waiti
           {showChoices && several && (
             <MultiQuestionPicker
               questions={card.questions ?? []}
-              loading={busy?.startsWith('options:')}
-              onSend={(optionIndexes) => answer({ answer: { choice: 'options', optionIndexes }, label: 'Send answers', tone: 'primary' })}
+              canType={card.canType === true}
+              loading={busy?.startsWith('answers:')}
+              onSend={(answers) => answer({ answer: { choice: 'answers', answers }, label: 'Send answers', tone: 'primary' })}
             />
           )}
         </div>

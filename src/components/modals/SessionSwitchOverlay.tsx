@@ -25,6 +25,7 @@ const STATUS_LABELS: Record<string, string> = {
   ended: 'Disconnected',
   connecting: 'Connecting',
   compacting: 'Compacting',
+  background: 'Working',
 };
 
 function sessionName(s: Session): string {

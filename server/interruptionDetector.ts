@@ -21,7 +21,7 @@
  */
 import { stripAnsi } from '../src/lib/ansi.js';
 
-export type FaultKind = 'api_error' | 'rate_limit' | 'network';
+export type FaultKind = 'api_error' | 'rate_limit' | 'network' | 'usage_limit';
 
 export interface FaultMatch {
   kind: FaultKind;
@@ -50,6 +50,15 @@ const DEDUPE_MS = 60_000;
  * 429 that also says "API Error" is classified by its cause, not its shape.
  */
 const FAULT_PATTERNS: ReadonlyArray<{ kind: FaultKind; re: RegExp }> = [
+  {
+    // The plan's usage limit (Nov 18 2026): Claude Code's "You've hit your 5-hour | weekly | session limit
+    // · resets 1:30pm (Pacific/Auckland)", Codex's "You've hit your usage limit. … try again in 2 days",
+    // Claude's older "Claude AI usage limit reached|<epoch>". Not transient: it lasts until the reset, so
+    // the watchdog never resumes it. Anchored at the start of the line (after the CLI's ⎿ / ■ / ● gutter),
+    // because an agent writing about the message mid-sentence is not the message.
+    kind: 'usage_limit',
+    re: /^[^\p{L}\p{N}]{0,6}(?:You(?:['’]ve| have) hit your (?:[\w-]+ ){0,2}limit\b|Claude (?:AI )?usage limit reached)/iu,
+  },
   {
     kind: 'rate_limit',
     re: /\b(?:rate[ _-]?limit(?:ed|ing)?|too many requests|API Error:?\s*429|usage limit reached)\b/i,

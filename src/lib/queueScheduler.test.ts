@@ -17,6 +17,7 @@ import {
   applyTypeDefaults,
   itemType,
   getActiveStep,
+  holdsForRest,
   hasChain,
   isBeforeDailyStart,
   isExecuting,
@@ -1442,5 +1443,32 @@ describe('isGateAtRest / latestSessionStartAt (the state /compact leaves behind)
     expect(isCompactCommand('/compactify')).toBe(false);
     expect(isCompactCommand('please /compact')).toBe(false);
     expect(isCompactCommand('/clear')).toBe(false);
+  });
+});
+
+// Nov 16 2026: a ⚡-forced `/model sonnet` was typed while Claude was mid-turn; Claude Code ran it
+// and declined ("Kept model as `Opus 5.5`"). A forced row may skip every timing rule, but a local
+// command still needs the session at rest.
+describe('holdsForRest (a local command never fires mid-turn)', () => {
+  it('holds a forced /model or /effort row while the session is busy', () => {
+    expect(holdsForRest(mkItem({ type: 'once', text: '/model sonnet', forceStart: true }), false)).toBe(true);
+    expect(holdsForRest(mkItem({ type: 'once', text: '/effort high', forceStart: true }), false)).toBe(true);
+  });
+
+  it('lets the same row go once the session is at rest', () => {
+    expect(holdsForRest(mkItem({ type: 'once', text: '/model sonnet', forceStart: true }), true)).toBe(false);
+  });
+
+  it('never holds an ordinary prompt (Claude queues a prompt typed mid-turn itself)', () => {
+    expect(holdsForRest(mkItem({ type: 'once', text: 'fix the tests', forceStart: true }), false)).toBe(false);
+    expect(holdsForRest(mkItem({ type: 'once', text: '/model', forceStart: true }), false)).toBe(false);
+  });
+
+  it('reads the step the row would type next: a chain starting with /model holds', () => {
+    const chained = mkItem({ type: 'once', text: 'main', forceStart: true, beforeChain: [step(1, '/model opus')] });
+    expect(holdsForRest(chained, false)).toBe(true);
+    expect(holdsForRest({ ...chained, execState: 'main', execStepIdx: 0 }, false)).toBe(false);
+    const after = mkItem({ type: 'loop', text: 'main', afterChain: [step(2, '/effort low')], execState: 'after', execStepIdx: 0 });
+    expect(holdsForRest(after, false)).toBe(true);
   });
 });

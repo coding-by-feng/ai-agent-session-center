@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { useUiStore } from '@/stores/uiStore';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/FileOpenChooser.module.css';
 
 const POPUP_W = 240;
@@ -25,6 +26,12 @@ function clampToViewport(x: number, y: number): { x: number; y: number } {
     x: Math.max(VIEWPORT_MARGIN, Math.min(vw - POPUP_W - VIEWPORT_MARGIN, x)),
     y: Math.max(VIEWPORT_MARGIN, Math.min(vh - POPUP_H - VIEWPORT_MARGIN, y)),
   };
+}
+
+/** What the popover is about: the file's name, or for a folder (rooted at itself) the folder's. */
+function targetName(chooser: { filePath: string; projectPath: string; kind?: 'dir' }): string {
+  const path = chooser.kind === 'dir' ? chooser.projectPath : chooser.filePath;
+  return path.split('/').filter(Boolean).pop() || path;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
@@ -57,26 +64,36 @@ export default function FileOpenChooser() {
 
   const openInApp = useCallback(() => {
     if (!chooser) return;
-    useUiStore.getState().openFileInProject(chooser.filePath, chooser.projectPath);
+    useUiStore.getState().openFileInProject(chooser.filePath, chooser.projectPath, chooser.hostProjectPath, chooser.kind);
     close();
+  }, [chooser, close]);
+
+  // Both used to fire and forget, so a refused path did nothing and said nothing (Nov 17 2026).
+  const runOnMac = useCallback((verb: string, action: (root: string, path: string) => Promise<void>) => {
+    if (!chooser) return;
+    const { projectPath, filePath } = chooser;
+    const name = targetName(chooser);
+    close();
+    action(projectPath, filePath).catch((err: unknown) => {
+      showToast(`Couldn’t ${verb} ${name}: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
   }, [chooser, close]);
 
   const openWithDefaultApp = useCallback(() => {
-    if (!chooser) return;
-    void getFileSystemProvider().openExternal(chooser.projectPath, chooser.filePath);
-    close();
-  }, [chooser, close]);
+    const provider = getFileSystemProvider();
+    runOnMac('open', (root, path) => provider.openExternal(root, path));
+  }, [runOnMac]);
 
   const revealInFinder = useCallback(() => {
-    if (!chooser) return;
-    void getFileSystemProvider().reveal(chooser.projectPath, chooser.filePath);
-    close();
-  }, [chooser, close]);
+    const provider = getFileSystemProvider();
+    runOnMac('reveal', (root, path) => provider.reveal(root, path));
+  }, [runOnMac]);
 
   if (!chooser) return null;
 
   const pos = clampToViewport(chooser.anchor.x, chooser.anchor.y + 6);
-  const fileName = chooser.filePath.split('/').pop() || chooser.filePath;
+  const fileName = targetName(chooser);
+  const isDir = chooser.kind === 'dir';
   const hasProject = !!chooser.projectPath;
 
   return createPortal(
@@ -87,20 +104,23 @@ export default function FileOpenChooser() {
       role="menu"
       aria-label={`Open ${fileName}`}
     >
-      <div className={styles.header} title={chooser.filePath}>{fileName}</div>
+      <div className={styles.header} title={isDir ? chooser.projectPath : chooser.filePath}>{fileName}</div>
       <button type="button" role="menuitem" className={styles.action} onClick={openInApp}>
         Open in app
       </button>
-      <button
-        type="button"
-        role="menuitem"
-        className={styles.action}
-        onClick={openWithDefaultApp}
-        disabled={!hasProject}
-        title={hasProject ? undefined : 'No project path known for this session'}
-      >
-        Open with default app
-      </button>
+      {/* A folder's default app is the file manager: Reveal below covers it. */}
+      {!isDir && (
+        <button
+          type="button"
+          role="menuitem"
+          className={styles.action}
+          onClick={openWithDefaultApp}
+          disabled={!hasProject}
+          title={hasProject ? undefined : 'No project path known for this session'}
+        >
+          Open with default app
+        </button>
+      )}
       <button
         type="button"
         role="menuitem"

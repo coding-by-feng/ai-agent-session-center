@@ -1,6 +1,7 @@
 // AascLiveActivityWidget.swift — draws the Live Activity the app starts (LiveActivityBridge.swift). Lock screen and
 // expanded island: the Mac's name and task count, the lead session (bold title, timer, a preview line), then the
-// latest others. Compact island (also the Mac menu bar): the glyph alone, ringed amber when a session needs you. Timers are `Text(timerInterval:)`, which iOS keeps
+// rest by urgency. Compact island (also the Mac menu bar): the glyph, ringed amber when a session needs you, and then (Nov 18
+// 2026) the waiting kind's icon (✋ approval, 💬 question, ▶ proceed) with a count when more than one waits. Timers are `Text(timerInterval:)`, which iOS keeps
 // counting while the app is suspended; everything else is what the content state holds (LiveActivityRules clamped it).
 import ActivityKit
 import SwiftUI
@@ -20,6 +21,12 @@ private struct Mark: View {
         switch mark {
         case "needs":
             Image(systemName: "exclamationmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(Palette.needs)
+        case "approval":
+            // A tool waits for Allow / Deny (Nov 18 2026; "!" before, which an older Mac's rows still get).
+            Image(systemName: "hand.raised.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.needs)
+        case "input":
+            // A question waits for an answer.
+            Image(systemName: "questionmark.bubble.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.needs)
         case "working":
             Image(systemName: "circle.fill").font(.system(size: 9)).foregroundStyle(Palette.working)
         case "proceed":
@@ -55,10 +62,18 @@ private func headerText(_ card: LiveActivityCard) -> String {
     return card.headline == "idle" ? "Idle" : "Finished"
 }
 
-/// The island's mark when no timer runs: "!" if anything waits on you (▶ when that is only a "proceed" owed, which the
-/// Mac counts in `needs` and leads with only when no real request waits), else working, else idle or done.
+/// A row that waits on you: a request (of a known kind or not) or a "proceed" owed. Drawn amber, timer included.
+private func waitsOnYou(_ mark: String) -> Bool {
+    ["needs", "approval", "input", "proceed"].contains(mark)
+}
+
+/// The island's mark: what the lead waits for if anything waits on you (✋ / 💬 / ! / ▶; the Mac puts requests first,
+/// then "proceed" asks, so the lead is the most urgent), else working, else idle or done.
 private func restingMark(_ card: LiveActivityCard) -> String {
-    if card.needs > 0 { return card.rows.first?.mark == "proceed" ? "proceed" : "needs" }
+    if card.needs > 0 {
+        guard let lead = card.rows.first?.mark, waitsOnYou(lead) else { return "needs" }
+        return lead
+    }
     if card.working > 0 { return "working" }
     return card.headline == "idle" ? "idle" : "done"
 }
@@ -113,7 +128,7 @@ private struct Lead: View {
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if let start = row.startedAt {
-                        Elapsed(start: start, color: row.mark == "needs" || row.mark == "proceed" ? Palette.needs : .white.opacity(0.6))
+                        Elapsed(start: start, color: waitsOnYou(row.mark) ? Palette.needs : .white.opacity(0.6))
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: 70, alignment: .trailing)
                     }
@@ -210,10 +225,20 @@ struct AascLiveActivityWidget: Widget {
             } compactLeading: {
                 AppGlyph(size: 22, needsYou: context.state.needs > 0)
             } compactTrailing: {
-                // One icon, no timer (Nov 2 2026): macOS 26 mirrors this compact island in the menu bar, where
-                // "glyph + 15:43" was too wide. WidgetKit can't tell the menu bar from the iPhone, so both lose it;
-                // the expanded view still shows every timer.
-                EmptyView()
+                // No timer (Nov 2 2026): macOS 26 mirrors this compact island in the menu bar, where "glyph + 15:43"
+                // was too wide; the expanded view still shows every timer. When something waits on you (Nov 18 2026),
+                // the waiting kind's icon and, past one, how many: one glyph and a digit stay narrow.
+                if context.state.needs > 0 {
+                    HStack(spacing: 2) {
+                        Mark(mark: restingMark(context.state))
+                        if context.state.needs > 1 {
+                            Text("\(min(context.state.needs, 99))")
+                                .font(.system(size: 13, weight: .bold)).monospacedDigit().foregroundStyle(Palette.needs)
+                        }
+                    }
+                } else {
+                    EmptyView()
+                }
             } minimal: {
                 Mark(mark: restingMark(context.state))
             }

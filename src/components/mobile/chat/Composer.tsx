@@ -40,6 +40,8 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { detectCli } from '@/lib/cliDetect';
 import { entryToken, type CommandEntry } from '@/lib/commandIndex';
 import { insertSuggestion } from '@/lib/phoneSuggestions';
+import { insertDictation } from '@/lib/phoneDictation';
+import { usePhoneDictation } from '@/hooks/usePhoneDictation';
 import { readQueueImages } from '@/lib/queueImageAttach';
 import { splitMediaFiles, withVideoPaths } from '@/lib/chat/videoAttach';
 import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
@@ -65,6 +67,7 @@ import ComposerSuggestions from './ComposerSuggestions';
 import StopButton from './StopButton';
 import WorkingChip from './WorkingChip';
 import PhoneImageViewer from '../PhoneImageViewer';
+import DictateButton from '../DictateButton';
 import { sendStatusLine, usePromptSender, type OutgoingMessage } from './usePromptSender';
 import { useDriverName } from './useDriverName';
 import { useComposerVideos } from './useComposerVideos';
@@ -232,6 +235,18 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     setDraft(sessionId, next.text);
     focusAt(next.caret);
   }, [inputRef, sessionId, setDraft, focusAt]);
+
+  // Hold-to-talk dictation (Nov 16 2026, the app only): the spoken words go in at the caret when the
+  // box has the focus, else at the end. They are never sent, and the keyboard is not raised for them.
+  const onSpoken = useCallback((spoken: string) => {
+    const el = inputRef.current;
+    const focused = !!el && document.activeElement === el;
+    const current = useComposerDraftStore.getState().drafts[sessionId] ?? '';
+    const next = insertDictation(current, focused ? el.selectionStart : null, spoken);
+    setDraft(sessionId, next.text);
+    if (focused) requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.caret, next.caret));
+  }, [inputRef, sessionId, setDraft]);
+  const dictation = usePhoneDictation(onSpoken);
 
   /** Drop a typed "/" or "@" whose sheet was closed for another one. */
   const dropTrigger = useCallback((start: number | null) => {
@@ -559,6 +574,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
             {quickBlocked ? `${quickBlocked}. ` : ''}{quickPending ? 'The last answer asks you to proceed. ' : ''}Hold to change what it sends.
           </span>
           <span className={styles.spacer} />
+          <DictateButton dictation={dictation} disabled={fieldOff} className={`${styles.tool} ${styles.mic}`} />
           <StopButton session={session} onError={setStopError} />
           <button
             type="button"
@@ -590,6 +606,11 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
       </div>
       {decision.blockedReason && <p className={styles.note}><InfoIcon /> {decision.blockedReason}</p>}
       {busy && stopError && <p className={styles.note} data-tone="error" role="alert"><InfoIcon /> {stopError}</p>}
+      {dictation.line && (
+        <p className={styles.note} data-tone={dictation.line.tone} role={dictation.line.tone === 'error' ? 'alert' : 'status'} data-testid="dictation-line">
+          <InfoIcon /> {dictation.line.text}
+        </p>
+      )}
       {/* Under the box (Oct 30 2026): queue count, model and usage sit in the strip above the
           home indicator instead of between the working line and the box. Since Nov 13 2026 the
           working status leads it, in the bottom-left corner the model chip leaves free. */}

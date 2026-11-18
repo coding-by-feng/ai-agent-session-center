@@ -11,6 +11,17 @@
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { Session } from '@/types/session';
 
+/**
+ * Pinned against pinned: the place the person dragged it to (`pinOrder`), and a pin without one
+ * after every placed pin. 0 when that does not decide (either unpinned, or both unplaced/equal).
+ */
+function comparePinOrder(a: Session, b: Session): number {
+  if (!a.pinned || !b.pinned) return 0;
+  const oa = a.pinOrder ?? Number.POSITIVE_INFINITY;
+  const ob = b.pinOrder ?? Number.POSITIVE_INFINITY;
+  return oa === ob ? 0 : oa < ob ? -1 : 1;
+}
+
 export const STATUS_ORDER: Record<string, number> = {
   working: 0, prompting: 1, approval: 2, input: 2,
   waiting: 3, idle: 4, connecting: 5, ended: 6,
@@ -36,7 +47,7 @@ export function isSceneRobotSession(s: Session): boolean {
 
 /**
  * The session numbers on the rail's cards (`#1`, `#2`, …): live sessions only,
- * pinned first, then by status, then by title. The badges (SessionSwitcher),
+ * pinned first (in the order dragged in PINNED, `pinOrder`), then by status, then by title. The badges (SessionSwitcher),
  * Alt+⌘+1…9 and the "go to session #" jump (lib/sessionJump.ts) all read this
  * one function, so a number typed is the number shown.
  *
@@ -50,6 +61,8 @@ export function numberedSessions(sessions: Iterable<Session>): Session[] {
     .sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
+      const byPlace = comparePinOrder(a, b);
+      if (byPlace !== 0) return byPlace;
       const oa = STATUS_ORDER[a.status] ?? 5;
       const ob = STATUS_ORDER[b.status] ?? 5;
       if (oa !== ob) return oa - ob;
@@ -71,6 +84,8 @@ export function numberedSessions(sessions: Iterable<Session>): Session[] {
 export function sortSessionsByActivity(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => {
     if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    const byPlace = comparePinOrder(a, b);
+    if (byPlace !== 0) return byPlace;
     const ta = a.lastActivityAt ?? 0;
     const tb = b.lastActivityAt ?? 0;
     if (ta !== tb) return tb - ta;

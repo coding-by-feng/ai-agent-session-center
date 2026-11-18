@@ -55,6 +55,7 @@ import {
   getActiveStep,
   isExecuting,
   isSendableStatus,
+  holdsForRest,
   totalChainSteps,
   currentChainStep,
   queueHoldReason,
@@ -487,6 +488,8 @@ export function useGlobalQueueScheduler(): void {
         automationConfig.loopExcludeWindows,
       );
       if (!pick) return;
+      // A `/model` or `/effort` typed mid-turn is declined by the CLI, forced (⚡) or not: wait for rest.
+      if (holdsForRest(pick, sessionWaiting)) return;
 
       // Auto-send OFF gate: only a manual force-start or an in-flight chain may
       // fire. Normal due loops/schedules/once items are held until the user

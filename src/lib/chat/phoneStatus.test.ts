@@ -1,6 +1,6 @@
 // phoneStatus.test.ts — a session status in the phone's plain words and tones (AASC-38).
 import { describe, it, expect } from 'vitest';
-import { COMPACTING_STALE_MS, STOP_HOOKS_STALE_MS, isCompacting, isFinishingUp, phoneStatus, sessionSubtitle } from './phoneStatus';
+import { COMPACTING_STALE_MS, STOP_HOOKS_STALE_MS, faultMark, isCompacting, isFinishingUp, phoneStatus, sessionSubtitle } from './phoneStatus';
 
 describe('phoneStatus', () => {
   it('names every status in plain words with its tone', () => {
@@ -108,5 +108,50 @@ describe('Finishing up (Claude still running its Stop hooks)', () => {
   it('shows in the session subtitle', () => {
     expect(sessionSubtitle({ status: 'waiting', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', stopHooksSince: Date.now() }))
       .toBe('Finishing up · Opus 5.5 · high');
+  });
+});
+
+// Nov 17 2026
+describe('background shells still running', () => {
+  it('reads the display status as work, in words that say why', () => {
+    expect(phoneStatus('background')).toEqual({ tone: 'working', label: 'Working in the background', glyph: 'working' });
+    expect(phoneStatus('background', true)).toMatchObject({ label: 'Interrupted' });
+  });
+
+  it('shows in the session subtitle of a finished turn', () => {
+    const shells = { backgroundTaskCount: 1, backgroundTasks: { items: [], agents: 0, shells: 1, activeShells: 1, at: Date.now() }, lastActivityAt: Date.now() };
+    expect(sessionSubtitle({ status: 'waiting', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', ...shells }))
+      .toBe('Working in the background · Opus 5.5 · high');
+    expect(sessionSubtitle({ status: 'approval', interruption: null, model: 'claude-opus-5-5', effortLevel: 'high', ...shells }))
+      .toBe('Waiting for approval · Opus 5.5 · high');
+  });
+});
+
+describe('a plan usage limit', () => {
+  const limit = { kind: 'usage_limit' as const, line: "You've hit your weekly limit · resets 10am (Pacific/Auckland)", detectedAt: 1 };
+
+  it('reads "Limit reached" with its own hourglass, not "Interrupted"', () => {
+    expect(phoneStatus('working', 'limit')).toEqual({ tone: 'error', label: 'Limit reached', glyph: 'limit' });
+    expect(phoneStatus('limit', true)).toEqual({ tone: 'error', label: 'Limit reached', glyph: 'limit' });
+    expect(phoneStatus('ended', 'limit').label).toBe('Ended');
+  });
+
+  it('marks a session by the kind of fault that stopped it', () => {
+    expect(faultMark({ interruption: limit })).toBe('limit');
+    expect(faultMark({ interruption: { ...limit, kind: 'api_error' } })).toBe(true);
+    expect(faultMark({ interruption: null })).toBe(false);
+    expect(faultMark({})).toBe(false);
+  });
+
+  it('never marks a session that waits on an approval or a question, or has ended: that status stands', () => {
+    for (const status of ['approval', 'input', 'ended']) {
+      expect(faultMark({ status, interruption: limit })).toBe(false);
+      expect(phoneStatus(status, faultMark({ status, interruption: limit })).glyph).toBe(status);
+    }
+    expect(faultMark({ status: 'working', interruption: limit })).toBe('limit');
+  });
+
+  it('shows in the session subtitle', () => {
+    expect(sessionSubtitle({ status: 'waiting', interruption: limit } as Parameters<typeof sessionSubtitle>[0]).startsWith('Limit reached')).toBe(true);
   });
 });

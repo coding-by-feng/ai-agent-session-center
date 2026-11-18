@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/App/App/AuthSessionRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/App/App/AuthSessionRules.swift ios/App/App/DictationRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -211,6 +211,19 @@ expect(LiveActivityRules.card(["v": 1, "headline": "working", "rows": [["mark": 
 expect(LiveActivityRules.card(["v": 1, "headline": "finished", "rows": [["mark": "proceed", "title": "x"]]], mac: "m")?.rows.isEmpty == true,
        "the Mac never posts proceed as a mark")
 
+// A request's kind (Nov 18 2026): a needs row flagged ask approval / input becomes that mark, keeps its timer and preview;
+// any other ask value, or a flag on a row that isn't needs, changes nothing; neither is accepted as posted.
+let askCard = LiveActivityRules.card(["v": 1, "headline": "needs", "needs": 3, "rows": [
+    ["mark": "needs", "title": "a", "ask": "approval", "startedAt": askedAt, "detail": "Bash · npm run deploy"],
+    ["mark": "needs", "title": "i", "ask": "input", "startedAt": askedAt],
+    ["mark": "needs", "title": "x", "ask": "shell"],
+    ["mark": "working", "title": "w", "ask": "approval"]]], mac: "m")
+expect(askCard?.rows.map(\.mark) == ["approval", "input", "needs", "working"], "ask turns a needs row approval / input, nothing else")
+expect(askCard?.rows.first?.startedAt != nil && askCard?.rows.first?.detail != nil, "an approval row keeps its timer and preview")
+expect(askCard?.rows[1].startedAt != nil, "an input row keeps its timer")
+expect(LiveActivityRules.card(["v": 1, "headline": "needs", "rows": [["mark": "approval", "title": "x"], ["mark": "input", "title": "y"]]], mac: "m")?.rows.isEmpty == true,
+       "approval / input are not accepted as posted marks")
+
 // FileSaveRules: the Download button downloads only the page's own file route, under a clean name (Nov 7 2026)
 let macPage = "http://192.168.4.20:3333"
 let goodPath = "/api/files/stream?root=%2FUsers%2Fk%2Fp&path=a%2Fv.mp4&download=1"
@@ -264,6 +277,39 @@ expect(!AuthSessionRules.callbackMatches("work.aasc.mobile://pair?code=a", prefi
 expect(!AuthSessionRules.callbackMatches("WORK.aasc.mobile://auth/google?code=a", prefix: cbPrefix), "byte-wise")
 expect(!AuthSessionRules.callbackMatches(nil, prefix: cbPrefix), "nil callback")
 expect(AuthSessionRules.callbackMatches("work.aasc.mobile://auth/google?code=a", prefix: "work.aasc.mobile://auth/google?"), "prefix ending in ?")
+
+// DictationRules: the hold-to-talk mic takes only start / stop / cancel with a clean id (Nov 16 2026)
+expect(DictationRules.request(["id": "d1x-9", "action": "start"]) == DictationRequest(id: "d1x-9", action: .start), "start")
+expect(DictationRules.request(["id": "d1", "action": "stop"])?.action == .stop, "stop")
+expect(DictationRules.request(["id": "d1", "action": "cancel"])?.action == .cancel, "cancel")
+expect(DictationRules.request(["id": "d1", "action": "upload"]) == nil, "unknown action")
+expect(DictationRules.request(["id": "d1"]) == nil, "no action")
+expect(DictationRules.request(["action": "start"]) == nil, "no id")
+expect(DictationRules.request(["id": "a b", "action": "start"]) == nil, "id with a space")
+expect(DictationRules.request(["id": "x');alert(1);//", "action": "start"]) == nil, "id with script")
+expect(DictationRules.request(["id": String(repeating: "a", count: 65), "action": "start"]) == nil, "id too long")
+expect(DictationRules.request("start") == nil && DictationRules.request(nil) == nil, "not an object")
+expect(DictationRules.postedId(["id": "d1", "action": "upload"]) == "d1", "a refused request still has its id")
+expect(DictationRules.postedId(["id": 7]) == nil, "id not a string")
+expect(DictationRules.longEnough(0.4) && DictationRules.longEnough(30), "long enough")
+expect(!DictationRules.longEnough(0.39) && !DictationRules.longEnough(0) && !DictationRules.longEnough(.nan), "a tap")
+expect(DictationRules.fits(1) && DictationRules.fits(DictationRules.maxBytes), "fits")
+expect(!DictationRules.fits(0) && !DictationRules.fits(DictationRules.maxBytes + 1), "empty or oversized")
+// A recording starts only on a finger just put down: a page's script alone can't turn the microphone on.
+expect(DictationRules.touched(lastDown: 100.0, now: 100.05), "the press that asked")
+expect(DictationRules.touched(lastDown: 100.0, now: 100.0 + DictationRules.touchGraceSeconds), "at the edge of the grace")
+expect(!DictationRules.touched(lastDown: 100.0, now: 102.0), "a touch from two seconds ago")
+expect(!DictationRules.touched(lastDown: nil, now: 100.0), "never touched")
+expect(!DictationRules.touched(lastDown: 100.0, now: 99.0), "a clock that ran backwards")
+expect(!DictationRules.touched(lastDown: .nan, now: 100.0) && !DictationRules.touched(lastDown: 100.0, now: .infinity), "not a time")
+let dictScript = DictationRules.outcomeScript(id: "d1", state: "audio", fields: ["audio": "QUJD", "mime": "audio/mp4", "ms": 1500])
+expect(dictScript?.hasPrefix("window.dispatchEvent(new CustomEvent('aasc-dictation', { detail: {") == true, "event script")
+expect(dictScript?.contains("\"audio\":\"QUJD\"") == true && dictScript?.contains("\"ms\":1500") == true, "fields carried")
+expect(dictScript?.contains("\"id\":\"d1\"") == true && dictScript?.contains("\"state\":\"audio\"") == true, "id and state")
+let dictHostile = DictationRules.outcomeScript(id: "d1", state: "failed", fields: ["message": "x' }));alert(1);//\u{2028}</script>"])
+expect(dictHostile?.contains("alert(1);//\u{2028}") == false, "a message is JSON-encoded, never spliced raw")
+expect(DictationRules.outcomeScript(id: "d1", state: "permission", fields: ["granted": true])?.contains("\"granted\":true") == true, "a boolean stays a boolean")
+expect(DictationRules.outcomeScript(id: "d1", state: "failed", fields: ["bad": Date()]) == nil, "a field JSON can't hold")
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)
