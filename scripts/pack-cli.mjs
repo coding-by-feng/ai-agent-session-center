@@ -3,6 +3,7 @@
  *
  *   esbuild cli/client (+ ws, zod, the shared remote client) ──▶ dist/pack/cli/bin/aasc.cjs
  *   a package.json with no dependencies                       ──▶ dist/pack/cli/package.json
+ *   scripts/cli-package-readme.md                             ──▶ dist/pack/cli/README.md
  *   npm pack                                                  ──▶ dist/pack/aasc-<version>.tgz
  *
  * ws is bundled rather than using Node's built-in WebSocket, which can't send an
@@ -93,6 +94,9 @@ async function main() {
     engines: { node: '>=22.12' },
   };
   writeFileSync(join(OUT_DIR, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  // The npm page shows this; without it the page is blank, and a published version can't be changed (Nov 19 2026).
+  // npm always packs README.md, whatever `files` lists.
+  writeFileSync(join(OUT_DIR, 'README.md'), readFileSync(join(ROOT, 'scripts', 'cli-package-readme.md')));
   console.log(`✓ ${BIN} (${Math.round(bundle.length / 1024)} KB; requires only: ${required.join(', ')})`);
 
   if (!process.argv.includes('--no-pack')) {
