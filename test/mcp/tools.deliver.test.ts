@@ -323,15 +323,16 @@ describe('prompt_send', () => {
     expect(second).toMatchObject({ mode: 'now' });
   });
 
-  it('keeps to the route’s limits: 4 images, 65 536 characters, a text that is not blank', () => {
+  it('keeps to the route’s limits: 10 images, 65 536 characters, a text that is not blank', () => {
     const tool = allTools().find((t) => t.name === 'prompt_send')!;
     const schema = z.object(tool.input);
-    const ok4 = ['queue-img-1-a.png', 'queue-img-2-b.png', 'queue-img-3-c.png', 'queue-img-4-d.png'];
+    // The route took 10 since Oct 21 2026 (a prompt holds 10 images); the tool followed on Nov 18.
+    const okMax = Array.from({ length: 10 }, (_, i) => `queue-img-${i + 1}-a.png`);
 
-    expect(MAX_PROMPT_IMAGES).toBe(4);
+    expect(MAX_PROMPT_IMAGES).toBe(10);
     expect(MAX_PROMPT_TEXT).toBe(65_536);
-    expect(schema.safeParse({ to: 'w1', text: 'x', imageIds: ok4 }).success).toBe(true);
-    expect(schema.safeParse({ to: 'w1', text: 'x', imageIds: [...ok4, 'queue-img-5-e.png'] }).success).toBe(false);
+    expect(schema.safeParse({ to: 'w1', text: 'x', imageIds: okMax }).success).toBe(true);
+    expect(schema.safeParse({ to: 'w1', text: 'x', imageIds: [...okMax, 'queue-img-11-e.png'] }).success).toBe(false);
     expect(schema.safeParse({ to: 'w1', text: 'x'.repeat(MAX_PROMPT_TEXT) }).success).toBe(true);
     expect(schema.safeParse({ to: 'w1', text: 'x'.repeat(MAX_PROMPT_TEXT + 1) }).success).toBe(false);
     expect(schema.safeParse({ to: 'w1', text: '   \n ' }).success).toBe(false);

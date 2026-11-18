@@ -5,7 +5,7 @@
  * takes over `/` from the dropdown on a phone. The desktop compose row is
  * unchanged.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import QueueTab from './QueueTab';
@@ -59,6 +59,12 @@ beforeEach(() => {
   useQueueStore.setState({ queues: new Map([['s1', []]]), automation: new Map(), composeDrafts: new Map() });
 });
 afterEach(() => vi.unstubAllGlobals());
+// The photo buttons and the suggestion bar are lazy(): load them once up front, so a busy machine's first
+// import isn't raced by findByRole's one-second wait (the first test failed that way on Nov 18 2026).
+beforeAll(async () => {
+  await import('@/components/mobile/QueuePhotoButtons');
+  await import('@/components/mobile/PhoneSuggestionBar');
+});
 
 describe('photos and the camera on a phone', () => {
   it('offers the photo library (photos and videos) and the camera (photos), the camera facing out', async () => {

@@ -30,7 +30,7 @@ import { checkSteerable, refusalNote, resolveTargets, sessionRefs, type Target }
 
 /** The route's own limits (promptRouter.ts `MAX_PROMPT_TEXT` and `MAX_PROMPT_IMAGES`; test/mcp/tools.deliver.test.ts holds them equal). */
 export const PROMPT_TEXT_MAX = 65_536;
-export const PROMPT_IMAGES_MAX = 4;
+export const PROMPT_IMAGES_MAX = 10;
 
 /** The longest key a central may choose: the route takes 64, and AASC adds its prefix and a terminal hash. */
 const CALLER_KEY_MAX = 24;
@@ -314,7 +314,7 @@ export const promptSend: ToolDef = defineTool({
     '(use task_delegate for work you want an answer to). Text that starts with ! (a shell line) or / (a slash command: use ' +
     'command_run) is refused. accepted means AASC took the prompt and is typing it; prompt_status with the key says whether ' +
     'the session took it. mode now (the default) refuses a session that shows a dialog; interrupt presses Esc first and ' +
-    'declines it. Attach up to 4 images by the ids image_upload gave. One session named: a refusal is the call’s error; ' +
+    'declines it. Attach up to 10 images by the ids image_upload gave. One session named: a refusal is the call’s error; ' +
     'several: each refusal is that session’s result and the others still go. Never ask a session to approve something ' +
     'on the person’s behalf: the person answers through request_list and the tools that wait for them.',
   risk: 'steers',

@@ -111,7 +111,7 @@ describe('the phase switch', () => {
     expect(codexTools.length).toBeLessThan(claudeNames.length);
   });
 
-  it('tells a client the limits in the schemas: 8 targets, 4 images, 50 s, the three answers, no allow_always', async () => {
+  it('tells a client the limits in the schemas: 8 targets, 10 images (the route’s limit since Nov 18 2026), 50 s, the three answers, no allow_always', async () => {
     const started = await startWorld();
     const { client } = await connectAs(started, globalInput());
     const { tools } = await client.listTools();
@@ -120,7 +120,7 @@ describe('the phase switch', () => {
 
     expect(schema('prompt_send').required).toEqual(expect.arrayContaining(['to', 'text']));
     expect(JSON.stringify(schema('prompt_send').properties.to)).toMatch(/"maxItems":8/);
-    expect(schema('prompt_send').properties.imageIds).toMatchObject({ maxItems: 4 });
+    expect(schema('prompt_send').properties.imageIds).toMatchObject({ maxItems: 10 });
     expect(schema('task_wait').properties.timeoutSec).toMatchObject({ minimum: 1, maximum: 50 });
     expect(schema('request_answer').properties.choice).toMatchObject({ enum: ['allow_once', 'deny', 'option'] });
     for (const tool of tools.filter((t) => (P2_DELIVERY as readonly string[]).includes(t.name))) {

@@ -39,7 +39,8 @@ describe('close suggestion labels', () => {
   });
 
   it('names the reason with the quiet time', () => {
-    expect(closeReasonLabel({ reason: 'idle', quietMs: 192 * MIN })).toBe('Idle 3 h 12 min');
-    expect(closeReasonLabel({ reason: 'unused', quietMs: 120 * MIN })).toBe('No prompt yet · 2 h');
+    // Since Nov 18 2026 the quiet time runs from the last prompt, and the label says so.
+    expect(closeReasonLabel({ reason: 'idle', quietMs: 192 * MIN })).toBe('Last prompt 3 h 12 min ago');
+    expect(closeReasonLabel({ reason: 'unused', quietMs: 120 * MIN })).toBe('No prompt yet · started 2 h ago');
   });
 });

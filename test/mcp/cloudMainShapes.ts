@@ -3,8 +3,9 @@
 // file:line it was read from (the main checkout, /Users/kasonzhan/Documents/claude/agent-manager, read-only); nothing
 // here is imported from it. Each one is the `data` of `{ success: true, data }`: wrap it in `envelope()`.
 //
-// MISSING is how a build without one of those routes answers, as the loopback client reports it. The branch probe
-// (cloudRoutesOnBranch.test.ts) holds three of them to what the branch's real routers answer.
+// MISSING is how a build without one of those routes answers, as the loopback client reports it. The branch probe that
+// held three of them to the branch's real routers (cloudRoutesOnBranch.test.ts) was removed on Nov 18 2026: since the
+// MCP branch merged into main (db44a1b1) those routes exist beside it, so it could only fail.
 import type { InternalResponse } from '../../server/mcp/client.js';
 import { PROJECT_ID, RESOURCE_ID } from './cloudFixtures.js';
 

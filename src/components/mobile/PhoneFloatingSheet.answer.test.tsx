@@ -3,7 +3,7 @@
 // popup's session through the prompt route, never to the session it came from; Ask AI on the answer forks
 // the popup (its terminal) while the new popup shows under the root; Terminal shows the raw terminal.
 // Nothing reaches a PTY: the chat page, fetch and the terminal are mocked.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { Session } from '@/types';
 import type { ChatPage } from '@/types/chat';
@@ -90,6 +90,17 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+// The sheet, the chat and its markdown are lazy() chunks (ChatMarkdown grew file links on Nov 18 2026): load them
+// once up front so a busy machine's first import isn't raced by findBy's one-second wait.
+beforeAll(async () => {
+  await Promise.all([
+    import('@/components/mobile/PhoneFloatingSheet'),
+    import('@/components/mobile/chat/ChatView'),
+    import('@/components/mobile/chat/ChatFooter'),
+    import('@/components/mobile/chat/items/ChatMarkdown'),
+    import('@/components/mobile/PhoneConversationAi'),
+  ]);
+});
 
 describe('the AI popup’s answer on a phone', () => {
   it('opens on the popup’s own conversation: the answer with Copy, Read aloud and Ask AI', async () => {

@@ -2706,7 +2706,9 @@ describe('SessionSwitcher — the session peek', () => {
   };
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    // The clock stays at the fixtures' `now`: this file runs for minutes, and a real clock read the
+    // "1m" prompt as "3m" by the time this test came round (Nov 18 2026).
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now });
     useSessionStore.setState({ sessions: new Map() } as never);
     useUiStore.setState({
       activeModal: null, sessionSortMode: 'room', navPosition: 'left', maximized: false,
