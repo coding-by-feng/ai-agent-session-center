@@ -164,4 +164,17 @@ describe('the staged package', () => {
     // Only the one script the package runs; the rest of scripts/ is build tooling.
     expect(files.filter((f) => f.startsWith('scripts/'))).toEqual(['scripts/set-password.mjs']);
   });
+
+  // Nov 19 2026: the package had no README, so its npm page would have been blank, and a published version
+  // can't be changed. Every command the README names must be one `aasc-server help` lists.
+  it('carries a README whose commands are real ones', () => {
+    expect(files).toContain('README.md');
+    const readme = readFileSync(join(out, 'README.md'), 'utf8');
+    const usage = readFileSync(join(ROOT, 'bin', 'cli.js'), 'utf8');
+    const named = [...readme.matchAll(/aasc-server ([a-z][a-z-]+)/g)].map((m) => m[1]);
+    expect(named).toContain('setup');
+    for (const command of new Set(named)) expect(usage, command).toMatch(new RegExp(`^\\s+${command}\\s`, 'm'));
+    expect(readme).toContain(`Node.js ${String(rootPkg.engines.node).replace(/^>=/, '')}`);
+    expect(readme).not.toMatch(/\/Users\/|npm install -g aasc\b/);
+  });
 });

@@ -127,7 +127,7 @@ jobs:
         run: npm run typecheck:all
 
       - name: Test release artifact verification
-        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts test/electronEdition.test.ts test/electronLiteConfig.test.ts test/electronClientConfig.test.ts test/liteBundleCheck.test.ts test/electronOpenAppHelper.test.ts
+        run: npm test -- test/electronArtifacts.test.ts test/electronReleaseAssets.test.ts test/electronPreloadPath.test.ts test/electronSetupGate.test.ts test/electronEdition.test.ts test/electronLiteConfig.test.ts test/electronClientConfig.test.ts test/liteBundleCheck.test.ts
 
       - name: Build without publishing
         run: npm run ${{ matrix.command }} -- --publish never

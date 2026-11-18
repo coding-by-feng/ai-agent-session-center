@@ -5,7 +5,8 @@
  *
  *   npm run pack:server     vite build + build:server, then this script:
  *     1. bundle cli/server → dist/cli/admin.cjs
- *     2. stage dist/pack/server/: bin/, hooks/, scripts/set-password.mjs, the two bundles, dist/client/
+ *     2. stage dist/pack/server/: bin/, hooks/, scripts/set-password.mjs, the two bundles, dist/client/,
+ *        README.md (from scripts/server-package-readme.md)
  *        and a GENERATED package.json whose dependencies are exactly the bundles' require()s
  *     3. npm pack → dist/pack/ai-agent-session-center-<version>.tgz   (--dry-run lists the files only)
  *
@@ -145,6 +146,8 @@ export function stageServerPackage({ root = ROOT, out }) {
   copyInto(bundles[0], join(out, 'dist', 'server-bundle.cjs'));
   copyInto(bundles[1], join(out, 'dist', 'cli', 'admin.cjs'));
   copyInto(join(root, 'dist', 'client'), join(out, 'dist', 'client'));
+  // The npm page shows this; without it the page is blank, and a published version can't be changed (Nov 19 2026).
+  copyFileSync(join(root, 'scripts', 'server-package-readme.md'), join(out, 'README.md'));
   writeFileSync(join(out, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return { manifest };
 }
