@@ -54,6 +54,19 @@ function readConfigObject(file: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/**
+ * Change some keys of server-config.json and keep every other one: read, change, write to a temp file
+ * (owner-only) and rename. Throws, writing nothing, when the file can't be read as a JSON object.
+ * (Shared with machineAccountSettings.ts, plan 18.)
+ */
+export function saveServerConfigKeys(configPath: string, patch: Readonly<Record<string, unknown>>): void {
+  const next = { ...readConfigObject(configPath), ...patch };
+  mkdirSync(dirname(configPath), { recursive: true });
+  const tmp = `${configPath}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, configPath);
+}
+
 export function createAccountEnrollSetting(opts: AccountEnrollSettingOptions) {
   let saved = opts.saved;
   return {
@@ -67,11 +80,7 @@ export function createAccountEnrollSetting(opts: AccountEnrollSettingOptions) {
     /** Save the choice. False (nothing written) when the environment pins it; throws when the file can't be updated. */
     set(on: boolean): boolean {
       if (fromEnv(opts.env) !== null) return false;
-      const next = { ...readConfigObject(opts.configPath), phoneAccountEnroll: on };
-      mkdirSync(dirname(opts.configPath), { recursive: true });
-      const tmp = `${opts.configPath}.${process.pid}.tmp`;
-      writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-      renameSync(tmp, opts.configPath);
+      saveServerConfigKeys(opts.configPath, { phoneAccountEnroll: on });
       saved = on;
       return true;
     },

@@ -4,6 +4,7 @@ import { assertCloudBinding, bindingFromHeaders } from './binding.js';
 import { CloudError, type CloudConnector } from './types.js';
 import type { GoogleSignIn } from './googleSignIn.js';
 import { z } from 'zod';
+import { exportCloudAccount } from './accountExport.js';
 /** Raw/decompressed cloud JSON cap. Mount BEFORE any global JSON parser. */
 export function cloudJsonParser(): import('express').RequestHandler {
   return json({ limit: '1mb' });
@@ -19,13 +20,23 @@ export interface CloudGoogleRoutes {
   returnUrl: string;
 }
 const GoogleStartBody = z
-  .object({ backendUrl: z.string().max(2048).optional(), deviceName: z.string().max(256).optional() })
+  .object({
+    backendUrl: z.string().max(2048).optional(),
+    deviceName: z.string().max(256).optional(),
+    // Plan 18: start the round trip that deletes the account instead of connecting this Mac.
+    intent: z.literal('delete').optional(),
+  })
   .strict();
+/** Plan 18: where "Export my data" saves its file on this computer. */
+export interface CloudAccountRoutes {
+  exportDirectory(): Promise<string>;
+}
 
 export function createCloudRouter(
   cloud: CloudConnector,
   sameOrigin: (req: Request) => boolean,
   google?: CloudGoogleRoutes,
+  account?: CloudAccountRoutes,
 ): Router {
   const router = Router();
   router.use((_req, res, next) => {
@@ -40,6 +51,12 @@ export function createCloudRouter(
       data: { backendUrl: DEFAULT_CLOUD_BACKEND_URL, deviceName: hostname().replace(/\.local$/, '') },
     }),
   );
+  // Whether a browser round trip (sign-in or account deletion) is still waiting, and how the last
+  // one ended: the card reads this to stop waiting. Flags only, nothing from the round trip itself.
+  if (google)
+    router.get('/google/state', (_req, res) =>
+      res.json({ success: true, data: { pending: google.signIn.pending(), last: google.signIn.last() } }),
+    );
   router.use((req, res, next) => {
     const origin = req.get('origin');
     const browserSite = req.get('sec-fetch-site');
@@ -69,6 +86,20 @@ export function createCloudRouter(
     router.post('/google/start', (req, res) => {
       const body = GoogleStartBody.safeParse(req.body ?? {});
       if (!body.success) throw new CloudError('invalid_input', 'Provide a backend URL and a device name.', 400);
+      if (body.data.intent === 'delete') {
+        // Deleting is bound to the connection the page reviewed and goes to that backend only:
+        // nothing in the body can point it elsewhere.
+        assertCloudBinding(cloud, bindingFromHeaders(req));
+        const connection = cloud.status().connection!;
+        const { url } = google.signIn.begin({
+          backendUrl: connection.backendOrigin,
+          deviceName: connection.deviceName,
+          returnUrl: google.returnUrl,
+          intent: 'delete',
+        });
+        res.json({ success: true, data: { url } });
+        return;
+      }
       const { url } = google.signIn.begin({
         backendUrl: body.data.backendUrl || DEFAULT_CLOUD_BACKEND_URL,
         deviceName: body.data.deviceName || hostname().replace(/\.local$/, ''),
@@ -81,6 +112,24 @@ export function createCloudRouter(
       res.json({ success: true, data: { pending: false } });
     });
   }
+  if (account)
+    // "Export my data": the file is written on this computer; the page learns its path and size.
+    router.post('/account/export', async (req, res) => {
+      assertCloudBinding(cloud, bindingFromHeaders(req));
+      // The page gave up (dialog closed, window gone): stop reading and remove the partial file,
+      // instead of writing into Downloads for half an hour with nobody to tell.
+      const gone = new AbortController();
+      res.on('close', () => {
+        if (!res.writableEnded) gone.abort();
+      });
+      const saved = await exportCloudAccount({
+        client: cloud.client,
+        directory: await account.exportDirectory(),
+        now: Date.now,
+        signal: gone.signal,
+      });
+      res.json({ success: true, data: saved });
+    });
   router.post('/recheck', async (req, res) => {
     assertCloudBinding(cloud, bindingFromHeaders(req));
     res.json({ success: true, data: await cloud.recheckCloud() });

@@ -1,0 +1,73 @@
+/*
+ * DevicesSwitcher — the Switch part of the devices panel (plan 18 stage 2). It lives in DevicePresence's portaled
+ * panel (360px at most) and draws its rows with RemoteComputers.module.css, so the two lists read as one thing;
+ * this module only spaces the sections and their headings. Everything wraps rather than overflows.
+ */
+
+.switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/*
+ * A row's ⋯ menu and its trigger's tooltip are portaled to <body> at 10000, under the device panel (10060).
+ * While the switcher is on screen, lift them over it, as RemoteComputers.module.css does for its own section.
+ */
+:global(body):has(.switcher) :global([data-menu-popover]),
+:global(body):has(.switcher) :global([role='tooltip']) {
+  z-index: 10070;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* "2 of 3 online" beside a heading, "here" beside this computer's name: quiet words at the row's end. */
+.aside {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* One line and at most one action; the action drops under the line when the panel is narrow. */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.noticeText {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The kit's danger text: the raw red is under 4.5:1 on the light themes. */
+.noticeError {
+  color: var(--danger-text, color-mix(in srgb, var(--accent-red) 50%, var(--text-primary)));
+}
+
+/* "No computer matches “…”.": the text is the person's own, so a long one with no space must wrap, not run out. */
+.noMatch {
+  overflow-wrap: anywhere;
+}

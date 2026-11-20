@@ -600,7 +600,7 @@ app.whenReady().then(async () => {
       // server-bundle.cjs is a CJS bundle produced by esbuild (npm run build:server)
       const serverPath = path.join(PROJECT_ROOT, 'dist', 'server-bundle.cjs')
       const serverModule = require(serverPath) as {
-        startServer: (port?: number, options?: { cloudEncryption: { isAvailable(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string } }) => Promise<number>
+        startServer: (port?: number, options?: { cloudEncryption: { isAvailable(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string }; appInfo?: { version: string; lite: boolean } }) => Promise<number>
         shutdownServer: () => Promise<void>
         onKeepAwakeChange?: (listener: (awake: boolean) => void) => () => void
       }
@@ -626,6 +626,8 @@ app.whenReady().then(async () => {
           encrypt: (value) => safeStorage.encryptString(value),
           decrypt: (value) => safeStorage.decryptString(value),
         },
+        // What this install tells its AASC Cloud account about itself (plan 18).
+        appInfo: { version: app.getVersion(), lite: edition === 'lite' },
       })
       process.env.SERVER_PORT = String(port)
       sendLoadingUpdate(win, 95, 'Loading app')

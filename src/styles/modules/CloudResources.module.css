@@ -66,6 +66,25 @@
   min-width: 0;
   box-sizing: border-box;
 }
+/* "Your account" under the device connection (plan 18). The destructive action sits below its own
+   divider: a fixed separation, never a drift to the far edge. */
+.account,
+.accountDanger {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+.account h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.account .toolbar {
+  margin: 8px 0;
+}
+/* The inline "Delete your account?" text: one idea per paragraph, with room between them. */
+.accountDanger .banner p {
+  margin: 8px 0;
+}
 .hint {
   color: var(--text-secondary);
   font-size: 12px;

@@ -23,7 +23,7 @@ import { createCallWiring, openCallLine } from './callWiring.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
 import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
 import { cleanLabel } from './text.js';
-import { renderAccountMatch } from './ui/accountScreens.js';
+import { renderAccountDelete, renderAccountMatch } from './ui/accountScreens.js';
 import { renderMacs, renderSettings } from './ui/macScreens.js';
 import { renderLocked, renderPhone, renderShare } from './ui/extraScreens.js';
 import { renderConfirm, renderNeedsApp, renderPair } from './ui/pairScreens.js';
@@ -90,6 +90,8 @@ export interface ShellTiming {
   linkMs?: number;
   /** How long opening a Mac spends retiring older rows for it (shellFlows RETIRE_BUDGET_MS). */
   retireMs?: number;
+  /** How long the account directory's address hints may take (accountMacs DIRECTORY_HINTS_MS). */
+  hintsMs?: number;
 }
 
 export function createShellApp(
@@ -156,6 +158,7 @@ export function createShellApp(
         phoneName: () => defaultPhoneName(),
         open: (mac) => connect(mac, '/', false),
         tryingText,
+        hintsMs: timing.hintsMs,
       })
     : null;
   // Nov 15 2026: a voice call to AASC, asked for by the Mac's page (`?call=1`).
@@ -188,7 +191,7 @@ export function createShellApp(
   function show(next: Screen): void {
     gen += 1;
     stopPoll();
-    screen = withoutStaleUnpair(next);
+    screen = withoutStaleUnpair(account?.settle(next) ?? next);
     render(true);
   }
 
@@ -234,6 +237,7 @@ export function createShellApp(
       case 'macs': return renderMacs(s, ctx);
       case 'approve': return renderApprove(s, ctx);
       case 'account-match': return renderAccountMatch(s, ctx);
+      case 'account-delete': return renderAccountDelete(ctx);
       default: {
         const mac = find(s.macId);
         if (!mac) return renderMacs({ name: 'macs', notice: null }, ctx);
@@ -550,6 +554,7 @@ export function createShellApp(
     ...extrasActions(),
     ...(account?.actions ?? {
       signInWithGoogle: noop, confirmAccountMatch: noop, cancelAccountMatch: noop, signOutAccount: noop, toggleAccountMenu: noop, refreshAccount: noop, enrollMac: noop,
+      askDeleteAccount: noop, confirmDeleteAccount: noop, cancelDeleteAccount: noop,
     }),
     ...(call?.actions ?? { endCall: noop, toggleMute: noop, retryCall: noop }),
   };

@@ -15,6 +15,8 @@ async function harness(
   lanAdvertiser: { stop(): void } | null = null,
   macPathsPublisher: { stop(): void } | null = null,
   mcpRouter: { close(): Promise<void> } | null = null,
+  machineDirectoryPublisher: { stop(): void } | null = null,
+  accountDeviceReconcile: { stop(): void } | null = null,
 ) {
   const source = await readFile(new URL('../server/index.ts', import.meta.url), 'utf8');
   const start = source.indexOf('  // Graceful shutdown —');
@@ -54,8 +56,10 @@ async function harness(
     'getMqOffset',
     'closeDb',
     'mcpRouter',
+    'machineAccountWiring',
+    'accountDeviceReconcile',
     code,
-  )(cloud, cloudJobs, server, null, lanAdvertiser, macPathsPublisher, transcriptWatch, log, noop, noop, noop, noop, noop, noop, noop, noop, closeDb, mcpRouter) as (
+  )(cloud, cloudJobs, server, null, lanAdvertiser, macPathsPublisher, transcriptWatch, log, noop, noop, noop, noop, noop, noop, noop, noop, closeDb, mcpRouter, { publisher: machineDirectoryPublisher }, accountDeviceReconcile) as (
     signal: string,
   ) => Promise<void>;
   return { shutdown, closeDb, closed, server, log };
@@ -211,6 +215,29 @@ it('stops the Remote access publisher, so no check starts once the process is go
   h.closed.resolve();
   await done;
   expect(macPathsPublisher.stop).toHaveBeenCalledTimes(1);
+});
+
+it('stops the account directory publisher too (plan 18), and shuts down without one', async () => {
+  const publisher = { stop: vi.fn() };
+  const h = await harness(null, undefined, null, null, null, publisher);
+  const done = h.shutdown('test');
+  h.closed.resolve();
+  await done;
+  expect(publisher.stop).toHaveBeenCalledTimes(1);
+  const none = await harness(null);
+  const gone = none.shutdown('test');
+  none.closed.resolve();
+  await gone;
+  expect(none.closeDb).toHaveBeenCalledTimes(1);
+});
+
+it('stops the account device reconcile too (plan 18), and shuts down without one', async () => {
+  const reconcile = { stop: vi.fn() };
+  const h = await harness(null, undefined, null, null, null, null, reconcile);
+  const done = h.shutdown('test');
+  h.closed.resolve();
+  await done;
+  expect(reconcile.stop).toHaveBeenCalledTimes(1);
 });
 
 it('shuts down without a publisher (no cloud connector)', async () => {

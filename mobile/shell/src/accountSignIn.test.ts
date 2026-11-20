@@ -112,6 +112,29 @@ describe('signInWithGoogle', () => {
     expect(await currentAccount(t.deps)).toBeNull();
   });
 
+  it('an email that can’t be stored (Preferences) takes the token out of the vault again: nothing is kept', async () => {
+    const t = createHarness({ authSession: true });
+    const deps = { ...t.deps, store: { get: t.deps.store.get, set: async () => { throw new Error('preferences unavailable'); } } };
+    const out = await signInWithGoogle(deps, 'Pixel');
+    expect(out).toMatchObject({ ok: false, reason: 'storage' });
+    expect(out.ok ? '' : out.message).toContain('nothing was saved');
+    expect(pairCalls(t)).toHaveLength(1); // the sign-in itself went through: only the storing failed
+    expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
+    expect(t.store.has(ACCOUNT_PREFS_KEY)).toBe(false);
+    expect(await currentAccount(t.deps)).toBeNull();
+  });
+
+  it('and when the token can’t be taken out again either, the sign-in still reports failed and nobody is signed in', async () => {
+    const t = createHarness({ authSession: true });
+    const deps = {
+      ...t.deps,
+      store: { get: t.deps.store.get, set: async () => { throw new Error('preferences unavailable'); } },
+      vault: { ...t.deps.vault, delete: async () => { throw new Error('keystore unavailable'); } },
+    };
+    expect(await signInWithGoogle(deps, 'Pixel')).toMatchObject({ ok: false, reason: 'storage' });
+    expect(await currentAccount(t.deps)).toBeNull(); // no email kept, so the leftover token signs nobody in
+  });
+
   it('a sheet already open elsewhere (BUSY) says so', async () => {
     const t = createHarness({ authSession: async () => { throw Object.assign(new Error('busy'), { code: 'BUSY' }); } });
     const out = await signInWithGoogle(t.deps, 'Pixel');

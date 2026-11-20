@@ -1,7 +1,7 @@
 // remoteHandlersOpenWindow.test.ts — what the remote:* handlers do once a computer's window is open. Every sign-in
 // mints a session and the server keeps only the newest four per computer, so a list checking on an open dashboard used
 // to sign that dashboard out within two minutes, in every edition.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 
 const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
@@ -37,7 +37,7 @@ const client = vi.hoisted(() => ({
   signIn: vi.fn(),
   remoteSessionState: vi.fn(),
   fetchPaths: vi.fn(async () => null),
-  countShared: vi.fn(async () => 3),
+  sharedCounts: vi.fn(async () => ({ sharedSessions: 3, needsYou: 1 })),
 }));
 vi.mock('../electron/remote/remoteClient.js', async (actual) => ({ ...await actual<object>(), ...client }));
 
@@ -68,6 +68,12 @@ async function setUp(options: Record<string, unknown> = {}) {
   };
 }
 
+// No handler here may reach the network: every call to another computer goes through the client above. The machine's
+// proof (plan 18) is not mocked: these computers were paired by link, and for those it asks nothing.
+const realFetch = vi.fn(async () => { throw new Error('a test reached the network'); });
+vi.stubGlobal('fetch', realFetch);
+afterEach(() => expect(realFetch).not.toHaveBeenCalled());
+
 beforeEach(() => {
   vi.clearAllMocks();
   client.signIn.mockResolvedValue(SIGNED_IN);
@@ -86,7 +92,7 @@ describe.each([
     const { check } = await setUp(options);
     const res = await check();
     expect(client.signIn).toHaveBeenCalledOnce();
-    expect(res.data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3 });
+    expect(res.data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3, needsYou: 1 });
   });
 
   it('spends no session while its window is open and signed in', async () => {
@@ -108,8 +114,8 @@ describe.each([
   it('still tells the truth about it: online, over which address, and how many it shares', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
     const { check } = await setUp(options);
-    expect((await check()).data).toEqual({ state: 'online', via: 'lan', sharedSessions: 3, message: null });
-    expect(client.countShared).toHaveBeenCalledWith(expect.anything(), ORIGIN, 'cookie-token');
+    expect((await check()).data).toEqual({ state: 'online', via: 'lan', sharedSessions: 3, needsYou: 1, message: null });
+    expect(client.sharedCounts).toHaveBeenCalledWith(expect.anything(), ORIGIN, 'cookie-token');
   });
 
   it('says offline, with the reason, and spends no session when no address answers', async () => {
@@ -118,7 +124,7 @@ describe.each([
     client.remoteSessionState.mockResolvedValue('no-answer');
     const { check } = await setUp(options);
     const { data } = await check();
-    expect(data).toMatchObject({ state: 'offline', sharedSessions: null });
+    expect(data).toMatchObject({ state: 'offline', sharedSessions: null, needsYou: null });
     expect(String(data?.message)).toMatch(/No answer from/);
     expect(client.remoteSessionState.mock.calls.map(([, origin]) => origin)).toEqual([ORIGIN, TAILNET_ORIGIN]);
     expect(client.signIn).not.toHaveBeenCalled();
@@ -130,9 +136,9 @@ describe.each([
     store.get.mockReturnValue({ ...COMPUTER, tailnet: TAILNET_IP });
     client.remoteSessionState.mockImplementation(async (_deps: unknown, origin: string) => (origin === ORIGIN ? 'no-answer' : 'signed-in'));
     const { check } = await setUp(options);
-    expect((await check()).data).toEqual({ state: 'online', via: 'tailnet', sharedSessions: 3, message: null });
+    expect((await check()).data).toEqual({ state: 'online', via: 'tailnet', sharedSessions: 3, needsYou: 1, message: null });
     expect(client.remoteSessionState).toHaveBeenLastCalledWith(expect.anything(), TAILNET_ORIGIN, 'cookie-token');
-    expect(client.countShared).toHaveBeenCalledWith(expect.anything(), TAILNET_ORIGIN, 'cookie-token');
+    expect(client.sharedCounts).toHaveBeenCalledWith(expect.anything(), TAILNET_ORIGIN, 'cookie-token');
     expect(client.signIn).not.toHaveBeenCalled();
   });
 
@@ -160,16 +166,16 @@ describe('a dead session behind an open window', () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
     client.remoteSessionState.mockResolvedValue('signed-out');
     const { check } = await setUp({ keepSignedIn: true });
-    expect((await check()).data).toMatchObject({ state: 'online', sharedSessions: null });
+    expect((await check()).data).toMatchObject({ state: 'online', sharedSessions: null, needsYou: null });
     expect(client.signIn).not.toHaveBeenCalled();
-    expect(client.countShared).not.toHaveBeenCalled();
+    expect(client.sharedCounts).not.toHaveBeenCalled();
   });
 
   it('Full and Lite sign in as ever: there is nothing left to evict', async () => {
     windows.openRemoteOrigin.mockReturnValue(ORIGIN);
     client.remoteSessionState.mockResolvedValue('signed-out');
     const { check } = await setUp();
-    expect((await check()).data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3 });
+    expect((await check()).data).toMatchObject({ state: 'online', via: 'lan', sharedSessions: 3, needsYou: 1 });
     expect(client.signIn).toHaveBeenCalledOnce();
   });
 

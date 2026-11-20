@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 // Plan 17: enrolling this phone with an account Mac (ticket → POST /api/mobile/enroll → sealed token).
+// Plan 18: the home-network address the account's directory hints at is one more address to try, on the same path
+// as one Bonjour found, and only when the listed Tailscale address does not answer.
 import { afterEach, describe, expect, it } from 'vitest';
-import { enrollViaAccount, type EnrollOutcome } from './accountEnroll';
-import { listAccountMacs, type AccountMac } from './accountMacs';
+import { enrollCandidates, enrollViaAccount, MAX_ENROLL_CANDIDATES, type EnrollOutcome } from './accountEnroll';
+import { listAccountMacs, withDirectoryHints, type AccountMac } from './accountMacs';
 import { ACCOUNT_VAULT_KEY, currentAccount, signInWithGoogle } from './accountSignIn';
-import type { FakeEnrollRefusal, StrangerEnroll } from './dev/fakeMac';
+import type { Candidate } from './connectionPlan';
+import type { FakeEnrollRefusal, FakeMacOptions, StrangerEnroll } from './dev/fakeMac';
 import type { BrowseResult } from './lanRescan';
 import { loadMacs, MACS_KEY, readMacCredentials } from './savedMacs';
 import { createHarness, LAN, TAILNET } from './testing/shellHarness';
@@ -236,6 +239,9 @@ describe('enrollViaAccount', () => {
     expect(message(out)).toBe('Kason-MBP removed this phone. Nothing was saved.');
     expect(await currentAccount(t.deps)).not.toBeNull();
     expect(t.mac.calls.some((c) => c.url === 'https://api.aasc.work/v1/enroll/macs')).toBe(true);
+    expect(t.mac.calls.filter((c) => c.url.startsWith('https://')).map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST https://api.aasc.work/v1/enroll/tickets', 'GET https://api.aasc.work/v1/enroll/macs', // never the directory
+    ]);
     expectNothingSaved(t);
   });
 
@@ -291,9 +297,31 @@ describe('enrollViaAccount', () => {
     expectNothingSaved(t);
   });
 
+  it('a sign-in the phone can’t read right now (a locked keychain) is not a sign-out: nothing asked, nothing forgotten', async () => {
+    const { t, listed } = await signedIn();
+    t.faults.vaultRead = true;
+    const out = await enrollViaAccount(t.deps, [], listed[0], { phoneName: 'Pixel' });
+    expect(out).toEqual({ ok: false, reason: 'refused', message: 'This phone can’t read its sign-in right now. Unlock it and try again. Nothing was saved.' });
+    expect(t.mac.calls).toHaveLength(0);
+    t.faults.vaultRead = false;
+    expect(await currentAccount(t.deps)).not.toBeNull();
+    expectNothingSaved(t);
+  });
+
+  it('a sign-in that can’t be read by the time the ticket is asked for is not a sign-out either', async () => {
+    const { t, listed } = await signedIn();
+    const out = await enrollViaAccount(t.deps, [], listed[0], { phoneName: 'Pixel', onTry: () => { t.faults.vaultRead = true; } });
+    expect(out).toEqual({ ok: false, reason: 'refused', message: 'This phone can’t read its sign-in right now. Unlock it and try again. Nothing was saved.' });
+    expect(ticketCalls(t)).toHaveLength(0);
+    expect(enrollCalls(t)).toHaveLength(0);
+    t.faults.vaultRead = false;
+    expect(await currentAccount(t.deps)).not.toBeNull();
+    expectNothingSaved(t);
+  });
+
   it('asks nothing when signed out', async () => {
     const t = createHarness();
-    const mac: AccountMac = { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', name: 'Kason-MBP', tailnet: '100.101.102.103', port: 3333, lastUsedAt: null };
+    const mac: AccountMac = { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', name: 'Kason-MBP', lan: '192.168.1.20', tailnet: '100.101.102.103', port: 3333, lastUsedAt: null };
     expect(await enrollViaAccount(t.deps, [], mac, { phoneName: 'Pixel' })).toMatchObject({ ok: false, reason: 'signed-out' });
     expect(t.mac.calls).toHaveLength(0);
   });
@@ -327,5 +355,258 @@ describe('enrollViaAccount', () => {
     const out = await enrollViaAccount(t.deps, [], listed[0], { phoneName: 'Pixel', proceed: () => false });
     expect(out).toMatchObject({ ok: false, reason: 'cancelled' });
     expect(ticketCalls(t)).toHaveLength(0);
+  });
+});
+
+describe('enrollCandidates', () => {
+  const MAC: AccountMac = { deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', name: 'Kason-MBP', lan: '192.168.1.20', tailnet: '100.101.102.103', port: 3333, lastUsedAt: null };
+  const LISTED_LAN: Candidate = { kind: 'lan', origin: LAN, encrypted: false };
+  const LISTED_TAILNET: Candidate = { kind: 'tailnet', origin: TAILNET, encrypted: true };
+  const found = (host: string, port = 3333) => ({ host, port });
+
+  it('the listed Tailscale address, then the listed home-network one, then what Bonjour found (the listed port first)', () => {
+    expect(enrollCandidates(MAC, [found('192.168.1.31', 4000), found('192.168.1.30')])).toEqual([
+      LISTED_TAILNET,
+      LISTED_LAN,
+      { kind: 'lan', origin: 'http://192.168.1.30:3333', encrypted: false },
+      { kind: 'lan', origin: 'http://192.168.1.31:4000', encrypted: false },
+    ]);
+  });
+
+  it('a listed home-network address is the same kind of candidate as a Bonjour one: the home network, unencrypted', () => {
+    const [listed] = enrollCandidates({ ...MAC, tailnet: null }, []);
+    const [byBonjour] = enrollCandidates({ ...MAC, lan: null, tailnet: null }, [found('192.168.1.20')]);
+    expect(listed).toEqual(byBonjour);
+    expect(listed).toEqual(LISTED_LAN);
+  });
+
+  it('each origin once: Bonjour finding the listed address adds nothing', () => {
+    expect(enrollCandidates(MAC, [found('192.168.1.20'), found('192.168.1.20'), found('192.168.1.30')])).toEqual([
+      LISTED_TAILNET, LISTED_LAN, { kind: 'lan', origin: 'http://192.168.1.30:3333', encrypted: false },
+    ]);
+  });
+
+  it('the listed host on another port is another origin, tried after the listed ones', () => {
+    expect(enrollCandidates(MAC, [found('192.168.1.20', 4000)])).toEqual([
+      LISTED_TAILNET, LISTED_LAN, { kind: 'lan', origin: 'http://192.168.1.20:4000', encrypted: false },
+    ]);
+  });
+
+  it.each<[string, Partial<AccountMac>]>([
+    ['a public address', { lan: '8.8.8.8' }],
+    ['a Tailscale address', { lan: '100.64.0.9' }],
+    ['a leading-zero address', { lan: '192.168.01.20' }],
+    ['a host name', { lan: 'mac.local' }],
+    ['no port', { port: null }],
+  ])('a listed home-network address that is %s is not a candidate', (_what, over) => {
+    const out = enrollCandidates({ ...MAC, tailnet: null, ...over }, [found('192.168.1.30')]);
+    expect(out).toEqual([{ kind: 'lan', origin: 'http://192.168.1.30:3333', encrypted: false }]);
+  });
+
+  it('with no listed home-network address the list is what it was before plan 18', () => {
+    expect(enrollCandidates({ ...MAC, lan: null }, [found('192.168.1.20')])).toEqual([LISTED_TAILNET, LISTED_LAN]);
+    expect(enrollCandidates({ ...MAC, lan: null }, [])).toEqual([LISTED_TAILNET]);
+  });
+
+  it('never more than the limit, the listed ones first', () => {
+    const many = Array.from({ length: 20 }, (_, i) => found(`192.168.1.${100 + i}`));
+    const out = enrollCandidates(MAC, many);
+    expect(out).toHaveLength(MAX_ENROLL_CANDIDATES);
+    expect(out.slice(0, 2)).toEqual([LISTED_TAILNET, LISTED_LAN]);
+  });
+});
+
+describe('enrollViaAccount: the home-network address the account hints at (plan 18)', () => {
+  const HOME = '192.168.1.20'; // LAN's host
+  const OTHER = 'http://192.168.1.44:3333'; // something else Bonjour finds on this Wi-Fi
+  const line = (c: { method: string; url: string }) => `${c.method} ${c.url}`;
+
+  /**
+   * One enroll, and everything it did, less what differs from run to run (ids, keys, tickets, nonces, tokens).
+   * `target`: what to change on the account's Mac (its Tailscale address 100.101.102.103 and port 3333 are listed).
+   */
+  async function enroll(opts: Parameters<typeof createHarness>[0], target: Partial<AccountMac>) {
+    const { t, listed } = await signedIn(opts);
+    const tried: Candidate[] = [];
+    const before: string[] = [];
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], ...target }, {
+      phoneName: 'Pixel',
+      onTry: (c) => {
+        if (tried.length === 0) before.push(...t.mac.calls.map(line));
+        tried.push(c);
+      },
+    });
+    const saved = await loadMacs(t.deps.store);
+    return {
+      t,
+      out,
+      did: {
+        requests: t.mac.calls.map(line),
+        bodyKeys: t.mac.calls.map((c) => (c.body && typeof c.body === 'object' ? Object.keys(c.body).sort() : null)),
+        tried,
+        askedBeforeTheFirstTry: before,
+        outcome: out.ok ? { ok: true, mac: { ...out.mac, id: '(id)' } } : out,
+        saved: saved.map((m) => ({ ...m, id: '(id)' })),
+        keysInVault: [...t.vault.keys()].filter((k) => k !== ACCOUNT_VAULT_KEY).length,
+        enrolledOnTheMac: t.mac.enrolled().length,
+        statuses: [...t.mac.devices.values()].map((d) => d.status),
+      },
+    };
+  }
+
+  /** The home-network address LAN for a Mac with no Tailscale address, found the old way (Bonjour) or hinted. */
+  const atHome = (via: 'bonjour' | 'hinted', mac: FakeMacOptions) => enroll(
+    { mac, discovery: via === 'bonjour' ? bonjour(LAN) : bonjour() },
+    { tailnet: null, lan: via === 'hinted' ? HOME : null },
+  );
+
+  it('connects over the hinted address with no Bonjour at all, and saves what a Bonjour find saves', async () => {
+    const { t, listed } = await signedIn({ mac: { reachable: [LAN] } }); // no discovery: this phone has no browser
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], tailnet: null, lan: HOME }, { phoneName: 'Pixel' });
+    if (!out.ok) throw new Error(out.message);
+    expect(out.mac).toMatchObject({
+      name: 'Kason-MBP', port: 3333, lan: HOME, tailnet: null, lanAllowed: true, lastPath: 'lan', status: 'active',
+      backendDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', unconfirmed: true,
+    });
+    expect(await loadMacs(t.deps.store)).toEqual([out.mac]);
+    expect(await readMacCredentials(t.deps.vault, out.mac.id)).toMatchObject({ deviceId: t.mac.enrolled()[0] });
+    expect(enrollCalls(t).map((c) => new URL(c.url).origin)).toEqual([LAN]);
+    expect(ticketCalls(t)).toHaveLength(1);
+  });
+
+  it('end to end: the list, the directory’s hint for it, then an enroll at home with Tailscale not answering', async () => {
+    const { t, listed } = await signedIn({
+      mac: {
+        reachable: [LAN],
+        account: { macs: [{ deviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f', name: 'Kason-MBP', lan: HOME, tailnet: '100.101.102.103', port: 3333 }] },
+      },
+    });
+    expect(listed[0]).toMatchObject({ lan: null, tailnet: '100.101.102.103', port: 3333 });
+    const [hinted] = await withDirectoryHints(t.deps, listed);
+    expect(hinted).toMatchObject({ lan: HOME, tailnet: '100.101.102.103', port: 3333 });
+    t.mac.calls.length = 0;
+    const out = await enrollViaAccount(t.deps, [], hinted, { phoneName: 'Pixel' });
+    if (!out.ok) throw new Error(out.message);
+    expect(out.mac).toMatchObject({ lan: HOME, tailnet: null, lanAllowed: true, lastPath: 'lan' });
+    // Tailscale had its turn first; the hint was dialled only after it failed to answer.
+    expect(t.mac.calls.map(line)).toEqual([
+      `GET ${TAILNET}/api/auth/status`, `GET ${LAN}/api/auth/status`, 'POST https://api.aasc.work/v1/enroll/tickets', `POST ${LAN}/api/mobile/enroll`,
+    ]);
+  });
+
+  // Tailscale first, and a phone whose Tailscale address answers does exactly what it did before the hint existed.
+  it.each<[string, Parameters<typeof createHarness>[0]]>([
+    ['the Mac answers on both', { mac: { reachable: [TAILNET, LAN] } }],
+    ['the Mac answers on both, and Bonjour finds something else', { mac: { reachable: [TAILNET, LAN, OTHER] }, discovery: bonjour(OTHER) }],
+    ['the Mac answers on Tailscale only', { mac: { reachable: [TAILNET] } }],
+    ['the Mac refuses over Tailscale (sign-ins off)', { mac: { reachable: [TAILNET, LAN], accountEnroll: false } }],
+    ['something else answers at the Tailscale address', { mac: { reachable: [LAN], strangers: [TAILNET] } }],
+    ['a box at the Tailscale address answers 429', { mac: { reachable: [LAN], strangers: [TAILNET], strangerEnroll: { [TAILNET]: 'RATE_LIMITED' } } }],
+  ])('Tailscale answers (%s): the hint is never dialled, and nothing differs from an enroll without it', async (_what, opts) => {
+    const today = await enroll(opts, { lan: null });
+    const hinted = await enroll(opts, { lan: HOME });
+    expect(hinted.did).toEqual(today.did);
+    expect(hinted.did.requests.filter((r) => r.includes(LAN))).toEqual([]); // not even a probe
+    expect(hinted.did.saved.every((m) => m.lan === null && m.lanAllowed === false)).toBe(true);
+  });
+
+  it('Tailscale answers and enrolls: the row is the Tailscale row of before, with the home network off', async () => {
+    const { out, did } = await enroll({ mac: { reachable: [TAILNET, LAN] } }, { lan: HOME });
+    if (!out.ok) throw new Error(out.message);
+    expect(out.mac).toMatchObject({ lan: null, tailnet: '100.101.102.103', lanAllowed: false, lastPath: 'tailnet' });
+    expect(did.requests).toEqual([`GET ${TAILNET}/api/auth/status`, 'POST https://api.aasc.work/v1/enroll/tickets', `POST ${TAILNET}/api/mobile/enroll`]);
+  });
+
+  it('Tailscale does not answer: the hint is dialled after it, and the Mac there enrolls', async () => {
+    const { out, did } = await enroll({ mac: { reachable: [LAN] } }, { lan: HOME });
+    if (!out.ok) throw new Error(out.message);
+    expect(did.requests).toEqual([
+      `GET ${TAILNET}/api/auth/status`, `GET ${LAN}/api/auth/status`, 'POST https://api.aasc.work/v1/enroll/tickets', `POST ${LAN}/api/mobile/enroll`,
+    ]);
+    expect(out.mac).toMatchObject({ lan: HOME, tailnet: null, lanAllowed: true, lastPath: 'lan' });
+  });
+
+  it('Tailscale does not answer and the hint is what Bonjour would have found: the same requests in the same order', async () => {
+    const byBonjour = await enroll({ mac: { reachable: [LAN] }, discovery: bonjour(LAN) }, { lan: null });
+    const hinted = await enroll({ mac: { reachable: [LAN] }, discovery: bonjour() }, { lan: HOME });
+    expect(hinted.did).toEqual(byBonjour.did);
+    expect(hinted.out.ok).toBe(true);
+  });
+
+  it('an address Bonjour also found is an address on this Wi-Fi: it is treated as before, hint or no hint', async () => {
+    const opts: Parameters<typeof createHarness>[0] = { mac: { reachable: [LAN], strangers: [TAILNET] }, discovery: bonjour(LAN) };
+    const today = await enroll(opts, { lan: null });
+    const hinted = await enroll(opts, { lan: HOME });
+    expect(hinted.did).toEqual(today.did);
+    expect(hinted.out.ok).toBe(true); // passed over at the Tailscale address (NOT_THIS_MAC), enrolled at the found one
+    expect(hinted.did.requests.filter((r) => r.endsWith('/api/mobile/enroll'))).toEqual([`POST ${TAILNET}/api/mobile/enroll`, `POST ${LAN}/api/mobile/enroll`]);
+  });
+
+  it('a user who moves on before the hint’s turn: the hint is never dialled', async () => {
+    const { t, listed } = await signedIn({ mac: { reachable: [LAN] } });
+    const stillHere = () => !t.mac.calls.some((c) => c.url.startsWith(TAILNET)); // gone once Tailscale has been tried
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], lan: HOME }, { phoneName: 'Pixel', proceed: stillHere });
+    expect(out).toMatchObject({ ok: false, reason: 'cancelled' });
+    expect(t.mac.calls.some((c) => c.url.startsWith(LAN))).toBe(false);
+    expectNothingSaved(t);
+  });
+
+  it('a relay answering at the hinted address gets a seal for the Mac’s own address: refused, nothing saved', async () => {
+    const { t, listed } = await signedIn({ mac: { reachable: [TAILNET], relays: [LAN] } });
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], tailnet: null, lan: HOME }, { phoneName: 'Pixel' });
+    expect(out).toMatchObject({ ok: false, reason: 'invalid' });
+    expect(message(out)).toContain('nothing was saved');
+    expect(t.mac.enrolled()).toHaveLength(1); // the Mac did seal, for its own address
+    expectNothingSaved(t);
+  });
+
+  it('a box at the hinted address that seals its own token is refused, nothing saved (C1)', async () => {
+    const { t, listed } = await signedIn({ mac: { reachable: [], strangers: [LAN], strangerEnroll: { [LAN]: 'FORGE' } } });
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], tailnet: null, lan: HOME }, { phoneName: 'Pixel' });
+    expect(out).toMatchObject({ ok: false, reason: 'invalid' });
+    expectNothingSaved(t);
+  });
+
+  it('another owner’s Mac at the hinted address (a café’s 192.168.1.20) is passed over, nothing saved', async () => {
+    const { t, listed } = await signedIn({ mac: { reachable: [], strangers: [LAN] } });
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], lan: HOME }, { phoneName: 'Pixel' });
+    expect(out).toMatchObject({ ok: false, reason: 'unreachable' });
+    expect(enrollCalls(t).map((c) => new URL(c.url).origin)).toEqual([LAN]);
+    expectNothingSaved(t);
+  });
+
+  it('an address of the wrong kind handed in as the home-network one is never dialled', async () => {
+    const PUBLIC = 'http://8.8.8.8:3333';
+    const { t, listed } = await signedIn({ mac: { reachable: [PUBLIC] } });
+    const out = await enrollViaAccount(t.deps, [], { ...listed[0], tailnet: null, lan: '8.8.8.8' }, { phoneName: 'Pixel' });
+    expect(out).toMatchObject({ ok: false, reason: 'unreachable' });
+    expect(t.mac.calls.some((c) => c.url.startsWith(PUBLIC))).toBe(false);
+    expectNothingSaved(t);
+  });
+
+  it('names the home network before anything is asked of it, as for a Bonjour address', async () => {
+    const { did } = await atHome('hinted', { reachable: [LAN] });
+    expect(did.tried).toEqual([{ kind: 'lan', origin: LAN, encrypted: false }]);
+    // By then only the probe has gone out: no ticket yet, and nothing posted to the address.
+    expect(did.askedBeforeTheFirstTry).toEqual([`GET ${LAN}/api/auth/status`]);
+  });
+
+  // The proof that a hinted address gets no fewer checks than a Bonjour one: the same box at the same address,
+  // found either way, sees the same requests in the same order and leaves the same things on the phone and the Mac.
+  it.each<[string, FakeMacOptions, 'saved' | 'nothing saved']>([
+    ['the Mac itself', { reachable: [LAN] }, 'saved'],
+    ['a relay to the Mac', { reachable: [TAILNET], relays: [LAN] }, 'nothing saved'],
+    ['a box that seals its own token', { reachable: [], strangers: [LAN], strangerEnroll: { [LAN]: 'FORGE' } }, 'nothing saved'],
+    ['another owner’s Mac', { reachable: [], strangers: [LAN] }, 'nothing saved'],
+    ['a box that answers 429', { reachable: [], strangers: [LAN], strangerEnroll: { [LAN]: 'RATE_LIMITED' } }, 'nothing saved'],
+    ['the Mac with account sign-ins off', { reachable: [LAN], accountEnroll: false }, 'nothing saved'],
+    ['nothing at all', { reachable: [] }, 'nothing saved'],
+  ])('%s at the address: hinted or found by Bonjour, the same requests, the same checks, %s', async (_what, mac, end) => {
+    const byBonjour = await atHome('bonjour', mac);
+    const byHint = await atHome('hinted', mac);
+    expect(byHint.did).toEqual(byBonjour.did);
+    expect(byHint.out.ok).toBe(end === 'saved');
+    if (end === 'nothing saved') expectNothingSaved(byHint.t);
+    else expect(byHint.did.saved).toEqual([expect.objectContaining({ lan: HOME, lanAllowed: true, lastPath: 'lan', unconfirmed: true })]);
   });
 });

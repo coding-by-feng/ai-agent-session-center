@@ -4,8 +4,18 @@
  * phone part counts the Mac's active paired phones and how many have a socket now.
  * Nov 2 2026: tablets (an iPad by name, `pairedDeviceKind`) count apart, with their own icon.
  */
+import type { ControlHolderView } from '../types';
 import type { PairedPhone } from './mobilePairingApi';
 import { pairedDeviceKind } from './deviceKind';
+
+/** How many sessions a device currently drives. Offline holders drive nothing. */
+export function drivingCount(controllers: Map<string, ControlHolderView>, clientId: string): number {
+  let n = 0;
+  for (const holder of controllers.values()) {
+    if (holder.clientId === clientId && holder.online) n++;
+  }
+  return n;
+}
 
 export interface PhoneSummary {
   /** Active paired phones (tablets, pending, revoked and paired computers left out). */

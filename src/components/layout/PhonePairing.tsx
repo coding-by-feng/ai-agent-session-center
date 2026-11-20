@@ -138,6 +138,14 @@ const MAX_NAME = 80;
 /** Shown before revoking a phone that joined through the account (review H1): the Mac also signs it out of the cloud. */
 const ACCOUNT_REVOKE_NOTE =
   'This also signs it out of AASC Cloud. Signing in with Google on that phone again lets it connect again unless you turn off account phones here.';
+/** The same moment for a computer that joined through the account (plan 18): it is refused here, never signed out. */
+const ACCOUNT_COMPUTER_REVOKE_NOTE =
+  'It stays signed in to AASC Cloud, and can connect through your account again only after it signs in there anew. A pairing link still works.';
+
+function accountRevokeNote(p: Pick<PairedPhone, 'origin' | 'platform'>): string | null {
+  if (p.origin !== 'account') return null;
+  return p.platform === 'desktop' ? ACCOUNT_COMPUTER_REVOKE_NOTE : ACCOUNT_REVOKE_NOTE;
+}
 
 function accountTag(p: Pick<PairedPhone, 'origin' | 'accountEmail'>): string | null {
   if (p.origin !== 'account') return null;
@@ -500,7 +508,7 @@ export default function PhonePairing() {
                     {confirmRevoke === p.id ? (
                       <>
                         {p.origin === 'account' && (
-                          <span id={`revoke-note-${p.id}`} className={styles.revokeNote}>{ACCOUNT_REVOKE_NOTE}</span>
+                          <span id={`revoke-note-${p.id}`} className={styles.revokeNote}>{accountRevokeNote(p)}</span>
                         )}
                         <Button
                           size="sm"

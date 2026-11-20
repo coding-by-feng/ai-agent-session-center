@@ -109,9 +109,85 @@ const status: z.ZodType<CloudStatus> = z
   })
   .strict();
 const googleStartAnswer = z.object({ url: z.string().url() }).strict();
+/** How the Mac's last browser round trip ended (server/cloud/googleSignIn.ts `SignInFinish`). */
+export type BrowserStepResult =
+  | 'connected'
+  | 'deleted'
+  | 'deleted-other'
+  | 'deleted-unchecked'
+  | 'no-pending'
+  | 'state-mismatch'
+  | 'expired'
+  | 'failed';
+export interface BrowserStepState {
+  pending: boolean;
+  last: { intent: 'connect' | 'delete'; result: BrowserStepResult } | null;
+}
+const googleStateAnswer: z.ZodType<BrowserStepState> = z
+  .object({
+    pending: z.boolean(),
+    last: z
+      .object({
+        intent: z.enum(['connect', 'delete']),
+        result: z.enum([
+          'connected',
+          'deleted',
+          'deleted-other',
+          'deleted-unchecked',
+          'no-pending',
+          'state-mismatch',
+          'expired',
+          'failed',
+        ]),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+/** Where "Export my data" saved its file on this computer, and how big it is. */
+const accountExportAnswer = z
+  .object({ path: z.string().min(1).max(4096), bytes: z.number().int().nonnegative().safe() })
+  .strict();
 const defaults: z.ZodType<CloudDefaults> = z
   .object({ backendUrl: z.string().url(), deviceName: z.string() })
   .strict();
+/**
+ * One device signed in to the account (plan 18, RESOURCES → Machines). `kind`, `platform` and
+ * `edition` are the backend's own short codes, or one a later backend adds; times are ms.
+ */
+export interface AccountDevice {
+  id: string;
+  name: string;
+  kind: string | null;
+  platform: string | null;
+  edition: string | null;
+  appVersion: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+  /** This computer itself. */
+  current: boolean;
+}
+// Not strict, and no limits of its own: the server has already read each row (server/cloud/devices.ts), and a
+// client stricter than the server turns one long name into "couldn't list your devices". A field a later
+// server adds is dropped.
+const accountDevice: z.ZodType<AccountDevice> = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  kind: z.string().nullable(),
+  platform: z.string().nullable(),
+  edition: z.string().nullable(),
+  appVersion: z.string().nullable(),
+  createdAt: z.number().finite(),
+  lastUsedAt: z.number().finite().nullable(),
+  current: z.boolean(),
+});
+/** Each row is read on its own: one that cannot be read is left out, never a failure of the list. */
+const accountDevicesAnswer = z.object({ devices: z.array(z.unknown()) }).transform(({ devices }) => ({
+  devices: devices.flatMap((row) => {
+    const read = accountDevice.safeParse(row);
+    return read.success ? [read.data] : [];
+  }),
+}));
 // Remote access (AASC-60) is this Mac's own Tailscale state, answered with no cloud connection and
 // so with no account binding. Like `status`, the view is strict: a field the server grows later
 // (an auth URL, a confirm code) is added here on purpose and never reaches the page by accident.
@@ -267,8 +343,37 @@ export const cloudApi = {
   defaults: (signal?: AbortSignal) =>
     request('/defaults', 'GET', undefined, undefined, defaults, signal),
   /** Sign in with Google (AASC-61): the backend URL to open in the browser; the Mac then waits for its callback. */
-  googleStart: (input: { deviceName: string; backendUrl?: string }, signal?: AbortSignal) =>
-    request('/google/start', 'POST', undefined, input, googleStartAnswer, signal),
+  /**
+   * `intent: 'delete'` (plan 18) starts the round trip that deletes the account instead: it needs
+   * the reviewed `binding`, and the Mac sends it to that connection's backend only.
+   */
+  googleStart: (
+    input: { deviceName?: string; backendUrl?: string; intent?: 'delete' },
+    signal?: AbortSignal,
+    binding?: CloudReviewBinding,
+  ) => request('/google/start', 'POST', binding, input, googleStartAnswer, signal),
+  /** Whether a browser round trip is still waiting on the Mac, and how the last one ended. */
+  googleState: (signal?: AbortSignal) =>
+    request('/google/state', 'GET', undefined, undefined, googleStateAnswer, signal),
+  /** Plan 18: saves everything AASC Cloud holds for the account to a file on this computer. */
+  accountExport: (binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request('/account/export', 'POST', binding, {}, accountExportAnswer, signal),
+  /** Plan 18: every device signed in to the account, this computer first, then most recently used. */
+  accountDevices: (signal?: AbortSignal) =>
+    request('/account/devices', 'GET', undefined, undefined, accountDevicesAnswer, signal),
+  /**
+   * Sign one of them out, under the connection the page reviewed. Sends `{}` as the other cloud writes do;
+   * this route does not ask for a body (its router is mounted ahead of the JSON gate), and does not mind one.
+   */
+  signOutAccountDevice: (id: string, binding: CloudReviewBinding, signal?: AbortSignal) =>
+    request(
+      `/account/devices/${encodeURIComponent(id)}`,
+      'DELETE',
+      binding,
+      {},
+      z.object({ revoked: z.literal(true) }),
+      signal,
+    ),
   googleCancel: async (signal?: AbortSignal) => {
     await request(
       '/google/cancel',

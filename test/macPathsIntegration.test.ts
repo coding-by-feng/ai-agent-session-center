@@ -254,8 +254,12 @@ describe('wiring in server/index.ts', () => {
     expect(source.indexOf('const tailscaleProbe = createTailscaleProbe(')).toBeLessThan(
       source.indexOf('createMobileRouter({'),
     );
-    expect(between('createMobileRouter({', 'pathLog: phonePathLog')).toMatch(
-      /pairingTarget: createPairingTarget\(\{[^}]*probe: tailscaleProbe/s,
-    );
+    // One pairing target, built from that probe before the mobile router: the router reads it, and so does the
+    // account's directory (plan 18, machineAccountWiring), so neither can name another address.
+    expect(source).toMatch(/const pairingTarget = createPairingTarget\(\{[^}]*probe: tailscaleProbe/s);
+    expect(source.match(/createPairingTarget\(/g)).toHaveLength(1);
+    expect(source.indexOf('const pairingTarget = createPairingTarget(')).toBeLessThan(source.indexOf('createMobileRouter({'));
+    expect(between('createMobileRouter({', 'pathLog: phonePathLog')).toMatch(/^\s*pairingTarget,$/m);
+    expect(between('createMachineAccountWiring({', 'const deviceAuth = createDeviceAuth(')).toMatch(/^\s*target: pairingTarget,$/m);
   });
 });

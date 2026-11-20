@@ -3,6 +3,11 @@
 // The account vouches for the phone, never for an address (plan 17 rule 1). So:
 //   1. Candidates: the Tailscale address the account lists for the Mac, then the `_aasc._tcp` services
 //      Bonjour finds on this Wi-Fi at private addresses. Each is probed; only one that answers goes on.
+//      Plan 18 adds one between them: the home-network address the account's directory hints at
+//      (accountMacs.ts withDirectoryHints, private addresses only). Unless Bonjour found it too, it is not
+//      dialled at all, even to probe it, while the listed Tailscale address answers: a phone whose Tailscale
+//      path answers does exactly what it did before the hint existed. Once dialled it is a home-network
+//      candidate like a found one, on the same path (probe, ticket, seal check, save).
 //   2. At the first that answers: a fresh P-256 key pair, a 60 s single-use ticket from the backend bound
 //      to (this phone, that Mac, this public key) and its seal secret (kept in memory only), then
 //      POST <origin>/api/mobile/enroll with a fresh nonce.
@@ -20,7 +25,7 @@
 //      a session is opened here instead (nothing navigates).
 // No ticket, token or key goes into an outcome, Preferences, a URL or a log.
 import { listAccountMacs, type AccountMac } from './accountMacs.js';
-import { readAccountCredential, signOutAccount } from './accountSignIn.js';
+import { accountCredentialState, signInUnreadableText, signOutAccount } from './accountSignIn.js';
 import type { Candidate } from './connectionPlan.js';
 import { newEnrollNonce, newPhoneKey, openSealedCredentials, SEAL_SECRET, type PhoneKey } from './enrollCrypto.js';
 import { errorCode, field, jsonHeaders } from './http.js';
@@ -68,7 +73,14 @@ async function browse(deps: EnrollDeps, proceed: () => boolean, budgetMs: number
   }
 }
 
-/** The addresses to try, each once: the listed Tailscale address, then Bonjour's private ones (the listed port first). */
+/** A home-network address as a candidate: plain HTTP, whether the account listed it or Bonjour found it. */
+const homeNetwork = (host: string, port: number): Candidate => ({ kind: 'lan', origin: `http://${host}:${port}`, encrypted: false });
+
+/**
+ * The addresses to try, each once: the listed Tailscale address, the home-network address the account hints at
+ * (plan 18), then Bonjour's private ones (the listed port first). A hinted home-network address is the same kind of
+ * candidate as one Bonjour found, so the probe, the ticket, the seal check and the save treat the two alike.
+ */
 export function enrollCandidates(mac: AccountMac, services: BrowseResult['services']): Candidate[] {
   const out: Candidate[] = [];
   const add = (c: Candidate) => {
@@ -77,10 +89,12 @@ export function enrollCandidates(mac: AccountMac, services: BrowseResult['servic
   if (mac.tailnet && isTailnetAddress(mac.tailnet) && mac.port !== null) {
     add({ kind: 'tailnet', origin: `http://${mac.tailnet}:${mac.port}`, encrypted: true });
   }
+  // Checked again here, as Bonjour's are below: plain HTTP is only ever dialled to a private address.
+  if (mac.lan && isPrivateLanAddress(mac.lan) && mac.port !== null) add(homeNetwork(mac.lan, mac.port));
   const lan = services.filter((s) => typeof s?.host === 'string' && isPrivateLanAddress(s.host)
     && Number.isInteger(s.port) && s.port >= 1 && s.port <= 65535);
   const ordered = [...lan.filter((s) => s.port === mac.port), ...lan.filter((s) => s.port !== mac.port)];
-  for (const s of ordered) add({ kind: 'lan', origin: `http://${s.host}:${s.port}`, encrypted: false });
+  for (const s of ordered) add(homeNetwork(s.host, s.port));
   return out.slice(0, MAX_ENROLL_CANDIDATES);
 }
 
@@ -91,10 +105,15 @@ export function dialledPort(url: URL): number {
 
 type TicketResult = { ok: true; ticket: string; sealSecret: string } | Failure;
 
+/** A token the vault can't give right now (a locked keychain) is not a sign-out: nothing is asked or forgotten. */
+const unreadable: Failure = fail('refused', `${signInUnreadableText()} ${SAVED_NOTHING}`);
+
 /** A ticket from the backend for (this phone, `mac`, `key`). */
 async function askTicket(deps: EnrollDeps, mac: AccountMac, key: PhoneKey): Promise<TicketResult> {
-  const cred = await readAccountCredential(deps.vault).catch(() => null);
-  if (!cred || !isBackendHost(cred.host)) return fail('signed-out', 'Sign in to AASC Cloud again.');
+  const read = await accountCredentialState(deps.vault);
+  if (read.status === 'unreadable') return unreadable;
+  if (read.status !== 'ok' || !isBackendHost(read.cred.host)) return fail('signed-out', 'Sign in to AASC Cloud again.');
+  const { cred } = read;
   let res: HttpResponse;
   try {
     res = await deps.requester.request({
@@ -217,20 +236,30 @@ export async function enrollViaAccount(
 ): Promise<EnrollOutcome> {
   const proceed = opts.proceed ?? (() => true);
   const cancelled = fail('cancelled', `Cancelled. ${SAVED_NOTHING}`);
-  if (!(await readAccountCredential(deps.vault).catch(() => null))) return fail('signed-out', 'Sign in to AASC Cloud first.');
+  const read = await accountCredentialState(deps.vault);
+  if (read.status === 'unreadable') return unreadable;
+  if (read.status !== 'ok') return fail('signed-out', 'Sign in to AASC Cloud first.');
   if (!proceed()) return cancelled;
-  const tried = enrollCandidates(mac, await browse(deps, proceed, opts.browseBudgetMs ?? BROWSE_BUDGET_MS));
+  const services = await browse(deps, proceed, opts.browseBudgetMs ?? BROWSE_BUDGET_MS);
+  const tried = enrollCandidates(mac, services);
   if (!proceed()) return cancelled;
-  // Every candidate at once; then in order, the ones that answered.
+  // Every candidate at once; then in order, the ones that answered. The one exception is the home-network address
+  // the account only hints at (plan 18: not listed before, not found on this Wi-Fi): it is dialled, even to probe
+  // it, only once the listed Tailscale address has failed to answer, or there is none.
   const probe = probeWith(deps);
-  const answers = tried.map((c) => probe(c.origin));
+  const asBefore = new Set(enrollCandidates({ ...mac, lan: null }, services).map((c) => c.origin));
+  const answers = tried.map((c) => (asBefore.has(c.origin) ? probe(c.origin) : null));
+  let tailnetAnswered = false;
   let session: { key: PhoneKey; ticket: string; sealSecret: string } | null = null;
   let best: Refusal | null = null;
   const remember = (r: Refusal) => {
     if (!best || r.rank > best.rank) best = r;
   };
   for (const [i, c] of tried.entries()) {
-    if (!(await answers[i]) || !proceed()) continue;
+    const early = answers[i];
+    const answered = early ? await early : !tailnetAnswered && proceed() && await probe(c.origin);
+    if (answered && c.kind === 'tailnet') tailnetAnswered = true;
+    if (!answered || !proceed()) continue;
     opts.onTry?.(c);
     if (!session) {
       const key = await newPhoneKey();

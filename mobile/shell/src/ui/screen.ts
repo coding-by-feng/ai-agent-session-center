@@ -40,7 +40,7 @@ export type Screen =
       name: 'macs';
       notice: string | null;
       unpair?: { macId: string; step: Exclude<UnpairStep, 'idle'> } | null;
-      /** Plan 17: the account row's menu (Sign out) is open. */
+      /** Plan 17: the account row's menu (Sign out, Delete AASC Cloud account…) is open. */
       accountMenu?: boolean;
       /** Plan 17: connecting to one of the account's Macs; `message` is the status line or what went wrong. */
       enroll?: { deviceId: string; step: EnrollStep; message: string | null } | null;
@@ -66,6 +66,8 @@ export type Screen =
    * challenge. Only the code (not secret); the verifier, challenge and state stay in accountWiring's memory.
    */
   | { name: 'account-match'; code: string; busy: boolean }
+  /** Nov 20 2026: "Delete your AASC Cloud account?", asked before anything opens. Continue leads to `account-match`. */
+  | { name: 'account-delete' }
   /** AASC-21: the biometric lock; what follows the unlock is the app's, not the screen's. */
   | { name: 'locked'; busy: boolean; failed: boolean }
   /** AASC-21 / AASC-19: this phone's own settings (lock, notifications). */
@@ -126,6 +128,10 @@ export interface Actions {
   confirmAccountMatch(): void;
   cancelAccountMatch(): void;
   signOutAccount(): void;
+  /** Nov 20 2026: Delete AASC Cloud account… (the menu), then the confirm step's Continue and Cancel. */
+  askDeleteAccount(): void;
+  confirmDeleteAccount(): void;
+  cancelDeleteAccount(): void;
   toggleAccountMenu(): void;
   refreshAccount(): void;
   enrollMac(deviceId: string): void;
@@ -142,7 +148,10 @@ export interface AccountView {
   macs: AccountMac[];
   /** Has the account listed any Mac at all (saved here or not)? */
   listedAny: boolean;
-  status: 'loading' | 'ready' | 'unavailable';
+  /** `unavailable`: AASC Cloud didn't answer. `unreadable`: this phone couldn't read its own sign-in, so nothing was asked. */
+  status: 'loading' | 'ready' | 'unavailable' | 'unreadable';
+  /** This build has the sign-in sheet, which deleting the account finishes in. */
+  canDelete: boolean;
 }
 
 /** This phone's lock, when the app has biometrics wired (null: no lock on this build). */

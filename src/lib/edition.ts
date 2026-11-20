@@ -38,6 +38,8 @@ export function liteSessionTabs<T extends { id: string }>(tabs: readonly T[], ha
 const LITE_SHORTCUTS: ReadonlySet<string> = new Set([
   'newSession', 'scrollToBottom', 'terminalToggleAutoScroll',
   'switchLatestSession', 'jumpToSession', 'searchSessions', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabAiPopups', 'switchTabQueue',
+  // The devices panel's Switch part, which Lite has too (plan 18 stage 2).
+  'switchDevice',
   // An AI popup window's keys, named on its buttons. Only a focused window reacts.
   'floatMinimize', 'floatMaximize', 'floatClose',
 ]);

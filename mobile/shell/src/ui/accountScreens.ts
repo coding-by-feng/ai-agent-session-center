@@ -1,6 +1,8 @@
-// accountScreens.ts — the AASC Cloud part of Your Macs (plan 17): who is signed in (menu: Sign out) and
-// the account's Macs this phone hasn't saved yet, each with Connect, or Offline when nothing reached it.
+// accountScreens.ts — the AASC Cloud part of Your Macs (plan 17): who is signed in (menu: Sign out, Delete
+// AASC Cloud account…) and the account's Macs this phone hasn't saved yet, each with Connect, or Offline
+// when nothing reached it.
 import type { AccountMac } from '../accountMacs.js';
+import { signInUnreadableText } from '../accountSignIn.js';
 import { h, icon } from './dom.js';
 import { actions, alert, button, para, screen, status } from './parts.js';
 import type { AccountView, Screen, ScreenContext } from './screen.js';
@@ -20,6 +22,20 @@ export function renderAccountMatch(s: Extract<Screen, { name: 'account-match' }>
     actions(
       button('Continue', a.confirmAccountMatch, 'primary', { disabled: s.busy, 'aria-busy': s.busy ? 'true' : null }),
       button('Cancel', a.cancelAccountMatch, 'secondary', { disabled: s.busy })));
+}
+
+/**
+ * Nov 20 2026: asked before anything opens. Continue only leads to the match code and the sign-in sheet; the
+ * deleting itself is the one button on the backend's page there.
+ */
+export function renderAccountDelete(ctx: ScreenContext): HTMLElement {
+  const a = ctx.actions;
+  return screen('Delete your AASC Cloud account?', null,
+    para('This removes your account, its devices, synced notes, resources and saved projects from AASC Cloud. '
+      + 'Sessions and files on your computers are not touched. You finish in a Google sign-in sheet.'),
+    actions(
+      button('Continue', a.confirmDeleteAccount, 'danger'),
+      button('Cancel', a.cancelDeleteAccount, 'secondary')));
 }
 
 function accountRow(mac: AccountMac, s: MacsScreen, ctx: ScreenContext): HTMLLIElement {
@@ -65,6 +81,12 @@ function listPart(view: AccountView, s: MacsScreen, ctx: ScreenContext): Node | 
       para('Couldn’t reach AASC Cloud to list your Macs.', 'hint'),
       button('Try again', ctx.actions.refreshAccount, 'secondary', { 'aria-label': 'Ask AASC Cloud again' }));
   }
+  if (view.status === 'unreadable') {
+    // Not a sign-out: the token is in the vault, which couldn't be read (a locked keychain). Nothing was asked.
+    return h('div', { class: 'stack' },
+      para(signInUnreadableText(ctx.device), 'hint'),
+      button('Try again', ctx.actions.refreshAccount, 'secondary'));
+  }
   return para(view.listedAny
     ? `Every Mac on your account is on this ${ctx.device}.`
     : 'No Macs on your account yet. Sign in to AASC Cloud on a Mac first.', 'hint');
@@ -85,8 +107,13 @@ export function renderAccountSection(s: MacsScreen, ctx: ScreenContext): HTMLEle
       }, 'Account', icon('chevron', `icon icon-sm account-caret${open ? ' open' : ''}`))),
     open
       ? h('div', { class: 'account-menu', attrs: { id: 'account-menu' } },
-          button('Sign out of AASC Cloud', ctx.actions.signOutAccount, 'danger'),
-          para(`Macs saved on this ${ctx.device} stay.`, 'hint'))
+          // Sign out can be undone (sign in again), so it is the plain button; only Delete looks destructive.
+          button('Sign out of AASC Cloud', ctx.actions.signOutAccount, 'secondary'),
+          para(`Macs saved on this ${ctx.device} stay.`, 'hint'),
+          // Destructive, so apart from Sign out: its own group under a divider (a fixed gap).
+          view.canDelete
+            ? h('div', { class: 'account-delete' }, button('Delete AASC Cloud account…', ctx.actions.askDeleteAccount, 'danger'))
+            : null)
       : null,
     listPart(view, s, ctx));
 }

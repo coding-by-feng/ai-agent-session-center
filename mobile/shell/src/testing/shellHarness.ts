@@ -39,8 +39,9 @@ export interface HarnessOptions {
   /** Bonjour on this Wi-Fi: what the native browse finds (absent: the phone has no browser, sweep only). */
   discovery?: () => Promise<BrowseResult>;
   /**
-   * Plan 17: the sign-in sheet. `true`: it goes through the fake backend's Google redirect as a user who signs in;
-   * a function: the test decides what comes back (`redirect` is what the fake backend would send). Absent: none.
+   * Plan 17: the sign-in sheet. `true`: it goes through the fake backend's Google redirect as a user who signs in
+   * (and, on the delete page, presses "Delete my account"); a function: the test decides what comes back (`redirect`
+   * is what the fake backend would send; for a delete, with nothing deleted yet). Absent: none.
    */
   authSession?: true | ((startUrl: string, redirect: string | null) => Promise<AuthSessionResult>);
 }
@@ -74,9 +75,11 @@ export function createHarness(opts: HarnessOptions = {}) {
   const authSession: AuthSession | undefined = opts.authSession && {
     start: async (url, callback) => {
       extras.authStarts.push({ url, callback });
-      const redirect = mac.googleRedirect(url);
-      if (opts.authSession === true) return redirect ? { url: redirect } : { cancelled: true };
-      return (opts.authSession as (u: string, r: string | null) => Promise<AuthSessionResult>)(url, redirect);
+      if (opts.authSession === true) {
+        const redirect = mac.googleRedirect(url);
+        return redirect ? { url: redirect } : { cancelled: true };
+      }
+      return (opts.authSession as (u: string, r: string | null) => Promise<AuthSessionResult>)(url, mac.googleRedirect(url, { pressDelete: false }));
     },
   };
   const push: PushHost | undefined = opts.push && {

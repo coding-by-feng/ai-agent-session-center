@@ -7,6 +7,7 @@ import { cloudApi } from '@/lib/cloudApi';
 import type { CloudStatus } from '@/types/cloud';
 import { useSkillNotesStore, refreshNotesConnection } from '@/stores/skillNotesStore';
 import CloudAliasControls from '../CloudAliasControls';
+import CloudAccountActions from './CloudAccountActions';
 import { useCloudAction, useCloudSession, bindingKey } from './cloudSession';
 import styles from '@/styles/modules/CloudResources.module.css';
 /** While the browser is signing in with Google (AASC-61), the card re-reads the connection this often. */
@@ -203,6 +204,7 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
             {action.error}
           </p>
         )}
+        <CloudAccountActions onStatus={changed} />
       </section>
       <section className={styles.card}>
         <h3>Notes and CLI aliases</h3>

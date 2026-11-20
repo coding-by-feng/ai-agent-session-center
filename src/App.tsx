@@ -5,6 +5,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import SetupWizard from '@/components/setup/SetupWizard';
 import Header from '@/components/layout/Header';
 import NavBar from '@/components/layout/NavBar';
+import DevicePresenceChip from '@/components/layout/DevicePresenceChip';
 import ToastContainer from '@/components/ui/ToastContainer';
 import ConfirmStack from '@/components/mcp/ConfirmStack';
 import SettingsPanel from '@/components/settings/SettingsPanel';
@@ -123,7 +124,13 @@ function AppLayout() {
           Electron the spacer takes over the Header's job of clearing the fixed
           28px TitleBar (it collapses to zero height elsewhere). */}
       {hideTopBars ? (
-        <div className={appLayout.titleBarSpacer} />
+        <>
+          <div className={appLayout.titleBarSpacer} />
+          {/* The devices chip went with the Header. Its panel still opens from the keyboard (the switchDevice
+              key, pressed from a terminal): a chip-less copy that draws and reads nothing until then. Already
+              in this chunk through Header, so it adds no import. */}
+          <DevicePresenceChip chipless />
+        </>
       ) : (
           <>
             <Header />

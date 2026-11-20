@@ -1,0 +1,273 @@
+/*
+ * AccountDevices — RESOURCES → Machines › Devices on your account (plan 18). A table of the account's devices
+ * while the section is wide; at 720px and under each row becomes a card. The breakpoint is a container query on
+ * the section's own frame, so it follows whatever narrows the section, not the window. 720px is where the four
+ * columns still fit on one line each: at 612px "Mac · macOS · Full 2.10.80" broke before its version.
+ *
+ * Nothing is force-wrapped: a name ellipsises on one line, the kind and the time wrap only at their spaces, and
+ * the action keeps its width.
+ */
+
+.section {
+  min-width: 0;
+}
+
+/* The heading, and Check again beside it. Takes focus when the last row with an action is signed out, so focus
+   never falls to <body>. */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.head:focus {
+  outline: none;
+}
+
+.head:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 2px;
+}
+
+.headAside {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.line {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* One line and at most one action; the action drops under the line when there is no room beside it. */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.noticeText {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* The kit's danger text: the raw red is under 4.5:1 on the light themes. */
+.error {
+  color: var(--danger-text, color-mix(in srgb, var(--accent-red) 50%, var(--text-primary)));
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.frame {
+  container-type: inline-size;
+  min-width: 0;
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- the table */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+  font-weight: 400;
+}
+
+.table thead th {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The name leads; a long one ellipsises on its line (its title has it whole) and never pushes the action out. */
+.table .name {
+  max-width: 0;
+  width: 34%;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.nameText {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.name > :not(.nameText) {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.kind {
+  color: var(--text-primary);
+}
+
+.used {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* "Last used" and "used" are the column's heading while there is one; in a card they are part of the line. */
+.cardWords {
+  display: none;
+}
+
+.table .action {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The question, then its two answers; the answers drop under the question as one unit when the row is narrow. */
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.question {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.confirmActions {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+}
+
+.confirmCell > .error {
+  display: block;
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- the cards */
+
+@container (max-width: 720px) {
+  .table,
+  .table tbody,
+  .table tr,
+  .table th,
+  .table td {
+    display: block;
+  }
+
+  /* The headings stay for a screen reader; a card's lines say what they are. */
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* A card: the name with its action beside it, then the kind, then when it was last used. The action sits in
+     the first line so a card is no taller than its three lines of data. Two classes: `.table tr` above (0-1-1)
+     would otherwise keep the row a block. */
+  .table .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--bg-card);
+  }
+
+  .table .row + .row {
+    margin-top: 8px;
+  }
+
+  .table .row > th,
+  .table .row > td {
+    width: auto;
+    max-width: none;
+    padding: 0;
+    border-bottom: 0;
+    text-align: left;
+  }
+
+  .table .row > .name {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .nameText {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .table .row > .action {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .table .row > .kind {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .table .row > .used {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    white-space: normal;
+  }
+
+  /* The question takes the card's width under the name. */
+  .table .row > .confirmCell {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 4px;
+  }
+
+  .cardWords {
+    display: inline;
+  }
+
+  .table .row > .action:empty,
+  .table .row > .kind:empty {
+    display: none;
+  }
+}

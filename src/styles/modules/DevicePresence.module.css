@@ -87,6 +87,12 @@
   font-size: 12px;
 }
 
+/* The `switchDevice` key lands focus on the panel itself for the moment before its rows are read (tabindex -1,
+   never a tab stop): a ring round the whole panel would flash for that moment. Every control inside keeps its own. */
+.panel:focus {
+  outline: none;
+}
+
 /* The sections (Sharing, pairing, paired computers) each draw a top rule; the first one in the
    panel drops it, and the devices heading takes one when the sections sit above it. */
 .panel > :first-child {
@@ -444,4 +450,86 @@
 /* A phone count followed by the tablet icon: a little extra room so "2 ▭1" reads as two counts. */
 .chipCount + .chipIcon {
   margin-left: 3px;
+}
+
+/* ------------------------------------------- the two parts (plan 18 stage 2) */
+
+/* Switch | This computer, where the account channels exist. Two equal tabs on a rule; the panel scrolls under them. */
+.parts {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle-strong);
+}
+
+/* Five states: default, hover, active, focus-visible, disabled; and selected, marked by weight and a rule as well
+   as colour. */
+.part {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 32px;
+  margin-bottom: -1px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.part:hover:not(:disabled) {
+  background: var(--bg-subtle-strong);
+  color: var(--text-primary);
+}
+
+.part:active:not(:disabled) {
+  background: var(--bg-accent-strong);
+}
+
+.part:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: -2px;
+}
+
+.part:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.partActive,
+.partActive:hover:not(:disabled) {
+  border-bottom-color: var(--accent-text, var(--accent-cyan));
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* A part's sections each draw a top rule, as they do straight in the panel: the first drops it, and the devices
+   heading takes one when sections sit above it. */
+.partPanel > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.partPanel > .panelHead:not(:first-child) {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (pointer: coarse) {
+  .part {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .part {
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
 }

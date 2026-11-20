@@ -446,3 +446,86 @@ it('a remote device gets the RESOURCES 404 on Remote access as the unavailable e
   );
   await expect(cloudApi.remoteAccess()).rejects.toMatchObject({ code: 'unavailable' });
 });
+
+// Plan 18: every device signed in to the account, and signing one out (RESOURCES → Machines).
+it('lists the account’s devices with no binding, and keeps only what the page reads', async () => {
+  const device = {
+    id: 'dev-1', name: 'Mac mini', kind: 'mac', platform: 'macos', edition: 'full', appVersion: '2.10.80',
+    createdAt: 1, lastUsedAt: null, current: false,
+  };
+  const fetcher = vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify({ success: true, data: { devices: [{ ...device, addedLater: true }] } }), { status: 200 }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  await expect(cloudApi.accountDevices()).resolves.toEqual({ devices: [device] });
+  const [url, init] = fetcher.mock.calls[0];
+  expect(url).toBe('/api/resources/cloud/account/devices');
+  expect(init?.method).toBe('GET');
+  expect(init?.body).toBeUndefined();
+  expect(init?.headers).toEqual({});
+});
+it.each([
+  ['no devices field', {}],
+  ['devices that are not a list', { devices: 'nope' }],
+])('refuses an answer that is not a device list at all (%s)', async (_label, data) => {
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify({ success: true, data }), { status: 200 }),
+  ));
+  await expect(cloudApi.accountDevices()).rejects.toBeTruthy();
+});
+// The server reads each row on its own and allows more than this client once did (a 256-character name, 5000
+// rows): one odd row must never cost the whole list.
+it('reads each device on its own: a row it cannot read is skipped, its neighbours stay, and nothing caps the list', async () => {
+  const row = (id: string, over: Record<string, unknown> = {}) => ({
+    id, name: `Device ${id}`, kind: 'server', platform: 'macos', edition: 'full', appVersion: '2.10.80',
+    createdAt: 1, lastUsedAt: null, current: false, ...over,
+  });
+  const long = 'N'.repeat(250);
+  const many = Array.from({ length: 600 }, (_, i) => row(`m${i}`));
+  const devices = [
+    row('a'),
+    row('bad-name', { name: 7 }),
+    row('long', { name: long }),
+    { id: 'no-fields' },
+    'not a row',
+    null,
+    row('bad-time', { createdAt: 'yesterday' }),
+    row('z'),
+    ...many,
+  ];
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify({ success: true, data: { devices } }), { status: 200 }),
+  ));
+  const answer = await cloudApi.accountDevices();
+  expect(answer.devices.slice(0, 3).map((d) => d.id)).toEqual(['a', 'long', 'z']);
+  expect(answer.devices[1].name).toBe(long);
+  expect(answer.devices).toHaveLength(3 + 600);
+});
+it('signs a device out with the reviewed binding, as a JSON write, and reports the server’s refusal by its code', async () => {
+  const binding = { backendOrigin: 'https://cloud.example', accountId: 'd23c54de-1b99-4802-87bf-d84ddba2fdf1', generation: 7 };
+  const fetcher = vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify({ success: true, data: { revoked: true } }), { status: 200 }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  await expect(cloudApi.signOutAccountDevice('dev/1 ?', binding)).resolves.toEqual({ revoked: true });
+  expect(fetcher.mock.calls[0]).toMatchObject([
+    '/api/resources/cloud/account/devices/dev%2F1%20%3F',
+    {
+      method: 'DELETE',
+      // The cloud routes answer 415 to a write without a JSON body.
+      body: '{}',
+      headers: {
+        'content-type': 'application/json',
+        'x-aasc-cloud-backend': binding.backendOrigin,
+        'x-aasc-cloud-account': binding.accountId,
+        'x-aasc-cloud-generation': '7',
+      },
+    },
+  ]);
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(
+    async () => new Response(JSON.stringify({ success: false, error: { code: 'own_device', message: 'This computer signs out from its own cloud account.' } }), { status: 409 }),
+  ));
+  await expect(cloudApi.signOutAccountDevice('dev-1', binding)).rejects.toMatchObject({
+    code: 'own_device', message: 'This computer signs out from its own cloud account.',
+  });
+});

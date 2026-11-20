@@ -1,6 +1,7 @@
 /**
  * IPC for Remote computers (Oct 28 2026): pair this app with another computer's AASC
- * the way the phone does, check on it, and open its own UI in a window.
+ * the way the phone does, check on it, and open its own UI in a window. Plan 18 adds the
+ * computers on this computer's AASC Cloud account: list them, and connect to one with no link.
  *
  * Every argument comes from the renderer, so each is checked by hand here before it
  * reaches the store or the network. Every answer is `{ ok, data } | { ok: false, error }`
@@ -10,13 +11,17 @@ import { app, ipcMain, safeStorage, type IpcMainInvokeEvent, type Session } from
 import { randomBytes } from 'crypto'
 import os from 'os'
 import path from 'path'
-import type { RemoteComputer, RemoteComputerCheck, RemoteResult } from '../../src/types/electron.js'
+import type { AccountDirectory, RemoteComputer, RemoteComputerCheck, RemoteResult } from '../../src/types/electron.js'
+import {
+  connectThroughAccount, readAccountDirectory, type AccountTarget, type DirectoryMachine, type LocalServer,
+} from '../remote/accountDirectory.js'
 import { readRemotePairingLink } from '../remote/pairingLinkRules.js'
 import {
-  addressPlan, countShared, fetchPaths, pair, remoteSessionState, signIn, unpair, unreachableMessage,
-  type FetchLike, type RemoteClientDeps, type RemoteTarget, type SignInResult,
+  addressPlan, fetchPaths, machineProved, pair, remoteSessionState, sharedCounts, signIn, unpair, unreachableMessage,
+  type FetchLike, type ProofRule, type ProvedSignInResult, type RemoteClientDeps, type RemoteCredentials, type RemoteTarget,
+  type SharedCounts, type Via,
 } from '../remote/remoteClient.js'
-import { createRemoteStore, REMOTE_ID, type RemoteStore } from '../remote/remoteStore.js'
+import { createRemoteStore, BACKEND_DEVICE_ID, NO_KEYCHAIN, REMOTE_ID, type RemoteStore } from '../remote/remoteStore.js'
 import {
   closeRemoteWindows, focusRemoteWindow, forgetRemoteWindow, isLocalAppSenderUrl, openRemoteOrigin, openRemoteWindow,
   remoteSessionToken, signBackIn,
@@ -28,13 +33,19 @@ const MAX_NAME = 80
 const SOMETHING_WENT_WRONG = 'Something went wrong talking to that computer. Try again.'
 const NOT_PAIRED = 'That computer isn’t paired here any more.'
 const NOT_THIS_APP = 'Only this app’s own window can manage remote computers.'
+const NOT_IN_THIS_EDITION = 'Connecting through an AASC Cloud account isn’t available in this edition.'
+const NOT_ON_ACCOUNT = 'That computer isn’t on your AASC Cloud account.'
 
 /**
  * What a Client edition (clientMain.ts) changes. Nothing is passed in Full and Lite, so they keep the local dashboard
  * rule and show the remote's own UI.
  */
 export interface RemoteHandlerOptions {
-  /** Who may call these channels. The default is the local dashboard, which a Client doesn't have. */
+  /**
+   * Who may call these channels. The default is the local dashboard, which a Client doesn't have. Passing one also
+   * says this app has no AASC server of its own, so the account channels (plan 18: `remote:accountMachines`,
+   * `remote:accountConnect`), which ask that server, answer that they aren't in this edition.
+   */
   isAppSender?: (url: string) => boolean
   /** Runs on the remote's session before its window's first request. */
   beforeLoad?: (ses: Session, origin: string) => void | Promise<void>
@@ -107,7 +118,7 @@ async function guarded<T>(what: string, fn: () => Promise<RemoteResult<T>>): Pro
 }
 
 /** Record what a sign-in learned about the pairing's state. */
-function recordSignIn(id: string, result: SignInResult, now: number): void {
+function recordSignIn(id: string, result: ProvedSignInResult, now: number): void {
   const s = remoteStore()
   if (result.state === 'ok') s.update(id, { status: 'active', confirmCode: null, lastSeenAt: now })
   else if (result.state === 'pending') s.update(id, { status: 'pending' })
@@ -121,6 +132,29 @@ function pendingMessage(r: RemoteComputer): string {
 
 function revokedMessage(r: RemoteComputer): string {
   return `${r.name} removed this computer. Remove it here and pair again.`
+}
+
+/** Something answered, but nothing proved it is that computer at the address dialled (plan 18). */
+function impostorMessage(r: RemoteComputer): string {
+  return `Something else answered at ${r.name}’s address.`
+}
+
+/**
+ * What to say when nothing proved itself for a record made through the account. While this computer still waits for
+ * Allow the machine vouches for nothing yet, which is all an unproved answer means: the row keeps saying it waits.
+ * Otherwise it is the sentence above, which is also all this computer learns once the machine's owner removed it:
+ * it sends no sign-in to find out which.
+ */
+function unprovedMessage(r: RemoteComputer): string {
+  return r.status === 'pending' ? pendingMessage(r) : impostorMessage(r)
+}
+
+/**
+ * What a record asks of the machine's proof: for one made through the account the machine proves itself at an address
+ * before this computer answers a challenge there; one paired by link asks for none, exactly as before plan 18.
+ */
+function proofRule(r: RemoteComputer): ProofRule {
+  return r.origin === 'account' ? 'required' : 'skip'
 }
 
 async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
@@ -147,6 +181,14 @@ async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
   }, paired.deviceToken)
 }
 
+/** No list of shared sessions was read: neither count is known. */
+const NO_COUNTS = { sharedSessions: null, needsYou: null } as const
+
+/** The two counts of a check answer: how many sessions the remote shares, and how many of them wait on the person. */
+function countsOf(counts: SharedCounts | null): Pick<RemoteComputerCheck, 'sharedSessions' | 'needsYou'> {
+  return counts ? { sharedSessions: counts.sharedSessions, needsYou: counts.needsYou } : NO_COUNTS
+}
+
 /**
  * Check on a computer whose window is open, with that window's own session. A sign-in mints a session and the remote
  * keeps only the newest four per computer, so the list's 30-second check would end the dashboard's session within two
@@ -156,21 +198,25 @@ async function add(link: unknown): Promise<RemoteResult<RemoteComputer>> {
  * Null when a sign-in is the only way to learn more, and costs the window nothing: its session has died and nothing here
  * will revive it (this is how the row learns the remote removed this computer), or the remote has no password.
  */
-async function checkOpenWindow(r: RemoteComputer, windowOrigin: string): Promise<RemoteResult<RemoteComputerCheck> | null> {
+async function checkOpenWindow(
+  r: RemoteComputer, windowOrigin: string, creds: RemoteCredentials,
+): Promise<RemoteResult<RemoteComputerCheck> | null> {
   const target = targetOf(r)
   const token = await remoteSessionToken(r.id, windowOrigin)
   // new URL drops :80, so an address is compared by what it parses to, not how the plan spells it.
   const plan = addressPlan(target).map(({ via, origin }) => ({ via, origin: new URL(origin).origin }))
   const origins = [windowOrigin, ...plan.map((address) => address.origin).filter((origin) => origin !== windowOrigin)]
   for (const origin of origins) {
+    // The window already talks to its own address. Any other one gets its session only once the machine proved itself there.
+    if (origin !== windowOrigin && !(await machineProved(clientDeps, origin, creds, proofRule(r)))) continue
     const state = await remoteSessionState(clientDeps, origin, token)
     if (state === 'no-answer') continue
     if (state === 'no-password' || (state === 'signed-out' && !handlerOptions.keepSignedIn)) return null
     const via = plan.find((address) => address.origin === origin)?.via ?? null
-    const sharedSessions = state === 'signed-in' && token ? await countShared(clientDeps, origin, token) : null
-    return { ok: true, data: { state: 'online', via, sharedSessions, message: null } }
+    const counts = state === 'signed-in' && token ? await sharedCounts(clientDeps, origin, token) : null
+    return { ok: true, data: { state: 'online', via, ...countsOf(counts), message: null } }
   }
-  return { ok: true, data: { state: 'offline', via: null, sharedSessions: null, message: unreachableMessage(target) } }
+  return { ok: true, data: { state: 'offline', via: null, ...NO_COUNTS, message: unreachableMessage(target) } }
 }
 
 /** Sign an open dashboard back in if its session has died: a long sleep, or the remote restarting (tokens are in memory). */
@@ -182,12 +228,16 @@ async function revive(id: string): Promise<void> {
   const r = s.get(id)
   const creds = s.credentials(id)
   if (!r || !creds) return
-  const result = await signIn(clientDeps, targetOf(r), creds)
+  const rule = proofRule(r)
+  const result = await signIn(clientDeps, targetOf(r), creds, rule)
   recordSignIn(id, result, Date.now())
   // Closing brings the list back, whose row says what happened.
   if (result.state === 'revoked') closeRemoteWindows(id)
-  // On the window's own address: its session is good at any of them, and this one just answered.
-  if (result.state === 'ok') await signBackIn(id, origin, result.token, result.expiresIn)
+  if (result.state !== 'ok') return
+  // On the window's own address: its session is good at any of them, and this one just answered. When the sign-in
+  // went to another address, the window's own has proved nothing yet, and the new session is not handed to it unproved.
+  if (new URL(result.origin).origin !== origin && !(await machineProved(clientDeps, origin, creds, rule))) return
+  await signBackIn(id, origin, result.token, result.expiresIn)
 }
 
 /** One round of `revive` over every computer. Never throws, so a timer can keep calling it. */
@@ -207,24 +257,33 @@ async function check(id: unknown): Promise<RemoteResult<RemoteComputerCheck>> {
   const creds = s.credentials(id)
   if (!r || !creds) return fail(NOT_PAIRED)
   const openAt = openRemoteOrigin(id)
-  const answered = openAt ? await checkOpenWindow(r, openAt) : null
+  const answered = openAt ? await checkOpenWindow(r, openAt, creds) : null
   if (answered) return answered
-  const result = await signIn(clientDeps, targetOf(r), creds)
+  const result = await signIn(clientDeps, targetOf(r), creds, proofRule(r))
   recordSignIn(id, result, Date.now())
   switch (result.state) {
     case 'ok': {
       // A Tailscale address counts only with the remote's proof; a missing one keeps the old.
       const paths = await fetchPaths(clientDeps, result.origin, result.token, creds)
       if (paths?.tailnet && paths.tailnet !== r.tailnet) s.update(id, { tailnet: paths.tailnet })
-      const sharedSessions = await countShared(clientDeps, result.origin, result.token)
-      return { ok: true, data: { state: 'online', via: result.via, sharedSessions, message: null } }
+      const counts = await sharedCounts(clientDeps, result.origin, result.token)
+      return { ok: true, data: { state: 'online', via: result.via, ...countsOf(counts), message: null } }
     }
     case 'pending':
-      return { ok: true, data: { state: 'pending', via: result.via, sharedSessions: null, message: pendingMessage(r) } }
+      return { ok: true, data: { state: 'pending', via: result.via, ...NO_COUNTS, message: pendingMessage(r) } }
     case 'revoked':
-      return { ok: true, data: { state: 'revoked', via: result.via, sharedSessions: null, message: revokedMessage(r) } }
+      return { ok: true, data: { state: 'revoked', via: result.via, ...NO_COUNTS, message: revokedMessage(r) } }
+    case 'unverified':
+      // Nothing proved itself, so nothing was signed in to. A record still waiting for Allow just keeps waiting. An
+      // allowed one says `unproved`: its machine did not prove itself, and Connect enrolls again (accountConnect).
+      return {
+        ok: true,
+        data: r.status === 'active'
+          ? { state: 'offline', via: null, ...NO_COUNTS, message: impostorMessage(r), unproved: true }
+          : { state: r.status === 'pending' ? 'pending' : 'offline', via: null, ...NO_COUNTS, message: unprovedMessage(r) },
+      }
     case 'offline':
-      return { ok: true, data: { state: 'offline', via: null, sharedSessions: null, message: result.message } }
+      return { ok: true, data: { state: 'offline', via: null, ...NO_COUNTS, message: result.message } }
     case 'error':
       return fail(result.message)
   }
@@ -241,7 +300,7 @@ async function open(id: unknown): Promise<RemoteResult<null>> {
   const r = s.get(id)
   const creds = s.credentials(id)
   if (!r || !creds) return fail(NOT_PAIRED)
-  const result = await signIn(clientDeps, targetOf(r), creds)
+  const result = await signIn(clientDeps, targetOf(r), creds, proofRule(r))
   recordSignIn(id, result, Date.now())
   switch (result.state) {
     case 'ok':
@@ -259,6 +318,8 @@ async function open(id: unknown): Promise<RemoteResult<null>> {
       return fail(pendingMessage(r))
     case 'revoked':
       return fail(revokedMessage(r))
+    case 'unverified':
+      return fail(unprovedMessage(r))
     case 'offline':
       return fail(result.message || unreachableMessage(targetOf(r)))
     case 'error':
@@ -284,8 +345,8 @@ async function remove(id: unknown): Promise<RemoteResult<{ unpairedRemotely: boo
   const r = s.get(id)
   if (!r) return fail(NOT_PAIRED)
   const creds = s.credentials(id)
-  // Tell the remote when it answers; forget it here either way.
-  const unpairedRemotely = creds ? await unpair(clientDeps, targetOf(r), creds) : false
+  // Tell the remote when it answers (and, for a record made through the account, proves itself); forget it here either way.
+  const unpairedRemotely = creds ? await unpair(clientDeps, targetOf(r), creds, proofRule(r)) : false
   await forgetRemoteWindow(id)
   s.remove(id)
   return { ok: true, data: { unpairedRemotely } }
@@ -299,9 +360,150 @@ async function rename(id: unknown, name: unknown): Promise<RemoteResult<RemoteCo
   return updated ? { ok: true, data: updated } : fail(NOT_PAIRED)
 }
 
+/**
+ * This computer's own AASC server, which holds its AASC Cloud connection (plan 18): the port main started it on, and
+ * the session of the dashboard window that asked. With a dashboard password set the server wants a session even on
+ * loopback, and the page that called this channel already holds one; it goes to 127.0.0.1 and nowhere else.
+ */
+async function localServer(e: IpcMainInvokeEvent): Promise<LocalServer> {
+  const port = Number(process.env.SERVER_PORT || Number.NaN)
+  let sessionToken: string | null = null
+  try {
+    const url = `${new URL(e.senderFrame?.url ?? '').origin}/`
+    const [cookie] = await e.sender.session.cookies.get({ url, name: 'auth_token' })
+    sessionToken = cookie?.value ?? null
+  } catch {
+    sessionToken = null // no password, or a window on its way out: the server says so if it wanted one
+  }
+  return { port, sessionToken }
+}
+
+/**
+ * Give every record made through the account the addresses the directory now lists for its machine. Such a record
+ * trusts no address until the machine proves itself there, so a changed hint costs nothing; a record paired by link is
+ * never touched (the store refuses it too). A machine that lists no usable address keeps the record's own.
+ */
+function followDirectory(machines: DirectoryMachine[]): void {
+  const s = remoteStore()
+  for (const r of s.list()) {
+    if (r.origin !== 'account') continue
+    const listed = machines.find((m) => m.deviceId === r.backendDeviceId)
+    if (listed?.addresses) s.refreshAddresses(r.id, listed.addresses)
+  }
+}
+
+/** The account's computers, each with this computer's record for it when it connected through the account. */
+async function accountMachines(e: IpcMainInvokeEvent): Promise<RemoteResult<AccountDirectory>> {
+  const read = await readAccountDirectory(clientDeps, await localServer(e))
+  if (read.state !== 'ok') return { ok: true, data: { state: read.state, machines: [] } }
+  followDirectory(read.machines)
+  const records = remoteStore().list().filter((r) => r.origin === 'account')
+  const machines = read.machines.map((m) => ({ ...m, record: records.find((r) => r.backendDeviceId === m.deviceId) ?? null }))
+  return { ok: true, data: { state: 'ok', machines } }
+}
+
+function validMachineId(id: unknown): id is string {
+  return typeof id === 'string' && id.length <= 64 && BACKEND_DEVICE_ID.test(id)
+}
+
+/** The one address that just answered the enroll: its sealed answer proved the machine is there. */
+function targetAt(target: AccountTarget, via: Via): RemoteTarget {
+  return {
+    lan: via === 'lan' ? target.lan : null,
+    tailnet: via === 'tailnet' ? target.tailnet : null,
+    publicAddress: via === 'public' ? target.publicAddress : null,
+    port: target.port,
+  }
+}
+
+async function accountConnect(e: IpcMainInvokeEvent, machineId: string): Promise<RemoteResult<RemoteComputer>> {
+  const s = remoteStore()
+  // Checked before a ticket is asked for, so the machine isn't left with a device this computer can't keep.
+  if (!s.canStore()) return fail(NO_KEYCHAIN)
+  const server = await localServer(e)
+  const directory = await readAccountDirectory(clientDeps, server)
+  if (directory.state === 'ok') followDirectory(directory.machines)
+  // A record the machine accepts, or one still waiting for its Allow, is never traded for a new one: enrolling again
+  // would swap a working key for a pending one. It is checked the usual way and answered as it stands. One case starts
+  // over: an allowed record for which nothing proves itself any more, where something does answer. The machine's
+  // owner removed this computer, or a box sits in the machine's place; this computer can't tell which, and needn't.
+  // Only the machine can redeem a ticket, and its answer opens only for the address dialled, so a box gains nothing
+  // and the old record stays; and if it was a removal, this is how the row comes back.
+  const existing = s.list().find((r) => r.origin === 'account' && r.backendDeviceId === machineId)
+  if (existing && existing.status !== 'revoked') {
+    const answer = await check(existing.id)
+    const unproved = answer.ok && answer.data.unproved === true
+    if (!(existing.status === 'active' && unproved)) {
+      const now = s.get(existing.id)
+      if (!now) return fail(NOT_PAIRED)
+      if (existing.status === 'pending') return { ok: true, data: now } // waiting for Allow, or just allowed
+      if (answer.ok === false) return fail(answer.error)
+      // Nothing answered anywhere: no ticket is spent on a machine that can't be reached.
+      if (answer.data.state === 'offline') return fail(answer.data.message ?? unreachableMessage(targetOf(now)))
+      return { ok: true, data: now }
+    }
+  }
+  const out = await connectThroughAccount(clientDeps, server, machineId, directory)
+  if (out.ok === false) return fail(out.error)
+  const creds = { deviceId: out.access.deviceId, deviceToken: out.access.deviceToken }
+  const record = {
+    name: out.name,
+    lan: out.target.lan,
+    tailnet: out.target.tailnet,
+    ...(out.target.publicAddress ? { publicAddress: out.target.publicAddress } : {}),
+    port: out.target.port,
+    status: out.access.status,
+    confirmCode: out.access.confirmCode,
+    addedAt: Date.now(),
+    lastSeenAt: null,
+    deviceId: out.access.deviceId,
+    origin: 'account' as const,
+    backendDeviceId: machineId,
+  }
+  // If the key can't be kept after all, the machine holds a device for nothing: this computer takes itself off again,
+  // at the address whose sealed answer just proved the machine is there (a waiting record has no other proof yet).
+  const proven = targetAt(out.target, out.via)
+  let saved: ReturnType<RemoteStore['add']>
+  try {
+    saved = s.add(record, out.access.deviceToken)
+  } catch (err) {
+    await unpair(clientDeps, proven, creds)
+    throw err
+  }
+  if (saved.ok === false) {
+    await unpair(clientDeps, proven, creds)
+    return fail(saved.error)
+  }
+  // Allowed at once ("connect without asking"): the machine keeps such a record only once it has signed in.
+  if (out.access.status === 'active') {
+    recordSignIn(saved.data.id, await signIn(clientDeps, targetOf(saved.data), creds, 'required'), Date.now())
+  }
+  return { ok: true, data: s.get(saved.data.id) ?? saved.data }
+}
+
+const connecting = new Map<string, Promise<RemoteResult<RemoteComputer>>>()
+
+/** A second ask for a machine while one is under way joins it: two tickets would make two devices there. */
+function accountConnectOnce(e: IpcMainInvokeEvent, machineId: unknown): Promise<RemoteResult<RemoteComputer>> {
+  if (!validMachineId(machineId)) return Promise.resolve(fail(NOT_ON_ACCOUNT))
+  const running = connecting.get(machineId)
+  if (running) return running
+  const run = guarded('accountConnect', () => accountConnect(e, machineId)).finally(() => connecting.delete(machineId))
+  connecting.set(machineId, run)
+  return run
+}
+
 /** Only this app's own page may drive remote computers: the local dashboard, unless a Client says otherwise. */
 function fromLocalApp(e: IpcMainInvokeEvent): boolean {
   return (handlerOptions.isAppSender ?? isLocalAppSenderUrl)(e.senderFrame?.url ?? '')
+}
+
+/**
+ * The account channels ask this computer's own server. A Client has none (it is the edition whose page isn't a local
+ * dashboard, so it passes its own sender rule), and answers that they aren't there.
+ */
+function withLocalServer<T>(e: IpcMainInvokeEvent, run: () => Promise<RemoteResult<T>>): Promise<RemoteResult<T>> {
+  return local(e, () => (handlerOptions.isAppSender ? Promise.resolve(fail<T>(NOT_IN_THIS_EDITION)) : run()))
 }
 
 function local<T>(e: IpcMainInvokeEvent, run: () => Promise<RemoteResult<T>>): Promise<RemoteResult<T>> {
@@ -324,4 +526,6 @@ export function registerRemoteHandlers(options: RemoteHandlerOptions = {}): void
   ipcMain.handle('remote:open', (e, id: unknown) => local(e, () => guarded('open', () => openOnce(id))))
   ipcMain.handle('remote:remove', (e, id: unknown) => local(e, () => guarded('remove', () => remove(id))))
   ipcMain.handle('remote:rename', (e, id: unknown, name: unknown) => local(e, () => guarded('rename', () => rename(id, name))))
+  ipcMain.handle('remote:accountMachines', (e) => withLocalServer(e, () => guarded('accountMachines', () => accountMachines(e))))
+  ipcMain.handle('remote:accountConnect', (e, machineId: unknown) => withLocalServer(e, () => accountConnectOnce(e, machineId)))
 }

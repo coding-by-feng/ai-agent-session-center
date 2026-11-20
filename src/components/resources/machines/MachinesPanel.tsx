@@ -4,12 +4,16 @@
  * Connection › Remote access, which needs no cloud connection). Scanning the network and saving
  * SSH machines come next, in this same tab.
  *
+ * Under it, while this computer is connected to AASC Cloud: Devices on your account (plan 18), every
+ * device signed in to the account, with a way to sign one out. `AccountDevices` draws nothing otherwise.
+ *
  * Lazy-loaded by ResourcesView and kept mounted (hidden) once opened, so Remote access reads
  * Tailscale once per visit rather than on every tab switch.
  */
 import SectionHeader from '@/components/ui/SectionHeader';
 import CloudRemoteAccess from '@/components/resources/cloud/CloudRemoteAccess';
 import lib from '@/styles/modules/ResourceLibrary.module.css';
+import AccountDevices from './AccountDevices';
 
 export default function MachinesPanel({
   open,
@@ -17,7 +21,7 @@ export default function MachinesPanel({
 }: {
   /** Machines is the open RESOURCES tab. */
   open: boolean;
-  /** Open the cloud account dialog (Remote access's "Open cloud account"). */
+  /** Open the cloud account dialog (Remote access's and the device list's "Open cloud account"). */
   onAccount: () => void;
 }) {
   return (
@@ -26,6 +30,7 @@ export default function MachinesPanel({
         <SectionHeader label="This Mac" level={2} />
         <CloudRemoteAccess visible={open} onConnection={onAccount} />
       </section>
+      <AccountDevices open={open} onAccount={onAccount} />
     </div>
   );
 }

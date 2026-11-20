@@ -14,7 +14,15 @@
 //   ?lock=1             the biometric lock on; the pretend prompt always passes (AASC-21)
 //   ?google=cancel      Sign in with Google comes back cancelled (plan 17); otherwise it signs in to the
 //                       fake account, whose Mac (Kason-MBP) enrolls over its Tailscale address
-import { createFakeMac } from '../dev/fakeMac.js';
+//   ?delete=other       Delete AASC Cloud account… ends with another Google account deleted (this one stays);
+//                       otherwise the fake account itself is deleted and the phone signs out
+//   ?directory=forbidden|absent   the account's directory (GET /v1/machines, plan 18) answers 403 (a phone that
+//                       signed in before the backend listed computers) or 404 (a backend without it), so no Mac
+//                       gets a home-network hint. Otherwise the directory answers, and with ?scenario=lan it
+//                       hints at Kason-MBP's home-network address: its Tailscale address does not answer there,
+//                       so Connect enrolls over the home network
+import type { FakeAccountOptions } from '../dev/fakeAccount.js';
+import { createFakeMac, FAKE_MAC_DEVICE_ID } from '../dev/fakeMac.js';
 import type { DeviceVault, RawShare, ShellDeps } from '../native.js';
 import type { KeyValueStore } from '../pushRegistration.js';
 import { LAST_MAC_KEY, saveMacs, writeMacCredentials, type SavedMac } from '../savedMacs.js';
@@ -42,11 +50,21 @@ export async function devDeps(search: string): Promise<ShellDeps> {
   const q = new URLSearchParams(search);
   const scenario = q.get('scenario');
   const reachable = scenario === 'offline' ? [] : scenario === 'lan' ? [LAN] : [TAILNET, LAN, STUDIO_TAILNET];
+  const directory = q.get('directory');
+  const account: FakeAccountOptions = {
+    ...(q.get('delete') === 'other' ? { deletes: 'another' as const } : {}),
+    ...(directory === 'forbidden' || directory === 'absent' ? { directory } : {}),
+    // At home (?scenario=lan) the directory also has the Mac's home-network address, the only one that answers.
+    ...(scenario === 'lan'
+      ? { macs: [{ deviceId: FAKE_MAC_DEVICE_ID, name: 'Kason-MBP', lan: new URL(LAN).hostname, tailnet: new URL(TAILNET).hostname, port: 3333 }] }
+      : {}),
+  };
   const mac = createFakeMac({
     reachable,
     approveAfter: scenario === 'wait' || scenario === 'deny' ? null : 2,
     denyAfter: scenario === 'deny' ? 0 : null,
     confirmCode: '482913',
+    account,
     sessions: [
       { sessionId: 'dev-a', status: 'approval', title: 'Fix the failing build', lastActivityAt: Date.now() - 60_000 },
       { sessionId: 'dev-b', status: 'working', title: 'Write the release notes', lastActivityAt: Date.now() },

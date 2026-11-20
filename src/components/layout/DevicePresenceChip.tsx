@@ -26,18 +26,48 @@
  * z-index is measured against full-screen siblings rather than its own row —
  * hence the 10000+ band shared with Tooltip (10000) and SelectionPopup (10050),
  * not the small value it would "deserve" as a NavBar child.
+ *
+ * ## Two parts (plan 18 stage 2, Nov 20 2026)
+ *
+ * Where the account channels exist (`electronAPI.remotes.accountMachines`: the
+ * desktop app on this computer, Full and Lite), the panel has two parts:
+ * **Switch** (`DevicesSwitcher`, shown each time it opens) and **This computer**,
+ * which holds what the panel held before with `MachineAccountSettings` in the
+ * place of the remote computers, since Switch lists those. Only the part in view
+ * is mounted, so only its polls run. Everywhere else (a browser, another device,
+ * an app without the channels) the panel is what it was, pinned by
+ * DevicePresenceChip.unchanged.test.tsx.
+ *
+ * ## From the keyboard (plan 18 §5.4)
+ *
+ * - **Opening on Switch puts focus in it** (`focusOnOpen`, `useSwitcherKeys`): the
+ *   panel is portaled to the end of <body>, so Tab from the chip never reached it.
+ *   A press on a part's tab is not an opening and moves no focus.
+ * - **Escape closes the panel and returns focus** to the chip, or to what had focus
+ *   when the `switchDevice` key opened it. The Escape is the panel's alone: before,
+ *   the same press also reached the session panel's window listener, which brought
+ *   a minimized session back and so took the header, and this chip, off the screen.
+ * - **`switchDevice`** (⇧⌘S / Ctrl+Shift+S, `DEVICES_SWITCH_EVENT`) opens the panel
+ *   on Switch, brings an open panel to Switch, and closes one already there. Focus
+ *   moves onto the panel at once, before any row is read, so the next key is never
+ *   typed into the terminal it came from. Only with the Switch part.
+ * - **`chipless`**: a session panel in view hides the Header, and this chip with it,
+ *   which is when the key is pressed from a terminal. App mounts a chip-less copy
+ *   there: no button, no polling, nothing drawn until the key opens the same panel
+ *   under the window's top right corner.
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
-import type { ControlHolderView } from '@/types';
 import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
-import { listPairedPhones, type PairedPhone } from '@/lib/mobilePairingApi';
-import { deviceChipTitle, summarizePhones } from '@/lib/devicePresenceSummary';
-import { accountPhoneNotice, newAccountPhones } from '@/lib/accountPhoneNotice';
-import { presenceDeviceKind } from '@/lib/deviceKind';
+import { deviceChipTitle, drivingCount, summarizePhones } from '@/lib/devicePresenceSummary';
+import { DEVICES_SWITCH_EVENT, hasAccountChannels } from '@/lib/devicesSwitcher';
+import { usePairedPhones, usePanelNetwork } from '@/hooks/useDevicePanelData';
+import ConnectedDeviceList from '@/components/layout/ConnectedDeviceList';
+import PanelNetworkAddress from '@/components/layout/PanelNetworkAddress';
 import DeviceKindIcon from '@/components/layout/DeviceKindIcon';
+import Tabs from '@/components/ui/Tabs';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useIsDesktopApp } from '@/lib/platform';
 import styles from '@/styles/modules/DevicePresence.module.css';
@@ -47,143 +77,60 @@ import styles from '@/styles/modules/DevicePresence.module.css';
 const PhonePairing = lazy(() => import('@/components/layout/PhonePairing'));
 const SharingDefault = lazy(() => import('@/components/layout/SharingDefault'));
 const RemoteComputers = lazy(() => import('@/components/layout/RemoteComputers'));
+const DevicesSwitcher = lazy(() => import('@/components/layout/DevicesSwitcher'));
+const MachineAccountSettings = lazy(() => import('@/components/layout/MachineAccountSettings'));
+
+/** The panel's two parts, where the account channels exist. */
+type PanelPart = 'switch' | 'this-computer';
 
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
 const PANEL_WIDTH = 320;
-/** How often the Mac re-reads its paired phones for the chip's phone and tablet counts. */
-const PHONES_POLL_MS = 30_000;
+/** The panel with Switch and This computer (plan 18). */
+const SWITCHER_PANEL_WIDTH = 360;
 
-/** How many sessions a device currently drives. Offline holders drive nothing. */
-function drivingCount(controllers: Map<string, ControlHolderView>, clientId: string): number {
-  let n = 0;
-  for (const holder of controllers.values()) {
-    if (holder.clientId === clientId && holder.online) n++;
-  }
-  return n;
+export interface DevicePresenceChipProps {
+  /** The panel without its chip, for where the Header is hidden: see "From the keyboard" above. */
+  chipless?: boolean;
 }
 
-function relativeTime(at: number): string {
-  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (secs < 60) return 'just now';
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  return `${Math.round(mins / 60)}h ago`;
-}
-
-/**
- * `d.address` is a raw `req.socket.remoteAddress` — on a dual-stack machine
- * that's frequently an IPv4-mapped IPv6 form (`::ffff:192.168.6.42`) or bare
- * `::1` for loopback, neither of which reads as an IP a person recognizes.
- * Mirrors the normalization `isLoopbackAddress` already does server-side
- * (`address.replace(/^::ffff:/, '')`), but for DISPLAY only — `d.isLocal`
- * itself is computed server-side and untouched here. An empty address (no
- * socket info available, e.g. behind a proxy) shows as '—' rather than blank.
- */
-function formatAddress(address: string): string {
-  if (!address) return '—';
-  const stripped = address.replace(/^::ffff:/, '');
-  return stripped === '::1' ? '127.0.0.1' : stripped;
-}
-
-/** Shape actually read from `GET /api/config` — that endpoint returns more
- *  fields (hookDensity, debug, enabledClis) that nothing here needs. */
-interface ConfigResponse {
-  localIP: string | null;
-  /** Whether a password is configured (never the password itself). Remote
-   *  devices are refused outright without one, so this decides whether the
-   *  panel explains that or stays quiet. */
-  passwordEnabled?: boolean;
-}
-
-export default function DevicePresenceChip() {
+export default function DevicePresenceChip({ chipless = false }: DevicePresenceChipProps = {}) {
   const devices = usePresenceStore((s) => s.devices);
   // Subscribed so the per-device "driving N sessions" counts re-render when a
   // baton moves, and read directly (rather than via a getState() helper) so the
   // subscription is what actually feeds the render.
   const controllers = usePresenceStore((s) => s.controllers);
   const [open, setOpen] = useState(false);
+  /** Which part shows; every opening starts on Switch. */
+  const [part, setPart] = useState<PanelPart>('switch');
+  /** The panel has just opened on Switch, or the key brought it there: focus goes into the part. A tab press ends it. */
+  const [arrival, setArrival] = useState(false);
+  /** Where a close from the keyboard puts focus: what had it when the key opened the panel; null means the chip. */
+  const returnTo = useRef<HTMLElement | null>(null);
+  /** The key opened the panel: focus moves onto it as soon as it is drawn. */
+  const takeFocus = useRef(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const myId = getClientId();
 
-  // The LAN URL a phone should connect to — undefined until fetched, null once
-  // fetched if this machine has no reachable LAN interface (e.g. no Wi-Fi/
-  // ethernet). Fetched lazily on first open, not on mount: this chip is now
-  // always rendered (see the "always shown" note above), and eagerly hitting
-  // /api/config on every page load for a value most sessions never look at
-  // would undo the "no chrome for the common case" restraint the rest of this
-  // component already follows. Fetched once and cached — a mid-session LAN
-  // change (e.g. Wi-Fi network switch) is rare enough that a page reload
-  // covers it, same as any other startup-computed value in this app.
-  const [networkUrl, setNetworkUrl] = useState<string | null | undefined>(undefined);
-  // Defaults to TRUE so the "other devices are blocked" warning is never shown
-  // on a guess — only once the server has actually said no password is set.
-  const [passwordEnabled, setPasswordEnabled] = useState(true);
-  // The 📱 count (Oct 22 2026): live sockets alone missed every paired phone with
-  // its app closed. Mac only (the list is a local route). Re-read when presence
-  // changes, since a phone opening its app is a presence change, and on a slow
-  // poll for renames and revokes.
-  const [pairedPhones, setPairedPhones] = useState<PairedPhone[] | null>(null);
-  // The last list read, for the "joined through your AASC Cloud account" toast (plan 17): an account phone
-  // connects with no Allow click, so the owner is told here. Kept across the effect's restarts.
-  const lastPhonesRef = useRef<PairedPhone[] | null>(null);
   const isMac = isLocalDevice(devices, myId);
   // Which devices are connected, not every presence update (a baton move is one too).
   const deviceKey = devices.map((d) => d.clientId).join(',');
-  useEffect(() => {
-    if (!isMac) return undefined;
-    const controller = new AbortController();
-    const load = () => {
-      listPairedPhones(controller.signal)
-        .then((list) => {
-          if (controller.signal.aborted) return;
-          for (const p of newAccountPhones(lastPhonesRef.current, list)) showToast(accountPhoneNotice(p), 'info', 8000);
-          lastPhonesRef.current = list;
-          setPairedPhones(list);
-        })
-        .catch(() => { /* a background count: keep the last one */ });
-    };
-    load();
-    const timer = setInterval(load, PHONES_POLL_MS);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [isMac, deviceKey]);
-  useEffect(() => {
-    if (!open || networkUrl !== undefined) return;
-    const controller = new AbortController();
-    void fetch('/api/config', { signal: controller.signal })
-      .then((r) => r.json() as Promise<ConfigResponse>)
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        // window.location.port (not the config file's nominal `port` field)
-        // is what actually loaded THIS page — the two can diverge if the
-        // configured port was in use and portManager.ts fell back to
-        // another one (see server/index.ts's EADDRINUSE retry).
-        setNetworkUrl(data.localIP ? `http://${data.localIP}:${window.location.port}` : null);
-        setPasswordEnabled(!!data.passwordEnabled);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setNetworkUrl(null);
-      });
-    return () => controller.abort();
-  }, [open, networkUrl]);
+  // A chip-less copy draws no counts, so it reads none.
+  const pairedPhones = usePairedPhones(isMac && !chipless, deviceKey);
+  const { networkUrl, passwordEnabled } = usePanelNetwork(open);
 
-  const [copied, setCopied] = useState(false);
-  const handleCopyNetworkUrl = useCallback(async () => {
-    if (!networkUrl) return;
-    try {
-      await navigator.clipboard.writeText(networkUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard permission denied or unavailable — the URL is still
-      // selectable text, so this isn't the only way to copy it.
-    }
-  }, [networkUrl]);
+  // Pairing answers the AASC page on this machine only; a remote device would
+  // get 404s, so the section isn't offered there.
+  const canPairPhones = isLocalDevice(devices, myId);
+  // Remote computers live in Electron's main process: the desktop app on this machine only.
+  const isDesktopApp = useIsDesktopApp();
+  const canPairRemotes = canPairPhones && isDesktopApp && !!window.electronAPI?.remotes;
+  // The account's computers (plan 18): the app's main process must offer them. A Client edition's doesn't.
+  const hasSwitcher = canPairRemotes && hasAccountChannels();
+  // The two-part panel is a little wider: its footer holds two actions that need 327px to share a row.
+  const panelWidth = hasSwitcher ? SWITCHER_PANEL_WIDTH : PANEL_WIDTH;
 
   const place = useCallback(() => {
     const trigger = triggerRef.current;
@@ -192,7 +139,7 @@ export default function DevicePresenceChip() {
     // Shrink before placing: on a 320px-wide phone the full-width panel cannot
     // fit alongside both pads, so clamping position alone still overruns the
     // right edge by the difference. Width first, then position.
-    const width = Math.min(PANEL_WIDTH, window.innerWidth - VIEWPORT_PAD * 2);
+    const width = Math.min(panelWidth, window.innerWidth - VIEWPORT_PAD * 2);
     // Right-align to the trigger, then clamp inside the viewport. On a narrow
     // window the chip sits close enough to the edge that an unclamped panel
     // would render partly offscreen.
@@ -201,6 +148,23 @@ export default function DevicePresenceChip() {
       window.innerWidth - width - VIEWPORT_PAD,
     );
     setPos({ top: rect.bottom + 6, left: Math.max(VIEWPORT_PAD, left), width });
+  }, [panelWidth]);
+
+  /**
+   * Chip-less, there is no chip to hang from: the window's top right corner, under whatever sits above the page
+   * (the macOS title bar). Called from the key's and the window's listeners, never from an effect's own body.
+   */
+  const placeInCorner = useCallback(() => {
+    const width = Math.min(panelWidth, window.innerWidth - VIEWPORT_PAD * 2);
+    const top = document.querySelector('main')?.getBoundingClientRect().top ?? 0;
+    setPos({ top: top + VIEWPORT_PAD, left: Math.max(VIEWPORT_PAD, window.innerWidth - width - VIEWPORT_PAD), width });
+  }, [panelWidth]);
+
+  const closeFromKeyboard = useCallback(() => {
+    setOpen(false);
+    const back = returnTo.current;
+    returnTo.current = null;
+    (back?.isConnected ? back : triggerRef.current)?.focus();
   }, []);
 
   useLayoutEffect(() => {
@@ -209,7 +173,7 @@ export default function DevicePresenceChip() {
 
   useEffect(() => {
     if (!open) return;
-    const reposition = () => place();
+    const reposition = chipless ? placeInCorner : place;
     // `capture: true` is required: scroll does not bubble, so an inner
     // container's scroll is only observable during the capture phase.
     window.addEventListener('scroll', reposition, true);
@@ -223,7 +187,10 @@ export default function DevicePresenceChip() {
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      // The panel's alone: it must not also reach the session panel's window listener behind it.
+      e.stopPropagation();
+      closeFromKeyboard();
     };
     document.addEventListener('mousedown', onPointerDown);
     document.addEventListener('keydown', onKey);
@@ -233,7 +200,35 @@ export default function DevicePresenceChip() {
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, place]);
+  }, [open, place, placeInCorner, chipless, closeFromKeyboard]);
+
+  // The `switchDevice` key. setState from a listener's callback, never from the effect's own body.
+  useEffect(() => {
+    if (!hasSwitcher) return undefined;
+    const onSwitchKey = () => {
+      if (open && part === 'switch') {
+        closeFromKeyboard();
+        return;
+      }
+      if (!open) {
+        const active = document.activeElement;
+        returnTo.current = active instanceof HTMLElement && active !== document.body ? active : null;
+        takeFocus.current = true;
+        if (chipless) placeInCorner();
+        setOpen(true);
+      }
+      setPart('switch');
+      setArrival(true);
+    };
+    document.addEventListener(DEVICES_SWITCH_EVENT, onSwitchKey);
+    return () => document.removeEventListener(DEVICES_SWITCH_EVENT, onSwitchKey);
+  }, [hasSwitcher, chipless, open, part, placeInCorner, closeFromKeyboard]);
+
+  useEffect(() => {
+    if (!open || !pos || !takeFocus.current) return;
+    takeFocus.current = false;
+    panelRef.current?.focus();
+  }, [open, pos]);
 
   const handleReleaseAll = async () => {
     const { released } = await releaseAllControls();
@@ -247,20 +242,68 @@ export default function DevicePresenceChip() {
   };
 
   const myControlled = drivingCount(controllers, myId);
-  // Pairing answers the AASC page on this machine only; a remote device would
-  // get 404s, so the section isn't offered there.
-  const canPairPhones = isLocalDevice(devices, myId);
-  // Remote computers live in Electron's main process: the desktop app on this machine only.
-  const isDesktopApp = useIsDesktopApp();
-  const canPairRemotes = canPairPhones && isDesktopApp && !!window.electronAPI?.remotes;
   const phoneSummary = summarizePhones(canPairPhones ? pairedPhones : null);
+
+  /** What the panel held before the switcher: all of it without the account channels, the This computer part with them. */
+  const thisComputer = (
+    <>
+      {/* The actions lead, so Pair is in view without scrolling; the devices list follows them. */}
+      {canPairPhones && (
+        <Suspense fallback={null}>
+          <SharingDefault />
+          <PhonePairing />
+          {/* With the switcher, the remote computers are its rows; their place here goes to the account settings. */}
+          {hasSwitcher ? <MachineAccountSettings /> : canPairRemotes && <RemoteComputers />}
+        </Suspense>
+      )}
+
+      <div className={styles.panelHead}>Connected devices</div>
+
+      <ConnectedDeviceList devices={devices} controllers={controllers} myId={myId} />
+
+      <p className={styles.explainer}>
+        Everyone sees every session live. Only the device driving a session
+        can type into it — open a session to take over.
+      </p>
+
+      {networkUrl && <PanelNetworkAddress url={networkUrl} />}
+
+      {myControlled > 0 && (
+        <button className={styles.releaseBtn} onClick={handleReleaseAll}>
+          Release my {myControlled} session{myControlled === 1 ? '' : 's'}
+        </button>
+      )}
+
+      {/* Remote devices are refused outright when no password is set
+          (403 / ws 4003), so this is now a "why can't my phone connect"
+          explainer rather than the old "anyone can get in" alarm. Shown
+          whenever a LAN URL is on offer above — i.e. exactly when the
+          user might try to use it — not only once a remote device has
+          somehow appeared. */}
+      {/* `npm run set-password`, NOT `npm run setup`: the setup wizard
+          hard-codes <repo>/data/server-config.json, but a packaged app
+          reads $APP_USER_DATA/server-config.json — so the wizard writes a
+          password this app never reads, and appears to do nothing. */}
+      {networkUrl && !passwordEnabled && (
+        <p className={styles.warn}>
+          ⚠ Other devices are blocked until you set a password.
+          Run <code>npm run set-password</code> on this machine to allow them.
+        </p>
+      )}
+    </>
+  );
 
   return (
     <>
-      <button
+      {!chipless && <button
         ref={triggerRef}
         className={`${styles.chip} ${open ? styles.chipOpen : ''}`}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          returnTo.current = null;
+          setPart('switch');
+          setArrival(true);
+          setOpen((v) => !v);
+        }}
         aria-expanded={open}
         aria-haspopup="dialog"
         title={deviceChipTitle(devices.length, phoneSummary)}
@@ -286,7 +329,7 @@ export default function DevicePresenceChip() {
             {phoneSummary.online > 0 && <span className={styles.chipOnlineDot} aria-hidden="true" />}
           </>
         )}
-      </button>
+      </button>}
 
       {open && pos &&
         createPortal(
@@ -296,92 +339,36 @@ export default function DevicePresenceChip() {
             style={{ top: pos.top, left: pos.left, width: pos.width }}
             role="dialog"
             aria-label="Connected devices"
+            // With the Switch part the key lands focus here first. Never a tab stop.
+            tabIndex={hasSwitcher ? -1 : undefined}
           >
-            {/* The actions lead, so Pair is in view without scrolling; the devices list follows them. */}
-            {canPairPhones && (
-              <Suspense fallback={null}>
-                <SharingDefault />
-                <PhonePairing />
-                {canPairRemotes && <RemoteComputers />}
-              </Suspense>
-            )}
-
-            <div className={styles.panelHead}>Connected devices</div>
-
-            <ul className={styles.deviceList}>
-              {devices.map((d) => {
-                const driving = drivingCount(controllers, d.clientId);
-                const isMe = d.clientId === myId;
-                return (
-                  <li key={d.clientId} className={styles.device}>
-                    <span className={styles.deviceIcon}>
-                      <DeviceKindIcon kind={presenceDeviceKind(d)} />
-                    </span>
-                    <span className={styles.deviceMain}>
-                      <span className={styles.deviceLabel}>
-                        <span className={styles.deviceName} title={d.label}>{d.label}</span>
-                        {isMe && <span className={styles.youTag}>this device</span>}
-                      </span>
-                      <span className={styles.deviceMeta}>
-                        {driving > 0
-                          ? `driving ${driving} session${driving === 1 ? '' : 's'}`
-                          : 'watching only'}
-                        {' · '}
-                        joined {relativeTime(d.connectedAt)}
-                      </span>
-                      <span className={styles.deviceAddress}>{formatAddress(d.address)}</span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-
-            <p className={styles.explainer}>
-              Everyone sees every session live. Only the device driving a session
-              can type into it — open a session to take over.
-            </p>
-
-            {networkUrl && (
-              <div className={styles.networkInfo}>
-                <span className={styles.networkLabel}>Connect a phone at</span>
-                <span className={styles.networkRow}>
-                  <span className={styles.networkUrl}>{networkUrl}</span>
-                  <button
-                    type="button"
-                    className={styles.copyBtn}
-                    onClick={handleCopyNetworkUrl}
-                    title="Copy address"
-                    aria-label="Copy address"
-                  >
-                    {copied ? '✓' : '⧉'}
-                  </button>
-                </span>
-              </div>
-            )}
-
-            {myControlled > 0 && (
-              <button className={styles.releaseBtn} onClick={handleReleaseAll}>
-                Release my {myControlled} session{myControlled === 1 ? '' : 's'}
-              </button>
-            )}
-
-            {/* Remote devices are refused outright when no password is set
-                (403 / ws 4003), so this is now a "why can't my phone connect"
-                explainer rather than the old "anyone can get in" alarm. Shown
-                whenever a LAN URL is on offer above — i.e. exactly when the
-                user might try to use it — not only once a remote device has
-                somehow appeared. */}
-            {/* `npm run set-password`, NOT `npm run setup`: the setup wizard
-                hard-codes <repo>/data/server-config.json, but a packaged app
-                reads $APP_USER_DATA/server-config.json — so the wizard writes a
-                password this app never reads, and appears to do nothing. */}
-            {networkUrl && !passwordEnabled && (
-              <p className={styles.warn}>
-                ⚠ Other devices are blocked until you set a password.
-                Run <code>npm run set-password</code> on this machine to allow them.
-              </p>
-            )}
-
+            {hasSwitcher ? (
+              <Tabs
+                tabs={[
+                  {
+                    id: 'switch',
+                    label: 'Switch',
+                    content: (
+                      // Keyed: This computer also starts with a <Suspense>, and React would reuse this one for
+                      // it, keeping the switcher mounted (hidden, still polling) while those sections load.
+                      <Suspense key="switch" fallback={null}>
+                        <DevicesSwitcher onLeave={() => setOpen(false)} focusOnOpen={arrival} />
+                      </Suspense>
+                    ),
+                  },
+                  { id: 'this-computer', label: 'This computer', content: thisComputer },
+                ]}
+                activeTab={part}
+                onTabChange={(id) => {
+                  setPart(id === 'this-computer' ? 'this-computer' : 'switch');
+                  setArrival(false);
+                }}
+                tabListClassName={styles.parts}
+                tabClassName={styles.part}
+                activeTabClassName={styles.partActive}
+                panelClassName={styles.partPanel}
+              />
+            ) : thisComputer}
           </div>,
           document.body,
         )}

@@ -138,6 +138,13 @@ export interface RemoteComputer {
   addedAt: number
   /** Last time a sign-in succeeded (ms), or null. */
   lastSeenAt: number | null
+  /**
+   * How the pairing was made (plan 18): by a pairing link, or through the AASC Cloud account. The main process always
+   * sets it; a record from before plan 18 reads as `link`.
+   */
+  origin?: 'link' | 'account'
+  /** With `origin: 'account'`: the machine's device id on the account (`AccountMachine.deviceId`). */
+  backendDeviceId?: string
 }
 
 /** A remote's live state from `check`. */
@@ -148,11 +155,66 @@ export interface RemoteComputerCheck {
   via: 'lan' | 'tailnet' | 'public' | 'https' | null
   /** Sessions the remote shares (GET /api/sessions), when online. */
   sharedSessions: number | null
+  /**
+   * How many of those sessions wait on the person (status `approval` or `input`), from the same list. Null whenever
+   * `sharedSessions` is null; 0 is a real answer. The main process always sets it.
+   */
+  needsYou?: number | null
   /** A short reason when offline or refused. */
   message: string | null
+  /**
+   * The machine did not prove itself: Connect enrolls again. Set only for an active record made through the account
+   * when something answered at an address and no proof verified ("Something else answered at <name>’s address.").
+   * Never for a record waiting for Allow, one paired by link, plain offline (nothing answered) or online / revoked.
+   */
+  unproved?: true
 }
 
 export type RemoteResult<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/**
+ * One computer on this computer's AASC Cloud account (plan 18, "one account, all devices"), as the account's directory
+ * lists it. Never a ticket, a key or a token.
+ */
+export interface AccountMachine {
+  /** The machine's device id on the account. `RemoteComputer.backendDeviceId` names the same machine. */
+  deviceId: string
+  name: string
+  /** `macos`, `windows`, `linux`, or a word a later backend adds; null when it never said. */
+  platform: string | null
+  /** `full`, `lite`, `server`, `client`, or a word a later backend adds; null when it never said. */
+  edition: string | null
+  appVersion: string | null
+  /** When the machine last used its account connection (ms), or null. */
+  lastUsedAt: number | null
+  /** This computer itself. */
+  current: boolean
+  /** It can take a connection through the account. False: it signed in before plan 18, and must sign in again there. */
+  connectable: boolean
+  /** `self`: one of the account's own computers. `other`: anything a later release lists (computers shared by a group). */
+  relation: 'self' | 'other'
+  /**
+   * Where it says it can be reached; null when it shows none, or lists an address that is not of its kind. Hints
+   * only: nothing is trusted at an address until the machine proves itself there.
+   */
+  addresses: { lan: string | null; tailnet: string | null; publicAddress: string | null; port: number } | null
+  /**
+   * This computer's record for that machine, made through the account; null until `accountConnect` succeeds. Its
+   * addresses follow `addresses` above: every read of the directory replaces them.
+   */
+  record: RemoteComputer | null
+}
+
+/** What `accountMachines` learned. Every state but `ok` is something to show, not a failure. */
+export interface AccountDirectory {
+  /**
+   * ok · signed-out: this computer is in no AASC Cloud account · needs-sign-in: it signed in before plan 18 and must
+   * sign in again to list its computers · unreachable: AASC Cloud (or this computer's own server) gave no usable answer.
+   */
+  state: 'ok' | 'signed-out' | 'needs-sign-in' | 'unreachable'
+  /** Empty unless `ok`. */
+  machines: AccountMachine[]
+}
 
 export interface RemoteComputersAPI {
   list(): Promise<RemoteComputer[]>
@@ -165,6 +227,27 @@ export interface RemoteComputersAPI {
   /** Unpair on the remote when it answers, then forget it here either way. */
   remove(id: string): Promise<RemoteResult<{ unpairedRemotely: boolean }>>
   rename(id: string, name: string): Promise<RemoteResult<RemoteComputer>>
+  /**
+   * The computers on this computer's AASC Cloud account (plan 18), each with this computer's record for it. Asked of
+   * this computer's own server. Absent in the Client editions, which have no server and no account connection.
+   */
+  accountMachines?(): Promise<RemoteResult<AccountDirectory>>
+  /**
+   * Connect to one of them without a pairing link: a ticket from the account, redeemed by that machine at an address
+   * this computer dials itself. The record it answers is `pending` (the machine's owner presses Allow: `confirmCode`
+   * is the code shown there) or `active`. Then `check` / `open` / `remove` / `rename` work on `record.id` as for a
+   * computer paired by link, with two differences for such a record, which asks the machine to prove itself before
+   * every sign-in:
+   *   · while it waits for Allow, `check` answers `pending` with `via: null`;
+   *   · once the machine's owner removes this computer there, `check` answers `offline` with "Something else answered
+   *     at <name>’s address." (it cannot tell that from a box in the machine's place, and sends no sign-in to find out).
+   * With a pending or active record already here for that machine nothing is enrolled: the record is checked, and
+   * answered as it stands (or, when nothing answers at any address or the machine refuses, the reason comes back as
+   * the error and the record is left alone). One case enrolls again, into the same row: an active record for which
+   * something answers and nothing proves itself, which is what a removal on the machine looks like.
+   * Absent in the Client editions.
+   */
+  accountConnect?(machineId: string): Promise<RemoteResult<RemoteComputer>>
 }
 
 declare global {

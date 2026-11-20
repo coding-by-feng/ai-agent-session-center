@@ -6,6 +6,9 @@
 // with `v` (POST /v1/devices/pair): a copied redirect is useless without the verifier, which never
 // leaves this function. The account token goes to the vault; Preferences keeps only the email and host
 // (nothing secret), for the screens. Nothing here logs.
+//
+// The same sheet, opened with intent=delete, ends on the backend's "Delete your AASC Cloud account?" page
+// (accountDelete.ts): one preparation (verifier, `c`, `s`, match code) serves both, told apart by `intent`.
 import { b64urlEncode, randomB64url } from './enrollCrypto.js';
 import { field } from './http.js';
 import type { ShellDeps } from './native.js';
@@ -53,9 +56,21 @@ export type SignInOutcome =
 
 type AccountDeps = Pick<ShellDeps, 'os' | 'authSession' | 'http' | 'vault' | 'store'>;
 
+/** What the sheet is opened for: signing this phone in, or the backend's delete page (accountDelete.ts). */
+export type AuthIntent = 'sign-in' | 'delete';
+
+/** The native plugin's BUSY: another sheet is still open. */
+export const SHEET_BUSY_TEXT = 'A sign-in is already open. Finish or close it first.';
+
+/** The vault holds the account token but can't be read right now (a locked keychain). `device`: what this is called. */
+export const signInUnreadableText = (device = 'phone'): string => `This ${device} can’t read its sign-in right now. Unlock it and try again.`;
+
+const NOT_STORED_TEXT = 'This phone couldn’t store the sign-in securely, so nothing was saved.';
+
 const fail = (reason: Exclude<SignInOutcome, { ok: true }>['reason'], message: string): SignInOutcome => ({ ok: false, reason, message });
 
-function sameText(a: string, b: string): boolean {
+/** Are two texts equal? Texts of one length are compared to the end, with no early exit at the first difference. */
+export function sameText(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -63,7 +78,7 @@ function sameText(a: string, b: string): boolean {
 }
 
 /** The query of `raw` when it is exactly `returnUrl` plus a query; null for any other address. */
-function callbackQuery(raw: string, returnUrl: string): URLSearchParams | null {
+export function callbackQuery(raw: string, returnUrl: string): URLSearchParams | null {
   const noHash = raw.split('#')[0];
   const at = noHash.indexOf('?');
   if (at < 0 || noHash.slice(0, at) !== returnUrl) return null;
@@ -98,6 +113,8 @@ export async function matchCode(c: string): Promise<string> {
  */
 export interface PendingSignIn {
   ok: true;
+  /** What its sheet is for; each finish takes only its own kind. */
+  intent: AuthIntent;
   startUrl: string;
   returnUrl: string;
   callback: { scheme?: string; prefix?: string };
@@ -107,8 +124,13 @@ export interface PendingSignIn {
   matchCode: string;
 }
 
-/** A fresh verifier, `c`, `s` and the match code for one sign-in (nothing opened, nothing sent). */
-export async function prepareGoogleSignIn(deps: Pick<ShellDeps, 'os' | 'authSession'>): Promise<PendingSignIn | Extract<SignInOutcome, { ok: false }>> {
+/**
+ * A fresh verifier, `c`, `s` and the match code for one sheet (nothing opened, nothing sent). `intent` 'delete' adds
+ * `intent=delete` to the start URL: same host, same rules for `c` and `s`, same return URL.
+ */
+export async function prepareGoogleSignIn(
+  deps: Pick<ShellDeps, 'os' | 'authSession'>, intent: AuthIntent = 'sign-in',
+): Promise<PendingSignIn | Extract<SignInOutcome, { ok: false }>> {
   if (!deps.authSession) return { ok: false, reason: 'unavailable', message: 'Sign-in with Google needs the AASC app.' };
   const ios = deps.os === 'ios';
   const returnUrl = ios ? IOS_RETURN_URL : ANDROID_RETURN_URL;
@@ -116,9 +138,9 @@ export async function prepareGoogleSignIn(deps: Pick<ShellDeps, 'os' | 'authSess
   const state = randomB64url(32);
   const c = await pkceChallenge(verifier);
   const start = new URL('/v1/auth/google/start', `https://${ACCOUNT_HOST}`);
-  start.search = new URLSearchParams({ c, s: state, return: returnUrl }).toString();
+  start.search = new URLSearchParams({ c, s: state, return: returnUrl, ...(intent === 'delete' ? { intent } : {}) }).toString();
   return {
-    ok: true, startUrl: start.href, returnUrl, state, verifier, matchCode: await matchCode(c),
+    ok: true, intent, startUrl: start.href, returnUrl, state, verifier, matchCode: await matchCode(c),
     callback: ios ? { scheme: IOS_CALLBACK_SCHEME } : { prefix: ANDROID_RETURN_URL },
   };
 }
@@ -130,6 +152,8 @@ export async function prepareGoogleSignIn(deps: Pick<ShellDeps, 'os' | 'authSess
  */
 export async function finishGoogleSignIn(deps: AccountDeps, pending: PendingSignIn, name: string): Promise<SignInOutcome> {
   if (!deps.authSession) return fail('unavailable', 'Sign-in with Google needs the AASC app.');
+  // A delete's sheet returns no code and must never pair anything.
+  if (pending.intent !== 'sign-in') return fail('refused', 'Sign-in didn’t finish, so nothing was saved. Try again.');
   const { returnUrl, state, verifier } = pending;
   let result;
   try {
@@ -137,9 +161,7 @@ export async function finishGoogleSignIn(deps: AccountDeps, pending: PendingSign
   } catch (err) {
     // The native plugin rejects with BUSY while another sign-in sheet is open (BAD_URL, ORIGIN_REFUSED, FAILED otherwise).
     const busy = (err as { code?: unknown } | null)?.code === 'BUSY';
-    return fail('unavailable', busy
-      ? 'A sign-in is already open. Finish or close it first.'
-      : 'The sign-in sheet couldn’t open. Nothing was saved.');
+    return fail('unavailable', busy ? SHEET_BUSY_TEXT : 'The sign-in sheet couldn’t open. Nothing was saved.');
   }
   if (!('url' in result) || typeof result.url !== 'string') return fail('cancelled', 'Sign-in cancelled. Nothing was saved.');
   const query = callbackQuery(result.url, returnUrl);
@@ -166,9 +188,17 @@ export async function finishGoogleSignIn(deps: AccountDeps, pending: PendingSign
   try {
     await deps.vault.set(ACCOUNT_VAULT_KEY, JSON.stringify({ host: ACCOUNT_HOST, deviceId, token }));
   } catch {
-    return fail('storage', 'This phone couldn’t store the sign-in securely, so nothing was saved.');
+    return fail('storage', NOT_STORED_TEXT);
   }
-  await deps.store.set(ACCOUNT_PREFS_KEY, JSON.stringify(account));
+  try {
+    await deps.store.set(ACCOUNT_PREFS_KEY, JSON.stringify(account));
+  } catch {
+    // Nothing is kept unless every step worked: the token goes out of the vault again. Should even that fail, it
+    // stays there unused: without its Preferences half this phone isn't signed in (currentAccount), and the next
+    // sign-in writes over it.
+    await deps.vault.delete(ACCOUNT_VAULT_KEY).catch(() => undefined);
+    return fail('storage', NOT_STORED_TEXT);
+  }
   return { ok: true, account };
 }
 
@@ -178,18 +208,39 @@ export async function signInWithGoogle(deps: AccountDeps, name: string): Promise
   return pending.ok ? finishGoogleSignIn(deps, pending, name) : pending;
 }
 
-export async function readAccountCredential(vault: ShellDeps['vault']): Promise<AccountCredential | null> {
+/**
+ * What the vault says about the account token. A read that fails (`unreadable`: a locked keychain) is never the same
+ * as a vault that answers with no usable token (`none`): the first keeps the account, only the second is signed out.
+ */
+export type AccountCredentialState =
+  | { status: 'ok'; cred: AccountCredential }
+  | { status: 'none' }
+  | { status: 'unreadable' };
+
+export async function accountCredentialState(vault: ShellDeps['vault']): Promise<AccountCredentialState> {
+  let raw: string | null;
   try {
-    const v: unknown = JSON.parse((await vault.get(ACCOUNT_VAULT_KEY)) ?? 'null');
+    raw = await vault.get(ACCOUNT_VAULT_KEY);
+  } catch {
+    return { status: 'unreadable' };
+  }
+  try {
+    const v: unknown = JSON.parse(raw ?? 'null');
     const host = field(v, ['host']);
     const deviceId = field(v, ['deviceId']);
     const token = field(v, ['token']);
     return typeof host === 'string' && isBackendHost(host) && typeof deviceId === 'string' && typeof token === 'string' && token
-      ? { host, deviceId, token }
-      : null;
+      ? { status: 'ok', cred: { host, deviceId, token } }
+      : { status: 'none' };
   } catch {
-    return null;
+    return { status: 'none' };
   }
+}
+
+/** The account token, or null: also when the vault can't be read. Where that difference matters, ask accountCredentialState. */
+export async function readAccountCredential(vault: ShellDeps['vault']): Promise<AccountCredential | null> {
+  const read = await accountCredentialState(vault);
+  return read.status === 'ok' ? read.cred : null;
 }
 
 /** The signed-in account, or null: both halves must be there, and agree on a host under aasc.work. */

@@ -16,15 +16,25 @@ import type { HostedIdentity } from '../hostedAuthority.js';
 //
 // Pure logic over an injected store and clock, so it is testable without SQLite.
 
-import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+import { randomBytes, randomInt, randomUUID } from 'crypto';
+import {
+  challengeProof, hashSecret, machineProver, sameHash, PATHS_PROOF_PREFIX, WHO_TAG_PREFIX, type MachineProver,
+} from './deviceProofs.js';
 import { PHONE_ACCESS, type PhoneAccess } from './phoneProfile.js';
+
+// The proofs themselves live in deviceProofs.ts; importers of this module keep finding them here.
+export {
+  challengeProof, hashSecret, proofForToken, MAC_PROOF_PREFIX, PATHS_PROOF_PREFIX, WHO_TAG_PREFIX,
+} from './deviceProofs.js';
 
 /** 'desktop': another computer's AASC, paired like a phone (Oct 28 2026). */
 export type DevicePlatform = 'ios' | 'android' | 'desktop';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
 /**
  * How a device was paired (plan 17): `code` — a QR or typed code, then Allow on the desktop; `account` —
- * enrolled by a phone signed into this Mac's AASC Cloud account, active at once (accountEnroll.ts).
+ * enrolled by a phone signed into this Mac's AASC Cloud account, active at once (accountEnroll.ts), or by a
+ * computer signed into it (plan 18, computerEnroll.ts): pending until Allow, or active at once when the owner
+ * chose "connect without asking".
  */
 export type DeviceOrigin = 'code' | 'account';
 
@@ -57,12 +67,26 @@ export interface MobileDeviceRecord {
   /**
    * The phone's own backend device id an `account` device enrolled as (the redeem's phoneDeviceId): what an
    * explicit Revoke or Unpair revokes on the backend and denies here (accountPhoneRevocation.ts). Never shown.
+   * For an `account` computer (plan 18) it is the client computer's backend device id (the redeem's
+   * clientDeviceId): what a later request by the same client replaces, and what Revoke denies here
+   * (accountComputerRemoval.ts). The column kept its name.
    */
   accountPhoneId: string | null;
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
   revokedAt: number | null;
+}
+
+/** A record made through the account, as the reconcile sees it (plan 18). Never a hash, a token or a code. */
+export interface AccountDeviceRecord {
+  id: string;
+  label: string;
+  platform: DevicePlatform;
+  status: DeviceStatus;
+  /** The backend device this record was enrolled as (the phone's, or the client computer's). */
+  backendDeviceId: string;
+  accountEmail: string | null;
 }
 
 /** What the desktop may see. Never a hash or a token. */
@@ -118,6 +142,16 @@ export class TooManyProvisionalPhonesError extends Error {
   }
 }
 
+/** Plan 18: as many account devices already wait for Allow or for their first sign-in (enrollComputer). */
+export class TooManyWaitingAccountDevicesError extends Error {
+  constructor() {
+    super(`At most ${MAX_PROVISIONAL_ACCOUNT_ROWS} account devices can wait to be allowed or to sign in at once`);
+  }
+}
+
+/** How the owner removed a device: Revoke on this machine, or the device removing itself (Unpair). */
+export type OwnerRemoval = 'revoke' | 'unpair';
+
 export type ExchangeResult =
   | { ok: true; device: MobileDeviceRecord }
   | { ok: false; reason: 'invalid' | 'pending' | 'revoked' };
@@ -143,46 +177,10 @@ export interface DeviceAuthOptions {
   /**
    * Plan 17 (H1): the owner removed this device on purpose (Revoke on the desktop, or Unpair from the phone),
    * after onRevoked. Never for a password change, a pending or provisional expiry, or a replaced twin.
+   * `how` (plan 18) says which of the two it was.
    */
-  onRemovedByOwner?: (device: MobileDeviceRecord) => void;
+  onRemovedByOwner?: (device: MobileDeviceRecord, how: OwnerRemoval) => void;
 }
-
-export function hashSecret(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex');
-}
-
-/**
- * The phone's answer to a challenge: HMAC-SHA256 keyed with the SHA-256 of its
- * device token, over the nonce, hex. The server keys with the stored hash, so
- * it never needs the token. (The phone computes the same with WebCrypto.)
- */
-export function challengeProof(tokenHashHex: string, nonce: string): string {
-  return createHmac('sha256', Buffer.from(tokenHashHex, 'hex')).update(nonce).digest('hex');
-}
-
-/** Convenience for callers that hold the token itself (the phone, tests). */
-export function proofForToken(deviceToken: string, nonce: string): string {
-  return challengeProof(hashSecret(deviceToken), nonce);
-}
-
-/**
- * The LAN rescan's two messages (macProof), each over a nonce the phone chose:
- * the phone names itself with its key over WHO_TAG_PREFIX + nonce (never its
- * id), and the Mac answers with the same key over MAC_PROOF_PREFIX + nonce +
- * ':' + the address the phone reached it at. Sign-in nonces are this Mac's
- * base64url (no ':'), so no proof can be traded for another.
- */
-export const WHO_TAG_PREFIX = 'aasc-who:';
-export const MAC_PROOF_PREFIX = 'aasc-mac:';
-
-/**
- * Remote access (pathsProof): this Mac tells a signed-in phone its Tailscale
- * address, signed with the phone's key over PATHS_PROOF_PREFIX + a nonce the
- * phone chose (64 hex) + ':' + the address ('-' when there is none) + ':' + the
- * port, so the phone saves nothing that a box on the home network rewrote. A
- * third prefix: no proof for one of these messages is ever one for another.
- */
-export const PATHS_PROOF_PREFIX = 'aasc-paths:';
 
 export function normalizePairingCode(raw: string): string {
   return raw.toUpperCase().replace(/[\s-]/g, '');
@@ -201,11 +199,6 @@ function cleanLabel(raw: string): string {
 
 export function sanitizeDeviceLabel(raw: string): string {
   return cleanLabel(raw) || 'Phone';
-}
-
-function sameHash(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
 }
 
 export function toView(rec: MobileDeviceRecord): MobileDeviceView {
@@ -240,6 +233,13 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
   const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
   /** Keys macProof's decoy: the same question gets the same wrong answer, as a real phone's would. */
   const decoyKey = randomBytes(32);
+
+  /** Who asks /identify: the approved record, under the current password, whose key made `tag`; else the decoy. */
+  function proverFor(tag: string, phoneNonce: string): MachineProver {
+    const rec = store.listLive().find((r) => r.status === 'active' && r.credentialEpoch === currentEpoch()
+      && sameHash(challengeProof(r.tokenHash, `${WHO_TAG_PREFIX}${phoneNonce}`), tag));
+    return machineProver(rec?.tokenHash ?? null, decoyKey, tag, phoneNonce);
+  }
 
   function pruneChallenges(): void {
     const t = now();
@@ -276,8 +276,28 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     }
   }
 
+  /**
+   * Active with nobody having clicked Allow, and not signed in yet. `approvedAt === createdAt` is what says
+   * nobody clicked: enrollActive and an `auto` enrollComputer approve at creation, while `approve` stamps an
+   * account record strictly later, so a computer the owner allowed is never swept for signing in late.
+   */
   const isProvisional = (rec: MobileDeviceRecord): boolean =>
-    rec.origin === 'account' && rec.status === 'active' && rec.lastSeenAt === null;
+    rec.origin === 'account' && rec.status === 'active' && rec.lastSeenAt === null && rec.approvedAt === rec.createdAt;
+
+  /** Delete a record that stops counting (replaced, never used): its sessions are cut like any removal. */
+  function dropRecord(rec: MobileDeviceRecord): void {
+    store.remove(rec.id);
+    opts.onRevoked?.({ ...rec, status: 'revoked', revokedAt: now() });
+  }
+
+  /** Other live records of the same backend client computer (plan 18): what a new request may replace. */
+  const accountComputerSiblings = (backendDeviceId: string, exceptId?: string): MobileDeviceRecord[] =>
+    store.listLive().filter((rec) => rec.id !== exceptId && rec.origin === 'account' && rec.platform === 'desktop'
+      && rec.accountPhoneId === backendDeviceId);
+
+  /** Account records nobody has used yet: waiting for Allow, or active and waiting for their first sign-in. */
+  const waitingAccountRows = (): MobileDeviceRecord[] =>
+    store.listLive().filter((rec) => rec.origin === 'account' && (rec.status === 'pending' || isProvisional(rec)));
 
   /**
    * L2: an account row whose phone never signed in within PROVISIONAL_ACCOUNT_TTL_MS is deleted (its sessions cut
@@ -425,6 +445,60 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     },
 
     /**
+     * Plan 18, stage 2: a computer signed into this machine's AASC Cloud account, whose access ticket the
+     * backend just redeemed for this machine (computerEnroll.ts). `ask`: PENDING with a confirm code, exactly
+     * like a computer paired by link, until Allow. `auto`: ACTIVE at once, provisional until its first sign-in
+     * like an account phone. The token is shown this once (sealed to the client's key by the caller).
+     *
+     * `backendDeviceId` is the client's own backend device id. A request replaces what that same client left
+     * waiting (a pending or provisional record). A record the owner allowed stays in force until the new one
+     * is: at once with `auto`, at Allow with `ask` (approve), so nothing changes without a click.
+     */
+    enrollComputer(input: {
+      label: string;
+      accountEmail: string | null;
+      backendDeviceId: string;
+      approve: 'ask' | 'auto';
+    }): { device: MobileDeviceRecord; deviceToken: string } {
+      expirePending();
+      sweepProvisional();
+      for (const rec of accountComputerSiblings(input.backendDeviceId)) {
+        if (input.approve === 'auto' || rec.status === 'pending' || isProvisional(rec)) dropRecord(rec);
+      }
+      if (waitingAccountRows().length >= MAX_PROVISIONAL_ACCOUNT_ROWS) throw new TooManyWaitingAccountDevicesError();
+      const deviceToken = randomBytes(32).toString('base64url');
+      const at = now();
+      const auto = input.approve === 'auto';
+      const device: MobileDeviceRecord = {
+        id: randomUUID(),
+        label: cleanLabel(input.label) || 'Computer',
+        platform: 'desktop',
+        tokenHash: hashSecret(deviceToken),
+        status: auto ? 'active' : 'pending',
+        confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
+        beCodeRef: null,
+        beCodeRefMacBound: false,
+        credentialEpoch: currentEpoch(),
+        origin: 'account',
+        accountEmail: input.accountEmail,
+        accountPhoneId: input.backendDeviceId,
+        createdAt: at,
+        approvedAt: auto ? at : null,
+        lastSeenAt: null,
+        revokedAt: null,
+      };
+      store.insert(device);
+      return { device, deviceToken };
+    },
+
+    /** Plan 18: account devices still waiting, for Allow or for their first sign-in (stale ones swept first). */
+    waitingAccountCount(): number {
+      expirePending();
+      sweepProvisional();
+      return waitingAccountRows().length;
+    },
+
+    /**
      * A single-use nonce for the next sign-in or unpair. Issued for any id, so
      * the answer doesn't reveal which device ids exist.
      */
@@ -460,8 +534,15 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       expirePending();
       const rec = store.get(id);
       if (!rec || rec.status !== 'pending') return null;
-      const approvedAt = now();
+      // An account record's Allow is stamped strictly after its creation: that is what tells a click from an
+      // approval at creation (isProvisional), even when both fall in one millisecond.
+      const approvedAt = rec.origin === 'account' ? Math.max(now(), rec.createdAt + 1) : now();
       store.update(id, { status: 'active', approvedAt });
+      // Plan 18: the allowed request takes the place of the client's earlier record, which stayed in force
+      // until this click (enrollComputer).
+      if (rec.origin === 'account' && rec.platform === 'desktop' && rec.accountPhoneId) {
+        accountComputerSiblings(rec.accountPhoneId, rec.id).forEach(dropRecord);
+      }
       return toView({ ...rec, status: 'active', approvedAt });
     },
 
@@ -505,7 +586,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const rec = store.get(id);
       if (!rec || rec.status === 'revoked') return false;
       revokeRecord(rec);
-      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() });
+      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() }, 'revoke');
       return true;
     },
 
@@ -538,7 +619,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const rec = verifyProof(deviceId, nonce, proof);
       if (!rec || rec.status === 'revoked') return false;
       revokeRecord(rec);
-      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() });
+      opts.onRemovedByOwner?.({ ...rec, status: 'revoked', revokedAt: now() }, 'unpair');
       return true;
     },
 
@@ -565,11 +646,15 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
      * question, so the answer doesn't say which phones exist.
      */
     macProof(tag: string, phoneNonce: string, reachedAt: string): string {
-      const rec = store.listLive().find((r) => r.status === 'active' && r.credentialEpoch === currentEpoch()
-        && sameHash(challengeProof(r.tokenHash, `${WHO_TAG_PREFIX}${phoneNonce}`), tag));
-      if (!rec) return createHmac('sha256', decoyKey).update(`${tag}:${phoneNonce}:${reachedAt}`).digest('hex');
-      return challengeProof(rec.tokenHash, `${MAC_PROOF_PREFIX}${phoneNonce}:${reachedAt}`);
+      return proverFor(tag, phoneNonce).over(reachedAt);
     },
+
+    /**
+     * macProof in two steps (deviceProofs.ts machineProver): who asks first, the address after. The route binds
+     * the answer to an address that depends on what this machine publishes only for a device it vouches for;
+     * every other tag gets the decoy over the socket address, with nothing looked up (mobileRouter /identify).
+     */
+    macProver: proverFor,
 
     /**
      * This Mac proves, with the phone's key, the Tailscale address (null: none,
@@ -637,6 +722,37 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       const stale = store.listLive().filter((rec) => rec.credentialEpoch !== epoch);
       stale.forEach(revokeRecord);
       return stale.length;
+    },
+
+    /**
+     * Plan 18 (accountDeviceReconcile.ts): the live records made through the account, each with the backend
+     * device it was enrolled as. Waiting ones too. Never a token, a hash or a confirm code.
+     */
+    accountDeviceRecords(): AccountDeviceRecord[] {
+      return store.listLive()
+        .filter((rec) => rec.origin === 'account' && rec.accountPhoneId)
+        .map((rec) => ({
+          id: rec.id,
+          label: rec.label,
+          platform: rec.platform,
+          status: rec.status,
+          backendDeviceId: rec.accountPhoneId as string,
+          accountEmail: rec.accountEmail,
+        }));
+    },
+
+    /**
+     * Plan 18: the account signed this record's backend device out (accountDeviceReconcile.ts). The record is
+     * revoked like a local Revoke for everything the device could do here (onRevoked: its sessions and sockets
+     * end at once, its key is refused from now on). It is NOT this machine's owner removing it, so
+     * onRemovedByOwner is not called: nothing is pushed back to the backend and nothing joins the deny list.
+     * Only ever a record made through the account: false, and nothing done, for any other.
+     */
+    revokeSignedOut(id: string): boolean {
+      const rec = store.get(id);
+      if (!rec || rec.status === 'revoked' || rec.origin !== 'account' || !rec.accountPhoneId) return false;
+      revokeRecord(rec);
+      return true;
     },
 
     /** Test seam: how many pairing codes are open. */

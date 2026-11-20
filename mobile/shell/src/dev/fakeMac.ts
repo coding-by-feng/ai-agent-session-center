@@ -13,7 +13,7 @@
 // and the tests import it.
 import { b64urlDecode, b64urlEncode, enrollAad, enrollKey } from '../enrollCrypto.js';
 import type { HttpMethod, HttpRequest, HttpRequester } from '../http.js';
-import { createFakeAccount, type FakeAccountOptions } from './fakeAccount.js';
+import { createFakeAccount, type FakeAccountOptions, type FakeSheet } from './fakeAccount.js';
 import { deviceProof, MAC_PROOF_PREFIX, PATHS_PROOF_PREFIX, WHO_TAG_PREFIX, type HttpClient, type HttpResponse } from '../pairingClient.js';
 
 export type FakeDeviceStatus = 'pending' | 'active' | 'revoked';
@@ -552,7 +552,7 @@ export function createFakeMac(opts: FakeMacOptions = {}) {
     /** Plan 17: the owner's AASC Cloud account (Google codes, account devices, tickets, the Mac list). */
     account,
     /** Where the sign-in sheet lands after Google for this start URL (null: the backend refuses it). */
-    googleRedirect: (startUrl: string) => account.googleRedirect(startUrl),
+    googleRedirect: (startUrl: string, sheet?: FakeSheet) => account.googleRedirect(startUrl, sheet),
     /** The Mac's account-enroll setting. */
     setAccountEnroll(on: boolean) {
       accountEnroll = on;

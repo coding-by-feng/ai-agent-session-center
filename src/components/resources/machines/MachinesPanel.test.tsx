@@ -66,3 +66,40 @@ it('Open cloud account in Remote access opens the account dialog', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Open cloud account' }));
   expect(onAccount).toHaveBeenCalledTimes(1);
 });
+
+// Plan 18: under This Mac, every device on the account, only while this computer is connected to AASC Cloud.
+// The section's own behaviour is AccountDevices.test.tsx.
+it('shows Devices on your account under This Mac while this computer is connected to AASC Cloud', async () => {
+  vi.spyOn(cloudApi, 'status').mockResolvedValue({
+    connection: {
+      backendOrigin: 'https://cloud.example', accountId: 'd23c54de-1b99-4802-87bf-d84ddba2fdf1',
+      deviceId: '0b6f6a6e-3f0c-4c53-9d0e-5a0a3f1f2c11', deviceName: 'MacBook Pro', generation: 7,
+    },
+    state: 'connected',
+    lastError: null,
+  });
+  vi.spyOn(cloudApi, 'remoteAccess').mockResolvedValue(remoteView());
+  const list = vi.spyOn(cloudApi, 'accountDevices').mockResolvedValue({
+    devices: [{
+      id: 'dev-here', name: 'MacBook Pro', kind: 'server', platform: 'macos', edition: 'full', appVersion: '2.10.80',
+      createdAt: 1, lastUsedAt: Date.now(), current: true,
+    }],
+  });
+  const { onAccount } = show();
+  const devices = await screen.findByRole('region', { name: 'Devices on your account' });
+  expect(await within(devices).findByText('this computer')).toBeVisible();
+  const thisMac = screen.getByRole('region', { name: 'This Mac' });
+  expect(thisMac.compareDocumentPosition(devices) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(onAccount).not.toHaveBeenCalled();
+});
+
+it('shows no devices section, and asks for no list, on a computer that is not connected', async () => {
+  vi.spyOn(cloudApi, 'remoteAccess').mockResolvedValue(remoteView('no-cloud'));
+  const list = vi.spyOn(cloudApi, 'accountDevices');
+  show();
+  await screen.findByText('Connected · 100.101.102.103');
+  await act(async () => {});
+  expect(screen.queryByRole('region', { name: 'Devices on your account' })).toBeNull();
+  expect(list).not.toHaveBeenCalled();
+});

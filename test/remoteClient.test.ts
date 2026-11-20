@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  addressPlan, countShared, deviceProof, fetchPaths, pair, remoteSessionState, signIn, unpair,
-  PATHS_PROOF_PREFIX, HANDSHAKE_MAX_BYTES, SESSIONS_MAX_BYTES, type FetchLike, type RemoteClientDeps,
+  addressPlan, deviceProof, fetchPaths, pair, remoteSessionState, sharedCounts, signIn, unpair,
+  NEEDS_YOU_STATUSES, PATHS_PROOF_PREFIX, HANDSHAKE_MAX_BYTES, SESSIONS_MAX_BYTES, type FetchLike, type RemoteClientDeps,
 } from '../electron/remote/remoteClient.js';
+// The statuses a session can have, as the remote's own code names them.
+import { SESSION_STATUS } from '../server/constants.js';
 import type { RemotePairingLink } from '../electron/remote/pairingLinkRules.js';
 // The remote's own proof functions: the client must agree with them byte for byte.
 import { proofForToken, PATHS_PROOF_PREFIX as SERVER_PATHS_PREFIX } from '../server/mobile/deviceAuth.js';
@@ -330,12 +332,56 @@ describe('remoteSessionState (asks without signing in, so no session is spent)',
   });
 });
 
-describe('countShared', () => {
+describe('sharedCounts', () => {
   it('counts the sessions the remote returns, with the Bearer session', async () => {
     const { fetch, calls } = fakeFetch(() => ({ status: 200, body: { s1: { sessionId: 's1' }, s2: { sessionId: 's2' } } }));
-    expect(await countShared(deps(fetch), LAN, SESSION_TOKEN)).toBe(2);
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 2, needsYou: 0 });
+    expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ url: `${LAN}/api/sessions`, method: 'GET', redirect: 'manual' });
     expect(calls[0].headers.Authorization).toBe(`Bearer ${SESSION_TOKEN}`);
+  });
+
+  it('counts those waiting on the person: a session whose status is approval or input', async () => {
+    const sessions = {
+      a: { sessionId: 'a', status: 'approval' }, b: { status: 'input' }, c: { status: 'working' }, d: { status: 'waiting' },
+      e: { status: 'idle' }, f: { status: 'prompting' }, g: { status: 'ended' }, h: { status: 'connecting' },
+    };
+    const { fetch, calls } = fakeFetch(() => ({ status: 200, body: sessions }));
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 8, needsYou: 2 });
+    // From the one list it already read: no second request.
+    expect(calls.map((c) => c.url)).toEqual([`${LAN}/api/sessions`]);
+  });
+
+  it('uses the two statuses by the names the remote gives them', () => {
+    expect([...NEEDS_YOU_STATUSES].sort()).toEqual([SESSION_STATUS.APPROVAL, SESSION_STATUS.INPUT].sort());
+  });
+
+  it('does not count a session without a readable status, though it is still a shared session', async () => {
+    const sessions = {
+      a: { status: 'approval' }, b: {}, c: null, d: 'approval', e: 7, f: { status: 7 }, g: { status: null }, h: { status: 'APPROVAL' },
+      i: { status: ['input'] }, j: { state: 'input' }, k: [{ status: 'input' }],
+    };
+    const { fetch } = fakeFetch(() => ({ status: 200, body: sessions }));
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 11, needsYou: 1 });
+  });
+
+  it('says 0 when none waits, which is an answer and not "unknown"', async () => {
+    const none = fakeFetch(() => ({ status: 200, body: { a: { status: 'working' }, b: { status: 'waiting' } } }));
+    expect(await sharedCounts(deps(none.fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 2, needsYou: 0 });
+    const empty = fakeFetch(() => ({ status: 200, body: {} }));
+    expect(await sharedCounts(deps(empty.fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 0, needsYou: 0 });
+  });
+
+  it('reads a list too, as it read one before', async () => {
+    const { fetch } = fakeFetch(() => ({ status: 200, body: [{ status: 'input' }, { status: 'ended' }, null] }));
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 3, needsYou: 1 });
+  });
+
+  it('gives back the two counts and nothing of the sessions themselves', async () => {
+    const { fetch } = fakeFetch(() => ({ status: 200, body: { a: { status: 'approval', title: 'a private title', cwd: '/Users/someone/secret' } } }));
+    const out = await sharedCounts(deps(fetch), LAN, SESSION_TOKEN);
+    expect(Object.keys(out ?? {}).sort()).toEqual(['needsYou', 'sharedSessions']);
+    expect(JSON.stringify(out)).not.toMatch(/private|secret/);
   });
 
   it('stops reading an oversized answer instead of holding it all', async () => {
@@ -343,16 +389,16 @@ describe('countShared', () => {
     const chunk = new Uint8Array(1024 * 1024).fill(0x20);
     const endless = new ReadableStream<Uint8Array>({ pull(c) { pulled++; c.enqueue(chunk); } });
     const fetch: FetchLike = () => Promise.resolve({ status: 200, text: async () => '', body: endless });
-    expect(await countShared(deps(fetch), LAN, SESSION_TOKEN)).toBeNull();
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toBeNull();
     // The 8 MB cap, plus at most a chunk or two of read-ahead: never the whole stream.
     expect(pulled * chunk.byteLength).toBeLessThanOrEqual(SESSIONS_MAX_BYTES + 3 * chunk.byteLength);
   });
 
   it('reads a streamed answer under the cap', async () => {
-    const bytes = new TextEncoder().encode(JSON.stringify({ s1: {}, s2: {}, s3: {} }));
+    const bytes = new TextEncoder().encode(JSON.stringify({ s1: {}, s2: {}, s3: { status: 'input' } }));
     const body = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close(); } });
     const fetch: FetchLike = () => Promise.resolve({ status: 200, text: async () => '', body });
-    expect(await countShared(deps(fetch), LAN, SESSION_TOKEN)).toBe(3);
+    expect(await sharedCounts(deps(fetch), LAN, SESSION_TOKEN)).toEqual({ sharedSessions: 3, needsYou: 1 });
   });
 
   it('treats a handshake answer past 64 KB as no answer', async () => {
@@ -361,9 +407,15 @@ describe('countShared', () => {
     expect(await fetchPaths(deps(fetch), LAN, SESSION_TOKEN, creds)).toBeNull();
   });
 
-  it('is null when refused or unreadable', async () => {
-    expect(await countShared(deps(fakeFetch(() => ({ status: 401, body: {} })).fetch), LAN, SESSION_TOKEN)).toBeNull();
-    expect(await countShared(deps(fakeFetch(() => ({ status: 302 })).fetch), LAN, SESSION_TOKEN)).toBeNull();
-    expect(await countShared(deps(fakeFetch(() => 'network-error').fetch), LAN, SESSION_TOKEN)).toBeNull();
+  it.each<[string, { status: number; body?: unknown } | 'network-error']>([
+    ['a refusal', { status: 401, body: {} }],
+    ['a redirect', { status: 302 }],
+    ['no answer', 'network-error'],
+    ['an answer that is no JSON', { status: 200, body: '<html>' }],
+    ['a JSON string', { status: 200, body: '"sessions"' }],
+    ['a JSON number', { status: 200, body: '7' }],
+    ['JSON null', { status: 200, body: 'null' }],
+  ])('is null, for both counts, on %s', async (_name, answer) => {
+    expect(await sharedCounts(deps(fakeFetch(() => answer).fetch), LAN, SESSION_TOKEN)).toBeNull();
   });
 });

@@ -28,7 +28,9 @@ export interface AccountPhoneRevocationDeps {
 
 export function createAccountPhoneRevokedHandler(deps: AccountPhoneRevocationDeps): (device: MobileDeviceRecord) => void {
   return (device) => {
-    if (device.origin !== 'account' || !device.accountPhoneId) return;
+    // A computer that connected through the account is never signed out of AASC Cloud from here
+    // (plan 18: accountComputerRemoval.ts has its own, narrower rule).
+    if (device.origin !== 'account' || device.platform === 'desktop' || !device.accountPhoneId) return;
     const phoneId = device.accountPhoneId;
     try {
       deps.denyList.add(phoneId);

@@ -15,7 +15,9 @@
 //      (deviceAuth.enrollActive): the account vouched for the phone, no Allow click
 //   9. the token is sealed to the phone's key, with the address this request reached in the AEAD's associated
 //      data, so the phone accepts only an answer from the Mac it dialled itself (the cloud never vouches for
-//      an address) and the token never crosses the network in clear.
+//      an address) and the token never crosses the network in clear. That address is the socket's own, or, behind
+//      a forwarded port or Tailscale in userspace, the pair this Mac publishes and the Host names: the route
+//      decides by the one rule in boundAddress.ts and hands it in as `reachedAt`.
 //
 // The seal (the phone mirrors it with WebCrypto; test/accountEnroll.test.ts decrypts it that way):
 //   macKey, macPriv = ephemeral P-256;  shared = ECDH(macPriv, phoneKey) (32-byte x-coordinate)
@@ -28,10 +30,13 @@
 // Without the sealSecret, which reaches only the phone and the named Mac over TLS, a box on the LAN that saw the
 // phone's public key could seal a token of its own to it.
 //
+// The construction itself lives in enrollSeal.ts, shared with a computer's enroll (plan 18, computerEnroll.ts),
+// which passes its own domain string.
+//
 // Nothing here logs a ticket, key, nonce, secret, token or email (review L3).
 
-import { createCipheriv, createECDH, createHash, hkdfSync, randomBytes, timingSafeEqual } from 'crypto';
 import { EnrollRedeemError, type EnrollRedeemReason, type RedeemedEnrollTicket } from '../cloud/enroll.js';
+import { prepareSeal, sameHex, sealAnswer, sha256hex } from './enrollSeal.js';
 import {
   MAX_PROVISIONAL_ACCOUNT_ROWS, TooManyProvisionalPhonesError, toView, type DeviceAuth, type MobileDeviceView,
 } from './deviceAuth.js';
@@ -49,7 +54,11 @@ export interface AccountEnrollInput {
   /** Accepted from older shells and ignored: the record is named by the backend's phone name (review M3). */
   label?: string;
   platform: 'ios' | 'android';
-  /** This Mac's own `address:port` on the request's socket (mobileRouter reachedAt), never the phone's say. */
+  /**
+   * The `address:port` the answer is bound to (boundAddress.ts boundAddressOf): this Mac's own on the request's
+   * socket, or the published pair its Host names behind a forwarded port or Tailscale in userspace. Never the
+   * phone's say.
+   */
   reachedAt: string;
 }
 
@@ -109,44 +118,6 @@ export interface AccountEnrollHooks {
   beforeRedeem?: () => void;
 }
 
-const sha256hex = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
-
-function sameHex(a: string, b: string): boolean {
-  if (a.length !== b.length || !/^[0-9a-f]*$/.test(a) || !/^[0-9a-f]*$/.test(b)) return false;
-  return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-}
-
-/**
- * Everything about the seal that can fail, done before any record exists: a fresh Mac key, ECDH with the phone's
- * key and the HKDF. Null for a phone key that is no P-256 point.
- */
-function prepareSeal(phoneKey: Buffer, sealSecret: Buffer, nonce: string): { macKey: Buffer; key: Buffer } | null {
-  const ecdh = createECDH('prime256v1');
-  const macKey = ecdh.generateKeys(); // uncompressed, 65 bytes
-  let shared: Buffer;
-  try {
-    shared = ecdh.computeSecret(phoneKey);
-  } catch {
-    return null;
-  }
-  const ikm = Buffer.concat([shared, sealSecret]);
-  const info = Buffer.concat([Buffer.from(ENROLL_SEAL_INFO, 'utf8'), phoneKey, macKey]);
-  const key = Buffer.from(hkdfSync('sha256', ikm, Buffer.from(nonce, 'utf8'), info, 32));
-  return { macKey, key };
-}
-
-function seal(prepared: { macKey: Buffer; key: Buffer }, nonce: string, reachedAt: string, plaintext: string): EnrollAnswer {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', prepared.key, iv);
-  cipher.setAAD(Buffer.from(`${ENROLL_SEAL_INFO}:${nonce}:${reachedAt}`, 'utf8'));
-  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  return {
-    macKey: prepared.macKey.toString('base64url'),
-    iv: iv.toString('base64url'),
-    sealed: Buffer.concat([ciphertext, cipher.getAuthTag()]).toString('base64url'),
-  };
-}
-
 export function createAccountEnroll(deps: AccountEnrollDeps) {
   const pairingOffered = (): boolean => deps.pairingOffered?.() ?? true;
   const passwordEnabled = (): boolean => deps.passwordEnabled?.() ?? true;
@@ -171,7 +142,7 @@ export function createAccountEnroll(deps: AccountEnrollDeps) {
 
       const phoneKey = Buffer.from(input.phoneKey, 'base64url');
       if (!sameHex(sha256hex(phoneKey), redeemed.phoneKeyHash)) return { ok: false, reason: 'invalid' };
-      const prepared = prepareSeal(phoneKey, Buffer.from(redeemed.sealSecret, 'base64url'), input.nonce);
+      const prepared = prepareSeal(ENROLL_SEAL_INFO, phoneKey, Buffer.from(redeemed.sealSecret, 'base64url'), input.nonce);
       if (!prepared) return { ok: false, reason: 'invalid' };
 
       let enrolled: ReturnType<DeviceAuth['enrollActive']>;
@@ -187,7 +158,10 @@ export function createAccountEnroll(deps: AccountEnrollDeps) {
         throw error;
       }
       const { device, deviceToken } = enrolled;
-      const answer = seal(prepared, input.nonce, input.reachedAt, JSON.stringify({ deviceId: device.id, deviceToken }));
+      const sealed = sealAnswer(
+        ENROLL_SEAL_INFO, prepared, input.nonce, input.reachedAt, JSON.stringify({ deviceId: device.id, deviceToken }),
+      );
+      const answer: EnrollAnswer = { macKey: sealed.ownKey, iv: sealed.iv, sealed: sealed.sealed };
       deps.info?.(`Phone paired via account: ${device.label} (${device.platform})`);
       return { ok: true, answer, device: toView(device) };
     },

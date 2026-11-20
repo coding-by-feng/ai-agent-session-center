@@ -37,7 +37,7 @@ import { createResourceCatalog, ResourceLookupError, type ResourceCatalogService
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
 import { ABBR_RE, TARGET_RE, AliasError, aliasCatalogRealNames, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
-import { createCloudRouter, type CloudGoogleRoutes } from './cloud/router.js';
+import { createCloudRouter, type CloudAccountRoutes, type CloudGoogleRoutes } from './cloud/router.js';
 import { createNotesRouter, notesErrorHandler } from './cloud/notesRouter.js';
 import { createResourceJobs, type ResourceJobs } from './cloud/resourceJobs.js';
 import type { ProjectActivity } from './knownProjects.js';
@@ -50,6 +50,8 @@ import { globalRootPaths } from './resourceRoots.js';
 import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
 import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
 import { createRemoteAccessRouter } from './cloud/remoteAccessRouter.js';
+import { createMachinesRouter, type MachinesRoutesDeps } from './cloud/machinesRouter.js';
+import { createAccountDevicesRouter } from './cloud/accountDevicesRouter.js';
 import { USAGE_WINDOW_DAYS, usageById, type TokenUse } from './resourceUsage.js';
 import type { RemoteAccess } from './cloud/remoteAccess.js';
 import type { CloudConnector } from './cloud/types.js';
@@ -59,8 +61,17 @@ export interface ResourceRouterDeps {
   cloud?: CloudConnector;
   /** Sign in with Google (AASC-61): POST /cloud/google/start and /cancel. The callback is mounted in index.ts. */
   cloudGoogle?: CloudGoogleRoutes;
+  /** Plan 18: POST /cloud/account/export saves the account's export into this folder on this computer. */
+  cloudAccount?: CloudAccountRoutes;
   /** Remote access (AASC-60): this Mac's Tailscale state and how its paired phones reach it. Works without `cloud`. */
   remoteAccess?: RemoteAccess;
+  /** Plan 18, stage 2: the account's computers, access tickets and this computer's account settings (/cloud/machines). */
+  cloudMachines?: MachinesRoutesDeps;
+  /**
+   * Plan 18, "Manage devices": called with the backend device id after DELETE /cloud/account/devices/:id succeeded,
+   * so this machine drops its own record of that device at once (mobile/accountDeviceReconcile.ts).
+   */
+  onAccountDeviceSignedOut?: (backendDeviceId: string) => void;
   /** Private directory for cloud alias state. Required with `cloud`. */
   cloudAliasDirectory?: string;
   /** Private directory for cloud resource/project jobs, caches and install backups. Default `<cloudAliasDirectory>/resources`. */
@@ -243,6 +254,10 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
   if (deps.remoteAccess) {
     router.use('/cloud/remote-access', createRemoteAccessRouter(deps.remoteAccess, isSameOriginWrite));
   }
+  // Plan 18, stage 2: before the cloud block too, so nothing under /cloud/machines reaches the generic routers.
+  if (deps.cloudMachines) {
+    router.use('/cloud/machines', createMachinesRouter(deps.cloudMachines, isSameOriginWrite));
+  }
   if (deps.cloud) {
     const cloud = deps.cloud;
     const directory = deps.cloudAliasDirectory;
@@ -293,9 +308,11 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     // The project and resource-job routers claim only their own prefixes and pass the rest on.
     router.use('/cloud/skill-notes', createNotesRouter(cloud));
     router.use('/cloud/aliases', createCloudAliasesRouter(getCloudAliases, isSameOriginWrite));
+    // Plan 18, "Manage devices": the account's devices and "Sign out that device".
+    router.use('/cloud/account/devices', createAccountDevicesRouter(cloud, isSameOriginWrite, deps.onAccountDeviceSignedOut));
     router.use('/cloud', createProjectRouter(getProjects, isSameOriginWrite));
     router.use('/cloud', createResourceJobsRouter(getOwnedJobs, isSameOriginWrite));
-    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite, deps.cloudGoogle));
+    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite, deps.cloudGoogle, deps.cloudAccount));
   }
   router.use(json({ limit: '64kb' }));
   // SSH Resource Transfers were retired for the cloud (AASC-51): the old prefix answers like any unknown route.

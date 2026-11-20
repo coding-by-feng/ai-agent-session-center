@@ -75,7 +75,25 @@ const ENROLL_REDEEM_PATH = '/v1/enroll/tickets/redeem';
 const ENROLL_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ['POST', exact(ENROLL_REDEEM_PATH)],
 ];
-const EXACT_ROUTES = [...RESOURCE_ROUTES, ...MAC_PATHS_ROUTES, ...ENROLL_ROUTES];
+/**
+ * Plan 18: this Mac may read its own account's export. Nothing else under /v1/account: an account
+ * is deleted by a Google sign-in in the browser (googleSignIn.ts), never with this Mac's token.
+ */
+const ACCOUNT_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [['GET', exact('/v1/account/export')]];
+/**
+ * Plan 18, stage 2 (machines.ts): this computer lists its account's computers, publishes or withdraws its own
+ * addresses, asks a ticket for another computer and redeems one that names it. These five and nothing else
+ * under /v1/machines.
+ */
+const MACHINES_REDEEM_PATH = '/v1/machines/tickets/redeem';
+const MACHINES_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['GET', exact('/v1/machines')],
+  ['PUT', exact('/v1/machines/self')],
+  ['DELETE', exact('/v1/machines/self')],
+  ['POST', exact('/v1/machines/tickets')],
+  ['POST', exact(MACHINES_REDEEM_PATH)],
+];
+const EXACT_ROUTES = [...RESOURCE_ROUTES, ...MAC_PATHS_ROUTES, ...ENROLL_ROUTES, ...ACCOUNT_ROUTES, ...MACHINES_ROUTES];
 export function allowedCloudRoute(method: string, path: string): boolean {
   const [pathname] = path.split('?');
   return (
@@ -91,16 +109,21 @@ const RESOURCE_PATH = /^\/v1\/(?:resources|projects)(?:[/?]|$)/;
 /** Errors the backend's device and push services answer with; nothing else crosses the boundary. */
 export const DEVICE_MESSAGES: Record<string, string> = {
   not_found: 'Cloud item was not found.',
+  // DELETE /v1/devices/:id for a device that is not on this account (plan 18, Manage devices).
+  device_not_found: 'That device isn’t on this AASC Cloud account.',
   pairing_codes_outstanding:
     'Too many unused phone pairing codes. Use one or wait for it to expire.',
   push_collapsed: 'A notification for this event was just sent.',
   push_unconfigured: 'Push notifications are not configured on the backend.',
+  export_busy: 'An export is already running. Try again when it has finished.',
 };
 const DEVICE_STATUSES: Record<string, number> = {
   not_found: 404,
+  device_not_found: 404,
   pairing_codes_outstanding: 409,
   push_collapsed: 429,
   push_unconfigured: 503,
+  export_busy: 429,
 };
 /**
  * The redeem route's refusals (plan 17). `phone_revoked` is a 401 about the PHONE: read only on that route, and a
@@ -117,6 +140,27 @@ const ENROLL_STATUSES: Record<string, number> = {
   ticket_expired: 410,
   ticket_used: 409,
   phone_revoked: 401,
+};
+/**
+ * The machine directory's own refusals (plan 18, stage 2); its tickets answer with the enroll codes above.
+ * `client_revoked` is a 401 about the CLIENT whose ticket this computer redeems, read on that route only.
+ */
+const MACHINE_MESSAGES: Record<string, string> = {
+  machine_not_found: 'That computer isn’t on this AASC Cloud account.',
+  client_revoked: 'That device was removed from the AASC Cloud account.',
+};
+const MACHINE_STATUSES: Record<string, number> = {
+  machine_not_found: 404,
+  client_revoked: 401,
+};
+/**
+ * The only 401 bodies ever read: on a redeem route, the one code that says the OTHER device (the phone or the
+ * client computer whose ticket this is) was revoked. Any other 401, there or elsewhere, is about this Mac's
+ * own token and revokes its connection.
+ */
+const PEER_REVOKED_CODE: Readonly<Record<string, string>> = {
+  [ENROLL_REDEEM_PATH]: 'phone_revoked',
+  [MACHINES_REDEEM_PATH]: 'client_revoked',
 };
 /** Errors the backend's resource and project services answer with. */
 const RESOURCE_MESSAGES: Record<string, string> = {
@@ -166,6 +210,7 @@ const DOMAIN_HTTP_STATUSES: Record<string, number> = {
   ...Object.fromEntries(Object.keys(NOTE_MESSAGES).map((code) => [code, 409])),
   ...DEVICE_STATUSES,
   ...ENROLL_STATUSES,
+  ...MACHINE_STATUSES,
   ...RESOURCE_STATUSES,
 };
 /** A known code at its status; hash_mismatch is also a 400 (upload) as well as a 409. */
@@ -176,6 +221,7 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   ...NOTE_MESSAGES,
   ...DEVICE_MESSAGES,
   ...ENROLL_MESSAGES,
+  ...MACHINE_MESSAGES,
 };
 const RESOURCE_DOMAIN_MESSAGES: Record<string, string> = {
   ...NOTES_HTTP_MESSAGES,
@@ -196,6 +242,8 @@ export interface CloudTransport {
     token?: string,
     signal?: AbortSignal,
     consume?: CloudBinaryConsumer,
+    /** For one long read (the account export); every other request keeps the transport's own limit. */
+    timeoutMs?: number,
   ): Promise<T>;
   abort(): void;
 }
@@ -276,6 +324,7 @@ export function createCloudTransport(options: {
       token?: string,
       signal?: AbortSignal,
       consume?: CloudBinaryConsumer,
+      timeoutMs?: number,
     ): Promise<T> {
       if (
         !allowedCloudRoute(method, path) ||
@@ -287,7 +336,7 @@ export function createCloudTransport(options: {
       const cancel = () => controller.abort();
       if (signal?.aborted) controller.abort();
       signal?.addEventListener('abort', cancel, { once: true });
-      const timer = setTimeout(cancel, options.timeoutMs ?? 15_000);
+      const timer = setTimeout(cancel, timeoutMs ?? options.timeoutMs ?? 15_000);
       timer.unref?.();
       try {
         const response = await (options.fetch ?? fetch)(new URL(path, origin), {
@@ -321,13 +370,12 @@ export function createCloudTransport(options: {
           );
         }
         if (!response.ok) {
-          // A 401 body is read on the redeem route only: there it may be `phone_revoked`, about the phone.
-          if (
-            READ_STATUSES.has(response.status) ||
-            (response.status === 401 && path === ENROLL_REDEEM_PATH)
-          ) {
+          // A 401 body is read on a redeem route only: there it may say the phone or client was revoked.
+          const peerRevoked =
+            response.status === 401 && Object.hasOwn(PEER_REVOKED_CODE, path) ? PEER_REVOKED_CODE[path] : null;
+          if (READ_STATUSES.has(response.status) || peerRevoked) {
             const known = await domainError(response, path);
-            if (known) throw known;
+            if (known && (response.status !== 401 || known.code === peerRevoked)) throw known;
           } else await response.body?.cancel();
           if (response.status === 401)
             throw new CloudError(
@@ -403,6 +451,7 @@ export function createCloudClient(deps: {
     body?: unknown,
     signal?: AbortSignal,
     consume?: CloudBinaryConsumer,
+    timeoutMs?: number,
   ): Promise<T> {
     const revision = deps.revision(),
       active = deps.active();
@@ -416,6 +465,7 @@ export function createCloudClient(deps: {
         active.token,
         signal,
         consume,
+        timeoutMs,
       );
       if (deps.revision() !== revision || deps.active() !== active)
         throw new CloudError('connection_changed', 'Cloud connection changed. Review again.', 409);
@@ -430,7 +480,7 @@ export function createCloudClient(deps: {
   }
   return {
     request: run,
-    stream: (path, consume, signal) => run<void>('GET', path, undefined, signal, consume),
+    stream: (path, consume, signal, timeoutMs) => run<void>('GET', path, undefined, signal, consume, timeoutMs),
   };
 }
 export function isReachableCloudError(error: CloudError): boolean {

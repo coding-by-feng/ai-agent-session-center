@@ -41,6 +41,11 @@ export function markRemoteOnlyServer(server: Server): void {
   });
 }
 
+/** Was this connection accepted by a remote-only listener? Tunnels and relays end there (boundAddress.ts). */
+export function isRemoteOnlySocket(socket: Socket | undefined | null): boolean {
+  return !!socket && remoteOnlySockets.has(socket);
+}
+
 /**
  * Headers a proxy adds on behalf of the real client. Their presence on a
  * loopback connection means the request was relayed from somewhere else.

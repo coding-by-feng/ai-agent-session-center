@@ -51,7 +51,7 @@ describe('remoteStore', () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toEqual({
       id: newIdAt(1), name: 'Studio Mac', lan: '192.168.1.20', tailnet: null, port: 3333,
-      status: 'pending', confirmCode: '123456', addedAt: 1_000, lastSeenAt: null,
+      status: 'pending', confirmCode: '123456', addedAt: 1_000, lastSeenAt: null, origin: 'link',
     });
     expect(JSON.stringify(list)).not.toContain(TOKEN);
     expect(list[0]).not.toHaveProperty('token');

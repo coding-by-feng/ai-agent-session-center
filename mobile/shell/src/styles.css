@@ -404,6 +404,8 @@ select.input { appearance: auto; }
   border-radius: var(--radius);
   background: var(--surface);
 }
+/* Delete AASC Cloud account… (Nov 20 2026): set apart from Sign out by a divider with a fixed 16px either side. */
+.account-delete { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
 .mac-info { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; min-height: 64px; padding: 12px 8px 12px 14px; }
 .mac-connect { align-self: center; width: auto; min-height: 44px; margin-right: 12px; padding: 8px 16px; }
 .mac[data-enroll='offline'] { border-color: var(--warn-border); }

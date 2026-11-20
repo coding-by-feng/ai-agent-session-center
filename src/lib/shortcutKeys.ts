@@ -1,6 +1,7 @@
 /**
  * shortcutKeys — default shortcut definitions and KeyCombo utilities.
  */
+import { hasAccountChannels } from '@/lib/devicesSwitcher';
 import { IS_LITE, liteAllowsShortcut } from '@/lib/edition';
 import type { KeyCombo, ShortcutActionId, ShortcutBinding } from '@/types/shortcut';
 
@@ -53,6 +54,10 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   // Cmd+K on a Mac, also from a focused terminal (Cmd never reaches the shell); Ctrl+K elsewhere, outside a
   // terminal only, where Ctrl+K is the shell's kill-line (Nov 18 2026). Plain `/` before: the terminal kept it.
   searchSessions:             { label: 'Search sessions',               section: 'Session Switch', combo: isMac ? { key: 'k', metaKey: true } : { key: 'k', ctrlKey: true } },
+  // The devices panel's Switch part (plan 18). Cmd/Ctrl+Shift, not the Cmd/Ctrl+Alt of the keys around it: xterm
+  // types nothing for Ctrl+Shift+S, while on Linux it sends ESC + a control character for Ctrl+Alt+letter (measured:
+  // Ctrl+Alt+S is 1b 13), and on Windows Ctrl+Alt is AltGr. S for Switch: Option+Cmd+D is the macOS Dock's own key.
+  switchDevice:               { label: 'Switch computer',               section: 'Session Switch', combo: isMac ? { key: 's', shiftKey: true, metaKey: true } : { key: 's', shiftKey: true, ctrlKey: true } },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
   switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },
@@ -97,6 +102,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'switchLatestSession',
   'jumpToSession',
   'searchSessions',
+  'switchDevice',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
@@ -117,8 +123,11 @@ export function buildBindings(
   overrides?: Partial<Record<ShortcutActionId, KeyCombo>>,
 ): ShortcutBinding[] {
   // Lite has no binding at all for an action it leaves out: the key passes through to the terminal,
-  // and the shortcut lists skip it.
-  const actions = IS_LITE ? ACTION_IDS.filter(liteAllowsShortcut) : ACTION_IDS;
+  // and the shortcut lists skip it. The same goes for `switchDevice` in a window with no devices switcher
+  // (a browser, a remote computer's window, a Client edition): asked on every build, never cached.
+  const offered = (actionId: ShortcutActionId) =>
+    (!IS_LITE || liteAllowsShortcut(actionId)) && (actionId !== 'switchDevice' || hasAccountChannels());
+  const actions = ACTION_IDS.filter(offered);
   return actions.map((actionId) => {
     const def = DEFAULTS[actionId];
     return {

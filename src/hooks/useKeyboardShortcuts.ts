@@ -10,6 +10,7 @@ import { isTerminalPassThrough } from '@/lib/shortcutKeys';
 import { showToast } from '@/components/ui/ToastContainer';
 import { jumpToSessionNumber } from '@/lib/sessionJump';
 import { SESSION_SEARCH_FOCUS_EVENT } from '@/lib/sessionStrip';
+import { DEVICES_SWITCH_EVENT } from '@/lib/devicesSwitcher';
 import { IS_LITE } from '@/lib/edition';
 import { useQuickCreateStore } from '@/stores/quickCreateStore';
 import { isPopoutWindow } from '@/lib/windowRole';
@@ -143,6 +144,12 @@ function dispatchAction(actionId: string): void {
       // dialog: it would reshape the panel and pull focus out of the modal.
       if (useUiStore.getState().activeModal) return;
       document.dispatchEvent(new CustomEvent(SESSION_SEARCH_FOCUS_EVENT));
+      break;
+    case 'switchDevice':
+      // DevicePresenceChip owns the panel: it opens on Switch, or closes when it is open there. Not behind
+      // a dialog, which would keep the focus the panel is about to take.
+      if (useUiStore.getState().activeModal) return;
+      document.dispatchEvent(new CustomEvent(DEVICES_SWITCH_EVENT));
       break;
     default:
       if (actionId.startsWith('fileBrowser')) {

@@ -1,0 +1,98 @@
+/*
+ * MachineAccountSettings — the "Account" group of the devices panel (plan 18 stage 2). Its section, title and the
+ * two main boxes are PhonePairing.module.css's (the panel's checkbox idiom); this module adds the indented row of
+ * address boxes, the status line and the error line. Lives in the 360px panel, so everything wraps.
+ */
+
+/* Under "Show this computer…", starting where its label starts (16px box + 8px gap). */
+.addresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+  min-width: 0;
+  padding-left: 24px;
+}
+
+/* Five states: default, hover, active, focus-visible on the box, off. The whole label is the target. */
+.address {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.address input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.address input[aria-busy='true'] {
+  cursor: progress;
+}
+
+.address:hover {
+  background: color-mix(in srgb, var(--accent-cyan) 8%, transparent);
+}
+
+.address:active {
+  background: color-mix(in srgb, var(--accent-cyan) 16%, transparent);
+}
+
+.address input:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* "Show this computer…" is off: the addresses are kept, and can't be changed until it is on again. */
+.addressOff,
+.addressOff input {
+  cursor: not-allowed;
+}
+
+.addressOff {
+  opacity: 0.55;
+}
+
+.addressOff:hover,
+.addressOff:active {
+  background: transparent;
+}
+
+.status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The kit's danger text: the raw red is under 4.5:1 on the light themes. */
+.error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--danger-text, color-mix(in srgb, var(--accent-red) 50%, var(--text-primary)));
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  .address {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .address {
+    transition: background-color 150ms ease;
+  }
+}

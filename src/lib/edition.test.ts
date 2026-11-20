@@ -39,6 +39,8 @@ describe('liteAllowsShortcut', () => {
     'scrollToBottom', 'terminalToggleAutoScroll', 'switchSession1', 'switchSession9',
     'switchLatestSession', 'jumpToSession', 'switchTabProject', 'switchTabTerminal', 'switchTabCommands', 'switchTabAiPopups', 'switchTabQueue',
     'fileBrowserSearch', 'floatMinimize', 'floatMaximize', 'floatClose',
+    // The devices switcher is in Lite (plan 18 stage 2), and so is the key that opens it.
+    'switchDevice',
   ])('keeps %s', (actionId) => {
     expect(liteAllowsShortcut(actionId)).toBe(true);
   });

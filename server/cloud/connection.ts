@@ -20,6 +20,11 @@ export interface CloudConnectionOptions {
   secrets: SecretStore;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  /**
+   * What this install tells its account about itself (plan 18, selfDescription.ts): sent after a
+   * connect and after a recheck that succeeds, never at startup. Null sends nothing.
+   */
+  describe?: () => object | null;
 }
 /** One connector per local server; explicit directories make fixture use independent of hooks/data. */
 export async function createCloudConnection(options: CloudConnectionOptions): Promise<CloudConnector> {
@@ -45,6 +50,16 @@ export async function createCloudConnection(options: CloudConnectionOptions): Pr
     publishedRef = secretRef;
   };
   const cancelled = () => new CloudError('cancelled', 'Cloud connection change was cancelled.', 409);
+  /**
+   * Fire and forget, straight through the transport: a backend that does not know the route, or
+   * fails, must never read as this connection being offline, so the client's outcome is not involved.
+   */
+  const describeSelf = (snapshot: ActiveCloudConnection) => {
+    let details: object | null = null;
+    try { details = options.describe?.() ?? null; } catch { details = null; }
+    if (!details) return;
+    void transport.send(snapshot.connection.backendOrigin, 'PUT', '/v1/devices/self', details, snapshot.token).catch(() => {});
+  };
   try {
     const bytes = await readPrivateFile(configPath);
     if (bytes) {
@@ -109,6 +124,7 @@ export async function createCloudConnection(options: CloudConnectionOptions): Pr
           stopWork();
           active = { connection, secretRef: newRef, token: paired.data.token };
           installed = true; state = 'connected'; lastError = null;
+          describeSelf(active);
           // A stale isolated secret is unusable without its matching published ref.
           if (previousRef) await options.secrets.remove(previousRef).catch(() => {});
           return { ...connection };
@@ -134,6 +150,7 @@ export async function createCloudConnection(options: CloudConnectionOptions): Pr
         if (active === snapshot && !stopped) { state = 'offline'; lastError = error.message; }
         throw error;
       }
+      describeSelf(snapshot);
       return connector.status();
     },
     async disconnectCloud() {

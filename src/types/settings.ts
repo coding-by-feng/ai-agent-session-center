@@ -54,6 +54,18 @@ export interface ServerConfig {
    */
   publicAddress?: string;
   /**
+   * Plan 18, stage 2 (server/mobile/machineAccountSettings.ts), all written by the device panel:
+   * `showOnAccount` — tell this computer's AASC Cloud account where it can be tried, and let the account's
+   * computers connect. Absent means on; `false` turns it off. `AASC_SHOW_ON_ACCOUNT=1` / `0` overrides it.
+   * `accountAddresses` — which addresses are told: home network and Tailscale unless `false`, the public one
+   * only when `true` (plain HTTP across the Internet).
+   * `computerAccountEnroll` — `ask` (absent: Allow once per computer) or `auto` (connect without asking).
+   * `AASC_COMPUTER_ACCOUNT_ENROLL=ask` / `auto` overrides it.
+   */
+  showOnAccount?: boolean;
+  accountAddresses?: { lan?: boolean; tailnet?: boolean; public?: boolean };
+  computerAccountEnroll?: 'ask' | 'auto';
+  /**
    * The switch for central sessions (server/mcp). Off unless `{ "enabled": true }` (Oct 28 2026); off leaves
    * `/mcp` unmounted and launches carry no MCP flags or token. The Settings → ADVANCED choice
    * (`central-sessions.json`, server/mcp/runtime.ts) wins over this when one was saved.

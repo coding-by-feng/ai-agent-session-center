@@ -19,7 +19,7 @@ export interface ActiveCloudConnection {
 export type CloudBinaryConsumer = (body: ReadableStream<Uint8Array>) => Promise<void>;
 export interface CloudClient {
   /** GET a binary body (resource package files) and hand it to `consume`; same allow-list as request. */
-  stream?(servicePath: string, consume: CloudBinaryConsumer, signal?: AbortSignal): Promise<void>;
+  stream?(servicePath: string, consume: CloudBinaryConsumer, signal?: AbortSignal, timeoutMs?: number): Promise<void>;
   request<T>(method: string, servicePath: string, body?: unknown, signal?: AbortSignal): Promise<T>;
 }
 export interface CloudConnector {

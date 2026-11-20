@@ -4,6 +4,8 @@
  *
  *   POST /v1/push/notify             — ask the backend to push to paired phones (AASC-16)
  *   POST /v1/devices/pairing-codes   — mint a phone-scoped backend pairing code (AASC-15)
+ *   GET  /v1/devices                 — the account's devices, a page at a time, or all of them (plan 18)
+ *   DELETE /v1/devices/:id           — revoke one of them
  *
  * Inputs mirror the backend's contract v1 schemas (aasc-backend
  * src/contracts/v1.ts) and are validated before anything is sent, so a bad
@@ -122,11 +124,22 @@ export async function createPhonePairingCode(
   return validResponse(PhonePairingCodeSchema, data, 'pairing code');
 }
 
+/** A value this build can't read is as good as absent: never a reason to fail a row someone else relies on. */
+const tolerant = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
+
 const BackendDeviceSchema = z.object({
   id: z.string().min(1).max(128),
   kind: z.string().nullable().optional(),
   createdByCode: z.string().nullable().optional(),
   revokedAt: z.string().nullable().optional(),
+  // Plan 18 (Manage devices), additive. The backend has always sent name, createdAt and lastUsedAt; platform,
+  // edition and appVersion are null until a device describes itself and absent from an older backend.
+  name: tolerant(z.string().min(1).max(256)),
+  platform: tolerant(z.string().min(1).max(64).nullable()),
+  edition: tolerant(z.string().min(1).max(64).nullable()),
+  appVersion: tolerant(z.string().min(1).max(64).nullable()),
+  createdAt: tolerant(z.iso.datetime()),
+  lastUsedAt: tolerant(z.iso.datetime().nullable()),
 });
 const DevicePageSchema = z.object({
   devices: z.array(BackendDeviceSchema),
@@ -170,4 +183,164 @@ export async function findDeviceByPairingCode(
     cursor = nextCursor;
   }
   return null;
+}
+
+/** A listing stops after this many pages (the backend gives up to 100 devices a page). */
+export const MAX_DEVICE_PAGES = 50;
+
+/** A device of the account as "Manage devices" shows it. Times are ms since the epoch. */
+export interface AccountDevice {
+  id: string;
+  name: string;
+  /** `server` or `phone` today; null when the backend can't say. */
+  kind: string | null;
+  platform: string | null;
+  edition: string | null;
+  appVersion: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+  /** This computer's own device. */
+  current: boolean;
+}
+
+/** A backend device id: a lower-case UUID. What may be listed, and what may be put into a revoke's path. */
+export const ACCOUNT_DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A row for the manage list. It must say which device it is (id), what to call it (name) and when it was made;
+ * everything else is read when it can be and null when it can't, so a device is never hidden for a detail.
+ */
+const AccountDeviceRowSchema = BackendDeviceSchema.extend({
+  id: z.string().regex(ACCOUNT_DEVICE_ID_RE),
+  kind: tolerant(z.string().min(1).max(64).nullable()),
+  createdByCode: tolerant(z.unknown()),
+  revokedAt: tolerant(z.string().nullable()),
+});
+const AccountDevicePageSchema = z.object({ devices: z.array(z.unknown()), nextCursor: z.string().max(128).nullable() });
+
+/** This computer first, then the most recently used, then by name. */
+function byUse(a: AccountDevice, b: AccountDevice): number {
+  if (a.current !== b.current) return a.current ? -1 : 1;
+  const used = (b.lastUsedAt ?? -Infinity) - (a.lastUsedAt ?? -Infinity);
+  if (used !== 0 && !Number.isNaN(used)) return used;
+  return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/**
+ * Every live device of this account (needs `devices:manage`): all pages, revoked ones left out, each rebuilt
+ * from the fields above and nothing else (never its scopes or the code that made it). A row that can't be read
+ * is skipped, never a failure of the list. The whole list or none: a read that did not reach the last page
+ * (the page cap, a cursor the backend repeats) fails rather than pass a part of it off as the account's
+ * devices. Fails with CloudError: `forbidden` (403), `invalid_response` (an answer that is no device page, or a
+ * list that did not end), `disconnected` / `offline` / `backend_error` otherwise.
+ */
+export async function listAccountDevices(
+  client: CloudClient,
+  currentDeviceId: string | null,
+  signal?: AbortSignal,
+): Promise<AccountDevice[]> {
+  const read = await readDevicePages(client, signal);
+  if (!read.complete) throw new CloudError('invalid_response', 'Cloud returned a device list that did not end.');
+  // A row's id is lower-case by ACCOUNT_DEVICE_ID_RE; the id this computer stored need not be.
+  const current = currentDeviceId?.toLowerCase() ?? null;
+  const devices = new Map<string, AccountDevice>();
+  for (const raw of read.rows) {
+    const row = AccountDeviceRowSchema.safeParse(raw);
+    if (!row.success) continue;
+    const { id, name, createdAt, revokedAt, kind, platform, edition, appVersion, lastUsedAt } = row.data;
+    if (revokedAt || !name || !createdAt) continue;
+    devices.set(id, {
+      id,
+      name,
+      kind: kind ?? null,
+      platform: platform ?? null,
+      edition: edition ?? null,
+      appVersion: appVersion ?? null,
+      createdAt: Date.parse(createdAt),
+      lastUsedAt: lastUsedAt ? Date.parse(lastUsedAt) : null,
+      current: id === current,
+    });
+  }
+  return [...devices.values()].sort(byUse);
+}
+
+/**
+ * The account's device rows as the backend sent them, page by page, at most MAX_DEVICE_PAGES. `complete` is
+ * false when the read did not reach the last page: that cap was reached with more to read, or the backend
+ * handed back a cursor it had already given (a list that goes round, which no more asking would end). A
+ * request that fails, or an answer that is no device page, rejects. Callers must treat `complete: false` as no
+ * answer at all.
+ */
+async function readDevicePages(client: CloudClient, signal?: AbortSignal): Promise<{ rows: unknown[]; complete: boolean }> {
+  const rows: unknown[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_DEVICE_PAGES; page++) {
+    const query: string = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    const data = await client.request<unknown>('GET', `/v1/devices${query}`, undefined, signal);
+    const parsed = validResponse(AccountDevicePageSchema, data, 'device list');
+    rows.push(...parsed.devices);
+    if (!parsed.nextCursor) return { rows, complete: true };
+    if (cursors.has(parsed.nextCursor)) return { rows, complete: false };
+    cursors.add(parsed.nextCursor);
+    cursor = parsed.nextCursor;
+  }
+  return { rows, complete: false };
+}
+
+/** The backend's own word that a device was signed out. */
+const DeviceRevokedSchema = z.object({ revoked: z.literal(true) });
+
+/**
+ * Sign one device out of this account (needs `devices:manage`), and have the backend say it did: only its own
+ * `{ revoked: true }` counts. Any other answer, a 2xx too, fails with CloudError `invalid_response`, and the
+ * caller must conclude nothing from it. Fails as the request does otherwise (`device_not_found` 404,
+ * `forbidden` 403, …).
+ */
+export async function revokeAccountDevice(client: CloudClient, deviceId: string, signal?: AbortSignal): Promise<void> {
+  if (!ACCOUNT_DEVICE_ID_RE.test(deviceId)) throw new CloudError('invalid_input', 'Invalid device id.', 400);
+  const data = await client.request<unknown>('DELETE', `/v1/devices/${deviceId}`, undefined, signal);
+  validResponse(DeviceRevokedSchema, data, 'device revocation');
+}
+
+/** What one read of the account's device list proves: nothing unless it was complete. */
+export type RevokedDevicesRead =
+  | { complete: true; revoked: ReadonlySet<string> }
+  /** The page cap was reached with more to read: nothing may be concluded from it. */
+  | { complete: false };
+
+/** A row as evidence that a device was signed out: which device, and a revocation time or an explicit none. */
+const RevocationRowSchema = z.object({
+  id: z.string().regex(ACCOUNT_DEVICE_ID_RE),
+  revokedAt: z.iso.datetime().nullable(),
+});
+const RowIdSchema = z.object({ id: z.string().regex(ACCOUNT_DEVICE_ID_RE) });
+
+/**
+ * The backend device ids that a COMPLETE read of this account's device list shows revoked (plan 18,
+ * mobile/accountDeviceReconcile.ts). Positive evidence only, and only when every row about a device agrees:
+ *   - a device the list does not mention is not in the answer (absence proves nothing);
+ *   - a device with a row that can't be read (a `revokedAt` that is no time, or missing), or with two rows that
+ *     disagree, is not in the answer;
+ *   - a row that names no device is evidence about none.
+ * Rejects (CloudError) when any request fails or any page is no device page; `complete: false` when the page
+ * cap was reached. The caller must do nothing in both cases.
+ */
+export async function readRevokedAccountDevices(client: CloudClient, signal?: AbortSignal): Promise<RevokedDevicesRead> {
+  const read = await readDevicePages(client, signal);
+  if (!read.complete) return { complete: false };
+  const revoked = new Set<string>();
+  const doubted = new Set<string>();
+  for (const raw of read.rows) {
+    const row = RevocationRowSchema.safeParse(raw);
+    if (row.success && row.data.revokedAt !== null) {
+      revoked.add(row.data.id);
+      continue;
+    }
+    // Live, or unreadable: either way this device is not proven revoked, whatever another row says.
+    const named = row.success ? row : RowIdSchema.safeParse(raw);
+    if (named.success) doubted.add(named.data.id);
+  }
+  for (const id of doubted) revoked.delete(id);
+  return { complete: true, revoked };
 }

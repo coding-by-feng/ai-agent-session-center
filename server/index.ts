@@ -13,7 +13,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { WS_SERVER_OPTIONS } from './wsServerOptions.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { mkdir, realpath } from 'fs/promises';
+import { mkdir, realpath, stat } from 'fs/promises';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, broadcastByLocality, disconnectDevice, onBroadcast, isPhoneDeviceOnline, isPairedComputerOnline, sendToClientId, isPairedPhoneClient } from './wsManager.js';
@@ -39,6 +39,8 @@ import type { ResourceCatalogService } from './resourceCatalog.js';
 import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { createResourceUsage } from './resourceUsage.js';
 import { createGoogleSignIn, GOOGLE_CALLBACK_PATH } from './cloud/googleSignIn.js';
+import { packageVersion, selfDescription } from './cloud/selfDescription.js';
+import { createAfterDelete } from './cloud/afterDelete.js';
 import { createGoogleCallbackRouter } from './cloud/googleCallbackRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -53,7 +55,7 @@ import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess, describePortHolder } from './portManager.js';
 import { getLocalIP, getPairingLanIP, getPublicInterfaceIP } from './networkInfo.js';
 import { createTailscaleProbe } from './tailscaleStatus.js';
-import { hostname } from 'os';
+import { homedir, hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
 import { sqliteAccountDenyList, sqliteBackendCodeLedger, sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
@@ -68,6 +70,8 @@ import { listKnownProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.j
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isPhonePairingOffered } from './mobile/pairingOffer.js';
 import { createAccountEnrollWiring } from './mobile/accountEnrollWiring.js';
+import { createMachineAccountWiring, type MachineAccountWiring } from './mobile/machineAccountWiring.js';
+import { createComputerEnrollRouter } from './mobile/computerEnrollRouter.js';
 import { shouldAdvertise, startLanAdvertiser } from './mobile/lanAdvertiser.js';
 import { createMacPathsPublisher } from './mobile/macPathsPublisher.js';
 import { createPairingTarget } from './mobile/pairingTarget.js';
@@ -160,6 +164,11 @@ export async function shutdownServer(): Promise<void> {
 export interface ServerOptions {
   /** Electron's safeStorage (OS keychain). Without it the device token sits in a 0600 file. */
   cloudEncryption?: SecretEncryption;
+  /**
+   * The desktop app's version and build (plan 18): what this install tells its AASC Cloud account
+   * about itself. Without it the version comes from package.json and the build reads as Full.
+   */
+  appInfo?: { version: string; lite: boolean };
 }
 
 /**
@@ -181,6 +190,13 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
       secrets: options.cloudEncryption
         ? createEncryptedSecretStore(secretsDir, options.cloudEncryption)
         : createFileSecretStore(secretsDir),
+      describe: () =>
+        selfDescription({
+          platform: process.platform,
+          edition: serverEdition(),
+          lite: options.appInfo?.lite ?? false,
+          version: options.appInfo?.version ?? packageVersion(join(__dirname, '..')),
+        }),
     });
     return { cloud, directory };
   } catch (err) {
@@ -267,9 +283,14 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // Sign in with Google (AASC-61): one pending sign-in per process. The callback is a cross-site
   // browser navigation that can't carry the session cookie, so it is mounted before authMiddleware
   // with its own loopback gate (googleCallbackRouter.ts); start/cancel live under /api/resources.
+  // Plan 18, stage 2: built further down (it needs the pairing target); a sign-in happens long after.
+  let machineAccount: MachineAccountWiring | null = null;
   const googleSignIn = cloud
     ? createGoogleSignIn({
-        connect: (input) => cloud.connectCloud(input),
+        // Through the connector the cloud routes use, so this computer shows in its account's directory at once.
+        connect: (input) => (machineAccount?.connector ?? cloud).connectCloud(input),
+        // Plan 18: after "Delete my account" in the browser, this Mac checks its own connection.
+        afterDelete: createAfterDelete(cloud),
         log: (message) => log.info('cloud', message),
       })
     : null;
@@ -483,6 +504,37 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     info: (message) => log.info('mobile', message),
     warn: (message) => log.warn('mobile', message),
   });
+  // The one source of this Mac's Tailscale address: the pairing QR, /paths, the cloud and Remote access read it (AASC-60).
+  const tailscaleProbe = createTailscaleProbe();
+  // Where other devices find this Mac: the pairing link, /paths and the account's directory all read this one.
+  const pairingTarget = createPairingTarget({
+    name: () => hostname().replace(/\.local$/, ''),
+    port: PORT,
+    lan: getPairingLanIP, // a private address on a real interface only (Oct 27 2026)
+    probe: tailscaleProbe,
+    // The "Public IP" choice (Oct 28 2026): AASC_PUBLIC_ADDRESS, server-config.json "publicAddress", or the NIC's.
+    publicAddress: () => pairingPublicAddress(config, process.env, getPublicInterfaceIP),
+  });
+  // Plan 18, stage 2: one account, all devices. This computer tells its AASC Cloud account where it can be tried
+  // ("Show this computer to my account", on once signed in; AASC_SHOW_ON_ACCOUNT) and lets the account's computers
+  // connect without a link: Allow once per computer, or without asking (AASC_COMPUTER_ACCOUNT_ENROLL=ask|auto).
+  // AASC Cloud stays optional: with no connection none of it asks the backend anything (machineAccountWiring.test.ts).
+  // A hosted runtime keeps its own way in, so it is neither published nor offered there.
+  machineAccount = createMachineAccountWiring({
+    cloud,
+    configPath: CONFIG_PATH,
+    savedSettings: config,
+    env: process.env,
+    pairingOffered: () => !hosted && isPhonePairingOffered(config, process.env),
+    passwordEnabled: isPasswordEnabled,
+    target: pairingTarget,
+    denyList: sqliteAccountDenyList,
+    rememberedFile: cloudSetup ? join(cloudSetup.directory, 'machine-directory.json') : null,
+    info: (message) => log.info('mobile', message),
+    warn: (message) => log.warn('mobile', message),
+    debug: (message) => log.debug('mobile', message),
+  });
+  const machineAccountWiring = machineAccount;
   const deviceAuth = createDeviceAuth({
     store: sqliteMobileDeviceStore,
     // A device token is bound to the dashboard password it was issued under.
@@ -502,7 +554,11 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       disconnectDevice(device.id);
     },
     // Plan 17 (review H1): Revoke / Unpair of an account phone also signs it out of AASC Cloud and refuses it here.
-    onRemovedByOwner: accountEnrollWiring.onRemovedByOwner,
+    // Plan 18: Revoke of an account computer refuses it here (it is never signed out of AASC Cloud).
+    onRemovedByOwner: (device, how) => {
+      accountEnrollWiring.onRemovedByOwner(device);
+      machineAccountWiring.onRemovedByOwner(device, how);
+    },
   });
   hostedAccessRevoked = () => {
     if (hosted) revokeHostedTokens(hosted.orderId);
@@ -516,19 +572,25 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       if (!deviceAuth.deny(device.id)) deviceAuth.revoke(device.id);
     }
   };
+  // Plan 18: "Sign out that device" means it here too. This machine drops the records of phones and computers that
+  // connected through the account once the account has signed them out: on a complete read of its device list (at
+  // start with a saved connection, after a sign-in, then every five minutes), or at once when the sign-out was made
+  // here. Never on a read that failed or fell short, and never a record paired by link (accountDeviceReconcile.ts).
+  const accountDeviceReconcile = machineAccountWiring.createReconcile(deviceAuth);
   // The password is read at startup: a changed one revokes every phone paired
   // under the old one now, backend devices included (AASC-52), not at its next sign-in.
   revokePhonesFromOldPassword(deviceAuth, (message) => log.info('mobile', message));
-  // The one source of this Mac's Tailscale address: the pairing QR, /paths, the cloud and Remote access read it (AASC-60).
-  const tailscaleProbe = createTailscaleProbe();
   // How each phone last connected (home network or Tailscale), in memory (AASC-60):
   // written by the mobile router below, read by Remote access.
   const phonePathLog = createPhonePathLog();
   const accountEnroll = accountEnrollWiring.createEnroll(deviceAuth);
   if (hosted) app.use(createHostedPairingRouter(hosted, deviceAuth, () => isPhonePairingOffered(config, process.env), hostedAccess!));
+  // Every public device route refuses while no dashboard password is set (a hosted runtime has its own sign-in).
+  const deviceRoutesNeedPassword = (): boolean => hosted !== null || isPasswordEnabled();
+  const loginRateLimit = { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts };
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
-    isPasswordEnabled: () => hosted !== null || isPasswordEnabled(),
+    isPasswordEnabled: deviceRoutesNeedPassword,
     // On unless server-config.json "phonePairing": false or AASC_PHONE_PAIRING=0.
     pairingOffered: () => isPhonePairingOffered(config, process.env),
     isPhoneOnline: isPhoneDeviceOnline,
@@ -537,15 +599,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     createSessionToken: (deviceId) => createToken(deviceId, hosted ? (deviceAuth.hostedIdentity(deviceId) === undefined ? currentHostedOwner(hosted) : deviceAuth.hostedIdentity(deviceId)) ?? undefined : undefined),
     createComputerSessionToken: (deviceId) => createComputerToken(deviceId, hosted ? (deviceAuth.hostedIdentity(deviceId) === undefined ? currentHostedOwner(hosted) : deviceAuth.hostedIdentity(deviceId)) ?? undefined : undefined),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
-    pairingTarget: createPairingTarget({
-      name: () => hostname().replace(/\.local$/, ''),
-      port: PORT,
-      lan: getPairingLanIP, // a private address on a real interface only (Oct 27 2026)
-      probe: tailscaleProbe,
-      // The "Public IP" choice (Oct 28 2026): AASC_PUBLIC_ADDRESS, server-config.json "publicAddress", or the NIC's.
-      publicAddress: () => pairingPublicAddress(config, process.env, getPublicInterfaceIP),
-    }),
-    rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
+    pairingTarget,
+    rateLimit: loginRateLimit,
     sessionOf: bearerSession,
     // AASC-52: an approved, signed-in phone asks for its backend code; never in the QR.
     backendCodes: createPhoneBackendCodes({
@@ -565,6 +620,15 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     pathLog: phonePathLog,
     accountEnroll,
     setAccountEnroll: (enabled) => accountEnrollWiring.setting.set(enabled),
+    // Plan 18: /identify binds its proof by Host behind a forwarded port or Tailscale in userspace (boundAddress.ts).
+    publishedAddresses: machineAccountWiring.publishedAddresses,
+  }));
+  // Plan 18, stage 2: POST /api/mobile/enroll-computer, beside the mobile router and behind the same gates.
+  app.use('/api/mobile', createComputerEnrollRouter({
+    isPasswordEnabled: deviceRoutesNeedPassword,
+    rateLimit: loginRateLimit,
+    computerEnroll: machineAccountWiring.createEnroll(deviceAuth),
+    publishedAddresses: machineAccountWiring.publishedAddresses,
   }));
 
   // -- Remote access (AASC-60) --
@@ -619,10 +683,28 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     remoteAccess,
     ...(cloudSetup
       ? {
-          cloud: cloudSetup.cloud,
+          // Plan 18: the same connector, with this computer's directory entry following a sign-in and a sign-out.
+          cloud: machineAccountWiring.connector ?? cloudSetup.cloud,
+          onAccountDeviceSignedOut: (backendDeviceId: string) => { accountDeviceReconcile?.signedOut(backendDeviceId); },
+          cloudMachines: {
+            cloud: cloudSetup.cloud,
+            settings: machineAccountWiring.settings,
+            ...(machineAccountWiring.publisher ? { publisher: machineAccountWiring.publisher } : {}),
+          },
           ...(googleSignIn
             ? { cloudGoogle: { signIn: googleSignIn, returnUrl: `http://127.0.0.1:${PORT}${GOOGLE_CALLBACK_PATH}` } }
             : {}),
+          // Plan 18: "Export my data" saves into Downloads; a machine without that folder (a
+          // headless server) gets a private folder beside the cloud state instead.
+          cloudAccount: {
+            exportDirectory: async () => {
+              const downloads = join(homedir(), 'Downloads');
+              if (await stat(downloads).then((s) => s.isDirectory(), () => false)) return downloads;
+              const fallback = join(cloudSetup.directory, 'exports');
+              await mkdir(fallback, { recursive: true, mode: 0o700 });
+              return fallback;
+            },
+          },
           cloudAliasDirectory: cloudSetup.directory,
           cloudJobDirectory: join(cloudSetup.directory, 'resources'),
           onCloudJobsReady: (getJobs: () => Promise<ResourceJobs>) => { getCloudJobs = getJobs; cloudJobs = getJobs(); },
@@ -1037,6 +1119,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     // Tell the cloud account where this Mac is on Tailscale: a check at once, then one a minute. Its timer never keeps
     // the process alive, and cloud.stop() at shutdown aborts a request in flight.
     macPathsPublisher?.start();
+    // Plan 18: tells the account where this computer can be tried. Nothing is asked without a saved connection.
+    machineAccountWiring.publisher?.start();
+    // Plan 18: looks once now if there is a saved connection and a record made through the account, else asks nothing.
+    accountDeviceReconcile?.start();
     const localIP = getLocalIP();
     log.info('server', 'AI Agent Session Center');
     log.info('server', `Local:   http://localhost:${PORT}`);
@@ -1148,6 +1234,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       try { loopbackCompanion?.close(); } catch { /* best effort */ }
       try { lanAdvertiser?.stop(); } catch { /* best effort */ }
       try { macPathsPublisher?.stop(); } catch { /* best effort */ }
+      try { machineAccountWiring.publisher?.stop(); } catch { /* best effort */ }
+      try { accountDeviceReconcile?.stop(); } catch { /* best effort */ }
       // MCP sessions hold event streams open: ending them first spares server.close() its 2s force-close.
       const mcpClosed = mcpRouter?.close();
       // Then the dashboard's feeds and P2's runtime (its prune timer and the ledger's wiring): best effort, the

@@ -67,6 +67,10 @@ export const SESSIONS_MAX_BYTES = 8 * 1024 * 1024
 
 /** = server/mobile/deviceAuth.ts PATHS_PROOF_PREFIX: /paths proof is over this + nonce + ':' + tailnet ('-') + ':' + port. */
 export const PATHS_PROOF_PREFIX = 'aasc-paths:'
+/** = server/mobile/deviceAuth.ts WHO_TAG_PREFIX: this computer names itself with its key over this + nonce, never its id. */
+export const WHO_TAG_PREFIX = 'aasc-who:'
+/** = server/mobile/deviceAuth.ts MAC_PROOF_PREFIX: the machine's proof is over this + nonce + ':' + the address it was reached at. */
+export const MAC_PROOF_PREFIX = 'aasc-mac:'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** A sign-in nonce as the remote issues them (its DeviceProof schema): base64url, no ':'. */
@@ -135,16 +139,24 @@ export async function readCapped(res: FetchResponse, maxBytes: number): Promise<
   return Buffer.concat(chunks).toString('utf8')
 }
 
-/** One HTTP call with its own deadline and size cap (the body read included). Throws on network failure, timeout or an oversized answer. */
+/** The deadline of a call passed (the body read included): the request may have arrived, and nothing came back in time. */
+export class RequestTimedOut extends Error {}
+
+/**
+ * One HTTP call with its own deadline and size cap (the body read included). Throws on network failure, an oversized
+ * answer, or RequestTimedOut once the deadline passed.
+ * `sameOrigin` names the request's own origin in `Origin`, as an https one always does: this computer's own server
+ * (accountDirectory.ts) judges a local request by it.
+ */
 async function call(
   deps: RemoteClientDeps, method: 'GET' | 'POST', url: string,
-  opts: { body?: unknown; bearer?: string; cookie?: string; timeoutMs?: number; maxBytes?: number } = {},
+  opts: { body?: unknown; bearer?: string; cookie?: string; timeoutMs?: number; maxBytes?: number; sameOrigin?: boolean } = {},
 ): Promise<Answer> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? deps.timeoutMs ?? TRY_TIMEOUT_MS)
   try {
     const headers: Record<string, string> = { Accept: 'application/json' }
-    if (new URL(url).protocol === 'https:') headers.Origin = new URL(url).origin
+    if (opts.sameOrigin || new URL(url).protocol === 'https:') headers.Origin = new URL(url).origin
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
     if (opts.bearer) headers.Authorization = `Bearer ${opts.bearer}`
     if (opts.cookie) headers.Cookie = opts.cookie
@@ -159,6 +171,8 @@ async function call(
     let data: unknown = null
     try { data = text ? JSON.parse(text) : null } catch { data = null }
     return { status: res.status, data }
+  } catch (err) {
+    throw controller.signal.aborted ? new RequestTimedOut() : err
   } finally {
     clearTimeout(timer)
   }
@@ -253,6 +267,71 @@ async function provenBody(
   return { ok: true, body: { deviceId: creds.deviceId, nonce, proof: deviceProof(creds.deviceToken, nonce) } }
 }
 
+/**
+ * `host:port` of the origin dialled, with the port a URL leaves out (`http://h:80` has port ''); null when it isn't
+ * one. What a machine's proof and its sealed account answer (accessSeal.ts) must name.
+ */
+export function dialledAddress(origin: string): string | null {
+  try {
+    const url = new URL(origin)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What a machine proved about itself at an address (verifyMachineProof). `mismatch` and `none`: something answered,
+ * with a proof for another address or with none. `silent`: nothing answered at all.
+ */
+export type MachineProof = 'verified' | 'mismatch' | 'none' | 'silent'
+
+/**
+ * How much a sign-in asks of the machine's proof (plan 18, contract C):
+ *   required  a record made through the account: the machine proves itself at an address before this computer
+ *             answers a challenge there, on any path; nothing is sent or used without a verified proof.
+ *   skip      a record paired by link: no proof is asked for, as before plan 18. While a missing proof is tolerated
+ *             the check stops no active attacker (a box answers 404), and a released machine binds its proof to its
+ *             socket address, which is not the one dialled behind a forwarded port or userspace Tailscale: there it
+ *             could only refuse records that work.
+ */
+export type ProofRule = 'required' | 'skip'
+
+/**
+ * Does what answers at `origin` hold this computer's key, and sit at the address this computer dialled? The machine
+ * proves it over a nonce chosen here and over its own address as the request reached it (POST /identify,
+ * deviceAuth.macProof, the proof the phone's LAN rescan uses): a box that passes the question on to the machine gets a
+ * proof for the machine's address, not for its own. This computer names itself by a tag that changes with every nonce,
+ * never by its device id. Only a record the machine's owner allowed is vouched for: one still waiting for Allow, or
+ * removed there, gets a decoy and reads as `mismatch`. Never throws.
+ */
+export async function verifyMachineProof(deps: RemoteClientDeps, origin: string, creds: RemoteCredentials): Promise<MachineProof> {
+  try {
+    const nonce = deps.randomHex(32)
+    const address = dialledAddress(origin)
+    if (!HEX64.test(nonce) || !address) return 'silent' // nothing was asked
+    const tag = deviceProof(creds.deviceToken, `${WHO_TAG_PREFIX}${nonce}`)
+    const a = await call(deps, 'POST', `${origin}/api/mobile/identify`, { body: { tag, nonce } })
+    const proof = field(a.data, ['data', 'proof'])
+    if (a.status !== 200 || typeof proof !== 'string' || !HEX64.test(proof)) return 'none'
+    return sameHex(proof, deviceProof(creds.deviceToken, `${MAC_PROOF_PREFIX}${nonce}:${address}`)) ? 'verified' : 'mismatch'
+  } catch {
+    return 'silent'
+  }
+}
+
+/**
+ * May the address at `origin` be trusted with this computer's session? The one place the rule lives: `required`
+ * takes nothing but a verified proof (a wrong one and a missing one both refuse), `skip` asks nothing. Never throws.
+ */
+export async function machineProved(
+  deps: RemoteClientDeps, origin: string, creds: RemoteCredentials, rule: ProofRule,
+): Promise<boolean> {
+  if (rule === 'skip') return true
+  return (await verifyMachineProof(deps, origin, creds)) === 'verified'
+}
+
 export type SignInResult =
   | { state: 'ok'; token: string; expiresIn: number; origin: string; via: Via }
   | { state: 'pending'; origin: string; via: Via }
@@ -261,18 +340,22 @@ export type SignInResult =
   | { state: 'offline'; message: string }
   | { state: 'error'; message: string }
 
-/** Challenge → proof → session, at the first address that answers. */
-export async function signIn(deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials): Promise<SignInResult> {
-  // Only the challenge picks the address: once one answers, the session goes to the same one.
-  const hit = await firstAnswer(target, (origin) => provenBody(deps, origin, creds))
-  if (!hit) return { state: 'offline', message: unreachableMessage(target) }
-  const { origin, via } = hit
-  if (hit.value.ok === false) {
-    return { state: 'error', message: commonRefusal(hit.value.answer) ?? `Sign-in failed (${hit.value.answer.status}).` }
-  }
+/**
+ * A sign-in that asked for the machine's proof first. `unverified`: something answered, but nothing proved it is the
+ * machine at the address dialled (`origin`: the first that answered wrongly), so no sign-in was sent anywhere.
+ */
+export type ProvedSignInResult = SignInResult | { state: 'unverified'; origin: string; via: Via }
+
+/**
+ * The session step: answer the nonce at `origin` and read what comes back. A network failure here is `offline`, not
+ * a reason to answer another address's nonce.
+ */
+async function openSession(
+  deps: RemoteClientDeps, target: RemoteTarget, origin: string, via: Via, body: { deviceId: string; nonce: string; proof: string },
+): Promise<SignInResult> {
   let a: Answer
   try {
-    a = await call(deps, 'POST', `${origin}/api/mobile/session`, { body: hit.value.body })
+    a = await call(deps, 'POST', `${origin}/api/mobile/session`, { body })
   } catch {
     return { state: 'offline', message: unreachableMessage(target) }
   }
@@ -291,6 +374,60 @@ export async function signIn(deps: RemoteClientDeps, target: RemoteTarget, creds
     return { state: 'revoked', verified: code === 'DEVICE_REVOKED', origin, via }
   }
   return { state: 'error', message: commonRefusal(a) ?? `Sign-in failed (${a.status}).` }
+}
+
+/**
+ * The sign-in of a record made through the account (plan 18, contract C): prove first, then sign in. At each address
+ * the machine must prove itself BEFORE this computer asks for a challenge, and the sign-in then goes to that same
+ * address. An address with a wrong proof or none gets no challenge and no sign-in proof, so a box that passes
+ * requests on to the machine is never handed a session; the next address is tried (nothing was spent there).
+ *
+ * The price: a record still waiting for Allow, or removed on the machine, is not vouched for either, so it reads as
+ * `unverified` here and this computer no longer hears "pending" or "removed" from the machine itself.
+ */
+async function provedSignIn(deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials): Promise<ProvedSignInResult> {
+  let wrong: { origin: string; via: Via } | null = null
+  for (const { via, origin } of addressPlan(target)) {
+    const proof = await verifyMachineProof(deps, origin, creds)
+    if (proof === 'silent') continue
+    if (proof !== 'verified') {
+      wrong ??= { origin, via }
+      continue
+    }
+    let proven: Awaited<ReturnType<typeof provenBody>>
+    try {
+      proven = await provenBody(deps, origin, creds)
+    } catch {
+      continue // gone quiet since its proof: the next address
+    }
+    if (proven.ok === false) {
+      return { state: 'error', message: commonRefusal(proven.answer) ?? `Sign-in failed (${proven.answer.status}).` }
+    }
+    return openSession(deps, target, origin, via, proven.body)
+  }
+  return wrong ? { state: 'unverified', ...wrong } : { state: 'offline', message: unreachableMessage(target) }
+}
+
+/**
+ * Sign in to a remote. With no rule (or `skip`): challenge → proof → session at the first address that answers, as
+ * before plan 18; this is a record paired by link, and the `aasc` client. With `required`: provedSignIn.
+ */
+export function signIn(deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials): Promise<SignInResult>
+export function signIn(
+  deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials, proof: ProofRule,
+): Promise<ProvedSignInResult>
+export async function signIn(
+  deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials, proof: ProofRule = 'skip',
+): Promise<ProvedSignInResult> {
+  if (proof === 'required') return provedSignIn(deps, target, creds)
+  // Only the challenge picks the address: once one answers, the session goes to the same one.
+  const hit = await firstAnswer(target, (origin) => provenBody(deps, origin, creds))
+  if (!hit) return { state: 'offline', message: unreachableMessage(target) }
+  const { origin, via } = hit
+  if (hit.value.ok === false) {
+    return { state: 'error', message: commonRefusal(hit.value.answer) ?? `Sign-in failed (${hit.value.answer.status}).` }
+  }
+  return openSession(deps, target, origin, via, hit.value.body)
 }
 
 /** What the remote proves about its own addresses (POST /paths). */
@@ -327,9 +464,15 @@ export async function fetchPaths(
   }
 }
 
-/** This computer removes itself from the remote. True only when the remote confirmed it. Never throws. */
-export async function unpair(deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials): Promise<boolean> {
+/**
+ * This computer removes itself from the remote. True only when the remote confirmed it. Never throws. With `required`
+ * (a record made through the account) the challenge is answered only at an address where the machine proved itself.
+ */
+export async function unpair(
+  deps: RemoteClientDeps, target: RemoteTarget, creds: RemoteCredentials, proof: ProofRule = 'skip',
+): Promise<boolean> {
   const hit = await firstAnswer(target, async (origin) => {
+    if (!(await machineProved(deps, origin, creds, proof))) throw new NotAasc() // not the machine, as far as it proved: the next address
     const proven = await provenBody(deps, origin, creds)
     if (!proven.ok) return false
     const a = await call(deps, 'POST', `${origin}/api/mobile/unpair`, { body: proven.body })
@@ -338,16 +481,31 @@ export async function unpair(deps: RemoteClientDeps, target: RemoteTarget, creds
   return hit?.value ?? false
 }
 
+/** = SessionStatus (src/types/session.ts): a session waiting on the person, for an approval or for an answer. */
+export const NEEDS_YOU_STATUSES: ReadonlySet<string> = new Set(['approval', 'input'])
+
+/** What the list of shared sessions comes to: how many there are, and how many of them wait on the person. */
+export interface SharedCounts {
+  sharedSessions: number
+  needsYou: number
+}
+
 /**
- * How many sessions the remote shares with this computer: GET /api/sessions answers
- * an object keyed by session id, already filtered to what this device may see.
+ * How many sessions the remote shares with this computer, and how many of those wait on the person: GET /api/sessions
+ * answers an object keyed by session id, already filtered to what this device may see. A session without a readable
+ * `status` is shared but waits on nobody. Only the two counts leave this function: nothing of a session is kept.
  * Null when it doesn't answer as expected. Never throws.
  */
-export async function countShared(deps: RemoteClientDeps, origin: string, sessionToken: string): Promise<number | null> {
+export async function sharedCounts(deps: RemoteClientDeps, origin: string, sessionToken: string): Promise<SharedCounts | null> {
   try {
     const a = await call(deps, 'GET', `${origin}/api/sessions`, { bearer: sessionToken, timeoutMs: SESSIONS_TIMEOUT_MS, maxBytes: SESSIONS_MAX_BYTES })
     if (a.status !== 200 || !a.data || typeof a.data !== 'object') return null
-    return Array.isArray(a.data) ? a.data.length : Object.keys(a.data).length
+    const sessions: unknown[] = Array.isArray(a.data) ? a.data : Object.values(a.data)
+    const needsYou = sessions.filter((session) => {
+      const status = field(session, ['status'])
+      return typeof status === 'string' && NEEDS_YOU_STATUSES.has(status)
+    }).length
+    return { sharedSessions: sessions.length, needsYou }
   } catch {
     return null
   }
@@ -373,3 +531,7 @@ export async function remoteSessionState(deps: RemoteClientDeps, origin: string,
     return 'no-answer'
   }
 }
+
+/** For accountDirectory.ts, which makes the same kind of call: capped, timed, redirects never followed. */
+export { call as requestJson, field as jsonField, aascAnswer, commonRefusal, NotAasc }
+export type { Answer as JsonAnswer }

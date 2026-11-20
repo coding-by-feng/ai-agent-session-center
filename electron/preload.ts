@@ -88,6 +88,9 @@ const api: ElectronAPI = {
     open:   (id)       => ipcRenderer.invoke('remote:open', id),
     remove: (id)       => ipcRenderer.invoke('remote:remove', id),
     rename: (id, name) => ipcRenderer.invoke('remote:rename', id, name),
+    // Plan 18: the computers on this computer's AASC Cloud account, and connecting to one without a link.
+    accountMachines: ()          => ipcRenderer.invoke('remote:accountMachines'),
+    accountConnect:  (machineId) => ipcRenderer.invoke('remote:accountConnect', machineId),
   },
 }
 

@@ -12,14 +12,34 @@ import type { GoogleSignIn, SignInFinish } from './googleSignIn.js';
 
 const PAGES: Record<SignInFinish, { status: number; text: string }> = {
   connected: { status: 200, text: 'Signed in. You can close this tab and go back to AASC.' },
+  deleted: { status: 200, text: 'Your AASC Cloud account was deleted. This computer is signed out of it. You can close this tab.' },
+  'deleted-other': {
+    status: 200,
+    text: 'A different Google account was deleted. AASC on this computer is still signed in to its own account. You can close this tab.',
+  },
+  'deleted-unchecked': {
+    status: 200,
+    text: 'The account you chose was deleted. AASC could not check its own connection: go back to AASC and press Recheck.',
+  },
   'no-pending': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud account.' },
   'state-mismatch': { status: 400, text: 'This sign-in is no longer waiting in AASC. Start again from RESOURCES → Cloud account.' },
   expired: { status: 400, text: 'This sign-in expired. Start again from RESOURCES → Cloud account.' },
   failed: { status: 502, text: 'Sign-in failed. Go back to AASC to see why, then try again.' },
 };
 
-function page(res: Response, kind: SignInFinish): void {
-  const { status, text } = PAGES[kind];
+/**
+ * A `deleted=1` return this Mac was not waiting for (cancelled, timed out, another round trip
+ * started). The backend deletes on its own button whatever this Mac is doing, so the page must not
+ * say "nothing happened". It also proves nothing (anyone can load this URL), so it only says "if".
+ */
+const DELETED_UNSEEN = {
+  status: 200,
+  text: 'If you pressed Delete my account, that account is gone. AASC was no longer waiting for this step: go back to AASC and refresh the cloud connection.',
+};
+const NOT_WAITING: ReadonlySet<SignInFinish> = new Set(['no-pending', 'state-mismatch', 'expired']);
+
+function page(res: Response, kind: SignInFinish, deletedReturn = false): void {
+  const { status, text } = deletedReturn && NOT_WAITING.has(kind) ? DELETED_UNSEEN : PAGES[kind];
   res
     .status(status)
     .set('Cache-Control', 'no-store')
@@ -40,6 +60,10 @@ export function createGoogleCallbackRouter(
       res.status(404).json({ success: false, error: 'Not found' });
       return;
     }
-    page(res, await signIn.finish({ code: req.query.code, state: req.query.state }));
+    page(
+      res,
+      await signIn.finish({ code: req.query.code, state: req.query.state, deleted: req.query.deleted }),
+      req.query.deleted === '1',
+    );
   };
 }

@@ -34,6 +34,8 @@ export type ShortcutActionId =
   | 'jumpToSession'
   // Focus the session strip's search box
   | 'searchSessions'
+  // Open the devices panel on its Switch part, or close it (plan 18). Only where that part exists.
+  | 'switchDevice'
   // Detail panel tabs
   | 'switchTabProject'
   | 'switchTabTerminal'

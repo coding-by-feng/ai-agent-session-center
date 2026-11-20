@@ -29,9 +29,9 @@
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { isLocalResourceRequest, isSameOriginWrite } from '../resourceRouter.js';
-import { REMOTE_REQUIRES_PASSWORD } from '../authManager.js';
-import { rateLimitAddress } from '../requestLocality.js';
 import { TooManyPairingCodesError, toView, type DeviceAuth } from './deviceAuth.js';
+import { boundAddressOf, localAddressOf, reachedAt, type PublishedAddresses } from './boundAddress.js';
+import { clientIp, createPublicGates, publicRequestAllowed } from './publicRouteGates.js';
 import type { BackendCodeOutcome, PhoneBackendCodes } from './phoneBackendCode.js';
 import type { CloudPhoneAudit } from './cloudPhoneAudit.js';
 import type { PhonePathLog } from './phonePathLog.js';
@@ -116,6 +116,13 @@ export interface MobileRouterDeps {
   accountEnroll?: Pick<AccountEnroll, 'enroll' | 'status'>;
   /** The desktop's switch (PUT /pairing/account-enroll). False when the environment pins it. Omitted: no switch. */
   setAccountEnroll?: (enabled: boolean) => boolean;
+  /**
+   * Plan 18: the public and Tailscale addresses this machine publishes, which a Host may name (machineAccountWiring.ts).
+   * /identify binds its proof, and /enroll its sealed answer, to one for a request whose Host is exactly that pair:
+   * the public one behind a forwarded port, the Tailscale one on a loopback socket (Tailscale in userspace);
+   * boundAddress.ts. Asked only when the Host is not the socket address. Omitted: none.
+   */
+  publishedAddresses?: () => Promise<PublishedAddresses | null>;
 }
 
 /** The addresses a new pairing link may carry (Oct 28 2026): the desktop ticks them per link. */
@@ -182,19 +189,9 @@ const PathsBody = z.object({
   nonce: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict();
 
-/** This Mac's own address on the request's socket (IPv4-mapped IPv6 as plain IPv4). */
-function localAddressOf(req: Request): string {
-  return (req.socket.localAddress ?? '').replace(/^::ffff:/i, '');
-}
-
-/** This Mac's own `address:port` on the request's socket. */
-function reachedAt(req: Request): string {
-  return `${localAddressOf(req)}:${req.socket.localPort ?? ''}`;
-}
-
 /**
- * A phone signed into the account enrolling (plan 17). The address the answer is sealed over is this Mac's own
- * (reachedAt), never a field here. All base64url is unpadded: a ticket is 32 bytes, a phone key a 65-byte point.
+ * A phone signed into the account enrolling (plan 17). The address the answer is sealed over is this Mac's to say
+ * (boundAddress.ts), never a field here. All base64url is unpadded: a ticket is 32 bytes, a phone key a 65-byte point.
  */
 const EnrollBody = z.object({
   macDeviceId: z.string().uuid(),
@@ -281,24 +278,6 @@ function backendCodeRefusal(out: Exclude<BackendCodeOutcome, { ok: true }>): [nu
   }
 }
 
-/** The rate-limit bucket: the peer, or the proxy's X-Forwarded-For entry on a remote-only socket. */
-function clientIp(req: Request): string {
-  return rateLimitAddress(req);
-}
-
-/** Public routes: JSON only, and never from a cross-site browser page. */
-function publicRequestAllowed(req: Request, res: Response): boolean {
-  if (String(req.headers['sec-fetch-site'] ?? '').toLowerCase() === 'cross-site') {
-    res.status(403).json({ error: 'Cross-site requests are not allowed' });
-    return false;
-  }
-  if (!req.is('application/json')) {
-    res.status(415).json({ error: 'Expected application/json' });
-    return false;
-  }
-  return true;
-}
-
 export function createMobileRouter(deps: MobileRouterDeps): Router {
   const router = Router();
 
@@ -320,18 +299,8 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     deps.requireSession(req, res, next);
   });
 
-  function passwordGate(res: Response): boolean {
-    if (deps.isPasswordEnabled()) return true;
-    res.status(403).json({ error: REMOTE_REQUIRES_PASSWORD, code: 'REMOTE_PASSWORD_REQUIRED' });
-    return false;
-  }
-
-  function rateLimited(req: Request, res: Response): boolean {
-    const wait = deps.rateLimit.check(clientIp(req));
-    if (wait <= 0) return false;
-    res.status(429).json({ error: 'Too many attempts. Try again later.', retryAfter: wait });
-    return true;
-  }
+  // The public routes' gates (publicRouteGates.ts), shared with POST /enroll-computer (computerEnrollRouter.ts).
+  const { passwordGate, rateLimited } = createPublicGates(deps);
 
   // ── Desktop ──────────────────────────────────────────────────────────────
 
@@ -579,7 +548,9 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   });
 
   // Plan 17: a phone signed into this Mac's AASC Cloud account connects without a code or an Allow click.
-  // The answer is the device token sealed to the phone's key over the address this request reached.
+  // The answer is the device token sealed to the phone's key over the address this request reached: the socket's
+  // own, except behind a forwarded port or Tailscale in userspace, where it is the pair this Mac publishes and
+  // the Host names (boundAddress.ts: one rule with a computer's enroll and /identify).
   // Review M4: one enroll at a time per address and three in all, and the login strike is recorded before the
   // backend is asked (cleared on success), so parallel guesses can't outrun the limiter.
   const enrollsByIp = new Map<string, number>();
@@ -605,8 +576,11 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     enrollsTotal += 1;
     let out: Awaited<ReturnType<typeof deps.accountEnroll.enroll>>;
     try {
+      // Inside the slot: a made-up Host starts no more lookups than enrolls may run. No lookup at all when the
+      // Host is the socket address, which is every phone on the home network.
+      const bound = await boundAddressOf(req, deps.publishedAddresses);
       out = await deps.accountEnroll.enroll(
-        { ...parsed.data, reachedAt: reachedAt(req) },
+        { ...parsed.data, reachedAt: bound },
         { beforeRedeem: () => deps.rateLimit.record(ip) },
       );
     } finally {
@@ -638,7 +612,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   // this request reached, so a phone that found an AASC at a new address knows it's
   // this Mac, and not a box passing the question on, before it signs in there.
   // Proving costs the phone nothing, so a failure records no login strike.
-  router.post('/identify', (req, res) => {
+  router.post('/identify', async (req, res) => {
     if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
     const parsed = IdentifyBody.safeParse(req.body);
     if (!parsed.success) {
@@ -646,7 +620,14 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
       return;
     }
     const { tag, nonce } = parsed.data;
-    res.json({ success: true, data: { proof: deps.deviceAuth.macProof(tag, nonce, reachedAt(req)) } });
+    // Who asks first (deviceAuth.macProver). Only a device this Mac vouches for gets a proof over the bound
+    // address (plan 18: the address reached, except behind a forwarded port or Tailscale in userspace, where the
+    // Host names the pair this Mac publishes: boundAddress.ts). Any other tag gets the decoy over the socket
+    // address with nothing looked up: the same bytes and the same work whatever the Host, so the answer does
+    // not say which addresses this Mac publishes.
+    const prover = deps.deviceAuth.macProver(tag, nonce);
+    const address = prover.vouched ? await boundAddressOf(req, deps.publishedAddresses) : reachedAt(req);
+    res.json({ success: true, data: { proof: prover.over(address) } });
   });
 
   /**
