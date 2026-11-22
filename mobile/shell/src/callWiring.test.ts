@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createCallWiring, PROGRESS_POLL_MS, type CallHost, type LineResult } from './callWiring.js';
 import type { HttpRequest } from './http.js';
+import type { CallBubble, CallLayer } from './native.js';
 import type { SavedMac } from './savedMacs.js';
 import type { Screen } from './ui/screen.js';
 import type { ChannelLike, PeerLike, RtcEnv } from './voiceRtc.js';
@@ -30,7 +31,33 @@ class FakePeer implements PeerLike {
   drop(): void { this.connectionState = 'failed'; this.stateListener?.(); }
 }
 
-function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean; progress?: () => { status: number; data: unknown } } = {}) {
+/** The app's call layer, as the native plugins behave: one page, shown or hidden, its URL kept. */
+class FakeLayer implements CallLayer {
+  url: string | null = null;
+  visible = false;
+  canShow = true;
+  shown: string[] = [];
+  bubbles: CallBubble[] = [];
+  private listener: ((url: string | null) => void) | null = null;
+  async show(url: string, bubble: CallBubble): Promise<boolean> {
+    if (!this.canShow) return false;
+    this.shown.push(url);
+    if (!this.url || new URL(this.url).origin !== new URL(url).origin) this.url = url;
+    this.visible = true;
+    this.bubbles.push(bubble);
+    return true;
+  }
+  async hide(): Promise<string | null> { this.visible = false; return this.url; }
+  async close(): Promise<string | null> { const was = this.url; this.visible = false; this.url = null; return was; }
+  bubble(b: CallBubble): void { this.bubbles.push(b); }
+  onExpand(l: (url: string | null) => void): void { this.listener = l; }
+  /** The person browses the Mac's page. */
+  go(path: string): void { this.url = new URL(path, this.url ?? 'http://mac:3334').toString(); }
+  /** The bubble is tapped (the native side hides itself first). */
+  tap(): void { this.visible = false; this.listener?.(this.url); }
+}
+
+function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean; progress?: () => { status: number; data: unknown }; layer?: FakeLayer } = {}) {
   let screen: Screen = { name: 'macs', notice: null };
   const peer = new FakePeer();
   const requests: HttpRequest[] = [];
@@ -63,6 +90,8 @@ function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number
     backToMac: vi.fn(),
     rtcEnv: () => env,
     now: () => 1_000,
+    layer: over.layer ?? null,
+    setCookie: vi.fn(async () => undefined),
   };
   const wiring = createCallWiring(host);
   return { wiring, host, peer, requests, track, screen: () => screen as Extract<Screen, { name: 'call' }> };
@@ -244,5 +273,109 @@ describe('createCallWiring', () => {
     t.host.rtcEnv = () => null;
     await t.wiring.start(mac, '/');
     expect(t.screen().phase).toBe('failed');
+  });
+  describe('floating call (Nov 22 2026)', () => {
+    it('Minimize signs the Mac page in and shows it over the call, which keeps running', async () => {
+      const layer = new FakeLayer();
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/more');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.host.setCookie).toHaveBeenCalledWith('http://mac:3334', 't');
+      expect(layer.shown).toEqual(['http://mac:3334/more']);
+      expect(layer.visible).toBe(true);
+      expect(t.screen()).toMatchObject({ minimized: true, phase: 'live' });
+      expect(t.peer.closed).toBe(false);
+      expect(t.track.stop).not.toHaveBeenCalled();
+    });
+
+    it('the bubble follows the clock, Pause and a central that needs the person', async () => {
+      let clock = 1_000;
+      const layer = new FakeLayer();
+      const t = setup({
+        layer,
+        progress: () => ({ status: 200, data: { success: true, data: { central: { title: 'Voice', state: 'needs_you', step: null, elapsedMs: null }, tasks: [], replies: [] } } }),
+      });
+      t.host.now = () => clock;
+      await t.wiring.start(mac, '/');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      clock = 66_000;
+      await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+      expect(layer.bubbles.at(-1)).toEqual({ label: '1:05', state: 'live', alert: true });
+      t.wiring.actions.togglePause();
+      expect(layer.bubbles.at(-1)).toMatchObject({ label: 'Paused', state: 'paused' });
+    });
+
+    it('tapping the bubble brings the call back; Minimize again shows the page where the person left it', async () => {
+      const layer = new FakeLayer();
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/more');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      layer.go('/?session=abc');
+      layer.tap();
+      expect(t.screen().minimized).toBe(false);
+      const before = layer.bubbles.length;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(layer.bubbles.length).toBe(before); // no bubble updates while the call is on screen
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(layer.shown.at(-1)).toBe('http://mac:3334/?session=abc');
+    });
+
+    it('End call drops the page and returns to where the person was on the Mac', async () => {
+      const layer = new FakeLayer();
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/more');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      layer.go('/queue');
+      layer.tap();
+      t.wiring.actions.endCall();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.host.backToMac).toHaveBeenCalledWith(mac, '/queue');
+      expect(t.requests.some((r) => r.url.endsWith('/end'))).toBe(true);
+    });
+
+    it('a call that drops while floating comes back on screen with Back to the page the person was on', async () => {
+      const layer = new FakeLayer();
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/more');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      layer.go('/?session=x');
+      t.peer.drop();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(layer.visible).toBe(false);
+      expect(layer.url).toBeNull();
+      expect(t.screen()).toMatchObject({ phase: 'failed', minimized: false, back: '/?session=x' });
+    });
+
+    it('keeps the compact bar when the page can’t be shown, or the call isn’t live yet', async () => {
+      const layer = new FakeLayer();
+      layer.canShow = false;
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.screen().minimized).toBe(true);
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.screen().minimized).toBe(false);
+    });
+
+    it('never returns to a page off the Mac', async () => {
+      const layer = new FakeLayer();
+      const t = setup({ layer });
+      await t.wiring.start(mac, '/more');
+      t.wiring.actions.toggleMinimize();
+      await vi.advanceTimersByTimeAsync(0);
+      layer.url = 'http://elsewhere:80/x';
+      layer.tap();
+      t.wiring.actions.endCall();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.host.backToMac).toHaveBeenCalledWith(mac, '/more');
+    });
   });
 });

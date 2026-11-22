@@ -1,13 +1,14 @@
 // callWiring.ts — a voice call wired into the shell app (Nov 15 2026): sign in to the Mac, open the mic and the
 // WebRTC peer, hand the offer to the Mac, then keep the call screen up to date until it ends. Ending (or leaving)
-// returns the WebView to the Mac's page it came from, signed in again.
+// returns the WebView to the Mac's page it came from, signed in again. With the app's call layer (Nov 22 2026),
+// Minimize lays the Mac's page and a draggable bubble over the call, which keeps running underneath.
 import { openSession } from './pairingClient.js';
 import { forgetMac, reach } from './shellFlows.js';
-import type { ShellDeps } from './native.js';
+import type { CallLayer, ShellDeps } from './native.js';
 import { readMacCredentials, type SavedMac } from './savedMacs.js';
 import type { Actions, Screen } from './ui/screen.js';
 import {
-  addCentralReplies, addTranscript, callEventEffect, centralOnScreen, CALL_MESSAGES, requestCall, requestEnd, requestProgress, type CallLine,
+  addCentralReplies, addTranscript, callBubble, callEventEffect, centralOnScreen, CALL_MESSAGES, pageOn, requestCall, requestEnd, requestProgress, type CallLine,
 } from './voiceCall.js';
 import { createCallRtc, RtcError, type CallRtc, type RtcEnv } from './voiceRtc.js';
 
@@ -30,6 +31,10 @@ export interface CallHost {
   /** The browser's WebRTC parts, or null when this build has none. */
   rtcEnv(): RtcEnv | null;
   now(): number;
+  /** The floating call (Nov 22 2026); absent in the browser build, where Minimize keeps the compact bar. */
+  layer?: CallLayer | null;
+  /** Gives the Mac page shown over the call this call's sign-in (the session cookie). */
+  setCookie?(origin: string, token: string): Promise<void>;
 }
 
 export interface CallWiring {
@@ -68,6 +73,38 @@ export function createCallWiring(host: CallHost): CallWiring {
   let poller: ReturnType<typeof setInterval> | null = null;
   /** The replies already shown as Central lines in this call (by the Mac's `at`). */
   let seenReplies: readonly number[] = [];
+  const layer = host.layer ?? null;
+  /** The Mac's page is over the call (Minimize with the layer). */
+  let floated = false;
+  /** The origin of the page shown over the call, and where it was last: a later Minimize and the end of the call go back there. */
+  let page: { origin: string; path: string | null } | null = null;
+
+  /** host.update, and the bubble follows while the call floats. */
+  function update(patch: Partial<CallScreen>): void {
+    host.update(patch);
+    const s = host.screen();
+    if (floated && layer && s.name === 'call') layer.bubble(callBubble(s));
+  }
+
+  function remember(url: string | null): void {
+    if (!page) return;
+    const path = pageOn(url, page.origin);
+    if (path) page = { ...page, path };
+  }
+
+  /** Takes the Mac's page off the call, remembering where it was. */
+  async function sink(): Promise<void> {
+    if (!floated || !layer) return;
+    floated = false;
+    remember(await layer.close().catch(() => null));
+  }
+
+  layer?.onExpand((url) => {
+    if (!floated) return;
+    floated = false;
+    remember(url);
+    if (host.screen().name === 'call') host.update({ minimized: false });
+  });
 
   const onCall = (my: number): CallScreen | null => {
     const s = host.screen();
@@ -87,13 +124,26 @@ export function createCallWiring(host: CallHost): CallWiring {
     if (ended) void requestEnd(host.requester, ended.line, ended.callId);
   }
 
-  function fail(my: number, message: string): void {
+  /** The call is over (failed or ended) while its screen stays: bring it back from under the Mac's page. */
+  function surface(my: number, patch: Partial<CallScreen>): void {
+    const was = floated;
     hangUp();
-    if (onCall(my)) host.update({ phase: 'failed', message });
+    if (onCall(my)) host.update(patch);
+    if (!was) return;
+    void sink().then(() => {
+      const s = onCall(my);
+      if (s) host.update({ minimized: false, back: page?.path ?? s.back });
+    });
+  }
+
+  function fail(my: number, message: string): void {
+    surface(my, { phase: 'failed', message });
   }
 
   async function start(mac: SavedMac, back: string): Promise<void> {
     hangUp();
+    void sink();
+    page = null;
     gen += 1;
     const my = gen;
     seenReplies = [];
@@ -115,10 +165,9 @@ export function createCallWiring(host: CallHost): CallWiring {
       const effect = callEventEffect(event);
       const s = onCall(my);
       if (!effect || !s) return;
-      if (effect.kind === 'transcript') host.update({ lines: addTranscript(s.lines, effect.role, effect.delta) });
+      if (effect.kind === 'transcript') update({ lines: addTranscript(s.lines, effect.role, effect.delta) });
       else if (effect.kind === 'closed') {
-        hangUp();
-        host.update({ phase: 'ended', message: effect.reason === 'expired' ? 'The call reached its time limit.' : null });
+        surface(my, { phase: 'ended', message: effect.reason === 'expired' ? 'The call reached its time limit.' : null });
       }
     });
     call.onDropped(() => fail(my, CALL_MESSAGES.dropped));
@@ -149,7 +198,7 @@ export function createCallWiring(host: CallHost): CallWiring {
     if (!onCall(my)) return;
     host.update({ phase: 'live', startedAt: host.now(), now: host.now() });
     ticker = setInterval(() => {
-      if (onCall(my)) host.update({ now: host.now() });
+      if (onCall(my)) update({ now: host.now() });
     }, TICK_MS);
     let reading = false;
     poller = setInterval(() => {
@@ -163,19 +212,51 @@ export function createCallWiring(host: CallHost): CallWiring {
         if (!progress || !s || live !== on) return;
         const merged = addCentralReplies(s.lines, seenReplies, progress.replies);
         seenReplies = merged.seen;
-        host.update({ central: centralOnScreen(progress.central, host.now()), tasks: progress.tasks, lines: [...merged.lines] });
+        update({ central: centralOnScreen(progress.central, host.now()), tasks: progress.tasks, lines: [...merged.lines] });
       });
     }, PROGRESS_POLL_MS);
   }
 
-  /** Leave the call screen for the Mac's page. */
+  /** Leave the call screen for the Mac's page: where the page over the call was, else where the call started. */
   function leave(): void {
     const s = host.screen();
     hangUp();
     gen += 1;
     if (s.name !== 'call') return;
     const mac = host.macs().find((m) => m.id === s.macId);
-    if (mac) host.backToMac(mac, s.back);
+    const go = () => {
+      if (mac) host.backToMac(mac, page?.path ?? s.back);
+    };
+    if (floated) void sink().then(go);
+    else go();
+  }
+
+  /** Minimize with the layer: the Mac's page over the call, signed in with this call's session. */
+  async function float(s: CallScreen): Promise<void> {
+    const on = live;
+    if (!layer || !on) return;
+    const my = gen;
+    if (!page || page.origin !== on.line.origin) page = { origin: on.line.origin, path: null };
+    await host.setCookie?.(on.line.origin, on.line.token).catch(() => undefined);
+    if (!onCall(my) || live !== on) return;
+    const shown = await layer.show(`${on.line.origin}${page.path ?? s.back}`, callBubble(s)).catch(() => false);
+    if (!onCall(my) || live !== on) {
+      if (shown) void layer.close();
+      return;
+    }
+    // Couldn't show the page: the compact bar, as without the layer.
+    floated = shown;
+    host.update({ minimized: true });
+  }
+
+  async function unfloat(): Promise<void> {
+    if (!floated || !layer) {
+      host.update({ minimized: false });
+      return;
+    }
+    floated = false;
+    remember(await layer.hide().catch(() => null));
+    if (host.screen().name === 'call') host.update({ minimized: false });
   }
 
   return {
@@ -186,18 +267,20 @@ export function createCallWiring(host: CallHost): CallWiring {
         const s = host.screen();
         if (s.name !== 'call' || s.phase !== 'live') return;
         rtc?.setMuted(!s.muted);
-        host.update({ muted: !s.muted });
+        update({ muted: !s.muted });
       },
       togglePause: () => {
         const s = host.screen();
         if (s.name !== 'call' || s.phase !== 'live') return;
         rtc?.setPaused(!s.paused);
-        host.update({ paused: !s.paused });
+        update({ paused: !s.paused });
       },
       toggleMinimize: () => {
         const s = host.screen();
         if (s.name !== 'call' || (s.phase !== 'live' && s.phase !== 'starting')) return;
-        host.update({ minimized: !s.minimized });
+        if (s.minimized) void unfloat();
+        else if (layer && live && s.phase === 'live') void float(s);
+        else host.update({ minimized: true });
       },
       retryCall: () => {
         const s = host.screen();
@@ -207,6 +290,7 @@ export function createCallWiring(host: CallHost): CallWiring {
     },
     dispose: () => {
       hangUp();
+      void sink();
       gen += 1;
     },
   };

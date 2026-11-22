@@ -7,6 +7,7 @@
 // Mac holds the OpenAI key and drives the call; this side only carries the audio and shows the transcript.
 import { bearer, field, jsonHeaders, type HttpRequester } from './http.js';
 import { parseReauthRequest } from './reauth.js';
+import type { CallBubble } from './native.js';
 
 export const CALL_MESSAGES = {
   offline: 'Can’t reach the Mac right now.',
@@ -103,6 +104,32 @@ export function addTranscript(lines: readonly CallTranscriptLine[], role: CallRo
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** What the floating call bubble shows for a call screen (Nov 22 2026). */
+export function callBubble(s: {
+  paused: boolean; muted: boolean; startedAt: number | null; now: number;
+  central: { state: CentralState } | null; tasks: ReadonlyArray<{ state: TaskState }>;
+}): CallBubble {
+  return {
+    label: s.paused ? 'Paused' : formatDuration(s.now - (s.startedAt ?? s.now)),
+    state: s.paused ? 'paused' : s.muted ? 'muted' : 'live',
+    alert: s.central?.state === 'needs_you' || s.tasks.some((t) => t.state === 'needs_you'),
+  };
+}
+
+/** The path (with query and hash) of `url` when it is on `origin` and a path the shell may return to; else null. */
+export function pageOn(url: string | null, origin: string): string | null {
+  if (!url) return null;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (u.origin !== new URL(origin).origin) return null;
+  const path = `${u.pathname}${u.search}${u.hash}`;
+  return parseReauthRequest(`?reauth=1&back=${encodeURIComponent(path)}`)?.back === path ? path : null;
 }
 
 // ── The Voice central's progress (Nov 22 2026) ──────────────────────────────────────────────────────────────────

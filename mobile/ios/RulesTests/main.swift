@@ -1,6 +1,6 @@
 // RulesTests/main.swift — ShellRules.swift checked on a Mac without Xcode (no XCTest needed).
 // Mirrors android/app/src/test/.../ShellRulesTest.kt case for case. Run:
-//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/App/App/AuthSessionRules.swift ios/App/App/DictationRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
+//   swiftc -o /tmp/aasc-rules ios/App/App/ShellRules.swift ios/App/App/LockRules.swift ios/App/App/LiveActivityCard.swift ios/App/App/LiveActivityRules.swift ios/App/App/FileSaveRules.swift ios/App/App/AuthSessionRules.swift ios/App/App/DictationRules.swift ios/App/App/CallLayerRules.swift ios/RulesTests/main.swift && /tmp/aasc-rules
 import Foundation
 
 var failures = 0
@@ -310,6 +310,15 @@ let dictHostile = DictationRules.outcomeScript(id: "d1", state: "failed", fields
 expect(dictHostile?.contains("alert(1);//\u{2028}") == false, "a message is JSON-encoded, never spliced raw")
 expect(DictationRules.outcomeScript(id: "d1", state: "permission", fields: ["granted": true])?.contains("\"granted\":true") == true, "a boolean stays a boolean")
 expect(DictationRules.outcomeScript(id: "d1", state: "failed", fields: ["bad": Date()]) == nil, "a field JSON can't hold")
+
+// The floating call bubble (Nov 22 2026): only a short clock or word, never page text.
+expect(CallLayerRules.label("3:12") == "3:12" && CallLayerRules.label("Paused") == "Paused", "clock and word")
+expect(CallLayerRules.label("125:07") == "125:07", "a long call")
+expect(CallLayerRules.label(nil) == "Call" && CallLayerRules.label("  ") == "Call", "missing")
+expect(CallLayerRules.label("<b>hi</b>") == "Call" && CallLayerRules.label("a\nb") == "Call", "markup or a line break")
+expect(CallLayerRules.label(String(repeating: "1", count: 13)) == "Call", "too long")
+expect(CallLayerRules.state("paused") == .paused && CallLayerRules.state("muted") == .muted, "states")
+expect(CallLayerRules.state("live") == .live && CallLayerRules.state(nil) == .live && CallLayerRules.state("x") == .live, "anything else is live")
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)

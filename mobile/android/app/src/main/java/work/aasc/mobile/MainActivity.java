@@ -33,6 +33,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShellBridgePlugin.class);
         // Google sign-in for the phone (plan 17): a Custom Tab answered by the /auth/google App Link.
         registerPlugin(AuthSessionPlugin.class);
+        // The floating call (Nov 22 2026): the Mac's page and a bubble over a live call.
+        registerPlugin(CallLayerPlugin.class);
         // A cold start from the share sheet: the shell takes the item when it starts (AASC-21).
         ShareInbox.INSTANCE.accept(getIntent(), getPackageName());
         super.onCreate(savedInstanceState);
@@ -52,6 +54,9 @@ public class MainActivity extends BridgeActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                // The Mac's page laid over a call answers Back first (its own screens, then back to the call).
+                CallLayerPlugin layer = CallLayerPlugin.active;
+                if (layer != null && layer.handleBack()) return;
                 WebView web = getBridge() == null ? null : getBridge().getWebView();
                 if (web == null || !BackRules.INSTANCE.asksPage(getBridge().getLocalUrl(), web.getUrl())) {
                     capacitorBack(this);
@@ -142,6 +147,9 @@ public class MainActivity extends BridgeActivity {
             returningForTap = false;
             return;
         }
+        // A Mac's page over a call: the shell (and its lock) shows again first when the lock is due.
+        CallLayerPlugin layer = CallLayerPlugin.active;
+        if (layer != null) layer.checkLock(pausedAt, System.currentTimeMillis());
         String settings = getSharedPreferences(LockRules.PREFS, Context.MODE_PRIVATE).getString(LockRules.SETTINGS_KEY, null);
         String target = LockRules.INSTANCE.resumeUrl(
             settings, getBridge().getLocalUrl(), getBridge().getWebView().getUrl(), pausedAt, System.currentTimeMillis());

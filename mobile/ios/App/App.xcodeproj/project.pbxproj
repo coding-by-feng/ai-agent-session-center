@@ -31,6 +31,8 @@
 		A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000003 /* LiveActivityBridge.swift */; };
 		A1F0C002000000000000000A /* FileSaveRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000009 /* FileSaveRules.swift */; };
 		A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000A /* FileSaveBridge.swift */; };
+		A1F0C0C4000000000000000B /* CallLayerRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0C3000000000000000A /* CallLayerRules.swift */; };
+		A1F0C0C2000000000000000B /* CallLayerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0C1000000000000000A /* CallLayerPlugin.swift */; };
 		A1F0C002000000000000000C /* DictationRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000B /* DictationRules.swift */; };
 		A1F0C002000000000000000D /* DictationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C001000000000000000C /* DictationBridge.swift */; };
 		A1F0C0020000000000000004 /* LiveActivityCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0010000000000000008 /* LiveActivityCard.swift */; };
@@ -69,6 +71,8 @@
 		A1F0C0010000000000000003 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000009 /* FileSaveRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveRules.swift; sourceTree = "<group>"; };
 		A1F0C001000000000000000A /* FileSaveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSaveBridge.swift; sourceTree = "<group>"; };
+		A1F0C0C3000000000000000A /* CallLayerRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallLayerRules.swift; sourceTree = "<group>"; };
+		A1F0C0C1000000000000000A /* CallLayerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallLayerPlugin.swift; sourceTree = "<group>"; };
 		A1F0C001000000000000000B /* DictationRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationRules.swift; sourceTree = "<group>"; };
 		A1F0C001000000000000000C /* DictationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBridge.swift; sourceTree = "<group>"; };
 		A1F0C0010000000000000004 /* AascLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AascLiveActivityBundle.swift; sourceTree = "<group>"; };
@@ -161,6 +165,8 @@
 				A1F0C0010000000000000003 /* LiveActivityBridge.swift */,
 				A1F0C0010000000000000009 /* FileSaveRules.swift */,
 				A1F0C001000000000000000A /* FileSaveBridge.swift */,
+				A1F0C0C3000000000000000A /* CallLayerRules.swift */,
+				A1F0C0C1000000000000000A /* CallLayerPlugin.swift */,
 				A1F0C001000000000000000B /* DictationRules.swift */,
 				A1F0C001000000000000000C /* DictationBridge.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -313,6 +319,8 @@
 				A1F0C0020000000000000003 /* LiveActivityBridge.swift in Sources */,
 				A1F0C002000000000000000A /* FileSaveRules.swift in Sources */,
 				A1F0C002000000000000000B /* FileSaveBridge.swift in Sources */,
+				A1F0C0C4000000000000000B /* CallLayerRules.swift in Sources */,
+				A1F0C0C2000000000000000B /* CallLayerPlugin.swift in Sources */,
 				A1F0C002000000000000000C /* DictationRules.swift in Sources */,
 				A1F0C002000000000000000D /* DictationBridge.swift in Sources */,
 			);

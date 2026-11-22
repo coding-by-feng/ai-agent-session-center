@@ -123,6 +123,34 @@ export interface AuthSession {
 
 export type ShellOs = 'ios' | 'android' | 'web';
 
+/** What the floating call bubble shows (Nov 22 2026). */
+export interface CallBubble {
+  /** The call's clock ("3:12"), or "Paused". */
+  label: string;
+  state: 'live' | 'paused' | 'muted';
+  /** The Voice central, or a session it handed work to, needs the person. */
+  alert: boolean;
+}
+
+/**
+ * The floating call (Nov 22 2026). The call runs in the shell's page, so leaving it for the Mac's page would end it:
+ * instead the app lays a second view with the Mac's page over the shell, plus a draggable bubble that brings the call
+ * back. That page can't reach any of the app's plugins. Absent in the browser build: Minimize then keeps the compact bar.
+ */
+export interface CallLayer {
+  /** Shows the Mac's page (`url`, a paired Mac's http origin) over the call, with the bubble. A page still loaded
+   * from an earlier Minimize on the same origin is shown as it was. False when it couldn't. */
+  show(url: string, bubble: CallBubble): Promise<boolean>;
+  /** Hides the page and the bubble, keeping the page loaded; the page's URL, or null. */
+  hide(): Promise<string | null>;
+  /** Drops the page and the bubble; the page's last URL, or null. */
+  close(): Promise<string | null>;
+  bubble(bubble: CallBubble): void;
+  /** The bubble was tapped, Back was pressed on the first page, or the page tried to open the app's own page: the
+   * layer has already hidden itself. `url` is where the page was. */
+  onExpand(listener: (url: string | null) => void): void;
+}
+
 export interface ShellDeps {
   os: ShellOs;
   /** Phone or tablet (formFactor.ts): what the screens call this device. Absent: a phone. */
@@ -149,4 +177,6 @@ export interface ShellDeps {
   discovery?: LanDiscovery;
   /** Absent in the browser build: no "Sign in with Google" there (plan 17). */
   authSession?: AuthSession;
+  /** Absent in the browser build: Minimize keeps the call's compact bar (Nov 22 2026). */
+  callLayer?: CallLayer;
 }

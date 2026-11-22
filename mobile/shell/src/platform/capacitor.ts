@@ -18,7 +18,7 @@ import { detectFormFactor, readFormFactorProbe } from '../formFactor.js';
 import type { Haptic } from '../haptics.js';
 import type { BrowseResult } from '../lanRescan.js';
 import type { HttpRequester } from '../http.js';
-import type { AuthSession, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
+import type { AuthSession, CallBubble, CallLayer, PushHost, RawShare, ShellDeps, ShellOs } from '../native.js';
 import type { PushPermission } from '../pushRegistration.js';
 import type { HttpClient, HttpResponse } from '../pairingClient.js';
 
@@ -47,9 +47,30 @@ interface AuthSessionPlugin {
   start(options: { url: string; callbackScheme?: string; callbackPrefix?: string }): Promise<{ url?: string; cancelled?: boolean }>;
 }
 
+/** The floating call (Nov 22 2026): CallLayerPlugin.swift / CallLayerPlugin.kt. */
+interface CallLayerPlugin {
+  show(options: { url: string } & CallBubble): Promise<{ shown?: boolean }>;
+  hide(): Promise<{ url?: string | null }>;
+  close(): Promise<{ url?: string | null }>;
+  bubble(options: CallBubble): Promise<void>;
+  addListener(event: 'expand', listener: (data: { url?: string | null }) => void): Promise<{ remove(): Promise<void> }>;
+}
+
 const DeviceVault = registerPlugin<DeviceVaultPlugin>('DeviceVault');
 const ShellBridge = registerPlugin<ShellBridgePlugin>('ShellBridge');
 const AuthSessionNative = registerPlugin<AuthSessionPlugin>('AuthSession');
+const CallLayerNative = registerPlugin<CallLayerPlugin>('CallLayer');
+
+const urlOf = (res: { url?: string | null } | undefined): string | null => (typeof res?.url === 'string' ? res.url : null);
+
+/** The Mac's page and the bubble over a call (native view + second WebView). */
+const callLayer: CallLayer = {
+  show: async (url, bubble) => (await CallLayerNative.show({ url, ...bubble })).shown === true,
+  hide: async () => urlOf(await CallLayerNative.hide()),
+  close: async () => urlOf(await CallLayerNative.close()),
+  bubble: (bubble) => void CallLayerNative.bubble(bubble).catch(() => undefined),
+  onExpand: (listener) => void CallLayerNative.addListener('expand', (data) => listener(urlOf(data))),
+};
 
 /** Google sign-in's sheet; anything but a URL string is a cancel. */
 const authSession: AuthSession = {
@@ -180,6 +201,8 @@ export function capacitorDeps(): ShellDeps {
           discovery: { browse: (timeoutMs: number) => ShellBridge.discoverMacs({ timeoutMs }) },
           // Plan 17: Sign in with Google (ASWebAuthenticationSession / Custom Tab + App Link).
           authSession,
+          // Nov 22 2026: Minimize floats the call over the Mac's page.
+          callLayer,
         }
       : {}),
     ...(os === 'android'

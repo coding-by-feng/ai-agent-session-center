@@ -21,7 +21,7 @@ import { parseCallRequest } from './voiceCall.js';
 import { browserRtcEnv } from './voiceRtc.js';
 import { createCallWiring, openCallLine } from './callWiring.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
-import { pairNewMac, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
+import { pairNewMac, SESSION_COOKIE_MAX_AGE, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
 import { cleanLabel } from './text.js';
 import { renderAccountDelete, renderAccountMatch } from './ui/accountScreens.js';
 import { renderMacs, renderSettings } from './ui/macScreens.js';
@@ -177,6 +177,8 @@ export function createShellApp(
         backToMac: (mac, back) => void connect(mac, back, false),
         rtcEnv: browserRtcEnv,
         now: Date.now,
+        layer: deps.callLayer ?? null,
+        setCookie: (origin, token) => deps.cookies.set(origin, token, SESSION_COOKIE_MAX_AGE),
       })
     : null;
   const noop = () => undefined;

@@ -9,6 +9,7 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(DeviceVaultPlugin())
         bridge?.registerPluginInstance(ShellBridgePlugin())
         bridge?.registerPluginInstance(AuthSessionPlugin())  // Google sign-in for the phone (plan 17)
+        bridge?.registerPluginInstance(CallLayerPlugin())  // the floating call: the Mac's page over a live call (Nov 22 2026)
         bridge?.webView?.configuration.userContentController.add(LiveActivityBridge(), name: LiveActivityBridge.handlerName)
         if let webView = bridge?.webView {
             // The file view's Download button (FileSaveBridge.swift, Nov 7 2026).
