@@ -12,7 +12,7 @@
  *   is in the terminal; on a refusal it keeps the text and says why.
  * - While another device drives the session, everything here is disabled and the
  *   banner says who drives and how to get control.
- * - In the app, a hold-to-talk mic sits beside Send (Nov 16 2026, `DictateButton`): the
+ * - In the app, a tap-to-talk mic sits beside Send (Nov 16 2026, `DictateButton`): the
  *   spoken words fill the box and are never sent for you.
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
@@ -87,7 +87,7 @@ export default function PhoneTerminalInput({
     draftRef.current = draft;
   }, [draft]);
 
-  // Hold-to-talk dictation: at the caret when the box has the focus, else at the end.
+  // Tap-to-talk dictation: at the caret when the box has the focus, else at the end.
   const onSpoken = useCallback((spoken: string) => {
     const focused = !!composeEl && document.activeElement === composeEl;
     const next = insertDictation(draftRef.current, focused ? composeEl.selectionStart : null, spoken);

@@ -50,7 +50,7 @@ export interface TaskRecord {
 }
 
 /** How a prompt's send ended, as GET /sessions/:id/prompt/:key says (promptSubmit.ts `PromptOutcome`). */
-export type PromptOutcomeState = 'submitted' | 'unconfirmed' | 'stopped' | 'gave-up' | 'failed';
+export type PromptOutcomeState = 'submitted' | 'unconfirmed' | 'unknown-command' | 'stopped' | 'gave-up' | 'failed';
 
 /** Why the prompt route stopped a central's send (Ruling 51): the session went hands-off, or a person took it. */
 export type PromptStopReason = 'hands-off' | 'person';

@@ -25,7 +25,7 @@ import type { Session } from '@/types';
 import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ForkIcon, KillIcon, PinIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { CloneIcon, ForkIcon, KillIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { pinnedMoveOrder } from '@/lib/pinMove';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
@@ -37,9 +37,11 @@ import { useIsHostDevice } from '../views/hostAccess';
 import SessionListRow from './SessionListRow';
 import ConnectionBanner from './ConnectionBanner';
 import CliLoginBanner from './CliLoginBanner';
+import CallMemoryBanner from './CallMemoryBanner';
 import NewSessionSheet from './NewSessionSheet';
 import SessionSheets, { type SessionSheetKind } from './info/SessionSheets';
 import { forkBlocker, useSessionActions } from './info/useSessionActions';
+import { nativeShellCallUrl } from '@/lib/platform';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
@@ -539,8 +541,31 @@ export default function SessionsScreen() {
     registerEl: registerFrameEl,
   } : undefined), [byProject, collapsedProjects, toggleProject, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts, registerFrameEl]);
 
+  // Nov 22 2026: a voice call to the Voice central, made by the app's own page (it may use the microphone).
+  // Null in a phone browser, so the button is the app's alone. The call returns to this tab.
+  const callUrl = nativeShellCallUrl(`${window.location.pathname}${window.location.search}`);
+
   const actions = (
     <>
+      {callUrl && (
+        <button type="button" className={styles.navAction} onClick={() => window.location.assign(callUrl)} aria-label="Call AASC" title="Call AASC">
+          <PhoneCallIcon />
+        </button>
+      )}
+      {/* Rooms stay manageable with no session shared here (only the filters need sessions). First, so
+          Search and + keep their place in the groupings that have no rooms (Nov 19 2026: was a row under the chips). */}
+      {snapshotReceived && byRoom && (
+        <button
+          type="button"
+          className={styles.navAction}
+          onClick={() => setManageRooms(true)}
+          aria-label="New or manage rooms"
+          aria-haspopup="dialog"
+          title="New or manage rooms"
+        >
+          <RoomIcon />
+        </button>
+      )}
       <button
         type="button"
         className={styles.navAction}
@@ -626,7 +651,7 @@ export default function SessionsScreen() {
   }
 
   return (
-    <Screen title="Sessions" banner={<><ConnectionBanner /><CliLoginBanner /></>} actions={actions} testId="phone-sessions">
+    <Screen title="Sessions" banner={<><ConnectionBanner /><CliLoginBanner />{callUrl && <CallMemoryBanner />}</>} actions={actions} testId="phone-sessions">
       <div
         ref={pullHost}
         className={styles.pullHost}
@@ -671,14 +696,6 @@ export default function SessionsScreen() {
               label={GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.chip ?? 'Group'}
               onClick={() => setGroupSheet(true)}
             />
-          </div>
-        )}
-        {/* Rooms stay manageable with no session shared here (only the filters need sessions). */}
-        {snapshotReceived && byRoom && (
-          <div className={roomStyles.roomsBar}>
-            <Button small variant="plain" icon={<RoomIcon />} onClick={() => setManageRooms(true)}>
-              New or manage rooms
-            </Button>
           </div>
         )}
         {body}

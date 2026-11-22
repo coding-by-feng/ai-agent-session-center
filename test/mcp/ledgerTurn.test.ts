@@ -36,6 +36,8 @@ const ran = (key: string, at = SENT): ChatEntry => ({ kind: 'tool_use', key, tim
 const cancelMark = (key: string, at = SENT): ChatEntry => ({ kind: 'system', key, timestamp: at, system: 'cancelled' });
 
 const own = buildEnvelope('T1', central, '', 'fix the flaky test', null);
+const hookFeedback = (key: string, at = SENT): ChatEntry => ({ kind: 'system', key, timestamp: at, system: 'context', label: 'harness', text: 'Stop hook feedback:\nFeature docs are behind.' });
+
 const turnOf = (entries: ChatEntry[], resumes: string[] = []) => readTurn(entries, { taskId: 'T1', since: SENT, resumes });
 
 describe('the envelope', () => {
@@ -89,6 +91,12 @@ describe('whose prompt', () => {
     expect(isOwnPrompt(own, 'T1')).toBe(true);
     expect(isOwnPrompt(`  \n${own}`, 'T1')).toBe(true);
     expect(isOwnPrompt(buildEnvelope('T1', other, 'Backend', 'x', null), 'T1')).toBe(true);
+  });
+
+  it('sees through the <pasted_content> wrapper Claude Code puts round a long typed prompt (T1–T3, Nov 2026)', () => {
+    expect(isOwnPrompt(`\n\n<pasted_content id="45e5">\n${own}\n</pasted_content>`, 'T1')).toBe(true);
+    expect(isOwnPrompt(`<pasted_content id="45e5">${own}`, 'T1')).toBe(true);
+    expect(isOwnPrompt(`<pasted_content id="45e5">\nlook at this: ${own}`, 'T1')).toBe(false);
   });
 
   it('takes no other prompt for it: another task’s, one that only quotes it, a person’s', () => {
@@ -166,6 +174,22 @@ describe('readTurn', () => {
     const turn = turnOf([said('1', 'from before', SENT - 1), said('2', 'after the send', SENT + 5)]);
 
     expect(turn).toMatchObject({ found: false, answer: 'after the send' });
+  });
+
+  it('reads the answer of a task whose envelope Claude Code wrapped in <pasted_content> (T3, Nov 22 2026)', () => {
+    const turn = turnOf([user('1', `\n\n<pasted_content id="45e5">\n${own}`), said('2', 'The diagram is ready.')]);
+
+    expect(turn).toMatchObject({ found: true, answer: 'The diagram is ready.' });
+  });
+
+  it('answers the task, not the reply to a Stop hook that continued the turn (T3, Nov 22 2026)', () => {
+    const turn = turnOf([user('1', own), said('2', 'The diagram is ready at docs/x.md.'), hookFeedback('3'), ran('4'), said('5', 'I did not update the feature docs.')]);
+
+    expect(turn).toMatchObject({ answer: 'The diagram is ready at docs/x.md.' });
+  });
+
+  it('falls back to the reply after a Stop hook when the turn said nothing before it', () => {
+    expect(turnOf([user('1', own), ran('2'), hookFeedback('3'), said('4', 'Done now.')]).answer).toBe('Done now.');
   });
 
   it('answers null when the turn wrote no text', () => {

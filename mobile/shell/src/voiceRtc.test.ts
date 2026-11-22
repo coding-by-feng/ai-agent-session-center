@@ -108,6 +108,21 @@ describe('createCallRtc', () => {
     expect(track.enabled).toBe(true);
   });
 
+  it('Pause turns the mic off whatever Mute says, and Resume restores Mute', async () => {
+    const { e, peer, track } = env();
+    const rtc = createCallRtc(e);
+    peer.iceGatheringState = 'complete';
+    await rtc.offer();
+    rtc.setMuted(true);
+    rtc.setPaused(true);
+    rtc.setPaused(false);
+    expect(track.enabled).toBe(false);
+    rtc.setMuted(false);
+    expect(track.enabled).toBe(true);
+    rtc.setPaused(true);
+    expect(track.enabled).toBe(false);
+  });
+
   it('reports a dropped connection once', async () => {
     const { e, peer } = env();
     const rtc = createCallRtc(e);

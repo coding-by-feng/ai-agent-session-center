@@ -1,0 +1,77 @@
+// @vitest-environment jsdom
+// callScreen.test.ts — the call screen's Voice central panel, its compact-bar line and Central lines (Nov 22 2026).
+import { describe, it, expect, vi } from 'vitest';
+import type { SavedMac } from '../savedMacs.js';
+import { renderCall } from './callScreen.js';
+import type { Screen, ScreenContext } from './screen.js';
+
+type CallScreen = Extract<Screen, { name: 'call' }>;
+
+const mac = { id: 'm1', name: 'Mac mini' } as SavedMac;
+
+const ctx = {
+  actions: new Proxy({}, { get: () => vi.fn() }),
+} as unknown as ScreenContext;
+
+const call = (over: Partial<CallScreen> = {}): CallScreen => ({
+  name: 'call', macId: 'm1', back: '/', phase: 'live', message: null, muted: false, paused: false, minimized: false,
+  lines: [], central: null, tasks: [], startedAt: 0, now: 68_000,
+  ...over,
+});
+
+const text = (el: Element | null): string => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+describe('renderCall: the Voice central', () => {
+  it('shows its state, step, time on this question and the sessions it handed work to', () => {
+    const el = renderCall(call({
+      central: { title: 'Voice', state: 'working', step: 'Checking your sessions', since: 16_000 },
+      tasks: [{ title: 'AASC docs', state: 'working' }, { title: 'Image Blaster', state: 'finished' }],
+    }), mac, ctx);
+    const panel = el.querySelector('.call-progress');
+    expect(panel).not.toBeNull();
+    expect(panel?.getAttribute('aria-label')).toBe('Voice central');
+    expect(text(panel?.querySelector('.call-central-state') ?? null)).toBe('Working · 0:52');
+    expect(text(panel?.querySelector('.call-central-step') ?? null)).toBe('Checking your sessions');
+    const rows = Array.from(panel?.querySelectorAll('.call-task') ?? []).map(text);
+    expect(rows).toEqual(['AASC docs Working', 'Image Blaster Finished']);
+    // Above the transcript, so it stays in view while the transcript scrolls.
+    const order = Array.from(el.querySelectorAll('.call-progress, .call-transcript')).map((n) => n.className);
+    expect(order[0]).toBe('call-progress');
+  });
+
+  it('says idle without a step or clock, and names a central that needs the person', () => {
+    const idle = renderCall(call({ central: { title: 'Voice', state: 'idle', step: null, since: null } }), mac, ctx);
+    expect(text(idle.querySelector('.call-central-state'))).toBe('Idle');
+    expect(idle.querySelector('.call-central-step')).toBeNull();
+    expect(idle.querySelector('.call-tasks')).toBeNull();
+    const needs = renderCall(call({ central: { title: 'Voice', state: 'needs_you', step: 'Waiting for your approval', since: 60_000 } }), mac, ctx);
+    expect(text(needs.querySelector('.call-central-state'))).toBe('Needs you · 0:08');
+    expect(needs.querySelector('.call-progress')?.getAttribute('data-state')).toBe('needs_you');
+  });
+
+  it('has no panel before the first read', () => {
+    expect(renderCall(call(), mac, ctx).querySelector('.call-progress')).toBeNull();
+  });
+
+  it('labels the central’s own reply "Central" in the transcript', () => {
+    const el = renderCall(call({ lines: [{ role: 'aasc', text: 'Let me check.' }, { role: 'central', text: 'v2.10.80 adds dictation.' }] }), mac, ctx);
+    const lines = Array.from(el.querySelectorAll('.call-line')).map((l) => [l.className, text(l.querySelector('.call-who'))]);
+    expect(lines).toEqual([['call-line call-aasc', 'AASC'], ['call-line call-central', 'Central']]);
+  });
+
+  it('the compact bar keeps one line of the central’s state and step', () => {
+    const el = renderCall(call({
+      minimized: true,
+      central: { title: 'Voice', state: 'working', step: 'Checking your sessions', since: 16_000 },
+    }), mac, ctx);
+    expect(text(el.querySelector('.call-mini-central'))).toBe('Central: Checking your sessions');
+    const idle = renderCall(call({ minimized: true, central: { title: 'Voice', state: 'idle', step: null, since: null } }), mac, ctx);
+    expect(text(idle.querySelector('.call-mini-central'))).toBe('Central: Idle');
+    expect(renderCall(call({ minimized: true }), mac, ctx).querySelector('.call-mini-central')).toBeNull();
+  });
+
+  it('an ended call shows no panel', () => {
+    const el = renderCall(call({ phase: 'ended', central: { title: 'Voice', state: 'working', step: 'Thinking', since: 1 } }), mac, ctx);
+    expect(el.querySelector('.call-progress')).toBeNull();
+  });
+});

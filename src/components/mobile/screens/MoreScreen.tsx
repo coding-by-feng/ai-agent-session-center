@@ -1,7 +1,7 @@
 /**
  * MoreScreen — the More tab's root (AASC-47, design §5.8): a grouped list.
  *
- *   VOICE       in the app only: Call AASC → the shell's call screen (Nov 15 2026)
+ *   (Call AASC moved to the Sessions title bar on Nov 22 2026)
  *   LIBRARY     History · Prompt Trace (on the Mac itself) · Saved prompts · Review · Agenda
  *   RESOURCES   Resources: the desktop's Library and Projects, through the Mac (plan 16)
  *   SETTINGS    Appearance · Notifications · Voice · Translation · Advanced
@@ -20,7 +20,6 @@ import { CONNECTION_WORDS, connectionPath } from '@/lib/chat/sessionsModel';
 import { LIBRARY_PAGES, RESOURCES_ENTRY, SETTINGS_PAGES } from '@/lib/chat/morePages';
 import { morePath, resourcesPath } from '@/lib/chat/phoneRoutes';
 import { nativeShellHomeUrl } from '@/lib/chat/thisPhone';
-import { nativeShellCallUrl } from '@/lib/platform';
 import { useIsHostDevice } from '../views/hostAccess';
 
 /** The settings rows, shared by More and More → Settings. */
@@ -50,20 +49,8 @@ export default function MoreScreen() {
   // The app's own Your Macs (null in a phone browser): the shell reopens the Mac used last, so this is the way back.
   // Its row says AASC: the computer you switch to isn't always a Mac.
   const shellHome = nativeShellHomeUrl();
-  // Nov 15 2026: a voice call to the Voice central, made by the app's own page (it may use the microphone).
-  const callUrl = nativeShellCallUrl('/more');
   return (
     <Screen title="More" testId="phone-more">
-      {callUrl && (
-        <ListSection header="Voice">
-          <ListRow
-            title="Call AASC"
-            subtitle="Talk to your Voice central: ask about sessions, start agents"
-            chevron
-            onClick={() => window.location.assign(callUrl)}
-          />
-        </ListSection>
-      )}
       <ListSection header="Library">
         {LIBRARY_PAGES.filter((item) => isHost || !item.hostOnly).map((item) => (
           <ListRow key={item.page} title={item.title} subtitle={item.subtitle} chevron onClick={() => push(morePath(item.page))} />

@@ -5,7 +5,7 @@
 // Mac's own page, served over plain http, cannot. The shell signs in with the pairing key like a share does, sends
 // its WebRTC offer to the Mac (POST /api/voice/call), and talks to OpenAI directly with the answer it gets back. The
 // Mac holds the OpenAI key and drives the call; this side only carries the audio and shows the transcript.
-import { field, jsonHeaders, type HttpRequester } from './http.js';
+import { bearer, field, jsonHeaders, type HttpRequester } from './http.js';
 import { parseReauthRequest } from './reauth.js';
 
 export const CALL_MESSAGES = {
@@ -60,7 +60,8 @@ export async function requestEnd(http: HttpRequester, line: CallLine, callId: st
   }).catch(() => undefined);
 }
 
-export type CallRole = 'you' | 'aasc';
+/** `central`: the Voice central's own reply, word for word (Nov 22 2026); the voice says it in its own words. */
+export type CallRole = 'you' | 'aasc' | 'central';
 
 export type CallEffect =
   | { kind: 'transcript'; role: CallRole; delta: string }
@@ -102,4 +103,93 @@ export function addTranscript(lines: readonly CallTranscriptLine[], role: CallRo
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// ── The Voice central's progress (Nov 22 2026) ──────────────────────────────────────────────────────────────────
+// The phone hears only OpenAI's transcript, so it asks the Mac what the Voice central is doing
+// (GET /api/voice/call/:id/progress, server/voice/callProgress.ts) every few seconds while the call is live.
+
+export type CentralState = 'working' | 'needs_you' | 'idle' | 'offline';
+export type TaskState = 'working' | 'needs_you' | 'stalled' | 'finished' | 'failed' | 'cancelled';
+
+export interface CentralProgress {
+  title: string;
+  state: CentralState;
+  /** The step it is on, in plain words; null when it is not working on this call's question. */
+  step: string | null;
+  /** How long it has been on this call's question; null when it is not on one. A duration, not the Mac's clock. */
+  elapsedMs: number | null;
+}
+
+/** The central as the screen keeps it: `since` on this phone's clock (read time − elapsedMs). */
+export interface CentralOnScreen {
+  title: string;
+  state: CentralState;
+  step: string | null;
+  since: number | null;
+}
+
+/** Puts a read's `elapsedMs` on this phone's clock, so the screen's ticking clock can count on from it. */
+export function centralOnScreen(c: CentralProgress | null, readAt: number): CentralOnScreen | null {
+  if (!c) return null;
+  return { title: c.title, state: c.state, step: c.step, since: c.elapsedMs === null ? null : readAt - c.elapsedMs };
+}
+
+export interface CallProgress {
+  central: CentralProgress | null;
+  tasks: Array<{ title: string; state: TaskState }>;
+  replies: Array<{ at: number; text: string }>;
+}
+
+const CENTRAL_STATES: readonly string[] = ['working', 'needs_you', 'idle', 'offline'];
+const TASK_STATES: readonly string[] = ['working', 'needs_you', 'stalled', 'finished', 'failed', 'cancelled'];
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** The Mac's progress answer, keeping only well-formed parts; null when it isn't one. */
+export function parseProgress(data: unknown): CallProgress | null {
+  if (!isObj(data)) return null;
+  const c = data.central;
+  const central: CentralProgress | null = isObj(c) && typeof c.title === 'string'
+    ? {
+        title: c.title,
+        state: CENTRAL_STATES.includes(String(c.state)) ? (c.state as CentralState) : 'working',
+        step: typeof c.step === 'string' ? c.step : null,
+        elapsedMs: isFiniteNum(c.elapsedMs) && c.elapsedMs >= 0 ? c.elapsedMs : null,
+      }
+    : null;
+  const tasks = Array.isArray(data.tasks)
+    ? data.tasks.filter((t): t is { title: string; state: TaskState } => isObj(t) && typeof t.title === 'string' && TASK_STATES.includes(String(t.state)))
+      .map((t) => ({ title: t.title, state: t.state }))
+    : [];
+  const replies = Array.isArray(data.replies)
+    ? data.replies.filter((r): r is { at: number; text: string } => isObj(r) && isFiniteNum(r.at) && typeof r.text === 'string')
+      .map((r) => ({ at: r.at, text: r.text }))
+    : [];
+  return { central, tasks, replies };
+}
+
+/** What the Voice central is doing for this call, or null (an older Mac, a refusal, no network). Never throws. */
+export async function requestProgress(http: HttpRequester, line: CallLine, callId: string): Promise<CallProgress | null> {
+  try {
+    const res = await http.request({
+      method: 'GET', url: `${line.origin}/api/voice/call/${encodeURIComponent(callId)}/progress`, headers: bearer(line.token), timeoutMs: 5_000,
+    });
+    return res.status === 200 ? parseProgress(field(res.data, ['data'])) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Adds each reply not yet shown as a Central line (by its `at`); the same lines back when there is nothing new. */
+export function addCentralReplies(
+  lines: readonly CallTranscriptLine[], seen: readonly number[], replies: CallProgress['replies'], max = TRANSCRIPT_LINES,
+): { lines: readonly CallTranscriptLine[]; seen: readonly number[] } {
+  const fresh = replies.filter((r) => !seen.includes(r.at) && r.text.trim() !== '');
+  if (fresh.length === 0) return { lines, seen };
+  return {
+    lines: [...lines, ...fresh.map((r) => ({ role: 'central' as const, text: r.text }))].slice(-max),
+    seen: [...seen, ...fresh.map((r) => r.at)],
+  };
 }

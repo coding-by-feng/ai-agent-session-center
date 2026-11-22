@@ -366,6 +366,7 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
   pending: 'AASC is still typing it, or waiting for the session to finish its turn before it types.',
   submitted: 'The session took it: AASC typed it and the CLI acknowledged it.',
   unconfirmed: 'AASC typed it and does not confirm a slash command: watch the session to see it land.',
+  'unknown-command': 'The session has no such command or skill: its CLI ran nothing and dropped the text after the name. Send it again without that command.',
   stopped: 'AASC stopped before it was safe to go on (a dialog opened, the person took over, or the agent went away); it may be partly typed.',
   'gave-up': 'AASC gave up: it pressed Enter every time it should and the session never took the prompt. Look at the session.',
   failed: 'The terminal is gone: the prompt did not reach it.',
@@ -377,7 +378,7 @@ export const promptStatus: ToolDef = defineTool({
   title: 'How a prompt went',
   description:
     'Asks how a prompt you sent with prompt_send ended, by the key prompt_send gave: pending (still being typed), ' +
-    'submitted (the session took it), unconfirmed (a slash command), stopped, gave-up or failed. Only keys you made.',
+    'submitted (the session took it), unconfirmed (a slash command), unknown-command (the session has no such command), stopped, gave-up or failed. Only keys you made.',
   risk: 'read',
   phase: 2,
   input: {

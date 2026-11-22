@@ -7,7 +7,7 @@ import type { RawShare } from '../native.js';
 import type { PairingLink } from '../pairingLink.js';
 import type { SavedMac } from '../savedMacs.js';
 import type { ShareTarget } from '../shareToQueue.js';
-import type { CallTranscriptLine } from '../voiceCall.js';
+import type { CallProgress, CallTranscriptLine, CentralOnScreen } from '../voiceCall.js';
 
 export type ApproveState = 'waiting' | 'unreachable' | 'stalled' | 'refused' | 'error' | 'cancelling';
 export type UnpairStep = 'idle' | 'confirm' | 'busy' | 'unreachable';
@@ -83,7 +83,15 @@ export type Screen =
       phase: 'starting' | 'live' | 'ended' | 'failed';
       message: string | null;
       muted: boolean;
+      /** Pause: mic off and AASC silent; the call and its clock carry on. */
+      paused: boolean;
+      /** Collapsed to the compact bar (clock, Pause, Mute, End); the transcript is hidden. */
+      minimized: boolean;
       lines: CallTranscriptLine[];
+      /** What the Voice central is doing (Nov 22 2026), read from the Mac while live; null until the first read. */
+      central: CentralOnScreen | null;
+      /** The sessions it handed work to during this call, newest first. */
+      tasks: CallProgress['tasks'];
       startedAt: number | null;
       now: number;
     };
@@ -138,6 +146,8 @@ export interface Actions {
   /** Nov 15 2026: the voice call screen. End also leaves for the Mac's page. */
   endCall(): void;
   toggleMute(): void;
+  togglePause(): void;
+  toggleMinimize(): void;
   retryCall(): void;
 }
 

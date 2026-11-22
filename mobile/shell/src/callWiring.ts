@@ -7,11 +7,11 @@ import type { ShellDeps } from './native.js';
 import { readMacCredentials, type SavedMac } from './savedMacs.js';
 import type { Actions, Screen } from './ui/screen.js';
 import {
-  addTranscript, callEventEffect, CALL_MESSAGES, requestCall, requestEnd, type CallLine,
+  addCentralReplies, addTranscript, callEventEffect, centralOnScreen, CALL_MESSAGES, requestCall, requestEnd, requestProgress, type CallLine,
 } from './voiceCall.js';
 import { createCallRtc, RtcError, type CallRtc, type RtcEnv } from './voiceRtc.js';
 
-export type CallActions = Pick<Actions, 'endCall' | 'toggleMute' | 'retryCall'>;
+export type CallActions = Pick<Actions, 'endCall' | 'toggleMute' | 'togglePause' | 'toggleMinimize' | 'retryCall'>;
 
 type CallScreen = Extract<Screen, { name: 'call' }>;
 
@@ -41,6 +41,9 @@ export interface CallWiring {
 /** How often the call's clock redraws. */
 const TICK_MS = 1_000;
 
+/** How often a live call asks the Mac what the Voice central is doing (Nov 22 2026). */
+export const PROGRESS_POLL_MS = 2_000;
+
 export type LineResult = { ok: true; line: CallLine } | { ok: false; message: string; macs?: SavedMac[] };
 
 /** Reach the Mac and sign in with this phone's pairing key, as a share does (shareFlow.ts). */
@@ -62,6 +65,9 @@ export function createCallWiring(host: CallHost): CallWiring {
   let rtc: CallRtc | null = null;
   let live: { line: CallLine; callId: string } | null = null;
   let ticker: ReturnType<typeof setInterval> | null = null;
+  let poller: ReturnType<typeof setInterval> | null = null;
+  /** The replies already shown as Central lines in this call (by the Mac's `at`). */
+  let seenReplies: readonly number[] = [];
 
   const onCall = (my: number): CallScreen | null => {
     const s = host.screen();
@@ -72,6 +78,8 @@ export function createCallWiring(host: CallHost): CallWiring {
   function hangUp(): void {
     if (ticker !== null) clearInterval(ticker);
     ticker = null;
+    if (poller !== null) clearInterval(poller);
+    poller = null;
     rtc?.close();
     rtc = null;
     const ended = live;
@@ -88,7 +96,11 @@ export function createCallWiring(host: CallHost): CallWiring {
     hangUp();
     gen += 1;
     const my = gen;
-    host.show({ name: 'call', macId: mac.id, back, phase: 'starting', message: null, muted: false, lines: [], startedAt: null, now: host.now() });
+    seenReplies = [];
+    host.show({
+      name: 'call', macId: mac.id, back, phase: 'starting', message: null, muted: false, paused: false, minimized: false,
+      lines: [], central: null, tasks: [], startedAt: null, now: host.now(),
+    });
     const env = host.rtcEnv();
     if (!env) { fail(my, CALL_MESSAGES.failed); return; }
 
@@ -139,6 +151,21 @@ export function createCallWiring(host: CallHost): CallWiring {
     ticker = setInterval(() => {
       if (onCall(my)) host.update({ now: host.now() });
     }, TICK_MS);
+    let reading = false;
+    poller = setInterval(() => {
+      const on = live;
+      if (reading || !on || !onCall(my)) return;
+      reading = true;
+      void requestProgress(host.requester, on.line, on.callId).then((progress) => {
+        reading = false;
+        const s = onCall(my);
+        // A failed read keeps what the screen shows; the next one tries again.
+        if (!progress || !s || live !== on) return;
+        const merged = addCentralReplies(s.lines, seenReplies, progress.replies);
+        seenReplies = merged.seen;
+        host.update({ central: centralOnScreen(progress.central, host.now()), tasks: progress.tasks, lines: [...merged.lines] });
+      });
+    }, PROGRESS_POLL_MS);
   }
 
   /** Leave the call screen for the Mac's page. */
@@ -160,6 +187,17 @@ export function createCallWiring(host: CallHost): CallWiring {
         if (s.name !== 'call' || s.phase !== 'live') return;
         rtc?.setMuted(!s.muted);
         host.update({ muted: !s.muted });
+      },
+      togglePause: () => {
+        const s = host.screen();
+        if (s.name !== 'call' || s.phase !== 'live') return;
+        rtc?.setPaused(!s.paused);
+        host.update({ paused: !s.paused });
+      },
+      toggleMinimize: () => {
+        const s = host.screen();
+        if (s.name !== 'call' || (s.phase !== 'live' && s.phase !== 'starting')) return;
+        host.update({ minimized: !s.minimized });
       },
       retryCall: () => {
         const s = host.screen();

@@ -44,6 +44,8 @@ export interface CallManager {
   start(input: { sdp: string; owner: CallOwner }): Promise<{ callId: string; sdp: string }>;
   end(callId: string, caller: CallOwner): boolean;
   active(): ActiveCall | null;
+  /** The call with this id and when it started, when `caller` may control it (mayControl); else null. */
+  callFor(callId: string, caller: CallOwner): { call: VoiceCall; startedAt: number } | null;
   /** Ends any call (server shutdown) and refuses calls still being set up. */
   close(): void;
 }
@@ -99,6 +101,11 @@ export function createCallManager(deps: CallManagerDeps): CallManager {
     },
 
     active: () => (current ? { callId: current.callId, startedAt: current.startedAt, owner: current.owner } : null),
+
+    callFor(callId, caller) {
+      if (!current || current.callId !== callId || !mayControl(current, caller)) return null;
+      return { call: current.call, startedAt: current.startedAt };
+    },
 
     close() {
       closed = true;

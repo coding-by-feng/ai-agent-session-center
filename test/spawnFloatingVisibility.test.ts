@@ -21,7 +21,11 @@ const spawner = vi.hoisted(() => ({
 }));
 vi.mock('../server/floatingSessionSpawner.js', () => spawner);
 
-const term = vi.hoisted(() => ({ owner: new Map<string, string>([['t-shared', 'fv-shared'], ['t-hidden', 'fv-hidden']]) }));
+const term = vi.hoisted(() => ({
+  owner: new Map<string, string>([['t-shared', 'fv-shared'], ['t-hidden', 'fv-hidden']]),
+  /** What getTerminals() reports: empty unless a test fills the Mac. */
+  live: [] as Array<{ terminalId: string; isOps?: boolean }>,
+}));
 vi.mock('../server/sshManager.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/sshManager.js')>();
   return {
@@ -29,6 +33,7 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
     createTerminal: vi.fn(async () => { throw new Error('a test must never spawn a PTY'); }),
     closeTerminal: vi.fn(),
     getTerminalSessionId: (id: string) => term.owner.get(id) ?? null,
+    getTerminals: () => term.live,
   };
 });
 
@@ -65,6 +70,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   spawner.spawnFloatingSession.mockClear();
+  term.live = [];
 });
 
 async function call(method: string, path: string, headers: Record<string, string> = {}, body?: unknown) {
@@ -122,6 +128,25 @@ describe('spawn-floating on the Mac', () => {
     const res = await call('POST', '/sessions/spawn-floating', {}, { ...BODY, originSessionId: 'fv-hidden' });
     expect(res.status).toBe(200);
     expect(spawner.spawnFloatingSession.mock.calls[0][1]).toEqual({ remoteVisible: false });
+  });
+});
+
+describe('spawn-floating and the Mac’s terminal limits (Nov 22 2026)', () => {
+  // The phone and desktop now keep up to 100 popups (MAX_FLOATS), so the cap no longer bounds the PTYs.
+  it('refuses a popup when every session slot is taken, and spawns nothing', async () => {
+    const { MAX_SESSIONS } = await import('../server/terminalCapacity.js');
+    term.live = Array.from({ length: MAX_SESSIONS }, (_, i) => ({ terminalId: `t-${i}` }));
+    const res = await call('POST', '/sessions/spawn-floating', {}, { ...BODY, originSessionId: 'fv-shared' });
+    expect(res.status).toBe(429);
+    expect(res.json).toEqual({ success: false, error: expect.stringMatching(/Session limit reached/) });
+    expect(spawner.spawnFloatingSession).not.toHaveBeenCalled();
+  });
+
+  it('still starts one with a slot free', async () => {
+    const { MAX_SESSIONS } = await import('../server/terminalCapacity.js');
+    term.live = Array.from({ length: MAX_SESSIONS - 1 }, (_, i) => ({ terminalId: `t-${i}` }));
+    const res = await call('POST', '/sessions/spawn-floating', {}, { ...BODY, originSessionId: 'fv-shared' });
+    expect(res.status).toBe(200);
   });
 });
 

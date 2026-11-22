@@ -39,13 +39,13 @@ describe('usePhoneDictation', () => {
     expect(result.current.phase).toBe('idle');
   });
 
-  it('hold, let go, and the words reach the box', async () => {
+  it('tap, tap again, and the words reach the box', async () => {
     const { result, post, say, onText, transcribe } = setup();
     expect(result.current.available).toBe(true);
     act(() => result.current.start());
     expect(post).toHaveBeenLastCalledWith('d1', 'start');
     expect(result.current.phase).toBe('recording');
-    expect(result.current.line?.text).toMatch(/Listening/);
+    expect(result.current.line?.text).toBe('Listening… tap the mic when you’re done.');
     say({ id: 'd1', state: 'recording' });
     act(() => result.current.stop());
     expect(post).toHaveBeenLastCalledWith('d1', 'stop');
@@ -75,7 +75,7 @@ describe('usePhoneDictation', () => {
     act(() => result.current.start());
     say({ id: 'd1', state: 'permission', granted: true });
     expect(result.current.phase).toBe('idle');
-    expect(result.current.line).toEqual({ text: expect.stringMatching(/Hold/) });
+    expect(result.current.line).toEqual({ text: expect.stringMatching(/Tap the mic/) });
     act(() => result.current.stop());
     expect(result.current.phase).toBe('idle');
     act(() => result.current.start());
@@ -93,7 +93,7 @@ describe('usePhoneDictation', () => {
     expect(result.current.phase).toBe('idle');
     expect(result.current.line).toBeNull();
     say({ id: 'd1', state: 'permission', granted: true });
-    expect(result.current.line).toEqual({ text: expect.stringMatching(/Hold/) });
+    expect(result.current.line).toEqual({ text: expect.stringMatching(/Tap the mic/) });
     // Said once, and never for a recording older than the latest.
     act(() => result.current.dismiss());
     say({ id: 'd1', state: 'permission', granted: true });
@@ -110,13 +110,13 @@ describe('usePhoneDictation', () => {
     expect(result.current.line?.text).toMatch(/Listening/);
   });
 
-  it('let go too soon: a hint, no request', async () => {
+  it('tapped again too soon: a hint, no request', async () => {
     const { result, say, transcribe } = setup();
     act(() => result.current.start());
     act(() => result.current.stop());
     say({ id: 'd1', state: 'cancelled', short: true });
     expect(result.current.phase).toBe('idle');
-    expect(result.current.line?.text).toMatch(/Hold/);
+    expect(result.current.line?.text).toBe('Too short. Tap the mic, talk, then tap it again.');
     expect(result.current.line?.tone).toBeUndefined();
     expect(transcribe).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(NOTE_MS); });

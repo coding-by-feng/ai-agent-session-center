@@ -214,11 +214,18 @@ export const ToolsIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** Hold-to-talk dictation (Nov 16 2026): a microphone, filled while it records. */
+/** Tap-to-talk dictation (Nov 16 2026): a microphone, filled while it records. */
 export const MicIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
   <Svg {...p}>
     <rect x="9" y="3" width="6" height="11" rx="3" fill={filled ? 'currentColor' : 'none'} />
     <path d="M6 11a6 6 0 0 0 12 0" />
     <line x1="12" y1="17" x2="12" y2="21" />
+  </Svg>
+);
+
+/** A handset: the voice call to AASC (Sessions title bar). */
+export const PhoneCallIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z" />
   </Svg>
 );

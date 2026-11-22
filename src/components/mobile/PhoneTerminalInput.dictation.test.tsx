@@ -77,7 +77,7 @@ describe('the terminal compose box’s hold-to-talk mic', () => {
     fireEvent.change(box(), { target: { value: 'cd src &&' } });
     fireEvent.pointerDown(mic());
     expect(screen.getByTestId('dictation-line')).toHaveTextContent(/Listening/);
-    fireEvent.pointerUp(mic());
+    fireEvent.pointerDown(mic());
     app.answer({ id: app.posted[0].id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 1500 });
     await waitFor(() => expect(box().value).toBe('cd src && list the files'));
     expect(urls).toEqual(['/api/voice/dictate']);
@@ -89,7 +89,7 @@ describe('the terminal compose box’s hold-to-talk mic', () => {
     const app = installApp();
     render(<Harness />);
     fireEvent.pointerDown(mic());
-    fireEvent.pointerUp(mic());
+    fireEvent.pointerDown(mic());
     app.answer({ id: app.posted[0].id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 1500 });
     const notice = await screen.findByRole('alert');
     expect(notice).toHaveTextContent('The Mac could not reach OpenAI.');

@@ -8,7 +8,9 @@
  *   (it holds prompts for minutes behind a busy agent), the phone keeps asking
  *   and never puts the text back; past the Mac's memory of the key it just says
  *   "Check the chat". Only the newest send speaks on the status line, and
- *   leaving the chat stops the polling.
+ *   leaving the chat stops the polling. A command or skill the session's CLI
+ *   does not have (`unknown-command`, Nov 19 2026) is one that surely went
+ *   nowhere: the CLI drops the words after it, so the whole message goes back.
  * - queue: an ACTIVE item on the session's queue, the same store write the phone
  *   queue makes (PUT /sessions/:id/queue with its echo guard). The Mac's window
  *   sends it when the turn ends.
@@ -143,7 +145,7 @@ export function usePromptSender(sessionId: string) {
       onSlow: () => line({ phase: 'pending', slow: true }),
     }).then((final) => {
       if (final === 'aborted') return;
-      const outcome = promptOutcome(final);
+      const outcome = promptOutcome(final, message.text);
       if (outcome.ok) {
         navigator.vibrate?.(10);
         line({ phase: 'sent', queued: false });
@@ -180,7 +182,7 @@ export function usePromptSender(sessionId: string) {
         onSlow: () => line({ phase: 'pending', slow: true }),
       });
       if (final === 'aborted') return { ok: false };
-      const outcome = promptOutcome(final);
+      const outcome = promptOutcome(final, message.text);
       if (!outcome.ok) {
         line(outcome.unsure ? { phase: 'unsure', message: outcome.message } : { phase: 'failed', message: outcome.message });
         return { ok: false };

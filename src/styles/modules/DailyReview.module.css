@@ -1,0 +1,141 @@
+/* DailyReview — PROMPTS → Days (DailyReviewView, DailySummaryCard, DailyReviewTree) and the
+   List | Days switch. The shell (container, header, toolbar, results box) is Prompts.module.css,
+   so switching views moves nothing but the content. 8px grid; every colour is a theme token. */
+
+/* ---- Toolbar ------------------------------------------------------------------ */
+
+.viewSwitch { display: flex; gap: 4px; flex-shrink: 0; }
+
+.dayPager { display: flex; align-items: center; gap: 4px; }
+.dayInput { width: auto; min-width: 136px; }
+
+/* ---- Body: summary card, then the groups ------------------------------------------ */
+
+.dayBody { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+
+.summaryCard {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+}
+
+.summaryHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.summaryTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.summaryList {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.summaryList li + li { margin-top: 4px; }
+.summaryProject { color: var(--accent-text); font-weight: 600; }
+
+.summaryNote,
+.summaryMeta { margin: 8px 0 0; color: var(--text-secondary); font-size: 11px; }
+
+.summaryError {
+  margin: 8px 0 0;
+  color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+  font-size: 12px;
+}
+
+/* ---- Groups ------------------------------------------------------------------------ */
+
+.tree { display: flex; flex-direction: column; gap: 16px; }
+.project { min-width: 0; }
+
+.room + .room { margin-top: 8px; }
+.roomName {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.roomCount { font-weight: 400; }
+
+.sessions { margin: 0; padding: 0; list-style: none; }
+
+.session { border-bottom: 1px solid var(--border-faint); }
+.session:last-child { border-bottom: none; }
+
+.sessionLine { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* The whole line folds and unfolds the session: a 44px target, like a list row. */
+.sessionToggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.sessionToggle:hover { background: var(--bg-card-hover); }
+.sessionToggle:active { background: var(--bg-subtle-strong); }
+.sessionToggle:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .sessionToggle { transition: none; } }
+
+.sessionTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessionMeta {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- One session's prompts ------------------------------------------------------------ */
+
+.prompts { margin: 0 0 8px; padding: 0 8px 0 32px; list-style: none; }
+
+.prompt { display: flex; gap: 8px; padding: 4px 0; min-width: 0; }
+.promptTime {
+  flex-shrink: 0;
+  padding-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.promptBody { min-width: 0; }
+.promptText {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.promptExpand { margin: 4px 0 0 -8px; }
+.promptClipped { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; }
+
+/* ---- Narrow window -------------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .dayBody { padding: 8px; }
+  .prompts { padding-left: 16px; }
+  /* The counts drop under the title instead of squeezing it to nothing; the fold icon keeps its column. */
+  .sessionToggle { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; padding: 8px; }
+  .sessionMeta { grid-column: 2; margin-left: 0; }
+}

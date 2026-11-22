@@ -18,7 +18,7 @@ import type { QueueImageAttachment } from '@/stores/queueStore';
 export type PromptMode = 'now' | 'interrupt';
 
 /** Where a prompt is on the Mac (server/promptRouter.ts). */
-export type PromptState = 'pending' | 'submitted' | 'unconfirmed' | 'stopped' | 'gave-up' | 'failed';
+export type PromptState = 'pending' | 'submitted' | 'unconfirmed' | 'unknown-command' | 'stopped' | 'gave-up' | 'failed';
 
 /** How waiting for a prompt ended: the Mac's word, or why the phone stopped asking. */
 export type PromptWaitResult = Exclude<PromptState, 'pending'> | 'timeout' | 'unknown' | 'aborted';
@@ -286,12 +286,19 @@ export interface PromptOutcome {
   unsure: boolean;
 }
 
-/** What to tell the person once the wait is over. */
-export function promptOutcome(result: PromptWaitResult): PromptOutcome {
+/**
+ * What to tell the person once the wait is over. `text` is what was sent, to name the command the
+ * session's CLI said it does not have (`unknown-command`: it ran nothing and dropped the words after it).
+ */
+export function promptOutcome(result: PromptWaitResult, text?: string): PromptOutcome {
   switch (result) {
     case 'submitted':
     case 'unconfirmed':
       return { ok: true, message: 'Sent', unsure: false };
+    case 'unknown-command': {
+      const name = /^\s*(\/\S+)/.exec(text ?? '')?.[1];
+      return { ok: false, message: `Not sent: this session has no ${name ?? 'such'} command or skill.`, unsure: false };
+    }
     case 'stopped':
       return { ok: false, message: 'Not sent: the session changed before it could be typed (a question, a stop, or another device).', unsure: false };
     case 'gave-up':

@@ -90,6 +90,19 @@ describe('usePromptSender', () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining('back in the box'), 'error', expect.any(Number));
   });
 
+  // Nov 19 2026: Claude answers a skill it does not have with "Unknown command" and throws the words after it away.
+  it('puts the whole message back when the session has no such command, naming the command', async () => {
+    stubMac(() => 'unknown-command');
+    const { result } = renderHook(() => usePromptSender('s1'));
+    await act(async () => { await result.current.send({ text: '/zzz-not-a-skill fix the login page' }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(result.current.state).toMatchObject({ phase: 'failed', message: 'Not sent: this session has no /zzz-not-a-skill command or skill.' });
+    expect(useComposerDraftStore.getState().drafts.s1).toBe('/zzz-not-a-skill fix the login page');
+    expect(showToast).toHaveBeenCalledWith(
+      'Not sent: this session has no /zzz-not-a-skill command or skill. Your message is back in the box.', 'error', expect.any(Number),
+    );
+  });
+
   it('lets only the newest send speak on the status line', async () => {
     const mac = stubMac((key, n) => (key === mac.keys[0] ? (n > 5 ? 'failed' : 'pending') : 'submitted'));
     const { result, seen } = renderSender();

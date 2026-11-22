@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Session } from '@/types';
+import { NATIVE_APP_UA_TOKEN } from '@/lib/platform';
 
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 vi.mock('@/lib/sessionActions', () => ({
@@ -104,6 +105,20 @@ describe('SessionsScreen', () => {
     expect(strip.textContent).not.toContain('live');
     expect(within(strip).queryByRole('button')).toBeNull();
     expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy();
+  });
+
+  it('puts Call AASC in the title bar in the app only (Nov 22 2026: moved from More)', () => {
+    const { unmount } = render(<SessionsScreen />);
+    expect(screen.queryByRole('button', { name: 'Call AASC' })).toBeNull(); // a phone browser has no shell
+    unmount();
+
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(`Mozilla/5.0 (iPhone) ${NATIVE_APP_UA_TOKEN}`);
+    try {
+      render(<SessionsScreen />);
+      expect(screen.getByRole('button', { name: 'Call AASC' })).toBeTruthy();
+    } finally {
+      ua.mockRestore();
+    }
   });
 
   it('puts the title in the bar: no separate large title row', () => {
@@ -327,6 +342,25 @@ describe('SessionsScreen', () => {
       expect(headings()).toEqual(['Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
       // Not a choice this phone made: nothing is saved until it picks one.
       expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBeNull();
+    });
+
+    // Nov 19 2026: an icon in the title bar beside Search and +, no longer its own row under the chips.
+    it('offers room management as an icon in the title bar, before Search', () => {
+      render(<SessionsScreen />);
+      const bar = within(screen.getByRole('banner'));
+      const names = bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+      expect(names).toEqual(['New or manage rooms', 'Search', 'New session']);
+      const rooms = bar.getByRole('button', { name: 'New or manage rooms' });
+      expect(rooms.textContent).toBe('');
+      expect(rooms).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(screen.getAllByRole('button', { name: 'New or manage rooms' })).toHaveLength(1);
+    });
+
+    it('opens the Rooms sheet from the title bar icon', async () => {
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'New or manage rooms' }));
+      expect(await screen.findByRole('dialog', { name: /rooms/i })).toBeTruthy();
     });
 
     it('opens by status when the Mac has no rooms', () => {

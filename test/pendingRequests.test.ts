@@ -58,13 +58,26 @@ describe('capRequestInput', () => {
     expect(out.input).not.toBe(input);
   });
 
-  it('cuts a command input over 8 KB down to 8 KB and says so', () => {
-    const out = capRequestInput('Bash', { command: 'x'.repeat(20_000), description: 'long' });
+  it('keeps a command whole up to 64 KB, so a long one can still be allowed from the phone (Nov 22 2026)', () => {
+    // A 189-line heredoc (about 12 KB) was cut at 8 KB, and the card could only say "allow it in the terminal".
+    const input = { command: `python3 - <<'EOF'\n${'line of code\n'.repeat(3_000)}EOF`, description: 'Write a module' };
+    expect(capRequestInput('Bash', input)).toEqual({ input, truncated: false });
+    expect(capRequestInput('exec_command', { cmd: 'y'.repeat(60_000) }).truncated).toBe(false);
+  });
+
+  it('cuts a command over 64 KB down to 64 KB and says so', () => {
+    const out = capRequestInput('Bash', { command: 'x'.repeat(80_000), description: 'long' });
     expect(out.truncated).toBe(true);
-    expect(bytes(out.input)).toBeLessThanOrEqual(PENDING_INPUT_MAX_BYTES);
+    expect(bytes(out.input)).toBeLessThanOrEqual(PENDING_EDIT_INPUT_MAX_BYTES);
     const command = (out.input as { command: string }).command;
     expect(command.endsWith(INPUT_TRUNCATION_MARKER)).toBe(true);
     expect((out.input as { description: string }).description).toBe('long');
+  });
+
+  it('still cuts any other tool at 8 KB', () => {
+    const out = capRequestInput('WebFetch', { url: 'https://x.test', prompt: 'p'.repeat(20_000) });
+    expect(out.truncated).toBe(true);
+    expect(bytes(out.input)).toBeLessThanOrEqual(PENDING_INPUT_MAX_BYTES);
   });
 
   it('keeps an edit whole up to 64 KB', () => {

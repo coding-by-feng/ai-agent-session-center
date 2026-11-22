@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { startVoiceCall, type VoiceCallDeps } from '../../server/voice/voiceCall.js';
+import { QUIET_MS } from '../../server/voice/turnGate.js';
 import type { Sideband, LiveEvent } from '../../server/voice/liveApi.js';
 import type { DigestSession } from '../../server/voice/digest.js';
 
@@ -64,8 +65,52 @@ describe('startVoiceCall', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(ask).toHaveBeenCalledTimes(1);
     expect(asked(0)).toContain('"What is running?"');
+    await vi.advanceTimersByTimeAsync(QUIET_MS); // the answer waits until the person has been quiet (turnGate.ts)
     const said = sb.ofType('session.commentary.append');
     expect(said).toEqual([expect.objectContaining({ delegation_id: 'd1', content: 'There are two sessions.' })]);
+  });
+
+  it('asks the briefing for the person’s words and types it with the question (Nov 22 2026)', async () => {
+    const briefing = vi.fn((request: string) => `Skills that fit this request: /concept-to-diagram for ${request}`);
+    startVoiceCall({ ...deps, briefing });
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'make a concept diagram', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(briefing).toHaveBeenCalledWith('make a concept diagram');
+    expect(asked(0)).toContain('/concept-to-diagram for make a concept diagram');
+  });
+
+  it('keeps each reply word for word, and when the question in progress was handed over (Nov 22 2026)', async () => {
+    let answer: (text: string) => void = () => undefined;
+    ask.mockImplementation(() => new Promise<string>((r) => { answer = r; }));
+    vi.setSystemTime(10_000);
+    const call = startVoiceCall({ ...deps, now: Date.now });
+    expect(call.busySince()).toBeNull();
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'what is new', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(call.busySince()).toBe(10_600);
+    answer('v2.10.80 adds **phone dictation**.');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(call.busySince()).toBeNull();
+    expect(call.replies()).toEqual([{ at: 11_000, text: 'v2.10.80 adds **phone dictation**.' }]);
+  });
+
+  it('keeps no reply for a failed question', async () => {
+    ask.mockRejectedValue(new Error('boom'));
+    const call = startVoiceCall(deps);
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(call.replies()).toEqual([]);
+    expect(call.busySince()).toBeNull();
+  });
+
+  it('still asks when the briefing fails', async () => {
+    startVoiceCall({ ...deps, briefing: () => { throw new Error('catalog unreadable'); } });
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'what is running', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(asked(0)).toContain('"what is running"');
   });
 
   it('asks about only what was said since the previous delegation', async () => {
@@ -93,6 +138,7 @@ describe('startVoiceCall', () => {
     sb.emit({ type: 'session.input_transcript.delta', delta: 'hi', start_ms: 0, end_ms: 100 });
     sb.emit({ type: 'session.delegation.created', offset_ms: 200, delegation: { id: 'd1', target: 'client' } });
     await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(QUIET_MS); // the answer waits until the person has been quiet (turnGate.ts)
     expect(sb.ofType('session.commentary.append')[0]).toMatchObject({ delegation_id: 'd1', content: 'The Voice central is not running.' });
   });
 
@@ -108,6 +154,57 @@ describe('startVoiceCall', () => {
     expect(String(said[0].content)).toContain('Codex review');
     expect(String(said[0].content)).toMatch(/finished/);
     expect(sb.ofType('session.thinking.append').length).toBe(2);
+  });
+
+  describe('turn-taking (Nov 22 2026): no spoken update over the person', () => {
+    const talk = (delta: string) => sb.emit({ type: 'session.input_transcript.delta', delta, start_ms: 0, end_ms: 1 });
+
+    it('holds "X finished" while the person explains a new request, through a short pause, then says it once', async () => {
+      startVoiceCall(deps);
+      await vi.advanceTimersByTimeAsync(0);
+      talk('can you open a new session for the web');
+      sessions = [sess('a', 'waiting', 'Codex review')];
+      changed?.();
+      await vi.advanceTimersByTimeAsync(2_000); // the change is announced 2 s later, mid-sentence
+      expect(sb.ofType('session.commentary.append')).toEqual([]);
+      expect(sb.ofType('session.thinking.append')).toHaveLength(2); // the silent status still goes at once
+      talk('site and run the tests'); // after a short hesitation: the same turn
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(sb.ofType('session.commentary.append')).toEqual([]);
+      await vi.advanceTimersByTimeAsync(600);
+      const said = sb.ofType('session.commentary.append');
+      expect(said).toHaveLength(1);
+      expect(said[0]).toMatchObject({ delegation_id: null, content: 'AASC update: "Codex review" has finished.' });
+    });
+
+    it('holds an earlier question’s answer while the person is on the next one', async () => {
+      let answer: (text: string) => void = () => undefined;
+      ask.mockImplementation(() => new Promise<string>((r) => { answer = r; }));
+      startVoiceCall(deps);
+      talk('what is running');
+      sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+      await vi.advanceTimersByTimeAsync(5_000);
+      talk('and after that start a review of');
+      answer('Two sessions are running.');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(sb.ofType('session.commentary.append')).toEqual([]);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(sb.ofType('session.commentary.append')).toEqual([
+        expect.objectContaining({ delegation_id: 'd1', content: 'Two sessions are running.' }),
+      ]);
+    });
+
+    it('drops what it held when the call ends', async () => {
+      startVoiceCall(deps);
+      await vi.advanceTimersByTimeAsync(0);
+      talk('hello');
+      sessions = [sess('a', 'waiting', 'Codex review')];
+      changed?.();
+      await vi.advanceTimersByTimeAsync(2_100);
+      sb.emit({ type: 'session.closed', reason: 'remote_hangup' });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sb.ofType('session.commentary.append')).toEqual([]);
+    });
   });
 
   it('does not resend an unchanged status', async () => {
@@ -182,6 +279,7 @@ describe('startVoiceCall', () => {
       sb.emit({ type: 'session.delegation.created', offset_ms: i * 1000 + 200, delegation: { id, target: 'client' } });
     }
     await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(QUIET_MS); // the answer waits until the person has been quiet (turnGate.ts)
     expect(ask).toHaveBeenCalledTimes(1);
     expect(sb.ofType('session.commentary.append')[1]).toMatchObject({ delegation_id: 'd2', content: expect.stringMatching(/wait a moment/i) });
   });
@@ -210,6 +308,7 @@ describe('startVoiceCall', () => {
     expect(reattach).toHaveBeenCalledTimes(1);
     second.emit(delegation);
     await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(QUIET_MS); // the answer waits until the person has been quiet (turnGate.ts)
     expect(ask).toHaveBeenCalledTimes(1);
     expect(second.ofType('session.commentary.append')).toHaveLength(1);
     expect(second.ofType('session.thinking.append')).toHaveLength(1);

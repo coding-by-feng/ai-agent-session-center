@@ -38,6 +38,13 @@ describe('brainPrompt', () => {
     expect(text).toMatch(/do not wait/i);
   });
 
+  it('types the briefing (sessions, skills, how to act) after the context, on the same line (Nov 22 2026)', () => {
+    const text = brainPrompt({ request: 'make a diagram', context: 'You: hi', briefing: 'Skills that fit this request: /concept-to-diagram.\nmore' });
+    expect(text).toContain('Skills that fit this request: /concept-to-diagram. more');
+    expect(text.indexOf('You: hi')).toBeLessThan(text.indexOf('Skills that fit'));
+    expect(text).not.toMatch(/[\r\n]/);
+  });
+
   it('leaves the context out when there is none', () => {
     expect(brainPrompt({ request: 'hi', context: '  ' })).not.toMatch(/context/i);
   });

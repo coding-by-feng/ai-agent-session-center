@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createCallWiring, type CallHost, type LineResult } from './callWiring.js';
+import { createCallWiring, PROGRESS_POLL_MS, type CallHost, type LineResult } from './callWiring.js';
 import type { HttpRequest } from './http.js';
 import type { SavedMac } from './savedMacs.js';
 import type { Screen } from './ui/screen.js';
@@ -30,7 +30,7 @@ class FakePeer implements PeerLike {
   drop(): void { this.connectionState = 'failed'; this.stateListener?.(); }
 }
 
-function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean } = {}) {
+function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean; progress?: () => { status: number; data: unknown } } = {}) {
   let screen: Screen = { name: 'macs', notice: null };
   const peer = new FakePeer();
   const requests: HttpRequest[] = [];
@@ -50,6 +50,7 @@ function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number
         if (req.url.endsWith('/api/voice/call')) {
           return { status: over.callStatus ?? 201, data: over.callData ?? { success: true, data: { callId: 'call_1', sdp: 'v=0 answer' } } };
         }
+        if (req.url.endsWith('/progress')) return over.progress?.() ?? { status: 404, data: {} };
         return { status: 200, data: {} };
       }),
     },
@@ -127,6 +128,39 @@ describe('createCallWiring', () => {
     expect(t.screen().muted).toBe(true);
   });
 
+  it('Pause silences the mic and AASC, and Resume puts Mute back as it was', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.toggleMute();
+    t.wiring.actions.togglePause();
+    expect(t.screen().paused).toBe(true);
+    expect(t.track.enabled).toBe(false);
+    t.wiring.actions.togglePause();
+    expect(t.screen().paused).toBe(false);
+    expect(t.track.enabled).toBe(false); // still muted
+    t.wiring.actions.toggleMute();
+    expect(t.track.enabled).toBe(true);
+  });
+
+  it('Minimize collapses and expands without touching the call', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.toggleMinimize();
+    expect(t.screen()).toMatchObject({ minimized: true, phase: 'live' });
+    expect(t.peer.closed).toBe(false);
+    t.wiring.actions.toggleMinimize();
+    expect(t.screen().minimized).toBe(false);
+  });
+
+  it('a new call starts expanded and not paused', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.togglePause();
+    t.wiring.actions.toggleMinimize();
+    await t.wiring.start(mac, '/');
+    expect(t.screen()).toMatchObject({ paused: false, minimized: false });
+  });
+
   it('a dropped connection fails the call and tells the Mac', async () => {
     const t = setup();
     await t.wiring.start(mac, '/');
@@ -154,6 +188,55 @@ describe('createCallWiring', () => {
     clock = 9_000;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(t.screen().now).toBe(5_000);
+  });
+
+  it('reads the Voice central’s progress while live, adds each reply once, and stops after the call (Nov 22 2026)', async () => {
+    let answer: { status: number; data: unknown } = {
+      status: 200,
+      data: { success: true, data: { central: { title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 900 }, tasks: [{ title: 'AASC docs', state: 'working' }], replies: [] } },
+    };
+    const t = setup({ progress: () => answer });
+    await t.wiring.start(mac, '/');
+    expect(t.screen().central).toBeNull();
+    t.peer.event({ type: 'session.output_transcript.delta', delta: 'Let me check.' });
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+    expect(t.screen().central).toEqual({ title: 'Voice', state: 'working', step: 'Checking your sessions', since: 100 });
+    expect(t.screen().tasks).toEqual([{ title: 'AASC docs', state: 'working' }]);
+    answer = {
+      status: 200,
+      data: { success: true, data: { central: { title: 'Voice', state: 'idle', step: null, elapsedMs: null }, tasks: [], replies: [{ at: 1_500, text: 'v2.10.80 adds dictation.' }] } },
+    };
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS * 2);
+    expect(t.screen().lines).toEqual([{ role: 'aasc', text: 'Let me check.' }, { role: 'central', text: 'v2.10.80 adds dictation.' }]);
+    const polls = t.requests.filter((r) => r.url === 'http://mac:3334/api/voice/call/call_1/progress').length;
+    t.wiring.dispose();
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS * 3);
+    expect(t.requests.filter((r) => r.url.endsWith('/progress'))).toHaveLength(polls);
+  });
+
+  it('keeps the last progress when a read fails', async () => {
+    let ok = true;
+    const t = setup({
+      progress: () => (ok
+        ? { status: 200, data: { success: true, data: { central: { title: 'Voice', state: 'working', step: 'Thinking', elapsedMs: 1 }, tasks: [], replies: [] } } }
+        : { status: 503, data: {} }),
+    });
+    await t.wiring.start(mac, '/');
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+    ok = false;
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+    expect(t.screen().central?.step).toBe('Thinking');
+  });
+
+  it('a new call starts with no progress and shows the same reply again', async () => {
+    const reply = { status: 200, data: { success: true, data: { central: null, tasks: [], replies: [{ at: 7, text: 'Hello.' }] } } };
+    const t = setup({ progress: () => reply });
+    await t.wiring.start(mac, '/');
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+    await t.wiring.start(mac, '/');
+    expect(t.screen()).toMatchObject({ central: null, tasks: [], lines: [] });
+    await vi.advanceTimersByTimeAsync(PROGRESS_POLL_MS);
+    expect(t.screen().lines).toEqual([{ role: 'central', text: 'Hello.' }]);
   });
 
   it('fails at once when this build has no WebRTC', async () => {

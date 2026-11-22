@@ -3,11 +3,6 @@
    target, and the carry previews. Every control is at least 44×44 and always
    shown: nothing appears on hover, so nothing moves under a finger. */
 
-.roomsBar {
-  display: flex;
-  margin: 0 var(--ph-gutter) var(--ph-space-2);
-}
-
 /* ---- A room group ---- */
 
 .roomGroup {

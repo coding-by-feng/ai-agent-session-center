@@ -1,0 +1,106 @@
+/* CallMemoryReview (Nov 22 2026): what calls proposed, and what is kept. Used in Settings and in a phone sheet. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--accent-text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meant {
+  min-width: 0;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+}
+
+.edit {
+  flex: 1;
+  min-width: 0;
+}
+
+.heard {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.scope > select {
+  min-width: 0;
+  flex: 1;
+}
+
+.scopeLabel {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The destructive action sits a fixed 8px from the label, never pushed to the far edge. */
+.forget {
+  margin-left: 8px;
+}
+
+.empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}

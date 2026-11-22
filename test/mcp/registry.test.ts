@@ -108,8 +108,8 @@ describe('the tool registry', () => {
         .map((t) => t.name)
         .sort(),
     ).toEqual([
-      'aasc_set_keep_awake', 'agenda_add', 'agenda_toggle', 'agenda_update', 'confirm_wait', 'key_send', 'note_add',
-      'note_attach_media', 'note_update', 'project_resolve', 'resource_alias_add', 'resource_alias_remove',
+      'aasc_set_keep_awake', 'agenda_add', 'agenda_toggle', 'agenda_update', 'confirm_wait', 'key_send', 'memory_retire', 'note_add',
+      'note_attach_media', 'note_update', 'project_resolve', 'queue_ask_enable', 'resource_alias_add', 'resource_alias_remove',
       'resource_rescan', 'room_create', 'room_delete', 'room_move_session', 'room_rename', 'room_reorder',
       'room_set_color', 'session_clone', 'session_create', 'session_fork', 'session_reconnect', 'session_resume',
       'session_set_accent_color', 'session_set_ai_popup', 'session_set_alerted', 'session_set_character_model',
@@ -131,17 +131,17 @@ describe('the tool registry', () => {
     for (const t of waiting) expect(typeof t.confirm, t.name).toBe('function');
   });
 
-  it('a Claude central lists 163 tools for every kind; a Codex central lists 83 (global), 90 (room) and 100 (project)', () => {
+  it('a Claude central lists 167 tools for every kind; a Codex central lists 87 (global), 94 (room) and 104 (project)', () => {
     for (const kind of ['global', 'room', 'project'] as const) {
-      expect(toolsFor({ toolsets: defaultToolsets(kind, 'claude') }, MCP_MAX_PHASE), kind).toHaveLength(163);
+      expect(toolsFor({ toolsets: defaultToolsets(kind, 'claude') }, MCP_MAX_PHASE), kind).toHaveLength(167);
     }
-    expect(toolsFor({ toolsets: defaultToolsets('global', 'codex') }, MCP_MAX_PHASE)).toHaveLength(83);
-    expect(toolsFor({ toolsets: defaultToolsets('room', 'codex') }, MCP_MAX_PHASE)).toHaveLength(90);
-    expect(toolsFor({ toolsets: defaultToolsets('project', 'codex') }, MCP_MAX_PHASE)).toHaveLength(100);
+    expect(toolsFor({ toolsets: defaultToolsets('global', 'codex') }, MCP_MAX_PHASE)).toHaveLength(87);
+    expect(toolsFor({ toolsets: defaultToolsets('room', 'codex') }, MCP_MAX_PHASE)).toHaveLength(94);
+    expect(toolsFor({ toolsets: defaultToolsets('project', 'codex') }, MCP_MAX_PHASE)).toHaveLength(104);
   });
 
-  it('a Codex central with the cloud toolset on lists 119', () => {
-    expect(toolsFor({ toolsets: [...defaultToolsets('global', 'codex'), 'cloud'] }, MCP_MAX_PHASE)).toHaveLength(119);
+  it('a Codex central with the cloud toolset on lists 123', () => {
+    expect(toolsFor({ toolsets: [...defaultToolsets('global', 'codex'), 'cloud'] }, MCP_MAX_PHASE)).toHaveLength(123);
   });
 
   it('has a list for every toolset, and nothing else', () => {

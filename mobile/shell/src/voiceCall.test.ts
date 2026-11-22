@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  addTranscript, callEventEffect, formatDuration, parseCallRequest, requestCall, requestEnd, CALL_MESSAGES,
+  addCentralReplies, addTranscript, centralOnScreen, callEventEffect, formatDuration, parseCallRequest, parseProgress, requestCall, requestEnd,
+  requestProgress, CALL_MESSAGES,
 } from './voiceCall.js';
 import type { HttpRequest, HttpRequester } from './http.js';
 
@@ -101,5 +102,67 @@ describe('formatDuration', () => {
     expect(formatDuration(0)).toBe('0:00');
     expect(formatDuration(252_000)).toBe('4:12');
     expect(formatDuration(3_725_000)).toBe('62:05');
+  });
+});
+
+describe('requestProgress (Nov 22 2026)', () => {
+  const view = {
+    central: { title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 5 },
+    tasks: [{ title: 'AASC docs', state: 'working' }],
+    replies: [{ at: 9, text: 'Done.' }],
+  };
+
+  it('reads the call’s progress with the session token', async () => {
+    const http = requester(200, { success: true, data: view });
+    await expect(requestProgress(http, line, 'call_1')).resolves.toEqual(view);
+    expect(http.last()).toMatchObject({ method: 'GET', url: 'http://100.64.0.2:3334/api/voice/call/call_1/progress' });
+    expect(http.last().headers).toMatchObject({ Authorization: 'Bearer tok' });
+  });
+
+  it('is null for a refusal, an old Mac, or a failed request', async () => {
+    await expect(requestProgress(requester(404, {}), line, 'call_1')).resolves.toBeNull();
+    const broken: HttpRequester = { request: vi.fn(async () => { throw new Error('x'); }) };
+    await expect(requestProgress(broken, line, 'call_1')).resolves.toBeNull();
+  });
+});
+
+describe('parseProgress', () => {
+  it('keeps only well-formed parts', () => {
+    expect(parseProgress({
+      central: { title: 'Voice', state: 'sleeping', step: 3, elapsedMs: -4 },
+      tasks: [{ title: 'ok', state: 'finished' }, { title: 5, state: 'working' }, { title: 'bad', state: 'nope' }],
+      replies: [{ at: 1, text: 'hi' }, { at: 'x', text: 'no' }],
+    })).toEqual({
+      central: { title: 'Voice', state: 'working', step: null, elapsedMs: null },
+      tasks: [{ title: 'ok', state: 'finished' }],
+      replies: [{ at: 1, text: 'hi' }],
+    });
+    expect(parseProgress(null)).toBeNull();
+    expect(parseProgress({ central: null, tasks: [], replies: [] })).toEqual({ central: null, tasks: [], replies: [] });
+  });
+});
+
+describe('centralOnScreen', () => {
+  it('puts the elapsed time on this phone’s clock', () => {
+    expect(centralOnScreen({ title: 'Voice', state: 'working', step: 'Thinking', elapsedMs: 3_000 }, 10_000))
+      .toEqual({ title: 'Voice', state: 'working', step: 'Thinking', since: 7_000 });
+    expect(centralOnScreen({ title: 'Voice', state: 'idle', step: null, elapsedMs: null }, 10_000)?.since).toBeNull();
+    expect(centralOnScreen(null, 10_000)).toBeNull();
+  });
+});
+
+describe('addCentralReplies', () => {
+  it('adds each reply once, as a Central line, after what was said', () => {
+    const said = addTranscript([], 'aasc', 'Let me check.');
+    const first = addCentralReplies(said, [], [{ at: 9, text: 'v2.10.80 adds dictation.' }]);
+    expect(first.lines).toEqual([{ role: 'aasc', text: 'Let me check.' }, { role: 'central', text: 'v2.10.80 adds dictation.' }]);
+    expect(first.seen).toEqual([9]);
+    const again = addCentralReplies(first.lines, first.seen, [{ at: 9, text: 'v2.10.80 adds dictation.' }]);
+    expect(again.lines).toBe(first.lines);
+  });
+
+  it('starts a new voice line after a Central line, never joining across it', () => {
+    const { lines } = addCentralReplies(addTranscript([], 'aasc', 'One.'), [], [{ at: 1, text: 'Reply.' }]);
+    expect(addTranscript(lines, 'aasc', 'Two.').map((l) => l.role)).toEqual(['aasc', 'central', 'aasc']);
   });
 });

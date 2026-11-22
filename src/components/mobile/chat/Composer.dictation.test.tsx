@@ -72,7 +72,7 @@ describe('the composer’s hold-to-talk mic', () => {
     expect(screen.queryByTestId('dictate-button')).toBeNull();
   });
 
-  it('hold, speak, let go: the words fill the box after what was typed, and nothing is sent', async () => {
+  it('tap, speak, tap again: the words fill the box after what was typed, and nothing is sent', async () => {
     const calls = stubMac();
     const app = installApp();
     renderComposer();
@@ -82,7 +82,10 @@ describe('the composer’s hold-to-talk mic', () => {
     const id = app.posted[0].id;
     expect(screen.getByTestId('dictation-line')).toHaveTextContent(/Listening/);
     expect(mic()).toHaveAttribute('aria-pressed', 'true');
+    // Lifting the finger no longer ends it: only the second tap does.
     fireEvent.pointerUp(mic());
+    expect(app.posted).toHaveLength(1);
+    fireEvent.pointerDown(mic());
     expect(app.posted[1]).toEqual({ id, action: 'stop' });
     expect(screen.getByTestId('dictation-line')).toHaveTextContent(/text/);
     app.answer({ id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 2000 });
@@ -90,7 +93,7 @@ describe('the composer’s hold-to-talk mic', () => {
     expect(calls.find((c) => c.url === '/api/voice/dictate')?.body).toEqual({ audio: 'QUJD', mime: 'audio/mp4' });
     expect(prompts(calls)).toEqual([]);
     expect(screen.queryByTestId('dictation-line')).toBeNull();
-    expect(mic()).toHaveAccessibleName('Hold to dictate');
+    expect(mic()).toHaveAccessibleName('Tap to dictate');
   });
 
   it('shows the Mac’s refusal under the box as an alert and keeps the draft', async () => {
@@ -99,7 +102,7 @@ describe('the composer’s hold-to-talk mic', () => {
     renderComposer();
     fireEvent.change(screen.getByTestId('composer-input'), { target: { value: 'kept' } });
     fireEvent.pointerDown(mic());
-    fireEvent.pointerUp(mic());
+    fireEvent.pointerDown(mic());
     app.answer({ id: app.posted[0].id, state: 'audio', audio: 'QUJD', mime: 'audio/mp4', ms: 2000 });
     const line = await screen.findByRole('alert');
     expect(line).toHaveTextContent('Add an OpenAI API key in Settings → Voice on the Mac to dictate.');

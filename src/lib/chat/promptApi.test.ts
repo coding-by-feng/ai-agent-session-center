@@ -254,6 +254,13 @@ describe('promptOutcome', () => {
     expect(outcome.message).not.toMatch(/PTY|hook|gave-up/);
   });
 
+  // Nov 19 2026: a prompt that began with a skill the session's CLI does not have was answered "Sent" and lost.
+  it('says a command the session does not have was not sent, naming it, and lets the text go back in the box', () => {
+    const named = promptOutcome('unknown-command', '  /zzz-not-a-skill fix the login page');
+    expect(named).toEqual({ ok: false, unsure: false, message: 'Not sent: this session has no /zzz-not-a-skill command or skill.' });
+    expect(promptOutcome('unknown-command')).toEqual({ ok: false, unsure: false, message: 'Not sent: this session has no such command or skill.' });
+  });
+
   it.each(['stopped', 'gave-up', 'failed'] as const)('a %s prompt surely went nowhere: its text may go back in the box', (state) => {
     expect(promptOutcome(state).unsure).toBe(false);
   });

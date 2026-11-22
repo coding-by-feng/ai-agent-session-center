@@ -1,5 +1,5 @@
 /**
- * phoneDictation — the phone app's hold-to-talk 🎙 (Nov 16 2026): speak, and the words land in the box.
+ * phoneDictation — the phone app's tap-to-talk 🎙 (Nov 16 2026; hold-to-talk until Nov 22 2026): speak, and the words land in the box.
  *
  * The Mac's page is plain http inside the app, so it has no microphone, and it can't call the app's plugins.
  * So the app records and this page does the rest:
@@ -28,7 +28,7 @@ export type DictationOutcome =
   /** The phone asked for the microphone instead of recording; `granted` is its answer. */
   | { id: string; state: 'permission'; granted: boolean }
   | { id: string; state: 'audio'; audio: string; mime: string; ms: number }
-  /** Nothing kept. `short`: let go too soon to hold speech. */
+  /** Nothing kept. `short`: finished too soon to hold speech. */
   | { id: string; state: 'cancelled'; short: boolean }
   | { id: string; state: 'failed'; message?: string };
 

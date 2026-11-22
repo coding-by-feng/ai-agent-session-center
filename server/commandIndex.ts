@@ -10,7 +10,8 @@
  *     - ~/.claude/skills/<slug>/SKILL.md           (global skills)
  *     - <plugin>/commands/*.md                     (plugin commands)
  *     - <plugin>/skills/<slug>/SKILL.md            (plugin skills)
- *       plugins are discovered via ~/.claude/plugins/installed_plugins.json
+ *       plugins are discovered via ~/.claude/plugins/installed_plugins.json; only those the session has
+ *       loaded: installed for every project or for this one, and not `false` in `enabledPlugins`
  *   codex:
  *     - <project>/.codex/prompts/*.md              (project prompts, /name)
  *     - <project>/.codex/skills/<slug>/SKILL.md    (project skills, $name)
@@ -23,7 +24,7 @@
  * Results are cached in-memory for 30 seconds keyed by `cli + projectPath`.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, resolve, sep } from 'path';
 import { homedir } from 'os';
 import log from './logger.js';
 
@@ -382,19 +383,57 @@ function appendBuiltins(
 
 interface InstalledPluginsManifest {
   version?: number;
-  plugins?: Record<string, Array<{ scope?: string; installPath?: string }>>;
+  plugins?: Record<string, Array<{ scope?: string; installPath?: string; projectPath?: string }>>;
 }
 
-function readInstalledPlugins(): Array<{ pluginName: string; installPath: string }> {
+/** `enabledPlugins` of one settings file: only its true / false entries; empty when the file is missing or unreadable. */
+function readEnabledPlugins(settingsPath: string): Record<string, boolean> {
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as { enabledPlugins?: unknown };
+    const out: Record<string, boolean> = {};
+    if (parsed.enabledPlugins && typeof parsed.enabledPlugins === 'object') {
+      for (const [key, value] of Object.entries(parsed.enabledPlugins)) {
+        if (typeof value === 'boolean') out[key] = value;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Is `path` the folder `parent` or inside it? */
+function isSameOrInside(path: string, parent: string): boolean {
+  const child = resolve(path);
+  const base = resolve(parent);
+  return child === base || child.startsWith(base + sep);
+}
+
+/**
+ * The plugins a Claude Code session in `projectPath` has loaded (Nov 19 2026). Not every installed one:
+ * a plugin installed for one project (`scope: project` / `local`) exists only in that project, and one set
+ * to `false` in `enabledPlugins` (the user's settings, then the project's, then its local ones) is off.
+ * Listing the others offered `/plugin:skill` names the CLI answers "Unknown command" to, dropping the
+ * words typed after them (promptSubmit.ts `unknown-command`).
+ */
+function readInstalledPlugins(projectPath: string | null): Array<{ pluginName: string; installPath: string }> {
   const manifestPath = join(homedir(), '.claude', 'plugins', 'installed_plugins.json');
   try {
     const raw = readFileSync(manifestPath, 'utf8');
     const parsed = JSON.parse(raw) as InstalledPluginsManifest;
+    const enabled: Record<string, boolean> = {
+      ...readEnabledPlugins(join(homedir(), '.claude', 'settings.json')),
+      ...(projectPath ? readEnabledPlugins(join(projectPath, '.claude', 'settings.json')) : {}),
+      ...(projectPath ? readEnabledPlugins(join(projectPath, '.claude', 'settings.local.json')) : {}),
+    };
     const out: Array<{ pluginName: string; installPath: string }> = [];
     const plugins = parsed.plugins || {};
     for (const [key, entries] of Object.entries(plugins)) {
+      if (enabled[key] === false) continue;
       const pluginName = key.split('@')[0];
       for (const e of entries || []) {
+        const oneProject = e.scope === 'project' || e.scope === 'local';
+        if (oneProject && !(projectPath && e.projectPath && isSameOrInside(projectPath, e.projectPath))) continue;
         if (e.installPath && existsSync(e.installPath)) {
           out.push({ pluginName, installPath: e.installPath });
         }
@@ -439,7 +478,7 @@ function buildClaudeEntries(projectPath: string | null): CommandEntry[] {
     entries.push(makeSkillEntry(d, 'claude', 'global'));
   }
 
-  for (const { pluginName, installPath } of readInstalledPlugins()) {
+  for (const { pluginName, installPath } of readInstalledPlugins(projectPath && isSafeProjectPath(projectPath) ? projectPath : null)) {
     for (const f of listMdFiles(join(installPath, 'commands'))) {
       entries.push(makeCommandEntry(f, 'claude', 'plugin', pluginName));
     }

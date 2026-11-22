@@ -73,6 +73,28 @@ describe('WaitingCard', () => {
     );
   });
 
+  it('starts a long command folded to its first lines, Show all opens the whole of it, and Allow once is offered (Nov 22 2026)', () => {
+    stubAnswer();
+    const lines = Array.from({ length: 189 }, (_, i) => `line ${i + 1}`);
+    renderCard(session({ ...bash, input: { command: lines.join('\n') } }));
+    const command = screen.getByLabelText('Command');
+    expect(command).toHaveTextContent('line 12');
+    expect(command).not.toHaveTextContent('line 13');
+    expect(command).not.toHaveTextContent('line 189');
+    const toggle = screen.getByRole('button', { name: 'Show all 189 lines' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText('Command')).toHaveTextContent('line 189');
+    expect(screen.getByRole('button', { name: 'Show fewer lines' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Allow once' })).toBeEnabled();
+  });
+
+  it('shows a short command whole, with no Show all', () => {
+    stubAnswer();
+    renderCard(session(bash));
+    expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull();
+  });
+
   it('answers Allow once through the Mac’s checked route', async () => {
     const calls = stubAnswer();
     renderCard(session(bash));

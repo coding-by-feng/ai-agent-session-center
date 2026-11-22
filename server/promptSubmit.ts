@@ -29,6 +29,12 @@
 // Sent while the agent is busy, only its UserPromptSubmit counts: the running turn's
 // hooks are not about it. It presses nothing until the session is waiting again.
 //
+// A slash command the CLI does not have is the exception that IS noticed (Nov 19 2026): Claude Code
+// answers `Unknown command: /name`, fires no hook and empties the input box, so the words typed
+// after the name are gone while the phone was told "Sent". The Mac listens to the terminal's output
+// for UNKNOWN_COMMAND_WAIT_MS after such an Enter and ends the send as `unknown-command`, which the
+// phone turns into "your message is back in the box".
+//
 // One prompt at a time per terminal, and at most one waiting behind it: the next one
 // types only once the one before is confirmed (or typed nothing, or was a slash
 // command and its first hook arrived), never onto text it may have left unsent.
@@ -46,6 +52,7 @@ import {
   SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, mayConfirmSubmit, retriesElapsed, submitRetryDecision,
 } from '../src/lib/submitConfirm.js';
 import { SUBMIT_ENTER_DELAY_MS, IMAGE_SUBMIT_ENTER_DELAY_MS, submitDelayFor } from '../src/lib/terminalSend.js';
+import { stripAnsi } from '../src/lib/ansi.js';
 
 export { SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, SUBMIT_ENTER_DELAY_MS, IMAGE_SUBMIT_ENTER_DELAY_MS };
 
@@ -69,6 +76,25 @@ export const PREVIOUS_PROMPT_WAIT_MS = 90_000;
 
 /** After a slash command (never confirmed), the next prompt waits for a hook or this long. */
 export const SLASH_SETTLE_MS = 3_000;
+
+/**
+ * How long the Mac listens, after a slash command's Enter, for the CLI saying it has no such command.
+ * Claude Code 2.1.328 printed it 0.4 s after the Enter on a loaded Mac (probed Nov 19 2026). Shorter than
+ * SLASH_SETTLE_MS, so the next prompt is held no longer than before.
+ */
+export const UNKNOWN_COMMAND_WAIT_MS = 1_500;
+
+/** Raw output kept while listening: the refusal is two short lines, a redraw around them a few hundred bytes. */
+const UNKNOWN_WATCH_MAX_CHARS = 16 * 1024;
+
+/**
+ * What the CLI's refusal of `text`'s command reads as once colours and spacing are gone (a TUI may draw a
+ * space as a cursor move), or null when `text` names no command. Claude Code: `Unknown command: /name`.
+ */
+export function unknownCommandNeedle(text: string): string | null {
+  const name = /^\s*\/(\S+)/.exec(text)?.[1];
+  return name ? `unknowncommand:/${name.toLowerCase()}` : null;
+}
 
 /** How often a prompt parked behind a running turn looks at the session's status. */
 export const BUSY_PARK_CHECK_MS = 5_000;
@@ -106,12 +132,14 @@ export type PromptMode = 'now' | 'interrupt';
  * - submitted    the CLI acknowledged it (its UserPromptSubmit, or the session going busy
  *                from waiting; a prompt sent to a busy session needs its UserPromptSubmit)
  * - unconfirmed  sent once and deliberately not confirmed (a slash command)
+ * - unknown-command  a slash command the CLI answered it does not have: nothing ran, the input
+ *                box is empty again and the words after the name are gone
  * - stopped      no longer safe to type or press Enter (a dialog, a cancel, the agent gone,
  *                another driver, or the prompt before it left text in the input box)
  * - gave-up      every retry was pressed and nothing acknowledged it
  * - failed       the terminal is gone: a write did not reach it
  */
-export type PromptOutcome = 'submitted' | 'unconfirmed' | 'stopped' | 'gave-up' | 'failed';
+export type PromptOutcome = 'submitted' | 'unconfirmed' | 'unknown-command' | 'stopped' | 'gave-up' | 'failed';
 
 /** How a send ended, and whether any of its text reached the terminal. */
 export interface PromptResult {
@@ -137,6 +165,11 @@ export interface PromptSubmitDeps {
   isAgentForeground(terminalId: string): boolean;
   /** Hear every hook processed for the terminal's session (hookSignals.onTerminalHook). */
   onTerminalHook(terminalId: string, listener: (signal: HookSignal) => void): () => void;
+  /**
+   * Hear the terminal's live output from now on; returns the unsubscribe (sshManager.tapTerminalOutput).
+   * Without it a slash command is never checked for the CLI's "unknown command" answer.
+   */
+  tapOutput?(terminalId: string, tap: (chunk: string) => void): () => void;
 }
 
 export interface PromptRequest {
@@ -162,6 +195,15 @@ export interface PromptSubmitter {
    * `beforeEsc` runs just before the Esc is written, and only then (the interrupt route notes a central's Esc there).
    */
   interrupt(target: { sessionId: string; terminalId: string; beforeEsc?: () => void }): Promise<boolean>;
+}
+
+/** What a send has done so far: read after it ends, however it ends. */
+interface Progress {
+  typed: boolean;
+  /** Time already spent, after a slash command's Enter, listening for the CLI's refusal. */
+  settledMs: number;
+  /** A hook arrived while listening: the wait for the command's first hook is over. */
+  hookSeen: boolean;
 }
 
 /** A prompt's place in its terminal's line: `done` settles once the next one may go. */
@@ -348,7 +390,42 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     });
   }
 
-  async function run(req: PromptRequest, progress: { typed: boolean }): Promise<PromptOutcome> {
+  /**
+   * Listen for the CLI refusing a slash command. Started before the Enter so no output is missed;
+   * `wait` settles on the refusal, on the terminal's next hook (the command exists and is running),
+   * or after UNKNOWN_COMMAND_WAIT_MS. `stop` is safe to call twice.
+   */
+  function watchUnknownCommand(terminalId: string, needle: string): { wait(): Promise<'unknown' | 'hook' | 'quiet'>; stop(): void } {
+    let raw = '';
+    let found = false;
+    let settle: (how: 'unknown' | 'hook' | 'quiet') => void = () => {};
+    const offTap = deps.tapOutput!(terminalId, (chunk) => {
+      if (found) return;
+      raw = (raw + chunk).slice(-UNKNOWN_WATCH_MAX_CHARS);
+      // Stripped whole each time: an escape sequence cut by a read boundary is whole again here.
+      if (stripAnsi(raw).replace(/\s+/g, '').toLowerCase().includes(needle)) {
+        found = true;
+        settle('unknown');
+      }
+    });
+    const offHook = deps.onTerminalHook(terminalId, () => settle('hook'));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = (): void => {
+      clearTimeout(timer);
+      offTap();
+      offHook();
+    };
+    return {
+      wait: () => new Promise((resolve) => {
+        settle = (how) => { stop(); resolve(how); };
+        if (found) { settle('unknown'); return; }
+        timer = setTimeout(() => settle('quiet'), UNKNOWN_COMMAND_WAIT_MS);
+      }),
+      stop,
+    };
+  }
+
+  async function run(req: PromptRequest, progress: Progress): Promise<PromptOutcome> {
     const { terminalId, text } = req;
     const imagePaths = req.imagePaths ?? [];
     if (req.mode === 'interrupt') await interrupt(req);
@@ -362,10 +439,23 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     await sleep(submitDelayFor(imagePaths.length));
     // A dialog that opened meanwhile would take this Enter as its answer.
     if (!mayType(req)) return 'stopped';
-    if (!deps.write(terminalId, ENTER)) return 'failed';
+    const slash = !mayConfirmSubmit(text, true);
+    const needle = slash && deps.tapOutput ? unknownCommandNeedle(text) : null;
+    const watch = needle ? watchUnknownCommand(terminalId, needle) : null;
+    let entered = false;
+    try {
+      entered = deps.write(terminalId, ENTER);
+    } finally {
+      if (!entered) watch?.stop();
+    }
+    if (!entered) return 'failed';
     const enterAt = Date.now();
-    if (!mayConfirmSubmit(text, true)) return 'unconfirmed';
-    return confirm(req, enterAt);
+    if (!slash) return confirm(req, enterAt);
+    if (!watch) return 'unconfirmed';
+    const heard = await watch.wait();
+    progress.settledMs = Date.now() - enterAt;
+    progress.hookSeen = heard === 'hook';
+    return heard === 'unknown' ? 'unknown-command' : 'unconfirmed';
   }
 
   /**
@@ -380,7 +470,7 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
       log.info('prompt', `Prompt for ${terminalId.slice(0, 12)} dropped: the one before it is still in progress`);
       return false;
     }
-    return before.outcome === 'submitted' || before.outcome === 'unconfirmed' || !before.typed;
+    return before.outcome === 'submitted' || before.outcome === 'unconfirmed' || before.outcome === 'unknown-command' || !before.typed;
   }
 
   function leave(terminalId: string, slot: Slot): void {
@@ -399,19 +489,20 @@ export function createPromptSubmitter(deps: PromptSubmitDeps): PromptSubmitter {
     const slot = newSlot();
     const previous = line[line.length - 1];
     lines.set(terminalId, [...line, slot]);
-    const progress = { typed: false };
+    const progress: Progress = { typed: false, settledMs: 0, hookSeen: false };
     let outcome: PromptOutcome = 'failed';
     try {
       outcome = previous && !(await mayFollow(terminalId, previous)) ? 'stopped' : await run(req, progress);
-      const level = outcome === 'failed' || outcome === 'gave-up' ? 'warn' : outcome === 'stopped' ? 'info' : 'debug';
+      const level = outcome === 'failed' || outcome === 'gave-up' ? 'warn' : outcome === 'stopped' || outcome === 'unknown-command' ? 'info' : 'debug';
       log[level]('prompt', `Prompt for ${terminalId.slice(0, 12)} (${req.mode}): ${outcome}`);
       return { outcome, typed: progress.typed };
     } finally {
       const result = { outcome, typed: progress.typed };
-      if (outcome === 'unconfirmed') {
+      if (outcome === 'unconfirmed' && !progress.hookSeen) {
         // A slash command fires no UserPromptSubmit and may still be running (a /clear's
-        // SessionStart hooks): the next prompt waits for its first hook, or SLASH_SETTLE_MS.
-        void nextHookOr(terminalId, SLASH_SETTLE_MS).then(() => { slot.release(result); leave(terminalId, slot); });
+        // SessionStart hooks): the next prompt waits for its first hook, or SLASH_SETTLE_MS
+        // from the Enter (the time spent listening for an "unknown command" counts toward it).
+        void nextHookOr(terminalId, Math.max(0, SLASH_SETTLE_MS - progress.settledMs)).then(() => { slot.release(result); leave(terminalId, slot); });
       } else {
         slot.release(result);
         leave(terminalId, slot);

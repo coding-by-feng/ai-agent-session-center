@@ -4,7 +4,7 @@
 
 import { randomBytes } from 'crypto';
 import WebSocket from 'ws';
-import type { Router } from 'express';
+import { Router } from 'express';
 import type { Session } from '../../src/types/session.js';
 import type { SessionCentralMarker } from '../../src/types/central.js';
 import { sessionDisplayTitle } from '../../src/lib/sessionDisplayTitle.js';
@@ -25,12 +25,23 @@ import { readCodexChatPage } from '../chat/codexTranscript.js';
 import { ASSISTANT_TEXT_CAP_MAX } from '../chat/chatEntries.js';
 import { createBrain, findBrain, type BrainDeps, type BrainEntry, type BrainSession } from './brain.js';
 import { createCallManager, type CallManager } from './callManager.js';
+import { collectCallProgress, type CollectSession } from './callProgress.js';
+import type { McpTaskState } from '../../src/types/mcpEvents.js';
 import type { DigestSession } from './digest.js';
+import { briefing, type ContextSession, type SkillEntry } from './voiceContext.js';
+import { getCommandIndex } from '../commandIndex.js';
+import { toSessionCard } from '../mcp/scope.js';
 import { attachSideband, createLiveSession, type SidebandSocketLike } from './liveApi.js';
-import { startVoiceCall } from './voiceCall.js';
+import { startVoiceCall, type VoiceCall } from './voiceCall.js';
 import { createVoiceRouter, dictateBodyParser, type BrainStatus } from './voiceRouter.js';
 import { readVoiceSettings, saveVoiceSettings } from './voiceSettings.js';
 import { transcribeAudio } from './dictation.js';
+import { dbHandle } from '../db.js';
+import { runPrint } from '../claudePrint.js';
+import type { SqlDatabase } from '../mcp/activity.js';
+import { createCallMemory, memoryBlock } from './callMemory.js';
+import { extractFromCall, EXTRACT_CLAUDE_ARGS, EXTRACT_TIMEOUT_MS } from './callMemoryExtract.js';
+import { createMemoryRouter } from './memoryRouter.js';
 
 const markerOf = (s: Session): SessionCentralMarker | undefined => (s as Session & { central?: SessionCentralMarker }).central;
 
@@ -88,6 +99,49 @@ function digestSessions(isLocal: boolean): DigestSession[] {
     }));
 }
 
+/** The project folders of the sessions this caller can see: the scopes call memory may use for it. */
+function visibleProjects(isLocal: boolean): string[] {
+  const out = new Set<string>();
+  for (const s of allSessions()) if (canSeeSession(isLocal, s) && s.projectPath) out.add(s.projectPath);
+  return [...out];
+}
+
+function contextSessions(isLocal: boolean): ContextSession[] {
+  return allSessions()
+    .filter((s) => canSeeSession(isLocal, s))
+    .map((s) => ({
+      sessionId: s.sessionId,
+      title: sessionDisplayTitle(s),
+      status: s.status,
+      cli: toSessionCard(s, []).cli,
+      projectName: s.projectName ?? '',
+      remark: s.remark ?? '',
+      summary: s.summary ?? '',
+      prompts: (s.promptHistory ?? []).slice(-12).map((p) => p.text),
+      lastActivityAt: s.lastActivityAt,
+      isCentral: markerOf(s) !== undefined,
+    }));
+}
+
+/**
+ * The skills and commands a worker could be asked to run, from both CLIs' catalogs for the home folder (cached 30 s by
+ * getCommandIndex): built-in commands left out, a plugin's under its `plugin:name` slug, one entry per name.
+ */
+function catalogSkills(): SkillEntry[] {
+  const byName = new Map<string, SkillEntry>();
+  for (const cli of ['claude', 'codex'] as const) {
+    for (const e of getCommandIndex(cli, null)) {
+      if (e.source === 'builtin') continue;
+      const name = e.pluginName ? `${e.pluginName}:${e.name}` : e.name;
+      const had = byName.get(name);
+      byName.set(name, had
+        ? { ...had, clis: had.clis.includes(cli) ? had.clis : [...had.clis, cli] }
+        : { name, description: e.description, clis: [cli] });
+    }
+  }
+  return [...byName.values()];
+}
+
 const SESSION_MESSAGES: ReadonlySet<string> = new Set([WS_TYPES.SESSION_UPDATE, WS_TYPES.SESSION_REMOVED, WS_TYPES.SNAPSHOT]);
 
 export interface ServerVoice {
@@ -99,7 +153,23 @@ export interface ServerVoice {
 export const DICTATE_PATH = '/api/voice/dictate';
 export { dictateBodyParser };
 
-export function createServerVoice(): ServerVoice {
+/** A session for the call's progress: its display title, and the live card for the visibility check. */
+type ProgressSession = CollectSession & { card: Session };
+
+const toProgressSession = (s: Session): ProgressSession => ({
+  sessionId: s.sessionId,
+  title: sessionDisplayTitle(s),
+  status: s.status,
+  toolLog: s.toolLog ?? [],
+  card: s,
+});
+
+export interface ServerVoiceOptions {
+  /** A central's tasks from the task ledger (server/mcp), for the call's progress; none when centrals are off. */
+  tasks?(centralId: string): ReadonlyArray<{ sessionId: string; state: McpTaskState; createdAt: number }>;
+}
+
+export function createServerVoice(options: ServerVoiceOptions = {}): ServerVoice {
   const bDeps = brainDeps();
   const brain = createBrain(bDeps);
 
@@ -108,6 +178,30 @@ export function createServerVoice(): ServerVoice {
     const found = findBrain(bDeps);
     if ('problem' in found) return { state: found.problem, centralId: null, title: null, shared: false };
     return { state: 'ready', centralId: found.centralId, title: found.session.title, shared: found.session.remoteVisible };
+  };
+
+  // What calls taught, kept only once the person says so (callMemory.ts); on the server's own database.
+  const memory = createCallMemory({ db: () => dbHandle() as unknown as SqlDatabase });
+
+  /** The briefing for one request, with what the person kept that fits it. */
+  const briefingFor = (request: string, isLocal: boolean): string => {
+    const kept = memoryBlock(memory.kept(), request, visibleProjects(isLocal));
+    if (kept.used.length > 0) memory.touch(kept.used);
+    return briefing({ request, sessions: contextSessions(isLocal), skills: catalogSkills(), now: Date.now(), memory: kept.text });
+  };
+
+  /** After a call: propose what it taught (callMemoryExtract.ts); never in the way of the call itself. */
+  const learnFrom = (call: VoiceCall, startedAt: number, isLocal: boolean): void => {
+    call.onEnded(() => {
+      void extractFromCall({
+        lines: call.transcript(),
+        durationMs: Date.now() - startedAt,
+        context: { names: contextSessions(isLocal).map((s) => s.title).filter(Boolean), projects: visibleProjects(isLocal) },
+        runModel: (prompt) => runPrint('claude', EXTRACT_CLAUDE_ARGS, prompt, EXTRACT_TIMEOUT_MS),
+        memory,
+        callId: `call-${startedAt}`,
+      });
+    });
   };
 
   const calls: CallManager = createCallManager({
@@ -119,7 +213,9 @@ export function createServerVoice(): ServerVoice {
       sessionId,
       connect: (url, headers) => new WebSocket(url, { headers }) as unknown as SidebandSocketLike,
     }),
-    startCall: ({ sideband, reattach, owner }) => startVoiceCall({
+    startCall: ({ sideband, reattach, owner }) => {
+      const startedAt = Date.now();
+      const call = startVoiceCall({
       sideband,
       reattach,
       brain,
@@ -127,10 +223,14 @@ export function createServerVoice(): ServerVoice {
       // A phone's questions count like its Sends (phoneProfile's prompt budget); this Mac's are not limited.
       asksPerMinute: owner.isLocal ? undefined : PHONE_PROMPTS_PER_MINUTE,
       sessions: () => digestSessions(owner.isLocal),
+      briefing: (request) => briefingFor(request, owner.isLocal),
       onSessionsChanged: (listener) => onBroadcast((m) => {
         if (SESSION_MESSAGES.has((m as { type?: string }).type ?? '')) listener();
       }),
-    }),
+      });
+      learnFrom(call, startedAt, owner.isLocal);
+      return call;
+    },
     newId: () => `call_${randomBytes(9).toString('base64url')}`,
     now: Date.now,
   });
@@ -144,8 +244,37 @@ export function createServerVoice(): ServerVoice {
     startCall: (input) => calls.start(input),
     endCall: (id, caller) => calls.end(id, caller),
     activeCall: () => calls.active(),
+    callProgress: (callId, caller) => {
+      const found = calls.callFor(callId, caller);
+      if (!found) return null;
+      const brainNow = isMcpEnabled() ? findBrain(bDeps) : null;
+      return collectCallProgress<ProgressSession>({
+        call: found.call,
+        startedAt: found.startedAt,
+        now: Date.now(),
+        central: brainNow && 'centralId' in brainNow ? { centralId: brainNow.centralId, sessionId: brainNow.session.sessionId } : null,
+        tasks: (centralId) => options.tasks?.(centralId) ?? [],
+        getSession: (id) => {
+          const s = getSession(id);
+          return s ? toProgressSession(s) : null;
+        },
+        canSee: (s) => canSeeSession(caller.isLocal, s.card),
+      });
+    },
     transcribe: (input) => transcribeAudio(input),
   });
 
-  return { router, close: () => calls.close() };
+  const all = Router();
+  all.use(router);
+  all.use(createMemoryRouter({
+    isLocal: (req) => isLocalRequest(req),
+    projectsFor: visibleProjects,
+    memory,
+    liveCall: () => {
+      const active = calls.active();
+      const found = active ? calls.callFor(active.callId, { isLocal: true, key: '' }) : null;
+      return active && found ? { callId: `call-${found.startedAt}`, lines: found.call.transcript() } : null;
+    },
+  }));
+  return { router: all, close: () => calls.close() };
 }

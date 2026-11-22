@@ -25,6 +25,8 @@ import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from 
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { createRecapService } from './sessionRecap.js';
+import { createDailyReviewService } from './dailyReview.js';
+import { runPrint } from './claudePrint.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects, liveProjectActivity, rankRecentProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { appendPausedItem, isStaleQueueWrite } from './sessionQueueCodec.js';
@@ -1687,6 +1689,13 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   });
   const body = validateBody(SpawnFloatingSchema, req.body, res);
   if (!body) return;
+  // A popup is a PTY like any session's. Since the client keeps up to 100 (MAX_FLOATS, Nov 22 2026; was 4),
+  // the cap no longer bounds them: the Mac's terminal limits do.
+  const capacity = checkTerminalCapacity(getTerminals(), { sessions: 1 });
+  if (!capacity.ok) {
+    res.status(429).json({ success: false, error: capacity.error });
+    return;
+  }
   try {
     // An AI popup a remote device asks for is shared with it, like a fork
     // (AASC-28): the phone watches it in a sheet (AASC-20). The gate above
@@ -2388,17 +2397,7 @@ router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
   const summaryPrompt = `${promptTemplate}\n\n--- SESSION TRANSCRIPT ---\n${context}`;
 
   try {
-    const summary = await new Promise<string>((resolve, reject) => {
-      const child = execFile('claude', [...SUMMARIZE_CLAUDE_ARGS], {
-        timeout: 60000,
-        maxBuffer: 1024 * 1024,
-      }, (error, stdout) => {
-        if (error) return reject(error);
-        resolve(stdout.trim());
-      });
-      child.stdin!.write(summaryPrompt);
-      child.stdin!.end();
-    });
+    const summary = await runPrint('claude', SUMMARIZE_CLAUDE_ARGS, summaryPrompt, 60000);
 
     // Store summary in memory
     setSummary(sessionId, summary);
@@ -2421,14 +2420,7 @@ router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
 const recapService = createRecapService({
   getSession,
   setRecap: setSessionRecap,
-  runModel: (prompt) => new Promise<string>((resolve, reject) => {
-    const child = execFile('claude', [...SUMMARIZE_CLAUDE_ARGS], { timeout: 60000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-      if (error) return reject(error);
-      resolve(stdout.trim());
-    });
-    child.stdin!.write(prompt);
-    child.stdin!.end();
-  }),
+  runModel: (prompt) => runPrint('claude', SUMMARIZE_CLAUDE_ARGS, prompt, 60000),
 });
 
 router.post('/sessions/:id/recap', (req: Request, res: Response) => {
@@ -3286,6 +3278,28 @@ router.get('/db/prompts', (req: Request, res: Response) => {
     pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(str(pageSize), 10) || 50 : 50)),
   }));
 });
+
+// ---- Daily review (PROMPTS → Days, Nov 20 2026) ----
+// A day crosses every session, like /db/search, so it is host only. The room of each session is the one
+// it is in now: the rooms mirror's raw ids (what the prompts table holds for a session never re-keyed)
+// and the same rooms mapped to current ids. The summary is the recap's tool-less `claude -p`, given
+// longer because a day's input is three times a recap's.
+router.use('/daily-review', requireLocalForHistory);
+const DAILY_SUMMARY_TIMEOUT_MS = 120_000;
+const dailyReviewService = createDailyReviewService({
+  readPrompts: (from, to) => db.getTypedPromptsInRange(from, to),
+  roomOf: () => {
+    const byId = new Map<string, string>();
+    for (const rooms of [roomsService.current(), currentRooms()]) {
+      for (const room of rooms) for (const id of room.sessionIds) if (!byId.has(id)) byId.set(id, room.name);
+    }
+    return (id) => byId.get(id) ?? null;
+  },
+  getSummary: (day) => db.getDailySummary(day),
+  saveSummary: (row) => db.saveDailySummary(row),
+  runModel: (prompt) => runPrint('claude', SUMMARIZE_CLAUDE_ARGS, prompt, DAILY_SUMMARY_TIMEOUT_MS),
+});
+router.use(dailyReviewService.router);
 
 // ---- Notes (server-side, shared across all clients) ----
 

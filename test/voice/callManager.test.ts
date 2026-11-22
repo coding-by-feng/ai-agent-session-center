@@ -15,6 +15,8 @@ function fakeCall(): VoiceCall & { fireEnded: (r: string) => void; ended: boolea
     end: vi.fn(() => { call.ended = true; for (const l of [...listeners]) l('close_requested'); }),
     onEnded: (l: (r: string) => void) => { listeners.add(l); return () => listeners.delete(l); },
     transcript: () => [],
+    replies: () => [],
+    busySince: () => null,
     fireEnded: (r: string) => { call.ended = true; for (const l of [...listeners]) l(r); },
   };
   return call;
@@ -82,6 +84,19 @@ describe('createCallManager', () => {
     expect(m.end('call-1', PHONE)).toBe(true);
     await m.start({ sdp: 'b', owner: PHONE });
     expect(m.end('call-2', MAC)).toBe(true);
+  });
+
+  it('callFor gives the call and its start only to whoever may control it (Nov 22 2026)', async () => {
+    const { d, calls } = deps();
+    const m = createCallManager(d);
+    expect(m.callFor('call-1', PHONE)).toBeNull();
+    await m.start({ sdp: 'a', owner: PHONE });
+    expect(m.callFor('call-1', PHONE)).toEqual({ call: calls[0], startedAt: 42 });
+    expect(m.callFor('call-1', MAC)).toEqual({ call: calls[0], startedAt: 42 });
+    expect(m.callFor('call-1', OTHER_PHONE)).toBeNull();
+    expect(m.callFor('call-9', PHONE)).toBeNull();
+    calls[0].fireEnded('remote_hangup');
+    expect(m.callFor('call-1', PHONE)).toBeNull();
   });
 
   it('refuses a second start while one is still being set up, so no call is left unowned', async () => {

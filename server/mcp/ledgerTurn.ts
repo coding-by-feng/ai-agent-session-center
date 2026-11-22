@@ -81,7 +81,15 @@ export function promptKeyFor(centralId: string, taskId: string): string {
 // ---------------------------------------------------------------------------
 
 /** Is this prompt (a hook's `currentPrompt`, a chat page's user entry) task `taskId`'s own envelope? */
-export const isOwnPrompt = (prompt: string, taskId: string): boolean => prompt.trimStart().startsWith(envelopeHead(taskId));
+/**
+ * The wrapper Claude Code puts round a long typed or pasted prompt, in its transcript and hooks: `<pasted_content
+ * id="45e5">` before the text. Seen on every delegated task (T1–T3, Oct–Nov 2026): without unwrapping it, a task never
+ * found its own prompt, took that prompt as the next one, and was always done with "the session wrote no answer".
+ */
+const PASTED_OPEN = /^<pasted_content\b[^>]*>/;
+
+export const isOwnPrompt = (prompt: string, taskId: string): boolean =>
+  prompt.trimStart().replace(PASTED_OPEN, '').trimStart().startsWith(envelopeHead(taskId));
 
 /**
  * The auto-resume watchdog's own words when the queue sets none (src/lib/resumeWatchdog.ts `DEFAULT_RESUME_PROMPT`,
@@ -163,6 +171,26 @@ function finalMessage(slice: readonly ChatEntry[]): ChatAssistantEntry[] {
   return current.length > 0 ? current : last;
 }
 
+/** The words Claude Code puts before a Stop hook's message when the hook sends the turn back to work. */
+const STOP_HOOK_FEEDBACK = /^\s*Stop hook feedback:/;
+
+const isStopHookFeedback = (e: ChatEntry): boolean =>
+  e.kind === 'system' && typeof e.text === 'string' && STOP_HOOK_FEEDBACK.test(e.text);
+
+/**
+ * The answer's blocks: the final message before the first Stop hook's feedback when the turn wrote one, since what
+ * follows answers the hook (a docs reminder, say), not the task. With nothing said before it, the final message after.
+ */
+function answerBlocks(slice: readonly ChatEntry[]): ChatAssistantEntry[] {
+  const nonEmpty = (entries: ChatAssistantEntry[]) => entries.filter((e) => e.text.trim() !== '');
+  const hookAt = slice.findIndex(isStopHookFeedback);
+  if (hookAt > 0) {
+    const before = nonEmpty(finalMessage(slice.slice(0, hookAt)));
+    if (before.length > 0) return before;
+  }
+  return nonEmpty(finalMessage(slice));
+}
+
 /** The task's turn as the chat page (oldest first) shows it. */
 export function readTurn(entries: readonly ChatEntry[], b: TurnBounds): TurnRead {
   const { start, found } = turnStart(entries, b);
@@ -171,7 +199,7 @@ export function readTurn(entries: readonly ChatEntry[], b: TurnBounds): TurnRead
   const end = bound < 0 ? entries.length : bound;
   const slice = entries.slice(start, end);
   const cancelled = slice.some((e) => e.kind === 'system' && e.system === 'cancelled');
-  const blocks = finalMessage(slice).filter((e) => e.text.trim() !== '');
+  const blocks = answerBlocks(slice);
   const whole = blocks.map((e) => e.text).join('\n\n');
   const clipped = clipText(whole, ANSWER_MAX);
   return {

@@ -289,16 +289,16 @@ const P1_TOOLS = [
   'subagents_list', 'subagent_transcript', 'team_get', 'terminal_list', 'terminal_output',
   // prompts (1), requests (1)
   'command_list', 'request_list',
-  // system (10)
+  // system (11; memory_list Nov 22 2026)
   'aasc_presence', 'aasc_plan_usage', 'aasc_plan_usage_refresh', 'aasc_health', 'aasc_config', 'aasc_codex_models',
-  'aasc_folders', 'aasc_workspace', 'scope_get', 'central_list',
+  'aasc_folders', 'aasc_workspace', 'scope_get', 'central_list', 'memory_list',
 ];
 
 /** The toolsets Task 8 fills; Task 9 files the others (queue, rooms, resources, history, notes, agenda, cloud, ...). */
 const TASK_8_TOOLSETS = ['sessions', 'conversation', 'prompts', 'requests', 'system'];
 
 describe('registration', () => {
-  it('files the 27 tools the catalog lists for P1, by toolset: 4 sessions, 11 conversation, 1 prompts, 1 requests, 10 system', () => {
+  it('files the 28 tools the catalog lists for P1, by toolset: 4 sessions, 11 conversation, 1 prompts, 1 requests, 11 system', () => {
     // The phase 1 tools: a later phase's tools (send, delegate, answer...) are filed in the same toolsets.
     const names = (set: keyof typeof toolsByToolset) => toolsByToolset[set].filter((t) => t.phase === 1).map((t) => t.name);
 
@@ -309,7 +309,7 @@ describe('registration', () => {
     expect(names('system')).toEqual(P1_TOOLS.slice(17));
     const task8 = allTools().filter((t) => t.phase === 1 && TASK_8_TOOLSETS.includes(t.toolset));
     expect(task8.map((t) => t.name).sort()).toEqual([...P1_TOOLS].sort());
-    expect(task8).toHaveLength(27);
+    expect(task8).toHaveLength(28);
   });
 
   it('declares every phase 1 tool a read, in phase 1', () => {
@@ -367,14 +367,14 @@ describe('registration', () => {
     }
   });
 
-  it('offers a Codex central of any kind the 27 tools of Task 8 and the queue’s 3, which sit in its core toolsets; a room central also the room list, a project central also the 5 resource and 6 history tools', async () => {
+  it('offers a Codex central of any kind the 28 tools of Task 8 and the queue’s 3, which sit in its core toolsets; a room central also the room list, a project central also the 5 resource and 6 history tools', async () => {
     const asGlobal = await connectAs('global', null, {}, 'codex');
     const asRoom = await connectAs('room', 'r1', {}, 'codex');
     const asProject = await connectAs('project', '/a/proj', {}, 'codex');
 
     // Its phase 1 tools: the later phases' tools of the same toolsets (send, delegate, the queue's writes) come on top.
     const phase1 = new Set(allTools().filter((t) => t.phase === 1).map((t) => t.name));
-    for (const [central, count] of [[asGlobal, 30], [asRoom, 31], [asProject, 41]] as const) {
+    for (const [central, count] of [[asGlobal, 31], [asRoom, 32], [asProject, 42]] as const) {
       const names = (await central.client.listTools()).tools.map((t) => t.name).filter((name) => phase1.has(name));
       expect(names, central.record.kind).toHaveLength(count);
       expect(P1_TOOLS.every((name) => names.includes(name)), central.record.kind).toBe(true);
@@ -495,6 +495,7 @@ describe('every tool', () => {
     'GET /codex/models': ok({ models: [], source: 'memory-cache', stale: false }),
     'GET /folders': envelope({ path: '/h', home: '/h', parent: null, folders: [], truncated: false }),
     'GET /workspace/load': ok({ version: 1, sessions: [], rooms: [] }),
+    'GET /voice/memory': envelope({ items: [], projects: [] }),
   };
   const args: Record<string, Record<string, unknown>> = {
     session_get: { id: 's1' },

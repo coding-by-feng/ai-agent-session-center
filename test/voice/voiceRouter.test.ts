@@ -129,6 +129,22 @@ describe('voice routes', () => {
     expect(deps.endCall).toHaveBeenCalledWith('call-1', { isLocal: false, key: 'lineage-phone' });
   });
 
+  it('GET /voice/call/:id/progress answers the call’s progress to the device that may control it, else 404 (Nov 22 2026)', async () => {
+    const view = { central: { title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 5 }, tasks: [], replies: [] };
+    const callProgress = vi.fn((id: string) => (id === 'call-1' ? view : null));
+    const { a } = app({ callProgress }, false);
+    const res = await request(a).get('/api/voice/call/call-1/progress');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, data: view });
+    expect(callProgress).toHaveBeenCalledWith('call-1', { isLocal: false, key: 'lineage-phone' });
+    expect((await request(a).get('/api/voice/call/other/progress')).status).toBe(404);
+  });
+
+  it('GET /voice/call/:id/progress is 404 on a server without progress', async () => {
+    const { a } = app();
+    expect((await request(a).get('/api/voice/call/call-1/progress')).status).toBe(404);
+  });
+
   it('GET /voice/status shows a call id only to the device that may end it', async () => {
     const call = { callId: 'call-9', startedAt: 5, owner: { isLocal: false, key: 'lineage-mine' } };
     const other = app({ activeCall: () => call }, false);

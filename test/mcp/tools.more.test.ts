@@ -281,7 +281,7 @@ describe('registration of the 31', () => {
     expect(THE_31.slice().sort()).toEqual(
       [...names('queue'), ...names('rooms'), ...names('resources'), ...names('skillNotes'), ...names('snippets'), ...names('history'), ...names('notes'), ...names('agenda'), ...names('cloud')].sort(),
     );
-    expect(allTools().filter((t) => t.phase === 1)).toHaveLength(58);
+    expect(allTools().filter((t) => t.phase === 1)).toHaveLength(59);
   });
 
   it('declares each a read in phase 1, with a title and a description that says what is fenced where text is returned', () => {

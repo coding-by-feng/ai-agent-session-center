@@ -14,7 +14,7 @@ import { ANSWER_MAX } from './ledgerTurn.js';
 import type { LedgerDeps, PromptOutcomeState, PromptOutcomeView, PromptStopReason, SubmitAnswer } from './ledgerTypes.js';
 import { isRecord, nonEmptyString, oneLine, seg, unwrap } from './tools/define.js';
 
-const OUTCOMES: ReadonlySet<string> = new Set<PromptOutcomeState>(['submitted', 'unconfirmed', 'stopped', 'gave-up', 'failed']);
+const OUTCOMES: ReadonlySet<string> = new Set<PromptOutcomeState>(['submitted', 'unconfirmed', 'unknown-command', 'stopped', 'gave-up', 'failed']);
 const STOP_REASONS: ReadonlySet<string> = new Set<PromptStopReason>(['hands-off', 'person']);
 const WORDS_MAX = 200;
 /** Pages read back at most for one answer: a turn longer than that is read from its send time on. */

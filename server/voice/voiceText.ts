@@ -60,6 +60,8 @@ export interface BrainPromptInput {
   context: string;
   /** This question's id (brain.ts): the central's reply is the one that follows the prompt carrying it. */
   tag?: string;
+  /** voiceContext.ts `briefing`: AASC's vocabulary, the visible sessions, the skills that fit, how to act. */
+  briefing?: string;
 }
 
 /** The header every line typed into the Voice central starts with; `tag` makes each question findable. */
@@ -72,6 +74,7 @@ export function brainPrompt(input: BrainPromptInput): string {
   const parts = [
     `${voiceHeader(input.tag)} The person is on a voice call and said (transcribed, may contain mistakes): "${request}".`,
     context ? `Recent call context: ${context}.` : '',
+    input.briefing ? oneLine(input.briefing) : '',
     'Do what they ask with your AASC tools. Do not wait for long work: start it and reply; AASC tells the person when a session finishes.',
     'Reply for speech: at most three short sentences, plain words, no markdown, no code, no paths or IDs.',
     'If you cannot tell what they meant, ask one short question instead of acting.',

@@ -19,6 +19,7 @@ import { noteTools } from './notes.js';
 import { promptTools } from './prompts.js';
 import { queueTools } from './queue.js';
 import { queueWriteTools } from './queueWrite.js';
+import { queueAskEnable } from './queueAskEnable.js';
 import { requestTools } from './requests.js';
 import { resourceTools } from './resources.js';
 import { roomTools } from './rooms.js';
@@ -28,6 +29,7 @@ import { sessionTools } from './sessions.js';
 import { skillNoteTools } from './skillNotes.js';
 import { snippetTools } from './snippets.js';
 import { systemTools } from './system.js';
+import { memoryTools } from './memory.js';
 import { taskTools } from './tasks.js';
 
 export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Object.freeze({
@@ -36,7 +38,7 @@ export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Obj
   prompts: promptTools,
   tasks: [...taskTools, ...routingTools],
   requests: requestTools,
-  queue: [...queueTools, ...queueWriteTools],
+  queue: [...queueTools, ...queueWriteTools, queueAskEnable],
   rooms: roomTools,
   resources: resourceTools,
   skillNotes: skillNoteTools,
@@ -45,5 +47,5 @@ export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Obj
   notes: noteTools,
   agenda: agendaTools,
   cloud: cloudTools,
-  system: systemTools,
+  system: [...systemTools, ...memoryTools],
 });

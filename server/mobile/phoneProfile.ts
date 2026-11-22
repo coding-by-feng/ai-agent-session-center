@@ -152,6 +152,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/voice/status', 'allow'),
   route('POST', '/voice/call', 'allow'),
   route('POST', '/voice/call/:id/end', 'allow'),
+  // What the Voice central is doing for that call (Nov 22 2026): the route answers only the call's own device.
+  route('GET', '/voice/call/:id/progress', 'allow'),
+  // Call memory review (Nov 22 2026): the routes show a phone only global items and its visible projects'.
+  route('GET', '/voice/memory', 'allow'),
+  route('POST', '/voice/memory/:id', 'allow'),
   // Hold-to-talk dictation (Nov 16 2026): a clip in, text out; the route limits each device itself.
   route('POST', '/voice/dictate', 'allow'),
   route('DELETE', '/terminals/:id', 'terminal'),

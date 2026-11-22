@@ -13,6 +13,7 @@ import {
   createPromptSubmitter, createPromptKeyCache, SUBMIT_ENTER_DELAY_MS, IMAGE_SUBMIT_ENTER_DELAY_MS,
   SUBMIT_RETRY_AFTER_MS, SUBMIT_GIVE_UP_GRACE_MS, INTERRUPT_WAIT_MS, PROMPT_KEY_TTL_MS,
   INTERRUPT_CANCEL_GRACE_MS, PREVIOUS_PROMPT_WAIT_MS, SLASH_SETTLE_MS, BUSY_PARK_CHECK_MS, BUSY_PARK_MAX_MS,
+  UNKNOWN_COMMAND_WAIT_MS,
   type PromptOutcome, type PromptRequest, type PromptResult, type PromptSessionView,
 } from '../server/promptSubmit.js';
 import { onTerminalHook, emitTerminalHook, _resetHookSignalsForTests } from '../server/hookSignals.js';
@@ -637,6 +638,121 @@ describe('an interrupt alone (a central cancelling its own task)', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(idle.pressed).toBe(false);
     expect(seen).toEqual([]);
+  });
+});
+
+// Nov 19 2026: a phone prompt that began with a skill the session's Claude did not have was typed, answered
+// "Sent" and thrown away by the CLI ("Unknown command: /name", no hook, the box emptied). The Mac now watches the
+// terminal's output after a slash command's Enter and says so.
+describe('a slash command the CLI does not have', () => {
+  /** What Claude Code 2.1.328 wrote to the PTY for `/zzz-not-a-skill fix the login page` (captured Nov 19 2026). */
+  const UNKNOWN_BYTES = '\x1b[?25l\x1b[37D\x1b[3B\r\x1b[4A\x1b[38;5;137m⏺\x1b[39m \x1b[38;5;137mUnknown command: /zzz-not-a-skill\x1b[39m\x1b[K\r\x1b[1B\x1b[K\r\x1b[1B'
+    + '\x1b[38;5;137m⏺\x1b[39m \x1b[38;5;137mArgs from unknown skill: fix the login page\x1b[39m\x1b[K\r\x1b[2C\x1b[1B\x1b[K\r\r\n';
+  const TEXT = '/zzz-not-a-skill fix the login page';
+  let taps: Set<(chunk: string) => void>;
+  const print = (chunk: string): void => { for (const tap of [...taps]) tap(chunk); };
+
+  function makeWatchingSubmitter() {
+    taps = new Set();
+    return createPromptSubmitter({
+      write: (terminalId, data) => {
+        if (terminalId !== T || !terminalAlive) return false;
+        writes.push({ at: Date.now() - t0, data });
+        return true;
+      },
+      getSession: (sessionId) => sessions.get(sessionId) ?? null,
+      isAgentForeground: () => agentForeground,
+      onTerminalHook,
+      tapOutput: (terminalId, tap) => {
+        if (terminalId !== T) return () => {};
+        taps.add(tap);
+        return () => { taps.delete(tap); };
+      },
+    });
+  }
+
+  it('says so as soon as the CLI prints its refusal, and stops listening', async () => {
+    const result = track(makeWatchingSubmitter().submit(req({ text: TEXT, mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    expect(writes.map((w) => w.data)).toEqual([TEXT, '\r']);
+    expect(result.outcome).toBeNull();
+    expect(taps.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(400);
+    print(UNKNOWN_BYTES);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result).toEqual({ outcome: 'unknown-command', typed: true });
+    expect(taps.size).toBe(0);
+    // Never a second Enter: the box is empty again.
+    await vi.advanceTimersByTimeAsync(LAST_RETRY + SUBMIT_GIVE_UP_GRACE_MS);
+    expect(enters()).toEqual([SUBMIT_ENTER_DELAY_MS]);
+  });
+
+  it('hears the refusal when it arrives split across two reads', async () => {
+    const result = track(makeWatchingSubmitter().submit(req({ text: TEXT, mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + 100);
+    const cut = UNKNOWN_BYTES.indexOf('command');
+    print(UNKNOWN_BYTES.slice(0, cut));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(result.outcome).toBeNull();
+    print(UNKNOWN_BYTES.slice(cut));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.outcome).toBe('unknown-command');
+  });
+
+  it('is unconfirmed, as before, when the CLI prints no refusal in time', async () => {
+    const result = track(makeWatchingSubmitter().submit(req({ text: '/model', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS);
+    print('\x1b[2J Select model \r\n  1. Default\r\n');
+    await vi.advanceTimersByTimeAsync(UNKNOWN_COMMAND_WAIT_MS - 1);
+    expect(result.outcome).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result).toEqual({ outcome: 'unconfirmed', typed: true });
+    expect(taps.size).toBe(0);
+  });
+
+  it('ignores a refusal of some other command still being redrawn', async () => {
+    const result = track(makeWatchingSubmitter().submit(req({ text: '/compact', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + 100);
+    print(UNKNOWN_BYTES);
+    await vi.advanceTimersByTimeAsync(UNKNOWN_COMMAND_WAIT_MS);
+    expect(result.outcome).toBe('unconfirmed');
+  });
+
+  it('stops waiting when a hook arrives: the command exists and is running', async () => {
+    const result = track(makeWatchingSubmitter().submit(req({ text: '/rar fix it', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + 200);
+    hook('UserPromptSubmit', 'prompting');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result).toEqual({ outcome: 'unconfirmed', typed: true });
+    expect(taps.size).toBe(0);
+  });
+
+  it('lets the next prompt go at once after a refusal: the input box is empty', async () => {
+    const submitter = makeWatchingSubmitter();
+    track(submitter.submit(req({ text: TEXT, mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + 300);
+    print(UNKNOWN_BYTES);
+    await vi.advanceTimersByTimeAsync(0);
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(writes.at(-1)).toEqual({ at: SUBMIT_ENTER_DELAY_MS + 300, data: 'two' });
+  });
+
+  it('still holds the next prompt 3 s after an unconfirmed slash command’s Enter, not 3 s after the watch', async () => {
+    const submitter = makeWatchingSubmitter();
+    track(submitter.submit(req({ text: '/compact', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + UNKNOWN_COMMAND_WAIT_MS);
+    track(submitter.submit(req({ text: 'two', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SLASH_SETTLE_MS - UNKNOWN_COMMAND_WAIT_MS - 1);
+    expect(writes.map((w) => w.data)).toEqual(['/compact', '\r']);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(writes.at(-1)).toEqual({ at: SUBMIT_ENTER_DELAY_MS + SLASH_SETTLE_MS, data: 'two' });
+  });
+
+  it('does not listen at all for an ordinary prompt', async () => {
+    track(makeWatchingSubmitter().submit(req({ text: 'fix the build', mode: 'now' })));
+    await vi.advanceTimersByTimeAsync(SUBMIT_ENTER_DELAY_MS + 100);
+    expect(taps.size).toBe(0);
   });
 });
 

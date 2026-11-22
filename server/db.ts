@@ -25,6 +25,8 @@ import type {
   DistinctProject,
 } from '../src/types/analytics.js';
 import type { AgendaTask } from '../src/types/agenda.js';
+import type { DailyPromptRow } from '../src/lib/dailyReview.js';
+import type { StoredDailySummary } from './dailyReview.js';
 
 const DB_DIR = databaseDirectory();
 const DB_PATH = join(DB_DIR, 'sessions.db');
@@ -171,6 +173,18 @@ db.exec(`
     items TEXT NOT NULL,
     automation TEXT,
     updated_at INTEGER NOT NULL
+  );
+
+  -- The PROMPTS Days view's kept summaries (server/dailyReview.ts), one per local day.
+  -- fingerprint names the prompts a summary was written from, so a newer prompt marks it stale.
+  CREATE TABLE IF NOT EXISTS daily_reviews (
+    day TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_count INTEGER NOT NULL,
+    session_count INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    generated_at INTEGER NOT NULL
   );
 `);
 
@@ -844,6 +858,64 @@ export function searchPrompts(params: PromptSearchParams = {}): PromptSearchResp
     log.warn('db', `searchPrompts failed: ${(err as Error).message}`);
     return { prompts: [], total: 0, page, pageSize };
   }
+}
+
+// ---- Daily review (PROMPTS → Days) ----
+
+/**
+ * The prompts typed with `fromMs <= timestamp < toMs`, oldest first, with their session's project and
+ * title: the `mine` facet's rule (no harness tags, no blank rows), served by `idx_prompts_timestamp`.
+ * LEFT JOIN like `searchPrompts`, so the session columns are nullable. Empty on error.
+ */
+export function getTypedPromptsInRange(fromMs: number, toMs: number): DailyPromptRow[] {
+  try {
+    return db.prepare(`
+      SELECT p.id, p.session_id, p.text, p.timestamp,
+             s.project_name, s.project_path, s.title AS session_title
+      FROM prompts p LEFT JOIN sessions s ON p.session_id = s.id
+      WHERE p.timestamp >= ? AND p.timestamp < ? AND (${kindCondition('mine')})
+      ORDER BY p.timestamp ASC, p.id ASC
+    `).all(fromMs, toMs) as DailyPromptRow[];
+  } catch (err: unknown) {
+    log.warn('db', `getTypedPromptsInRange failed: ${(err as Error).message}`);
+    return [];
+  }
+}
+
+interface DailyReviewDbRow {
+  day: string;
+  summary: string;
+  model: string;
+  prompt_count: number;
+  session_count: number;
+  fingerprint: string;
+  generated_at: number;
+}
+
+/** The kept summary of a day, or null. */
+export function getDailySummary(day: string): StoredDailySummary | null {
+  const row = db.prepare('SELECT * FROM daily_reviews WHERE day = ?').get(day) as DailyReviewDbRow | undefined;
+  if (!row) return null;
+  return {
+    day: row.day,
+    summary: row.summary,
+    model: row.model,
+    promptCount: row.prompt_count,
+    sessionCount: row.session_count,
+    fingerprint: row.fingerprint,
+    generatedAt: row.generated_at,
+  };
+}
+
+/** Keep a day's summary, replacing the one before. */
+export function saveDailySummary(s: StoredDailySummary): void {
+  db.prepare(`
+    INSERT INTO daily_reviews (day, summary, model, prompt_count, session_count, fingerprint, generated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(day) DO UPDATE SET summary = excluded.summary, model = excluded.model,
+      prompt_count = excluded.prompt_count, session_count = excluded.session_count,
+      fingerprint = excluded.fingerprint, generated_at = excluded.generated_at
+  `).run(s.day, s.summary, s.model, s.promptCount, s.sessionCount, s.fingerprint, s.generatedAt);
 }
 
 // ---- Analytics ----

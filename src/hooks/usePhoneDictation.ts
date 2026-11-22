@@ -1,6 +1,6 @@
 /**
- * The phone app's hold-to-talk dictation as one state machine (see `lib/phoneDictation.ts`):
- * `start()` on press, `stop()` on release; the app records, this Mac turns the clip into text, and
+ * The phone app's tap-to-talk dictation (hold-to-talk until Nov 22 2026) as one state machine (see `lib/phoneDictation.ts`):
+ * `start()` on the first tap, `stop()` on the second; the app records, this Mac turns the clip into text, and
  * `onText` gets the words. `line` is the one sentence to show meanwhile, or after something went wrong.
  * Leaving the screen cancels a recording and drops a late answer.
  */
@@ -13,7 +13,7 @@ import {
   type TranscriptResult,
 } from '@/lib/phoneDictation';
 
-/** How long the app has to hand the clip over after the button is let go. */
+/** How long the app has to hand the clip over after the finishing tap. */
 export const AUDIO_WAIT_MS = 8_000;
 /** How long a hint (not an error) stays under the box. */
 export const NOTE_MS = 4_000;
@@ -45,7 +45,7 @@ export interface PhoneDictationDeps {
 }
 
 const PHASE_LINE: Record<Exclude<DictationPhase, 'idle'>, string> = {
-  recording: 'Listening… let go when you’re done.',
+  recording: 'Listening… tap the mic when you’re done.',
   transcribing: 'Turning your words into text…',
 };
 
@@ -55,7 +55,7 @@ function randomId(): string {
 
 function permissionLine(granted: boolean): DictationLine {
   return granted
-    ? { text: 'The microphone is on. Hold the mic to talk.' }
+    ? { text: 'The microphone is on. Tap the mic to talk.' }
     : { text: 'AASC can’t use the microphone. Allow it in the phone’s Settings.', tone: 'error' };
 }
 
@@ -69,7 +69,7 @@ export function usePhoneDictation(onText: (text: string) => void, deps: PhoneDic
 
   // The live recording, outside render: the app's answers arrive between renders.
   const live = useRef<{ id: string; phase: DictationPhase } | null>(null);
-  // The last recording asked for: its microphone answer may come after the hold has ended.
+  // The last recording asked for: its microphone answer may come after the recording has ended.
   const lastId = useRef<string | null>(null);
   const waitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,7 +133,7 @@ export function usePhoneDictation(onText: (text: string) => void, deps: PhoneDic
   const onOutcome = useCallback((outcome: DictationOutcome) => {
     const current = live.current;
     if (!current || outcome.id !== current.id) {
-      // The phone's microphone question takes the touch, so the hold ends before its answer arrives:
+      // The phone's microphone question takes the touch, so the recording ends before its answer arrives:
       // that late answer still says what to do next, unless another recording has started since.
       if (!current && outcome.state === 'permission' && outcome.id === lastId.current) {
         lastId.current = null;
@@ -149,7 +149,7 @@ export function usePhoneDictation(onText: (text: string) => void, deps: PhoneDic
         rest(permissionLine(outcome.granted));
         return;
       case 'cancelled':
-        rest(outcome.short ? { text: 'Hold the mic while you talk, then let go.' } : null);
+        rest(outcome.short ? { text: 'Too short. Tap the mic, talk, then tap it again.' } : null);
         return;
       case 'failed':
         rest({ text: outcome.message ?? 'The recording failed. Try again.', tone: 'error' });

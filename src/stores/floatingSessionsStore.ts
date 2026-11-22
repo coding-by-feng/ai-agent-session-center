@@ -3,12 +3,14 @@
  *
  * Tracks the small set of "fork-and-explain" / "fork-and-translate" terminals
  * users have spawned. They're rendered as draggable picture-in-picture windows
- * over the dashboard. Capped at MAX_FLOATS so the screen doesn't fill up.
+ * over the dashboard (or minimized to pills). Capped at MAX_FLOATS: past it the oldest is closed. Each is a PTY,
+ * so the server's terminal limits (spawn-floating's capacity check) are what really bound them.
  */
 import { create } from 'zustand';
 import { captureResponse } from '@/lib/translationLog';
 
-const MAX_FLOATS = 4;
+/** Open popups kept before the oldest is closed (4 until Nov 22 2026). */
+export const MAX_FLOATS = 100;
 
 export interface FloatingSession {
   /** Server-issued PTY id (term-...) */

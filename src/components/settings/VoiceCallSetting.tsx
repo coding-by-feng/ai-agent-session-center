@@ -1,13 +1,14 @@
 /**
  * VoiceCallSetting — Settings → ADVANCED "Voice calls" (Nov 15 2026, server/voice/).
  *
- * The phone app's More → Call AASC talks to OpenAI's GPT-Live voice; the Voice central (a global central session)
+ * The phone app's Sessions → the call button talks to OpenAI's GPT-Live voice; the Voice central (a global central session)
  * does the work. The OpenAI key is kept on this Mac (voice.json, owner-only) and never shown again: the section
  * says only whether one is set and its last four characters. This Mac only: any other device gets 404 and sees
  * nothing.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { showToast } from '@/components/ui/ToastContainer';
+import CallMemoryReview from '@/components/voice/CallMemoryReview';
 import styles from '@/styles/modules/Settings.module.css';
 
 interface VoiceSettingsView {
@@ -101,7 +102,7 @@ export default function VoiceCallSetting() {
     <div className={styles.section}>
       <h4>Voice calls</h4>
       <p className={styles.settingsHint}>
-        Call AASC from the phone app (More → Call AASC). OpenAI’s GPT-Live voice listens and talks; your Voice central
+        Call AASC from the phone app (Sessions → the call button). OpenAI’s GPT-Live voice listens and talks; your Voice central
         does the work. OpenAI bills about $0.05 a minute to this key.
       </p>
       <label className={styles.settingsHint} htmlFor="voice-api-key">
@@ -144,6 +145,11 @@ export default function VoiceCallSetting() {
         ))}
       </select>
       {line && <p className={styles.settingsHint} role="status">{line}</p>}
+      <h4>Call memory</h4>
+      <p className={styles.settingsHint}>
+        After a call, AASC suggests what to remember: preferences, misheard words, habits. It uses only what you keep, on this Mac.
+      </p>
+      <CallMemoryReview />
     </div>
   );
 }

@@ -8,7 +8,7 @@
  *   └──────────────────────────────────────────┘
  *   Your Mac is driving            [Take control]  only when this phone can't type
  *   [ Type into the terminal…            🎙 ⏎ ]   raw input line, not the chat's box; in the app a
- *                                                  hold-to-talk mic fills it (Nov 16 2026, never sends)
+ *                                                  tap-to-talk mic fills it (Nov 16 2026, never sends)
  *   esc tab ctrl ↑ ↓ ← → 1 2 3 ⏎                   key bar, scrolls sideways
  *
  * The phone never resizes the shared PTY (`mayDrivePtyGeometry` is false on
@@ -220,7 +220,7 @@ function PhoneTerminalView({ ws, session, terminalId, controlSessionId, commands
     setSending(false);
     if (!result.ok) setNotice(result.message);
   };
-  // ---- Hold-to-talk dictation (the app only): the words join the line, on one line, and are never sent ----
+  // ---- Tap-to-talk dictation (the app only): the words join the line, on one line, and are never sent ----
   const onSpoken = useCallback((spoken: string) => {
     const flat = spoken.replace(/\s*\n+\s*/g, ' ');
     setLine((cur) => insertDictation(cur, null, flat).text);

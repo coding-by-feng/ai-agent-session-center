@@ -423,5 +423,31 @@ select.input { appearance: auto; }
 .call-transcript { list-style: none; margin: 16px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
 .call-line { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); overflow-wrap: anywhere; }
 .call-you { background: var(--surface-2); }
+.call-mini { display: flex; flex-direction: column; gap: 8px; padding-block: 8px; }
+.call-mini .call-clock { margin: 0; }
+.call-mini-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .call-who { font-size: 0.8em; font-weight: 600; color: var(--text-muted); }
 .call-text { color: var(--text); }
+/* The Voice central (Nov 22 2026): its panel above the transcript, its line in the compact bar, its own replies. */
+.call-progress { margin: 16px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--info-bg); border: 1px solid var(--info-border); display: flex; flex-direction: column; gap: 4px; }
+.call-progress p { margin: 0; }
+.call-central-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.call-central-name { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.call-central-state { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.call-progress[data-state="working"] .call-central-state { color: var(--accent); }
+.call-progress[data-state="needs_you"] .call-central-state { color: var(--warn); font-weight: 600; }
+.call-progress[data-state="offline"] .call-central-state { color: var(--danger); }
+.call-central-step { color: var(--text); }
+.call-tasks-head { font-size: 0.8em; font-weight: 600; color: var(--text-muted); padding-top: 4px; }
+.call-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.call-task { display: flex; justify-content: space-between; gap: 8px; }
+.call-task-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.call-task-state { flex: none; color: var(--text-muted); }
+.call-task-state[data-state="working"] { color: var(--accent); }
+.call-task-state[data-state="needs_you"], .call-task-state[data-state="stalled"] { color: var(--warn); }
+.call-task-state[data-state="finished"] { color: var(--safe); }
+.call-task-state[data-state="failed"] { color: var(--danger); }
+.call-mini-central { margin: 0; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-mini-central[data-state="needs_you"] { color: var(--warn); font-weight: 600; }
+.call-progress + .hint { margin-top: 8px; }
+.call-line.call-central { background: var(--info-bg); border-color: var(--info-border); }

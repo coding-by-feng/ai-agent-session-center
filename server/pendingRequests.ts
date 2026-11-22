@@ -32,7 +32,10 @@ type Source = PendingRequest['source'];
 
 /** Input kept on a request; a phone shows it before the user allows anything. */
 export const PENDING_INPUT_MAX_BYTES = 8 * 1024;
-/** Edits are kept whole up to this, so the card can show the diff it allows. */
+/**
+ * Edits and commands are kept whole up to this, so the card can show (and the phone allow) all of what it allows.
+ * Commands joined edits on Nov 22 2026: a 12 KB heredoc was cut at 8 KB and could only be allowed in the terminal.
+ */
 export const PENDING_EDIT_INPUT_MAX_BYTES = 64 * 1024;
 /** A question is answered with one digit key, so at most nine choices. */
 export const MAX_ANSWERABLE_OPTIONS = 9;
@@ -40,6 +43,8 @@ export const MAX_ANSWERABLE_OPTIONS = 9;
 export const INPUT_TRUNCATION_MARKER = '… [truncated]';
 
 const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'apply_patch']);
+/** The shell tools of Claude and Codex (the card's COMMAND_TOOLS): kept whole like an edit. */
+const COMMAND_TOOLS: ReadonlySet<string> = new Set(['Bash', 'shell', 'exec_command', 'local_shell', 'container.exec', 'unified_exec']);
 /** PreToolUse of these means the CLI is about to ask the user. */
 const ASKING_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanMode']);
 /** A new turn, a finished turn, or a new / ended session: nothing is still being asked. */
@@ -93,7 +98,7 @@ function cutStrings(value: unknown, maxChars: number): unknown {
 export function capRequestInput(tool: string, input: unknown): { input: unknown; truncated: boolean } {
   const json = input === undefined ? undefined : JSON.stringify(input);
   if (json === undefined) return { input: undefined, truncated: false };
-  const max = EDIT_TOOLS.has(tool) ? PENDING_EDIT_INPUT_MAX_BYTES : PENDING_INPUT_MAX_BYTES;
+  const max = EDIT_TOOLS.has(tool) || COMMAND_TOOLS.has(tool) ? PENDING_EDIT_INPUT_MAX_BYTES : PENDING_INPUT_MAX_BYTES;
   const copy: unknown = JSON.parse(json);
   if (byteLength(json) <= max) return { input: copy, truncated: false };
   for (let limit = Math.floor(max / 2); limit >= 64; limit = Math.floor(limit / 2)) {

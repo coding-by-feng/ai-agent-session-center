@@ -4,7 +4,9 @@
 //   transcript deltas   → the call's own transcript (transcriptLog.ts)
 //   delegation.created  → brain.ask(what the person said since the last one)
 //                       → session.commentary.append(answer, that delegation's id)   the voice says it
+//                       → replies(): the answer word for word, and busySince() while it is asked (callProgress.ts)
 //   sessions change     → a fresh digest if it changed (silent), and "X finished" / "X needs you" said aloud
+//   every spoken update → through turnGate.ts (Nov 22 2026): held while the person is talking, said after QUIET_MS
 //   session.closed, end(), or IDLE_MS of silence → the call ends
 //   sideband lost       → re-attached (REATTACH_DELAYS_MS); OpenAI replays the last 3 s, de-duplicated here
 //
@@ -16,7 +18,9 @@ import log from '../logger.js';
 import { buildDigest, statusChanges, type DigestSession } from './digest.js';
 import type { AskOptions } from './brain.js';
 import type { LiveEvent, Sideband } from './liveApi.js';
+import type { CallReply } from './callProgress.js';
 import { createTranscriptLog, type TranscriptLine } from './transcriptLog.js';
+import { createTurnGate, type TurnUpdate } from './turnGate.js';
 import { BRAIN_CONTEXT_MAX, brainPrompt, toSpeakable } from './voiceText.js';
 
 /** A call with no speech for this long hangs up: GPT-Live bills every minute, silence included. */
@@ -51,6 +55,8 @@ export interface VoiceCallDeps {
   asksPerMinute?: number;
   /** The sessions this call may hear about (already filtered for the calling device). */
   sessions(): DigestSession[];
+  /** voiceContext.ts: what the Voice central is told with these words (sessions, skills, how to act); '' for nothing. */
+  briefing?(request: string): string;
   onSessionsChanged(listener: () => void): () => void;
   now?: () => number;
   idleMs?: number;
@@ -63,7 +69,14 @@ export interface VoiceCall {
   end(): void;
   onEnded(listener: (reason: string) => void): () => void;
   transcript(): readonly TranscriptLine[];
+  /** Each answer of the Voice central, word for word, oldest first (callProgress.ts shows them on the phone). */
+  replies(): readonly CallReply[];
+  /** When the question now with the Voice central was handed over; null when none is. */
+  busySince(): number | null;
 }
+
+/** Replies kept per call; older ones are dropped. */
+export const REPLIES_KEPT = 20;
 
 const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
@@ -88,6 +101,8 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
   let seq = 0;
   let lastDigest = '';
   let lastDelegationOffset = 0;
+  let replies: CallReply[] = [];
+  let busySince: number | null = null;
   let statuses = new Map(deps.sessions().map((s) => [s.sessionId, s.status]));
   let work: Promise<void> = Promise.resolve();
   let changeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -97,10 +112,24 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
   let reattachTries = 0;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  const gate = createTurnGate();
+  let gateTimer: ReturnType<typeof setTimeout> | undefined;
 
   const send = (event: LiveEvent): void => {
     if (active) sb.send({ ...event, event_id: `aasc_${(seq += 1)}` });
   };
+
+  /** Say an update now, or once the person has finished their turn (turnGate.ts). */
+  function say(update: TurnUpdate): void {
+    sayAll(gate.push(update, now()));
+  }
+
+  function sayAll(updates: ReturnType<typeof gate.due>): void {
+    for (const u of updates) send({ type: 'session.commentary.append', delegation_id: u.delegationId, content: u.content });
+    clearTimeout(gateTimer);
+    const at = gate.nextCheckAt();
+    if (at !== null && active) gateTimer = setTimeout(() => sayAll(gate.due(now())), Math.max(0, at - now()));
+  }
 
   function sendDigest(): void {
     const digest = buildDigest(deps.sessions(), now());
@@ -124,10 +153,7 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     const { finished, needsUser } = statusChanges(statuses, next);
     statuses = new Map(next.map((s) => [s.sessionId, s.status]));
     sendDigest();
-    const said: string[] = [];
-    if (finished.length > 0) said.push(`${finished.map((t) => `"${t}"`).join(', ')} ${finished.length === 1 ? 'has' : 'have'} finished.`);
-    if (needsUser.length > 0) said.push(`${needsUser.map((t) => `"${t}"`).join(', ')} ${needsUser.length === 1 ? 'needs' : 'need'} the user's answer.`);
-    if (said.length > 0) send({ type: 'session.commentary.append', delegation_id: null, content: `AASC update: ${said.join(' ')}` });
+    if (finished.length > 0 || needsUser.length > 0) say({ kind: 'status', finished, needsUser });
   }
 
   function onSessionsChanged(): void {
@@ -149,6 +175,16 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     return true;
   }
 
+  /** The briefing for these words; a failure costs only the briefing, never the question. */
+  function briefingFor(request: string): string {
+    try {
+      return deps.briefing?.(request) ?? '';
+    } catch (err) {
+      log.warn('voice', `The briefing failed: ${err instanceof Error ? err.message : String(err)}`);
+      return '';
+    }
+  }
+
   function onDelegation(delegationId: string, offsetMs: number): void {
     const since = lastDelegationOffset;
     lastDelegationOffset = offsetMs;
@@ -162,14 +198,19 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
         if (!takeAsk()) {
           content = 'That is a lot of requests in one minute. Wait a moment and ask me again.';
         } else {
-          const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag }), { isLocal: deps.isLocal, signal: aborter.signal });
+          const brief = briefingFor(request);
+          busySince = now();
+          const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag, briefing: brief }), { isLocal: deps.isLocal, signal: aborter.signal });
+          replies = [...replies, { at: now(), text: answer }].slice(-REPLIES_KEPT);
           content = toSpeakable(answer);
         }
       } catch (err) {
         log.warn('voice', `A delegation failed: ${err instanceof Error ? err.message : String(err)}`);
         content = spokenFailure(err);
+      } finally {
+        busySince = null;
       }
-      send({ type: 'session.commentary.append', delegation_id: delegationId, content });
+      if (active) say({ kind: 'answer', delegationId, content });
     });
   }
 
@@ -186,7 +227,10 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
         if (typeof event.delta !== 'string') return;
         const role = event.type === 'session.input_transcript.delta' ? 'user' : 'assistant';
         log_.add(role, event.delta, num(event.start_ms), num(event.end_ms, num(event.start_ms)));
-        if (role === 'user') armIdle();
+        if (role === 'user') {
+          armIdle();
+          gate.heard(now());
+        }
         return;
       }
       case 'session.delegation.created': {
@@ -246,6 +290,8 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     clearTimeout(idleTimer);
     clearTimeout(closeTimer);
     clearTimeout(reattachTimer);
+    clearTimeout(gateTimer);
+    gate.clear();
     for (const u of [...unsubscribers, ...sidebandUnsubs]) u();
     sb.close();
     for (const l of [...endedListeners]) l(reason);
@@ -268,5 +314,7 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
       return () => endedListeners.delete(listener);
     },
     transcript: () => log_.lines(),
+    replies: () => replies,
+    busySince: () => busySince,
   };
 }

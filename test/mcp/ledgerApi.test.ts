@@ -88,7 +88,7 @@ describe('promptOutcome', () => {
     const { client, deps } = api({ 'GET /sessions/w1/prompt/mcp-c-task-T1': () => envelope({ key: 'mcp-c-task-T1', state }) });
 
     expect(await deps.promptOutcome('w1', 'mcp-c-task-T1', 'c1')).toBeNull();
-    for (const outcome of ['submitted', 'unconfirmed', 'stopped', 'gave-up', 'failed']) {
+    for (const outcome of ['submitted', 'unconfirmed', 'unknown-command', 'stopped', 'gave-up', 'failed']) {
       state = outcome;
       expect(await deps.promptOutcome('w1', 'mcp-c-task-T1', 'c1')).toEqual({ state: outcome });
     }

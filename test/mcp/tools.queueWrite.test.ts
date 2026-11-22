@@ -75,9 +75,9 @@ describe('the tools', () => {
   it('are in the registry beside the three P1 reads and P5’s queue_clear, once each', () => {
     const queue = allTools().filter((t) => t.toolset === 'queue').map((t) => t.name);
 
-    expect(queue).toHaveLength(19);
-    expect(new Set(queue).size).toBe(19);
-    expect(queue).toEqual(expect.arrayContaining(['queue_get', 'queue_list_all', 'queue_sent', 'queue_clear', ...WRITES]));
+    expect(queue).toHaveLength(20);
+    expect(new Set(queue).size).toBe(20);
+    expect(queue).toEqual(expect.arrayContaining(['queue_get', 'queue_list_all', 'queue_sent', 'queue_clear', 'queue_ask_enable', ...WRITES]));
   });
 
   it('each name a session first, and take every item and step by its number', () => {

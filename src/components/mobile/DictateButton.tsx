@@ -1,23 +1,23 @@
 /**
- * DictateButton — the phone app's hold-to-talk 🎙 (Nov 16 2026). Hold it and speak; let go and the words
- * are put in the box beside it (`usePhoneDictation`). It draws nothing where the app has no recorder
- * (a browser, a desktop, an app from before this build).
+ * DictateButton — the phone app's 🎙 (Nov 16 2026; tap-to-toggle since Nov 22 2026). Tap it and speak; tap it
+ * again and the words are put in the box beside it (`usePhoneDictation`). Lifting the finger does not end the
+ * recording, so the phone can be put down while talking; the app's own two-minute limit ends a forgotten one.
+ * It draws nothing where the app has no recorder (a browser, a desktop, an app from before Nov 16 2026).
  *
- * The hold is a pointer hold, captured so a finger sliding off still ends it. A press never moves the
- * focus, so the on-screen keyboard stays as it was. The app records only while a finger is on the
- * screen, so Space or Enter held on a hardware keyboard gets the app's own "hold it with a finger" answer.
+ * The tap is taken on `pointerdown`: the app starts the microphone only just after a finger went down on the
+ * screen, and a press never moves the focus, so the on-screen keyboard stays as it was. Space or Enter on a
+ * hardware keyboard toggles too, but a start from a key gets the app's own "with a finger" answer.
  *
- * A box that goes off mid-hold (the session ended) drops the recording: a disabled button hears no
- * release, and the mic would stay on until the app's two-minute limit. So the button itself stays
- * enabled until the recording is over.
+ * A box that goes off mid-recording (the session ended) drops the recording, and the button itself stays
+ * enabled until the recording is over: a disabled button hears no finishing tap.
  */
 import { useEffect, type KeyboardEvent, type PointerEvent } from 'react';
 import type { PhoneDictation } from '@/hooks/usePhoneDictation';
 import { MicIcon } from './phoneIcons';
 
 const LABEL = {
-  idle: 'Hold to dictate',
-  recording: 'Recording: let go to finish',
+  idle: 'Tap to dictate',
+  recording: 'Recording: tap to finish',
   transcribing: 'Turning your words into text',
 } as const;
 
@@ -28,7 +28,7 @@ export interface DictateButtonProps {
   className: string;
 }
 
-const isHoldKey = (e: KeyboardEvent): boolean => e.key === ' ' || e.key === 'Enter';
+const isToggleKey = (e: KeyboardEvent): boolean => e.key === ' ' || e.key === 'Enter';
 
 export default function DictateButton({ dictation, disabled = false, className }: DictateButtonProps) {
   const { available, phase, start, stop, cancel } = dictation;
@@ -38,16 +38,17 @@ export default function DictateButton({ dictation, disabled = false, className }
   }, [disabled, recording, cancel]);
   if (!available) return null;
 
+  /** Idle starts, recording finishes; while the words are being turned into text a tap does nothing. */
+  const toggle = () => {
+    if (recording) stop();
+    else if (phase === 'idle' && !disabled) start();
+  };
+
   const onPointerDown = (e: PointerEvent<HTMLButtonElement>) => {
-    if (disabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     // No focus change (the keyboard stays put) and no compatibility mouse events.
     e.preventDefault();
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // A pointer that is already gone: the release below still arrives or the app's own limit ends it.
-    }
-    start();
+    toggle();
   };
 
   return (
@@ -61,22 +62,17 @@ export default function DictateButton({ dictation, disabled = false, className }
       data-phase={phase}
       data-testid="dictate-button"
       onPointerDown={onPointerDown}
-      onPointerUp={stop}
-      onPointerCancel={stop}
-      onLostPointerCapture={stop}
       onMouseDown={(e) => e.preventDefault()}
       onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => {
-        if (!isHoldKey(e)) return;
+        if (!isToggleKey(e)) return;
         e.preventDefault();
-        if (!e.repeat) start();
+        if (!e.repeat) toggle();
       }}
       onKeyUp={(e) => {
-        if (!isHoldKey(e)) return;
-        e.preventDefault();
-        stop();
+        // Keep Space's key-up from clicking the button a second time.
+        if (isToggleKey(e)) e.preventDefault();
       }}
-      onBlur={stop}
     >
       <MicIcon filled={recording} />
     </button>

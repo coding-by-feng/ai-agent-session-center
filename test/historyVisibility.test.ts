@@ -27,6 +27,9 @@ vi.mock('../server/db.js', () => ({
   deleteNote: vi.fn((id: number) => { data.calls.push(`unnote:${id}`); }),
   getNoteSessionId: vi.fn((id: number) => data.notes.get(id) ?? null),
   getNoteMedia: vi.fn((id: string) => (data.media.has(id) ? { id, session_id: data.media.get(id) } : null)),
+  getTypedPromptsInRange: vi.fn(() => { data.calls.push('day'); return []; }),
+  getDailySummary: vi.fn(() => null),
+  saveDailySummary: vi.fn(() => { data.calls.push('save-summary'); }),
   default: {},
 }));
 
@@ -96,6 +99,9 @@ describe('history from a remote device', () => {
     ['deleting a hidden session, naming a shared one', 'DELETE', '/db/sessions/hist-hidden?sessionId=hist-shared'],
     ['a hidden session’s notes', 'GET', '/db/sessions/hist-hidden/notes?sessionId=hist-shared'],
     ['a hidden session’s prompt trace', 'GET', '/db/prompts?session=hist-hidden'],
+    // Nov 20 2026: PROMPTS → Days reads one day across every session, so it is host only too.
+    ['a day across every session', 'GET', '/daily-review?day=2026-11-20&sessionId=hist-shared'],
+    ['summarizing a day', 'POST', '/daily-review/2026-11-20/summary?sessionId=hist-shared'],
   ])('refuses %s', async (_label, method, path) => {
     const res = await call(method, path, REMOTE);
     expect(res.status).toBe(403);
@@ -153,6 +159,13 @@ describe('the Mac itself', () => {
     expect((await call('PUT', '/db/notes/2', {}, { text: 'x' })).status).toBe(200);
     expect((await call('GET', '/teams/team-hidden/config')).status).toBe(200);
     expect(data.calls).toEqual(['list', 'search', 'projects', 'prompts:*', 'detail:hist-hidden', 'edit:2']);
+  });
+
+  it('reads a day across every session', async () => {
+    const res = await call('GET', '/daily-review?day=2026-11-20');
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ day: '2026-11-20', promptCount: 0, summary: null, summarizing: false });
+    expect(data.calls).toEqual(['day']);
   });
 });
 

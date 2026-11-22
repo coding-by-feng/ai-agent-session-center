@@ -22,7 +22,7 @@ export interface RawInputLineProps {
   placeholder: string;
   sending: boolean;
   onSubmit: () => void;
-  /** A control between the line and its Enter (the app's hold-to-talk mic). */
+  /** A control between the line and its Enter (the app's tap-to-talk mic). */
   trailing?: ReactNode;
 }
 

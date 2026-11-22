@@ -3,6 +3,7 @@
 //   GET  /voice/status            can a call start: key set, Voice central ready (and shared), a call in progress
 //   POST /voice/call  { sdp }     start a call from the device's WebRTC SDP offer → { callId, sdp: answer }
 //   POST /voice/call/:id/end      end that call (this Mac: any call; a remote device: only its own)
+//   GET  /voice/call/:id/progress what the Voice central is doing for that call (callProgress.ts), same owner rule
 //   GET  /voice/settings          this Mac only: the settings, never the key
 //   PUT  /voice/settings          this Mac only: { apiKey?, voice?, brainCentralId? }
 //   POST /voice/dictate { audio, mime }  a held-🎙 clip from the phone app → { text } (dictation.ts). It needs the
@@ -17,6 +18,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import log from '../logger.js';
 import { CallBusyError, mayControl, type ActiveCall, type CallOwner } from './callManager.js';
+import type { CallProgressView } from './callProgress.js';
 import { LiveApiError, type LiveFailure } from './liveApi.js';
 import { DICTATION_MIME_TYPES, type TranscribeInput } from './dictation.js';
 import {
@@ -68,6 +70,8 @@ export interface VoiceRouterDeps {
   startCall(input: { sdp: string; owner: CallOwner }): Promise<{ callId: string; sdp: string }>;
   endCall(callId: string, caller: CallOwner): boolean;
   activeCall(): ActiveCall | null;
+  /** The progress of that call for this caller (callProgress.ts), or null when there is none they may see. */
+  callProgress?(callId: string, caller: CallOwner): CallProgressView | null;
   /** A clip's words, through OpenAI (dictation.ts); throws LiveApiError. */
   transcribe(input: TranscribeInput): Promise<string>;
   now?(): number;
@@ -245,6 +249,12 @@ export function createVoiceRouter(deps: VoiceRouterDeps): Router {
     const id = String(req.params.id ?? '');
     if (!deps.endCall(id, ownerOf(req))) { refuse(res, 404, 'not_found', 'No such call'); return; }
     res.json({ success: true, data: { ended: id } });
+  });
+
+  router.get('/voice/call/:id/progress', (req: Request, res: Response) => {
+    const view = deps.callProgress?.(String(req.params.id ?? ''), ownerOf(req)) ?? null;
+    if (view === null) { refuse(res, 404, 'not_found', 'No such call'); return; }
+    res.json({ success: true, data: view });
   });
 
   router.get('/voice/settings', (req: Request, res: Response) => {

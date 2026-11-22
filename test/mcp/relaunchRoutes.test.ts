@@ -168,7 +168,7 @@ beforeEach(() => {
     const run = { cmd, args, stdin: '' };
     if (cmd === 'claude') summarizeRuns.push(run);
     setImmediate(() => (cmd === 'claude' ? cb(null, 'It fixed the login bug.\n') : cb(new Error('no process in this test'), '')));
-    return { stdin: { write: (text: string) => { run.stdin += text; }, end: () => undefined } };
+    return { stdin: { write: (text: string) => { run.stdin += text; }, end: () => undefined, on: () => undefined } };
   });
 });
 

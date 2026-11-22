@@ -39,9 +39,14 @@ vi.mock('child_process', async (importOriginal) => {
   return {
     ...actual,
     execFile: vi.fn((cmd: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout?: string) => void) => {
+      // runPrint's login-shell lookup of the CLI's path: no shell here, so it falls back to the bare name.
+      if (args[0] === '-lc') {
+        queueMicrotask(() => cb(new Error('no shell in tests')));
+        return { stdin: null };
+      }
       const run = { cmd, args, stdin: '', done: cb };
       mocks.runs.push(run);
-      return { stdin: { write: (text: string) => { run.stdin += text; }, end: () => undefined } };
+      return { stdin: { write: (text: string) => { run.stdin += text; }, end: () => undefined, on: () => undefined } };
     }),
   };
 });

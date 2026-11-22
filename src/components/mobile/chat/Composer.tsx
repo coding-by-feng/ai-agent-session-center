@@ -236,7 +236,7 @@ export default function Composer({ session, card, inputRef }: ComposerProps) {
     focusAt(next.caret);
   }, [inputRef, sessionId, setDraft, focusAt]);
 
-  // Hold-to-talk dictation (Nov 16 2026, the app only): the spoken words go in at the caret when the
+  // Tap-to-talk dictation (Nov 16 2026, the app only): the spoken words go in at the caret when the
   // box has the focus, else at the end. They are never sent, and the keyboard is not raised for them.
   const onSpoken = useCallback((spoken: string) => {
     const el = inputRef.current;

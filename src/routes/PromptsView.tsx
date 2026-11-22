@@ -49,6 +49,9 @@ import {
   groupPromptsByDay as groupByDay,
   type PromptFilters as Filters,
 } from '@/lib/promptTraceQuery';
+import DailyReviewView from '@/components/prompts/DailyReviewView';
+import PromptsViewSwitch from '@/components/prompts/PromptsViewSwitch';
+import { readPromptsMode, savePromptsMode, type PromptsMode } from '@/lib/promptsMode';
 import styles from '@/styles/modules/Prompts.module.css';
 
 function Highlighted({ text, query }: { text: string; query: string }) {
@@ -236,8 +239,8 @@ function PromptRow({
 // View
 // ---------------------------------------------------------------------------
 
-/** The PROMPTS tab. A phone has its own, in the phone app (More → Prompt Trace). */
-export default function PromptsView() {
+/** PROMPTS → List: every prompt, newest first, filtered and paged. */
+function PromptTraceList({ viewSwitch }: { viewSwitch: ReactNode }) {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   // The ids only, compared shallowly: reading the sessions Map re-rendered the
@@ -350,6 +353,7 @@ export default function PromptsView() {
       <div className={styles.header}>
         {/* Filters */}
         <div className={styles.toolbar}>
+          {viewSwitch}
           <SearchInput
             variant="field"
             ariaLabel="Search all prompts"
@@ -504,4 +508,19 @@ export default function PromptsView() {
       />
     </div>
   );
+}
+
+/**
+ * The PROMPTS tab: List (every prompt) or Days (one day by project, room and session, Nov 20 2026).
+ * Only the chosen view mounts, so the other never fetches. A phone has its own, in the phone app
+ * (More → Prompt Trace).
+ */
+export default function PromptsView() {
+  const [mode, setMode] = useState<PromptsMode>(readPromptsMode);
+  const choose = useCallback((next: PromptsMode) => {
+    setMode(next);
+    savePromptsMode(next);
+  }, []);
+  const viewSwitch = <PromptsViewSwitch mode={mode} onChange={choose} />;
+  return mode === 'days' ? <DailyReviewView viewSwitch={viewSwitch} /> : <PromptTraceList viewSwitch={viewSwitch} />;
 }

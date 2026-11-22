@@ -5,7 +5,7 @@
 
 import type { Request, Router } from 'express';
 import { getSession } from './sessionStore.js';
-import { getForegroundProcess, getTerminals, writeToTerminal } from './sshManager.js';
+import { getForegroundProcess, getTerminals, tapTerminalOutput, writeToTerminal } from './sshManager.js';
 import * as presence from './presenceManager.js';
 import { centralCaller, clientIdFromRequest, reconnectCardTerminal, requireVisibleSession } from './apiRouter.js';
 import { isLocalRequest } from './requestLocality.js';
@@ -45,6 +45,8 @@ export function createServerPromptSubmitter(): PromptSubmitter {
     getSession,
     isAgentForeground: (terminalId) => isAgentProcessName(getForegroundProcess(terminalId)),
     onTerminalHook,
+    // After a slash command's Enter: hears the CLI say it has no such command (promptSubmit.ts).
+    tapOutput: tapTerminalOutput,
   });
 }
 

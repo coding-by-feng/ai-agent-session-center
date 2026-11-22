@@ -31,6 +31,7 @@ import { PATH_LABEL } from './ui/parts.js';
 import type { Actions, Screen, ScreenContext, UnpairStep } from './ui/screen.js';
 import { renderApprove, renderConnecting, renderLanOffer, renderOffline } from './ui/statusScreens.js';
 import { renderCall } from './ui/callScreen.js';
+import { applyScroll, readScroll } from './ui/keepScroll.js';
 import { lanOfferDue, markLanOffered } from './lanOffer.js';
 import { withVaultCopy } from './vaultCopy.js';
 
@@ -209,7 +210,9 @@ export function createShellApp(
 
   function render(moved: boolean): void {
     const focusedId = root.contains(document.activeElement) ? document.activeElement?.id : '';
+    const scroll = readScroll(root.querySelector<HTMLElement>('.call-transcript'));
     root.replaceChildren(draw());
+    applyScroll(root.querySelector<HTMLElement>('.call-transcript'), scroll);
     root.dataset.screen = screen.name;
     const again = !moved && focusedId ? root.querySelector<HTMLElement>(`#${focusedId}`) : null;
     (again ?? root.querySelector<HTMLElement>('#screen-title'))?.focus({ preventScroll: !moved });
@@ -556,7 +559,7 @@ export function createShellApp(
       signInWithGoogle: noop, confirmAccountMatch: noop, cancelAccountMatch: noop, signOutAccount: noop, toggleAccountMenu: noop, refreshAccount: noop, enrollMac: noop,
       askDeleteAccount: noop, confirmDeleteAccount: noop, cancelDeleteAccount: noop,
     }),
-    ...(call?.actions ?? { endCall: noop, toggleMute: noop, retryCall: noop }),
+    ...(call?.actions ?? { endCall: noop, toggleMute: noop, togglePause: noop, toggleMinimize: noop, retryCall: noop }),
   };
 
   function openLink(url: string): void {

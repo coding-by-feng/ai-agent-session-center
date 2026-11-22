@@ -151,6 +151,32 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.showAll {
+  align-self: flex-start;
+  min-height: var(--ph-target);
+  padding: 0 var(--ph-space-1);
+  border: 0;
+  border-radius: var(--ph-radius-sm);
+  background: none;
+  color: var(--ph-accent);
+  font: inherit;
+  font-size: var(--ph-size-secondary);
+  cursor: pointer;
+}
+
+.showAll:hover {
+  background: var(--ph-fill);
+}
+
+.showAll:active {
+  opacity: 0.6;
+}
+
+.showAll:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
 .prose {
   font-family: var(--ph-font);
   font-size: var(--ph-size-secondary);

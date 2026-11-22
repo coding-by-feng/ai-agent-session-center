@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useFloatingSessionsStore } from './floatingSessionsStore';
+import { MAX_FLOATS, useFloatingSessionsStore } from './floatingSessionsStore';
 
 // close() snapshots terminal output via translationLog (Dexie) before killing
 // the PTY — stub it out so these unit tests don't touch IndexedDB.
@@ -138,16 +138,23 @@ describe('floatingSessionsStore — per-session helpers', () => {
   });
 
   describe('open — eviction at MAX_FLOATS', () => {
+    it('keeps up to 100 popups open (Nov 22 2026; was 4)', () => {
+      expect(MAX_FLOATS).toBe(100);
+      for (let i = 1; i <= MAX_FLOATS; i++) openFloat(`t-${i}`, 'A');
+      expect(useFloatingSessionsStore.getState().floats).toHaveLength(MAX_FLOATS);
+      const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+      expect(fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'DELETE')).toEqual([]);
+    });
+
     it('evicts the oldest float and kills its PTY when the cap is exceeded', async () => {
-      // MAX_FLOATS is 4. Fill it, then open a 5th.
-      openFloat('t-1', 'A');
-      openFloat('t-2', 'A');
-      openFloat('t-3', 'A');
-      openFloat('t-4', 'A');
-      openFloat('t-5', 'B');
+      // Fill the cap, then open one more.
+      for (let i = 1; i <= MAX_FLOATS; i++) openFloat(`t-${i}`, 'A');
+      openFloat('t-new', 'B');
 
       const ids = useFloatingSessionsStore.getState().floats.map((f) => f.terminalId);
-      expect(ids).toEqual(['t-2', 't-3', 't-4', 't-5']); // oldest (t-1) evicted
+      expect(ids).toHaveLength(MAX_FLOATS);
+      expect(ids[0]).toBe('t-2'); // oldest (t-1) evicted
+      expect(ids[ids.length - 1]).toBe('t-new');
 
       // The evicted float's PTY is DELETEd so it doesn't leak.
       const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -155,7 +162,7 @@ describe('floatingSessionsStore — per-session helpers', () => {
         const deletedIds = fetchMock.mock.calls
           .filter((c) => (c[1] as RequestInit | undefined)?.method === 'DELETE')
           .map((c) => String(c[0]));
-        expect(deletedIds.some((u) => u.includes('t-1'))).toBe(true);
+        expect(deletedIds.some((u) => u.endsWith('/t-1'))).toBe(true);
       });
     });
   });

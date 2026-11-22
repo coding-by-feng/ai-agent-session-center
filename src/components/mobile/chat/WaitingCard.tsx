@@ -18,7 +18,7 @@
  * screen and covered the chat's answers. Its header then points up: "Answer above"
  * scrolls the chat to the open question.
  */
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import type { Session } from '@/types';
 import { Button, ConfirmSheet } from '../kit';
 import { ChevronRightIcon } from '../kit/kitIcons';
@@ -37,15 +37,32 @@ export interface WaitingCardProps {
   onTell: () => void;
 }
 
+/** A command longer than this starts folded to its first lines (Nov 22 2026: a 189-line heredoc filled the screen). */
+export const COMMAND_FOLD_LINES = 12;
+
+/** The command, whole when short; a long one folded, with Show all to read every line before allowing it. */
+function CommandDetail({ command, description }: { command: string; description?: string }) {
+  const [open, setOpen] = useState(false);
+  const lines = command.split('\n');
+  const folds = lines.length > COMMAND_FOLD_LINES;
+  const shown = folds && !open ? lines.slice(0, COMMAND_FOLD_LINES).join('\n') : command;
+  return (
+    <div className={styles.detail}>
+      {description && <p className={styles.caption}>{description}</p>}
+      <pre className={styles.code} tabIndex={0} aria-label="Command"><span aria-hidden="true">$ </span>{shown}{folds && !open && <span aria-hidden="true">{'\n…'}</span>}</pre>
+      {folds && (
+        <button type="button" className={styles.showAll} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? 'Show fewer lines' : `Show all ${lines.length} lines`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CardDetailView({ detail }: { detail: CardDetail }) {
   switch (detail.type) {
     case 'command':
-      return (
-        <div className={styles.detail}>
-          {detail.description && <p className={styles.caption}>{detail.description}</p>}
-          <pre className={styles.code} tabIndex={0} aria-label="Command"><span aria-hidden="true">$ </span>{detail.command}</pre>
-        </div>
-      );
+      return <CommandDetail command={detail.command} description={detail.description} />;
     case 'diff':
       return (
         <div className={styles.detail}>

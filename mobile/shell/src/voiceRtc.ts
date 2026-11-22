@@ -36,11 +36,17 @@ export interface PeerLike {
   close(): void;
 }
 
+/** The stop for the remote audio; `pause` is optional so a simple environment can ignore Pause. */
+export type RemotePlayback = (() => void) & { pause?: (paused: boolean) => void };
+
 export interface RtcEnv {
   getMicrophone(): Promise<MediaStreamLike>;
   createPeer(): PeerLike;
-  /** Plays the remote stream (a hidden autoplay <audio> outside the redrawn screen); returns the stop. */
-  playRemote(stream: unknown): () => void;
+  /**
+   * Plays the remote stream (a hidden autoplay <audio> outside the redrawn screen); returns the stop. The stop may
+   * carry `pause(paused)`, which silences or resumes AASC's voice without ending the stream.
+   */
+  playRemote(stream: unknown): RemotePlayback;
 }
 
 export class RtcError extends Error {
@@ -55,6 +61,8 @@ export interface CallRtc {
   offer(): Promise<string>;
   answer(sdp: string): Promise<void>;
   setMuted(muted: boolean): void;
+  /** Pause: the mic is off and AASC's voice is silent, whatever Mute says. Resume puts Mute back as it was. */
+  setPaused(paused: boolean): void;
   onEvent(listener: (event: unknown) => void): void;
   /** Told once, when the connection fails or closes from the other side. */
   onDropped(listener: () => void): void;
@@ -65,11 +73,18 @@ export function createCallRtc(env: RtcEnv): CallRtc {
   let mic: MediaStreamLike | null = null;
   let peer: PeerLike | null = null;
   let channel: ChannelLike | null = null;
-  let stopPlay: (() => void) | null = null;
+  let stopPlay: RemotePlayback | null = null;
+  let muted = false;
+  let paused = false;
   let closed = false;
   let dropped = false;
   const events: Array<(e: unknown) => void> = [];
   const drops: Array<() => void> = [];
+
+  /** The mic is live only when neither Mute nor Pause is on. */
+  function applyMic(): void {
+    for (const track of mic?.getAudioTracks() ?? []) track.enabled = !muted && !paused;
+  }
 
   function gathered(p: PeerLike): Promise<void> {
     if (p.iceGatheringState === 'complete') return Promise.resolve();
@@ -103,7 +118,10 @@ export function createCallRtc(env: RtcEnv): CallRtc {
       for (const track of mic.getAudioTracks()) p.addTrack(track, mic);
       p.addEventListener('track', (e) => {
         const stream = e.streams?.[0];
-        if (stream && !stopPlay && !closed) stopPlay = env.playRemote(stream);
+        if (stream && !stopPlay && !closed) {
+          stopPlay = env.playRemote(stream);
+          if (paused) stopPlay.pause?.(true);
+        }
       });
       p.addEventListener('connectionstatechange', () => {
         if ((p.connectionState === 'failed' || p.connectionState === 'closed') && !closed && !dropped) {
@@ -136,8 +154,15 @@ export function createCallRtc(env: RtcEnv): CallRtc {
       await peer.setRemoteDescription({ type: 'answer', sdp });
     },
 
-    setMuted(muted) {
-      for (const track of mic?.getAudioTracks() ?? []) track.enabled = !muted;
+    setMuted(next) {
+      muted = next;
+      applyMic();
+    },
+
+    setPaused(next) {
+      paused = next;
+      applyMic();
+      stopPlay?.pause?.(paused);
     },
 
     onEvent: (l) => { events.push(l); },
@@ -170,10 +195,12 @@ export function browserRtcEnv(): RtcEnv | null {
       audio.hidden = true;
       audio.srcObject = stream as MediaStream;
       document.body.append(audio);
-      return () => {
+      const stop = (): void => {
         audio.srcObject = null;
         audio.remove();
       };
+      // Muting the element silences AASC without dropping the stream, so Resume is instant.
+      return Object.assign(stop, { pause: (paused: boolean) => { audio.muted = paused; } });
     },
   };
 }
