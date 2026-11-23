@@ -31,9 +31,12 @@ import { resolveRuntimeDisplay } from '@/lib/sessionRuntime';
 import ProjectFrameHeader from './ProjectFrameHeader';
 import SessionViewMenu from './SessionViewMenu';
 import RecentLimitToggle from './RecentLimitToggle';
+import RecentPutDownMenu from './RecentPutDownMenu';
+import { isAlerting } from '@/lib/alertNotify';
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
 import NewButton from './NewButton';
 import BuiltinFrame from './BuiltinFrame';
-import { FrameCollapseIcon } from './SessionFrameIcons';
+import { FrameCollapseIcon, PutDownIcon } from './SessionFrameIcons';
 import DetachIcon from '@/components/ui/DetachIcon';
 import IconButton from '@/components/ui/IconButton';
 import {
@@ -174,6 +177,7 @@ export default function SessionSwitcher({
     searching,
     items: tabRenderItems,
     recentHasMore,
+    recentPutDown,
   } = useSessionStrip(sessions, currentSession.sessionId, stripQuery);
 
   // The `searchSessions` shortcut (`/`): bring the list back if it is folded or
@@ -305,13 +309,15 @@ export default function SessionSwitcher({
 
   // The built-in frames (CENTRAL, PINNED, RECENT) list second copies of cards that are
   // also in their own rooms (see BuiltinFrame).
-  const copyCards = (list: Session[]) =>
+  // RECENT's copies also carry ⤓ Put down (Nov 23 2026, recentPutDown.ts): out of RECENT for the rest of today.
+  const copyCards = (list: Session[], { putDown = false } = {}) =>
     list.map((s) => (
       <SessionTabCard
         key={s.sessionId}
         session={s}
         isCurrent={s.sessionId === currentSession.sessionId}
         isCopy
+        canPutDown={putDown}
         onSwitch={handleSwitch}
         isCompact={isCompact}
         index={sessionIndexMap.get(s.sessionId) ?? 0}
@@ -887,9 +893,14 @@ export default function SessionSwitcher({
                   collapsed={recentRoomCollapsed}
                   onToggleCollapse={toggleRecentRoomCollapsed}
                   count={item.sessions.length}
-                  headerControl={recentHasMore ? <RecentLimitToggle /> : undefined}
+                  headerControl={(recentHasMore || recentPutDown.length > 0) ? (
+                    <>
+                      {recentHasMore && <RecentLimitToggle />}
+                      <RecentPutDownMenu sessions={recentPutDown} />
+                    </>
+                  ) : undefined}
                 >
-                  {copyCards(item.sessions)}
+                  {copyCards(item.sessions, { putDown: true })}
                 </BuiltinFrame>
               );
             }
@@ -1101,6 +1112,7 @@ function SessionTabCard({
   session,
   isCurrent = false,
   isCopy = false,
+  canPutDown = false,
   onSwitch,
   isCompact,
   index,
@@ -1113,6 +1125,8 @@ function SessionTabCard({
    *  session. It looks the same, but leaves aria-current to the copy in the
    *  session's own room: one list should announce one current item. */
   isCopy?: boolean;
+  /** A RECENT copy: shows ⤓ Put down (hides it from RECENT for the rest of today). */
+  canPutDown?: boolean;
   onSwitch: (id: string) => void;
   isCompact: boolean;
   index: number;
@@ -1150,6 +1164,11 @@ function SessionTabCard({
 
   // The amber P sends "proceed" at once (Nov 17 2026), without switching cards. Its sender lives
   // with the prompt route's client in lib/chat, loaded on click to stay out of the entry chunk.
+  const handlePutDownClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    useRecentPutDownStore.getState().putDownSession(session.sessionId);
+  }, [session.sessionId]);
+
   const handleProceedClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const sessionId = session.sessionId;
@@ -1198,6 +1217,8 @@ function SessionTabCard({
 
   // The rail runs down the left, so the peek opens beside it; the top strip's opens below.
   const peekPlacement = useUiStore((s) => (s.navPosition === 'left' && !s.maximized ? 'right' : 'bottom'));
+  // Alert on (Nov 23 2026, lib/alertNotify.ts): the card rings while it finished unseen or needs you.
+  const alerting = isAlerting(session, { isCurrent, finishedUnseen: !!needsAttention });
 
   // Hover peeks at the session (Oct 23 2026): its name, where it runs, your remark and
   // the last prompts you typed, in place of the native "title · project · status" title.
@@ -1213,7 +1234,8 @@ function SessionTabCard({
       triggerClassName={styles.sessionTabTrigger}
     >
     <button
-      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${isCurrent ? ` ${styles.sessionTabCardCurrent}` : ''}`}
+      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${isCurrent ? ` ${styles.sessionTabCardCurrent}` : ''}${alerting ? ` ${styles.sessionTabCardAlerting}` : ''}`}
+      data-alerting={alerting ? 'true' : undefined}
       aria-current={isCurrent && !isCopy ? 'true' : undefined}
       data-status={session.status}
       onMouseDown={(e) => {
@@ -1237,6 +1259,17 @@ function SessionTabCard({
       >
         &#x1F4CC;
       </span>
+      {canPutDown && (
+        // Beside the pin, drawn the same way: absolute, so showing it on hover moves nothing in the row.
+        <span
+          className={styles.sessionTabPutDown}
+          onClick={handlePutDownClick}
+          title="Put down for today — hide from Recent until midnight (it stays in its room)"
+          aria-label="Put down from Recent for today"
+        >
+          <PutDownIcon />
+        </span>
+      )}
 
       {/* Top-right corner badge. When the session has just finished work it
           shows the green ✓ "completed" badge; otherwise it shows a distinct

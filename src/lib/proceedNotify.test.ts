@@ -42,6 +42,10 @@ describe('shouldShowProceed', () => {
     expect(shouldShowProceed(s('a', { status: 'idle', pendingProceedAt: 7 }), 7, ctx)).toBe(true);
   });
 
+  it('steps aside for an alerted session: its alert notification already says it waits for proceed (Nov 23 2026)', () => {
+    expect(shouldShowProceed(s('a', { pendingProceedAt: 7, alerted: true }), 7, ctx)).toBe(false);
+  });
+
   it('not once a prompt answered it, a newer ask replaced it, or the session is gone', () => {
     expect(shouldShowProceed(s('a', { status: 'prompting' }), 7, ctx)).toBe(false);
     expect(shouldShowProceed(s('a', { pendingProceedAt: 9 }), 7, ctx)).toBe(false);

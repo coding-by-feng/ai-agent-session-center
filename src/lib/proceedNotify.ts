@@ -23,6 +23,8 @@ export interface ProceedSession {
   status: string;
   pendingProceedAt?: number | null;
   muted?: boolean;
+  /** Alert on: useAlertNotifications already notifies this turn ("waiting for you to proceed"). */
+  alerted?: boolean;
   title?: string | null;
   projectName?: string | null;
 }
@@ -63,7 +65,7 @@ export interface ProceedNotifyContext {
 }
 
 export function shouldShowProceed(session: ProceedSession | undefined, askedAt: number, ctx: ProceedNotifyContext): boolean {
-  if (!session || !ctx.enabled || session.muted) return false;
+  if (!session || !ctx.enabled || session.muted || session.alerted === true) return false;
   if (askOf(session) !== askedAt) return false; // answered, or a newer ask took its place
   return !(ctx.focused && ctx.openSessionId === session.sessionId);
 }

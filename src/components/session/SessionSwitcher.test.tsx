@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, createEvent, act, within } from '@testing-library/react';
 
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
 import SessionSwitcher from './SessionSwitcher';
 import type { PlanUsage, Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -1406,6 +1407,43 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     expect(recent.querySelector('[class*="roomDragHandle"]')).toBeNull();
     expect(recent.querySelector('[class*="roomMoveToggle"]')).toBeNull();
     expect(recent.querySelector('[class*="roomKillToggle"]')).toBeNull();
+  });
+
+  it('Put down hides a RECENT card for today and keeps it in its room; Put back returns it (Nov 23 2026)', () => {
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
+    const { container } = renderSwitcher([qa, builder, sms, exm]);
+    const recent = () => recentOf(container)!;
+    // The put-down control is only on RECENT's copies, never on the room cards.
+    expect(within(roomFrame(container, 'AASC')).queryAllByLabelText('Put down from Recent for today')).toHaveLength(0);
+    const card = within(recent()).getByText('AASC Codex Builder').closest('button')!;
+    fireEvent.click(within(card).getByLabelText('Put down from Recent for today'));
+    expect(titlesIn(recent())).toEqual(['AASC Q & A', 'SMS Fixing']);
+    expect(titlesIn(roomFrame(container, 'AASC'))).toContain('AASC Codex Builder');
+    // The header counts it and puts it back.
+    fireEvent.click(within(recent()).getByRole('button', { name: '1 put down from Recent today' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'AASC Codex Builder' }));
+    expect(titlesIn(recent())).toEqual(['AASC Q & A', 'AASC Codex Builder', 'SMS Fixing']);
+    expect(within(recent()).queryByRole('button', { name: /put down from Recent/ })).toBeNull();
+  });
+
+  it('Alert on: a card that needs you rings; not the open card, not one without Alert (Nov 23 2026)', () => {
+    const asking = { ...builder, status: 'approval' as const, alerted: true };
+    const quiet = { ...sms, status: 'approval' as const };
+    const openOne = { ...qa, status: 'approval' as const, alerted: true };
+    const { container } = renderSwitcher([openOne, asking, quiet, exm]);
+    const ringOf = (title: string) => within(roomFrame(container, title === 'SMS Fixing' ? 'SMS OPS' : 'AASC')).getByText(title).closest('button')!.getAttribute('data-alerting');
+    expect(ringOf('AASC Codex Builder')).toBe('true');
+    expect(ringOf('SMS Fixing')).toBeNull();
+    expect(ringOf('AASC Q & A')).toBeNull();
+  });
+
+  it('keeps RECENT (empty) while every recent session is put down, so they can be put back', () => {
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
+    const { container } = renderSwitcher([qa, exm]);
+    fireEvent.click(within(recentOf(container)!).getByLabelText('Put down from Recent for today'));
+    expect(titlesIn(recentOf(container)!)).toEqual([]);
+    expect(within(recentOf(container)!).getByRole('button', { name: '1 put down from Recent today' })).toBeInTheDocument();
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
   });
 
   it('is not part of room reordering: ▲ on the first real room stays disabled', () => {

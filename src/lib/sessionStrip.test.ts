@@ -26,6 +26,12 @@ describe('buildStripItems', () => {
     expect(items[3].type === 'session' && items[3].session.sessionId).toBe('d');
   });
 
+  it('keeps an empty RECENT frame while sessions are put down, so they can be put back (Nov 23 2026)', () => {
+    const items = buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [], keepRecent: true });
+    expect(items[0]).toEqual({ type: 'recent', sessions: [] });
+    expect(buildStripItems({ filtered: all, all, rooms, mode: 'room', recentIds: [] }).some((i) => i.type === 'recent')).toBe(false);
+  });
+
   it('Recent activity view: one flat list, no frames', () => {
     const items = buildStripItems({ filtered: all, all, rooms, mode: 'activity', recentIds: ['a'] });
     expect(items.every((i) => i.type === 'session')).toBe(true);

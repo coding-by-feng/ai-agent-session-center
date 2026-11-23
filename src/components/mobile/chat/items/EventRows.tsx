@@ -3,7 +3,9 @@
  *   DividerRow  a session event as a thin centred line: compacted, stopped, model,
  *               resumed, background task, added context (opens when it has text)
  *   NoticeRow   a notice from the CLI (an API error, a warning)
- *   CommandRow  a slash command you ran, with what it printed
+ *   CommandRow  a slash command you ran, with what it printed: one short line (/model's "Set model to `Opus 5.5`
+ *               …", Nov 23 2026) reads as a sentence with its `names` in code; longer output keeps the
+ *               monospace box
  */
 import { useId } from 'react';
 import type { CommandItem, DividerItem, NoticeItem } from '@/lib/chat/buildChatItems';
@@ -60,14 +62,31 @@ export function NoticeRow({ item }: { item: NoticeItem }) {
   );
 }
 
+/** Output this short and on one line is a sentence ("Set model to `Opus 5.5` and saved as your default …"). */
+const ONE_LINE_MAX = 240;
+
+/** `text` with each `span` in backticks as code; an unpaired backtick stays as it is. */
+function withInlineCode(text: string) {
+  return text.split(/(`[^`\n]+`)/).map((part, i) =>
+    part.length > 2 && part.startsWith('`') && part.endsWith('`') ? <code key={i}>{part.slice(1, -1)}</code> : part,
+  );
+}
+
 export function CommandRow({ item }: { item: CommandItem }) {
   const name = item.name.startsWith('/') ? item.name : `/${item.name}`;
+  const output = item.output?.trim() ?? '';
+  const oneLine = output !== '' && !output.includes('\n') && output.length <= ONE_LINE_MAX;
   return (
     <div className={styles.command}>
       <span className={styles.commandPill}>{[name, item.args].filter(Boolean).join(' ')}</span>
-      {item.output && (
+      {oneLine && (
+        <p className={styles.commandResult} role="note" aria-label={`What ${name} printed`}>
+          {withInlineCode(output)}
+        </p>
+      )}
+      {output !== '' && !oneLine && (
         <div className={styles.commandOutput}>
-          <OutputBlock text={item.output} wrap lines={4} label={`What ${name} printed`} />
+          <OutputBlock text={item.output ?? ''} wrap lines={4} label={`What ${name} printed`} />
         </div>
       )}
     </div>

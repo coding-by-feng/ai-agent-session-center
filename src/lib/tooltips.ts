@@ -385,7 +385,7 @@ export const tooltips = {
   },
   ctrlAlertOff: {
     label: 'Enable alerts',
-    description: 'Get sound + visual alerts when this session needs your attention (idle, approval, finished).',
+    description: 'When this session finishes or needs you: a loud sound, a glowing card in the list and a desktop notification, even when muted.',
   },
   ctrlAlertOn: {
     label: 'Disable alerts',

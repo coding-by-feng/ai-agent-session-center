@@ -739,6 +739,27 @@
   align-self: stretch;
 }
 
+/* A one-line result (/model, /effort): a sentence under the pill, its `names` in code (Nov 23 2026). */
+.commandResult {
+  align-self: stretch;
+  margin: 0;
+  padding: 0 var(--ph-space-1);
+  color: var(--ph-text-secondary);
+  font-family: var(--ph-font);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  overflow-wrap: anywhere;
+}
+
+.commandResult code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--ph-fill);
+  color: var(--ph-text);
+  font-family: var(--ph-font-mono);
+  font-size: 0.86em;
+}
+
 /* ---- Question: an agent's multiple-choice question, answered in the chat (Nov 2 2026) ---- */
 
 .question {

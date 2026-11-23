@@ -23,4 +23,10 @@ describe('recentRailIds (the session rail\'s RECENT frame)', () => {
     const sessions = new Map([['gone', session('gone', { status: 'ended' })]]);
     expect(recentRailIds(sessions, NOW)).toEqual([]);
   });
+
+  it('leaves out sessions put down today; the next most recent takes the slot (Nov 23 2026)', () => {
+    const sessions = new Map(['a', 'b', 'c'].map((id, i) => [id, session(id, { events: [{ type: 'Stop', timestamp: NOW - (i + 1) * 60_000, detail: '' }] })]));
+    expect(recentRailIds(sessions, NOW, 2)).toEqual(['a', 'b']);
+    expect(recentRailIds(sessions, NOW, 2, ['a'])).toEqual(['b', 'c']);
+  });
 });

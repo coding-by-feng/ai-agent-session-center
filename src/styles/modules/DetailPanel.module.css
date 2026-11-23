@@ -1601,6 +1601,27 @@
   animation: attentionBadgePulse 1.4s ease-in-out infinite;
 }
 
+/* Alert on (Nov 23 2026): an alerted session that finished unseen or needs you rings until you open or answer
+   it (lib/alertNotify.ts isAlerting). Amber, where the plain finish is the green ✓; the ring is drawn outside the
+   box (outline), so the row never reflows. */
+.sessionTabCard.sessionTabCardAlerting {
+  outline: 2px solid var(--accent-orange, #ff9100);
+  outline-offset: 1px;
+  animation: alertCardPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes alertCardPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 145, 0, 0.55); }
+  50% { box-shadow: 0 0 10px 2px rgba(255, 145, 0, 0.85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sessionTabCard.sessionTabCardAlerting {
+    animation: none;
+    box-shadow: 0 0 8px 1px rgba(255, 145, 0, 0.7);
+  }
+}
+
 @keyframes attentionBadgePulse {
   0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.7); }
   50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.95); }
@@ -1847,6 +1868,64 @@
 .sessionTabCard:hover .sessionTabPin { opacity: 0.8; }
 .sessionTabPin:hover { opacity: 1; filter: none; }
 .sessionTabPin.pinned { opacity: 1; filter: none; }
+
+/* RECENT's ⤓ Put down (Nov 23 2026), left of the pin. Hidden at rest, shown on the card's hover; absolute and
+   always there, so revealing it never reflows the row before a click lands. */
+.sessionTabPutDown {
+  position: absolute;
+  top: -2px;
+  right: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.sessionTabCard:hover .sessionTabPutDown,
+.sessionTabCard:focus-visible .sessionTabPutDown { opacity: 0.8; }
+.sessionTabPutDown:hover { opacity: 1; color: var(--text-primary); }
+.sessionTabPutDown:active { transform: translateY(1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sessionTabPutDown { transition: none; }
+}
+
+/* RECENT's header chip: how many are put down today; opens the Put back menu (RecentPutDownMenu). */
+.recentPutDownChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.recentPutDownChip:hover { opacity: 1; }
+.recentPutDownChip:active { transform: translateY(1px); }
+.recentPutDownChip:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .recentPutDownChip { height: 44px; min-width: 44px; justify-content: center; }
+}
 
 /* The ★ central star (CentralBadge `bare`) on a card: the first mark in the title, before the queue chip
    (Oct 26 2026; it used to sit at the card's right end as an 18px block). Two classes where the badge's own

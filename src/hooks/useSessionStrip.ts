@@ -18,6 +18,8 @@ import { isListedSession, numberedSessions, sortSessionsByActivity } from '@/lib
 import { pickRecentSessions, RECENT_EXPANDED_LIMIT, RECENT_LIMIT, RECENT_TICK_MS } from '@/lib/recentSessions';
 import { buildStripItems, filterByRooms, filterBySearch, type StripItem } from '@/lib/sessionStrip';
 import { useLabelStore } from '@/stores/labelStore';
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
+import { putDownToday } from '@/lib/recentPutDown';
 import { nextCompletionAttention } from '@/lib/sessionAttention';
 import type { Session } from '@/types';
 
@@ -26,8 +28,11 @@ import type { Session } from '@/types';
  * (`isFloating`) belongs to its popup, and listing it left a card behind after the popup
  * was closed, until the CLI's SessionEnd arrived.
  */
-export function recentRailIds(sessions: ReadonlyMap<string, Session>, now: number, limit = RECENT_LIMIT): string[] {
-  const listed = [...sessions.values()].filter(isListedSession);
+export function recentRailIds(
+  sessions: ReadonlyMap<string, Session>, now: number, limit = RECENT_LIMIT, putDown: readonly string[] = [],
+): string[] {
+  // A session put down today (recentPutDown.ts) is left out before the cut, so the next most recent takes its slot.
+  const listed = [...sessions.values()].filter((s) => isListedSession(s) && !putDown.includes(s.sessionId));
   return pickRecentSessions(listed, now, limit).map((s) => s.sessionId);
 }
 
@@ -52,6 +57,8 @@ export interface SessionStrip {
   items: StripItem[];
   /** More than `RECENT_LIMIT` sessions qualify for RECENT: its 10 ↔ 20 toggle has something to show. */
   recentHasMore: boolean;
+  /** Live sessions put down from RECENT today, in the order they were put down (its header's Put back list). */
+  recentPutDown: Session[];
 }
 
 export function useSessionStrip(
@@ -139,13 +146,24 @@ export function useSessionStrip(
   // joins, leaves or moves, so everything downstream stays put otherwise.
   // 10, or 20 after the frame's toggle. Picked with the real limit, never sliced from the 20: the
   // list is ordered pinned-first after the cut, so its first 10 are not the 10 newest.
+  // Sessions put down today stay out; the minute tick also brings them back at midnight.
+  const putDownState = useRecentPutDownStore((s) => s.putDown);
+  const putDownIds = useMemo(() => putDownToday(putDownState, recentNow), [putDownState, recentNow]);
   const { recentIdsKey, recentHasMore } = useMemo(() => {
     if (sessionSortMode === 'activity') return { recentIdsKey: '', recentHasMore: false };
-    const wide = recentRailIds(sessions, recentNow, RECENT_EXPANDED_LIMIT);
+    const wide = recentRailIds(sessions, recentNow, RECENT_EXPANDED_LIMIT, putDownIds);
     const hasMore = wide.length > RECENT_LIMIT;
-    const ids = recentExpanded || !hasMore ? wide : recentRailIds(sessions, recentNow);
+    const ids = recentExpanded || !hasMore ? wide : recentRailIds(sessions, recentNow, RECENT_LIMIT, putDownIds);
     return { recentIdsKey: ids.join('\n'), recentHasMore: hasMore };
-  }, [sessions, sessionSortMode, recentNow, recentExpanded]);
+  }, [sessions, sessionSortMode, recentNow, recentExpanded, putDownIds]);
+  // The put-down sessions still live and listed, for RECENT's Put back list.
+  const recentPutDown = useMemo(
+    () => putDownIds.flatMap((id) => {
+      const s = sessions.get(id);
+      return s && isListedSession(s) && s.status !== 'ended' ? [s] : [];
+    }),
+    [sessions, putDownIds],
+  );
 
   // Rooms that have at least one session in the current active list
   const activeSessionIds = useMemo(() => {
@@ -187,13 +205,14 @@ export function useSessionStrip(
       recentIds: recentIdsKey && !searching ? recentIdsKey.split('\n') : [],
       showPinned: !pinnedRoomHidden && !searching,
       showCentral: showCentral && !searching,
+      keepRecent: recentPutDown.length > 0 && !searching,
     }),
-    [matchedSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden, showCentral, searching],
+    [matchedSessions, sortedSessions, rooms, sessionSortMode, recentIdsKey, pinnedRoomHidden, showCentral, searching, recentPutDown.length],
   );
 
   return {
     sortedSessions, sessionIndexMap, currentIndex, activeSessionIds, availableRooms,
-    filteredSessions, matchedSessions, searching, items, recentHasMore,
+    filteredSessions, matchedSessions, searching, items, recentHasMore, recentPutDown,
   };
 }
 

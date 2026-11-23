@@ -106,6 +106,9 @@ export interface StripItemsInput {
   /** Draw the CENTRAL frame (Rooms view only). The desktop strip and the phone's
    *  list (By room) both draw it. */
   showCentral?: boolean;
+  /** Draw RECENT even when it lists nothing: sessions are put down from it today and its header puts them back
+   *  (Nov 23 2026). */
+  keepRecent?: boolean;
 }
 
 /**
@@ -114,7 +117,7 @@ export interface StripItemsInput {
  * room or project frame below, and both take from `filtered`, so the room filter
  * narrows them too.
  */
-function builtinFrames(filtered: Session[], recentIds: readonly string[], showPinned: boolean): StripItem[] {
+function builtinFrames(filtered: Session[], recentIds: readonly string[], showPinned: boolean, keepRecent = false): StripItem[] {
   const frames: StripItem[] = [];
   if (showPinned) {
     const pinned = filtered.filter((s) => s.pinned);
@@ -128,6 +131,7 @@ function builtinFrames(filtered: Session[], recentIds: readonly string[], showPi
     });
     if (recent.length > 0) frames.push({ type: 'recent', sessions: recent });
   }
+  if (keepRecent && !frames.some((f) => f.type === 'recent')) frames.push({ type: 'recent', sessions: [] });
   return frames;
 }
 
@@ -147,7 +151,7 @@ function builtinFrames(filtered: Session[], recentIds: readonly string[], showPi
  * room-less one does.
  */
 export function buildStripItems({
-  filtered, all, rooms, mode, recentIds, showPinned = false, showCentral = false,
+  filtered, all, rooms, mode, recentIds, showPinned = false, showCentral = false, keepRecent = false,
 }: StripItemsInput): StripItem[] {
   if (mode === 'activity') {
     return filtered.map((session) => ({ type: 'session', session }));
@@ -158,7 +162,7 @@ export function buildStripItems({
     // room filter lets through: otherwise filtering recolours projects that did not change.
     const { groups, ungrouped } = groupSessionsByProject(filtered, ROOM_COLOR_PALETTE.length, all);
     return [
-      ...builtinFrames(filtered, recentIds, showPinned),
+      ...builtinFrames(filtered, recentIds, showPinned, keepRecent),
       ...groups.map((group): StripItem => ({ type: 'project', group, color: ROOM_COLOR_PALETTE[group.colorIndex] })),
       ...ungrouped.map((session): StripItem => ({ type: 'session', session })),
     ];
@@ -178,7 +182,7 @@ export function buildStripItems({
     if (centrals.length > 0) items.push({ type: 'central', sessions: centrals });
   }
 
-  items.push(...builtinFrames(filtered, recentIds, showPinned));
+  items.push(...builtinFrames(filtered, recentIds, showPinned, keepRecent));
 
   // listOrder is the LIST's own order, independent of roomIndex (the 3D scene's
   // world-space room slot; see Room.roomIndex). Falling back to roomIndex, then

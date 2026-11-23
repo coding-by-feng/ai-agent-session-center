@@ -7,7 +7,8 @@
 
 .tooltip {
   position: fixed;
-  z-index: 10000;
+  /* Above every portaled menu and popup that opens a hint (base.css --z-portal-tooltip). */
+  z-index: var(--z-portal-tooltip, 10200);
   /* Its own width, not what is left right of its last `left`: a tooltip reopened near the
      right edge was measured narrow and crept left a few px each re-render (Oct 29 2026). */
   width: max-content;

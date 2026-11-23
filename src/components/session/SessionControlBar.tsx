@@ -113,7 +113,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
     toggleAlert(session.sessionId);
     if (alerted) {
       alertSession(session.sessionId);
-      showToast('Alert ON — loud sounds for approval & completion', 'success');
+      showToast('Alert ON — loud sound, a glowing card and a notification when it finishes or needs you', 'success');
     } else {
       unalertSession(session.sessionId);
       showToast('Alert OFF', 'info');

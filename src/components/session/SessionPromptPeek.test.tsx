@@ -97,12 +97,18 @@ describe('SessionPromptPeek — Summary', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('shows the summary the session carries, with its age, and no button while it is current', () => {
+  it('shows the summary the session carries, with its age, and offers Resummarize while it is current (Nov 23 2026)', async () => {
     render(<SessionPromptPeek session={live({ recap: { state: 'done', text: '• Built the skill\n• Deployed', at: NOW - 2 * 60_000, promptAt: NOW - 60 * 60_000 } })} />);
     const block = screen.getByRole('region', { name: 'Summary' });
     expect(block.textContent).toContain('2m ago');
     expect(block.textContent).toContain('• Built the skill');
-    expect(screen.queryByRole('button')).toBeNull();
+    expect(block.textContent).not.toContain('before your last prompt');
+    const again = screen.getByRole('button', { name: 'Summarize this session again' });
+    expect(again.textContent).toBe('Resummarize');
+    fireEvent.click(again);
+    expect(fetch).toHaveBeenCalledWith('/api/sessions/s1/recap', { method: 'POST' });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Summarizing/ })).toBeDisabled());
+    expect(screen.getByRole('region', { name: 'Summary' }).textContent).toContain('• Built the skill');
   });
 
   it('offers Update once a newer prompt was typed', () => {

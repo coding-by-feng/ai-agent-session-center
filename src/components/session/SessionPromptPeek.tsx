@@ -16,7 +16,8 @@
  * replies only). The run and its answer live on the session (`Session.recap`), not in this
  * component, so they survive the peek closing and show on every device. Never asked on hover:
  * each run spends tokens. Once made it is shown on every hover; "Update" appears when a newer
- * prompt was typed. Full desktop only (`IS_LITE` hides the button).
+ * prompt was typed, and "Resummarize" while it is current (Nov 23 2026: the person can ask for a
+ * fresh one at any time). Full desktop only (`IS_LITE` hides the button).
  *
  * A central session (server/mcp) also gets one ★ line saying what it can reach and how many
  * workers it runs: the card's star is the star alone (Oct 26 2026), so its scope lives here.
@@ -68,13 +69,13 @@ export default function SessionPromptPeek({ session }: { session: Session }) {
       .catch(() => showToast('Couldn’t reach the Mac to summarize this session.', 'error'))
       .finally(() => setAsking(false));
   };
-  // One button, named for what a click does now; none while the summary is current.
+  // One button, named for what a click does now; a current summary can be made again (Nov 23 2026).
   const action = running ? { label: 'Summarizing…', name: 'Summarizing this session' }
     : !recap ? { label: 'Summary', name: 'Summarize what this session has done' }
     : recap.state === 'error' ? { label: 'Try again', name: 'Try the summary again' }
     : stale ? { label: 'Update', name: 'Update the summary' }
-    : null;
-  const showAction = !IS_LITE && prompts.length > 0 && action !== null;
+    : { label: 'Resummarize', name: 'Summarize this session again' };
+  const showAction = !IS_LITE && prompts.length > 0;
   const recapAge = recap ? promptAge(recap.at, now) : '';
   return (
     <div className={styles.peek}>
