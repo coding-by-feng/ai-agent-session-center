@@ -39,6 +39,8 @@ import { transcribeAudio } from './dictation.js';
 import { dbHandle } from '../db.js';
 import { runPrint } from '../claudePrint.js';
 import type { SqlDatabase } from '../mcp/activity.js';
+import type { SettingChange } from '../mcp/runtimeChange.js';
+import { settingNote } from './voiceText.js';
 import { createCallMemory, memoryBlock } from './callMemory.js';
 import { extractFromCall, EXTRACT_CLAUDE_ARGS, EXTRACT_TIMEOUT_MS } from './callMemoryExtract.js';
 import { createMemoryRouter } from './memoryRouter.js';
@@ -166,7 +168,9 @@ const toProgressSession = (s: Session): ProgressSession => ({
 
 export interface ServerVoiceOptions {
   /** A central's tasks from the task ledger (server/mcp), for the call's progress; none when centrals are off. */
-  tasks?(centralId: string): ReadonlyArray<{ sessionId: string; state: McpTaskState; createdAt: number }>;
+  tasks?(centralId: string): ReadonlyArray<{ taskId?: string; sessionId: string; state: McpTaskState; createdAt: number }>;
+  /** Every model or effort change reaching a final state (server/mcp/runtimeChange.ts); none when centrals are off. */
+  settingChanges?(listener: (change: SettingChange) => void): () => void;
 }
 
 export function createServerVoice(options: ServerVoiceOptions = {}): ServerVoice {
@@ -189,6 +193,38 @@ export function createServerVoice(options: ServerVoiceOptions = {}): ServerVoice
     if (kept.used.length > 0) memory.touch(kept.used);
     return briefing({ request, sessions: contextSessions(isLocal), skills: catalogSkills(), now: Date.now(), memory: kept.text });
   };
+
+  /** The Voice central now, or null. */
+  const brainCentral = (): string | null => {
+    const found = isMcpEnabled() ? findBrain(bDeps) : null;
+    return found && 'centralId' in found ? found.centralId : null;
+  };
+
+  /** The sessions the Voice central gave work to since `startedAt`, session id → its newest task id. */
+  const touchedSince = (startedAt: number) => (): ReadonlyMap<string, string | null> => {
+    const centralId = brainCentral();
+    if (centralId === null) return new Map();
+    const tasks = (options.tasks?.(centralId) ?? []).filter((t) => t.createdAt >= startedAt);
+    return new Map([...tasks].sort((a, b) => a.createdAt - b.createdAt).map((t) => [t.sessionId, t.taskId ?? null]));
+  };
+
+  /** Lines for the call when a change the Voice central asked for is final, for sessions this caller may see. */
+  const settingNotes = (isLocal: boolean) => options.settingChanges
+    ? (listener: (text: string) => void) => options.settingChanges!((c) => {
+        if (c.state !== 'confirmed' && c.state !== 'not-applied' && c.state !== 'expired') return;
+        if (c.centralId !== brainCentral()) return;
+        const s = getSession(c.sessionId);
+        if (!s || !canSeeSession(isLocal, s)) return;
+        listener(settingNote({
+          own: c.self,
+          title: sessionDisplayTitle(s),
+          kind: c.kind,
+          value: c.value,
+          applied: c.state === 'confirmed',
+          reason: c.reason,
+        }));
+      })
+    : undefined;
 
   /** After a call: propose what it taught (callMemoryExtract.ts); never in the way of the call itself. */
   const learnFrom = (call: VoiceCall, startedAt: number, isLocal: boolean): void => {
@@ -224,6 +260,8 @@ export function createServerVoice(options: ServerVoiceOptions = {}): ServerVoice
       asksPerMinute: owner.isLocal ? undefined : PHONE_PROMPTS_PER_MINUTE,
       sessions: () => digestSessions(owner.isLocal),
       briefing: (request) => briefingFor(request, owner.isLocal),
+      touched: touchedSince(startedAt),
+      ...(options.settingChanges ? { onNote: settingNotes(owner.isLocal) } : {}),
       onSessionsChanged: (listener) => onBroadcast((m) => {
         if (SESSION_MESSAGES.has((m as { type?: string }).type ?? '')) listener();
       }),

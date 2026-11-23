@@ -77,7 +77,8 @@ describe('readingFromTranscript', () => {
       '{not json',
       '',
     ]);
-    expect(r).toEqual({ model: 'claude-opus-5-5', modelAt: at(1) });
+    // "Kept model as" changes nothing; since Nov 23 2026 it is stamped, so a requested change can be called not applied.
+    expect(r).toEqual({ model: 'claude-opus-5-5', modelAt: at(1), modelKeptAt: at(5) });
   });
 
   it('says nothing about a transcript with neither signal', () => {
@@ -351,5 +352,58 @@ describe('context-window usage (status line)', () => {
     expect(runtimeVisiblyChanged(a, { ...a, context: { pct: 42, tokens: 9 }, contextAt: 2 })).toBe(true);
     expect(runtimeVisiblyChanged(a, { ...a, contextAt: 2 })).toBe(false);
     expect(runtimeVisiblyChanged(a, { model: 'Opus 5.5', modelAt: 1, contextAt: 2 })).toBe(true);
+  });
+});
+
+/** The other form Claude Code writes (about half of all results, 2.1.287–2.1.330): two `user` lines. */
+function userCommand(command: 'model' | 'effort', args: string, s: number): string {
+  return JSON.stringify({
+    type: 'user', isSidechain: false, timestamp: T(s),
+    message: { role: 'user', content: `<command-name>/${command}</command-name>\n            <command-message>${command}</command-message>\n            <command-args>${args}</command-args>` },
+  });
+}
+function userStdout(stdout: string, s: number): string {
+  return JSON.stringify({
+    type: 'user', isSidechain: false, timestamp: T(s),
+    message: { role: 'user', content: `<local-command-stdout>${stdout}</local-command-stdout>` },
+  });
+}
+
+describe('readingFromTranscript — the user-line form and kept results (Nov 23 2026)', () => {
+  it('reads /model and /effort written as a command line then its output line', () => {
+    const r = readingFromTranscript([
+      userCommand('model', 'opus', 1),
+      userStdout('Set model to `Opus 5.5` and saved as your default for new sessions', 1),
+      userCommand('effort', 'low', 2),
+      userStdout('Set effort level to low (saved as your default for new sessions): Quick, straightforward implementation', 2),
+    ]);
+    expect(r).toMatchObject({ model: 'Opus 5.5', launchModel: 'opus', launchModelAt: at(1), effort: 'low', effortAt: at(2), effortSet: true });
+  });
+
+  it('output with no command line before it is not taken for /model', () => {
+    const r = readingFromTranscript([
+      userCommand('model', 'opus', 1),
+      JSON.stringify({ type: 'user', isSidechain: false, timestamp: T(2), message: { role: 'user', content: 'hello' } }),
+      userStdout('Set model to `Opus 5.5` and saved as your default for new sessions', 3),
+    ]);
+    expect(r.launchModel).toBeUndefined();
+  });
+
+  it('records "Kept model as" and "Kept effort level as", in either form, without changing the model or effort', () => {
+    const r = readingFromTranscript([
+      assistant('claude-sonnet-5-5', 1),
+      localCommand('model', 'Kept model as `Sonnet 5.5`', 2, 'opus'),
+      userCommand('effort', 'low', 3),
+      userStdout('Kept effort level as high', 3),
+    ]);
+    expect(r).toMatchObject({ model: 'claude-sonnet-5-5', modelKeptAt: at(2), effortKeptAt: at(3) });
+    expect(r.launchModel).toBeUndefined();
+    expect(r.effort).toBeUndefined();
+  });
+
+  it('mergeRuntime keeps the newest kept time', () => {
+    const merged = mergeRuntime({ model: 'Opus 5.5', modelAt: at(1), modelKeptAt: at(5) }, { modelKeptAt: at(3), effortKeptAt: at(4) });
+    expect(merged).toMatchObject({ modelKeptAt: at(5), effortKeptAt: at(4) });
+    expect(mergeRuntime({ modelKeptAt: at(5) }, { modelKeptAt: at(5) })).toBeNull();
   });
 });

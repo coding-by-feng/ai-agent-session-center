@@ -451,3 +451,32 @@ select.input { appearance: auto; }
 .call-mini-central[data-state="needs_you"] { color: var(--warn); font-weight: 600; }
 .call-progress + .hint { margin-top: 8px; }
 .call-line.call-central { background: var(--info-bg); border-color: var(--info-border); }
+/* A Central reply's on-screen part (Nov 23 2026, miniMarkdown.ts): tables and code scroll inside their own box, never
+   the screen; cells keep whole words (the line's overflow-wrap: anywhere would squeeze a column to one letter). */
+.call-md { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; min-width: 0; color: var(--text); }
+.call-md p, .call-md ul, .call-md ol, .call-md blockquote, .call-md pre { margin: 0; }
+.call-md ul, .call-md ol { padding-left: 1.25em; display: flex; flex-direction: column; gap: 2px; }
+.call-md ul { list-style: disc; }
+.call-md ol { list-style: decimal; }
+.call-md-h { font-weight: 700; }
+.call-md blockquote { padding-left: 8px; border-left: 3px solid var(--border-strong); color: var(--text-muted); }
+.call-md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; padding: 1px 4px; border-radius: 4px; background: var(--surface-2); }
+.call-md pre { max-width: 100%; overflow-x: auto; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); overflow-wrap: normal; }
+.call-md pre code { padding: 0; background: none; font-size: 0.85em; white-space: pre; }
+.call-md-table { max-width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+/* A box that scrolls says so: a shade at the edge with more to see (it slides away at the end), not on the edge you're at. */
+.call-md-table, .call-md pre {
+  background:
+    linear-gradient(to right, var(--md-bg) 40%, transparent) left / 20px 100% no-repeat local,
+    linear-gradient(to left, var(--md-bg) 40%, transparent) right / 20px 100% no-repeat local,
+    linear-gradient(to right, var(--md-shade), transparent) left / 12px 100% no-repeat scroll,
+    linear-gradient(to left, var(--md-shade), transparent) right / 12px 100% no-repeat scroll,
+    var(--md-bg);
+}
+.call-md-table { --md-bg: var(--surface); --md-shade: color-mix(in srgb, var(--text) 18%, transparent); }
+.call-md pre { --md-bg: var(--surface-2); --md-shade: color-mix(in srgb, var(--text) 18%, transparent); }
+.call-md-table:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.call-md table { border-collapse: collapse; font-size: 0.9em; font-variant-numeric: tabular-nums; }
+.call-md th, .call-md td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 4ch; max-width: 16em; }
+.call-md th { font-weight: 600; background: var(--surface-2); white-space: nowrap; }
+.call-md tbody tr:last-child td { border-bottom: none; }

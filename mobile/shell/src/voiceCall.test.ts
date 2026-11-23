@@ -142,6 +142,18 @@ describe('parseProgress', () => {
   });
 });
 
+describe('a reply\'s on-screen part (Nov 23 2026)', () => {
+  it('parseProgress keeps a string screen part and drops anything else', () => {
+    expect(parseProgress({ central: null, tasks: [], replies: [{ at: 1, text: 'hi', screen: '| a |\n| - |' }, { at: 2, text: 'x', screen: 7 }] })?.replies)
+      .toEqual([{ at: 1, text: 'hi', screen: '| a |\n| - |' }, { at: 2, text: 'x' }]);
+  });
+
+  it('addCentralReplies carries it onto the Central line', () => {
+    const { lines } = addCentralReplies([], [], [{ at: 9, text: 'Two changes.', screen: '- one\n- two' }]);
+    expect(lines).toEqual([{ role: 'central', text: 'Two changes.', screen: '- one\n- two' }]);
+  });
+});
+
 describe('centralOnScreen', () => {
   it('puts the elapsed time on this phone’s clock', () => {
     expect(centralOnScreen({ title: 'Voice', state: 'working', step: 'Thinking', elapsedMs: 3_000 }, 10_000))

@@ -52,6 +52,19 @@ describe('createTurnGate (Nov 22 2026: no spoken update over the person)', () =>
     ]);
   });
 
+  it('says held notes after the status line, in order (a finished session’s result follows its "finished")', () => {
+    const gate = createTurnGate();
+    gate.heard(0);
+    gate.push({ kind: 'note', content: 'It fixed the redirect.' }, 10);
+    gate.push({ kind: 'status', finished: ['A'], needsUser: [] }, 20);
+    gate.push({ kind: 'note', content: 'Your central now runs on low effort.' }, 30);
+    expect(gate.due(QUIET_MS)).toEqual([
+      { delegationId: null, content: 'AASC update: "A" has finished.' },
+      { delegationId: null, content: 'It fixed the redirect.' },
+      { delegationId: null, content: 'Your central now runs on low effort.' },
+    ]);
+  });
+
   it('says both kinds in one line', () => {
     const gate = createTurnGate();
     gate.heard(0);

@@ -21,7 +21,7 @@ import type { LiveEvent, Sideband } from './liveApi.js';
 import type { CallReply } from './callProgress.js';
 import { createTranscriptLog, type TranscriptLine } from './transcriptLog.js';
 import { createTurnGate, type TurnUpdate } from './turnGate.js';
-import { BRAIN_CONTEXT_MAX, brainPrompt, toSpeakable } from './voiceText.js';
+import { BRAIN_CONTEXT_MAX, brainPrompt, finishPrompt, splitScreen, toSpeakable } from './voiceText.js';
 
 /** A call with no speech for this long hangs up: GPT-Live bills every minute, silence included. */
 export const IDLE_MS = 10 * 60_000;
@@ -58,6 +58,14 @@ export interface VoiceCallDeps {
   /** voiceContext.ts: what the Voice central is told with these words (sessions, skills, how to act); '' for nothing. */
   briefing?(request: string): string;
   onSessionsChanged(listener: () => void): () => void;
+  /**
+   * The sessions this call gave work to (the Voice central's tasks since the call began), session id → its task id.
+   * When one of them finishes, the Voice central is asked what it did and found, and the call says that (Nov 23 2026);
+   * any other session that finishes is only named.
+   */
+  touched?(): ReadonlyMap<string, string | null>;
+  /** Lines AASC tells the call without being asked (a model or effort change the CLI confirmed). */
+  onNote?(listener: (text: string) => void): () => void;
   now?: () => number;
   idleMs?: number;
   /** Test seam for REATTACH_DELAYS_MS. */
@@ -150,10 +158,41 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     changesSince = null;
     if (!active) return;
     const next = deps.sessions();
-    const { finished, needsUser } = statusChanges(statuses, next);
+    const { finished, finishedIds, needsUser } = statusChanges(statuses, next);
     statuses = new Map(next.map((s) => [s.sessionId, s.status]));
     sendDigest();
     if (finished.length > 0 || needsUser.length > 0) say({ kind: 'status', finished, needsUser });
+    const touched = touchedNow();
+    finishedIds.forEach((id, i) => {
+      if (touched.has(id)) summarize(finished[i], touched.get(id) ?? null);
+    });
+  }
+
+  function touchedNow(): ReadonlyMap<string, string | null> {
+    try {
+      return deps.touched?.() ?? new Map();
+    } catch (err) {
+      log.warn('voice', `Reading the call's sessions failed: ${err instanceof Error ? err.message : String(err)}`);
+      return new Map();
+    }
+  }
+
+  /** Asks the Voice central what a session this call gave work to did and found, and says it (held while the person talks). */
+  function summarize(title: string, taskId: string | null): void {
+    work = work.then(async () => {
+      if (!active) return;
+      try {
+        busySince = now();
+        const answer = await deps.brain.ask((tag) => finishPrompt({ title, taskId, tag }), { isLocal: deps.isLocal, signal: aborter.signal });
+        const { speech, screen } = splitScreen(answer);
+        replies = [...replies, { at: now(), text: speech, ...(screen ? { screen } : {}) }].slice(-REPLIES_KEPT);
+        if (active) say({ kind: 'note', content: toSpeakable(speech) });
+      } catch (err) {
+        log.warn('voice', `A finished session's summary failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        busySince = null;
+      }
+    });
   }
 
   function onSessionsChanged(): void {
@@ -201,8 +240,10 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
           const brief = briefingFor(request);
           busySince = now();
           const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag, briefing: brief }), { isLocal: deps.isLocal, signal: aborter.signal });
-          replies = [...replies, { at: now(), text: answer }].slice(-REPLIES_KEPT);
-          content = toSpeakable(answer);
+          // Only the spoken part is said; the on-screen part (a table, code) goes to the call screen (Nov 23 2026).
+          const { speech, screen } = splitScreen(answer);
+          replies = [...replies, { at: now(), text: speech, ...(screen ? { screen } : {}) }].slice(-REPLIES_KEPT);
+          content = toSpeakable(speech);
         }
       } catch (err) {
         log.warn('voice', `A delegation failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -280,7 +321,10 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     }, delay);
   }
 
-  const unsubscribers = [deps.onSessionsChanged(onSessionsChanged)];
+  const unsubscribers = [
+    deps.onSessionsChanged(onSessionsChanged),
+    ...(deps.onNote ? [deps.onNote((text) => { if (active && text.trim()) say({ kind: 'note', content: text }); })] : []),
+  ];
 
   function finish(reason: string): void {
     if (!active) return;

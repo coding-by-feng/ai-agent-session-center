@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildCallProgress, centralState, REPLY_TEXT_MAX, stepPhrase, TASKS_SHOWN, type ProgressCentral, type ProgressTask,
+  buildCallProgress, centralState, REPLY_SCREEN_MAX, REPLY_SCREEN_LINES, REPLY_TEXT_MAX, stepPhrase, TASKS_SHOWN, type ProgressCentral, type ProgressTask,
 } from '../../server/voice/callProgress.js';
 
 const central = (over: Partial<ProgressCentral> = {}): ProgressCentral => ({
@@ -196,5 +196,21 @@ describe('collectCallProgress', () => {
     };
     expect(collectCallProgress({ ...base, central: { centralId: 'c1', sessionId: 'x' }, canSee: () => false }).central).toBeNull();
     expect(collectCallProgress({ ...base, central: null, canSee: () => true }).central).toBeNull();
+  });
+});
+
+describe('a reply\'s on-screen part (Nov 23 2026)', () => {
+  const view = (screen: string) => buildCallProgress({ central: null, busySince: null, callStartedAt: 0, now: 1, tasks: [], replies: [{ at: 1, text: 'Two changes.', screen }] });
+
+  it('is sent beside the spoken words, trimmed, and left out when there is none', () => {
+    expect(view('  | a | b |\n| - | - |  ').replies[0]).toEqual({ at: 1, text: 'Two changes.', screen: '| a | b |\n| - | - |' });
+    expect(buildCallProgress({ central: null, busySince: null, callStartedAt: 0, now: 1, tasks: [], replies: [{ at: 1, text: 'x' }] }).replies[0]).toEqual({ at: 1, text: 'x' });
+  });
+
+  it('is capped by characters and by lines', () => {
+    expect(view('y'.repeat(REPLY_SCREEN_MAX + 10)).replies[0].screen?.length).toBe(REPLY_SCREEN_MAX);
+    const lines = view(Array.from({ length: REPLY_SCREEN_LINES + 30 }, (_, i) => `line ${i}`).join('\n')).replies[0].screen ?? '';
+    expect(lines.split('\n')).toHaveLength(REPLY_SCREEN_LINES + 1);
+    expect(lines.endsWith('…')).toBe(true);
   });
 });

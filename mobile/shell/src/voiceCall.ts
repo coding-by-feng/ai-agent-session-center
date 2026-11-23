@@ -90,6 +90,8 @@ export function callEventEffect(event: unknown): CallEffect | null {
 export interface CallTranscriptLine {
   role: CallRole;
   text: string;
+  /** A Central line's on-screen part: Markdown the voice never says (server voiceText.ts `splitScreen`, Nov 23 2026). */
+  screen?: string;
 }
 
 /** The screen keeps this many lines. */
@@ -165,7 +167,7 @@ export function centralOnScreen(c: CentralProgress | null, readAt: number): Cent
 export interface CallProgress {
   central: CentralProgress | null;
   tasks: Array<{ title: string; state: TaskState }>;
-  replies: Array<{ at: number; text: string }>;
+  replies: Array<{ at: number; text: string; screen?: string }>;
 }
 
 const CENTRAL_STATES: readonly string[] = ['working', 'needs_you', 'idle', 'offline'];
@@ -191,8 +193,8 @@ export function parseProgress(data: unknown): CallProgress | null {
       .map((t) => ({ title: t.title, state: t.state }))
     : [];
   const replies = Array.isArray(data.replies)
-    ? data.replies.filter((r): r is { at: number; text: string } => isObj(r) && isFiniteNum(r.at) && typeof r.text === 'string')
-      .map((r) => ({ at: r.at, text: r.text }))
+    ? data.replies.filter((r): r is { at: number; text: string; screen?: unknown } => isObj(r) && isFiniteNum(r.at) && typeof r.text === 'string')
+      .map((r) => ({ at: r.at, text: r.text, ...(typeof r.screen === 'string' && r.screen.trim() !== '' ? { screen: r.screen } : {}) }))
     : [];
   return { central, tasks, replies };
 }
@@ -216,7 +218,7 @@ export function addCentralReplies(
   const fresh = replies.filter((r) => !seen.includes(r.at) && r.text.trim() !== '');
   if (fresh.length === 0) return { lines, seen };
   return {
-    lines: [...lines, ...fresh.map((r) => ({ role: 'central' as const, text: r.text }))].slice(-max),
+    lines: [...lines, ...fresh.map((r) => ({ role: 'central' as const, text: r.text, ...(r.screen ? { screen: r.screen } : {}) }))].slice(-max),
     seen: [...seen, ...fresh.map((r) => r.at)],
   };
 }

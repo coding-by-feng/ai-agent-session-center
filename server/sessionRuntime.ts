@@ -9,9 +9,15 @@
  *   `model` and `effort.level`, the live values — including the level Claude restores
  *   for a model after a switch. But the status line only re-runs on a reply, `/compact`
  *   and a few other triggers; `/model` and `/effort` are not among them.
- * - **Transcript**: `/model` and `/effort` write a `system`/`local_command` line the
- *   moment they run ("Set model to `Opus 5.5` …", "Set effort level to max …"), and
- *   every reply carries the ID of the model that answered it.
+ * - **Transcript**: `/model` and `/effort` write their result the moment they run ("Set
+ *   model to `Opus 5.5` …", "Set effort level to max …"), and every reply carries the ID
+ *   of the model that answered it. The result comes in one of two forms, about half each
+ *   (Claude Code 2.1.287–2.1.330, Nov 23 2026): a `system`/`local_command` line with
+ *   `commandRun`, or a `user` line `<command-name>/model</command-name>…<command-args>`
+ *   followed by a `user` line holding `<local-command-stdout>`. Both are read.
+ *   "Kept model as …" / "Kept effort level as …" (the CLI's "Switch model?" question was
+ *   answered No, or the switch failed) change nothing but are stamped as
+ *   `modelKeptAt` / `effortKeptAt`, so a requested change can be called not applied.
  *
  * Effort is saved per model, so a model switch makes the last effort reading wrong:
  * a switch with no effort of its own clears it until the status line says what it is.
@@ -40,6 +46,9 @@ export interface RuntimeReading {
   effortAt?: number;
   /** `effort` came from an explicit `/effort`. */
   effortSet?: boolean;
+  /** When the CLI last kept its model / effort instead of switching (see the module notes). */
+  modelKeptAt?: number;
+  effortKeptAt?: number;
   /** `null` = known to be unknown (no usage reported at `contextAt`). */
   context?: SessionContextUsage | null;
   contextAt?: number;
@@ -50,6 +59,13 @@ const MAX_LABEL_CHARS = 80;
 const EFFORT_RE = /^[a-z]{2,16}$/;
 const SET_MODEL_RE = /Set model to `([^`]{1,200})`/;
 const SET_EFFORT_RE = /Set effort level to ([a-z]{2,16})\b/;
+/** A `/model` or `/effort` that changed nothing: the switch question answered No, or a refusal. */
+const KEPT_MODEL_RE = /^(?:Kept model as |Kept the model|Couldn't switch model|Model switch cancelled)/;
+const KEPT_EFFORT_RE = /^(?:Kept effort level as |Not applied: CLAUDE_CODE_EFFORT_LEVEL|Couldn't set effort level)/;
+/** The user-line form: the command, its arguments, its output. */
+const COMMAND_NAME_RE = /<command-name>\/?(model|effort)<\/command-name>/;
+const COMMAND_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
+const STDOUT_RE = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
 
 const clip = (s: string): string => s.slice(0, MAX_LABEL_CHARS);
 
@@ -60,7 +76,7 @@ interface TranscriptLine {
   timestamp?: unknown;
   content?: unknown;
   commandRun?: { command?: unknown; args?: unknown } | null;
-  message?: { model?: unknown } | null;
+  message?: { model?: unknown; content?: unknown } | null;
   /** Codex rollouts: `{ type: 'turn_context', payload: { model, effort } }`, and
    *  `{ type: 'event_msg', payload: { type: 'token_count', info } }`. */
   payload?: { model?: unknown; effort?: unknown; type?: unknown; info?: unknown } | null;
@@ -87,8 +103,12 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
   let launchModelAt: number | undefined;
   let context: SessionContextUsage | undefined;
   let contextAt: number | undefined;
+  let modelKeptAt: number | undefined;
+  let effortKeptAt: number | undefined;
   // A `/model` menu pick prints only a display name; the next reply names the model.
   let awaitingPickedModel = false;
+  // The user-line form: the command line seen, waiting for its output line.
+  let pendingCommand: { command: 'model' | 'effort'; args: string } | null = null;
 
   const setLaunchModel = (next: string | undefined, when: number): void => {
     if (next === undefined) return;
@@ -107,6 +127,42 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
     modelAt = when;
   };
 
+  /** A `/model` or `/effort` result, in either transcript form. */
+  const commandResult = (command: 'model' | 'effort', rawArgs: string, content: string, when: number): void => {
+    const out = (STDOUT_RE.exec(content)?.[1] ?? content).trim();
+    if (command === 'model') {
+      if (KEPT_MODEL_RE.test(out)) {
+        modelKeptAt = when;
+        return;
+      }
+      const m = SET_MODEL_RE.exec(out);
+      if (!m) return;
+      // With no earlier model on record we cannot tell a switch from a no-op, and a
+      // stale effort is worse than none: treat it as a switch.
+      if (model === undefined) {
+        effort = null;
+        effortAt = when;
+        effortSet = false;
+      }
+      setModel(m[1], when);
+      // `/model opusplan` launches as `opusplan`, whatever model then answers.
+      const args = rawArgs ? modelFlagFromLabel(rawArgs) : undefined;
+      setLaunchModel(args ?? modelFlagFromLabel(m[1]), when);
+      awaitingPickedModel = args === undefined;
+      return;
+    }
+    if (KEPT_EFFORT_RE.test(out)) {
+      effortKeptAt = when;
+      return;
+    }
+    const m = SET_EFFORT_RE.exec(out);
+    if (m) {
+      effort = m[1];
+      effortAt = when;
+      effortSet = true;
+    }
+  };
+
   for (const line of lines) {
     const entry = parseLine(line);
     if (!entry || entry.isSidechain === true) continue;
@@ -115,29 +171,26 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
 
     if (entry.type === 'system' && entry.subtype === 'local_command' && typeof entry.content === 'string') {
       const command = entry.commandRun?.command;
-      if (command === 'model') {
-        const m = SET_MODEL_RE.exec(entry.content);
-        if (m) {
-          // With no earlier model on record we cannot tell a switch from a no-op, and a
-          // stale effort is worse than none: treat it as a switch.
-          if (model === undefined) {
-            effort = null;
-            effortAt = when;
-            effortSet = false;
-          }
-          setModel(m[1], when);
-          // `/model opusplan` launches as `opusplan`, whatever model then answers.
-          const args = typeof entry.commandRun?.args === 'string' ? modelFlagFromLabel(entry.commandRun.args) : undefined;
-          setLaunchModel(args ?? modelFlagFromLabel(m[1]), when);
-          awaitingPickedModel = args === undefined;
-        }
-      } else if (command === 'effort') {
-        const m = SET_EFFORT_RE.exec(entry.content);
-        if (m) {
-          effort = m[1];
-          effortAt = when;
-          effortSet = true;
-        }
+      if (command === 'model' || command === 'effort') {
+        commandResult(command, typeof entry.commandRun?.args === 'string' ? entry.commandRun.args : '', entry.content, when);
+      }
+      continue;
+    }
+
+    if (entry.type === 'user' && typeof entry.message?.content === 'string') {
+      const text = entry.message.content;
+      const named = COMMAND_NAME_RE.exec(text);
+      const output = STDOUT_RE.test(text);
+      if (named) {
+        const command = named[1] as 'model' | 'effort';
+        const args = COMMAND_ARGS_RE.exec(text)?.[1].trim() ?? '';
+        pendingCommand = output ? null : { command, args };
+        if (output) commandResult(command, args, text, when);
+      } else if (output && pendingCommand) {
+        commandResult(pendingCommand.command, pendingCommand.args, text, when);
+        pendingCommand = null;
+      } else {
+        pendingCommand = null;
       }
       continue;
     }
@@ -167,6 +220,7 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
     }
 
     if (entry.type === 'assistant') {
+      pendingCommand = null;
       const id = entry.message?.model;
       if (typeof id === 'string' && id && !id.startsWith('<')) {
         setModel(id, when);
@@ -198,6 +252,8 @@ export function readingFromTranscript(lines: readonly string[]): RuntimeReading 
     reading.context = context;
     reading.contextAt = contextAt;
   }
+  if (modelKeptAt !== undefined) reading.modelKeptAt = modelKeptAt;
+  if (effortKeptAt !== undefined) reading.effortKeptAt = effortKeptAt;
   return reading;
 }
 
@@ -318,6 +374,9 @@ export function mergeRuntime(prev: SessionRuntime | undefined, r: RuntimeReading
       : { ...rest, effortAt: r.effortAt };
   }
 
+  if (r.modelKeptAt !== undefined && r.modelKeptAt > (next.modelKeptAt ?? 0)) next = { ...next, modelKeptAt: r.modelKeptAt };
+  if (r.effortKeptAt !== undefined && r.effortKeptAt > (next.effortKeptAt ?? 0)) next = { ...next, effortKeptAt: r.effortKeptAt };
+
   if (r.contextAt !== undefined && r.contextAt >= (next.contextAt ?? 0)) {
     const { context: _dropped, ...rest } = next;
     next = r.context ? { ...rest, context: r.context, contextAt: r.contextAt } : { ...rest, contextAt: r.contextAt };
@@ -327,7 +386,8 @@ export function mergeRuntime(prev: SessionRuntime | undefined, r: RuntimeReading
     && prev.model === next.model && prev.modelAt === next.modelAt
     && prev.launchModel === next.launchModel && prev.launchModelAt === next.launchModelAt
     && prev.effort === next.effort && prev.effortAt === next.effortAt && prev.effortSet === next.effortSet
-    && sameContext(prev.context, next.context) && prev.contextAt === next.contextAt;
+    && sameContext(prev.context, next.context) && prev.contextAt === next.contextAt
+    && prev.modelKeptAt === next.modelKeptAt && prev.effortKeptAt === next.effortKeptAt;
   return same ? null : next;
 }
 

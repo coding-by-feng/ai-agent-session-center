@@ -27,6 +27,7 @@ import { isInScope } from '../../server/mcp/scope.js';
 import { ALL_TOOLSETS, ToolError, WAITS_FOR_PERSON, type CentralKind, type CentralRecord } from '../../server/mcp/types.js';
 import { createWorkerRegistry, workersFor, type WorkerRegistry } from '../../server/mcp/workers.js';
 import { fakeBus } from './centralFixtures.js';
+import type { RuntimeChangeBox } from '../../server/mcp/runtimeChange.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -211,6 +212,8 @@ export interface CtxOptions {
    * allowed passes a box it sets. Never allowed by default.
    */
   allowedByPerson?: () => boolean;
+  /** The model/effort change box `ctx.settings` is (server/mcp/runtimeChange.ts); none by default. */
+  settings?: RuntimeChangeBox;
 }
 
 export interface Harness {
@@ -285,6 +288,7 @@ export function makeCtx(opts: CtxOptions = {}): Harness {
     mayEnd: (session) => assertMayEnd(central, session, { ...railsOf(), isLocked: (id: string) => lockedByAnother(ledger, id) }),
     allowedByPerson: opts.allowedByPerson ?? (() => false),
     confirms: harnessConfirms(central.centralId, confirmBook, () => ctx, opts.signal),
+    ...(opts.settings ? { settings: opts.settings } : {}),
   };
   return { ctx, client, bus, sessions, rooms, confirmBook };
 }

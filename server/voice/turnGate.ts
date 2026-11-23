@@ -8,7 +8,8 @@
 //   heard(at)        the person said something (an input-transcript delta arrived)
 //   push(update, at) an update is ready: back at once when the person is quiet, else held
 //   due(at)          what may be said now: held answers first, in order, each for its own delegation, then one
-//                    status line merged from every held change (each title once, its newest state)
+//                    status line merged from every held change (each title once, its newest state), then held notes
+//                    (a finished session's result, a confirmed setting), in order
 //
 // QUIET_MS is the transcript's own turn pause (transcriptLog.ts PAUSE_MS): a hesitation shorter than that stays
 // one turn. Nothing held is ever dropped by time; only clear() (the call ended) drops it. Pure: the call owns the timer.
@@ -20,6 +21,8 @@ export const QUIET_MS = PAUSE_MS;
 
 export type TurnUpdate =
   | { kind: 'answer'; delegationId: string; content: string }
+  /** Something AASC tells without being asked: a finished session's result, a setting the CLI confirmed. */
+  | { kind: 'note'; content: string }
   | { kind: 'status'; finished: readonly string[]; needsUser: readonly string[] };
 
 export interface SaidUpdate {
@@ -61,8 +64,9 @@ function merge(statuses: ReadonlyArray<Extract<TurnUpdate, { kind: 'status' }>>)
 
 function release(held: readonly TurnUpdate[]): SaidUpdate[] {
   const answers = held.flatMap((u) => (u.kind === 'answer' ? [{ delegationId: u.delegationId, content: u.content }] : []));
+  const notes = held.flatMap((u) => (u.kind === 'note' ? [{ delegationId: null, content: u.content }] : []));
   const statuses = held.filter((u): u is Extract<TurnUpdate, { kind: 'status' }> => u.kind === 'status');
-  return [...answers, ...merge(statuses)];
+  return [...answers, ...merge(statuses), ...notes];
 }
 
 export function createTurnGate(quietMs: number = QUIET_MS): TurnGate {

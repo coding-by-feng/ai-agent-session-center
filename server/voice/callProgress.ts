@@ -19,6 +19,9 @@ export const TASKS_SHOWN = 5;
 
 /** A reply longer than this is cut with an ellipsis (the voice reads it whole). */
 export const REPLY_TEXT_MAX = 2_000;
+/** A reply's on-screen part: at most this many characters and lines reach the phone. */
+export const REPLY_SCREEN_MAX = 6_000;
+export const REPLY_SCREEN_LINES = 200;
 
 export type CentralState = 'working' | 'needs_you' | 'idle' | 'offline';
 
@@ -41,6 +44,8 @@ export interface ProgressTask {
 export interface CallReply {
   at: number;
   text: string;
+  /** Markdown for the call screen only, never spoken (voiceText.ts `splitScreen`, Nov 23 2026). */
+  screen?: string;
 }
 
 export interface CallProgressView {
@@ -143,6 +148,13 @@ function clip(text: string): string {
   return t.length > REPLY_TEXT_MAX ? `${t.slice(0, REPLY_TEXT_MAX - 1)}…` : t;
 }
 
+function clipScreen(screen: string): string {
+  const t = screen.replace(/^\s*\n/, '').trim();
+  const lines = t.split('\n');
+  const kept = lines.length > REPLY_SCREEN_LINES ? `${lines.slice(0, REPLY_SCREEN_LINES).join('\n')}\n…` : t;
+  return kept.length > REPLY_SCREEN_MAX ? `${kept.slice(0, REPLY_SCREEN_MAX - 1)}…` : kept;
+}
+
 function centralView(c: ProgressCentral, busySince: number | null, now: number): NonNullable<CallProgressView['central']> {
   const fromStatus = centralState(c.status);
   // A question handed over is work in progress even before the central's first hook arrives.
@@ -165,7 +177,10 @@ export function buildCallProgress(input: CallProgressInput): CallProgressView {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, TASKS_SHOWN)
       .map((t) => ({ title: t.title, state: TASK_STATES[t.state] })),
-    replies: input.replies.map((r) => ({ at: r.at, text: clip(r.text) })),
+    replies: input.replies.map((r) => {
+      const screen = r.screen ? clipScreen(r.screen) : '';
+      return { at: r.at, text: clip(r.text), ...(screen ? { screen } : {}) };
+    }),
   };
 }
 

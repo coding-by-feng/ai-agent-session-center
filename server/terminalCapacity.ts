@@ -22,14 +22,15 @@
  */
 
 /** Agent terminals allowed at once — the user-facing session ceiling. */
-export const MAX_SESSIONS = 50;
+export const MAX_SESSIONS = 100;
 
 /**
  * Hard PTY ceiling across every terminal kind (agent, ops, tmux attach).
- * Sized so the session budget always binds first: 50 sessions x 2 PTYs each,
- * plus headroom for tmux attaches and floating forks.
+ * Sized so the session budget always binds first: 100 sessions x 2 PTYs each,
+ * plus headroom for tmux attaches and floating forks (well under macOS's
+ * kern.tty.ptmx_max of 511).
  */
-export const MAX_TERMINALS = 130;
+export const MAX_TERMINALS = 230;
 
 /** Minimal shape needed to account for a terminal — satisfied by TerminalInfo. */
 export interface CapacityTerminal {

@@ -96,6 +96,18 @@ describe('startVoiceCall', () => {
     expect(call.replies()).toEqual([{ at: 11_000, text: 'v2.10.80 adds **phone dictation**.' }]);
   });
 
+  it('says only the spoken part; the on-screen part goes to the replies for the call screen (Nov 23 2026)', async () => {
+    ask.mockResolvedValue('It found two changes.\n[[screen]]\n| Change | Words |\n| --- | --- |\n| Cover | 6 |');
+    vi.setSystemTime(10_000);
+    const call = startVoiceCall({ ...deps, now: Date.now });
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'what changed', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000 + QUIET_MS);
+    const said = sb.ofType('session.commentary.append').map((e) => e.content);
+    expect(said).toEqual(['It found two changes.']);
+    expect(call.replies()).toEqual([{ at: expect.any(Number), text: 'It found two changes.', screen: '| Change | Words |\n| --- | --- |\n| Cover | 6 |' }]);
+  });
+
   it('keeps no reply for a failed question', async () => {
     ask.mockRejectedValue(new Error('boom'));
     const call = startVoiceCall(deps);
@@ -154,6 +166,63 @@ describe('startVoiceCall', () => {
     expect(String(said[0].content)).toContain('Codex review');
     expect(String(said[0].content)).toMatch(/finished/);
     expect(sb.ofType('session.thinking.append').length).toBe(2);
+  });
+
+  describe('results, not just "finished" (Nov 23 2026)', () => {
+    it('asks the Voice central what a session this call gave work to found, and says it after the status line', async () => {
+      ask.mockImplementation(async () => 'Codex review fixed the **login redirect** and all 42 tests pass.');
+      startVoiceCall({ ...deps, touched: () => new Map([['a', 'T7']]) });
+      await vi.advanceTimersByTimeAsync(0);
+      sessions = [sess('a', 'waiting', 'Codex review')];
+      changed?.();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(ask).toHaveBeenCalledTimes(1);
+      const line = asked(0);
+      expect(line).toContain('[AASC · voice q1]');
+      expect(line).toContain('"Codex review" (task T7: task_get has its answer) just finished');
+      expect(line).toContain('Do not start new work');
+      const said = sb.ofType('session.commentary.append').map((e) => e.content);
+      expect(said).toEqual([
+        'AASC update: "Codex review" has finished.',
+        'Codex review fixed the login redirect and all 42 tests pass.',
+      ]);
+    });
+
+    it('only names a session the call did not touch: no Voice-central turn for it', async () => {
+      startVoiceCall({ ...deps, touched: () => new Map([['other', null]]) });
+      await vi.advanceTimersByTimeAsync(0);
+      sessions = [sess('a', 'waiting', 'Codex review')];
+      changed?.();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(ask).not.toHaveBeenCalled();
+      expect(sb.ofType('session.commentary.append')).toHaveLength(1);
+    });
+
+    it('a failed summary costs only the summary: the status line was said', async () => {
+      ask.mockImplementation(async () => { throw new Error('central gone'); });
+      startVoiceCall({ ...deps, touched: () => new Map([['a', null]]) });
+      await vi.advanceTimersByTimeAsync(0);
+      sessions = [sess('a', 'waiting', 'Codex review')];
+      changed?.();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sb.ofType('session.commentary.append').map((e) => e.content)).toEqual(['AASC update: "Codex review" has finished.']);
+    });
+
+    it('says a note AASC sends (a confirmed setting), held while the person talks, and stops listening at the end', async () => {
+      let note: ((text: string) => void) | null = null;
+      const call = startVoiceCall({ ...deps, onNote: (l) => { note = l; return () => { note = null; }; } });
+      await vi.advanceTimersByTimeAsync(0);
+      sb.emit({ type: 'session.input_transcript.delta', delta: 'and then', start_ms: 0, end_ms: 1 });
+      note!('AASC update: your central now runs on low effort; the CLI confirmed it.');
+      expect(sb.ofType('session.commentary.append')).toEqual([]);
+      await vi.advanceTimersByTimeAsync(QUIET_MS);
+      expect(sb.ofType('session.commentary.append')).toEqual([
+        expect.objectContaining({ delegation_id: null, content: 'AASC update: your central now runs on low effort; the CLI confirmed it.' }),
+      ]);
+      call.end();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(note).toBeNull();
+    });
   });
 
   describe('turn-taking (Nov 22 2026): no spoken update over the person', () => {

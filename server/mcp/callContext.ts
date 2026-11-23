@@ -248,5 +248,6 @@ export function contextFor(
     ...(deliver ? steering(central, deps, deliver, ledger, inScope, audit) : unwiredSteering),
     allowedByPerson,
     confirms: confirmsFor(central.centralId, deps, signal, runApproved),
+    ...(deliver?.settings ? { settings: deliver.settings } : {}),
   };
 }

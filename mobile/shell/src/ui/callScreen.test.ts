@@ -75,3 +75,20 @@ describe('renderCall: the Voice central', () => {
     expect(el.querySelector('.call-progress')).toBeNull();
   });
 });
+
+describe('renderCall: a Central line with an on-screen part (Nov 23 2026)', () => {
+  it('draws the spoken words, then the table and code under them; other lines stay plain text', () => {
+    const el = renderCall(call({
+      lines: [
+        { role: 'you', text: '**not markdown** | a |' },
+        { role: 'central', text: 'It found two changes.', screen: '| Change | Words |\n| --- | --- |\n| Cover | 6 |\n\n```\nnpm run build\n```' },
+      ],
+    }), mac, ctx);
+    const central = el.querySelector('.call-central');
+    expect(text(central?.querySelector('.call-text') ?? null)).toBe('It found two changes.');
+    expect(central?.querySelector('.call-md table th')?.textContent).toBe('Change');
+    expect(central?.querySelector('.call-md pre code')?.textContent).toBe('npm run build');
+    expect(el.querySelector('.call-you .call-md')).toBeNull();
+    expect(text(el.querySelector('.call-you .call-text'))).toBe('**not markdown** | a |');
+  });
+});

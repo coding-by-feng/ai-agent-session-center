@@ -20,13 +20,12 @@
 import { z } from 'zod';
 import { ROBOT_MODEL_TYPES } from '../../../src/lib/robotModelMeta.js';
 import type { Session } from '../../../src/types/session.js';
-import { isEffortFor } from '../openWorker.js';
 import type { ToolContext, ToolDef, ToolResult } from '../registry.js';
-import { toSessionCard } from '../scope.js';
 import { titleRefusal } from '../titleRule.js';
-import { ToolError, type CliKind } from '../types.js';
+import type { SettingKind } from '../runtimeChange.js';
+import { ToolError } from '../types.js';
 import { defineTool, refOf, resolveTarget, seg, SESSION_REF, unwrap } from './define.js';
-import { sendPrompts, sendSummary } from './promptSend.js';
+import { assertValue, boxOf, changeAnswer, cliOf, ownCard, workerCheck, WORKER_WAIT_MS } from './settingChange.js';
 
 /** The rule every setter applies, as its description tells it (Ruling 65). */
 const CARD_RULE =
@@ -218,49 +217,40 @@ const setShared = defineTool({
 });
 
 // ---------------------------------------------------------------------------
-// session_set_model, session_set_effort (Ruling P3-17)
+// session_set_model, session_set_effort (Ruling P3-17; Nov 23 2026: typed when free, confirmed from the CLI's record)
 // ---------------------------------------------------------------------------
-
-/** A model name as the CLI takes it after `/model` (openWorker.ts's spec takes the same). */
-const MODEL = /^[a-zA-Z0-9._-]{1,100}$/;
 
 /** The rails a steer applies, as the two descriptions tell them (Ruling 65). */
 const STEER_RULE =
-  'The steering rails apply: never a hands-off session, another central or your own, an ended one or one without a ' +
-  'terminal; not within a minute of the person driving it, nor while a central’s task holds it (BUSY).';
+  'The steering rails apply: never a hands-off session, another central, an ended one or one without a terminal; ' +
+  'not within a minute of the person driving it, nor while a central’s task holds it (BUSY). For your own session ' +
+  'use central_set_runtime.';
 
-/** The CLI the card runs; INVALID when AASC does not know it (it could not tell what that CLI takes). */
-function cliOfCard(ctx: ToolContext, id: string): CliKind {
-  const cli = toSessionCard(resolveTarget(ctx, id), ctx.rooms()).cli;
-  if (cli === null) {
-    throw new ToolError(
-      'INVALID',
-      'AASC does not know which agent that session runs.',
-      'Model and effort are set in Claude Code and Codex sessions only.',
-    );
+/** Schedules one change in a worker (runtimeChange.ts) and answers how far it got within WORKER_WAIT_MS. */
+async function setWorker(ctx: ToolContext, ref: string, kind: SettingKind, value: string): Promise<ToolResult> {
+  const s = resolveTarget(ctx, ref);
+  if (ownCard(ctx)?.sessionId === s.sessionId) {
+    throw new ToolError('INVALID', 'That is your own session.', 'Use central_set_runtime to change your own model or effort.');
   }
-  return cli;
-}
-
-/** Types a safe built-in with its choice into the session the way command_run does, and answers its outcome. */
-async function sendBuiltin(ctx: ToolContext, ref: string, command: string, choice: string, field: Record<string, string>): Promise<ToolResult> {
-  const outcome = await sendPrompts(ctx, { refs: [ref], text: `${command} ${choice}`, images: [], mode: 'now', tookWords: `Ran ${command}.` });
-  const [r] = outcome.results;
-  return {
-    data: {
-      sessionId: r.sessionId,
-      shortId: r.shortId,
-      ...field,
-      key: r.key,
-      accepted: r.accepted,
-      code: r.code,
-      reason: r.reason,
-      error: r.error,
-      hint: r.hint,
-    },
-    summary: sendSummary(ctx, outcome, command),
-    activity: outcome.notes,
-  };
+  const cli = cliOf(ctx, s);
+  assertValue(kind, value, cli);
+  ctx.mayDrive(s);
+  const box = boxOf(ctx);
+  if (!s.terminalId) throw new ToolError('INVALID', 'That session has no terminal to type into.', 'Pick another session.');
+  const change = box.schedule({
+    centralId: ctx.central.centralId,
+    sessionId: s.sessionId,
+    terminalId: s.terminalId,
+    cli,
+    kind,
+    value,
+    self: false,
+    check: workerCheck(ctx, s.sessionId),
+  });
+  // A free session is usually confirmed within seconds; a busy one is not waited for.
+  const free = s.status === 'idle' || s.status === 'waiting';
+  const now = free ? ((await box.waitFor(change.changeId, WORKER_WAIT_MS, ctx.signal)) ?? change) : change;
+  return changeAnswer(ctx, [now]);
 }
 
 const setModel = defineTool({
@@ -268,25 +258,19 @@ const setModel = defineTool({
   toolset: 'sessions',
   title: 'Switch a session’s model',
   description:
-    'Switches the model a Claude Code or Codex session runs, by typing /model <model> into it; AASC records the ' +
-    `change on its card once the CLI has made it. ${STEER_RULE} prompt_status with the key says how the typing ended.`,
+    'Switches the model a Claude Code or Codex session runs, when the person asks for it. AASC types /model <model> ' +
+    'into it once it is free (its turn over, no dialog, nobody typing there), then checks the CLI recorded it: the ' +
+    'answer says scheduled, typed, confirmed or not applied, and only confirmed means done. Mid-conversation Claude ' +
+    'Code asks "Switch model?" (the next reply re-reads the whole history: slower, more tokens); AASC answers Yes for ' +
+    'the model asked for. Claude Code also saves the model as the person’s default for new sessions. ' +
+    `${STEER_RULE}`,
   risk: 'steers',
   phase: 3,
   input: {
     id: SESSION_REF,
     model: z.string().min(1).max(100).describe('The model as the CLI names it (sonnet, opus, gpt-5): letters, digits, . _ -.'),
   },
-  async run(args, ctx) {
-    if (!MODEL.test(args.model)) {
-      throw new ToolError(
-        'INVALID',
-        'A model name is letters, digits, dots, dashes and underscores only.',
-        'Pass the model as the CLI names it (sonnet, opus).',
-      );
-    }
-    cliOfCard(ctx, args.id);
-    return sendBuiltin(ctx, args.id, '/model', args.model, { model: args.model });
-  },
+  run: (args, ctx) => setWorker(ctx, args.id, 'model', args.model),
 });
 
 const setEffort = defineTool({
@@ -295,21 +279,14 @@ const setEffort = defineTool({
   title: 'Set a session’s effort',
   description:
     'Sets the reasoning effort of a Claude Code session (low, medium, high, xhigh, max, ultracode) or a Codex one ' +
-    `(minimal, low, medium, high, xhigh), by typing /effort <effort> into it. ${STEER_RULE} prompt_status with the ` +
-    'key says how the typing ended.',
+    '(minimal, low, medium, high, xhigh), when the person asks for it. AASC types /effort <effort> once the session is ' +
+    'free, then checks the CLI recorded it: only confirmed means done. Mid-conversation Claude Code may ask "Change ' +
+    'effort level?" first (the next reply re-reads the history); AASC answers Yes for the effort asked for. ' +
+    `${STEER_RULE}`,
   risk: 'steers',
   phase: 3,
   input: { id: SESSION_REF, effort: z.string().min(1).max(20).describe('The effort, one the session’s CLI takes.') },
-  async run(args, ctx) {
-    if (!isEffortFor(cliOfCard(ctx, args.id), args.effort)) {
-      throw new ToolError(
-        'INVALID',
-        'That is not an effort the session’s CLI takes.',
-        'Claude: low, medium, high, xhigh, max, ultracode. Codex: minimal, low, medium, high, xhigh.',
-      );
-    }
-    return sendBuiltin(ctx, args.id, '/effort', args.effort, { effort: args.effort });
-  },
+  run: (args, ctx) => setWorker(ctx, args.id, 'effort', args.effort),
 });
 
 export const cardTools: readonly ToolDef[] = [

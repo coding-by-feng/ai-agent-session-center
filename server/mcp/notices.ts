@@ -5,7 +5,9 @@
 //   - a task of its own reaching done, failed or cancelled (the ledger's changes);
 //   - one of its confirmations answered (allowed, denied or expired) after its first call had already answered
 //     NEEDS_CONFIRMATION (`decidedAt − createdAt ≥ ASK_WAIT_MS`). A withdrawn one is not: its central has left. One
-//     allowed and then carried out (`consumed`, or forgotten by the book) is dropped when the batch is built.
+//     allowed and then carried out (`consumed`, or forgotten by the book) is dropped when the batch is built;
+//   - a model or effort change it asked for reaching confirmed or not applied (runtimeChange.ts), its own or a
+//     worker's: the value is a checked model name or effort, never free text.
 //
 // Every NOTICE_TICK_MS a central with something to tell is typed one line, only when all of these hold, in this order:
 //   1. `mcp.notices` is on (`on()`; default off, Ruling P5-19: a notice starts a paid model turn nobody asked for);
@@ -43,6 +45,7 @@ import { hasEnabledItem } from './ownIdle.js';
 import { MCP_CLIENT_PREFIX } from './policy.js';
 import type { QueueItemLike } from './queueOps.js';
 import { waitsOnPerson } from './tools/views.js';
+import type { RuntimeChangeBox, SettingChange } from './runtimeChange.js';
 import type { CentralRecord } from './types.js';
 import type { WorkerController } from './workers.js';
 
@@ -67,6 +70,8 @@ const OPENING = 'Since your last turn: ';
 const CLOSING = '. If you already handled these, there is nothing to do.';
 const TASK_ID = /^T\d{1,9}$/;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+/** A model or effort as runtimeChange.ts takes it (sessionCard.ts `MODEL`; an effort is a word of that shape). */
+const SETTING_VALUE = /^[a-zA-Z0-9._-]{1,100}$/;
 const CONFIRM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CLOSED = new Set(['done', 'failed', 'cancelled']);
 const IDLE = new Set(['idle', 'waiting']);
@@ -77,6 +82,8 @@ export interface NoticeDeps {
   sessions(): readonly Session[];
   ledger: Pick<Ledger, 'onChange' | 'isLocked'>;
   confirms: Pick<ConfirmBook, 'onChange' | 'forCentral'>;
+  /** Model and effort changes (runtimeChange.ts); none on a box built without them. */
+  settings?: Pick<RuntimeChangeBox, 'onChange'>;
   onTerminalHook(terminalId: string, listener: (signal: HookSignal) => void): () => void;
   /** Who drove the session last (presence), or null. */
   controller(sessionId: string): WorkerController | null;
@@ -98,12 +105,27 @@ export interface NoticeBox {
 
 type NoticeItem =
   | { readonly kind: 'task'; readonly taskId: string; readonly state: string; readonly session: string; readonly at: number }
-  | { readonly kind: 'confirm'; readonly confirmId: string; readonly tool: string; readonly state: string; readonly at: number };
+  | { readonly kind: 'confirm'; readonly confirmId: string; readonly tool: string; readonly state: string; readonly at: number }
+  | {
+      readonly kind: 'setting';
+      readonly setting: 'model' | 'effort';
+      readonly value: string;
+      readonly applied: boolean;
+      readonly own: boolean;
+      readonly session: string;
+      readonly at: number;
+    };
 
 /** A session id as the notice names it: its first 8 letters and digits, or '' when it has none. */
 const shortId = (sessionId: string): string => sessionId.replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
 
 function phrase(item: NoticeItem): string {
+  if (item.kind === 'setting') {
+    const where = item.own ? 'your own session' : `#${item.session}`;
+    return item.applied
+      ? `the CLI in ${where} confirmed /${item.setting} ${item.value}`
+      : `/${item.setting} ${item.value} was not applied in ${where} (the activity log on the Mac says why)`;
+  }
   if (item.kind === 'task') {
     const where = item.session === '' ? '' : ` in #${item.session}`;
     if (item.state === 'done') return `${item.taskId} done${where} (task_get ${item.taskId} has its answer)`;
@@ -161,7 +183,22 @@ export function createNoticeBox(deps: NoticeDeps): NoticeBox {
     add(r.centralId, { kind: 'confirm', confirmId: r.confirmId, tool, state: r.state, at: deps.now() });
   };
 
+  const onSetting = (c: SettingChange): void => {
+    if (closed || !deps.on() || (c.state !== 'confirmed' && c.state !== 'not-applied' && c.state !== 'expired')) return;
+    if (!SETTING_VALUE.test(c.value)) return;
+    add(c.centralId, {
+      kind: 'setting',
+      setting: c.kind,
+      value: c.value,
+      applied: c.state === 'confirmed',
+      own: c.self,
+      session: shortId(c.sessionId),
+      at: deps.now(),
+    });
+  };
+
   const stopLedger = deps.ledger.onChange(onTask);
+  const stopSettings = deps.settings?.onChange(onSetting) ?? (() => undefined);
   const stopConfirms = deps.confirms.onChange((e) => {
     if (e.kind === 'resolved') onConfirm(e.confirm);
   });
@@ -324,6 +361,7 @@ export function createNoticeBox(deps: NoticeDeps): NoticeBox {
       clearInterval(timer);
       stopLedger();
       stopConfirms();
+      stopSettings();
       for (const stop of hooks.values()) stop();
       hooks.clear();
       held = new Map();

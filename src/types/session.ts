@@ -416,6 +416,10 @@ export interface SessionRuntime {
   effortAt?: number;
   /** The effort came from an explicit `/effort` (not a status-line report). */
   effortSet?: boolean;
+  /** When the CLI last answered `/model` / `/effort` by keeping what it had ("Kept model as …"):
+   *  its "Switch model?" question was answered No, or the switch failed (Nov 23 2026). */
+  modelKeptAt?: number;
+  effortKeptAt?: number;
   /** How full the context window is, from Claude Code's status line. Absent = not
    *  reported yet (no reply since launch or `/clear`), never "0%". */
   context?: SessionContextUsage;

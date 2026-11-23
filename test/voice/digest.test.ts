@@ -63,12 +63,12 @@ describe('statusChanges', () => {
       s({ sessionId: 'c', title: 'C', status: 'waiting' }),
       s({ sessionId: 'd', title: 'D', status: 'working' }),
     ];
-    expect(statusChanges(prev, next)).toEqual({ finished: ['A'], needsUser: ['B'] });
+    expect(statusChanges(prev, next)).toEqual({ finished: ['A'], finishedIds: ['a'], needsUser: ['B'] });
   });
 
   it('ignores centrals and sessions it never saw', () => {
     const prev = new Map([['a', 'working']]);
     const next = [s({ sessionId: 'a', isCentral: true, status: 'waiting' }), s({ sessionId: 'z', status: 'waiting' })];
-    expect(statusChanges(prev, next)).toEqual({ finished: [], needsUser: [] });
+    expect(statusChanges(prev, next)).toEqual({ finished: [], finishedIds: [], needsUser: [] });
   });
 });

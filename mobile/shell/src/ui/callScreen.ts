@@ -4,6 +4,7 @@
 // own replies in the transcript as "Central" lines. The remote audio plays from an element outside this screen, so redrawing it every
 // second does not interrupt the sound. Each button has an id, so a redraw keeps focus on it (app.ts render).
 import type { SavedMac } from '../savedMacs.js';
+import { renderMiniMarkdown } from './miniMarkdown.js';
 import { formatDuration, type CentralState, type TaskState } from '../voiceCall.js';
 import { h } from './dom.js';
 import { actions, alert, button, para, screen, status } from './parts.js';
@@ -24,7 +25,9 @@ function transcript(s: CallScreen): HTMLElement | null {
   return h('ol', { class: 'call-transcript', attrs: { 'aria-label': 'Transcript', 'aria-live': 'polite' } },
     ...s.lines.map((l) => h('li', { class: `call-line call-${l.role}` },
       h('span', { class: 'call-who' }, WHO[l.role]),
-      h('span', { class: 'call-text' }, l.text.trim()))));
+      h('span', { class: 'call-text' }, l.text.trim()),
+      // The Voice central's table, code or list for this reply: shown, never spoken (miniMarkdown.ts).
+      l.role === 'central' && l.screen ? renderMiniMarkdown(l.screen) : null)));
 }
 
 /** "Working · 0:52": the clock only while it is on this call's question. */

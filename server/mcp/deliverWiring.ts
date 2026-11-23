@@ -37,7 +37,7 @@ import { isAgentProcessName } from '../mobile/phoneProfile.js';
 import { getController } from '../presenceManager.js';
 import { createServerPromptSubmitter } from '../promptWiring.js';
 import { getAllSessions, getSession, resolveSessionId } from '../sessionStore.js';
-import { getForegroundProcess, isOpsTerminal, onTerminalExit } from '../sshManager.js';
+import { getForegroundProcess, isOpsTerminal, onTerminalExit, readTerminalScreenCells, writeToTerminal } from '../sshManager.js';
 import { createActivityLog, type SqlDatabase } from './activity.js';
 import { contextFor, neverAborted, withoutToken } from './callContext.js';
 import { onHandsOffTurnedOn, releaseOnHandsOff, stopCentralRun, type CentralRunDeps } from './centralRun.js';
@@ -54,6 +54,8 @@ import type { QueueItemLike } from './queueOps.js';
 import type { ToolContext } from './registry.js';
 import { startRerouter } from './rerouter.js';
 import { createNoticeBox } from './notices.js';
+import { hasEnabledItem } from './ownIdle.js';
+import { createRuntimeChangeBox } from './runtimeChange.js';
 import { noticesOn } from './routerConfig.js';
 import type { McpDeps } from './server.js';
 import { isRecord } from './tools/define.js';
@@ -148,13 +150,34 @@ export function createServerDeliver(
     sessions,
   });
 
+  const settings = createRuntimeChangeBox({
+    sessions,
+    controller: getController,
+    hasRoom: (terminalId) => submitter.hasRoom(terminalId),
+    submit: (req) => submitter.submit(req),
+    queueWillSend: async (sessionId) => {
+      const { items, automation } = queueState(sessionId);
+      const stored = isRecord(automation) ? automation : {};
+      return stored.autoSend !== false && hasEnabledItem(items);
+    },
+    activity,
+    now: Date.now,
+    // Claude Code's "Switch model?" question is read off the screen and answered with one key (runtimeChange.ts).
+    screen: async (terminalId) => {
+      const cells = await readTerminalScreenCells(terminalId);
+      return cells ? cells.map((row) => row.map((cell) => cell.ch).join('').trimEnd()) : null;
+    },
+    press: (terminalId, keys) => writeToTerminal(terminalId, keys),
+  });
+  const runtimeWithSettings: DeliverRuntime = { ...runtime, settings };
+
   const mcp: McpDeps = {
     registry,
     client,
     sessions,
     rooms: options.rooms ?? (() => []),
     events: createEventHub(() => () => undefined),
-    deliver: runtime,
+    deliver: runtimeWithSettings,
     workers,
   };
   const contextOf = (centralId: string): ToolContext | null => {
@@ -182,6 +205,7 @@ export function createServerDeliver(
         sessions,
         ledger,
         confirms,
+        settings,
         onTerminalHook,
         controller: getController,
         readQueue: async (sessionId) => queueState(sessionId),
@@ -192,8 +216,9 @@ export function createServerDeliver(
       })
     : null;
   return {
-    ...runtime,
+    ...runtimeWithSettings,
     close() {
+      settings.close();
       notices?.close();
       stopRerouter();
       cleanup.close();

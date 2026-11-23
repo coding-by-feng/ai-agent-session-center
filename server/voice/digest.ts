@@ -75,6 +75,8 @@ export function buildDigest(sessions: readonly DigestSession[], now: number): st
 export interface StatusChanges {
   /** Titles of sessions that went from working to finished. */
   finished: string[];
+  /** Their session ids, in the same order. */
+  finishedIds: string[];
   /** Titles of sessions that now wait on an approval or a question. */
   needsUser: string[];
 }
@@ -82,13 +84,17 @@ export interface StatusChanges {
 /** What changed since `prev` (session id → status) worth saying aloud. Sessions not in `prev` are skipped. */
 export function statusChanges(prev: ReadonlyMap<string, string>, next: readonly DigestSession[]): StatusChanges {
   const finished: string[] = [];
+  const finishedIds: string[] = [];
   const needsUser: string[] = [];
   for (const s of next) {
     if (s.isCentral) continue;
     const before = prev.get(s.sessionId);
     if (before === undefined || before === s.status) continue;
     if (NEEDS_USER.has(s.status) && !NEEDS_USER.has(before)) needsUser.push(s.title);
-    else if (s.status === 'waiting' && BUSY.has(before)) finished.push(s.title);
+    else if (s.status === 'waiting' && BUSY.has(before)) {
+      finished.push(s.title);
+      finishedIds.push(s.sessionId);
+    }
   }
-  return { finished, needsUser };
+  return { finished, finishedIds, needsUser };
 }

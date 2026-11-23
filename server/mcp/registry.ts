@@ -19,6 +19,7 @@ import type { Ledger } from './ledger.js';
 import { toolsByToolset } from './tools/index.js';
 import { ALL_TOOLSETS, WAITS_FOR_PERSON, type CentralRecord, type Phase, type Risk, type Toolset } from './types.js';
 import type { WorkersView } from './workers.js';
+import type { RuntimeChangeBox } from './runtimeChange.js';
 
 /** The last phase this build exposes (types.ts says what each phase brings). */
 export { MCP_MAX_PHASE } from './types.js';
@@ -192,6 +193,8 @@ export interface ToolContext {
   allowedByPerson(): boolean;
   /** The calling central's confirmations (confirm.ts): `confirm_wait` waits on one and carries it out. */
   confirms: ToolConfirms;
+  /** Model and effort changes (runtimeChange.ts); absent on a server without the P2 runtime. */
+  settings?: RuntimeChangeBox;
 }
 
 export interface ToolDef {

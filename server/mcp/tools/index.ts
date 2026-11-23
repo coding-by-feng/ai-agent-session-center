@@ -30,6 +30,7 @@ import { skillNoteTools } from './skillNotes.js';
 import { snippetTools } from './snippets.js';
 import { systemTools } from './system.js';
 import { memoryTools } from './memory.js';
+import { centralRuntimeTools } from './centralRuntime.js';
 import { taskTools } from './tasks.js';
 
 export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Object.freeze({
@@ -47,5 +48,5 @@ export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Obj
   notes: noteTools,
   agenda: agendaTools,
   cloud: cloudTools,
-  system: [...systemTools, ...memoryTools],
+  system: [...systemTools, ...memoryTools, ...centralRuntimeTools],
 });

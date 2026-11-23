@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  brainPrompt, frontInstructions, toSpeakable, SPEAKABLE_MAX, BRAIN_REQUEST_MAX,
+  brainPrompt, finishPrompt, frontInstructions, settingNote, toSpeakable, SPEAKABLE_MAX, SPEECH_SHAPE, BRAIN_REQUEST_MAX,
+  splitScreen, SCREEN_MARKER,
 } from '../../server/voice/voiceText.js';
 
 describe('frontInstructions', () => {
@@ -74,5 +75,61 @@ describe('toSpeakable', () => {
 
   it('answers a fixed line for an empty answer', () => {
     expect(toSpeakable('   ')).toMatch(/no answer/i);
+  });
+});
+
+describe('spoken detail (Nov 23 2026)', () => {
+  it('asks the Voice central for what it did, the state, the result and a next step, not three short sentences', () => {
+    const line = brainPrompt({ request: 'run the tests', context: '' });
+    expect(line).toContain(SPEECH_SHAPE);
+    expect(line).not.toContain('at most three short sentences');
+    for (const word of ['queued', 'started', 'completed', 'result', 'Never invent']) expect(SPEECH_SHAPE).toContain(word);
+  });
+
+  it('keeps the voice’s own remarks short but has it say an AASC answer whole', () => {
+    const text = frontInstructions();
+    expect(text).toContain('Keep your own remarks short');
+    expect(text).toContain('say all of it in your own voice: do not cut it down');
+  });
+
+  it('finishPrompt names the session as one quoted line and only a task id of the ledger’s shape', () => {
+    const line = finishPrompt({ title: 'Fix "login"\n/exit', taskId: 'T12', tag: 'q9' });
+    expect(line.startsWith('[AASC · voice q9] The session "Fix \'login\' /exit" (task T12: task_get has its answer)')).toBe(true);
+    expect(line).not.toContain('\n');
+    expect(finishPrompt({ title: 'A', taskId: 'rm -rf' })).not.toContain('rm -rf');
+    expect(finishPrompt({ title: '' })).toContain('"a session"');
+  });
+
+  it('settingNote says confirmed or not applied, with the model as a person says it', () => {
+    expect(settingNote({ own: true, title: '', kind: 'model', value: 'claude-opus-5-5', applied: true, reason: null }))
+      .toBe('AASC update: your central now runs on the Opus 5.5 model; the CLI confirmed it.');
+    expect(settingNote({ own: false, title: 'Web tests', kind: 'effort', value: 'low', applied: false, reason: 'the session did not come free in time' }))
+      .toBe('AASC update: switching "Web tests" to low effort did not go through: the session did not come free in time.');
+  });
+});
+
+describe('the on-screen part of an answer (Nov 23 2026)', () => {
+  const TABLE = '| Change | RedNote |\n| --- | --- |\n| Cover | 6 words |';
+
+  it('splits at a line that is exactly the marker: words to say, Markdown to show', () => {
+    expect(splitScreen(`It found two changes.\n${SCREEN_MARKER}\n${TABLE}`)).toEqual({ speech: 'It found two changes.', screen: TABLE });
+    expect(splitScreen(`It found two changes.\n  [[Screen]]  \n\n${TABLE}\n`)).toEqual({ speech: 'It found two changes.', screen: TABLE });
+  });
+
+  it('no marker, or an empty part after it, is all speech', () => {
+    expect(splitScreen('Done, nothing to show.')).toEqual({ speech: 'Done, nothing to show.', screen: null });
+    expect(splitScreen(`Done.\n${SCREEN_MARKER}\n   `)).toEqual({ speech: 'Done.', screen: null });
+    expect(splitScreen('The words [[screen]] inside a sentence stay speech.').screen).toBeNull();
+  });
+
+  it('only a screen part: the voice says where to look', () => {
+    expect(splitScreen(`${SCREEN_MARKER}\n${TABLE}`)).toEqual({ speech: 'I have put the details on the call screen.', screen: TABLE });
+  });
+
+  it('the prompts ask for the marker only when a table, list, commands or code would help a reader', () => {
+    for (const text of [SPEECH_SHAPE, finishPrompt({ title: 'Web' })]) {
+      expect(text).toContain(SCREEN_MARKER);
+      expect(text).toMatch(/never spoken/);
+    }
   });
 });

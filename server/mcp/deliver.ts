@@ -17,6 +17,7 @@ import type { Ledger, TaskRecord, TaskState } from './ledger.js';
 import type { SessionController } from './policy.js';
 import { oneLine } from './tools/define.js';
 import { ToolError } from './types.js';
+import type { RuntimeChangeBox } from './runtimeChange.js';
 
 export interface DeliverRuntime {
   ledger: Ledger;
@@ -31,6 +32,8 @@ export interface DeliverRuntime {
   centralEscAt?(sessionId: string, terminalId: string | null): number | null;
   /** Every change of a task, as a view with no answer, prompt key or terminal. Returns the unsubscribe. */
   onTaskUpdate(listener: (task: McpTaskView) => void): () => void;
+  /** Model and effort changes typed when a session is free and confirmed from its record (runtimeChange.ts). */
+  settings?: RuntimeChangeBox;
   /** Stops the activity log's prune timer and the ledger's wiring to it. */
   close(): void;
 }

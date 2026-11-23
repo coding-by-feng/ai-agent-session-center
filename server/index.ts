@@ -760,7 +760,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // phone profile; it runs apiRouter's /sessions/:id visibility gate itself.
   const promptRouter = createServerPromptRouter();
   // Voice calls (Nov 15 2026): GPT-Live audio on the device, the Voice central doing the work (server/voice/).
-  const voice = createServerVoice({ tasks: (centralId) => mcpDeliver?.ledger.list({ centralId }) ?? [] });
+  const voice = createServerVoice({
+    tasks: (centralId) => mcpDeliver?.ledger.list({ centralId }) ?? [],
+    ...(mcpDeliver?.settings ? { settingChanges: (listener) => mcpDeliver.settings?.onChange(listener) ?? (() => undefined) } : {}),
+  });
   // Answering a waiting request from a card (AASC-43). Mounted before apiRouter with
   // apiRouter's own visibility gate, so it is gated whatever the mount order.
   const requestAnswer = createRequestAnswerRouter({
