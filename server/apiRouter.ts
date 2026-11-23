@@ -14,7 +14,8 @@ function str(val: unknown): string {
   return val != null ? String(val) : '';
 }
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setPinnedOrder, setSessionRecap, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionHookLevel, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
-import { config as serverConfig } from './serverConfig.js';
+import { config as serverConfig, CONFIG_PATH as SERVER_CONFIG_PATH } from './serverConfig.js';
+import { saveServerConfigKeys } from './mobile/accountEnrollSetting.js';
 import { getLocalIP } from './networkInfo.js';
 import { isShareNewSessionsOn, setShareNewSessions } from './shareDefault.js';
 import { isHeadless } from './edition.js';
@@ -90,6 +91,8 @@ import { clientRoleOf } from './clientRole.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 import type { Room } from '../src/types/room.js';
+import { opencodePluginInstalled, readAgyHookEvents } from '../hooks/install-extra-agents.js';
+import { agentKindOfCommand, extraAgentFreshLine, extraAgentResumeLine, withOpencodeStandalone } from '../src/lib/agentKinds.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
@@ -429,6 +432,17 @@ function buildResumeLine(session: { startupCommand?: string; sshCommand?: string
   // a UUID) would open Claude's interactive session picker and block the shell.
   const canUseSessionId = CLAUDE_SESSION_UUID_RE.test(sessionId);
 
+  // OpenCode / Antigravity CLI (Nov 23 2026): `opencode -s <id>` / `agy --conversation <id>`, falling back to a
+  // fresh start like the others. This line is typed into a live shell, past sshManager's launch hook, so
+  // OpenCode's `--standalone` (its hooks need it: agentKinds.ts) is added here too.
+  const extraKind = agentKindOfCommand(originalCmd);
+  if (extraKind === 'opencode' || extraKind === 'antigravity') {
+    const finish = (line: string) => (extraKind === 'opencode' ? withOpencodeStandalone(line) : line);
+    const fresh = finish(extraAgentFreshLine(extraKind, originalCmd));
+    const resume = extraAgentResumeLine(extraKind, sessionId, originalCmd);
+    return resume ? `${finish(resume)} || ${fresh}` : fresh;
+  }
+
   if (commandStartsWithCli(originalCmd, 'codex')) {
     let baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
     // The session's latest model + effort replace the ones baked into its launch command.
@@ -607,7 +621,7 @@ const tmuxSessionsSchema = z.object({
 
 const hookInstallSchema = z.object({
   density: z.enum(['high', 'medium', 'low']),
-  enabledClis: z.array(z.enum(['claude', 'codex'])).optional(),
+  enabledClis: z.array(z.enum(['claude', 'codex', 'opencode', 'antigravity'])).optional(),
 });
 
 const killSessionSchema = z.object({
@@ -927,10 +941,15 @@ router.get('/hooks/status', (_req: Request, res: Response) => {
     const codexLegacyNotify = /^\s*notify\s*=.*dashboard-hook/m.test(codexToml);
     const codexDensity = inferHookDensity(codexEvents, CODEX_DENSITY_EVENTS);
 
+    const opencodeInstalled = opencodePluginInstalled();
+    const agyEvents: string[] = readAgyHookEvents();
+
     const enabledClis = readEnabledClis();
     const installed = enabledClis.some(cli => {
       if (cli === 'claude') return installedEvents.length > 0;
       if (cli === 'codex') return codexEvents.length > 0;
+      if (cli === 'opencode') return opencodeInstalled;
+      if (cli === 'antigravity') return agyEvents.length > 0;
       return false;
     });
 
@@ -947,6 +966,8 @@ router.get('/hooks/status', (_req: Request, res: Response) => {
           events: codexEvents,
           legacyNotify: codexLegacyNotify,
         },
+        opencode: { installed: opencodeInstalled, density: opencodeInstalled ? 'medium' : 'off', events: [] },
+        antigravity: { installed: agyEvents.length > 0, density: agyEvents.length > 0 ? 'medium' : 'off', events: agyEvents },
       },
     });
   } catch (err: unknown) {
@@ -962,6 +983,18 @@ router.post('/hooks/install', (req: Request, res: Response) => {
   if (!body) return;
   const { density } = body;
   const enabledClis = body.enabledClis?.length ? body.enabledClis : readEnabledClis();
+  // An explicit agent list is the user's choice (Settings → Hooks): keep it, so the server's startup
+  // installer and the launch menus (GET /api/config) follow it. Claude stays first when chosen.
+  if (body.enabledClis?.length) {
+    try {
+      const next = [...new Set(body.enabledClis)];
+      saveServerConfigKeys(SERVER_CONFIG_PATH, { enabledClis: next });
+      serverConfig.enabledClis = next;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn('api', `hooks/install: enabledClis not saved: ${msg}`);
+    }
+  }
 
   // Run install-hooks.js with --density flag
   execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density, '--clis', enabledClis.join(',')], { timeout: 15000 }, (err, stdout, stderr) => {
@@ -1475,8 +1508,12 @@ router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response
   // sends no hook on `codex resume` until its first prompt).
   const resumeId = resumableIdOf(session);
   const launchCommand = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
-  if ((commandStartsWithCli(launchCommand, 'claude') || commandStartsWithCli(launchCommand, 'codex'))
-      && !CLAUDE_SESSION_UUID_RE.test(resumeId)) {
+  const restartKind = agentKindOfCommand(launchCommand);
+  const noResumableId = (restartKind === 'opencode' || restartKind === 'antigravity')
+    ? extraAgentResumeLine(restartKind, resumeId) === null
+    : (commandStartsWithCli(launchCommand, 'claude') || commandStartsWithCli(launchCommand, 'codex'))
+      && !CLAUDE_SESSION_UUID_RE.test(resumeId);
+  if (noResumableId) {
     res.status(409).json({
       ok: false,
       error: 'This session has not reported its Claude session id yet (no hook has arrived), so a restart could not bring its conversation back',
@@ -1507,6 +1544,12 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  // The fork line is Claude's or Codex's; any other agent would be relaunched as Claude.
+  const forkKind = agentKindOfCommand(session.startupCommand || session.sshCommand || session.sshConfig?.command || '');
+  if (forkKind === 'opencode' || forkKind === 'antigravity') {
+    res.status(400).json({ error: 'Fork works for Claude and Codex sessions only' });
+    return;
+  }
 
   const newTitle = `Fork of ${session.title || session.projectName}`;
   // buildForkCommand produces a fresh `claude --resume ... --fork-session` template

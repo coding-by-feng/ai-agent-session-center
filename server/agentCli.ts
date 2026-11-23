@@ -3,13 +3,12 @@
 // A Claude card and a Codex card can share a folder (the hosted workspace starts both in ~/workspace), so a
 // match by folder alone must never bind one agent's hook to the other agent's card (Nov 17 2026).
 
-/** 'claude' or 'codex' from a launch command's first word; undefined for anything else (a shell, empty). */
+import { agentKindOfCommand } from '../src/lib/agentKinds.js';
+
+/** The agent a launch command starts, from its first word ('claude', 'codex', 'opencode', 'antigravity' for
+ *  `agy`); undefined for anything else (a shell, empty). Its value is the agent's hook `cli_source`. */
 export function inferCliSource(command: string | undefined | null): string | undefined {
-  const cmd = (command || '').trim().toLowerCase();
-  if (!cmd) return undefined;
-  if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
-  if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
-  return undefined;
+  return agentKindOfCommand(command);
 }
 
 /** The agent a hook came from: its `cli_source`, or Claude, whose hook script sends none. */

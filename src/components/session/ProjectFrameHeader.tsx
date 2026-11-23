@@ -39,7 +39,8 @@
  *    and a button that fails with a toast on every click looks broken.
  */
 import { useCallback, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
-import { CLI_LAUNCHERS, type CliCommand } from '@/components/layout/cliLaunchers';
+import type { LauncherCommand as CliCommand } from '@/components/layout/cliLaunchers';
+import { useLaunchers } from '@/stores/enabledAgentsStore';
 import Menu from '@/components/ui/Menu';
 import { getClientId } from '@/lib/deviceIdentity';
 import {
@@ -80,6 +81,7 @@ function PlusGlyph() {
 const stopClick = (e: MouseEvent) => e.stopPropagation();
 
 export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse, foldable = true }: Props) {
+  const launchers = useLaunchers();
   const [pending, setPending] = useState<CliCommand | null>(null);
   // `pending` only changes on the next render; this closes the gap for a second
   // click that arrives before it.
@@ -125,7 +127,7 @@ export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse,
       {group.local && onHostMachine && (
         <>
           <span className={styles.roomHeaderDivider} aria-hidden="true" />
-          {CLI_LAUNCHERS.map(({ command, label, Icon }) => {
+          {launchers.map(({ command, label, Icon }) => {
             const unavailable = blocker !== null || pending !== null;
             const lastMode = lastPermissionMode(command);
             const modes = permissionModes(command);

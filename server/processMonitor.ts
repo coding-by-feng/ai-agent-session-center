@@ -15,6 +15,7 @@ import log from './logger.js';
 import { endAllRuns } from './subagentTracker.js';
 import type { Session } from '../src/types/session.js';
 import type { ServerMessage } from '../src/types/websocket.js';
+import { agentKindOfCommand } from '../src/lib/agentKinds.js';
 
 // Validate PID as a positive integer. Returns the validated number or null.
 function validatePid(pid: unknown): number | null {
@@ -441,9 +442,12 @@ export function findClaudeProcess(
   const launchCommand = (
     session?.startupCommand || session?.sshCommand || session?.sshConfig?.command || ''
   ).trim().toLowerCase();
-  const processName = cliSource === 'codex' || launchCommand.startsWith('codex')
-    ? 'codex'
-    : 'claude';
+  // Only a Claude card may fall back to a pgrep scan below. Any other agent (Codex, OpenCode, Antigravity) or
+  // a card whose agent is unknown from its hooks but plain from its launch line keeps its own name, so a kill
+  // never lands on an unrelated Claude (Nov 23 2026: an OpenCode card used to scan for `claude`).
+  const processName = (cliSource && cliSource !== 'claude')
+    ? cliSource
+    : (agentKindOfCommand(launchCommand) ?? 'claude');
   if (session?.cachedPid) {
     const validCachedPid = validatePid(session.cachedPid);
     if (validCachedPid) {

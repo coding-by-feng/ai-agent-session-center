@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { removeAllCodexHooksToml } from './install-hooks-core.js';
+import { removeOpencodePlugin, uninstallAgyHooks } from './install-extra-agents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -237,6 +238,15 @@ if (existsSync(CODEX_CONFIG_PATH)) {
   }
 } else {
   info('Codex config.toml not found');
+}
+
+// OpenCode plugin + Antigravity CLI hooks (only our plugin folder and our "aasc-dashboard" named hook)
+if (removeOpencodePlugin()) ok('[OpenCode] dashboard plugin removed');
+else info('[OpenCode] No dashboard plugin found');
+{
+  const agy = uninstallAgyHooks();
+  if (agy.hooksRemoved || agy.relayRemoved) ok('[Antigravity] dashboard hooks removed from ~/.gemini/config');
+  else info('[Antigravity] No dashboard hooks found');
 }
 
 // ═══════════════════════════════════════════════

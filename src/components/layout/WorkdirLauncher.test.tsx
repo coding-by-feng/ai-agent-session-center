@@ -17,6 +17,11 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 // factory returning a fresh literal each call re-renders it forever.
 const { KNOWN } = vi.hoisted(() => ({ KNOWN: ['/Users/me/agent-manager'] }));
 vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => KNOWN }));
+// The launch buttons are Claude + Codex here; the enabled-agents read (GET /api/config) would be one more fetch.
+vi.mock('@/stores/enabledAgentsStore', async () => {
+  const { CLI_LAUNCHERS } = await import('./cliLaunchers');
+  return { useLaunchers: () => CLI_LAUNCHERS };
+});
 
 const DIR = '/Users/me/agent-manager';
 const ICON = 'Recent directories';

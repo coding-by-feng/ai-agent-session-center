@@ -28,7 +28,7 @@ import type {
 } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
-import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
+import { ALL_LAUNCHERS, CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
 import { isNativeMobileApp } from '@/lib/platform';
 import Combobox from '@/components/ui/Combobox';
 import Select from '@/components/ui/Select';
@@ -132,7 +132,7 @@ export default function NewSessionModal() {
   ));
   const [command, setCommand] = useState(() => (
     phoneApp
-      ? (CLI_LAUNCHERS.some((c) => c.command === saved.command) ? saved.command! : 'claude')
+      ? (ALL_LAUNCHERS.some((c) => c.command === saved.command) ? saved.command! : 'claude')
       : saved.command || ''
   ));
   const [apiKey, setApiKey] = useState('');
@@ -594,7 +594,7 @@ export default function NewSessionModal() {
           />
           <NewFolderConfirm
             dir={confirmDir}
-            cliLabel={CLI_LAUNCHERS.find((c) => c.command === command)?.label ?? command}
+            cliLabel={ALL_LAUNCHERS.find((c) => c.command === command)?.label ?? command}
             onConfirm={() => {
               setConfirmDir(null);
               void handleSubmit(true);

@@ -525,8 +525,11 @@ export function matchSession(
   // Only startup events may claim a fresh placeholder. Delayed teardown/tool
   // hooks from an older thread can carry the same terminal ID and must not move
   // the new card backward before Priority 1b's stale-event guards can run.
+  // A Codex, and an Antigravity CLI reopened with `agy --conversation <id>` (seen live, agy 1.5.14), sends no
+  // SessionStart on resume: its first hook is the prompt.
   const isDirectTerminalStartup = hook_event_name === EVENT_TYPES.SESSION_START
-    || (hookData.cli_source === 'codex' && hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT);
+    || ((hookData.cli_source === 'codex' || hookData.cli_source === 'antigravity')
+      && hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT);
   if (!session && hookData.agent_terminal_id && isDirectTerminalStartup) {
     const preSession = sessions.get(hookData.agent_terminal_id);
     if (preSession && preSession.terminalId) {

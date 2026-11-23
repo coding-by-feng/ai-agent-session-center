@@ -234,3 +234,27 @@ describe('buildResumeCommand — dropping the unreachable fallback', () => {
     expect(cmd.length).toBeLessThan(160);
   });
 });
+
+describe('OpenCode / Antigravity CLI resume lines (Nov 23 2026)', () => {
+  it('reopens an OpenCode session standalone, falling back to a fresh one', () => {
+    expect(buildResumeCommand({ startupCommand: 'opencode --auto -s ses_old0000000000' }, 'ses_df83e11abffetyKHwFK5Q4'))
+      .toBe('opencode --standalone --auto -s ses_df83e11abffetyKHwFK5Q4 || opencode --standalone --auto');
+  });
+  it('reopens an Antigravity conversation by id', () => {
+    expect(buildResumeCommand({ startupCommand: 'agy --dangerously-skip-permissions' }, 'd291a3f2-c43a-4537-a7e8-3a1033272cef'))
+      .toBe('agy --dangerously-skip-permissions --conversation d291a3f2-c43a-4537-a7e8-3a1033272cef || agy --dangerously-skip-permissions');
+  });
+  it('starts fresh for an id the agent never issued (a terminal id, or anything a shell would read)', () => {
+    expect(buildResumeCommand({ startupCommand: 'agy' }, 'term-1-abc')).toBe('agy');
+    expect(buildResumeCommand({ startupCommand: 'opencode' }, "ses_x'; rm -rf ~")).toBe('opencode --standalone');
+  });
+});
+
+describe('OpenCode / Antigravity resume lines from a live `ps` line (Nov 23 2026)', () => {
+  it('drops an unquoted launch prompt whole, not just its first word', () => {
+    expect(buildResumeCommand({ startupCommand: 'opencode --standalone --auto --prompt Use the shell tool to run ls' }, 'ses_df8232708ffeQxR9Tx8LomBbVv'))
+      .toBe('opencode --standalone --auto -s ses_df8232708ffeQxR9Tx8LomBbVv || opencode --standalone --auto');
+    expect(buildResumeCommand({ startupCommand: 'agy --dangerously-skip-permissions -p Run the shell command ls' }, '7a7d88fb-0284-4a77-8c04-825c3772d528'))
+      .toBe('agy --dangerously-skip-permissions --conversation 7a7d88fb-0284-4a77-8c04-825c3772d528 || agy --dangerously-skip-permissions');
+  });
+});

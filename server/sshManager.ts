@@ -36,6 +36,7 @@ import type { BtwAnswer, PromptSuggestion } from '../src/types/session.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 import { inferCliSource, isOtherAgent } from './agentCli.js';
+import { agentKindOfCommand, withOpencodeStandalone } from '../src/lib/agentKinds.js';
 
 // Callback type for notifying session store of terminal exit
 type OnTerminalExitCallback = (terminalId: string) => void;
@@ -503,6 +504,9 @@ function attachCentralTerminal(centralId: string, terminalId: string, ptyProcess
  * typed string only.
  */
 async function withCodexLaunchFlags(local: boolean, line: string): Promise<string> {
+  // A local OpenCode TUI runs its agent in a private server on this PTY (agentKinds.ts withOpencodeStandalone):
+  // on the shared background server its plugin would report another terminal's id, or none.
+  if (local && agentKindOfCommand(line) === 'opencode') return withOpencodeStandalone(line);
   if (!local || process.platform === 'win32' || !hasCodexLaunch(line)) return line;
   const flags = CODEX_LAUNCH_FLAGS.filter((flag) => isCodexLaunchFlagEnabled(flag));
   if (flags.length === 0) return line;

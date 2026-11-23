@@ -47,7 +47,7 @@ export interface HooksStatusResponse {
 
 export interface HooksInstallRequest {
   density: HookDensity;
-  enabledClis?: Array<'claude' | 'codex'>;
+  enabledClis?: Array<'claude' | 'codex' | 'opencode' | 'antigravity'>;
 }
 
 export interface HooksInstallResponse {

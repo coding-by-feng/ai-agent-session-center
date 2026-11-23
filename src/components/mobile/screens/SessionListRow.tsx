@@ -25,7 +25,8 @@ import type { Session } from '@/types';
 import { ContextMenu, StatusRing, SwipeRow } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { ChevronRightIcon, QueueTabIcon } from '../kit/kitIcons';
-import { ClaudeIcon, CodexIcon } from '@/components/layout/CliBrandIcons';
+import { launcherForKind } from '@/components/layout/cliLaunchers';
+import { agentLabel, type AgentKind } from '@/lib/agentKinds';
 import { useRoomStore } from '@/stores/roomStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
@@ -34,7 +35,7 @@ import { faultMark, isCompacting, isFinishingUp, phoneStatus } from '@/lib/chat/
 import { LIMIT, displayStatus, limitLabel } from '@/lib/sessionStatusStyle';
 import { formatAge, nowLine } from '@/lib/chat/sessionsModel';
 import { roomColor } from '@/lib/roomColor';
-import { detectCli } from '@/lib/cliDetect';
+import { detectAgentKind } from '@/lib/cliDetect';
 import { centralLabel } from '@/lib/centralChoice';
 import { useClock } from '@/lib/chat/clock';
 import { parsePhonePath } from '@/lib/chat/phoneRoutes';
@@ -72,10 +73,10 @@ function GripIcon() {
   );
 }
 
-function CliMark({ cli }: { cli: string | null }) {
-  if (cli === 'claude') return <span className={styles.cli} data-cli="claude" aria-hidden="true"><ClaudeIcon size={12} /></span>;
-  if (cli === 'codex') return <span className={styles.cli} data-cli="codex" aria-hidden="true"><CodexIcon size={12} /></span>;
-  return null;
+function CliMark({ cli }: { cli: AgentKind | null }) {
+  const mark = launcherForKind(cli);
+  if (!mark) return null;
+  return <span className={styles.cli} data-cli={cli} aria-hidden="true"><mark.Icon size={12} /></span>;
 }
 
 export default function SessionListRow({
@@ -112,9 +113,9 @@ export default function SessionListRow({
     : phoneStatus(shown, faultMark(session), isCompacting(session), isFinishingUp(session)).label;
   const line = detail ?? nowLine(session);
   const age = formatAge((now ?? clock) - (session.lastActivityAt ?? 0));
-  const cli = detectCli(session);
+  const cli = detectAgentKind(session);
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
-  const cliWord = cli === 'claude' ? 'Claude Code' : cli === 'codex' ? 'Codex' : null;
+  const cliWord = cli === 'claude' ? 'Claude Code' : cli ? agentLabel(cli) : null;
   const queuedWords = queued > 0 ? `${queued} queued prompt${queued === 1 ? '' : 's'}` : null;
   const centralWords = central ? centralLabel(central, centralRoomName) : null;
   const spoken = [title, centralWords, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]

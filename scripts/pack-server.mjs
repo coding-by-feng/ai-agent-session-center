@@ -118,7 +118,8 @@ function copyInto(from, to) {
   cpSync(from, to, {
     recursive: true,
     dereference: true,
-    filter: (src) => !/\.test\.[cm]?[jt]sx?$/.test(src) && !src.includes('__tests__'),
+    // Type declarations beside a hook script (hooks/install-extra-agents.d.ts) only serve the typecheck.
+    filter: (src) => !/\.test\.[cm]?[jt]sx?$/.test(src) && !src.includes('__tests__') && !/\.d\.ts$/.test(src),
   });
 }
 

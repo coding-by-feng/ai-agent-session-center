@@ -63,8 +63,8 @@ import SessionPromptPeek from './SessionPromptPeek';
 import { PEEK_HOVER_DELAY_MS } from '@/lib/promptPeek';
 import { tooltips } from '@/lib/tooltips';
 import { ASLEEP, LIMIT, PROCEED, STATUS_COLORS, STATUS_LEGEND, busyMark, isUsageLimited, limitLabel, owesProceed, statusColor, statusLabel as statusWords, statusOrCompacting } from '@/lib/sessionStatusStyle';
-import { detectCli } from '@/lib/cliDetect';
-import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
+import { detectAgentKind } from '@/lib/cliDetect';
+import { launcherForKind } from '@/components/layout/cliLaunchers';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import { isPopoutWindow } from '@/lib/windowRole';
@@ -1149,8 +1149,7 @@ function SessionTabCard({
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
-  const detectedCli = detectCli(session);
-  const cliMark = CLI_LAUNCHERS.find((c) => c.command === detectedCli);
+  const cliMark = launcherForKind(detectAgentKind(session));
   const label = useLabelStore((s) => s.labels[session.sessionId]);
   const labelColor = useLabelStore((s) => s.labelColor);
   // Client queueStore is the source of truth for pending prompts — `session.queueCount`
@@ -1355,7 +1354,7 @@ function SessionTabCard({
           onDoubleClick={beginEdit}
           title={isCurrent ? 'Double-click to rename' : undefined}
         >
-          {/* Claude or Codex, always first: on a compact card the marks form one column to scan. */}
+          {/* The agent's mark (Claude, Codex, OpenCode, Antigravity), always first: on a compact card the marks form one column to scan. */}
           {cliMark && (
             <span className={styles.sessionTabCli} role="img" aria-label={cliMark.label} title={cliMark.label}>
               <cliMark.Icon size={11} />

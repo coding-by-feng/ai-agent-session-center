@@ -17,6 +17,7 @@ import {
   configureCodexHooksToml,
   removeAllCodexHooksToml,
 } from './install-hooks-core.js';
+import { installOpencodePlugin, removeOpencodePlugin, installAgyHooks, uninstallAgyHooks } from './install-extra-agents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -242,6 +243,14 @@ export async function installHooks({
       }
     }
 
+    let opencodeRemoved = false;
+    if (wants('opencode')) opencodeRemoved = removeOpencodePlugin();
+    let agyRemoved = false;
+    if (wants('antigravity')) {
+      const r = uninstallAgyHooks();
+      agyRemoved = r.hooksRemoved || r.relayRemoved;
+    }
+
     // Only rewrite the Claude settings file when Claude was actually in scope —
     // a `--only gemini` run must not touch ~/.claude/settings.json at all.
     if (wants('claude')) atomicWriteJSON(SETTINGS_PATH, settings);
@@ -249,9 +258,11 @@ export async function installHooks({
       `Uninstall complete -- ${removed} Claude hook(s), ${codexRemoved} Codex hook block(s), `
       + `${geminiRemoved} Gemini hook event(s)`
       + `${geminiScriptRemoved ? ' + Gemini hook script' : ''}`
-      + `${statusLineTapRemoved ? ' + status-line tap' : ''} removed`,
+      + `${statusLineTapRemoved ? ' + status-line tap' : ''}`
+      + `${opencodeRemoved ? ' + OpenCode plugin' : ''}`
+      + `${agyRemoved ? ' + Antigravity hooks' : ''} removed`,
     );
-    return { success: true, summary: { removed, codexRemoved, geminiRemoved, geminiScriptRemoved, statusLineTapRemoved } };
+    return { success: true, summary: { removed, codexRemoved, geminiRemoved, geminiScriptRemoved, statusLineTapRemoved, opencodeRemoved, agyRemoved } };
   }
 
   // ── STEP 4: Configure Hook Events ──
@@ -327,6 +338,29 @@ export async function installHooks({
       }
     } catch (e) {
       log(`Codex hook registration: ${e.message}`);
+    }
+  }
+
+  // OpenCode plugin + Antigravity CLI hooks (bash relay / Node plugin: not on Windows). The list is the user's
+  // choice (Settings → Hooks), so an agent left out of it loses only our own plugin / named hook.
+  if (!enabledClis.includes('opencode') && removeOpencodePlugin()) log('OpenCode plugin: removed (not enabled)');
+  if (!enabledClis.includes('antigravity')) {
+    const r = uninstallAgyHooks();
+    if (r.hooksRemoved || r.relayRemoved) log('Antigravity CLI hooks: removed (not enabled)');
+  }
+  if (!isWindows && enabledClis.includes('opencode')) {
+    try {
+      log(`OpenCode plugin: ${installOpencodePlugin({ hooksDir })}`);
+    } catch (e) {
+      log(`OpenCode plugin: ${e.message}`);
+    }
+  }
+  if (!isWindows && enabledClis.includes('antigravity')) {
+    try {
+      const done = installAgyHooks({ hooksDir, density });
+      log(`Antigravity CLI hooks: relay ${done.relay}, hooks.json ${done.hooks}`);
+    } catch (e) {
+      log(`Antigravity CLI hooks: ${e.message}`);
     }
   }
 

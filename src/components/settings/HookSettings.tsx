@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { HooksStatusResponse, HookDensity } from '@/types';
 import Select from '@/components/ui/Select';
+import { AGENT_KINDS, type AgentKind } from '@/lib/agentKinds';
+import { useEnabledAgentsStore } from '@/stores/enabledAgentsStore';
 import styles from '@/styles/modules/Settings.module.css';
 
 const DENSITY_OPTIONS: Array<{ value: HookDensity; label: string; desc: string }> = [
@@ -22,6 +24,9 @@ export default function HookSettings() {
   const [selectedDensity, setSelectedDensity] = useState<HookDensity>(
     hookDensity === 'off' ? 'medium' : hookDensity,
   );
+  // The agents to install hooks for; Install saves the list (server-config.json enabledClis).
+  const [selectedClis, setSelectedClis] = useState<AgentKind[] | null>(null);
+  const refreshEnabledAgents = useEnabledAgentsStore((s) => s.refresh);
   const [installing, setInstalling] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +36,7 @@ export default function HookSettings() {
       const resp = await fetch('/api/hooks/status');
       const data: HooksStatusResponse = await resp.json();
       setStatus(data);
+      setSelectedClis((current) => current ?? AGENT_KINDS.map((a) => a.id).filter((id) => (data.enabledClis ?? ['claude']).includes(id)));
       if (data.installed && data.density !== 'off' && data.density !== 'custom') {
         setSelectedDensity(data.density as HookDensity);
       }
@@ -50,12 +56,12 @@ export default function HookSettings() {
       const resp = await fetch('/api/hooks/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ density: selectedDensity, enabledClis: status?.enabledClis }),
+        body: JSON.stringify({ density: selectedDensity, enabledClis: selectedClis?.length ? selectedClis : status?.enabledClis }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Install failed');
       setHookDensity(selectedDensity);
-      await fetchStatus();
+      await Promise.all([fetchStatus(), refreshEnabledAgents()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Install failed');
     } finally {
@@ -79,8 +85,37 @@ export default function HookSettings() {
     }
   }
 
+  const toggleCli = (id: AgentKind, on: boolean) => {
+    setSelectedClis((current) => {
+      const base = current ?? [];
+      return on ? AGENT_KINDS.map((a) => a.id).filter((k) => k === id || base.includes(k)) : base.filter((k) => k !== id);
+    });
+  };
+
   return (
     <div>
+      {/* Agents: which CLIs get dashboard hooks; OpenCode and Antigravity also join the launch menus */}
+      <div className={styles.section}>
+        <h4>Agents</h4>
+        <p className={styles.settingsHint}>
+          Install adds the dashboard hooks for each checked agent and removes them for the others.
+        </p>
+        {AGENT_KINDS.map((agent) => (
+          <label key={agent.id} className={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={selectedClis?.includes(agent.id) ?? false}
+              disabled={selectedClis === null}
+              onChange={(e) => toggleCli(agent.id, e.target.checked)}
+            />
+            <span className={styles.toggleSwitch} />
+            <span>
+              {agent.label} <code>{agent.command}</code>
+            </span>
+          </label>
+        ))}
+      </div>
+
       {/* Hook Density */}
       <div className={styles.section}>
         <h4>Hook Density</h4>
@@ -105,7 +140,7 @@ export default function HookSettings() {
           <button
             className={styles.fontBtn}
             onClick={handleInstall}
-            disabled={installing}
+            disabled={installing || selectedClis?.length === 0}
           >
             {installing ? 'Installing...' : status?.installed ? 'Re-install' : 'Install'}
           </button>

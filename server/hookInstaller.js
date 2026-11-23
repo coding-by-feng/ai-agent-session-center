@@ -11,6 +11,7 @@ import { copyFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync, exists
 import { randomBytes } from 'crypto';
 import log from './logger.js';
 import { configureCodexHooksToml } from '../hooks/install-hooks-core.js';
+import { installOpencodePlugin, installAgyHooks } from '../hooks/install-extra-agents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -186,6 +187,24 @@ export function ensureHooksInstalled(config) {
       }
     } catch (e) {
       log.debug('server', `Codex hook registration skipped: ${e.message}`);
+    }
+  }
+
+  // ── OpenCode + Antigravity CLI (Nov 23 2026): a plugin / a hooks.json entry, bash and Node only ──
+  if (!isWindows && enabledClis.includes('opencode')) {
+    try {
+      const done = installOpencodePlugin({ hooksDir: join(__dirname, '..', 'hooks') });
+      if (done === 'installed') log.info('server', 'Installed the OpenCode dashboard plugin');
+    } catch (e) {
+      log.debug('server', `OpenCode plugin install skipped: ${e.message}`);
+    }
+  }
+  if (!isWindows && enabledClis.includes('antigravity')) {
+    try {
+      const done = installAgyHooks({ hooksDir: join(__dirname, '..', 'hooks'), density });
+      if (done.hooks === 'registered' || done.relay === 'installed') log.info('server', `Registered the Antigravity CLI hooks (density: ${density})`);
+    } catch (e) {
+      log.debug('server', `Antigravity hook registration skipped: ${e.message}`);
     }
   }
 }

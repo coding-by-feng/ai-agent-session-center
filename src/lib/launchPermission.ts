@@ -13,7 +13,7 @@
  * command. Anything unreadable or no longer offered reads as Default, which is
  * what the buttons ran before there was a choice.
  */
-import type { CliCommand } from '@/components/layout/cliLaunchers';
+import type { LauncherCommand as CliCommand } from '@/components/layout/cliLaunchers';
 
 export const LAUNCH_PERMISSION_KEY = 'quick-launch-permission';
 
@@ -37,6 +37,18 @@ const MODES: Readonly<Record<CliCommand, readonly PermissionMode[]>> = {
   codex: [
     DEFAULT_MODE,
     { id: 'bypass', label: 'Bypass approvals & sandbox', flags: '--dangerously-bypass-approvals-and-sandbox' },
+  ],
+  // `opencode --help` / `agy --help` (OpenCode 2.3.2, agy 1.5.14).
+  opencode: [
+    DEFAULT_MODE,
+    { id: 'auto', label: 'Auto-approve', flags: '--auto' },
+  ],
+  agy: [
+    DEFAULT_MODE,
+    { id: 'acceptEdits', label: 'Accept edits', flags: '--mode accept-edits' },
+    { id: 'plan', label: 'Plan', flags: '--mode plan' },
+    { id: 'auto', label: 'Auto', flags: '--mode auto' },
+    { id: 'bypass', label: 'Bypass permissions', flags: '--dangerously-skip-permissions' },
   ],
 };
 

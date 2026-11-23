@@ -37,3 +37,23 @@ export function CodexIcon({ size = 15 }: IconProps) {
     </svg>
   );
 }
+
+/** OpenCode — a plain code-bracket mark (neutral grey: not the project's logo). */
+export function OpenCodeIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="4" stroke="#9aa4b2" strokeWidth="1.8" />
+      <path d="M10 8.5 6.5 12l3.5 3.5M14 8.5l3.5 3.5-3.5 3.5" stroke="#9aa4b2" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Antigravity CLI — an upward arrow leaving an orbit (Google blue: not the product's logo). */
+export function AntigravityIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <ellipse cx="12" cy="16" rx="8.5" ry="3.5" stroke="#4285f4" strokeWidth="1.6" />
+      <path d="M12 16V4M7.5 8.5 12 4l4.5 4.5" stroke="#4285f4" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

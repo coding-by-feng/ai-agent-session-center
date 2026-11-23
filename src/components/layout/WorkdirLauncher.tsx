@@ -20,7 +20,7 @@ import { useClickOutside } from '@/hooks/useClickOutside';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import { launchSession, shortenPath } from '@/lib/launchSession';
 import { computeMovePickerPosition } from '@/lib/queueMovePlacement';
-import { CLI_LAUNCHERS } from './cliLaunchers';
+import { useLaunchers } from '@/stores/enabledAgentsStore';
 import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
@@ -66,6 +66,7 @@ function RecentDirsIcon() {
 }
 
 export default function WorkdirLauncher({ label, triggerClassName }: WorkdirLauncherProps) {
+  const launchers = useLaunchers();
   const hasLabel = Boolean(label);
   const [open, setOpen] = useState(false);
   const [dirs, setDirs] = useState<string[]>([]);
@@ -227,7 +228,7 @@ export default function WorkdirLauncher({ label, triggerClassName }: WorkdirLaun
               <span className={styles.dirPath}>{dir}</span>
             </div>
             <div className={styles.dirLaunchers}>
-              {CLI_LAUNCHERS.map(({ command, label, Icon }) => (
+              {launchers.map(({ command, label, Icon }) => (
                 <button
                   key={command}
                   type="button"

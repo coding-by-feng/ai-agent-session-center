@@ -10,7 +10,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
+import { useLaunchers } from '@/stores/enabledAgentsStore';
+import type { LauncherCommand } from '@/components/layout/cliLaunchers';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import { launchInProjectGroup } from '@/lib/projectLaunch';
 import { normalizeProjectPath, projectKey } from '@/lib/projectGroups';
@@ -56,6 +57,7 @@ export default function QuickCreateMenu() {
 }
 
 function QuickCreateBody() {
+  const launchers = useLaunchers();
   const close = useQuickCreateStore((s) => s.close);
   const currentDir = useSessionStore((s) => localProjectDir(s.selectedSessionId ? s.sessions.get(s.selectedSessionId) : undefined));
   const knownProjects = useKnownProjects();
@@ -126,7 +128,7 @@ function QuickCreateBody() {
     return () => document.removeEventListener('keydown', onKey, true);
   }, [dismiss]);
 
-  const launch = useCallback(async (row: QuickCreateRow, command: QuickCreateCli) => {
+  const launch = useCallback(async (row: QuickCreateRow, command: QuickCreateCli | LauncherCommand) => {
     close();
     const sessions = [...useSessionStore.getState().sessions.values()].filter(
       (s) => s.status !== 'ended' && localProjectDir(s) === row.dir,
@@ -198,7 +200,7 @@ function QuickCreateBody() {
                   <span className={styles.path}>{row.dir}</span>
                 </div>
                 <div className={styles.launchers}>
-                  {CLI_LAUNCHERS.map(({ command, label, Icon }) => (
+                  {launchers.map(({ command, label, Icon }) => (
                     <button
                       key={command}
                       type="button"
