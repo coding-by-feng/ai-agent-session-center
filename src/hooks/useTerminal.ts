@@ -16,9 +16,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useWsStore } from '@/stores/wsStore';
 import { installAltScreenMouseReset } from '@/lib/terminalMouseReset';
 import { createPtyResizeSettler, type PtyResizeSettler } from '@/lib/ptyResizeSettle';
-import { linkTarget, mapLineColumns, resolvedLinkTarget, type LinkTarget } from '@/lib/filePathLink';
-import { findFileRefs } from '@/lib/fileRefs';
-import { resolveFileRef } from '@/lib/fileRefResolve';
+import { fileLinkProvider } from '@/lib/terminalFileLinks';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 import {
   resolveRenderCols,
@@ -37,6 +35,7 @@ import { TERMINAL_SEARCH_HIGHLIGHT_LIMIT, isTerminalFindKey } from '@/lib/termin
 import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
 import { grantEchoCredit, takeEchoCredit, type EchoCredit } from '@/lib/echoFastPath';
 import { createTypingProbe, isTypingProbeEnabled, type TypingProbe } from '@/lib/typingProbe';
+import { markView, restoreView } from '@/lib/terminalViewport';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -655,7 +654,7 @@ function forceCanvasRepaint(
     // output flush waits for a real layout.
     const el = activeRef.current.term.element?.parentElement;
     if (el && (!el.offsetWidth || !el.offsetHeight)) return;
-    const savedViewportY = term.buffer.active.viewportY;
+    const view = markView(term);
     fitAddon.fit();
     // Repaint/scroll/layoutReady are idempotent — safe to do now even with a
     // still-transitional measurement, the canvas just needs SOME current
@@ -666,7 +665,7 @@ function forceCanvasRepaint(
     });
     term.refresh(0, term.rows - 1);
     // Always restore scroll position — never auto-scroll
-    term.scrollToLine(savedViewportY);
+    restoreView(term, view);
     if (activeRef.current) {
       activeRef.current.layoutReady = true;
     }
@@ -1151,68 +1150,22 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           },
         });
 
-        // File path link provider — clicking opens the FileOpenChooser popover
-        // (open in app / default app / reveal in Finder).
-        // Matches path/to/file.ext, ./… and ../… including non-ASCII (CJK,
-        // Cyrillic, …) segments. Columns are derived from the buffer cells via
-        // mapLineColumns so wide (double-width) characters stay aligned —
-        // match.index/length are UTF-16 offsets, not terminal columns.
-        term.registerLinkProvider({
-          provideLinks(bufferLineNumber, callback) {
-            const line = term.buffer.active.getLine(bufferLineNumber - 1);
-            if (!line) { callback(undefined); return; }
-            const { text, startCol, endCol } = mapLineColumns(line);
-            const links: Array<{
-              range: { start: { x: number; y: number }; end: { x: number; y: number } };
-              text: string;
-              activate: (event: MouseEvent) => void;
-              tooltip?: string;
-            }> = [];
+        // File path link provider (lib/terminalFileLinks.ts): clicking opens the FileOpenChooser popover
+        // (open in app / default app / reveal in Finder); a path split across two lines links as one.
+        term.registerLinkProvider(fileLinkProvider(term, {
+          projectPath: () => projectPathRef.current || '',
+          open: (target, event) => {
             const pp = projectPathRef.current || '';
-            const addLink = (token: { start: number; end: number; text: string }, activate: (event: MouseEvent) => void) => {
-              links.push({
-                range: {
-                  start: { x: startCol[token.start] + 1, y: bufferLineNumber }, // xterm columns are 1-indexed
-                  end: { x: endCol[token.end - 1] + 1, y: bufferLineNumber },   // inclusive, wide-char aware
-                },
-                text: token.text,
-                tooltip: 'Click to choose how to open',
-                activate,
-              });
-            };
-            const open = (target: LinkTarget, event: MouseEvent) => {
-              // A phone opens it in the app's viewer at once: the chooser's other two choices
-              // (default app, Finder) act on the Mac, and a paired phone may not call them (AASC-18).
-              if (isMobileRef.current) {
-                const absolute = target.kind === 'dir' ? target.projectPath : `${target.projectPath.replace(/\/+$/, '')}/${target.filePath}`;
-                useUiStore.getState().openFileInProject(target.projectPath === pp ? target.filePath : absolute, pp, undefined, target.kind);
-                return;
-              }
-              useUiStore.getState().openFileChooser(target.filePath, target.projectPath, { x: event.clientX, y: event.clientY }, target.hostProjectPath, target.kind);
-            };
-            // A folder, a bare name or a ~ path links only once the Mac says it exists (Nov 18 2026);
-            // xterm asks per hovered line, so the lookups are few. No message here: a bare name is
-            // looked for at the project root, then in its file list.
-            const checks: Array<Promise<void>> = [];
-            for (const token of findFileRefs(text)) {
-              if (token.kind === 'file' && !token.text.startsWith('~')) {
-                // An absolute path is made relative to the session folder, or rooted at its own folder
-                // when it lives outside it (linkTarget, Nov 17 2026).
-                addLink(token, (event) => open(linkTarget(token.text.replace(/^\.\//, ''), pp), event));
-                continue;
-              }
-              if (!pp) continue;
-              checks.push(resolveFileRef(token.text, token.kind === 'bare' ? 'bare' : 'dir', { projectPath: pp }).then((found) => {
-                if (found) addLink(token, (event) => open(resolvedLinkTarget(found, pp), event));
-              }));
-            }
-            if (checks.length > 0) {
-              void Promise.all(checks).then(() => callback(links.length > 0 ? links : undefined));
+            // A phone opens it in the app's viewer at once: the chooser's other two choices
+            // (default app, Finder) act on the Mac, and a paired phone may not call them (AASC-18).
+            if (isMobileRef.current) {
+              const absolute = target.kind === 'dir' ? target.projectPath : `${target.projectPath.replace(/\/+$/, '')}/${target.filePath}`;
+              useUiStore.getState().openFileInProject(target.projectPath === pp ? target.filePath : absolute, pp, undefined, target.kind);
               return;
             }
-            callback(links.length > 0 ? links : undefined);
+            useUiStore.getState().openFileChooser(target.filePath, target.projectPath, { x: event.clientX, y: event.clientY }, target.hostProjectPath, target.kind);
           },
-        });
+        }));
 
         term.open(container);
 
@@ -1377,13 +1330,13 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
               term.refresh(0, term.rows - 1);
               return;
             }
-            const savedViewportY = term.buffer.active.viewportY;
+            const view = markView(term);
             fitAddon.fit();
             ptyResize.request(term.cols, term.rows);
             // Force canvas repaint — required when container transitions from
             // display:none to visible (tab switch), otherwise canvas stays blank.
             term.refresh(0, term.rows - 1);
-            term.scrollToLine(savedViewportY);
+            restoreView(term, view);
           }, 200);
         });
         resizeObserver.observe(container);
@@ -1416,12 +1369,12 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
             requestAnimationFrame(() => {
               if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
               if (!container.offsetWidth || !container.offsetHeight) return;
-              const savedViewportY = term.buffer.active.viewportY;
+              const view = markView(term);
               try { fitAddon.fit(); } catch { /* fit may throw if container is mid-layout */ }
               sendResize(wsRef.current, terminalId, term.cols, term.rows);
               term.refresh(0, term.rows - 1);
               if (activeRef.current.pendingScrollRestore === undefined) {
-                term.scrollToLine(savedViewportY);
+                restoreView(term, view);
               }
             });
           }
@@ -1498,11 +1451,11 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
             term.refresh(0, term.rows - 1);
             return;
           }
-          const savedViewportY = term.buffer.active.viewportY;
+          const view = markView(term);
           fitAddon.fit();
           sendResize(wsRef.current, terminalId, term.cols, term.rows);
           term.refresh(0, term.rows - 1);
-          term.scrollToLine(savedViewportY);
+          restoreView(term, view);
         }, 150);
       }
 
@@ -1538,9 +1491,10 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     // If a pending scroll restore exists, apply it after this write batch
     // instead of saving/restoring the current (possibly wrong) viewportY.
     const hasPendingRestore = activeRef.current.pendingScrollRestore !== undefined;
-    // Save viewport position before writes — escape sequences can
-    // yank viewport around; restore it after all chunks are written.
-    const savedViewportY = hasPendingRestore ? 0 : term.buffer.active.viewportY;
+    // Note the view before writes and put it back after (terminalViewport.ts): a view at the
+    // bottom stays at the bottom (Nov 23 2026: keeping its absolute line made a working Codex's
+    // newest output slide out of view), a view scrolled up to read stays on its line.
+    const view = markView(term);
     // Merge all pending chunks into one Uint8Array and write once —
     // avoids N xterm parser runs + N canvas repaints + N GC allocations.
     const merged = mergeChunks(pending);
@@ -1564,8 +1518,8 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         }
       } else if (autoScrollRef.current) {
         term.scrollToBottom();
-      } else if (term.buffer.active.viewportY !== savedViewportY) {
-        term.scrollToLine(savedViewportY);
+      } else {
+        restoreView(term, view);
       }
     });
   }, []);
@@ -1655,7 +1609,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           sendResize(wsRef.current, terminalId, newCols, newRows);
           return;
         }
-        const savedViewportY = term.buffer.active.viewportY;
+        const view = markView(term);
         const prevCols = term.cols;
         const prevRows = term.rows;
         fitAddon.fit();
@@ -1664,7 +1618,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         if (newCols !== prevCols || newRows !== prevRows) {
           sendResize(wsRef.current, terminalId, newCols, newRows);
         }
-        term.scrollToLine(savedViewportY);
+        restoreView(term, view);
       });
     }
   }, []);
@@ -1823,11 +1777,11 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     // Just refit and refresh canvas to fix layout issues.
     requestAnimationFrame(() => {
       if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-      const savedViewportY = term.buffer.active.viewportY;
+      const view = markView(term);
       fitAddon.fit();
       sendResize(wsRef.current, terminalId, term.cols, term.rows);
       term.refresh(0, term.rows - 1);
-      term.scrollToLine(savedViewportY);
+      restoreView(term, view);
     });
   }, []);
 
@@ -1852,11 +1806,11 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
       resizeTimer = setTimeout(() => {
         if (!activeRef.current) return;
         if (!newContainer.offsetWidth || !newContainer.offsetHeight) return;
-        const savedViewportY = activeRef.current.term.buffer.active.viewportY;
+        const view = markView(activeRef.current.term);
         activeRef.current.fitAddon.fit();
         activeRef.current.ptyResize.request(activeRef.current.term.cols, activeRef.current.term.rows);
         activeRef.current.term.refresh(0, activeRef.current.term.rows - 1);
-        activeRef.current.term.scrollToLine(savedViewportY);
+        restoreView(activeRef.current.term, view);
       }, 200); // #83: match main resize debounce
     });
     newObserver.observe(newContainer);
