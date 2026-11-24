@@ -607,7 +607,7 @@ describe('task_cancel', () => {
     let driver: SessionController | null = null;
     const person = world(1, { controller: () => driver });
     const b = await takeTask(person);
-    driver = { clientId: 'desktop-1', lastActivityAt: NOW - 5_000 };
+    driver = { clientId: 'desktop-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 };
 
     const off = await run('task_cancel', { id: a }, handsOff.ctx);
     const active = await run('task_cancel', { id: b }, person.ctx);

@@ -6,7 +6,9 @@
 //   INVALID       a session a central never steers: itself, another central, an ops shell, a subagent, a floating
 //                 fork, an external card, an SSH session, one with no terminal, one that has ended
 //   HANDS_OFF     the person marked it hands-off (`session.handsOff`)
-//   HUMAN_ACTIVE  a person drove it less than 60 s ago (its presence controller is not an `mcp:` client), or the
+//   HUMAN_ACTIVE  a person gave it input less than 60 s ago (its presence controller is not an `mcp:` client and its
+//                 `lastInputAt` is that recent: a resize, a focus report or the terminal's own replies are not input,
+//                 Ruling P4-23, so a browser showing a new card never restarts the minute), or the
 //                 person stopped it with Esc and has not prompted it since (`userCancelledAt`, Ruling 47; the stamp
 //                 a central's own Esc causes is not the person's: escHold.ts, `centralEscAt`)
 //   BUSY          it holds a task a central gave it (the ledger's lock, which spans every central)
@@ -45,6 +47,8 @@ export const MCP_CLIENT_PREFIX = 'mcp:';
 export interface SessionController {
   clientId: string;
   lastActivityAt: number;
+  /** When the driver last gave the session input (typed, sent a prompt, answered a request); absent: never. */
+  lastInputAt?: number;
 }
 
 /** What the policy is told about the world, by the context of one call. */
@@ -241,21 +245,29 @@ export function assertMayHandOff(caller: CentralRecord, child: CentralRecord, ch
 const HANDS_OFF_WORDS = 'That session is hands-off: centrals may read it, never type into it or give it work.';
 const HANDS_OFF_HINT = 'Pick another session; only the person can take hands-off away.';
 
+/**
+ * How long ago a person (a driver that is not an `mcp:` client) last gave the session input; null when no person
+ * ever has. Only input counts (`lastInputAt`): the baton's `lastActivityAt` also moves on a resize, a clear, a focus
+ * report and the terminal's own replies (wsManager `holdsControl`, drives = false), which a browser sends whenever it
+ * shows or re-fits a card, so counting them kept a central's fresh, untouched worker refused for good.
+ */
+function personInputAgo(driver: SessionController | null, now: number): number | null {
+  if (driver === null || driver.clientId.startsWith(MCP_CLIENT_PREFIX)) return null;
+  return typeof driver.lastInputAt === 'number' ? now - driver.lastInputAt : null;
+}
+
 /** HANDS_OFF, HUMAN_ACTIVE (60 s, then the person's Esc hold) and BUSY, in that order: what any steer asks last. */
 function assertPersonRails(session: Session, ctx: SteerContext): void {
   const refuse = refuserFor(session);
   if (session.handsOff === true) refuse('HANDS_OFF', HANDS_OFF_WORDS, HANDS_OFF_HINT);
-  const driver = ctx.controller(session.sessionId);
-  if (driver !== null && !driver.clientId.startsWith(MCP_CLIENT_PREFIX)) {
-    const idle = ctx.now() - driver.lastActivityAt;
-    if (idle < HUMAN_ACTIVE_MS) {
-      const seconds = Math.max(1, Math.ceil((HUMAN_ACTIVE_MS - idle) / 1_000));
-      refuse(
-        'HUMAN_ACTIVE',
-        'A person drove that session less than a minute ago.',
-        `Try again in ${seconds} s, or pick another session.`,
-      );
-    }
+  const idle = personInputAgo(ctx.controller(session.sessionId), ctx.now());
+  if (idle !== null && idle < HUMAN_ACTIVE_MS) {
+    const seconds = Math.max(1, Math.ceil((HUMAN_ACTIVE_MS - idle) / 1_000));
+    refuse(
+      'HUMAN_ACTIVE',
+      'A person drove that session less than a minute ago.',
+      `Try again in ${seconds} s, or pick another session.`,
+    );
   }
   const centralEsc = ctx.centralEscAt?.(session.sessionId, session.terminalId ?? null) ?? null;
   if (isEscHeld(session.userCancelledAt, centralEsc)) {

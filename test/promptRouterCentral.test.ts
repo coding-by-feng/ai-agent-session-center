@@ -27,7 +27,7 @@ const CENTRAL = 'mcp:c1';
 let server: http.Server;
 let port: number;
 let sessions: Map<string, PromptRouterSession>;
-let holder: { clientId: string; lastActivityAt: number } | null;
+let holder: { clientId: string; lastActivityAt: number; lastInputAt?: number } | null;
 let book: CentralEscBook;
 let sends: Array<{ req: PromptRequest; finish: (r: PromptResult) => void }>;
 /** The terminals AASC has heard a hook from (sessionStore `terminalHeard`, Ruling P4-50). */
@@ -110,7 +110,7 @@ describe('a central’s prompt, checked before every keystroke', () => {
 
   it('stops when a person drives the session mid-send (the 60-second rule)', async () => {
     await prompt('key-person-0001');
-    holder = { clientId: 'desktop-1', lastActivityAt: NOW - 1_000 };
+    holder = { clientId: 'desktop-1', lastActivityAt: NOW - 1_000, lastInputAt: NOW - 1_000 };
     await typeOn(sends[0]);
     expect(await outcome('key-person-0001')).toMatchObject({ state: 'stopped', stoppedBy: 'person' });
   });
@@ -119,9 +119,18 @@ describe('a central’s prompt, checked before every keystroke', () => {
     await prompt('key-other-00001');
     holder = { clientId: 'mcp:c2', lastActivityAt: NOW - 1_000 };
     expect(sends[0].req.mayDrive?.('s1')).toBe(true);
-    holder = { clientId: 'desktop-1', lastActivityAt: NOW - HUMAN_ACTIVE_MS };
+    holder = { clientId: 'desktop-1', lastActivityAt: NOW - HUMAN_ACTIVE_MS, lastInputAt: NOW - HUMAN_ACTIVE_MS };
     await typeOn(sends[0]);
     expect(await outcome('key-other-00001')).toEqual({ key: 'key-other-00001', state: 'submitted' });
+  });
+
+  it('is not stopped by a browser resizing or focusing the terminal: only a person’s input counts', async () => {
+    await prompt('key-resize-0001');
+    // A resize, a focus report or the terminal's own replies move the baton without input (no lastInputAt).
+    holder = { clientId: 'desktop-1', lastActivityAt: NOW - 1_000 };
+    expect(sends[0].req.mayDrive?.('s1')).toBe(true);
+    await typeOn(sends[0]);
+    expect(await outcome('key-resize-0001')).toEqual({ key: 'key-resize-0001', state: 'submitted' });
   });
 
   it('stops when the person presses Esc mid-send', async () => {

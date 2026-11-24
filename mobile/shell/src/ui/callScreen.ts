@@ -6,6 +6,7 @@
 import type { SavedMac } from '../savedMacs.js';
 import { renderMiniMarkdown } from './miniMarkdown.js';
 import { formatDuration, type CentralState, type TaskState } from '../voiceCall.js';
+import type { AddedItem } from '../callAdd.js';
 import { h } from './dom.js';
 import { actions, alert, button, para, screen, status } from './parts.js';
 import type { Screen, ScreenContext } from './screen.js';
@@ -28,6 +29,37 @@ function transcript(s: CallScreen): HTMLElement | null {
       h('span', { class: 'call-text' }, l.text.trim()),
       // The Voice central's table, code or list for this reply: shown, never spoken (miniMarkdown.ts).
       l.role === 'central' && l.screen ? renderMiniMarkdown(l.screen) : null)));
+}
+
+const ADDED_WORDS: Record<AddedItem['kind'], string> = { photo: 'Photo', video: 'Video', file: 'File', skill: 'Use' };
+
+/**
+ * What ＋ Add put on the Mac for the next question (Nov 24 2026), each with ✕ to take it back, and a file still
+ * being sent. Under the transcript, beside the controls that added it.
+ */
+function addedPanel(s: CallScreen, a: ScreenContext['actions']): HTMLElement | null {
+  if (s.pending.length === 0 && s.adding === 0 && !s.addNotice) return null;
+  return h('section', { class: 'call-added', attrs: { 'aria-label': 'Goes with the next thing you say' } },
+    s.pending.length > 0 || s.adding > 0 ? h('p', { class: 'call-added-head' }, 'Goes with the next thing you say') : null,
+    s.pending.length > 0 || s.adding > 0
+      ? h('ul', { class: 'call-added-list' },
+        ...s.pending.map((item) => h('li', { class: 'call-added-item', attrs: { 'data-kind': item.kind } },
+          h('span', { class: 'call-added-kind' }, ADDED_WORDS[item.kind]),
+          ' ',
+          h('span', { class: 'call-added-name' }, item.name),
+          ' ',
+          h('button', {
+            class: 'btn btn-quiet call-added-remove',
+            attrs: { type: 'button', id: `call-remove-${item.id}`, 'aria-label': `Remove ${item.name}`, title: `Remove ${item.name}` },
+            on: { click: () => a.removeCallItem(item.id) },
+          }, '✕'))),
+        s.adding > 0
+          ? h('li', { class: 'call-added-item call-added-sending', attrs: { role: 'status' } },
+            h('span', { class: 'spinner', attrs: { 'aria-hidden': 'true' } }),
+            s.adding === 1 ? 'Sending 1 file to the Mac…' : `Sending ${s.adding} files to the Mac…`)
+          : null)
+      : null,
+    s.addNotice ? h('p', { class: 'alert call-added-notice', attrs: { role: 'alert' } }, s.addNotice) : null);
 }
 
 /** "Working · 0:52": the clock only while it is on this call's question. */
@@ -98,9 +130,12 @@ export function renderCall(s: CallScreen, mac: SavedMac, ctx: ScreenContext): HT
     centralPanel(s),
     s.phase === 'live' && s.lines.length === 0 ? para('Talk now. Ask about your sessions, or ask AASC to start one.', 'hint') : null,
     transcript(s),
+    live ? addedPanel(s, a) : null,
     actions(
       button('End call', a.endCall, 'danger', { id: 'call-end' }),
       live ? button(s.paused ? 'Resume' : 'Pause', a.togglePause, 'secondary', { id: 'call-pause', 'aria-pressed': s.paused ? 'true' : 'false' }) : null,
       live ? button(s.muted ? 'Unmute' : 'Mute', a.toggleMute, 'secondary', { id: 'call-mute', 'aria-pressed': s.muted ? 'true' : 'false' }) : null,
+      // Nov 24 2026: a photo, video, file, skill or command for the next question; the call memory.
+      live ? button('＋ Add', a.openCallAdd, 'secondary', { id: 'call-add', 'aria-haspopup': 'dialog' }) : null,
       button('Minimize', a.toggleMinimize, 'quiet', { id: 'call-minimize' })));
 }

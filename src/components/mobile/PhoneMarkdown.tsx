@@ -3,8 +3,10 @@
  * Lazy (react-markdown, remark-gfm and highlight.js stay out of every eager
  * chunk). Headings carry the ids the OUTLINE sheet scrolls to — the same
  * `headingSlug(childrenToText(...))` the desktop viewer uses, so the two never
- * disagree. A link to another Markdown file opens it in the phone browser; any
- * other link opens outside the app.
+ * disagree. A link to a project file opens it in the phone browser, whatever its
+ * type (Nov 24 2026: was Markdown only, so a video or PDF link opened a blank page);
+ * a folder link opens that folder; web and mail links open outside the app. The
+ * rule is the desktop viewer's (lib/markdownLinkTarget.ts), percent-decoding included.
  */
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,6 +16,8 @@ import { headingSlug, childrenToText } from '@/lib/markdownHeadings';
 import { joinRel, parentRel } from '@/lib/phoneProject';
 import { streamUrl } from '@/lib/phoneFiles';
 import { scrollIntoContainer } from '@/lib/scrollWithinContainer';
+import { resolveMarkdownLink } from '@/lib/markdownLinkTarget';
+import { showToast } from '@/components/ui/ToastContainer';
 import projectStyles from '@/styles/modules/ProjectTab.module.css';
 import styles from '@/styles/modules/PhoneProject.module.css';
 import type { AnchorHTMLAttributes, HTMLAttributes, ImgHTMLAttributes } from 'react';
@@ -35,6 +39,8 @@ export interface PhoneMarkdownProps {
   /** This file's project path, for relative links and images. */
   filePath: string;
   onOpenFile: (path: string) => void;
+  /** A link ending in `/`: open that folder. Without it, a folder link opens nothing. */
+  onOpenDir?: (path: string) => void;
 }
 
 const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6') =>
@@ -44,7 +50,7 @@ const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6') =>
 
 const HEADINGS = { h1: heading('h1'), h2: heading('h2'), h3: heading('h3'), h4: heading('h4'), h5: heading('h5'), h6: heading('h6') };
 
-export default function PhoneMarkdown({ content, projectPath, filePath, onOpenFile }: PhoneMarkdownProps) {
+export default function PhoneMarkdown({ content, projectPath, filePath, onOpenFile, onOpenDir }: PhoneMarkdownProps) {
   const dir = parentRel(filePath);
   const components = {
     ...HEADINGS,
@@ -65,15 +71,17 @@ export default function PhoneMarkdown({ content, projectPath, filePath, onOpenFi
           </a>
         );
       }
-      if (href && !EXTERNAL_RE.test(href) && !href.startsWith('#') && /\.mdx?$/i.test(href.split('#')[0])) {
-        const target = href.startsWith('/') ? joinRel('/', href.split('#')[0]) : joinRel(dir, href.split('#')[0]);
+      const target = resolveMarkdownLink(href, filePath);
+      if (target.kind !== 'external') {
         return (
           <a
             {...props}
-            href="#"
+            href={href}
             onClick={(e) => {
               e.preventDefault();
-              onOpenFile(target);
+              if (target.kind === 'file') onOpenFile(target.path);
+              else if (target.kind === 'folder') onOpenDir?.(target.path);
+              else showToast('This link points outside the project', 'error');
             }}
           >
             {children}

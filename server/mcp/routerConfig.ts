@@ -7,6 +7,8 @@
 //                          from the top 5 itself (spec, Routing: "Who picks")
 //   mcp.idleWorkerMinutes  how long an idle worker a central opened is left before AASC closes it, in whole minutes
 //                          (0 = never)
+//   mcp.maxLiveWorkers     how many live sessions of its own a central keeps open (default 8); a room central's room
+//   mcp.roomMaxLiveWorkers may set its own ({ "<room id or name>": 15 }). Each idle one is a live CLI of ~250–310 MB
 //   mcp.notices            P5's typed notices into an idle central (notices.ts) on or off (default off, Ruling P5-19:
 //                          a typed notice starts a paid model turn the person did not ask for, so they opt in)
 //
@@ -100,6 +102,61 @@ export function idleWorkerMinutes(mcp: McpConfig | undefined = config.mcp): numb
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return IDLE_WORKER_MINUTES_DEFAULT;
   if (value === 0) return 0;
   return Math.min(IDLE_WORKER_MINUTES_MAX, Math.max(1, Math.floor(value)));
+}
+
+/** How many live sessions of its own a central keeps open when nothing is set (Ruling P4-18). */
+export const LIVE_WORKERS_DEFAULT = 8;
+/** The most a setting can raise it to: half of AASC's session ceiling (terminalCapacity.ts `MAX_SESSIONS`). */
+export const LIVE_WORKERS_MAX = 50;
+/** The setting names, as server-config.json spells them and refusals and scope_get name them. */
+export const LIVE_WORKERS_SETTING = 'mcp.maxLiveWorkers';
+export const ROOM_LIVE_WORKERS_SETTING = 'mcp.roomMaxLiveWorkers';
+
+/** A central's live-worker cap and the setting it comes from. */
+export interface LiveWorkerCap {
+  max: number;
+  /** `mcp.maxLiveWorkers`, or `mcp.roomMaxLiveWorkers` when the central's room has its own value. */
+  setting: typeof LIVE_WORKERS_SETTING | typeof ROOM_LIVE_WORKERS_SETTING;
+}
+
+/** A cap as the file holds it: whole sessions, 1 to LIVE_WORKERS_MAX; null when it is not a number of at least 1. */
+function capOf(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) return null;
+  return Math.min(LIVE_WORKERS_MAX, Math.floor(value));
+}
+
+/**
+ * The room's own value in `mcp.roomMaxLiveWorkers`, keyed by the room's id, or by its name when no other room has that
+ * name (a name two rooms share applies to neither). Null when the room has none.
+ */
+function roomCapOf(
+  byRoom: unknown,
+  roomId: string,
+  rooms: readonly { id: string; name: string }[],
+): number | null {
+  if (!isRecord(byRoom)) return null;
+  if (Object.hasOwn(byRoom, roomId)) return capOf(byRoom[roomId]);
+  const name = rooms.find((r) => r.id === roomId)?.name;
+  if (name === undefined || !Object.hasOwn(byRoom, name)) return null;
+  return rooms.filter((r) => r.name === name).length === 1 ? capOf(byRoom[name]) : null;
+}
+
+/**
+ * How many live sessions of its own this central keeps open: a room central's room value in `mcp.roomMaxLiveWorkers`
+ * when it has one, else `mcp.maxLiveWorkers`, else 8. Each value is whole sessions from 1 to 50; anything else counts
+ * as unset. The per-minute open limit is not this setting and does not change.
+ */
+export function liveWorkerCap(
+  central: { kind: string; scopeRef: string | null },
+  rooms: readonly { id: string; name: string }[],
+  mcp: McpConfig | undefined = config.mcp,
+): LiveWorkerCap {
+  const given = isRecord(mcp) ? (mcp as Record<string, unknown>) : {};
+  if (central.kind === 'room' && central.scopeRef !== null) {
+    const own = roomCapOf(given.roomMaxLiveWorkers, central.scopeRef, rooms);
+    if (own !== null) return { max: own, setting: ROOM_LIVE_WORKERS_SETTING };
+  }
+  return { max: capOf(given.maxLiveWorkers) ?? LIVE_WORKERS_DEFAULT, setting: LIVE_WORKERS_SETTING };
 }
 
 /** Are typed notices on? `mcp.notices` when it is `true`; anything else, or nothing, is NOTICES_DEFAULT (off). */

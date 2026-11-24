@@ -425,6 +425,84 @@ describe('PhoneProjectBrowser — open and recent files (AASC-56)', () => {
   });
 });
 
+describe('PhoneProjectBrowser — the open files as tabs (Nov 25 2026)', () => {
+  const tabs = () => within(root()).queryByRole('navigation', { name: 'Open files' });
+  const tabNames = () => within(tabs()!).getAllByRole('button', { name: /^Show / }).map((b) => b.getAttribute('aria-label'));
+  const current = () => within(tabs()!).getAllByRole('button', { name: /^Show / }).find((b) => b.getAttribute('aria-current') === 'page')?.getAttribute('aria-label');
+
+  /** README.md, then src/lib/a.ts: two tabs, a.ts on screen. */
+  async function openTwo() {
+    await openRow('README.md');
+    await screen.findByRole('heading', { name: 'Title' });
+    fireEvent.click(button('Back'));
+    await openRow('Folder src');
+    await openRow('Folder lib');
+    await openRow('a.ts');
+    await screen.findByText('const target = sendPrompt();');
+  }
+
+  it('draws no row until a file is open, then one tab per open file, in the order opened, the one on screen marked', async () => {
+    renderBrowser();
+    await within(root()).findByRole('button', { name: 'Folder src' });
+    expect(tabs()).toBeNull();
+
+    await openTwo();
+
+    expect(tabNames()).toEqual(['Show README.md', 'Show src/lib/a.ts']);
+    expect(current()).toBe('Show src/lib/a.ts');
+    // The count is the row itself now: the files button keeps it only in its name.
+    expect(button('Open and recent files, 2 open').textContent).toBe('');
+  });
+
+  it('a tap shows that file; the tab follows', async () => {
+    renderBrowser();
+    await openTwo();
+
+    fireEvent.click(within(tabs()!).getByRole('button', { name: 'Show README.md' }));
+
+    expect(await screen.findByRole('heading', { name: 'Title' })).toBeInTheDocument();
+    expect(current()).toBe('Show README.md');
+  });
+
+  it('closing the tab on screen shows its neighbour; closing the last goes to its folder', async () => {
+    renderBrowser();
+    await openTwo();
+
+    fireEvent.click(within(tabs()!).getByRole('button', { name: 'Close a.ts' }));
+    expect(await screen.findByRole('heading', { name: 'Title' })).toBeInTheDocument();
+    expect(tabNames()).toEqual(['Show README.md']);
+
+    fireEvent.click(within(tabs()!).getByRole('button', { name: 'Close README.md' }));
+    expect(await within(root()).findByRole('button', { name: 'Folder src' })).toBeInTheDocument();
+    expect(tabs()).toBeNull();
+  });
+
+  it('closing a tab that is not on screen leaves the file on screen', async () => {
+    renderBrowser();
+    await openTwo();
+
+    fireEvent.click(within(tabs()!).getByRole('button', { name: 'Close README.md' }));
+
+    // Still reading a.ts (its code may be coloured by now, so its text is in pieces): no folder list came up.
+    expect(tabNames()).toEqual(['Show src/lib/a.ts']);
+    expect(current()).toBe('Show src/lib/a.ts');
+    expect(within(root()).queryByRole('button', { name: 'Folder src' })).toBeNull();
+    expect(within(root()).queryByRole('button', { name: 'a.ts' })).toBeNull();
+  });
+
+  it('remembers the tabs and the file on screen per project: they come back after the tab is left or the app restarts', async () => {
+    const { unmount } = renderBrowser();
+    await openTwo();
+    unmount();
+
+    renderBrowser();
+
+    expect(await screen.findByText('const target = sendPrompt();')).toBeInTheDocument();
+    expect(tabNames()).toEqual(['Show README.md', 'Show src/lib/a.ts']);
+    expect(current()).toBe('Show src/lib/a.ts');
+  });
+});
+
 describe('PhoneProjectBrowser — find in the file and coloured code (AASC-56)', () => {
   it('finds in a code file: counts, steps, marks the current hit', async () => {
     renderBrowser();

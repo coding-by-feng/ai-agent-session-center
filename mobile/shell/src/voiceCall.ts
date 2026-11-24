@@ -8,6 +8,7 @@
 import { bearer, field, jsonHeaders, type HttpRequester } from './http.js';
 import { parseReauthRequest } from './reauth.js';
 import type { CallBubble } from './native.js';
+import { parsePending, type AddedItem } from './callAdd.js';
 
 export const CALL_MESSAGES = {
   offline: 'Can’t reach the Mac right now.',
@@ -148,6 +149,8 @@ export interface CentralProgress {
   step: string | null;
   /** How long it has been on this call's question; null when it is not on one. A duration, not the Mac's clock. */
   elapsedMs: number | null;
+  /** The CLI it runs (Nov 24 2026): the ＋ Add command list asks for that one's commands. */
+  cli?: 'claude' | 'codex';
 }
 
 /** The central as the screen keeps it: `since` on this phone's clock (read time − elapsedMs). */
@@ -168,6 +171,8 @@ export interface CallProgress {
   central: CentralProgress | null;
   tasks: Array<{ title: string; state: TaskState }>;
   replies: Array<{ at: number; text: string; screen?: string }>;
+  /** What the person added on the call screen, waiting for their next question (Nov 24 2026). */
+  pending: AddedItem[];
 }
 
 const CENTRAL_STATES: readonly string[] = ['working', 'needs_you', 'idle', 'offline'];
@@ -186,6 +191,7 @@ export function parseProgress(data: unknown): CallProgress | null {
         state: CENTRAL_STATES.includes(String(c.state)) ? (c.state as CentralState) : 'working',
         step: typeof c.step === 'string' ? c.step : null,
         elapsedMs: isFiniteNum(c.elapsedMs) && c.elapsedMs >= 0 ? c.elapsedMs : null,
+        ...(c.cli === 'claude' || c.cli === 'codex' ? { cli: c.cli } : {}),
       }
     : null;
   const tasks = Array.isArray(data.tasks)
@@ -196,7 +202,7 @@ export function parseProgress(data: unknown): CallProgress | null {
     ? data.replies.filter((r): r is { at: number; text: string; screen?: unknown } => isObj(r) && isFiniteNum(r.at) && typeof r.text === 'string')
       .map((r) => ({ at: r.at, text: r.text, ...(typeof r.screen === 'string' && r.screen.trim() !== '' ? { screen: r.screen } : {}) }))
     : [];
-  return { central, tasks, replies };
+  return { central, tasks, replies, pending: parsePending(data.pending) };
 }
 
 /** What the Voice central is doing for this call, or null (an older Mac, a refusal, no network). Never throws. */

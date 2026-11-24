@@ -117,7 +117,7 @@ describe('key_send', () => {
 
   it('key_send applies hands-off and the 60 s rule', async () => {
     const handsOff = setup({ session: worker('w1', { handsOff: true }) });
-    const human = setup({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000 }) });
+    const human = setup({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }) });
 
     expect((await runRefused('key_send', { id: 'w1', key: 'up' }, handsOff.ctx)).code).toBe('HANDS_OFF');
     expect((await runRefused('key_send', { id: 'w1', key: 'up' }, human.ctx)).code).toBe('HUMAN_ACTIVE');
@@ -184,7 +184,7 @@ describe('terminal_clear', () => {
 
   it('applies hands-off and the 60 s rule', async () => {
     const handsOff = setup({ session: worker('w1', { handsOff: true }) });
-    const human = setup({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000 }) });
+    const human = setup({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }) });
 
     expect((await runRefused('terminal_clear', { id: 'w1' }, handsOff.ctx)).code).toBe('HANDS_OFF');
     expect((await runRefused('terminal_clear', { id: 'w1' }, human.ctx)).code).toBe('HUMAN_ACTIVE');

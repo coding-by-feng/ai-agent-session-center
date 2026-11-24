@@ -49,6 +49,7 @@ import { launchSession } from '@/lib/launchSession';
 import { refreshSessionList } from '@/lib/sessionRefresh';
 import { getSessionReads, resetSessionReadsForTest } from '@/lib/chat/sessionReads';
 import { useCentralFeatureStore } from '@/stores/centralFeatureStore';
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
 
 // The feature switch's answer is known up front, so no test sees its one GET /api/config among the calls it counts.
 beforeEach(() => useCentralFeatureStore.setState({ on: true }));
@@ -107,15 +108,22 @@ describe('SessionsScreen', () => {
     expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy();
   });
 
-  it('puts Call AASC in the title bar in the app only (Nov 22 2026: moved from More)', () => {
+  // Nov 24 2026: Call AASC, Rooms and Search fold behind one ⋯ in the title bar; ＋ stays out.
+  it('offers Call AASC in the title bar\'s ⋯ menu, in the app only (Nov 22 2026: moved from More)', async () => {
+    const user = userEvent.setup();
     const { unmount } = render(<SessionsScreen />);
     expect(screen.queryByRole('button', { name: 'Call AASC' })).toBeNull(); // a phone browser has no shell
+    expect(screen.queryByRole('menuitem', { name: 'Call AASC' })).toBeNull();
     unmount();
 
     const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(`Mozilla/5.0 (iPhone) ${NATIVE_APP_UA_TOKEN}`);
     try {
       render(<SessionsScreen />);
-      expect(screen.getByRole('button', { name: 'Call AASC' })).toBeTruthy();
+      const bar = within(screen.getByRole('banner'));
+      expect(bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More actions', 'New session']);
+      await user.click(bar.getByRole('button', { name: 'More actions' }));
+      const menu = screen.getByRole('menu', { name: 'Session actions' });
+      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Call AASC', 'Search']); // grouped by status here: no Rooms row
     } finally {
       ua.mockRestore();
     }
@@ -337,30 +345,42 @@ describe('SessionsScreen', () => {
     it('opens grouped by room, with room management, when the Mac has rooms', () => {
       render(<SessionsScreen />);
       expect(screen.getByRole('button', { name: 'By room' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: /New or manage rooms/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'More actions' })).toBeTruthy();
       // Recent first, as the desktop rail's RECENT frame (s1 and s2 have a turn running).
       expect(headings()).toEqual(['Recent · 2', 'Mobile · 2', 'Backend · 1', 'No room · 1']);
       // Not a choice this phone made: nothing is saved until it picks one.
       expect(localStorage.getItem('aasc.phoneSessionsGroup')).toBeNull();
     });
 
-    // Nov 19 2026: an icon in the title bar beside Search and +, no longer its own row under the chips.
-    it('offers room management as an icon in the title bar, before Search', () => {
-      render(<SessionsScreen />);
-      const bar = within(screen.getByRole('banner'));
-      const names = bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
-      expect(names).toEqual(['New or manage rooms', 'Search', 'New session']);
-      const rooms = bar.getByRole('button', { name: 'New or manage rooms' });
-      expect(rooms.textContent).toBe('');
-      expect(rooms).toHaveAttribute('aria-haspopup', 'dialog');
-      expect(screen.getAllByRole('button', { name: 'New or manage rooms' })).toHaveLength(1);
-    });
-
-    it('opens the Rooms sheet from the title bar icon', async () => {
+    // Nov 19 2026: in the title bar, no longer its own row under the chips. Nov 24 2026: behind the ⋯.
+    it('offers room management in the title bar\'s ⋯ menu, before Search', async () => {
       const user = userEvent.setup();
       render(<SessionsScreen />);
-      await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'New or manage rooms' }));
+      const bar = within(screen.getByRole('banner'));
+      expect(bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More actions', 'New session']);
+      await user.click(bar.getByRole('button', { name: 'More actions' }));
+      expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['New or manage rooms', 'Search']);
+    });
+
+    it('opens the Rooms sheet from the ⋯ menu', async () => {
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'More actions' }));
+      await user.click(screen.getByRole('menuitem', { name: 'New or manage rooms' }));
       expect(await screen.findByRole('dialog', { name: /rooms/i })).toBeTruthy();
+    });
+
+    it('opens Search from the ⋯ menu and marks the ⋯ while it is open', async () => {
+      const user = userEvent.setup();
+      render(<SessionsScreen />);
+      const more = within(screen.getByRole('banner')).getByRole('button', { name: 'More actions' });
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Search' }));
+      expect(screen.getByRole('searchbox', { name: 'Search sessions' })).toBeTruthy();
+      expect(more).toHaveAttribute('data-pressed', '');
+      await user.click(more);
+      await user.click(screen.getByRole('menuitem', { name: 'Close search' }));
+      expect(screen.queryByRole('searchbox', { name: 'Search sessions' })).toBeNull();
     });
 
     it('opens by status when the Mac has no rooms', () => {
@@ -368,6 +388,8 @@ describe('SessionsScreen', () => {
       render(<SessionsScreen />);
       expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
+      // Search alone needs no menu: it stays its own icon.
+      expect(within(screen.getByRole('banner')).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Search', 'New session']);
     });
 
     it('keeps the grouping this phone chose', async () => {
@@ -380,6 +402,8 @@ describe('SessionsScreen', () => {
       render(<SessionsScreen />);
       expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
+      // Search alone needs no menu: it stays its own icon.
+      expect(within(screen.getByRole('banner')).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Search', 'New session']);
     });
   });
 
@@ -430,10 +454,12 @@ describe('SessionsScreen', () => {
 
     // Found on a real iPhone (Oct 2026): with no session shared, rooms couldn't be made, renamed
     // or deleted from the phone at all (a test room was left on the Mac).
-    it('still offers New or manage rooms when no session is shared with this phone', () => {
+    it('still offers New or manage rooms when no session is shared with this phone', async () => {
+      const user = userEvent.setup();
       useSessionStore.setState({ sessions: new Map() });
       render(<SessionsScreen />);
-      expect(screen.getByRole('button', { name: 'New or manage rooms' })).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'More actions' }));
+      expect(screen.getByRole('menuitem', { name: 'New or manage rooms' })).toBeTruthy();
     });
 
     it('offers no room kill when none of its live sessions is shared with this phone', async () => {
@@ -481,6 +507,76 @@ describe('SessionsScreen', () => {
         render(<SessionsScreen />);
         expect(screen.queryByTestId('room-group-recent')).toBeNull();
         expect(screen.queryByRole('heading', { name: /^Recent/ })).toBeNull();
+      });
+
+      // The desktop card's Alert ring, on the phone (Nov 24 2026): Alert on and it needs you or finished unseen.
+      it('rings an alerted session that needs you, not one without Alert, and says so', () => {
+        const sessions = fixtures();
+        sessions.set('s1', { ...sessions.get('s1')!, alerted: true } as Session); // approval
+        sessions.set('s2', { ...sessions.get('s2')!, alerted: true } as Session); // working: nothing to ring for
+        act(() => useSessionStore.setState({ sessions }));
+        render(<SessionsScreen />);
+        const avatarOf = (id: string) => screen.getAllByTestId(`session-row-${id}`)[0].querySelector('[data-alerting]');
+        expect(avatarOf('s1')).not.toBeNull();
+        expect(screen.getAllByTestId('session-row-s1')[0].getAttribute('aria-label')).toMatch(/, alert,/);
+        expect(avatarOf('s2')).toBeNull();
+        expect(avatarOf('s3')).toBeNull(); // waiting but no Alert
+      });
+
+      // The desktop rail's Put down / Put back, on the phone (Nov 24 2026).
+      describe('Put down', () => {
+        beforeEach(() => act(() => { useRecentPutDownStore.getState().putBackAll(); }));
+        afterEach(() => act(() => { useRecentPutDownStore.getState().putBackAll(); }));
+
+        const menuOf = async (scope: HTMLElement, id: string) => {
+          fireEvent.contextMenu(within(scope).getByTestId(`session-row-${id}`));
+          return screen.findByRole('menu');
+        };
+
+        it('is offered on Recent\'s copy only, and hides it from Recent while it stays in its room', { timeout: 30_000 }, async () => {
+          const user = userEvent.setup();
+          render(<SessionsScreen />);
+          const roomMenu = await menuOf(screen.getByTestId('room-group-r1'), 's1');
+          expect(within(roomMenu).queryByRole('menuitem', { name: /Put down/ })).toBeNull();
+          await user.keyboard('{Escape}');
+
+          const recentMenu = await menuOf(screen.getByTestId('room-group-recent'), 's1');
+          await user.click(within(recentMenu).getByRole('menuitem', { name: /Put down for today/ }));
+          expect(names(screen.getByTestId('room-group-recent'))).toEqual(['s2']);
+          expect(names(screen.getByTestId('room-group-r1'))).toEqual(['s1', 's3']);
+        });
+
+        it('swipes to Put down in Mute\'s place on Recent rows; Mute stays on room rows', () => {
+          render(<SessionsScreen />);
+          const recentRow = within(screen.getByTestId('room-group-recent')).getByTestId('session-row-s2').closest('li')!;
+          const roomRow = within(screen.getByTestId('room-group-r2')).getByTestId('session-row-s2').closest('li')!;
+          const swipeLabels = (row: HTMLElement) => [...row.querySelectorAll('button')].map((b) => b.textContent?.trim()).filter(Boolean);
+          expect(swipeLabels(recentRow)).toEqual(expect.arrayContaining(['Put down']));
+          expect(swipeLabels(recentRow)).not.toEqual(expect.arrayContaining(['Mute']));
+          expect(swipeLabels(roomRow)).toEqual(expect.arrayContaining(['Mute']));
+        });
+
+        it('keeps Recent with its Put back chip while all are put down, and puts each back from the sheet', { timeout: 30_000 }, async () => {
+          const user = userEvent.setup();
+          act(() => {
+            useRecentPutDownStore.getState().putDownSession('s1');
+            useRecentPutDownStore.getState().putDownSession('s2');
+          });
+          render(<SessionsScreen />);
+          const recent = screen.getByTestId('room-group-recent');
+          expect(within(recent).queryAllByTestId(/^session-row-/)).toHaveLength(0);
+          expect(within(recent).getByText('All put down for today.')).toBeTruthy();
+
+          await user.click(within(recent).getByRole('button', { name: '2 put down from Recent today' }));
+          const sheet = await screen.findByRole('dialog', { name: 'Put back in Recent' });
+          await user.click(within(sheet).getByRole('button', { name: 'Put Approve me back in Recent' }));
+          expect(names(screen.getByTestId('room-group-recent'))).toEqual(['s1']);
+
+          await user.click(within(screen.getByTestId('room-group-recent')).getByRole('button', { name: '1 put down from Recent today' }));
+          await user.click(within(await screen.findByRole('dialog', { name: 'Put back in Recent' })).getByRole('button', { name: 'Put Working one back in Recent' }));
+          expect(names(screen.getByTestId('room-group-recent'))).toEqual(['s1', 's2']);
+          expect(within(screen.getByTestId('room-group-recent')).queryByRole('button', { name: /put down from Recent today/ })).toBeNull();
+        });
       });
     });
 

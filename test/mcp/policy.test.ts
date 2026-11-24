@@ -59,7 +59,7 @@ describe('assertMaySteer', () => {
       session: worker({ isSubagent: true, handsOff: true }),
       ctx: steerCtx({
         inScope: () => false,
-        controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 1_000 }),
+        controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 1_000, lastInputAt: NOW - 1_000 }),
         isLocked: () => true,
       }),
     });
@@ -129,7 +129,7 @@ describe('assertMaySteer', () => {
 
   describe('the 60-second rule', () => {
     const drivenBy = (clientId: string, agoMs: number) =>
-      steerCtx({ controller: () => ({ clientId, lastActivityAt: NOW - agoMs }) });
+      steerCtx({ controller: () => ({ clientId, lastActivityAt: NOW - agoMs, lastInputAt: NOW - agoMs }) });
 
     it('refuses while a person typed in the session less than 60 s ago', () => {
       const err = refusal(central, worker(), drivenBy('desktop-1', 59_000));
@@ -235,13 +235,13 @@ describe('assertMayHandOff (Ruling P4-8)', () => {
 
   it('handoff respects hands-off, the 60 s rule and the lock', () => {
     const card = cardOf(roomChild);
-    const person = { clientId: 'desktop-1', lastActivityAt: NOW - 10_000 };
+    const person = { clientId: 'desktop-1', lastActivityAt: NOW - 10_000, lastInputAt: NOW - 10_000 };
 
     expect(handOffRefusal(global, roomChild, { ...card, handsOff: true }, steerCtx()).code).toBe('HANDS_OFF');
     const recent = handOffRefusal(global, roomChild, card, steerCtx({ controller: () => person }));
     expect(recent.code).toBe('HUMAN_ACTIVE');
     expect(recent.hint).toMatch(/50 s/);
-    const stale = { clientId: 'desktop-1', lastActivityAt: NOW - HUMAN_ACTIVE_MS };
+    const stale = { clientId: 'desktop-1', lastActivityAt: NOW - HUMAN_ACTIVE_MS, lastInputAt: NOW - HUMAN_ACTIVE_MS };
     expect(() => assertMayHandOff(global, roomChild, card, steerCtx({ controller: () => stale }))).not.toThrow();
     // The person's Esc hold (Ruling 47), unless the stamp is the one a central's own Esc caused.
     const stopped = { ...card, userCancelledAt: NOW - 1_000 };

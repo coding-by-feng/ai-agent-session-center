@@ -154,6 +154,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/voice/call/:id/end', 'allow'),
   // What the Voice central is doing for that call (Nov 22 2026): the route answers only the call's own device.
   route('GET', '/voice/call/:id/progress', 'allow'),
+  // The call screen's ＋ Add (Nov 24 2026): a file or a picked skill counts against the phone's upload budget (each
+  // one also tells the paid voice session); the routes answer only the call's own device.
+  route('POST', '/voice/call/:id/attach', 'upload'),
+  route('POST', '/voice/call/:id/skill', 'upload'),
+  route('DELETE', '/voice/call/:id/attach/[^/]+', 'allow'),
   // Call memory review (Nov 22 2026): the routes show a phone only global items and its visible projects'.
   route('GET', '/voice/memory', 'allow'),
   route('POST', '/voice/memory/:id', 'allow'),

@@ -12,6 +12,7 @@
 // A step is a phrase from the tool's name only: never a command, path or id, which the voice rules keep out of the
 // call too. The caller passes only tasks whose session the calling device may see (sessionVisibility.ts).
 
+import type { CallAttachment } from './callAttach.js';
 import type { McpTaskState } from '../../src/types/mcpEvents.js';
 
 /** Tasks the screen lists; older ones of the same call are left out. */
@@ -49,9 +50,12 @@ export interface CallReply {
 }
 
 export interface CallProgressView {
-  central: { title: string; state: CentralState; step: string | null; elapsedMs: number | null } | null;
+  /** `cli` (Nov 24 2026): which CLI the Voice central runs, so the call screen lists its commands (`/x` or `$x`). */
+  central: { title: string; state: CentralState; step: string | null; elapsedMs: number | null; cli?: 'claude' | 'codex' } | null;
   tasks: Array<{ title: string; state: TaskShownState }>;
   replies: CallReply[];
+  /** What the person added on the call screen, waiting for their next question (Nov 24 2026; no saved path). */
+  pending?: Array<{ id: string; kind: CallAttachment['kind']; name: string }>;
 }
 
 export interface CallProgressInput {
@@ -189,11 +193,12 @@ export interface CollectSession {
   sessionId: string;
   title: string;
   status: string;
+  cli?: 'claude' | 'codex';
   toolLog?: ReadonlyArray<{ tool: string; timestamp: number }>;
 }
 
 export interface CollectInput<S extends CollectSession> {
-  call: { replies(): readonly CallReply[]; busySince(): number | null };
+  call: { replies(): readonly CallReply[]; busySince(): number | null; pending?(): readonly CallAttachment[] };
   startedAt: number;
   now: number;
   /** The Voice central now (findBrain), or null when there is none. */
@@ -219,7 +224,7 @@ export function collectCallProgress<S extends CollectSession>(input: CollectInpu
       if (s) tasks.push({ title: s.title, state: t.state, createdAt: t.createdAt });
     }
   }
-  return buildCallProgress({
+  const view = buildCallProgress({
     central: centralSession ? { title: centralSession.title, status: centralSession.status, toolLog: centralSession.toolLog ?? [] } : null,
     busySince: input.call.busySince(),
     callStartedAt: input.startedAt,
@@ -227,4 +232,7 @@ export function collectCallProgress<S extends CollectSession>(input: CollectInpu
     tasks,
     replies: input.call.replies(),
   });
+  const pending = (input.call.pending?.() ?? []).map(({ id, kind, name }) => ({ id, kind, name }));
+  const cli = centralSession?.cli;
+  return { ...view, central: view.central && cli ? { ...view.central, cli } : view.central, pending };
 }

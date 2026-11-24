@@ -63,6 +63,9 @@ export interface SessionListRowProps {
   grip?: GripHandlers;
   /** This row is being dragged: it follows the finger by `dragY` px. */
   dragY?: number;
+  /** Alert on and it finished unseen or needs you (lib/alertNotify `isAlerting`, Nov 24 2026): the status ring
+   *  pulses, as the desktop card does. Not while this row's session is open beside the list (iPad split). */
+  alerting?: boolean;
 }
 
 function GripIcon() {
@@ -90,6 +93,7 @@ export default function SessionListRow({
   menuItems,
   grip,
   dragY,
+  alerting = false,
 }: SessionListRowProps) {
   const room = useRoomStore((s) => (hideRoom ? undefined : s.rooms.find((r) => r.sessionIds.includes(session.sessionId))));
   // A string or undefined, as CentralBadge reads it: re-renders only when that room is renamed.
@@ -117,8 +121,9 @@ export default function SessionListRow({
   const project = !hideProject && session.projectName && session.projectName !== title ? session.projectName : null;
   const cliWord = cli === 'claude' ? 'Claude Code' : cli ? agentLabel(cli) : null;
   const queuedWords = queued > 0 ? `${queued} queued prompt${queued === 1 ? '' : 's'}` : null;
+  const ringing = alerting && !current;
   const centralWords = central ? centralLabel(central, centralRoomName) : null;
-  const spoken = [title, centralWords, cliWord, status, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
+  const spoken = [title, centralWords, cliWord, status, ringing ? 'alert' : null, line, project, room ? `room ${room.name}` : null, queuedWords, age === 'now' ? 'active now' : `${age} ago`]
     .filter(Boolean)
     .join(', ');
 
@@ -132,7 +137,7 @@ export default function SessionListRow({
       data-current={current ? '' : undefined}
       data-testid={`session-row-${session.sessionId}`}
     >
-      <span className={styles.avatar}>
+      <span className={styles.avatar} data-alerting={ringing ? '' : undefined}>
         <StatusRing status={shown} interrupted={faultMark(session)} />
         <CliMark cli={cli} />
       </span>

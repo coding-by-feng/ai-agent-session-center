@@ -14,6 +14,8 @@ export { default as ConfirmSheet } from './ConfirmSheet';
 export type { ConfirmSheetProps } from './ConfirmSheet';
 export { default as ContextMenu } from './ContextMenu';
 export type { ContextMenuItem, ContextMenuProps } from './ContextMenu';
+export { default as MenuButton } from './MenuButton';
+export type { MenuButtonProps } from './MenuButton';
 export { default as EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
 export { ListRow, ListSection } from './List';

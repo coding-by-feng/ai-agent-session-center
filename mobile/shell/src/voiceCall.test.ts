@@ -107,9 +107,10 @@ describe('formatDuration', () => {
 
 describe('requestProgress (Nov 22 2026)', () => {
   const view = {
-    central: { title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 5 },
+    central: { title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 5, cli: 'codex' },
     tasks: [{ title: 'AASC docs', state: 'working' }],
     replies: [{ at: 9, text: 'Done.' }],
+    pending: [{ id: 'att1', kind: 'photo', name: 'receipt.jpg' }],
   };
 
   it('reads the call’s progress with the session token', async () => {
@@ -132,13 +133,16 @@ describe('parseProgress', () => {
       central: { title: 'Voice', state: 'sleeping', step: 3, elapsedMs: -4 },
       tasks: [{ title: 'ok', state: 'finished' }, { title: 5, state: 'working' }, { title: 'bad', state: 'nope' }],
       replies: [{ at: 1, text: 'hi' }, { at: 'x', text: 'no' }],
+      pending: [{ id: 'a', kind: 'photo', name: 'x.jpg' }, { id: 'b', kind: 'other', name: 'y' }],
     })).toEqual({
       central: { title: 'Voice', state: 'working', step: null, elapsedMs: null },
       tasks: [{ title: 'ok', state: 'finished' }],
       replies: [{ at: 1, text: 'hi' }],
+      pending: [{ id: 'a', kind: 'photo', name: 'x.jpg' }],
     });
     expect(parseProgress(null)).toBeNull();
-    expect(parseProgress({ central: null, tasks: [], replies: [] })).toEqual({ central: null, tasks: [], replies: [] });
+    // An older Mac sends no `pending`: nothing waits.
+    expect(parseProgress({ central: null, tasks: [], replies: [] })).toEqual({ central: null, tasks: [], replies: [], pending: [] });
   });
 });
 

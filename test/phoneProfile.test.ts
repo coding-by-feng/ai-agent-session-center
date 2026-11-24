@@ -1192,3 +1192,21 @@ describe('dictation from a phone', () => {
     expect(phoneRuleFor(method, path)).toBeNull();
   });
 });
+
+// ── The voice call screen's ＋ Add (Nov 24 2026) ─────────────────────────────────────────────────────────
+
+describe('adding to a voice call from a phone', () => {
+  it('counts a file against the upload budget and opens the skill pick and take-back routes', () => {
+    expect(phoneRuleFor('POST', '/voice/call/call_abc/attach')).toBe('upload');
+    expect(phoneRuleFor('POST', '/voice/call/call_abc/skill')).toBe('upload'); // each one tells the paid voice session
+    expect(phoneRuleFor('DELETE', '/voice/call/call_abc/attach/att1')).toBe('allow');
+  });
+
+  it.each([
+    ['GET', '/voice/call/call_abc/attach'],
+    ['PUT', '/voice/call/call_abc/attach'],
+    ['DELETE', '/voice/call/call_abc/attach'],
+  ])('stays closed for %s %s', (method, path) => {
+    expect(phoneRuleFor(method, path)).toBeNull();
+  });
+});

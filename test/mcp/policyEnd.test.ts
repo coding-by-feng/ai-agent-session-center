@@ -71,12 +71,12 @@ describe('assertMayEnd', () => {
   it('end refuses hands-off, a person in the last 60 s, the person’s Esc hold', () => {
     expect(refusal(() => assertMayEnd(central, card('w1', { handsOff: true }), rails())).code).toBe('HANDS_OFF');
 
-    const typed = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000 }) });
+    const typed = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }) });
     expect(refusal(() => assertMayEnd(central, card('w1'), typed)).code).toBe('HUMAN_ACTIVE');
     // A central's own presence is no person; a person a minute ago no longer counts.
     expect(() => assertMayEnd(central, card('w1'), rails({ controller: () => ({ clientId: 'mcp:c9', lastActivityAt: NOW }) }))).not.toThrow();
     expect(() =>
-      assertMayEnd(central, card('w1'), rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 61_000 }) })),
+      assertMayEnd(central, card('w1'), rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 61_000, lastInputAt: NOW - 61_000 }) })),
     ).not.toThrow();
 
     const held = refusal(() => assertMayEnd(central, card('w1', { userCancelledAt: NOW - 1_000 }), rails()));

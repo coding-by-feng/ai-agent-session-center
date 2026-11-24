@@ -72,6 +72,8 @@ export interface PhoneFileViewProps {
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   onOpenFile: (path: string) => void;
+  /** A folder link in a Markdown file (Nov 24 2026). */
+  onOpenDir?: (path: string) => void;
   /** The session whose Project tab this is: its AI popups (AASC-57). None, no Ask AI. */
   aiSessionId?: string;
 }
@@ -96,6 +98,7 @@ export default function PhoneFileView({
   fullscreen,
   onToggleFullscreen,
   onOpenFile,
+  onOpenDir,
   aiSessionId,
 }: PhoneFileViewProps) {
   const [attempt, setAttempt] = useState(0);
@@ -249,7 +252,7 @@ export default function PhoneFileView({
     body = (
       <div ref={scrollRef} className={styles.scroll} data-phone-scroll="">
         <Suspense fallback={fallback}>
-          <PhoneMarkdown content={file.content ?? ''} projectPath={projectPath} filePath={path} onOpenFile={onOpenFile} />
+          <PhoneMarkdown content={file.content ?? ''} projectPath={projectPath} filePath={path} onOpenFile={onOpenFile} onOpenDir={onOpenDir} />
         </Suspense>
       </div>
     );

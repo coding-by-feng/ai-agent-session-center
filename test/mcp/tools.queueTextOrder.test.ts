@@ -22,7 +22,7 @@ function worldWherePersonTypesDuringCatalog() {
         return ok({ entries: [DEPLOY] });
       },
     },
-    controller: () => (personTyping ? { clientId: 'window-1', lastActivityAt: NOW - 1_000 } : null),
+    controller: () => (personTyping ? { clientId: 'window-1', lastActivityAt: NOW - 1_000, lastInputAt: NOW - 1_000 } : null),
   });
 }
 

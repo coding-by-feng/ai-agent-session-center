@@ -13,6 +13,8 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   /** JSON body; omitted means no body at all (the backend's DELETE refuses one). */
   body?: unknown;
+  /** A raw body instead, as base64 (Nov 24 2026: a voice call's attachment); sent as its bytes, never as JSON. */
+  bytes?: string;
   /** Native connect and read timeouts for this request; omitted: 15 s (the LAN rescan's probes are short). */
   timeoutMs?: number;
 }

@@ -3,8 +3,9 @@
 // In order, and nothing is opened until every check has passed:
 //   1. the spec (Zod): a CLI AASC runs, a model and an effort that CLI takes, a title that passes the title rule
 //      (titleRule.ts, Ruling P3-23: it is typed as `-n "<title>"` and stored back as loose words), a room id; then, before
-//      anything is awaited, a slot of the central's worker budgets is reserved (at most 8 live own workers, 10 opens a rolling
-//      minute, opens still in flight counted: Ruling P4-18), and given back when the open fails or is done
+//      anything is awaited, a slot of the central's worker budgets is reserved (at most its live-worker cap of own
+//      workers open: 8 unless `mcp.maxLiveWorkers` or its room's `mcp.roomMaxLiveWorkers` says otherwise (routerConfig.ts);
+//      10 opens a rolling minute, opens still in flight counted: Ruling P4-18), and given back when the open fails or is done
 //   2. the folder: the launch rule (launchRule.ts) and the central's scope, on the folder as written, then again on
 //      its real path (a link is judged by where it leads); a folder that is not there is INVALID
 //   3. the room: one the Mac has (NOT_FOUND); a room central files into its own room only (DENIED), by default
@@ -36,6 +37,7 @@ import type { ActivityNote } from './activity.js';
 import { assertWithinCap, BYPASS_MODE, centralCap, DEFAULT_MODE, MODE_RANK } from './permissionCap.js';
 import type { ToolContext } from './registry.js';
 import { ToolError, type CliKind } from './types.js';
+import { LIVE_WORKERS_DEFAULT, LIVE_WORKERS_SETTING, liveWorkerCap, type LiveWorkerCap } from './routerConfig.js';
 import { titleRefusal } from './titleRule.js';
 import { workers as serverWorkers, type WorkerRegistry } from './workers.js';
 
@@ -81,8 +83,8 @@ export interface OpenWorkerDeps {
   workers?: WorkerRegistry;
 }
 
-/** The most live workers a central keeps. */
-export const MAX_LIVE_WORKERS = 8;
+/** The most live workers a central keeps when no setting says otherwise (routerConfig.ts `liveWorkerCap`). */
+export const MAX_LIVE_WORKERS = LIVE_WORKERS_DEFAULT;
 /** The most sessions a central opens in a rolling minute. */
 export const MAX_OPENS_PER_MINUTE = 10;
 const MINUTE_MS = 60_000;
@@ -218,6 +220,16 @@ function setInFlight(registry: WorkerRegistry, centralId: string, n: number): vo
   inFlight.set(registry, next);
 }
 
+/** This central's live-worker cap now: its room's own setting, else the global one, else 8. */
+export const liveWorkerCapOf = (ctx: Pick<ToolContext, 'central' | 'rooms'>): LiveWorkerCap =>
+  liveWorkerCap(ctx.central, ctx.rooms());
+
+/** The refusal at the cap: it names the setting and its value, never the room. */
+export function liveCapRefusal(cap: LiveWorkerCap): string {
+  const where = cap.setting === LIVE_WORKERS_SETTING ? '' : ' for your room';
+  return `You keep at most ${cap.max} sessions of your own open (setting ${cap.setting}${where} = ${cap.max}).`;
+}
+
 /**
  * Checks the worker budgets with the opens still in flight counted, and reserves a slot, all synchronously (P4-18):
  * two calls at the last slot cannot both pass. Answers the release, to call once the open has settled.
@@ -225,12 +237,9 @@ function setInFlight(registry: WorkerRegistry, centralId: string, n: number): vo
 function reserveSlot(ctx: ToolContext, registry: WorkerRegistry, deps: OpenWorkerDeps): () => void {
   const { centralId } = ctx.central;
   const pending = inFlightOf(registry, centralId);
-  if (registry.liveCount(centralId, ctx.sessions()) + pending >= MAX_LIVE_WORKERS) {
-    throw new ToolError(
-      'BUDGET',
-      `A central keeps at most ${MAX_LIVE_WORKERS} sessions of its own open.`,
-      'Reuse one of them, or wait for one to finish.',
-    );
+  const cap = liveWorkerCapOf(ctx);
+  if (registry.liveCount(centralId, ctx.sessions()) + pending >= cap.max) {
+    throw new ToolError('BUDGET', liveCapRefusal(cap), 'Reuse one of them, or wait for one to finish.');
   }
   if (registry.opensSince(centralId, deps.now() - MINUTE_MS) + pending >= MAX_OPENS_PER_MINUTE) {
     throw new ToolError('BUDGET', `A central opens at most ${MAX_OPENS_PER_MINUTE} sessions a minute.`, 'Try again in a minute.');
@@ -407,7 +416,7 @@ function noteMinuteOpen(ctx: ToolContext, registry: WorkerRegistry, deps: OpenWo
 /**
  * Opens a terminal through the route `open.call` names, after the checks every open passes, in order: the folder rules
  * (the launch rule and scope, as written and real, on the folder it opens and on each of `alsoJudged`), the permission cap, the plan window, then the budgets (an own open
- * takes a slot of the 8 live and 10 a minute; any other counts against the 10 a minute only). The route's refusal is
+ * takes a slot of the live-worker cap and the 10 a minute; any other counts against the 10 a minute only). The route's refusal is
  * told in fixed words; an own open is recorded as the central's worker in the real folder.
  */
 export async function openThroughRoute(

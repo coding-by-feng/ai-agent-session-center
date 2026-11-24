@@ -14,11 +14,13 @@
 // cancel anything: work already handed to the Voice central keeps running. Ending the call drops the questions
 // still waiting (their AbortSignal), so a new call never waits behind an old one's.
 
+import { rmSync } from 'fs';
 import log from '../logger.js';
 import { buildDigest, statusChanges, type DigestSession } from './digest.js';
 import type { AskOptions } from './brain.js';
 import type { LiveEvent, Sideband } from './liveApi.js';
 import type { CallReply } from './callProgress.js';
+import { createPendingList, type CallAttachment } from './callAttach.js';
 import { createTranscriptLog, type TranscriptLine } from './transcriptLog.js';
 import { createTurnGate, type TurnUpdate } from './turnGate.js';
 import { BRAIN_CONTEXT_MAX, brainPrompt, finishPrompt, splitScreen, toSpeakable } from './voiceText.js';
@@ -81,6 +83,15 @@ export interface VoiceCall {
   replies(): readonly CallReply[];
   /** When the question now with the Voice central was handed over; null when none is. */
   busySince(): number | null;
+  /**
+   * Holds a photo, video, file or skill the person added on the call screen until their next question takes it
+   * to the Voice central (Nov 24 2026); null once the call ended or the list is full (callAttach.ts).
+   */
+  attach(item: Omit<CallAttachment, 'id'>): CallAttachment | null;
+  /** Takes one back before it was asked about; false when it is not held. */
+  detach(id: string): boolean;
+  /** What the next question will carry. */
+  pending(): readonly CallAttachment[];
 }
 
 /** Replies kept per call; older ones are dropped. */
@@ -121,6 +132,7 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   const gate = createTurnGate();
+  const added = createPendingList();
   let gateTimer: ReturnType<typeof setTimeout> | undefined;
 
   const send = (event: LiveEvent): void => {
@@ -233,13 +245,16 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
       const request = log_.userSince(since);
       const context = log_.recent(BRAIN_CONTEXT_MAX);
       let content: string;
+      let withIt: readonly CallAttachment[] = [];
       try {
         if (!takeAsk()) {
           content = 'That is a lot of requests in one minute. Wait a moment and ask me again.';
         } else {
           const brief = briefingFor(request);
+          // What was added on the call screen goes with this question, once (Nov 24 2026).
+          withIt = added.take();
           busySince = now();
-          const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag, briefing: brief }), { isLocal: deps.isLocal, signal: aborter.signal });
+          const answer = await deps.brain.ask((tag) => brainPrompt({ request, context, tag, briefing: brief, added: withIt }), { isLocal: deps.isLocal, signal: aborter.signal });
           // Only the spoken part is said; the on-screen part (a table, code) goes to the call screen (Nov 23 2026).
           const { speech, screen } = splitScreen(answer);
           replies = [...replies, { at: now(), text: speech, ...(screen ? { screen } : {}) }].slice(-REPLIES_KEPT);
@@ -248,6 +263,9 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
       } catch (err) {
         log.warn('voice', `A delegation failed: ${err instanceof Error ? err.message : String(err)}`);
         content = spokenFailure(err);
+        // The central never answered: what was added waits for the next question instead of being lost.
+        // (A call that ended meanwhile deletes them: nothing will take them now.)
+        removeFiles(active ? added.putBack(withIt) : withIt);
       } finally {
         busySince = null;
       }
@@ -326,9 +344,15 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     ...(deps.onNote ? [deps.onNote((text) => { if (active && text.trim()) say({ kind: 'note', content: text }); })] : []),
   ];
 
+  /** Deletes the saved files of attachments that will never reach the central. */
+  function removeFiles(items: readonly CallAttachment[]): void {
+    for (const a of items) if (a.path) rmSync(a.path, { force: true });
+  }
+
   function finish(reason: string): void {
     if (!active) return;
     active = false;
+    removeFiles(added.take());
     aborter.abort();
     clearTimeout(changeTimer);
     clearTimeout(idleTimer);
@@ -360,5 +384,21 @@ export function startVoiceCall(deps: VoiceCallDeps): VoiceCall {
     transcript: () => log_.lines(),
     replies: () => replies,
     busySince: () => busySince,
+    attach(item) {
+      if (!active) return null;
+      const held = added.add(item);
+      // The voice can't see it; it should hand it to AASC with the next request rather than say it can't.
+      if (held) {
+        const what = held.kind === 'skill' ? `the command ${held.name}` : `a ${held.kind} (${held.name})`;
+        send({
+          type: 'session.thinking.append',
+          delegation_id: null,
+          content: `The user just added ${what} on the call screen. You cannot see it; AASC gets it with their next request, so delegate that request as usual.`,
+        });
+      }
+      return held;
+    },
+    detach: (id) => active && added.remove(id),
+    pending: () => added.items(),
   };
 }

@@ -146,7 +146,7 @@ describe('refusals before anything is scheduled', () => {
     const away = world({ handsOff: true });
     expect((await runRefused('session_set_model', { id: ID, model: 'sonnet' }, away.ctx)).code).toBe('HANDS_OFF');
 
-    const person = world({}, { controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000 }) });
+    const person = world({}, { controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }) });
     expect((await runRefused('session_set_effort', { id: ID, effort: 'high' }, person.ctx)).code).toBe('HUMAN_ACTIVE');
 
     const locked = world({}, { ledger: { ...unwiredLedger, isLocked: () => true } });

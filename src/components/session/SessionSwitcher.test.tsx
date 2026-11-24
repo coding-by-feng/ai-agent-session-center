@@ -756,9 +756,9 @@ describe('SessionSwitcher — room reorder', () => {
 
     const row = container.querySelector('[class*="roomHeaderRow"]')!;
     const dividers = row.querySelectorAll('[class*="roomHeaderDivider"]');
-    // One between [grip collapse] and [up down]; one before the kill skull,
-    // which only renders while the room has live sessions.
-    expect(dividers.length).toBe(2);
+    // One between [grip collapse] and [up down]; one before the room Alert bell and one before the kill skull,
+    // both of which only render while the room has live sessions.
+    expect(dividers.length).toBe(3);
 
     const kids = [...row.children];
     const collapseIdx = kids.indexOf(screen.getByLabelText('Collapse room Alpha'));
@@ -845,6 +845,76 @@ describe('SessionSwitcher — room reorder', () => {
 
     expect(useUiStore.getState().activeModal).toBe(ROOM_KILL_MODAL_ID);
     expect(useUiStore.getState().roomKillTargetId).toBe('room-a');
+  });
+
+  describe('the room Alert', () => {
+    const alertButton = () => screen.queryByRole('button', { name: /^(Alert all|Stop alerts for all) \d+ sessions? in Alpha$/ });
+
+    /** Room Alpha with live a and b (a alerted), and c ended; the store holds them too, as in the app. */
+    function renderAlpha(over: { aAlerted?: boolean; bAlerted?: boolean } = {}) {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
+      const sessions = [
+        makeSession({ sessionId: 'cur' }),
+        makeSession({ sessionId: 'a', alerted: over.aAlerted ?? true }),
+        makeSession({ sessionId: 'b', status: 'working', alerted: over.bAlerted ?? false }),
+        makeSession({ sessionId: 'c', status: 'ended' }),
+      ];
+      useSessionStore.setState({ sessions: new Map(sessions.map((s) => [s.sessionId, s])) } as never);
+      renderWithRooms([makeRoom({ id: 'room-a', name: 'Alpha', sessionIds: ['a', 'b', 'c'] })], sessions);
+      const puts = () => fetchMock.mock.calls
+        .filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT')
+        .map(([url, init]) => [url, JSON.parse(String((init as RequestInit).body))]);
+      return { puts };
+    }
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('sits before the skull, each behind its own divider, and shows mixed when some live sessions are alerted', () => {
+      renderAlpha();
+      const bell = alertButton()!;
+      const skull = screen.getByLabelText(/^Kill all 2 sessions in room Alpha$/);
+
+      expect(bell).toHaveAccessibleName('Alert all 2 sessions in Alpha');
+      expect(bell).toHaveAttribute('aria-pressed', 'mixed');
+      expect(bell.compareDocumentPosition(skull) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(bell.previousElementSibling?.className).toMatch(/roomHeaderDivider/);
+      expect(bell.nextElementSibling?.className).toMatch(/roomHeaderDivider/);
+    });
+
+    it('one click alerts every live session in the room, writing only the ones that change', () => {
+      const { puts } = renderAlpha();
+
+      fireEvent.click(alertButton()!);
+
+      const store = useSessionStore.getState().sessions;
+      expect(store.get('a')?.alerted).toBe(true);
+      expect(store.get('b')?.alerted).toBe(true);
+      expect(store.get('c')?.alerted).toBeUndefined();
+      expect(puts()).toEqual([['/api/sessions/b/alerted', { alerted: true }]]);
+    });
+
+    it('when every live session is alerted, a click turns Alert off for all of them', () => {
+      const { puts } = renderAlpha({ bAlerted: true });
+      const bell = alertButton()!;
+      expect(bell).toHaveAttribute('aria-pressed', 'true');
+      expect(bell).toHaveAccessibleName('Stop alerts for all 2 sessions in Alpha');
+
+      fireEvent.click(bell);
+
+      expect(puts()).toEqual([
+        ['/api/sessions/a/alerted', { alerted: false }],
+        ['/api/sessions/b/alerted', { alerted: false }],
+      ]);
+      expect(useSessionStore.getState().sessions.get('a')?.alerted).toBe(false);
+    });
+
+    it('is absent, like the skull, when the room has no live session', () => {
+      const sessions = [makeSession({ sessionId: 'cur' }), makeSession({ sessionId: 'x', status: 'ended' })];
+      renderWithRooms([makeRoom({ id: 'room-a', name: 'Alpha', sessionIds: ['x'] })], sessions);
+      expect(alertButton()).toBeNull();
+      expect(screen.queryByLabelText(/^Kill all/)).toBeNull();
+    });
   });
 
   // NOTE: this test logs a benign "not wrapped in act()" warning despite every
@@ -1333,13 +1403,13 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
   const roomAasc = makeRoom({ id: 'room-aasc', name: 'AASC', sessionIds: ['qa', 'b'], roomIndex: 2 });
   const allRooms = [roomSms, roomExm, roomAasc];
 
-  function renderSwitcher(sessions: Session[], rooms: Room[] = allRooms) {
+  function renderSwitcher(sessions: Session[], rooms: Room[] = allRooms, onSwitch = vi.fn()) {
     useRoomStore.setState({ rooms });
     return render(
       <SessionSwitcher
         currentSession={sessions[0]}
         sessions={new Map(sessions.map((s) => [s.sessionId, s]))}
-        onSwitch={vi.fn()}
+        onSwitch={onSwitch}
       />,
     );
   }
@@ -1353,6 +1423,11 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     [...frame.querySelectorAll('[class*="sessionTabTitle"]')].map((el) => el.textContent);
   const roomFrame = (container: HTMLElement, name: string) =>
     framesOf(container).find((f) => f.getAttribute('title') === name) as HTMLElement;
+  /** A RECENT card's Put down: a sibling of the card's own button, in the card's host. */
+  const putDownOf = (frame: HTMLElement, title: string) => {
+    const host = within(frame).getByText(title).closest('[class*="sessionTabPutDownHost"]') as HTMLElement;
+    return within(host).getByRole('button', { name: 'Put down from Recent for today' });
+  };
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
@@ -1415,8 +1490,7 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     const recent = () => recentOf(container)!;
     // The put-down control is only on RECENT's copies, never on the room cards.
     expect(within(roomFrame(container, 'AASC')).queryAllByLabelText('Put down from Recent for today')).toHaveLength(0);
-    const card = within(recent()).getByText('AASC Codex Builder').closest('button')!;
-    fireEvent.click(within(card).getByLabelText('Put down from Recent for today'));
+    fireEvent.click(putDownOf(recent(), 'AASC Codex Builder'));
     expect(titlesIn(recent())).toEqual(['AASC Q & A', 'SMS Fixing']);
     expect(titlesIn(roomFrame(container, 'AASC'))).toContain('AASC Codex Builder');
     // The header counts it and puts it back.
@@ -1424,6 +1498,25 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'AASC Codex Builder' }));
     expect(titlesIn(recent())).toEqual(['AASC Q & A', 'AASC Codex Builder', 'SMS Fixing']);
     expect(within(recent()).queryByRole('button', { name: /put down from Recent/ })).toBeNull();
+  });
+
+  it('Put down is its own keyboard button beside the card, not inside it, and does not open the card (Nov 24 2026)', () => {
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
+    const onSwitch = vi.fn();
+    const { container } = renderSwitcher([qa, builder, sms, exm], allRooms, onSwitch);
+    const control = putDownOf(recentOf(container)!, 'AASC Codex Builder');
+    // A real button, reachable by Tab, never nested in the card's own <button>.
+    expect(control.tagName).toBe('BUTTON');
+    expect(control).toHaveAttribute('type', 'button');
+    expect(control.parentElement!.closest('button')).toBeNull();
+    // The hint comes from the shared Tooltip on focus too, not a native title.
+    expect(control).not.toHaveAttribute('title');
+    act(() => { control.focus(); });
+    expect(document.activeElement).toBe(control);
+    fireEvent.click(control);
+    expect(onSwitch).not.toHaveBeenCalled();
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'SMS Fixing']);
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
   });
 
   it('Alert on: a card that needs you rings; not the open card, not one without Alert (Nov 23 2026)', () => {

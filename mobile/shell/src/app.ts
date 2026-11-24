@@ -561,7 +561,7 @@ export function createShellApp(
       signInWithGoogle: noop, confirmAccountMatch: noop, cancelAccountMatch: noop, signOutAccount: noop, toggleAccountMenu: noop, refreshAccount: noop, enrollMac: noop,
       askDeleteAccount: noop, confirmDeleteAccount: noop, cancelDeleteAccount: noop,
     }),
-    ...(call?.actions ?? { endCall: noop, toggleMute: noop, togglePause: noop, toggleMinimize: noop, retryCall: noop }),
+    ...(call?.actions ?? { endCall: noop, toggleMute: noop, togglePause: noop, toggleMinimize: noop, retryCall: noop, openCallAdd: noop, removeCallItem: noop }),
   };
 
   function openLink(url: string): void {

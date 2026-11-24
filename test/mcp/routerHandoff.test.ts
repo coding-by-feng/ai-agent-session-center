@@ -63,7 +63,7 @@ describe('route: the hand-off rails', () => {
 
   it('a person at the child central passes it over too', async () => {
     const child = childCentral('project', AGENT, 'proj-1');
-    const controller = (id: string) => (id === child.card.sessionId ? { clientId: 'window-1', lastActivityAt: Date.now() } : null);
+    const controller = (id: string) => (id === child.card.sessionId ? { clientId: 'window-1', lastActivityAt: Date.now(), lastInputAt: Date.now() } : null);
 
     const r = await go(world([child], [worker(B, AGENT)], { controller })).result;
 

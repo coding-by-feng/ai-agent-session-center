@@ -3,6 +3,9 @@ import { startVoiceCall, type VoiceCallDeps } from '../../server/voice/voiceCall
 import { QUIET_MS } from '../../server/voice/turnGate.js';
 import type { Sideband, LiveEvent } from '../../server/voice/liveApi.js';
 import type { DigestSession } from '../../server/voice/digest.js';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 class FakeSideband implements Sideband {
   sent: LiveEvent[] = [];
@@ -78,6 +81,66 @@ describe('startVoiceCall', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(briefing).toHaveBeenCalledWith('make a concept diagram');
     expect(asked(0)).toContain('/concept-to-diagram for make a concept diagram');
+  });
+
+  // Nov 24 2026: what the person adds on the call screen waits for their next question.
+  it('takes what was added on the call screen to the next question only, and tells the voice it is there', async () => {
+    const call = startVoiceCall(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    const photo = call.attach({ kind: 'photo', name: 'receipt.jpg', path: '/tmp/claude-queue-images/queue-img-1-abc.jpg' });
+    const skill = call.attach({ kind: 'skill', name: '/expense-log' });
+    expect(photo).not.toBeNull();
+    expect(call.pending().map((a) => a.name)).toEqual(['receipt.jpg', '/expense-log']);
+    expect(call.detach(skill!.id)).toBe(true);
+    // The voice can't see it, but knows to hand it over with the next request.
+    const note = sb.ofType('session.thinking.append').map((e) => String(e.content)).find((c) => c.includes('receipt.jpg'));
+    expect(note).toMatch(/next request/);
+    expect(ask).not.toHaveBeenCalled(); // nothing goes to the central on its own
+
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'what is on this receipt', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(asked(0)).toContain('photo receipt.jpg at /tmp/claude-queue-images/queue-img-1-abc.jpg');
+    expect(asked(0)).not.toContain('/expense-log');
+    expect(call.pending()).toEqual([]);
+
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'thanks', start_ms: 2000, end_ms: 2500 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 2600, delegation: { id: 'd2', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(asked(1)).not.toContain('receipt.jpg');
+  });
+
+  it('keeps what was added for the next question when the central never got this one', async () => {
+    ask.mockRejectedValueOnce(new Error('not_running'));
+    const call = startVoiceCall(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    call.attach({ kind: 'photo', name: 'receipt.jpg', path: '/tmp/claude-queue-images/queue-img-1-abc.jpg' });
+    sb.emit({ type: 'session.input_transcript.delta', delta: 'what is on this receipt', start_ms: 0, end_ms: 900 });
+    sb.emit({ type: 'session.delegation.created', offset_ms: 1000, delegation: { id: 'd1', target: 'client' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(asked(0)).toContain('receipt.jpg');
+    expect(call.pending().map((a) => a.name)).toEqual(['receipt.jpg']);
+  });
+
+  it('deletes the files still waiting when the call ends', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'voice-call-end-'));
+    try {
+      const file = join(dir, 'queue-img-1-abc.jpg');
+      writeFileSync(file, 'x');
+      const call = startVoiceCall(deps);
+      await vi.advanceTimersByTimeAsync(0);
+      call.attach({ kind: 'photo', name: 'receipt.jpg', path: file });
+      sb.close();
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('adds nothing once the call has ended', () => {
+    const call = startVoiceCall(deps);
+    sb.close();
+    expect(call.attach({ kind: 'skill', name: '/x' })).toBeNull();
   });
 
   it('keeps each reply word for word, and when the question in progress was handed over (Nov 22 2026)', async () => {

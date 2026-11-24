@@ -299,6 +299,32 @@ describe('groupSessions', () => {
       });
     });
 
+    // The desktop rail's Put down, on the phone (Nov 24 2026): out of Recent for today, still in its room.
+    describe('put down', () => {
+      it('leaves a put-down session out of Recent but keeps it in its room', () => {
+        const groups = byRoom({ putDown: ['fresh'] });
+        expect(groups.find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['pin', 'run', 'quiet', 'loose']);
+        expect(groups.find((g) => g.title === 'First')!.sessions.map((s) => s.sessionId)).toContain('fresh');
+      });
+
+      it('lets the next most recent take its slot before the cut', () => {
+        const many = Array.from({ length: 11 }, (_, i) => mk(`s${String(i).padStart(2, '0')}`, { status: 'waiting', ...prompted(N - (i + 1) * MIN) }));
+        const recent = groupSessions(input(many, { groupBy: 'room', rooms: [], now: N, putDown: ['s00'] })).find((g) => g.kind === 'recent')!;
+        expect(recent.sessions).toHaveLength(10);
+        expect(recent.sessions.map((s) => s.sessionId)).toContain('s10');
+        expect(recent.recentHasMore).toBe(false);
+      });
+
+      it('keeps an empty Recent while a live session is put down, so it can be put back', () => {
+        const solo = [mk('only', { status: 'waiting', ...prompted(N - 5 * MIN) })];
+        const groups = groupSessions(input(solo, { groupBy: 'room', rooms: [], now: N, putDown: ['only'] }));
+        expect(groups.find((g) => g.kind === 'recent')).toMatchObject({ sessions: [] });
+        // An id that is no longer a live session keeps nothing.
+        const none = groupSessions(input(solo, { groupBy: 'room', rooms: [], now: N, putDown: ['gone-long-ago'] }));
+        expect(none.find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['only']);
+      });
+    });
+
     it('is only in the By room view, as on the desktop', () => {
       for (const groupBy of ['status', 'project', 'activity'] as const) {
         expect(byRoom({ groupBy }).some((g) => g.kind === 'recent'), groupBy).toBe(false);

@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { Session } from '../../src/types/session.js';
 import type { SessionCentralMarker } from '../../src/types/central.js';
 import { sessionDisplayTitle } from '../../src/lib/sessionDisplayTitle.js';
+import { isCodexSession } from '../sessionKillPolicy.js';
 import { getAllSessions, getSession } from '../sessionStore.js';
 import { onBroadcast } from '../wsManager.js';
 import { onTerminalHook } from '../hookSignals.js';
@@ -163,6 +164,7 @@ const toProgressSession = (s: Session): ProgressSession => ({
   title: sessionDisplayTitle(s),
   status: s.status,
   toolLog: s.toolLog ?? [],
+  cli: isCodexSession(s) ? 'codex' : 'claude',
   card: s,
 });
 
@@ -282,6 +284,8 @@ export function createServerVoice(options: ServerVoiceOptions = {}): ServerVoice
     startCall: (input) => calls.start(input),
     endCall: (id, caller) => calls.end(id, caller),
     activeCall: () => calls.active(),
+    // The call screen's ＋ Add (Nov 24 2026): only the device that may control the call adds to it.
+    callAttachments: (callId, caller) => calls.callFor(callId, caller)?.call ?? null,
     callProgress: (callId, caller) => {
       const found = calls.callFor(callId, caller);
       if (!found) return null;

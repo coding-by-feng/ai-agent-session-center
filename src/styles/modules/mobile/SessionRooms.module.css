@@ -104,6 +104,7 @@
 
 .toggle,
 .menuButton,
+.putDownChip,
 .grip {
   appearance: none;
   margin: 0;
@@ -168,18 +169,39 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Recent's put-down count (Nov 24 2026): eye-off + N, a full target, opening the Put back sheet. */
+.putDownChip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ph-space-1);
+  min-width: var(--ph-target);
+  height: var(--ph-target);
+  padding: 0 var(--ph-space-2);
+  border-radius: var(--ph-radius);
+  color: var(--ph-text-secondary);
+  font-size: var(--ph-size-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
 @media (hover: hover) {
   .toggle:hover,
   .menuButton:hover,
+  .putDownChip:hover,
   .grip:hover { background: var(--ph-fill); }
 }
 
 .toggle:active,
 .menuButton:active,
+.putDownChip:active,
 .grip:active { background: var(--ph-fill-strong); }
 
 .toggle:focus-visible,
 .menuButton:focus-visible,
+.putDownChip:focus-visible,
 .grip:focus-visible {
   outline: 2px solid var(--ph-focus);
   outline-offset: -2px;

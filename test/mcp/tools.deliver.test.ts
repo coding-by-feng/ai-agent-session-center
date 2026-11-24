@@ -183,7 +183,7 @@ describe('prompt_send', () => {
     const { ctx, client } = deliverCtx({
       sessions: [worker('w1', { handsOff: true }), worker('w2'), worker('w3')],
       routes: promptRoutes('w1', 'w2', 'w3'),
-      controller: (id) => (id === 'w2' ? { clientId: 'desktop-1', lastActivityAt: NOW - 30_000 } : null),
+      controller: (id) => (id === 'w2' ? { clientId: 'desktop-1', lastActivityAt: NOW - 30_000, lastInputAt: NOW - 30_000 } : null),
     });
 
     expect((await runRefused('prompt_send', { to: 'w1', text: 'x' }, ctx)).code).toBe('HANDS_OFF');
@@ -749,7 +749,7 @@ describe('command_run', () => {
     const human = deliverCtx({
       sessions: [claudeWorker()],
       routes: { 'GET /commands': ok({ entries: [deploy] }), ...promptRoutes('w1') },
-      controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000 }),
+      controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }),
     });
 
     expect((await runRefused('command_run', { id: 'w1', name: 'deploy' }, gemini.ctx)).code).toBe('INVALID');

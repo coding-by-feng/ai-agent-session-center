@@ -1,6 +1,7 @@
 // voiceText.ts — the words of a voice call: the GPT-Live voice's instructions, the line typed into the Voice central,
 // and a central's markdown answer turned into something the voice can say.
 
+import type { CallAttachment } from './callAttach.js';
 import { formatModelLabel } from '../../src/lib/modelLabel.js';
 //
 // The voice (gpt-live-1, client delegation) never acts: it hands every AASC request to the Voice central through a
@@ -65,6 +66,23 @@ export interface BrainPromptInput {
   tag?: string;
   /** voiceContext.ts `briefing`: AASC's vocabulary, the visible sessions, the skills that fit, how to act. */
   briefing?: string;
+  /** What the person added on the call screen since their last question (callAttach.ts, Nov 24 2026). */
+  added?: readonly CallAttachment[];
+}
+
+const ADDED_NAME_MAX = 80;
+
+/** "They added on the call screen: photo a.jpg at /…; file b.pdf at /…. Use /skill." ('' for nothing). */
+function addedLine(added: readonly CallAttachment[] = []): string {
+  const files = added.filter((a) => a.kind !== 'skill' && a.path);
+  const picks = added.filter((a) => a.kind === 'skill');
+  const parts: string[] = [];
+  if (files.length > 0) {
+    const list = files.map((a) => `${a.kind} ${clip(oneLine(a.name), ADDED_NAME_MAX)} at ${oneLine(a.path ?? '')}`).join('; ');
+    parts.push(`They added on the call screen: ${list}. Open what you need before answering.`);
+  }
+  for (const p of picks) parts.push(`Use ${oneLine(p.name)}.`);
+  return parts.join(' ');
 }
 
 /**
@@ -98,6 +116,7 @@ export function brainPrompt(input: BrainPromptInput): string {
   const context = clip(oneLine(input.context), BRAIN_CONTEXT_MAX);
   const parts = [
     `${voiceHeader(input.tag)} The person is on a voice call and said (transcribed, may contain mistakes): "${request}".`,
+    addedLine(input.added),
     context ? `Recent call context: ${context}.` : '',
     input.briefing ? oneLine(input.briefing) : '',
     'Do what they ask with your AASC tools. Do not wait for long work: start it and reply; AASC tells the person when a session finishes.',

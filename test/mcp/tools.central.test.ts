@@ -41,6 +41,7 @@ describe('scope_get', () => {
     toolsets: string[];
     inScopeCount: number;
     liveCount: number;
+    ownWorkers: { live: number; max: number; setting: string };
     playbook: string;
   }
 
@@ -60,6 +61,7 @@ describe('scope_get', () => {
       toolsets: ['sessions', 'conversation', 'system'],
       inScopeCount: 2,
       liveCount: 1,
+      ownWorkers: { live: 0, max: 8, setting: 'mcp.maxLiveWorkers' },
       playbook: centralInstructions('room', MCP_MAX_PHASE),
     });
   });

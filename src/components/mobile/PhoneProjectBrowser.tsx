@@ -11,8 +11,10 @@
  *   one): every screen says so in words and offers a way out.
  * - Search finds names, or text; a text match opens the file at its line. Back
  *   returns to the results.
- * - Open and recent files (AASC-56): every file opened joins the open files (the
- *   desktop's tabs) and the recent ones, one tap away from the header. The tab
+ * - Open and recent files (AASC-56): every file opened joins the open files and
+ *   the recent ones. The open files show as a row of tabs under the header (Nov 25
+ *   2026, OpenFileTabs, like the desktop's file tabs); the header's files button
+ *   opens the sheet with the recent ones and Close all. The tab
  *   remembers, per project, the folder and the file you were reading, so leaving
  *   it (for Chat, the terminal) and coming back lands on the same file; where in
  *   the file is the viewer's reading position.
@@ -27,6 +29,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { baseName, parentRel, relInProject, withoutProjectName } from '@/lib/phoneProject';
 import { resolvePath } from '@/lib/phoneFiles';
 import {
+  afterClosing,
   closedAllFiles,
   closedFile,
   loadProjectFiles,
@@ -41,6 +44,7 @@ import ProjectFolder from './project/ProjectFolder';
 import ProjectSearch from './project/ProjectSearch';
 import { EMPTY_SEARCH, type SearchState } from './project/searchState';
 import OpenFilesSheet from './project/OpenFilesSheet';
+import OpenFileTabs from './project/OpenFileTabs';
 import { dirStack, fileStack, folderOf, type ProjectScreen } from './project/projectScreens';
 import { BackIcon, FilesIcon, SearchIcon } from './projectIcons';
 import { SparkIcon } from './phoneIcons';
@@ -118,10 +122,14 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
     setFiles((f) => openedFile(f, path));
     setStack(fileStack(path));
   }, []);
+  /** Closing the file on screen shows the tab after it, else the one before, else its folder (the desktop's tabs). */
   const closeFile = useCallback((path: string) => {
+    const next = reading === path ? afterClosing(files.open, path) : null;
     setFiles((f) => closedFile(f, path));
-    if (reading === path) goToDir(parentRel(path));
-  }, [reading, goToDir]);
+    if (reading !== path) return;
+    if (next) showFile(next);
+    else goToDir(parentRel(path));
+  }, [reading, files.open, showFile, goToDir]);
   const closeAll = useCallback(() => {
     setFiles((f) => closedAllFiles(f));
     if (reading) goToDir(parentRel(reading));
@@ -244,13 +252,12 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
       )}
       <button
         type="button"
-        className={`${styles.iconBtn} ${styles.badgeHost}`}
+        className={styles.iconBtn}
         onClick={() => setFilesOpen(true)}
         aria-label={openCount > 0 ? `Open and recent files, ${openCount} open` : 'Open and recent files'}
         aria-haspopup="dialog"
       >
         <FilesIcon />
-        {openCount > 0 && <span className={styles.countBadge} aria-hidden="true">{openCount}</span>}
       </button>
       {top.kind !== 'search' && (
         <button type="button" className={styles.iconBtn} onClick={() => push({ kind: 'search' })} aria-label="Search the project">
@@ -293,6 +300,7 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
         fullscreen={fullscreen}
         onToggleFullscreen={() => setFullscreen((f) => !f)}
         onOpenFile={(path) => openFile(path)}
+        onOpenDir={(path) => push({ kind: 'dir', path })}
         aiSessionId={sessionId}
       />
     );
@@ -307,6 +315,7 @@ export default function PhoneProjectBrowser({ projectPath, sessionId }: PhonePro
       aria-label={isFull && top.kind === 'file' ? baseName(top.path) : undefined}
     >
       {header}
+      <OpenFileTabs openFiles={files.open} current={reading} onShowFile={showFile} onCloseFile={closeFile} />
       {notice && (
         <p className={styles.notice} role="status">
           {notice}

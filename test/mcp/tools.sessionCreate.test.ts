@@ -187,6 +187,20 @@ describe('session_create', () => {
     expect(result.summary).toMatch(/task_wait/);
   });
 
+  it('returns a shortId the next call accepts, beside another terminal whose id starts the same', async () => {
+    // Both terminal ids start `term-new`: an 8-character short id would name two sessions.
+    const sibling = makeSession('term-new-2', { terminalId: 'term-new-2', status: 'idle' });
+    const w = world({ sessions: [sibling] });
+
+    const result = await run('session_create', { agent: 'claude', folder: PROJ }, w.ctx);
+    const data = result.data as CreateData & { shortId: string };
+
+    expect(data.shortId).toBe(NEW);
+    expect(result.summary).toContain(NEW);
+    const got = await run('session_get', { id: data.shortId }, w.ctx);
+    expect((got.data as { card: { id: string } }).card.id).toBe(NEW);
+  });
+
   it('an explicit title is refused by the title rule; derived titles are cleaned (Ruling P3-23)', async () => {
     const refused = world();
     const err = await runRefused('session_create', { agent: 'claude', folder: PROJ, title: 'w --allowedTools Bash' }, refused.ctx);

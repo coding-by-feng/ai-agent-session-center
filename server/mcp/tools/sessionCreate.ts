@@ -26,11 +26,10 @@ import { assertNotShellLine } from '../policy.js';
 import { profileOf } from '../projectIndex.js';
 import type { ToolContext, ToolDef } from '../registry.js';
 import { shortTitle } from '../router.js';
-import { shortIdOf } from '../scope.js';
 import { cleanTitle } from '../titleRule.js';
 import { ToolError, type CliKind } from '../types.js';
 import { openWorkerDepsFor } from '../workerDeps.js';
-import { defineTool, visibleRooms } from './define.js';
+import { defineTool, plain, visibleRooms } from './define.js';
 
 /** A model name the terminals route takes (`--model <id>`). */
 const MODEL = /^[a-zA-Z0-9._-]{1,100}$/;
@@ -85,7 +84,7 @@ const sessionCreate: ToolDef = defineTool({
   description:
     'Opens a new Claude or Codex session of your own in a project folder, and files it into a room. What you leave ' +
     'out (model, effort, room) is copied from the folder’s newest session; a room central’s session always goes into ' +
-    'its own room. Never looser than your own permission mode; at most 8 of your own open, 10 opens a minute. A title ' +
+    'its own room. Never looser than your own permission mode; at most your cap of your own open (8 unless set; scope_get shows it), 10 opens a minute. A title ' +
     'is plain words: no shell syntax, quotes, wildcards or line breaks, and no word starting with a dash (INVALID ' +
     'otherwise); the default one is cleaned of those. With firstTask, AASC hands it that task once it has started and ' +
     'gives the task id: task_wait for the answer.',
@@ -133,7 +132,9 @@ const sessionCreate: ToolDef = defineTool({
     const data = {
       sessionId: w.sessionId,
       terminalId: w.terminalId,
-      shortId: shortIdOf(w.sessionId),
+      // The whole terminal id: every terminal opened in the same ~17 minutes starts `term-179`, and the card is
+      // re-keyed to the CLI's own id once it starts, after which only the whole terminal id still names it (alias).
+      shortId: w.terminalId,
       folder: w.folder,
       cli: w.cli,
       model: w.model,
@@ -146,7 +147,7 @@ const sessionCreate: ToolDef = defineTool({
       taskState: task?.taskState ?? null,
       taskError: task?.refusal ? { code: task.refusal.code, message: task.refusal.message, hint: task.refusal.hint ?? null } : null,
     };
-    const opened = `Opened a ${w.cli} session of your own, ${shortIdOf(w.sessionId)}; it is starting.`;
+    const opened = `Opened a ${w.cli} session of your own, ${plain(w.terminalId, 80)}; it is starting.`;
     const room = w.roomId === null ? '' : w.filed ? ' Filed into its room.' : ` Room: ${w.note ?? 'not filed'}.`;
     const follow =
       task === null

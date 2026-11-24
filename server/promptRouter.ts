@@ -99,7 +99,7 @@ export interface PromptRouterDeps {
   /** May this device drive the session now? Never claims. */
   canControl(sessionId: string, clientId: string): boolean;
   /** Who holds the session's baton, for a refusal to name (and, for a central's send, how recently they drove it). */
-  controller(sessionId: string): { label: string; online: boolean; clientId?: string; lastActivityAt?: number } | null;
+  controller(sessionId: string): { label: string; online: boolean; clientId?: string; lastActivityAt?: number; lastInputAt?: number } | null;
   /** The path of an uploaded queue image, by id, or null when it is gone. */
   resolveImage(id: string): string | null;
   submitter: Pick<PromptSubmitter, 'submit' | 'hasRoom'>;
@@ -283,11 +283,14 @@ export function createPromptRouter(deps: PromptRouterDeps): Router {
     const retryable = !result.typed && (result.outcome === 'stopped' || result.outcome === 'failed');
     answered.set(key, { ...record, state: result.outcome, retryable, stoppedBy: result.outcome === 'stopped' ? stoppedBy : null });
   };
-  /** Did a person (not a central) drive the session less than HUMAN_ACTIVE_MS ago? */
+  /**
+   * Did a person (not a central) give the session input less than HUMAN_ACTIVE_MS ago? Input only (`lastInputAt`), as
+   * the policy's rule: a resize, a focus report or the terminal's own replies are not a person driving it.
+   */
   const personActive = (sessionId: string): boolean => {
     const holder = deps.controller(sessionId);
     return typeof holder?.clientId === 'string' && !holder.clientId.startsWith(MCP_CLIENT_PREFIX)
-      && typeof holder.lastActivityAt === 'number' && now() - holder.lastActivityAt < HUMAN_ACTIVE_MS;
+      && typeof holder.lastInputAt === 'number' && now() - holder.lastInputAt < HUMAN_ACTIVE_MS;
   };
   /**
    * A central's rails, checked before every keystroke of its send: false once the session is hands-off, a person

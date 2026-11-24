@@ -52,6 +52,11 @@ interface SessionState {
   setPinnedOrder: (sessionIds: readonly string[]) => void;
   toggleMute: (sessionId: string) => void;
   toggleAlert: (sessionId: string) => void;
+  /**
+   * Set Alert to `alerted` on several sessions at once (the room frame header's Alert, `roomAlert.ts`). Optimistic, one
+   * store update, then the same `PUT /api/sessions/:id/alerted` per session as `toggleAlert`.
+   */
+  setAlertedMany: (sessionIds: readonly string[], alerted: boolean) => void;
   toggleRemoteVisible: (sessionId: string) => void;
   toggleAiPopup: (sessionId: string) => void;
   /**
@@ -251,6 +256,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alerted }),
       }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  setAlertedMany: (sessionIds, alerted) =>
+    set((state) => {
+      const changed = sessionIds.filter((id) => {
+        const session = state.sessions.get(id);
+        return session !== undefined && !!session.alerted !== alerted;
+      });
+      if (changed.length === 0) return state;
+      const next = new Map(state.sessions);
+      for (const id of changed) {
+        const session = state.sessions.get(id);
+        if (session) next.set(id, { ...session, alerted });
+        fetch(`/api/sessions/${encodeURIComponent(id)}/alerted`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alerted }),
+        }).catch(() => { /* ignore network errors */ });
+      }
       return { sessions: next };
     }),
 

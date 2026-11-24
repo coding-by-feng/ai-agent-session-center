@@ -100,7 +100,10 @@ describe('openThroughRoute', () => {
     expect(h.workers.liveCount(h.central.centralId, h.ctx.sessions())).toBe(MAX_LIVE_WORKERS);
     const ninth = route({ own: true });
     const err = await refused(openThroughRoute(h.ctx, ninth, h.deps));
-    expect(err).toMatchObject({ code: 'BUDGET', message: `A central keeps at most ${MAX_LIVE_WORKERS} sessions of its own open.` });
+    expect(err).toMatchObject({
+      code: 'BUDGET',
+      message: `You keep at most ${MAX_LIVE_WORKERS} sessions of your own open (setting mcp.maxLiveWorkers = ${MAX_LIVE_WORKERS}).`,
+    });
     expect(ninth.call).not.toHaveBeenCalled();
     // ...and a not-own open is still let through until the minute's 10.
     await expect(openThroughRoute(h.ctx, route(), h.deps)).resolves.toMatchObject({ newTerminal: false });

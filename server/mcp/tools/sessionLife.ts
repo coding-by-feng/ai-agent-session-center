@@ -49,7 +49,7 @@ const COMMAND_RULE =
   'sandbox and approval) and no other words, never looser than your own permission mode ' +
   '(the session’s mode and its stored command’s, set against your own card’s), and only when both the folder it ' +
   'works in and the folder it opens in are in your scope.';
-const OWN_RULE = 'The new session is one of your own sessions (at most 8 open, 10 opens a minute).';
+const OWN_RULE = 'The new session is one of your own sessions (at most your cap open, 8 unless set: scope_get shows it; 10 opens a minute).';
 const HISTORY_HINT = 'A history id is not a card: resume it from History in AASC, or call session_list for the card ids.';
 
 /** The card `id` names; for a resume, a miss says where a history row is resumed instead. */

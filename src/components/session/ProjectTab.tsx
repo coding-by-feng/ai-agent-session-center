@@ -47,6 +47,7 @@ import {
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import { normalizeForSearch } from '@/lib/searchNormalize';
 import { showToast } from '@/components/ui/ToastContainer';
+import { resolveMarkdownLink } from '@/lib/markdownLinkTarget';
 import FileTypeIcon from '@/components/ui/FileTypeIcon';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
@@ -2149,21 +2150,28 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, pr
 
   // Shared ReactMarkdown components — used by inline + fullscreen viewers.
   const mdComponents = useMemo(() => ({
+    // A link to a project file opens it in its own file tab, whatever its type (Nov 24 2026: was
+    // .md only, so a video or PDF link opened a blank browser window); a folder link reveals it in
+    // the tree. Web, mail and #heading links stay with the browser. See lib/markdownLinkTarget.ts.
     a: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-      if (href && /\.mdx?($|#)/.test(href) && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
-        const hrefPath = href.split('#')[0];
-        const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
-        const joined = dir ? `${dir}/${hrefPath}` : hrefPath;
-        const parts = joined.split('/');
-        const resolved: string[] = [];
-        for (const part of parts) {
-          if (part === '..') resolved.pop();
-          else if (part !== '.') resolved.push(part);
-        }
-        const resolvedPath = resolved.join('/');
-        return <a {...props} href="#" onClick={(e) => { e.preventDefault(); loadFile(resolvedPath); }}>{children}</a>;
+      const target = resolveMarkdownLink(href, currentPath);
+      if (target.kind === 'external') {
+        return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
       }
-      return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+      const open = (e: React.MouseEvent) => {
+        e.preventDefault();
+        if (target.kind === 'file') {
+          void loadFile(target.path);
+        } else if (target.kind === 'folder') {
+          setTreePanelCollapsed(false);
+          setMobileTreeOpen(true);
+          // A collapsed tree mounts on this commit, so its handle exists only on the next frame.
+          requestAnimationFrame(() => fileTreeRef.current?.revealDir(target.path));
+        } else {
+          showToast('This link points outside the project', 'error');
+        }
+      };
+      return <a {...props} href={href} onClick={open}>{children}</a>;
     },
     img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (!src || typeof src !== 'string') return <img {...props} src={src} alt={alt} />;

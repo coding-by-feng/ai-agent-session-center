@@ -1869,31 +1869,65 @@
 .sessionTabPin:hover { opacity: 1; filter: none; }
 .sessionTabPin.pinned { opacity: 1; filter: none; }
 
-/* RECENT's ⤓ Put down (Nov 23 2026), left of the pin. Hidden at rest, shown on the card's hover; absolute and
-   always there, so revealing it never reflows the row before a click lands. */
-.sessionTabPutDown {
+/* RECENT's Put down (Nov 23 2026), left of the pin. Since Nov 24 its own <button> beside the card's (a button may
+   not hold a button), so a host takes the card's flex slot and anchors it. Hidden at rest; shown while the card is
+   hovered or anything in it has focus. Absolute and always there, so revealing it never reflows the row before a
+   click lands. The pin sits inside the card's border, so the slot sits 1.5px further in to stay on its line. */
+.sessionTabPutDownHost {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.switcherBarVertical .sessionTabPutDownHost {
+  width: 100%;
+}
+
+.sessionTabPutDownSlot {
   position: absolute;
-  top: -2px;
-  right: 30px;
+  top: -0.5px;
+  right: 31.5px;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sessionTabPutDownHost:hover .sessionTabPutDownSlot,
+.sessionTabPutDownHost:focus-within .sessionTabPutDownSlot { opacity: 1; }
+/* The pointer on Put down has left the card itself: keep its pin as lit as on the card's hover. */
+.sessionTabPutDownHost:hover .sessionTabPin { opacity: 0.8; }
+.sessionTabPutDownHost:hover .sessionTabPin.pinned,
+.sessionTabPutDownHost .sessionTabPin:hover { opacity: 1; }
+
+.sessionTabPutDown {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 14px;
   height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   color: var(--text-secondary);
-  opacity: 0;
+  opacity: 0.8;
   cursor: pointer;
-  z-index: 2;
   transition: opacity 0.15s, color 0.15s;
 }
 
-.sessionTabCard:hover .sessionTabPutDown,
-.sessionTabCard:focus-visible .sessionTabPutDown { opacity: 0.8; }
 .sessionTabPutDown:hover { opacity: 1; color: var(--text-primary); }
-.sessionTabPutDown:active { transform: translateY(1px); }
+.sessionTabPutDown:active { opacity: 1; color: var(--text-primary); transform: translateY(1px); }
+.sessionTabPutDown:focus-visible {
+  opacity: 1;
+  color: var(--text-primary);
+  outline: 1.5px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 1px;
+}
 
 @media (prefers-reduced-motion: reduce) {
+  .sessionTabPutDownSlot,
   .sessionTabPutDown { transition: none; }
+  .sessionTabPutDown:active { transform: none; }
 }
 
 /* RECENT's header chip: how many are put down today; opens the Put back menu (RecentPutDownMenu). */
@@ -2141,6 +2175,51 @@
   opacity: 1;
   color: var(--accent-red, #ff3355);
   outline: 2px solid var(--accent-red, #ff3355);
+  outline-offset: 1px;
+}
+
+/* Room Alert (Nov 25 2026, RoomAlertToggle): sets the per-session Alert for every live session in the room. Three
+   looks that differ by fill and colour, not by size: none = the room colour, dim like the skull at rest; some =
+   amber outline (the alerted card's glow colour); all = amber, filled. */
+.roomAlertToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--room-color, var(--text-dim));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.roomAlertToggle[data-state='some'],
+.roomAlertToggle[data-state='all'] {
+  opacity: 1;
+  color: var(--accent-orange, #ff9100);
+}
+
+.roomAlertToggle[data-state='all'] svg path:first-child {
+  fill: currentColor;
+  fill-opacity: 0.45;
+}
+
+.roomAlertToggle:hover {
+  opacity: 1;
+  color: var(--accent-orange, #ff9100);
+}
+
+.roomAlertToggle:active {
+  transform: scale(0.9);
+}
+
+.roomAlertToggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent-orange, #ff9100);
   outline-offset: 1px;
 }
 
@@ -3181,11 +3260,13 @@
   .splitToggle,
   .roomCollapseToggle,
   .roomMoveToggle,
+  .roomAlertToggle,
   .roomKillToggle { position: relative; }
   .convCopy::after,
   .splitToggle::after { content: ''; position: absolute; inset: -15px; }
   .roomCollapseToggle::after,
   .roomMoveToggle::after,
+  .roomAlertToggle::after,
   .roomKillToggle::after { content: ''; position: absolute; inset: -10px; }
 }
 

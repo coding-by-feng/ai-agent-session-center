@@ -1,9 +1,10 @@
 /**
- * RecentPutDownMenu — RECENT's header chip for the sessions put down today (Nov 23 2026): "⤓ N", and a menu that
+ * RecentPutDownMenu — RECENT's header chip for the sessions put down today (Nov 23 2026): eye-off + N, and a menu that
  * puts each back (or all). Shown only while one is put down. The shared Menu owns the placement (portaled, clamped
- * inside the viewport), the keyboard and outside clicks. Put down itself is the ⤓ on each RECENT card.
+ * inside the viewport), the keyboard and outside clicks. Put down itself is the eye-off on each RECENT card.
  */
 import Menu, { type MenuSection } from '@/components/ui/Menu';
+import Tooltip from '@/components/ui/Tooltip';
 import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
 import type { Session } from '@/types';
 import { PutDownIcon } from './SessionFrameIcons';
@@ -31,21 +32,24 @@ export default function RecentPutDownMenu({ sessions }: { sessions: readonly Ses
       : []),
   ];
   const name = `${count} put down from Recent today`;
+  // The shared Tooltip (Nov 24 2026), so the hint shows on keyboard focus too; opening the menu moves focus into
+  // it, which closes the hint, as for every icon-button menu.
   return (
-    <Menu
-      label="Put back in Recent"
-      triggerLabel={name}
-      sections={sections}
-      plainTrigger={{
-        className: styles.recentPutDownChip,
-        title: `${name} — click to put back`,
-        content: (
-          <>
-            <PutDownIcon />
-            <span>{count}</span>
-          </>
-        ),
-      }}
-    />
+    <Tooltip label={name} description="Click to put them back in Recent." placement="bottom">
+      <Menu
+        label="Put back in Recent"
+        triggerLabel={name}
+        sections={sections}
+        plainTrigger={{
+          className: styles.recentPutDownChip,
+          content: (
+            <>
+              <PutDownIcon />
+              <span>{count}</span>
+            </>
+          ),
+        }}
+      />
+    </Tooltip>
   );
 }

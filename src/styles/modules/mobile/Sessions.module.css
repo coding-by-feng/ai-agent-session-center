@@ -23,7 +23,10 @@
 }
 
 .navAction:active,
-.navAction[aria-pressed='true'] { background: var(--ph-fill-strong); }
+.navAction[aria-pressed='true'],
+/* The ⋯ while Search (opened from its menu) is on, or while its menu is open (Nov 24 2026). */
+.navAction[data-pressed],
+.navAction[aria-expanded='true'] { background: var(--ph-fill-strong); }
 
 .navAction:focus-visible {
   outline: 2px solid var(--ph-focus);
@@ -308,6 +311,28 @@
   display: inline-flex;
   flex: none;
   margin-top: 2px;
+}
+
+/* An alerted session that finished unseen or needs you (Nov 24 2026, the desktop card's ring): the status ring
+   pulses in the approval colour. Reduced motion keeps a steady ring. The ring is on top of the status glyph,
+   which still says which moment it is (never colour alone). */
+.avatar[data-alerting]::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--ph-status-approval);
+  pointer-events: none;
+  animation: alertRingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes alertRingPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ph-status-approval) 55%, transparent); }
+  50% { opacity: 0.75; box-shadow: 0 0 8px 2px color-mix(in srgb, var(--ph-status-approval) 70%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar[data-alerting]::after { animation: none; }
 }
 
 .cli {

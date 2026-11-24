@@ -32,6 +32,7 @@ import ProjectFrameHeader from './ProjectFrameHeader';
 import SessionViewMenu from './SessionViewMenu';
 import RecentLimitToggle from './RecentLimitToggle';
 import RecentPutDownMenu from './RecentPutDownMenu';
+import RoomAlertToggle from './RoomAlertToggle';
 import { isAlerting } from '@/lib/alertNotify';
 import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
 import NewButton from './NewButton';
@@ -309,7 +310,7 @@ export default function SessionSwitcher({
 
   // The built-in frames (CENTRAL, PINNED, RECENT) list second copies of cards that are
   // also in their own rooms (see BuiltinFrame).
-  // RECENT's copies also carry ⤓ Put down (Nov 23 2026, recentPutDown.ts): out of RECENT for the rest of today.
+  // RECENT's copies also carry Put down (Nov 23 2026, recentPutDown.ts): out of RECENT for the rest of today.
   const copyCards = (list: Session[], { putDown = false } = {}) =>
     list.map((s) => (
       <SessionTabCard
@@ -974,7 +975,7 @@ export default function SessionSwitcher({
                       stack each icon onto its own row. The session cards
                       render as siblings below and keep their column stacking.
                       Order is deliberate: grab (drag) → structural (collapse)
-                      → reorder (▲▼) → destructive (skull) LAST, so the two
+                      → reorder (▲▼) → room Alert (bell) → destructive (skull) LAST, so the two
                       reorder buttons never sit immediately next to the
                       one-click "kill all" action.
                       The hairline dividers are load-bearing, not decoration:
@@ -1050,6 +1051,10 @@ export default function SessionSwitcher({
                     )}
                     {roomLiveCount > 0 && (
                       <>
+                      {/* Room Alert: the per-session Alert for every live session at once (roomAlert.ts). Its own
+                          cluster, before the skull, which stays last behind its own divider. */}
+                      <span className={styles.roomHeaderDivider} aria-hidden="true" />
+                      <RoomAlertToggle roomName={item.room.name} sessionIds={item.room.sessionIds} sessions={sessions} />
                       <span className={styles.roomHeaderDivider} aria-hidden="true" />
                       <button
                         type="button"
@@ -1125,7 +1130,7 @@ function SessionTabCard({
    *  session. It looks the same, but leaves aria-current to the copy in the
    *  session's own room: one list should announce one current item. */
   isCopy?: boolean;
-  /** A RECENT copy: shows ⤓ Put down (hides it from RECENT for the rest of today). */
+  /** A RECENT copy: shows Put down (hides it from RECENT for the rest of today). */
   canPutDown?: boolean;
   onSwitch: (id: string) => void;
   isCompact: boolean;
@@ -1222,7 +1227,7 @@ function SessionTabCard({
   // Hover peeks at the session (Oct 23 2026): its name, where it runs, your remark and
   // the last prompts you typed, in place of the native "title · project · status" title.
   // The prompts are whole (Oct 29), so the pointer may move in to scroll a long one.
-  return (
+  const card = (
     <Tooltip
       label={title}
       content={<SessionPromptPeek session={session} />}
@@ -1258,18 +1263,6 @@ function SessionTabCard({
       >
         &#x1F4CC;
       </span>
-      {canPutDown && (
-        // Beside the pin, drawn the same way: absolute, so showing it on hover moves nothing in the row.
-        <span
-          className={styles.sessionTabPutDown}
-          onClick={handlePutDownClick}
-          title="Put down for today — hide from Recent until midnight (it stays in its room)"
-          aria-label="Put down from Recent for today"
-        >
-          <PutDownIcon />
-        </span>
-      )}
-
       {/* Top-right corner badge. When the session has just finished work it
           shows the green ✓ "completed" badge; otherwise it shows a distinct
           per-status glyph (approval "!", input "?", working spinner, etc.) so
@@ -1405,5 +1398,25 @@ function SessionTabCard({
       )}
     </button>
     </Tooltip>
+  );
+  if (!canPutDown) return card;
+
+  // RECENT's Put down (Nov 24 2026): its own button BESIDE the card's, never inside it (a button may not hold a
+  // button, and the card's peek would open over this hint). The host is the card's box: absolute, so showing the
+  // control on hover or focus moves nothing in the row before a click lands.
+  return (
+    <div className={styles.sessionTabPutDownHost}>
+      {card}
+      <Tooltip {...tooltips.recentPutDown} placement="top" triggerClassName={styles.sessionTabPutDownSlot}>
+        <button
+          type="button"
+          className={styles.sessionTabPutDown}
+          onClick={handlePutDownClick}
+          aria-label="Put down from Recent for today"
+        >
+          <PutDownIcon />
+        </button>
+      </Tooltip>
+    </div>
   );
 }
