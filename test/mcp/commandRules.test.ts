@@ -9,6 +9,7 @@ import {
   catalogEntries,
   catalogRefusal,
   CODE_REVIEW_LEVELS,
+  isBareClear,
   isRunOnlyBuiltin,
   isUnsafeBuiltin,
   leadingCommand,
@@ -178,6 +179,25 @@ describe('queuedCommandVerdict (no catalog needed)', () => {
 
   it('keeps the never list and the safe built-ins apart', () => {
     for (const name of NEVER_COMMANDS) expect(SAFE_BUILTINS.has(name), name).toBe(false);
+  });
+});
+
+describe('isBareClear (Ruling 68)', () => {
+  it.each(['/clear', '  /clear', '/clear  ', '\\n/clear'])('%j is a bare /clear', (text) => {
+    expect(isBareClear(leadingCommand(text.replace('\\n', '\n')))).toBe(true);
+  });
+
+  it.each(['/clear x', '/CLEAR', '/Clear', '/clear!', '/clear/', '/clearx', '/reset', 'clear', '/compact'])('%j is not', (text) => {
+    expect(isBareClear(leadingCommand(text))).toBe(false);
+  });
+
+  it('is false for no command at all', () => {
+    expect(isBareClear(null)).toBe(false);
+  });
+
+  it('leaves the never-list as it is: /clear is still on it', () => {
+    expect(NEVER_COMMANDS.has('clear')).toBe(true);
+    expect(queuedCommandVerdict({ name: 'clear', bare: true })).toBeInstanceOf(ToolError);
   });
 });
 

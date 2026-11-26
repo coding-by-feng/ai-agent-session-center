@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import SessionRuntimeChip from './SessionRuntimeChip';
 import type { Session } from '@/types';
 
@@ -36,7 +36,7 @@ describe('SessionRuntimeChip', () => {
   });
 
   it('opens the Context details card on click, and closes it on Escape', async () => {
-    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({
+    const fetchMock = vi.fn<(url: string) => Promise<Response>>(async () => new Response(JSON.stringify({
       success: true,
       data: { totals: { steps: 165, input: 1, cacheWrite: 0, cacheRead: 99, output: 284_000 }, costUsd: 14.1, terminal: { cols: 115, rows: 35 } },
     })));
@@ -51,7 +51,11 @@ describe('SessionRuntimeChip', () => {
     const card = await screen.findByRole('dialog', { name: 'Context details' });
     expect(chip.getAttribute('aria-expanded')).toBe('true');
     expect(chip.getAttribute('aria-controls')).toBe(card.id);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/1761a9e8-0000/context-usage');
+    // The totals and the breakdown are read side by side (Nov 27 2026).
+    expect(fetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([
+      '/api/sessions/1761a9e8-0000/context-breakdown',
+      '/api/sessions/1761a9e8-0000/context-usage',
+    ]);
     await waitFor(() => expect(card.textContent).toContain('165 steps'));
     expect(card.textContent).toContain('263k / 1M (26.3%)');
     expect(card.textContent).toContain('$14.10');
@@ -71,7 +75,10 @@ describe('SessionRuntimeChip', () => {
     fireEvent.click(screen.getByRole('button', { name: /Context details/ }));
     const card = await screen.findByRole('dialog');
     await waitFor(() => expect(card.textContent).toContain('Couldn’t read the session totals.'));
-    expect(card.textContent).toContain('Reply output128');
+    const reply = within(card).getByRole('rowheader', { name: 'Last reply' }).closest('tr');
+    expect(reply?.textContent).toContain('263k');
+    expect(reply?.textContent).toContain('128');
+    expect(card.textContent).toContain('Couldn’t read what fills the window.');
     expect(card.textContent).not.toContain('steps');
   });
 

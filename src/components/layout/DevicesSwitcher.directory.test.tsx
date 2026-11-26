@@ -13,6 +13,7 @@ vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 const SIGNED_OUT = 'Sign in to AASC Cloud to list your computers.';
 const NEEDS_SIGN_IN = 'This computer signed in before its computers could be listed. Sign out of AASC Cloud and sign in again.';
 const UNREACHABLE = 'Can’t reach AASC Cloud. Computers you already connected still work.';
+const UNSUPPORTED = 'AASC Cloud can’t list your account’s computers yet. Computers you already connected still work.';
 const ONLY_THIS_ONE = 'Sign in on another computer with the same Google account and it shows up here.';
 
 /** Where the router is, for the one action that leaves the panel. */
@@ -93,6 +94,17 @@ describe('DevicesSwitcher — the directory’s states', () => {
     await waitFor(() => expect(screen.queryByText(UNREACHABLE)).toBeNull());
     expect(screen.getByRole('region', { name: 'This computer' })).toBeTruthy();
     expect(screen.getAllByText('Mac mini')).toHaveLength(1);
+  });
+
+  it('unsupported: says the cloud can’t list computers yet, with no Retry, and links still work', async () => {
+    world.directory = { state: 'unsupported', machines: [] };
+    world.stored = [linked()];
+    renderSwitcher();
+    expect(await screen.findByText(UNSUPPORTED)).toBeTruthy();
+    expect(screen.queryByText(UNREACHABLE)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open AASC Cloud' })).toBeNull();
+    await expectLinkListUsable();
   });
 
   it('a read that fails outright shows its reason as given, with Retry', async () => {
@@ -207,15 +219,16 @@ describe('DevicesSwitcher — Manage devices…', () => {
 describe('DevicesSwitcher — a machine that signed in before it could take a connection', () => {
   const IMAC = machine({ deviceId: 'd-imac', name: 'Studio iMac', connectable: false });
 
-  it('says what to do there, with no action here, in line with the other rows', async () => {
+  it('says what to do there, with no Connect here, in line with the other rows', async () => {
     world.directory = directoryOf(HERE, IMAC, machine({}));
     renderSwitcher();
     const line = await screen.findByText('Sign in to AASC Cloud again on Studio iMac to connect it.');
     const row = line.closest('li') as HTMLElement;
     expect(within(row).getByText('Studio iMac')).toBeTruthy();
-    expect(within(row).queryByRole('button')).toBeNull();
+    // Only the ⋯ menu (Remove…, Nov 27 2026): an old sign-in is what a person may want off the account.
+    expect(within(row).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More for Studio iMac']);
     expect(within(row).queryByText('Not connected yet')).toBeNull();
-    // The place of the action and of the ⋯ menu is kept, so the row is as tall as its neighbours.
+    // The place of the action is kept, so the row is as tall as its neighbours.
     expect(row.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(1);
     expect(button('Connect Mac mini')).toBeTruthy();
     expect(within(screen.getByRole('region', { name: 'My computers' })).getByText('0 of 2 online')).toBeTruthy();

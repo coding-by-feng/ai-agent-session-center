@@ -301,7 +301,7 @@ details.manual > form { padding: 4px 16px 16px; }
   text-align: center;
 }
 
-/* ── Your Macs ─────────────────────────────────────────────────────── */
+/* ── Your computers (Your Macs until Nov 27 2026) ──────────────────── */
 .macs { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .mac {
   display: flex;
@@ -332,8 +332,27 @@ details.manual > form { padding: 4px 16px 16px; }
 .mac-open:active:not(:disabled) { background: var(--border); }
 .mac-open:disabled { opacity: 0.55; cursor: not-allowed; }
 .mac-open:focus-visible, .icon-btn:focus-visible { outline-offset: -3px; }
+/* Nov 27 2026: whether the computer answered, as a dot on the laptop's corner. It sits on the icon, so a row whose
+   answer comes later doesn't shift; until then there is no dot at all. */
+.mac-open, .mac-info { position: relative; }
+.mac-reach {
+  position: absolute;
+  top: calc(50% + 1px);
+  left: 27px; /* the row's 14px padding + the 20px icon, less 7px */
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  box-sizing: content-box;
+  background: var(--text-muted);
+  pointer-events: none;
+}
+.mac-reach[data-reach='online'] { background: var(--safe); }
+.mac[data-current] { border-color: var(--border-strong); }
 .mac-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .mac-name { font-weight: 600; overflow-wrap: anywhere; }
+.mac-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.mac-current { color: var(--text-muted); font-size: 0.875rem; white-space: nowrap; }
 .mac-sub { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.9375rem; }
 .mac-sub.warn { color: var(--warn); }
 .mac-sub.safe .icon { color: var(--safe); }

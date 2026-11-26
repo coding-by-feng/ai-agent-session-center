@@ -1,6 +1,6 @@
 // thisPhone.test.ts — the way from the Mac's page to the phone app's own settings (AASC-47).
 import { describe, it, expect } from 'vitest';
-import { nativeShellHomeUrl } from './thisPhone';
+import { nativeShellHomeUrl, nativeShellSwitchUrl } from './thisPhone';
 
 const IOS = 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1 (ios)';
 const ANDROID = 'Mozilla/5.0 (Linux; Android 15) Chrome/130 Mobile AASC-Mobile/1 (android)';
@@ -13,5 +13,16 @@ describe('nativeShellHomeUrl', () => {
 
   it('is null in a phone browser', () => {
     expect(nativeShellHomeUrl('Mozilla/5.0 (iPhone) Safari/604.1')).toBeNull();
+  });
+});
+
+describe('nativeShellSwitchUrl (Nov 27 2026)', () => {
+  it('opens the shell’s list as a switcher: the computer used last is marked and Back returns to it', () => {
+    expect(nativeShellSwitchUrl(IOS)).toBe('capacitor://localhost/?tap=1&switch=1');
+    expect(nativeShellSwitchUrl(ANDROID)).toBe('https://localhost/?tap=1&switch=1');
+  });
+
+  it('is null in a phone browser', () => {
+    expect(nativeShellSwitchUrl('Mozilla/5.0 (iPhone) Safari/604.1')).toBeNull();
   });
 });

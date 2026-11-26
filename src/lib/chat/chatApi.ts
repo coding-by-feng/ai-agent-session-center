@@ -154,7 +154,8 @@ const contextItemSchema = z.object({
   count: z.number().int().positive().optional(),
 });
 
-const breakdownSchema = z.object({
+/** Also read by the desktop's context card (`fetchWindowBreakdown` in `lib/contextDetails.ts`). */
+export const breakdownSchema = z.object({
   tokens: z.number().nonnegative(),
   // A kind's entries and rest (Oct 28 2026) are optional: an older Mac sends neither.
   kinds: z.array(z.object({

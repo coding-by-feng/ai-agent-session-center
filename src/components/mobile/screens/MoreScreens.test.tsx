@@ -90,7 +90,7 @@ describe('MoreScreen', () => {
       expect(row.textContent).toContain('Open another AASC or pair a new one');
       expect(row.textContent).not.toMatch(/\bMac\b/);
       await user.click(row);
-      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1');
+      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1&switch=1');
     } finally {
       ua.mockRestore();
     }

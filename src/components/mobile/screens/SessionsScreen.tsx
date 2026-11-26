@@ -24,8 +24,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import type { Session } from '@/types';
 import { Button, Chip, EmptyState, ListRow, ListSection, MenuButton, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
-import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ForkIcon, KillIcon, MoreIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { ChevronRightIcon, EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
+import { CloneIcon, ComputersIcon, ForkIcon, KillIcon, MoreIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { pinnedMoveOrder } from '@/lib/pinMove';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
@@ -42,6 +42,7 @@ import NewSessionSheet from './NewSessionSheet';
 import SessionSheets, { type SessionSheetKind } from './info/SessionSheets';
 import { forkBlocker, useSessionActions } from './info/useSessionActions';
 import { nativeShellCallUrl } from '@/lib/platform';
+import { nativeShellSwitchUrl } from '@/lib/chat/thisPhone';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
@@ -119,14 +120,27 @@ function HostStatus() {
   const connected = useWsStore((s) => s.connected);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const path = connectionPath(window.location.hostname);
+  const switchUrl = nativeShellSwitchUrl();
   // One line (Oct 19 2026): the counts are the chips' and New session is the bar's ＋.
   // State and path come first, so a long Mac name is what truncates.
+  const line = <>{connected ? 'Online' : 'Reconnecting…'} · {CONNECTION_WORDS[path]} · {macName || 'Your Mac'}</>;
   return (
     <section className={styles.hostStrip} aria-label="Your Mac" data-online={connected ? '' : undefined}>
       <span className={styles.dot} aria-hidden="true" />
-      <span className={styles.hostLine}>
-        {connected ? 'Online' : 'Reconnecting…'} · {CONNECTION_WORDS[path]} · {macName || 'Your Mac'}
-      </span>
+      {switchUrl ? (
+        // Nov 27 2026: in the phone app the line opens the app's switcher (this computer, the account's others).
+        <button
+          type="button"
+          className={`${styles.hostLine} ${styles.hostSwitch}`}
+          aria-label={`Switch computer (${macName || 'Your Mac'})`}
+          onClick={() => window.location.assign(switchUrl)}
+        >
+          <span className={styles.hostSwitchText}>{line}</span>
+          <ChevronRightIcon />
+        </button>
+      ) : (
+        <span className={styles.hostLine}>{line}</span>
+      )}
     </section>
   );
 }
@@ -575,6 +589,7 @@ export default function SessionsScreen() {
   // Nov 22 2026: a voice call to the Voice central, made by the app's own page (it may use the microphone).
   // Null in a phone browser, so the button is the app's alone. The call returns to this tab.
   const callUrl = nativeShellCallUrl(`${window.location.pathname}${window.location.search}`);
+  const switchUrl = nativeShellSwitchUrl();
 
   const toggleSearch = useCallback(() => {
     setSearching((on) => !on);
@@ -587,6 +602,8 @@ export default function SessionsScreen() {
   // Search alone needs no menu: it stays its own icon.
   const folded: ContextMenuItem[] = [
     ...(callUrl ? [{ id: 'call', label: 'Call AASC', icon: <PhoneCallIcon />, onSelect: () => window.location.assign(callUrl) }] : []),
+    // Nov 27 2026: the app's list of computers, also reached from the host line below: tap one to switch, ⚙ to manage.
+    ...(switchUrl ? [{ id: 'computers', label: 'Switch or manage computers', icon: <ComputersIcon />, onSelect: () => window.location.assign(switchUrl) }] : []),
     ...(snapshotReceived && byRoom ? [{ id: 'rooms', label: 'New or manage rooms', icon: <RoomIcon />, onSelect: () => setManageRooms(true) }] : []),
     { id: 'search', label: searching ? 'Close search' : 'Search', icon: <SearchIcon />, onSelect: toggleSearch },
   ];

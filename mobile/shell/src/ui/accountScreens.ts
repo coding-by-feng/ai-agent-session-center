@@ -2,9 +2,11 @@
 // AASC Cloud account…) and the account's Macs this phone hasn't saved yet, each with Connect, or Offline
 // when nothing reached it.
 import type { AccountMac } from '../accountMacs.js';
+import { accountReachKey } from '../macReach.js';
 import { signInUnreadableText } from '../accountSignIn.js';
 import { h, icon } from './dom.js';
 import { actions, alert, button, para, screen, status } from './parts.js';
+import { reachDot } from './macScreens.js';
 import type { AccountView, Screen, ScreenContext } from './screen.js';
 
 type MacsScreen = Extract<Screen, { name: 'macs' }>;
@@ -65,6 +67,8 @@ function accountRow(mac: AccountMac, s: MacsScreen, ctx: ScreenContext): HTMLLIE
       : h('div', { class: 'mac-note' }, step === 'failed' ? alert(mine.message) : para(mine.message, 'hint'));
   return h('li', { class: 'mac', attrs: { 'data-enroll': step } },
     h('div', { class: 'mac-info' },
+      // Nov 27 2026: a row that already failed to connect says so itself (Offline / Not connected).
+      step ? null : reachDot(ctx.reach.get(accountReachKey(mac.deviceId))),
       icon('laptop'),
       h('span', { class: 'mac-text' }, h('span', { class: 'mac-name' }, mac.name), sub)),
     connect,
@@ -75,10 +79,10 @@ function listPart(view: AccountView, s: MacsScreen, ctx: ScreenContext): Node | 
   if (view.macs.length) {
     return h('ul', { class: 'macs', attrs: { 'aria-label': 'On your AASC Cloud account' } }, ...view.macs.map((m) => accountRow(m, s, ctx)));
   }
-  if (view.status === 'loading') return status('Looking for your account’s Macs…', true);
+  if (view.status === 'loading') return status('Looking for your account’s computers…', true);
   if (view.status === 'unavailable') {
     return h('div', { class: 'stack' },
-      para('Couldn’t reach AASC Cloud to list your Macs.', 'hint'),
+      para('Couldn’t reach AASC Cloud to list your computers.', 'hint'),
       button('Try again', ctx.actions.refreshAccount, 'secondary', { 'aria-label': 'Ask AASC Cloud again' }));
   }
   if (view.status === 'unreadable') {
@@ -88,8 +92,8 @@ function listPart(view: AccountView, s: MacsScreen, ctx: ScreenContext): Node | 
       button('Try again', ctx.actions.refreshAccount, 'secondary'));
   }
   return para(view.listedAny
-    ? `Every Mac on your account is on this ${ctx.device}.`
-    : 'No Macs on your account yet. Sign in to AASC Cloud on a Mac first.', 'hint');
+    ? `Every computer on your account is on this ${ctx.device}.`
+    : 'No computers on your account yet. Sign in to AASC Cloud on a computer first.', 'hint');
 }
 
 export function renderAccountSection(s: MacsScreen, ctx: ScreenContext): HTMLElement | null {
@@ -109,7 +113,7 @@ export function renderAccountSection(s: MacsScreen, ctx: ScreenContext): HTMLEle
       ? h('div', { class: 'account-menu', attrs: { id: 'account-menu' } },
           // Sign out can be undone (sign in again), so it is the plain button; only Delete looks destructive.
           button('Sign out of AASC Cloud', ctx.actions.signOutAccount, 'secondary'),
-          para(`Macs saved on this ${ctx.device} stay.`, 'hint'),
+          para(`Computers saved on this ${ctx.device} stay.`, 'hint'),
           // Destructive, so apart from Sign out: its own group under a divider (a fixed gap).
           view.canDelete
             ? h('div', { class: 'account-delete' }, button('Delete AASC Cloud account…', ctx.actions.askDeleteAccount, 'danger'))

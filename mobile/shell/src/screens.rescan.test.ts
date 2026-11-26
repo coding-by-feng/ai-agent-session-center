@@ -154,7 +154,7 @@ describe('LAN rescan', () => {
   it('never searches for a Mac still waiting for approval', async () => {
     const t = createHarness({ mac: { reachable: [MOVED] } });
     await seedMac(t, { ...HOME_MAC, status: 'pending' }, 'pending');
-    await t.app.start(); // a launch stays on Your Macs while a pairing waits
+    await t.app.start(); // a launch stays on Your computers while a pairing waits
     click(t.root, /^Kason-MBP/);
     await until(t.root, () => heading(t.root) === 'Approve on your Mac');
     await new Promise((r) => setTimeout(r, 50));

@@ -66,6 +66,52 @@ describe('queue_ask_enable', () => {
     expect(after?.fingerprint).not.toBe(before?.fingerprint);
   });
 
+  it('shows the steps first and spells out a /clear, in the summary and the detail (Ruling 68)', async () => {
+    const { tool, ctx, store } = world();
+    const row = store.rows.get('s1')!;
+    const loop = {
+      ...itemWith(row.items, 1),
+      type: 'loop',
+      intervalMs: 86_400_000,
+      beforeChain: [{ id: 20, text: '/clear' }, { id: 21, text: '/model opus' }],
+      afterChain: [{ id: 22, text: 'post it' }],
+    };
+    store.rows.set('s1', { ...row, items: row.items.map((i) => (i.id === 1 ? loop : i)) });
+    const ask = await tool.confirm!({ id: 's1', itemId: 1 }, ctx);
+
+    expect(ask?.summary).toMatch(/every 24 h, clearing the session’s context \(\/clear\) before each run/);
+    expect(ask?.detail).toBe([
+      'Before each run: /clear (clears the session’s context) → /model opus',
+      'Prompt: item 1',
+      'After each run: post it',
+    ].join('\n'));
+  });
+
+  it('says nothing of a clear when no step is a bare /clear', async () => {
+    const { tool, ctx } = world();
+    const ask = await tool.confirm!({ id: 's1', itemId: 1 }, ctx);
+    expect(ask?.summary).not.toMatch(/clear/);
+    expect(ask?.detail).toBe('Before each run: first step\nPrompt: item 1');
+  });
+
+  it('a step changed or removed after the card changes the fingerprint, so the allowed run does nothing', async () => {
+    const { tool, ctx, store } = world();
+    const set = (steps: Array<{ id: number; text: string }>) => {
+      const cur = store.rows.get('s1')!;
+      const next = { ...itemWith(cur.items, 1), type: 'loop', intervalMs: 86_400_000, beforeChain: steps };
+      store.rows.set('s1', { ...cur, items: cur.items.map((i) => (i.id === 1 ? next : i)) });
+    };
+    set([{ id: 20, text: '/clear' }, { id: 21, text: '/model opus' }]);
+    const allowed = (await tool.confirm!({ id: 's1', itemId: 1 }, ctx))?.fingerprint;
+    set([{ id: 20, text: '/clear' }, { id: 21, text: '/model haiku' }]);
+    const edited = (await tool.confirm!({ id: 's1', itemId: 1 }, ctx))?.fingerprint;
+    set([{ id: 21, text: '/model opus' }]);
+    const removed = (await tool.confirm!({ id: 's1', itemId: 1 }, ctx))?.fingerprint;
+
+    expect(edited).not.toBe(allowed);
+    expect(removed).not.toBe(allowed);
+  });
+
   it('asks nothing in a session the central opened itself: there it may turn the prompt on as it is', async () => {
     const { tool, ctx } = world({ own: true });
     expect(await tool.confirm!({ id: 's1', itemId: 1 }, ctx)).toBeNull();

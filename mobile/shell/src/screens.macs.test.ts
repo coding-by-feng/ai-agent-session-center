@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// AASC-17: Your Macs, a Mac's settings, unpairing, and Can't reach.
+// AASC-17: Your computers, a Mac's settings, unpairing, and Can't reach.
 import { afterEach, describe, expect, it } from 'vitest';
 import { LOCK_SETTINGS_KEY } from './lockGate';
 import { LAST_MAC_KEY, loadMacs, readBackendCredential, readMacCredentials, saveMacs, withMac, writeMacCredentials } from './savedMacs';
@@ -19,10 +19,10 @@ async function twoMacs(opts: Parameters<typeof createHarness>[0] = {}) {
   return t;
 }
 
-describe('Your Macs', () => {
+describe('Your computers', () => {
   it('lists every Mac with the path it uses, the unencrypted one marked', async () => {
     const t = await twoMacs();
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     const rows = Array.from(t.root.querySelectorAll('.mac')).map((r) => r.querySelector('.mac-open')?.textContent);
     expect(rows).toEqual(['Kason-MBPHome network · unencrypted', 'StudioTailscale']);
     expect(t.root.querySelector('.mac-sub.warn')).not.toBeNull();
@@ -85,7 +85,7 @@ describe('Your Macs', () => {
     await t.app.start();
     await new Promise((r) => setTimeout(r, 50));
     expect(t.navigations).toEqual([]);
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 
   // Review, Oct 21 2026: opening the old row signs in, and releasedTwins then retires the waiting re-pair of the
@@ -100,7 +100,7 @@ describe('Your Macs', () => {
       await t.app.start();
       await new Promise((r) => setTimeout(r, 50));
       expect(t.navigations).toEqual([]);
-      expect(heading(t.root)).toBe('Your Macs');
+      expect(heading(t.root)).toBe('Your computers');
       expect((await loadMacs(t.deps.store)).map((m) => m.id)).toEqual([KASON_MBP.id, repair.id]);
     }
   });
@@ -121,8 +121,8 @@ describe('Your Macs', () => {
     await t.app.start();
     await new Promise((r) => setTimeout(r, 50));
     expect(t.navigations).toEqual([]);
-    expect(heading(t.root)).toBe('Your Macs');
-    expect(buttonNamed(t.root, 'Pair another Mac')).not.toBeNull();
+    expect(heading(t.root)).toBe('Your computers');
+    expect(buttonNamed(t.root, 'Pair another computer')).not.toBeNull();
   });
 
   it('does not open the Mac by itself when the phone sent the app back for a notification tap', async () => {
@@ -133,15 +133,15 @@ describe('Your Macs', () => {
     await t.app.start();
     await new Promise((r) => setTimeout(r, 50));
     expect(t.navigations).toEqual([]);
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 
   it('adds another Mac from the list, with a way back', async () => {
     const t = await twoMacs();
-    click(t.root, 'Pair another Mac');
+    click(t.root, 'Pair another computer');
     expect(heading(t.root)).toBe('Pair with a Mac');
-    click(t.root, 'Your Macs');
-    expect(heading(t.root)).toBe('Your Macs');
+    click(t.root, 'Your computers');
+    expect(heading(t.root)).toBe('Your computers');
   });
 
   // Oct 20 2026: unpairing was only under ⚙ → the Mac's settings; two rows can share a name.
@@ -153,7 +153,7 @@ describe('Your Macs', () => {
       const t = await twoMacs();
       t.vault.set(`backend.${KASON_MBP.id}`, JSON.stringify(t.mac.seedBackendDevice()));
       click(t.root, 'Unpair from Kason-MBP');
-      expect(heading(t.root)).toBe('Your Macs');
+      expect(heading(t.root)).toBe('Your computers');
       expect(row(t, 0).textContent).toContain('Unpair from Kason-MBP? This phone loses access and forgets its key.');
       expect(row(t, 0).dataset.unpairing).toBe('true');
       expect(row(t, 1).textContent).not.toContain('Unpair from');
@@ -163,7 +163,7 @@ describe('Your Macs', () => {
       click(t.root, 'Unpair from Kason-MBP');
       click(t.root, 'Unpair');
       await until(t.root, () => t.root.textContent?.includes('Unpaired from Kason-MBP.') ?? false);
-      expect(heading(t.root)).toBe('Your Macs');
+      expect(heading(t.root)).toBe('Your computers');
       expect(rowsText(t)).toEqual(['Studio']);
       expect(t.mac.pushTargetsRemoved()).toBe(1);
       expect([...t.mac.devices.values()].map((d) => d.status)).toEqual(['revoked', 'active']);
@@ -177,7 +177,7 @@ describe('Your Macs', () => {
       await seedMac(t, KASON_MBP);
       await seedMac(t, twin);
       await t.app.start();
-      await until(t.root, () => heading(t.root) === 'Your Macs');
+      await until(t.root, () => heading(t.root) === 'Your computers');
       row(t, 1).querySelector<HTMLButtonElement>('[aria-label="Unpair from Kason-MBP"]')?.click();
       expect(row(t, 1).textContent).toContain('Unpair from Kason-MBP?');
       expect(row(t, 0).textContent).not.toContain('Unpair from Kason-MBP?');
@@ -217,7 +217,7 @@ describe('Your Macs', () => {
       };
       await t.app.start();
       click(t.root, 'Unlock');
-      await until(t.root, () => heading(t.root) === 'Your Macs');
+      await until(t.root, () => heading(t.root) === 'Your computers');
       click(t.root, 'Unpair from Kason-MBP');
       click(t.root, 'Unpair');
       await until(t.root, () => t.root.textContent?.includes('Telling Kason-MBP') ?? false);
@@ -229,7 +229,7 @@ describe('Your Macs', () => {
       await until(t.root, () => !t.vault.has(`mac.${KASON_MBP.id}`));
       await new Promise((r) => setTimeout(r, 5));
       click(t.root, 'Unlock');
-      await until(t.root, () => heading(t.root) === 'Your Macs');
+      await until(t.root, () => heading(t.root) === 'Your computers');
       expect(rowsText(t)).toEqual(['Studio']);
       expect(t.root.textContent).not.toContain('Telling');
       click(t.root, 'Unpair from Studio');
@@ -241,7 +241,7 @@ describe('Your Macs', () => {
       click(t.root, 'Settings for Kason-MBP');
       click(t.root, 'Unpair this phone');
       click(t.root, 'Unpair');
-      click(t.root, 'Your Macs'); // back, while the Mac is still being told
+      click(t.root, 'Your computers'); // back, while the Mac is still being told
       await until(t.root, () => rowsText(t).length === 1);
       expect(rowsText(t)).toEqual(['Studio']);
     });
@@ -284,7 +284,7 @@ describe('Mac settings', () => {
     click(t.root, 'Settings for Studio');
     expect(heading(t.root)).toBe('Studio');
     expect(t.root.textContent).toContain('no home-network address');
-    click(t.root, 'Your Macs');
+    click(t.root, 'Your computers');
     click(t.root, 'Settings for Kason-MBP');
     const lan = fieldLabelled(t.root, 'Use the home network') as HTMLInputElement;
     expect(lan.checked).toBe(true);
@@ -309,7 +309,7 @@ describe('Mac settings', () => {
     click(t.root, 'Keep it');
     click(t.root, 'Unpair this phone');
     click(t.root, 'Unpair');
-    await until(t.root, () => heading(t.root) === 'Your Macs');
+    await until(t.root, () => heading(t.root) === 'Your computers');
     expect(t.root.textContent).toContain('Unpaired from Kason-MBP.');
     expect(t.mac.pushTargetsRemoved()).toBe(1);
     expect([...t.mac.devices.values()].map((d) => d.status)).toEqual(['revoked', 'active']);
@@ -330,7 +330,7 @@ describe('Mac settings', () => {
     await until(t.root, () => t.root.textContent?.includes('still lists this phone') ?? false);
     expect(t.vault.size).toBe(2); // nothing forgotten yet
     click(t.root, 'Remove anyway');
-    await until(t.root, () => heading(t.root) === 'Your Macs');
+    await until(t.root, () => heading(t.root) === 'Your computers');
     expect(t.root.textContent).toContain('Revoke it in the Mac’s devices panel too.');
     expect((await loadMacs(t.deps.store)).map((m) => m.name)).toEqual(['Studio']);
   });
@@ -395,7 +395,7 @@ describe('one row per Mac', () => {
   const withPush = (t: T, ...macIds: string[]) => macIds.forEach((id) => t.vault.set(`backend.${id}`, JSON.stringify(t.mac.seedBackendDevice())));
   async function openFirstRow(t: T) {
     await t.app.start();
-    await until(t.root, () => heading(t.root) === 'Your Macs');
+    await until(t.root, () => heading(t.root) === 'Your computers');
     t.root.querySelectorAll<HTMLButtonElement>('.mac-open')[0].click();
   }
 
@@ -495,7 +495,7 @@ describe('one row per Mac', () => {
     await writeMacCredentials(t.deps.vault, office.id, { deviceId: crypto.randomUUID(), deviceToken: 'f'.repeat(64) });
     await saveMacs(t.deps.store, withMac(await loadMacs(t.deps.store), office));
     await t.app.start();
-    await until(t.root, () => heading(t.root) === 'Your Macs');
+    await until(t.root, () => heading(t.root) === 'Your computers');
     click(t.root, /^Kason-MBP/);
     await until(t.root, () => t.navigations.length > 0);
     expect((await loadMacs(t.deps.store)).map((m) => m.name)).toEqual(['Kason-MBP', 'Office-Mac']);
@@ -565,7 +565,7 @@ describe('one row per Mac', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(t.navigations).toEqual([]);
     expect(await ids(t)).toEqual([KASON_MBP.id]);
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(t.root.querySelectorAll('.mac')).toHaveLength(1); // not the retired row as well
   });
 
@@ -579,7 +579,7 @@ describe('one row per Mac', () => {
     await openFirstRow(t);
     await until(t.root, () => heading(t.root) === 'Couldn’t open Kason-MBP');
     expect(await ids(t)).toEqual([KASON_MBP.id]);
-    click(t.root, 'Your Macs');
+    click(t.root, 'Your computers');
     expect(t.root.querySelectorAll('.mac')).toHaveLength(1);
   });
 
@@ -630,7 +630,7 @@ describe('one row per Mac', () => {
       await h.app.start();
       // The first launch has no Mac used last, so it lists; the later ones open Kason-MBP by themselves.
       if (h === t) {
-        await until(h.root, () => heading(h.root) === 'Your Macs');
+        await until(h.root, () => heading(h.root) === 'Your computers');
         click(h.root, /^Kason-MBP/);
       }
       await until(h.root, () => h.navigations.length > 0);

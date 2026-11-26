@@ -75,6 +75,6 @@ describe('Signing in again', () => {
     await seedMac(t, KASON_MBP);
     await seedMac(t, STUDIO);
     await t.app.start();
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 });

@@ -7,11 +7,14 @@
  * reaches the store or the network. Every answer is `{ ok, data } | { ok: false, error }`
  * with a plain sentence: never a stack, a device token or a session token.
  */
-import { app, ipcMain, safeStorage, type IpcMainInvokeEvent, type Session } from 'electron'
-import { randomBytes } from 'crypto'
+import { app, ipcMain, safeStorage, shell, type IpcMainInvokeEvent, type Session } from 'electron'
+import { randomBytes, randomUUID } from 'crypto'
+import { stat } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import type { AccountDirectory, RemoteComputer, RemoteComputerCheck, RemoteResult } from '../../src/types/electron.js'
+import type { TransferStartArgs, TransferStartResult } from '../../src/types/projectTransfer.js'
+import { createTransferClient, discardRemote, TransferFailed, type TransferDeps } from '../remote/projectTransfer.js'
 import {
   connectThroughAccount, readAccountDirectory, type AccountTarget, type DirectoryMachine, type LocalServer,
 } from '../remote/accountDirectory.js'
@@ -510,6 +513,110 @@ function local<T>(e: IpcMainInvokeEvent, run: () => Promise<RemoteResult<T>>): P
   return fromLocalApp(e) ? run() : Promise.resolve(fail(NOT_THIS_APP))
 }
 
+// ---- Copy / Move a project to a paired computer (docs/plans/project-transfer.md) ----
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const NOT_SECURE = (name: string): string =>
+  `Projects are sent only over Tailscale or HTTPS, and ${name} has no Tailscale address here. Turn Tailscale on on both computers, then try again.`
+
+/** Running transfers, and which computer each one (running or failed) went to, for Cancel and Discard. */
+const runningTransfers = new Map<string, AbortController>()
+const transferTargets = new Map<string, string>()
+
+const transferDeps: TransferDeps = {
+  fetch: (url, init) => fetch(url, init as RequestInit),
+  trash: (p) => shell.trashItem(p),
+  exists: (p) => stat(p).then(() => true, () => false),
+  sleep: (ms, signal) => new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener('abort', () => { clearTimeout(timer); reject(new TransferFailed('Stopped.', 'cancelled', true)) }, { once: true })
+  }),
+  now: () => Date.now(),
+}
+
+/** Signed in to the computer over Tailscale or HTTPS only: never its home-network or public HTTP address. */
+async function secureSession(remoteId: string): Promise<{ origin: string; token: string; name: string } | { error: string }> {
+  const s = remoteStore()
+  const r = s.get(remoteId)
+  const creds = s.credentials(remoteId)
+  if (!r || !creds || r.status === 'revoked') return { error: NOT_PAIRED }
+  const secure: RemoteTarget = { ...targetOf(r), lan: null, publicAddress: null }
+  if (addressPlan(secure).length === 0) return { error: NOT_SECURE(r.name) }
+  const result = await signIn(clientDeps, secure, creds, proofRule(r))
+  recordSignIn(remoteId, result, Date.now())
+  switch (result.state) {
+    case 'ok':
+      return result.via === 'tailnet' || result.via === 'https'
+        ? { origin: result.origin, token: result.token, name: r.name }
+        : { error: NOT_SECURE(r.name) }
+    case 'pending': return { error: pendingMessage(r) }
+    case 'revoked': return { error: revokedMessage(r) }
+    case 'unverified': return { error: impostorMessage(r) }
+    case 'offline': return { error: result.message }
+    case 'error': return { error: result.message }
+  }
+}
+
+function validTransferArgs(raw: unknown): TransferStartArgs | null {
+  if (!raw || typeof raw !== 'object') return null
+  const a = raw as Record<string, unknown>
+  if (!validId(a.remoteId) || typeof a.planId !== 'string' || !UUID_RE.test(a.planId)) return null
+  if (typeof a.destination !== 'string' || !a.destination.startsWith('~/') || a.destination.length > 4096 || a.destination.includes('\0')) return null
+  if (a.mode !== 'copy' && a.mode !== 'move') return null
+  if (a.transferId !== undefined && (typeof a.transferId !== 'string' || !UUID_RE.test(a.transferId))) return null
+  return { remoteId: a.remoteId, planId: a.planId, destination: a.destination, mode: a.mode, transferId: a.transferId as string | undefined }
+}
+
+async function projectTransferStart(e: IpcMainInvokeEvent, raw: unknown): Promise<TransferStartResult> {
+  const args = validTransferArgs(raw)
+  if (!args) return { ok: false, error: 'That transfer is missing something. Close the dialog and try again.' }
+  const transferId = args.transferId ?? randomUUID()
+  if (runningTransfers.has(transferId)) return { ok: false, error: 'That transfer is already running.' }
+  const failure = (error: string, code: string, resumable: boolean): TransferStartResult =>
+    ({ ok: false, error, failure: { transferId, error, code, resumable } })
+  const controller = new AbortController()
+  runningTransfers.set(transferId, controller)
+  transferTargets.set(transferId, args.remoteId)
+  try {
+    const remote = await secureSession(args.remoteId)
+    if ('error' in remote) return failure(remote.error, 'sign_in', true)
+    const { port, sessionToken } = await localServer(e)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return failure('This computer’s AASC server isn’t running.', 'local', false)
+    const client = createTransferClient(transferDeps, {
+      transferId,
+      local: { origin: `http://127.0.0.1:${port}`, sessionToken },
+      remote,
+      planId: args.planId,
+      destination: args.destination,
+      mode: args.mode,
+      signal: controller.signal,
+      onProgress: (progress) => { if (!e.sender.isDestroyed()) e.sender.send('remote:projectTransferProgress', progress) },
+    })
+    const outcome = await client.runAll()
+    transferTargets.delete(transferId)
+    return { ok: true, data: outcome }
+  } catch (err) {
+    if (err instanceof TransferFailed) return failure(err.message, err.code, err.resumable)
+    logMainError(`remote:projectTransferStart failed: ${err instanceof Error ? err.message : String(err)}`)
+    return failure(SOMETHING_WENT_WRONG, 'internal', true)
+  } finally {
+    runningTransfers.delete(transferId)
+  }
+}
+
+async function projectTransferCancel(transferId: unknown, discard: unknown): Promise<RemoteResult<null>> {
+  if (typeof transferId !== 'string' || !UUID_RE.test(transferId)) return fail('No such transfer.')
+  runningTransfers.get(transferId)?.abort()
+  if (discard !== true) return { ok: true, data: null }
+  const remoteId = transferTargets.get(transferId)
+  if (!remoteId) return { ok: true, data: null }
+  const remote = await secureSession(remoteId)
+  if ('error' in remote) return fail(remote.error)
+  if (!(await discardRemote(transferDeps, remote, transferId))) return fail(`${remote.name} did not answer. What it received stays there until you try again.`)
+  transferTargets.delete(transferId)
+  return { ok: true, data: null }
+}
+
 export function registerRemoteHandlers(options: RemoteHandlerOptions = {}): void {
   handlerOptions = options
   ipcMain.handle('remote:list', (e) => {
@@ -528,4 +635,8 @@ export function registerRemoteHandlers(options: RemoteHandlerOptions = {}): void
   ipcMain.handle('remote:rename', (e, id: unknown, name: unknown) => local(e, () => guarded('rename', () => rename(id, name))))
   ipcMain.handle('remote:accountMachines', (e) => withLocalServer(e, () => guarded('accountMachines', () => accountMachines(e))))
   ipcMain.handle('remote:accountConnect', (e, machineId: unknown) => withLocalServer(e, () => accountConnectOnce(e, machineId)))
+  ipcMain.handle('remote:projectTransferStart', (e, args: unknown) =>
+    withLocalServer(e, () => projectTransferStart(e, args)) as Promise<TransferStartResult>)
+  ipcMain.handle('remote:projectTransferCancel', (e, transferId: unknown, discard: unknown) =>
+    local(e, () => guarded('projectTransferCancel', () => projectTransferCancel(transferId, discard))))
 }

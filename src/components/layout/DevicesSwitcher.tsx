@@ -30,9 +30,11 @@ import { buttonClass } from '@/components/ui/buttonClass';
 import SearchInput from '@/components/ui/SearchInput';
 import { APP_UNREACHABLE, useAccountDirectory } from '@/hooks/useAccountDirectory';
 import { useRemoteComputers } from '@/hooks/useRemoteComputers';
-import { useSwitcherKeys } from '@/hooks/useSwitcherKeys';
+import { PRIMARY_ACTION, useSwitcherKeys } from '@/hooks/useSwitcherKeys';
 import { DEVICES_SWITCH_EVENT } from '@/lib/devicesSwitcher';
+import { CloudApiError, cloudApi } from '@/lib/cloudApi';
 import { IS_LITE } from '@/lib/edition';
+import { focusSiblingAfterRemoval } from '@/lib/focusAfterRemoval';
 import {
   accountRowDetail, accountRows, countOnline, linkRecords, matchesName, needsConnect, searchShown, type AccountRow,
 } from '@/lib/remoteComputerRows';
@@ -44,6 +46,8 @@ import { DirectoryNotice, ThisComputerRow, UnconnectedRow } from './DevicesSwitc
 import RemoteComputerRow from './RemoteComputerRow';
 import { AddComputer, WaitingCard } from './RemoteComputers';
 
+/** Remove… on an account computer, when this computer has no account connection to sign it out with. */
+const REMOVE_SIGNED_OUT = 'Sign in to AASC Cloud on this computer first.';
 const ONLY_THIS_ONE = 'Sign in on another computer with the same Google account and it shows up here.';
 /** RESOURCES → Machines, where "Devices on your account" lists every device and signs one out. */
 const MACHINES_PATH = '/resources?section=machines';
@@ -81,6 +85,8 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
   const refocus = useRef<string | null>(null);
   /** False once the panel has closed: a Connect that answers after that starts no check and no read. */
   const open = useRef(true);
+  /** Machines Remove… signed out of the account: gone at once, before the directory's next read confirms it. */
+  const [signedOut, setSignedOut] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
     open.current = true;
     return () => {
@@ -91,7 +97,8 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
   const { view } = directory;
   const machines = view.state === 'ok' ? view.machines : null;
   const here = machines?.find((m) => m.current) ?? null;
-  const mine = accountRows(machines, remotes.computers);
+  const mine = accountRows(machines, remotes.computers)
+    .filter((row) => row.record !== null || row.machineId === null || !signedOut.has(row.machineId));
   const byLink = linkRecords(remotes.computers);
   /** Link pairings waiting for Allow: each has its card. An account computer's own row says it waits. */
   const linkWaiting = remotes.waiting.filter((w) => !w.quiet);
@@ -163,6 +170,28 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
     directory.refresh();
   };
 
+  /**
+   * Remove… on an account computer never connected to: signs it out of the account, under the connection this
+   * computer holds now (the call Manage devices → Sign out… makes). Resolves to why it failed, or null once it is gone.
+   */
+  const removeFromAccount = async (row: AccountRow): Promise<string | null> => {
+    const id = row.machineId;
+    if (id === null) return 'That computer is no longer on your AASC Cloud account.';
+    try {
+      const { connection } = await cloudApi.status();
+      if (connection === null) return REMOVE_SIGNED_OUT;
+      const { backendOrigin, accountId, generation } = connection;
+      await cloudApi.signOutAccountDevice(id, { backendOrigin, accountId, generation });
+    } catch (err) {
+      return err instanceof CloudApiError ? err.message : `Couldn’t remove ${row.name}. Try again.`;
+    }
+    if (!open.current) return null;
+    focusSiblingAfterRemoval(rowElement(row.key), `[${PRIMARY_ACTION}]:not([disabled])`, addButtonRef.current, rootRef.current);
+    setSignedOut((prev) => new Set(prev).add(id));
+    directory.refresh();
+    return null;
+  };
+
   /** Dismiss or Remove: the record is gone. A machine the account still lists keeps its row, back at Connect. */
   const forget = (row: AccountRow, id: string) => {
     remotes.removed(id);
@@ -219,6 +248,7 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
                     running={isRunning}
                     error={connectError}
                     onConnect={() => void connect(row)}
+                    onRemove={row.machineId === null ? undefined : () => removeFromAccount(row)}
                   />
                 );
               }

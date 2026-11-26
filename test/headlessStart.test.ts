@@ -63,7 +63,7 @@ describe('parseCli', () => {
 
   it('names each P1 and P2 subcommand, and flags an unknown one', () => {
     for (const c of ['setup', 'set-password', 'install-service', 'uninstall-service', 'install-hooks', 'uninstall-hooks', 'help',
-      'pair', 'devices', 'status', 'doctor', 'logs', 'share-default']) {
+      'pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers']) {
       expect(parseCli([c, '-x']).command).toBe(c);
     }
     expect(parseCli(['--help']).command).toBe('help');
@@ -408,6 +408,25 @@ describe('the bundle, started headless', () => {
     expect(existsSync(join(box.dataDir, 'data', 'sessions-snapshot.json'))).toBe(true);
     expect(existsSync(join(box.dataDir, 'server.lock'))).toBe(false);
     expect(existsSync(join(box.queueDir, 'server.lock'))).toBe(false);
+  }, 60_000);
+
+  // The CLI cascade (Nov 27 2026): routers added after terminal editions merged must mount headless
+  // too, and answer the owner token the admin CLI sends (aasc-server transfers, a voice key over ssh).
+  it('mounts Project Transfer and voice, which answer the owner token and refuse without it', async () => {
+    const box = makeBox();
+    const port = await freePort();
+    const run = startBundle(box, port);
+    await waitReady(run, port);
+    const token = readFileSync(join(box.dataDir, 'owner.token'), 'utf8').trim();
+    const get = (path: string, auth = true) =>
+      fetch(`http://127.0.0.1:${port}${path}`, auth ? { headers: { Authorization: `Bearer ${token}` } } : {});
+    for (const path of ['/api/project-transfer/requests', '/api/project-transfer/allowed']) {
+      const res = await get(path);
+      expect(res.status, path).toBe(200);
+      expect(await res.json()).toEqual({ success: true, data: [] });
+      expect((await get(path, false)).status, `${path} without a token`).toBe(401);
+    }
+    expect((await get('/api/voice/settings')).status).toBe(200);
   }, 60_000);
 
   it('exits 78 with the set-password hint when no password is set (D9)', async () => {

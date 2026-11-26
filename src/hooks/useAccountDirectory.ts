@@ -24,7 +24,7 @@ export type DirectoryView =
   /** The first read has not answered yet. */
   | { state: 'loading' }
   | { state: 'ok'; machines: AccountMachine[] }
-  | { state: 'signed-out' | 'needs-sign-in' | 'unreachable' }
+  | { state: 'signed-out' | 'needs-sign-in' | 'unsupported' | 'unreachable' }
   /** The read itself failed; `error` is ready to show. */
   | { state: 'failed'; error: string };
 

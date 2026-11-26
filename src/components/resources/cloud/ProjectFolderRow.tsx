@@ -13,6 +13,7 @@ import ProjectRowFrame, { FavToggle, PrimaryButton } from './ProjectRowFrame';
 import { displayPath, folderName, type ProjectRow } from './projectList';
 import { folderStatus } from './projectState';
 import type { SyncCard } from '../sync/useSyncCards';
+import { useTransferMenu } from '../transfer/useTransferMenu';
 import styles from '@/styles/modules/CloudResources.module.css';
 
 export default function ProjectFolderRow({
@@ -58,6 +59,9 @@ export default function ProjectFolderRow({
         ? `${project.name} uses ${displayPath(linkedPath, home)} on this Mac.`
         : (status.hint ?? null);
   const stands = state === 'unlinked' && favColumn && project;
+  // "Sync with a server…" doubles as the way out when the folder already exists on the other computer.
+  const openSync = sync?.menuItems.find((i) => i.id === 'sync')?.onSelect;
+  const transfer = useTransferMenu(folder.path, openSync);
   const items: MenuItem[] = [
     ...(status.primary !== 'open'
       ? [
@@ -70,6 +74,7 @@ export default function ProjectFolderRow({
         ]
       : []),
     ...(sync?.menuItems ?? []),
+    ...transfer.menuItems,
   ];
   return (
     <ProjectRowFrame
@@ -116,7 +121,9 @@ export default function ProjectFolderRow({
       }
     >
       {sync?.line && <p className={styles.hint}>{sync.line}</p>}
+      {transfer.movedLine && <p className={styles.hint}>{transfer.movedLine}</p>}
       {hint && <p className={styles.hint}>{hint}</p>}
+      {transfer.dialog}
     </ProjectRowFrame>
   );
 }

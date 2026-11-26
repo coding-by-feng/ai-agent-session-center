@@ -19,7 +19,7 @@ export function renderApprove(s: ApproveScreen, ctx: ScreenContext): HTMLElement
   const a = ctx.actions;
   const { mac } = s;
   if (s.state === 'refused') {
-    return screen('Not allowed', { label: 'Your Macs', onClick: a.showMacs },
+    return screen('Not allowed', { label: 'Your computers', onClick: a.showMacs },
       para(`${mac.name} refused this ${ctx.device}, or the request expired. Requests last 10 minutes.`),
       para('Press Pair a phone or computer on the Mac again to start over.', 'hint'),
       actions(button('Pair again', a.showPair, 'primary')));
@@ -72,7 +72,7 @@ export function renderOffline(s: OfflineScreen, mac: SavedMac, ctx: ScreenContex
     lanUnused && mac.lan ? pathRow('lan', mac.lan, mac.port, 'not allowed') : null);
 
   const title = s.message ? `Couldn’t open ${mac.name}` : `Can’t reach ${mac.name}`;
-  return screen(title, { label: 'Your Macs', onClick: a.showMacs },
+  return screen(title, { label: 'Your computers', onClick: a.showMacs },
     alert(s.message),
     tried.length || lanUnused ? h('h2', {}, tried.length ? 'Tried' : 'Paths') : null,
     list,

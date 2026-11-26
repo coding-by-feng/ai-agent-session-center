@@ -19,3 +19,12 @@ export function nativeShellHomeUrl(userAgent?: string): string | null {
   const base = reauth.slice(0, reauth.indexOf('/?'));
   return `${base}/?tap=1`;
 }
+
+/**
+ * The shell's list as a switcher (Nov 27 2026): headed "Your computers", the computer used last (this one) marked
+ * "Using now" with a bar back to it, the account's other computers beside it. Null outside the phone app.
+ */
+export function nativeShellSwitchUrl(userAgent?: string): string | null {
+  const home = nativeShellHomeUrl(userAgent);
+  return home ? `${home}&switch=1` : null;
+}

@@ -381,9 +381,23 @@ function checkSchedule(input: ScheduleInput, now: number): void {
 }
 
 /**
+ * Today's `HH:MM` on this machine's clock (the window's scheduler reads `firstFireOfDay` the same way), when it is
+ * still ahead of `now`; null once it has passed, or for a time that does not parse.
+ */
+function startToday(clock: string, now: number): number | null {
+  if (!CLOCK_RE.test(clock)) return null;
+  const [h, min] = clock.split(':').map(Number);
+  const d = new Date(now);
+  d.setHours(h, min, 0, 0);
+  return d.getTime() > now ? d.getTime() : null;
+}
+
+/**
  * Sets one item's timing the way the editor's Save does. A loop's first fire is one interval from now unless it
- * already has a later one; a schedule fires at its run time; a once item sorts first (next fire 0). Each type drops
- * the fields the others own; a loop's quiet hours stay when it becomes something else (the editor keeps them too).
+ * already has a later one, and never later than today's first fire of the day while that is still ahead (Nov 27 2026:
+ * re-saving a daily 10:00 loop at 00:26 used to skip to tomorrow); a schedule fires at its run time; a once item sorts
+ * first (next fire 0). Each type drops the fields the others own; a loop's quiet hours stay when it becomes something
+ * else (the editor keeps them too).
  */
 export function setItemSchedule(state: QueueState, input: ScheduleInput, now: number): QueueChange<{ itemId: number }> {
   const { index, item } = pick(state.items, input.itemId);
@@ -392,7 +406,10 @@ export function setItemSchedule(state: QueueState, input: ScheduleInput, now: nu
   if (input.type === 'loop') {
     const interval = input.intervalMs as number;
     const upcoming = numeric(item.nextFireAt);
-    next = { ...without(item, 'runAt'), type: 'loop', intervalMs: interval, nextFireAt: upcoming !== null && upcoming > 0 && upcoming >= now ? upcoming : now + interval };
+    const kept = upcoming !== null && upcoming > 0 && upcoming >= now ? upcoming : now + interval;
+    const clock = input.firstFireOfDay === undefined ? item.firstFireOfDay : input.firstFireOfDay;
+    const start = typeof clock === 'string' ? startToday(clock, now) : null;
+    next = { ...without(item, 'runAt'), type: 'loop', intervalMs: interval, nextFireAt: start !== null && start < kept ? start : kept };
     if (input.firstFireOfDay === null) next = without(next, 'firstFireOfDay');
     else if (input.firstFireOfDay !== undefined) next = { ...next, firstFireOfDay: input.firstFireOfDay };
     if (input.excludeWindows !== undefined) {

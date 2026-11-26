@@ -11,7 +11,7 @@ import type { ConfirmAsk, ToolContext, ToolDef } from '../registry.js';
 import { ToolError } from '../types.js';
 import { isOwnWorker } from '../unattended.js';
 import { clipText, defineTool, refOf, resolveTarget, SESSION_REF } from './define.js';
-import { ITEM_ID, itemAnswer, nameOf, RAILS, serverDeps, startTarget, writeOp, type QueueWriteDeps } from './queueWriteKit.js';
+import { isClearStepText, ITEM_ID, itemAnswer, nameOf, RAILS, serverDeps, startTarget, writeOp, type QueueWriteDeps } from './queueWriteKit.js';
 
 /** The longest prompt text shown on the card. */
 const DETAIL_MAX = 2_000;
@@ -50,6 +50,28 @@ export function runText(item: QueueItemLike): string {
   return [...before, before.length + after.length > 0 ? `Prompt: ${text}` : text, ...after].join('\n');
 }
 
+/** How a step reads on the card: a bare `/clear` says what it does, since it wipes the session's context (Ruling 68). */
+const stepWords = (text: string): string => (isClearStepText(text) ? `${text.trim()} (clears the session’s context)` : text);
+
+/** Does a step of either chain clear the session's context? */
+const clearsContext = (item: QueueItemLike): boolean =>
+  [...chainTexts(item, 'beforeChain'), ...chainTexts(item, 'afterChain')].some(isClearStepText);
+
+/**
+ * What the card shows the person, steps first: "Before each run: /clear (clears the session’s context) → /model opus",
+ * then the prompt, then the steps after. The fingerprint stays on `runText`, the steps' raw text.
+ */
+export function cardText(item: QueueItemLike): string {
+  const text = typeof item.text === 'string' ? item.text : '';
+  const before = chainTexts(item, 'beforeChain').map(stepWords);
+  const after = chainTexts(item, 'afterChain').map(stepWords);
+  return [
+    ...(before.length > 0 ? [`Before each run: ${before.join(' → ')}`] : []),
+    before.length + after.length > 0 ? `Prompt: ${text}` : text,
+    ...(after.length > 0 ? [`After each run: ${after.join(' → ')}`] : []),
+  ].join('\n');
+}
+
 async function itemOf(deps: QueueWriteDeps, sessionId: string, itemId: number): Promise<QueueItemLike> {
   const store = await deps.store();
   const found = store.read(sessionId).items.find((i) => i.id === itemId);
@@ -68,7 +90,9 @@ export const queueAskEnableTool = (deps: QueueWriteDeps): ToolDef =>
       'Turns one queued prompt ON (a loop, a schedule or a once) in a session you did not open, after the person allows ' +
       'it on a card on the Mac or the paired phone: the way to set up "check it every 5 minutes" on someone else’s ' +
       'session. Add the prompt first (queue_add_item; queue_set_item_schedule for its timing; it stays off), then call ' +
-      'this; it answers NEEDS_CONFIRMATION, so tell the person to look at their screen and call confirm_wait. In a ' +
+      'this; it answers NEEDS_CONFIRMATION, so tell the person to look at their screen and call confirm_wait. The card ' +
+      'shows the steps first and says when one clears the session’s context (/clear); a step changed after the person ' +
+      'allows it makes the run do nothing. In a ' +
       `session you opened yourself it asks nothing and turns it on. ${RAILS}`,
     risk: 'ask',
     phase: 3,
@@ -79,9 +103,10 @@ export const queueAskEnableTool = (deps: QueueWriteDeps): ToolDef =>
       if (isOwnWorker(ctx, s)) return null;
       const item = await itemOf(deps, s.sessionId, args.itemId);
       const text = runText(item);
+      const clears = clearsContext(item) ? ', clearing the session’s context (/clear) before each run' : '';
       return {
-        summary: `turn on a queued prompt in session ${refOf(ctx)(s.sessionId)} so AASC sends it on its own, ${timingOf(item)}`,
-        detail: clipText(text, DETAIL_MAX).text,
+        summary: `turn on a queued prompt in session ${refOf(ctx)(s.sessionId)} so AASC sends it on its own, ${timingOf(item)}${clears}`,
+        detail: clipText(cardText(item), DETAIL_MAX).text,
         targetSessionId: s.sessionId,
         fingerprint: `${s.terminalId ?? ''}|${args.itemId}|${String(item.type)}|${String(item.intervalMs)}|${String(item.runAt)}|${text}`,
       };

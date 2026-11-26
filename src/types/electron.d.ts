@@ -1,4 +1,5 @@
 // src/types/electron.d.ts
+import type { TransferProgress, TransferStartArgs, TransferStartResult } from './projectTransfer.js'
 // Shared IPC contract between Electron main process and React renderer.
 // Both electron-main (IPC handlers) and frontend (wizard UI) implement against this.
 
@@ -209,9 +210,10 @@ export interface AccountMachine {
 export interface AccountDirectory {
   /**
    * ok · signed-out: this computer is in no AASC Cloud account · needs-sign-in: it signed in before plan 18 and must
-   * sign in again to list its computers · unreachable: AASC Cloud (or this computer's own server) gave no usable answer.
+   * sign in again to list its computers · unsupported: AASC Cloud answered, but its backend has no machines service
+   * yet · unreachable: AASC Cloud (or this computer's own server) gave no usable answer.
    */
-  state: 'ok' | 'signed-out' | 'needs-sign-in' | 'unreachable'
+  state: 'ok' | 'signed-out' | 'needs-sign-in' | 'unsupported' | 'unreachable'
   /** Empty unless `ok`. */
   machines: AccountMachine[]
 }
@@ -248,6 +250,18 @@ export interface RemoteComputersAPI {
    * Absent in the Client editions.
    */
   accountConnect?(machineId: string): Promise<RemoteResult<RemoteComputer>>
+  /**
+   * Copy or Move a project to this paired computer (Nov 27 2026, docs/plans/project-transfer.md). The plan comes
+   * from this computer's own server (`POST /api/project-transfer/plan`); main signs in to the computer, waits for its
+   * owner's Allow the first time, sends the files, and asks it to commit. Refused unless the computer answers over
+   * Tailscale or HTTPS. Resolves when the transfer ends; progress arrives through `onProjectTransferProgress`.
+   * A failure carries the transfer id, so `transferId` in a second call resumes it. Absent in the Client editions.
+   */
+  projectTransferStart?(args: TransferStartArgs): Promise<TransferStartResult>
+  /** Stop a running transfer; `discard` also asks the computer to delete what it staged. */
+  projectTransferCancel?(transferId: string, discard: boolean): Promise<RemoteResult<null>>
+  /** Progress of every running transfer. Returns how to stop listening. */
+  onProjectTransferProgress?(listener: (progress: TransferProgress) => void): () => void
 }
 
 declare global {

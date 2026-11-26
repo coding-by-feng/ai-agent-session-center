@@ -91,6 +91,14 @@ const api: ElectronAPI = {
     // Plan 18: the computers on this computer's AASC Cloud account, and connecting to one without a link.
     accountMachines: ()          => ipcRenderer.invoke('remote:accountMachines'),
     accountConnect:  (machineId) => ipcRenderer.invoke('remote:accountConnect', machineId),
+    // Copy / Move a project to a paired computer (docs/plans/project-transfer.md).
+    projectTransferStart:  (args) => ipcRenderer.invoke('remote:projectTransferStart', args),
+    projectTransferCancel: (transferId, discard) => ipcRenderer.invoke('remote:projectTransferCancel', transferId, discard),
+    onProjectTransferProgress: (listener) => {
+      const handler = (_: unknown, progress: Parameters<typeof listener>[0]) => listener(progress)
+      ipcRenderer.on('remote:projectTransferProgress', handler)
+      return () => { ipcRenderer.removeListener('remote:projectTransferProgress', handler) }
+    },
   },
 }
 

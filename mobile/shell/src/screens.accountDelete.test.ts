@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Delete AASC Cloud account… in the account menu of Your Macs (Nov 20 2026): the confirm step, the sign-in
+// Delete AASC Cloud account… in the account menu of Your computers (Nov 20 2026): the confirm step, the sign-in
 // match code, the sheet, and what the phone says and forgets afterwards.
 import { afterEach, describe, expect, it } from 'vitest';
 import { listAccountMacs } from './accountMacs';
@@ -19,20 +19,23 @@ const LIST = 'GET https://api.aasc.work/v1/enroll/macs';
 const text = (t: { root: HTMLElement }) => t.root.textContent ?? '';
 const notice = (t: { root: HTMLElement }) => t.root.querySelector('.notice')?.textContent ?? '';
 const isDelete = (startUrl: string) => new URL(startUrl).searchParams.get('intent') === 'delete';
-const requests = (t: Harness) => t.mac.calls.map((c) => `${c.method} ${c.url}`);
+// The list asks each computer whether it answers each time it opens (Nov 27 2026, macReach.ts): the same
+// GET /api/auth/status opening one starts with, never AASC Cloud. These tests count what goes to the account.
+const isReachProbe = (c: { method: string; url: string }) => c.method === 'GET' && c.url.endsWith('/api/auth/status');
+const requests = (t: Harness) => t.mac.calls.filter((c) => !isReachProbe(c)).map((c) => `${c.method} ${c.url}`);
 
 /** A sheet whose sign-ins go through and whose delete comes back as the test says (`redirect`: nothing deleted yet). */
 const sheet = (onDelete: (redirect: string) => AuthSessionResult | Promise<AuthSessionResult>) =>
   async (startUrl: string, redirect: string | null): Promise<AuthSessionResult> => (isDelete(startUrl) ? onDelete(redirect!) : { url: redirect! });
 
-/** The app on Your Macs, signed in to the account (its first list answered); calls and sheets so far are cleared. */
+/** The app on Your computers, signed in to the account (its first list answered); calls and sheets so far are cleared. */
 async function signedInApp(opts: HarnessOptions = {}, savedMac = false): Promise<Harness> {
   const t = createHarness({ authSession: true, search: '?tap=1', ...opts });
   if (savedMac) await seedMac(t, STUDIO);
   expect((await signInWithGoogle(t.deps, 'Pixel')).ok).toBe(true);
   await t.app.start();
   if (opts.biometric) click(t.root, 'Unlock');
-  await until(t.root, () => heading(t.root) === 'Your Macs' && buttonNamed(t.root, 'Connect to Kason-MBP') !== null);
+  await until(t.root, () => heading(t.root) === 'Your computers' && buttonNamed(t.root, 'Connect to Kason-MBP') !== null);
   t.mac.calls.length = 0;
   t.extras.authStarts.length = 0;
   return t;
@@ -44,7 +47,7 @@ async function openConfirm(t: Harness): Promise<void> {
   await until(t.root, () => heading(t.root) === ASK);
 }
 
-/** From Your Macs through the confirm step to the match code (nothing opened yet). */
+/** From Your computers through the confirm step to the match code (nothing opened yet). */
 async function toMatchCode(t: Harness): Promise<string> {
   await openConfirm(t);
   click(t.root, 'Continue');
@@ -90,7 +93,7 @@ describe('Delete AASC Cloud account… in the account menu', () => {
     const t = createHarness({ authSession: true, search: '?tap=1' });
     await seedMac(t, STUDIO);
     await t.app.start();
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(buttonNamed(t.root, 'AASC Cloud account')).toBeNull();
     expect(buttonNamed(t.root, /Delete AASC Cloud account/)).toBeNull();
   });
@@ -102,7 +105,7 @@ describe('Delete AASC Cloud account… in the account menu', () => {
       fakeMac: first.mac, search: '?tap=1', store: Object.fromEntries(first.store), vault: Object.fromEntries(first.vault),
     });
     await t.app.start();
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('owner@example.com'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('owner@example.com'));
     click(t.root, 'AASC Cloud account');
     expect(buttonNamed(t.root, 'Sign out of AASC Cloud')).not.toBeNull();
     expect(buttonNamed(t.root, /Delete AASC Cloud account/)).toBeNull();
@@ -125,11 +128,11 @@ describe('the confirm step', () => {
     expect(JSON.stringify(t.app.current())).not.toMatch(/verifier|[A-Za-z0-9_-]{43}/); // the screen holds nothing secret
   });
 
-  it('Cancel goes back to Your Macs, still signed in, with nothing opened or asked', async () => {
+  it('Cancel goes back to Your computers, still signed in, with nothing opened or asked', async () => {
     const t = await signedInApp();
     await openConfirm(t);
     click(t.root, 'Cancel');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(t.extras.authStarts).toHaveLength(0);
     expect(requests(t)).toEqual([]);
@@ -155,11 +158,11 @@ describe('the confirm step', () => {
     expect(await matchCode(start.searchParams.get('c')!)).toBe(shown);
   });
 
-  it('Cancel at the match code goes back to Your Macs, still signed in, with nothing opened', async () => {
+  it('Cancel at the match code goes back to Your computers, still signed in, with nothing opened', async () => {
     const t = await signedInApp();
     await toMatchCode(t);
     click(t.root, 'Cancel');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(t.extras.authStarts).toHaveLength(0);
     expect(requests(t)).toEqual([]);
@@ -187,12 +190,12 @@ describe('after the sheet', () => {
     expect(requests(t)).toEqual([LIST]); // no delete request, no pairing
   });
 
-  it('this account deleted: the Macs saved on this phone stay', async () => {
+  it('this account deleted: the Computers saved on this phone stay', async () => {
     const t = await signedInApp({}, true);
     const before = JSON.stringify([await loadMacs(t.deps.store), [...t.vault].filter(([k]) => k !== ACCOUNT_VAULT_KEY)]);
     await deleteThrough(t);
     expect(notice(t)).toBe('Your AASC Cloud account was deleted.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(buttonNamed(t.root, /^Studio/)).not.toBeNull();
     expect(buttonNamed(t.root, 'AASC Cloud account')).toBeNull(); // the account section went with the account
     expect(JSON.stringify([await loadMacs(t.deps.store), [...t.vault].filter(([k]) => k !== ACCOUNT_VAULT_KEY)])).toBe(before);
@@ -209,7 +212,7 @@ describe('after the sheet', () => {
     }, true);
     await deleteThrough(t);
     expect(notice(t)).toBe('Your AASC Cloud account was deleted.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(buttonNamed(t.root, /^Studio/)).not.toBeNull();
     expect(buttonNamed(t.root, 'AASC Cloud account')).toBeNull();
   });
@@ -218,7 +221,7 @@ describe('after the sheet', () => {
     const t = await signedInApp({ authSession: sheet(() => ({ cancelled: true })) }, true);
     await deleteThrough(t);
     expect(notice(t)).toBe('Nothing changed on this phone. It is still signed in as owner@example.com.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(buttonNamed(t.root, /^Studio/)).not.toBeNull();
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(true);
@@ -235,7 +238,7 @@ describe('after the sheet', () => {
     }, true);
     await deleteThrough(t);
     expect(notice(t)).toBe('Your AASC Cloud account was deleted.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(buttonNamed(t.root, /^Studio/)).not.toBeNull();
     expect(buttonNamed(t.root, 'AASC Cloud account')).toBeNull();
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);

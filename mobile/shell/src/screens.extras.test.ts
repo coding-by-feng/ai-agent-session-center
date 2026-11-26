@@ -235,6 +235,6 @@ describe('Push with the config', () => {
     t.extras.tap!({ data: { kind: 'approval' } });
     await new Promise((r) => setTimeout(r, 20));
     expect(t.navigations).toEqual([]);
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 });

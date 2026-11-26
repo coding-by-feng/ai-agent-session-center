@@ -41,6 +41,7 @@ Commands:
   doctor              check what this box needs to run the server
   logs                follow the server's log · -n <lines> · --no-follow
   share-default       share sessions started on this box with paired devices · on|off|status
+  transfers           projects other computers want to send here · allow|decline <id> · forget <computer>
   help                show this help
 `;
 

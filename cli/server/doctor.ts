@@ -35,8 +35,24 @@ export function hookState(home: string, enabledClis: readonly string[]): Record<
     out.codex = existsSync(join(home, '.codex', 'hooks', 'dashboard-hook.sh'))
       && read(join(home, '.codex', 'config.toml')).includes('dashboard-hook');
   }
+  // OpenCode and Antigravity (Nov 23 2026): where hooks/install-extra-agents.js puts them.
+  if (enabledClis.includes('opencode')) {
+    out.opencode = read(join(home, '.config', 'opencode', 'plugins', 'aasc-dashboard', 'server.js'))
+      .includes('AI Agent Session Center');
+  }
+  if (enabledClis.includes('antigravity')) {
+    out.antigravity = existsSync(join(home, '.gemini', 'config', 'aasc-dashboard', 'dashboard-hook-agy.sh'))
+      && read(join(home, '.gemini', 'config', 'hooks.json')).includes('aasc-dashboard');
+  }
   return out;
 }
+
+/** An enabled CLI's row name and the command it starts with (Antigravity's is `agy`). */
+const CLI_ROWS: Record<string, { name: string; command: string }> = {
+  opencode: { name: 'OpenCode', command: 'opencode' },
+  antigravity: { name: 'Antigravity', command: 'agy' },
+};
+const cliRow = (cli: string) => CLI_ROWS[cli] ?? { name: cli, command: cli };
 
 export type CloudCredential = 'none' | 'readable' | 'encrypted' | 'damaged';
 
@@ -186,9 +202,11 @@ export async function runChecks(deps: DoctorDeps): Promise<CheckResult[]> {
   const pathEnv = svcPath ?? deps.env.PATH ?? '';
   const where = svcPath !== null ? "the service's PATH" : 'PATH';
   for (const cli of enabled) {
-    add(onPath(cli, pathEnv)
-      ? { state: 'ok', name: cli, detail: `on ${where}` }
-      : { state: 'fail', name: cli, detail: `not on ${where}: no ${cli} session can start`, fix: svcPath !== null ? `rerun \`aasc-server install-service\` from a shell where \`which ${cli}\` works` : `install ${cli}` });
+    const { name, command } = cliRow(cli);
+    const detail = command === name ? `on ${where}` : `${command} on ${where}`;
+    add(onPath(command, pathEnv)
+      ? { state: 'ok', name, detail }
+      : { state: 'fail', name, detail: `${command} is not on ${where}: no ${name} session can start`, fix: svcPath !== null ? `rerun \`aasc-server install-service\` from a shell where \`which ${command}\` works` : `install ${name}` });
   }
 
   try {

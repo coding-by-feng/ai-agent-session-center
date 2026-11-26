@@ -108,6 +108,24 @@ describe('SessionsScreen', () => {
     expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy();
   });
 
+  // Nov 27 2026: in the phone app the line is the way to the account's other computers (the shell's switcher).
+  it('makes the host line a switch button in the phone app, which opens the app’s list of computers', async () => {
+    const user = userEvent.setup();
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1 (ios)');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, hostname: window.location.hostname, assign });
+    try {
+      render(<SessionsScreen />);
+      const strip = screen.getByRole('region', { name: 'Your Mac' });
+      const button = within(strip).getByRole('button', { name: /^Switch computer/ });
+      expect(button.textContent).toMatch(/^Online · .+ · .+$/);
+      await user.click(button);
+      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1&switch=1');
+    } finally {
+      ua.mockRestore();
+    }
+  });
+
   // Nov 24 2026: Call AASC, Rooms and Search fold behind one ⋯ in the title bar; ＋ stays out.
   it('offers Call AASC in the title bar\'s ⋯ menu, in the app only (Nov 22 2026: moved from More)', async () => {
     const user = userEvent.setup();
@@ -123,7 +141,28 @@ describe('SessionsScreen', () => {
       expect(bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More actions', 'New session']);
       await user.click(bar.getByRole('button', { name: 'More actions' }));
       const menu = screen.getByRole('menu', { name: 'Session actions' });
-      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Call AASC', 'Search']); // grouped by status here: no Rooms row
+      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent))
+        .toEqual(['Call AASC', 'Switch or manage computers', 'Search']); // grouped by status here: no Rooms row
+    } finally {
+      ua.mockRestore();
+    }
+  });
+
+  // Nov 27 2026: the app's list of computers (switch by tapping one, manage with its ⚙) from the ⋯ menu too.
+  it('opens the app’s list of computers from the ⋯ menu, in the app only', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<SessionsScreen />);
+    expect(screen.queryByRole('menuitem', { name: 'Switch or manage computers' })).toBeNull(); // browser: one icon, no menu
+    unmount();
+
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(`Mozilla/5.0 (iPhone) ${NATIVE_APP_UA_TOKEN}`);
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, hostname: window.location.hostname, assign });
+    try {
+      render(<SessionsScreen />);
+      await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'More actions' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Switch or manage computers' }));
+      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1&switch=1');
     } finally {
       ua.mockRestore();
     }

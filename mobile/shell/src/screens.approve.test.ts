@@ -132,7 +132,7 @@ describe('Approve on your Mac', () => {
     // Same fake Mac state: hand the device over.
     first.mac.devices.forEach((d, id) => t.mac.devices.set(id, d));
     await t.app.start();
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(t.root.textContent).toContain('Waiting for you to allow this phone');
     click(t.root, /^Kason-MBP/);
     expect(heading(t.root)).toBe('Approve on your Mac');

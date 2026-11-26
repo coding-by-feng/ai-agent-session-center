@@ -51,8 +51,11 @@ export type DirectoryMachine = Omit<AccountMachine, 'record'>
 
 export type DirectoryRead =
   | { state: 'ok'; machines: DirectoryMachine[] }
-  /** signed-out: no account connection. needs-sign-in: signed in before this release. unreachable: no usable answer. */
-  | { state: 'signed-out' | 'needs-sign-in' | 'unreachable' }
+  /**
+   * signed-out: no account connection. needs-sign-in: signed in before this release. unsupported: AASC Cloud answered,
+   * but its backend has no machines service yet. unreachable: no usable answer.
+   */
+  | { state: 'signed-out' | 'needs-sign-in' | 'unsupported' | 'unreachable' }
 
 /** The backend lists at most 50; a longer list is cut, not refused. */
 export const MAX_MACHINES = 64
@@ -158,6 +161,7 @@ export async function readAccountDirectory(deps: RemoteClientDeps, local: LocalS
   }
   if (refusalCode(a) === 'needs_sign_in') return { state: 'needs-sign-in' }
   if (a.status === 409) return { state: 'signed-out' }
+  if (a.status === 404 && refusalCode(a) === 'unsupported') return { state: 'unsupported' }
   const list = jsonField(a.data, ['data', 'machines'])
   if (a.status !== 200 || !Array.isArray(list)) return { state: 'unreachable' }
   const machines = list.slice(0, MAX_MACHINES).map(readMachine).filter((m): m is DirectoryMachine => m !== null)
@@ -188,6 +192,7 @@ export type AccountConnectResult =
 const fail = (error: string): AccountConnectResult => ({ ok: false, error })
 
 const SIGNED_OUT = 'Sign in to AASC Cloud on this computer first.'
+const UNSUPPORTED = 'AASC Cloud can’t list your account’s computers yet. Connect by link instead.'
 const NEEDS_SIGN_IN = 'Sign in to AASC Cloud again on this computer to connect through your account.'
 const CLOUD_SILENT = 'AASC Cloud didn’t answer. Try again.'
 const GONE = 'That computer is no longer on your AASC Cloud account.'
@@ -260,6 +265,7 @@ export async function connectThroughAccount(
   const directory = read ?? await readAccountDirectory(deps, local)
   if (directory.state === 'signed-out') return fail(SIGNED_OUT)
   if (directory.state === 'needs-sign-in') return fail(NEEDS_SIGN_IN)
+  if (directory.state === 'unsupported') return fail(UNSUPPORTED)
   if (directory.state !== 'ok') return fail('Can’t reach AASC Cloud. Try again.')
   const machine = directory.machines.find((m) => m.deviceId === machineId)
   if (!machine) return fail(GONE)

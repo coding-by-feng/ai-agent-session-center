@@ -27,6 +27,7 @@ import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippe
 import { receiveRooms, handleRoomOpMessage, onRoomsSocketConnected } from '@/lib/roomSync';
 import { handleKeepAwakeOpMessage, handleSkillNoteOpMessage } from '@/lib/skillNoteOps';
 import { fetchAlerts, useAttentionStore } from '@/stores/attentionStore';
+import { useProjectTransferStore } from '@/stores/projectTransferStore';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -288,6 +289,12 @@ export function useWebSocket(token: string | null): WsClient | null {
         // The alerts centrals raised (Nov 26 2026), cut for this device: the header bell's list.
         case 'alerts_update': {
           useAttentionStore.getState().setAlerts(msg.alerts);
+          break;
+        }
+
+        // Other computers asking to send a project here (Nov 27 2026): the whole pending list.
+        case 'project_transfer_requests': {
+          useProjectTransferStore.getState().setRequests(msg.requests);
           break;
         }
 

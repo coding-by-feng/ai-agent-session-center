@@ -1,5 +1,7 @@
-// macScreens.ts — Your Macs, and one Mac's settings (home network, unpair) (AASC-17).
+// macScreens.ts — Your computers (was Your Macs until Nov 27 2026, when it also became the switcher), and one
+// computer's settings (home network, unpair) (AASC-17).
 import type { DeviceNoun } from '../formFactor.js';
+import type { Reach } from '../macReach.js';
 import type { SavedMac } from '../savedMacs.js';
 import { renderAccountSection } from './accountScreens.js';
 import { h, icon } from './dom.js';
@@ -29,24 +31,43 @@ function unpairQuestion(mac: SavedMac, step: Exclude<UnpairStep, 'idle'>, a: Act
       button('Keep it', () => a.keepPaired(mac.id), 'quiet', { disabled: busy })));
 }
 
-function macRow(mac: SavedMac, ctx: ScreenContext, asking: MacsScreen['unpair']): HTMLLIElement {
+const REACH_WORDS: Record<Reach, string> = { online: 'Online', offline: 'Offline' };
+
+/**
+ * Nov 27 2026: whether the row answered, as a dot whose name says it (the row's button reads "Studio, Online, …"); no
+ * text of its own, and nothing at all while there is no answer yet.
+ */
+export function reachDot(reach: Reach | undefined): HTMLElement | null {
+  if (!reach) return null;
+  return h('span', { class: 'mac-reach', attrs: { role: 'img', 'aria-label': REACH_WORDS[reach], 'data-reach': reach } });
+}
+
+function macRow(mac: SavedMac, ctx: ScreenContext, s: MacsScreen): HTMLLIElement {
   const a = ctx.actions;
+  const asking = s.unpair;
   const step = asking?.macId === mac.id ? asking.step : null;
   const busy = step === 'busy';
   const pending = mac.status === 'pending';
+  const current = s.switchFrom === mac.id;
   const path = pathSummary(mac);
   const sub = pending
     ? h('span', { class: 'mac-sub' }, `Waiting for you to allow this ${ctx.device}`)
     : h('span', { class: `mac-sub ${path.warn ? 'warn' : 'safe'}` }, icon(path.warn ? 'warning' : 'lock', 'icon icon-sm'), path.text);
   // Unpairing asks inside the row tapped: two Macs can share a name (Oct 20 2026).
-  return h('li', { class: 'mac', attrs: { 'data-unpairing': step ? 'true' : null } },
+  return h('li', { class: 'mac', attrs: { 'data-unpairing': step ? 'true' : null, 'data-current': current ? 'true' : null } },
     h('button', {
       class: 'mac-open',
-      attrs: { type: 'button', 'data-mac': mac.id, disabled: busy },
+      attrs: { type: 'button', 'data-mac': mac.id, disabled: busy, 'aria-current': current ? 'true' : null },
       on: { click: () => a.open(mac.id) },
     },
+    reachDot(ctx.reach.get(mac.id)),
     icon('laptop'),
-    h('span', { class: 'mac-text' }, h('span', { class: 'mac-name' }, mac.name), sub),
+    h('span', { class: 'mac-text' },
+      h('span', { class: 'mac-title' },
+        h('span', { class: 'mac-name' }, mac.name),
+        // Beside the name, so the path line keeps its one line at phone width.
+        current ? h('span', { class: 'mac-current' }, 'Using now') : null),
+      sub),
     icon('chevron', 'icon chevron')),
     h('button', {
       class: 'btn btn-quiet icon-btn',
@@ -62,15 +83,18 @@ function macRow(mac: SavedMac, ctx: ScreenContext, asking: MacsScreen['unpair'])
 }
 
 export function renderMacs(s: Extract<Screen, { name: 'macs' }>, ctx: ScreenContext): HTMLElement {
-  // Plan 17: signed in with nothing saved yet, the list is only the account's Macs.
-  return screen('Your Macs', null,
+  // Nov 27 2026: opened as the switcher from a computer's page, the bar goes back to that computer.
+  const from = s.switchFrom ? ctx.macs.find((m) => m.id === s.switchFrom && m.status === 'active') : undefined;
+  const back = from ? { label: `Back to ${from.name}`, onClick: () => ctx.actions.open(from.id) } : null;
+  // Plan 17: signed in with nothing saved yet, the list is only the account's computers.
+  return screen('Your computers', back,
     notice(s.notice),
     ctx.macs.length
-      ? h('ul', { class: 'macs', attrs: { 'aria-label': 'Paired Macs' } }, ...ctx.macs.map((m) => macRow(m, ctx, s.unpair)))
+      ? h('ul', { class: 'macs', attrs: { 'aria-label': 'Paired computers' } }, ...ctx.macs.map((m) => macRow(m, ctx, s)))
       : null,
     renderAccountSection(s, ctx),
     actions(
-      button(ctx.macs.length ? 'Pair another Mac' : 'Pair with a QR code', ctx.actions.showPair, 'secondary'),
+      button(ctx.macs.length ? 'Pair another computer' : 'Pair with a QR code', ctx.actions.showPair, 'secondary'),
       button(`This ${ctx.device}`, ctx.actions.showPhone, 'quiet')));
 }
 
@@ -96,7 +120,7 @@ export function renderSettings(s: SettingsScreen, mac: SavedMac, ctx: ScreenCont
     ? actions(button(`Unpair this ${ctx.device}`, () => a.askUnpair(mac.id), 'danger'))
     : unpairQuestion(mac, s.step, a, 'danger-zone', ctx.device);
 
-  return screen(mac.name, { label: 'Your Macs', onClick: a.showMacs },
+  return screen(mac.name, { label: 'Your computers', onClick: a.showMacs },
     notice(s.notice),
     mac.phoneName ? para(`This ${ctx.device} is “${mac.phoneName}” on that Mac.`, 'hint') : null,
     actions(button(mac.status === 'pending' ? 'Check approval' : `Open ${mac.name}`, () => a.open(mac.id), 'primary', { disabled: busy })),

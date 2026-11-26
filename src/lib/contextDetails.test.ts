@@ -14,26 +14,25 @@ const CONTEXT = {
 
 describe('contextDetailsView', () => {
   it('lays out the card the way the screenshot does', () => {
-    const view = contextDetailsView(session({ model: 'claude-opus-5-5', context: CONTEXT }), {
+    const view = contextDetailsView(session({ model: 'claude-opus-5-5', effort: 'xhigh', effortAt: 1, context: CONTEXT }), {
       totals: { steps: 165, input: 300_000, cacheWrite: 1_000_000, cacheRead: 39_800_000, output: 284_000 },
       costUsd: 14.0812,
       terminal: { cols: 115, rows: 35 },
     });
     expect(view).toMatchObject({
+      effort: 'xhigh',
       steps: '165 steps',
-      context: { text: '263k / 1M (26.3%)', estimated: false, level: 'ok' },
+      context: { text: '263k / 1M (26.3%)', free: '737k free', estimated: false, level: 'ok' },
       cost: '$14.08',
       shortId: '1761a9e8',
       terminal: '115×35',
     });
-    expect(view?.cells).toEqual([
-      { label: 'Reply cache hit', value: '98.6%' },
-      { label: 'Session cache hit', value: '96.8%' },
-      { label: 'Reply input', value: '263k', detail: '(cached 259k / new 3.7k)' },
-      { label: 'Reply output', value: '128' },
-      { label: 'Session input', value: '41.1M', detail: '(cached 39.8M)' },
-      { label: 'Session output', value: '284k' },
+    // One row per scope, input beside output; the hit rates on their own line below.
+    expect(view?.tokens).toEqual([
+      { label: 'Last reply', input: '263k', detail: 'cached 259k · new 3.7k', output: '128' },
+      { label: 'Session', input: '41.1M', detail: 'cached 39.8M', output: '284k' },
     ]);
+    expect(view?.cacheHit).toBe('last reply 98.6% · session 96.8%');
   });
 
   it('leaves out what was not reported instead of showing 0', () => {
@@ -43,12 +42,21 @@ describe('contextDetailsView', () => {
     expect(view?.steps).toBeUndefined();
     expect(view?.cost).toBeUndefined();
     expect(view?.terminal).toBeUndefined();
-    expect(view?.cells).toEqual([]);
+    expect(view?.tokens).toEqual([]);
+    expect(view?.cacheHit).toBeUndefined();
+  });
+
+  it('says nothing is free when the size is not known or the window is full', () => {
+    const noSize = contextDetailsView(session({ model: 'm', context: { pct: 26 } }), null);
+    expect(noSize?.context?.free).toBeUndefined();
+    const full = contextDetailsView(session({ model: 'm', context: { ...CONTEXT, tokens: 1_000_000 } }), null);
+    expect(full?.context?.free).toBeUndefined();
   });
 
   it('shows the last reply before the totals arrive', () => {
     const view = contextDetailsView(session({ model: 'claude-opus-5-5', context: CONTEXT }), null);
-    expect(view?.cells.map((c) => c.label)).toEqual(['Reply cache hit', 'Reply input', 'Reply output']);
+    expect(view?.tokens.map((r) => r.label)).toEqual(['Last reply']);
+    expect(view?.cacheHit).toBe('last reply 98.6%');
   });
 
   it('marks a % that was worked out from tokens as an estimate', () => {

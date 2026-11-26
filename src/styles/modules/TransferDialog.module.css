@@ -1,0 +1,198 @@
+/* Copy / Move a project to another computer (TransferDialog, Nov 27 2026).
+   Rules are scoped under .dialog: the shared Modal's `.panel p` (0-1-1) would
+   otherwise repaint a one-class paragraph rule in secondary text. */
+
+/* Two classes: Modal's own .panel max-width (400px) loads first or last
+   depending on the chunk; this must win either way. */
+.dialog.dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-width: 560px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.dialog .line {
+  margin: 0 0 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.dialog .hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+/* A Field is inline by default (a toolbar caption); here the caption sits on top. */
+.dialog .field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.dialog .field > select,
+.dialog .field > input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.fieldError,
+.dialog .error,
+.dialog .warning {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.fieldError,
+.dialog .error {
+  border-left: 3px solid var(--accent-red);
+}
+.dialog .error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dialog .warning {
+  border-left: 3px solid var(--accent-yellow, var(--accent-orange));
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 16px 0 8px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.check input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+}
+.check input:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.check:hover input:not(:disabled) {
+  filter: brightness(1.15);
+}
+.check .hint {
+  display: block;
+}
+.options:disabled .check {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.options:disabled .check input {
+  cursor: not-allowed;
+}
+
+.summary {
+  margin: 8px 0;
+  min-height: 24px;
+}
+.groups {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.progress {
+  margin: 16px 0 0;
+}
+.bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-bottom: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--border-subtle);
+  appearance: none;
+  accent-color: var(--accent-cyan);
+}
+.bar::-webkit-progress-bar {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+.bar::-webkit-progress-value {
+  background: var(--accent-cyan);
+  border-radius: 3px;
+  transition: width 0.2s linear;
+}
+.bar::-moz-progress-bar {
+  background: var(--accent-cyan);
+  border-radius: 3px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (pointer: coarse) {
+  .check {
+    min-height: 44px;
+    align-items: center;
+  }
+  .check input {
+    margin-top: 0;
+  }
+}
+@media (max-width: 480px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dialog.dialog {
+    padding: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar::-webkit-progress-value {
+    transition: none;
+  }
+}

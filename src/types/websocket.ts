@@ -12,6 +12,7 @@ import type { Session } from './session.js';
 import type { TeamSerialized } from './team.js';
 import type { Room, RoomOp } from './room.js';
 import type { CliUpdateMessage } from './cliVersions.js';
+import type { IncomingTransferRequest } from './projectTransfer.js';
 import type { AlertsUpdateMessage } from './alert.js';
 
 // ---------------------------------------------------------------------------
@@ -260,7 +261,17 @@ export interface CentralsUpdateMessage {
   centrals: CentralSummary[];
 }
 
+/**
+ * Pending Allow requests from other computers sending a project here (Nov 27 2026,
+ * server/projectTransfer/wiring.ts): the full list each time, to this computer's own windows.
+ */
+export interface ProjectTransferRequestsMessage {
+  type: 'project_transfer_requests';
+  requests: IncomingTransferRequest[];
+}
+
 export type ServerMessage =
+  | ProjectTransferRequestsMessage
   | CliUpdateMessage
   | QueueSentMessage
   | ChatGrewMessage

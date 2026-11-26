@@ -3113,12 +3113,24 @@
 
      [✳ wk 13%] [⬡ Fable 5.2 │⚡high │◔55%]
 */
+/* One line, always (Nov 27 2026): with the disk chip (Nov 26) the three chips no longer fit 213px,
+   and the runtime chip wrapped under the other two. The plan and disk chips keep their width; the
+   runtime chip is the one that gives way, its model name truncating with "…" (.runtimeModel) while
+   effort and context stay whole. The full text is in its tooltip and aria-label. */
 .switcherBarVertical .switcherUsageLine {
   display: flex;
   flex: 0 0 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+.switcherBarVertical .switcherUsageLine > * {
+  flex: none;
+}
+/* The runtime chip's tooltip wrapper is the line's flex item; the chip inside it shrinks with it. */
+.switcherBarVertical .switcherUsageLine > .runtimeTrigger {
+  flex: 0 1 auto;
   min-width: 0;
 }
 .switcherBarVertical .switcherUsageLine:empty {

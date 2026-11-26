@@ -43,6 +43,15 @@ function installHooks(home: string, clis: string[]): void {
     writeFileSync(join(home, '.codex', 'hooks', 'dashboard-hook.sh'), '');
     writeFileSync(join(home, '.codex', 'config.toml'), 'command = "~/.codex/hooks/dashboard-hook.sh"');
   }
+  if (clis.includes('opencode')) {
+    mkdirSync(join(home, '.config', 'opencode', 'plugins', 'aasc-dashboard'), { recursive: true });
+    writeFileSync(join(home, '.config', 'opencode', 'plugins', 'aasc-dashboard', 'server.js'), '// AI Agent Session Center — OpenCode 2.x server plugin\n');
+  }
+  if (clis.includes('antigravity')) {
+    mkdirSync(join(home, '.gemini', 'config', 'aasc-dashboard'), { recursive: true });
+    writeFileSync(join(home, '.gemini', 'config', 'aasc-dashboard', 'dashboard-hook-agy.sh'), '');
+    writeFileSync(join(home, '.gemini', 'config', 'hooks.json'), '{"Stop":[{"name":"aasc-dashboard","command":"~/.gemini/config/aasc-dashboard/dashboard-hook-agy.sh"}]}');
+  }
 }
 
 describe('cloudCredential', () => {
@@ -63,6 +72,13 @@ describe('hookState', () => {
     const home = scratch('home');
     installHooks(home, ['claude']);
     expect(hookState(home, ['claude', 'codex'])).toEqual({ claude: true, codex: false });
+  });
+
+  it('checks OpenCode\'s plugin and Antigravity\'s named hook too', () => {
+    const home = scratch('home');
+    expect(hookState(home, ['opencode', 'antigravity'])).toEqual({ opencode: false, antigravity: false });
+    installHooks(home, ['opencode', 'antigravity']);
+    expect(hookState(home, ['opencode', 'antigravity'])).toEqual({ opencode: true, antigravity: true });
   });
 });
 
@@ -230,6 +246,21 @@ describe('aasc-server doctor', () => {
     expect(results.Linger).toMatchObject({ state: 'warn', fix: 'sudo loginctl enable-linger kason' });
     expect(results.Tailscale).toMatchObject({ state: 'warn' });
     expect(await runDoctor(d)).toBe(EXIT.FAILED);
+  });
+
+  it('looks for Antigravity as `agy` and OpenCode as `opencode`, and their hooks', async () => {
+    const { d } = deps();
+    writeFileSync(join(d.dataDir, 'server-config.json'), JSON.stringify({ passwordHash: 'salt:hash', enabledClis: ['claude', 'opencode', 'antigravity'] }));
+    const bin = d.env.PATH as string;
+    writeFileSync(join(bin, 'agy'), '');
+    writeFileSync(join(bin, 'opencode'), '');
+    let results = Object.fromEntries((await runChecks(d)).map((r) => [r.name, r]));
+    expect(results.Antigravity).toMatchObject({ state: 'ok', detail: expect.stringMatching(/agy/) });
+    expect(results.OpenCode).toMatchObject({ state: 'ok' });
+    expect(results.Hooks).toMatchObject({ state: 'fail', detail: expect.stringMatching(/opencode, antigravity/) });
+    installHooks(d.home, ['opencode', 'antigravity']);
+    results = Object.fromEntries((await runChecks(d)).map((r) => [r.name, r]));
+    expect(results.Hooks).toMatchObject({ state: 'ok' });
   });
 
   it('reads the tools from the service\'s PATH once the unit is installed', async () => {

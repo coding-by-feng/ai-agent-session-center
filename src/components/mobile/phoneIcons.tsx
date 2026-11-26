@@ -230,6 +230,14 @@ export const PhoneCallIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** A laptop — Switch or manage computers, in the Sessions ⋯ menu (Nov 27 2026). */
+export const ComputersIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="11" rx="1.5" />
+    <path d="M2 19h20" />
+  </Svg>
+);
+
 /** ⋯ — the Sessions title bar's folded actions (Nov 24 2026). */
 export const MoreIcon = (p: IconProps) => (
   <Svg {...p}>

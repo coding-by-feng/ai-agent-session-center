@@ -23,7 +23,7 @@ import { z } from 'zod';
 import type { Session } from '../../../src/types/session.js';
 import log from '../../logger.js';
 import type { ActivityNote } from '../activity.js';
-import { catalogEntries, catalogRefusal, leadingCommand, queuedCommandVerdict, unknownCliRefusal } from '../commandRules.js';
+import { catalogEntries, catalogRefusal, isBareClear, leadingCommand, queuedCommandVerdict, unknownCliRefusal } from '../commandRules.js';
 import { MCP_CLIENT_PREFIX, SteerRefusal } from '../policy.js';
 import {
   applyQueueOp,
@@ -41,6 +41,7 @@ import { ToolError } from '../types.js';
 import { assertMayStartUnattended, isEnabledPrompt, type UnattendedChange } from '../unattended.js';
 import { fence, isRecord, nonEmptyString, oneLine, plural, refOf, resolveTarget, sessionSource, unwrap } from './define.js';
 import { automationLine, automationOf as viewAutomation, FULL, itemOf } from './queue.js';
+import { ownCard } from './settingChange.js';
 
 // ---------------------------------------------------------------------------
 // Where the queue is kept
@@ -136,8 +137,8 @@ export function steerTarget(ctx: ToolContext, ref: string): Session {
  * the session's catalog), and only then the steering rails, so they are judged right before the write and not across
  * that await (P4-32 M5). A refused text reads and writes no queue and logs no steer.
  */
-export async function steerTargetForText(ctx: ToolContext, ref: string, raw: string): Promise<Session> {
-  await assertMayQueueText(ctx, resolveTarget(ctx, ref), raw);
+export async function steerTargetForText(ctx: ToolContext, ref: string, raw: string, place: TextPlace = 'prompt'): Promise<Session> {
+  await assertMayQueueText(ctx, resolveTarget(ctx, ref), raw, place);
   return steerTarget(ctx, ref);
 }
 
@@ -195,15 +196,67 @@ export async function writeOp<R>(deps: QueueWriteDeps, ctx: ToolContext, session
  * a catalog that cannot be read refuses, so nothing is queued on a guess. Runs before the write: a refusal reads and
  * writes no queue.
  */
-export async function assertMayQueueText(ctx: ToolContext, session: Session, raw: string): Promise<void> {
+export async function assertMayQueueText(ctx: ToolContext, session: Session, raw: string, place: TextPlace = 'prompt'): Promise<void> {
   try {
-    await checkQueuedText(ctx, session, raw);
+    await checkQueuedText(ctx, session, raw, place);
   } catch (err) {
     throw aboutSession(err, session);
   }
 }
 
-async function checkQueuedText(ctx: ToolContext, session: Session, raw: string): Promise<void> {
+/** Where queued text goes: a prompt's own text (or a resume prompt), or a step of a prompt's chain. */
+export type TextPlace = 'prompt' | 'step';
+
+/** Is this queued text exactly a bare `/clear` (Ruling 68)? */
+export const isClearStepText = (raw: string): boolean => isBareClear(leadingCommand(typedText(raw)));
+
+const ownCardClearRefusal = (): ToolError =>
+  new ToolError(
+    'INVALID',
+    'A central never queues /clear in its own session: it would clear the central’s own context.',
+    'A /clear step goes on a loop or schedule of another session, while that prompt is switched off.',
+  );
+
+/**
+ * Ruling 68, before the write: a bare `/clear` as a chain step passes on to the write's own check (`assertClearStepFits`),
+ * except in the central's own card or a session that is not Claude's; it asks no catalog. Null when the text is not
+ * a bare `/clear` step, so the usual verdicts judge it (the never-list refuses `/clear` everywhere else).
+ */
+function clearStepVerdict(ctx: ToolContext, session: Session, raw: string, place: TextPlace): 'pass' | null {
+  if (place !== 'step' || !isClearStepText(raw)) return null;
+  if (ownCard(ctx)?.sessionId === session.sessionId) throw ownCardClearRefusal();
+  return toSessionCard(session, []).cli === 'claude' ? 'pass' : null;
+}
+
+/**
+ * Ruling 68, inside the write: a bare `/clear` step goes only on a loop or a schedule that is switched off, judged on the
+ * queue the write changes. A prompt that is off waits for a person: in a session the central did not open, only the
+ * person or queue_ask_enable's card (which spells the clear out) turns it on. A prompt that is on is refused even in
+ * the central's own worker, so a clear never lands under a chain that runs by itself. A prompt not in the queue passes,
+ * for the op to answer NOT_FOUND.
+ */
+export function assertClearStepFits(items: readonly QueueItemLike[], itemId: number, text: string): void {
+  if (!isClearStepText(text)) return;
+  const found = items.find((i) => i.id === itemId);
+  if (found === undefined) return;
+  if (found.type !== 'loop' && found.type !== 'schedule') {
+    throw new ToolError(
+      'INVALID',
+      'A /clear step goes only on a loop or a schedule: a once prompt runs a single time.',
+      'Make the prompt a loop or a schedule first (queue_set_item_schedule), or ask the person to add the step in AASC.',
+    );
+  }
+  if (found.disabled !== true) {
+    throw new ToolError(
+      'INVALID',
+      'A /clear step goes only on a prompt that is switched off, so the person sees it before it runs.',
+      'Turn the prompt off first (queue_set_item_enabled), add the step, then ask the person to turn it on (queue_ask_enable).',
+    );
+  }
+}
+
+async function checkQueuedText(ctx: ToolContext, session: Session, raw: string, place: TextPlace): Promise<void> {
+  if (clearStepVerdict(ctx, session, raw, place) === 'pass') return;
   const cmd = leadingCommand(typedText(raw));
   if (cmd === null) return;
   const verdict = queuedCommandVerdict(cmd);

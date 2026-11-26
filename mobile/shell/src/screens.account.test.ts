@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Plan 17: Sign in with Google on the pair screen, and the account's Macs in Your Macs.
+// Plan 17: Sign in with Google on the pair screen, and the account's Macs in Your computers.
 import { afterEach, describe, expect, it } from 'vitest';
 import { ACCOUNT_PREFS_KEY, ACCOUNT_VAULT_KEY, currentAccount, matchCode } from './accountSignIn';
 import { LOCK_SETTINGS_KEY } from './lockGate';
@@ -24,7 +24,7 @@ async function signIn(t: ReturnType<typeof createHarness>) {
 async function signInFromPair(t: ReturnType<typeof createHarness>) {
   await t.app.start();
   await signIn(t);
-  await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('Kason-MBP'));
+  await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('Kason-MBP'));
 }
 
 describe('Sign in with Google', () => {
@@ -108,7 +108,7 @@ describe('Check this code (review M2)', () => {
     expect(screenState).toMatchObject({ name: 'account-match', code: shown });
     expect(JSON.stringify(screenState)).not.toMatch(/verifier|[A-Za-z0-9_-]{43}/); // no verifier, challenge or state in the screen
     click(t.root, 'Continue');
-    await until(t.root, () => heading(t.root) === 'Your Macs');
+    await until(t.root, () => heading(t.root) === 'Your computers');
     expect(t.extras.authStarts).toHaveLength(1);
     expect(await matchCode(new URL(t.extras.authStarts[0].url).searchParams.get('c')!)).toBe(shown);
   });
@@ -138,7 +138,7 @@ describe('Check this code (review M2)', () => {
   });
 });
 
-describe('Your Macs with an account', () => {
+describe('Your computers with an account', () => {
   it('opens on the account’s Macs at launch when signed in with none saved', async () => {
     const first = createHarness({ authSession: true });
     await signInFromPair(first);
@@ -149,17 +149,17 @@ describe('Your Macs with an account', () => {
     });
     await t.app.start();
     await until(t.root, () => buttonNamed(t.root, 'Connect to Kason-MBP') !== null);
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 
   it('leaves out an account Mac already saved here', async () => {
     const t = createHarness({ authSession: true, search: '?tap=1' });
     await seedMac(t, { ...KASON_MBP, backendDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f' });
     await t.app.start();
-    click(t.root, 'Pair another Mac');
+    click(t.root, 'Pair another computer');
     await signIn(t);
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('owner@example.com'));
-    await until(t.root, () => text(t).includes('Every Mac on your account is on this phone'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('owner@example.com'));
+    await until(t.root, () => text(t).includes('Every computer on your account is on this phone'));
     expect(buttonNamed(t.root, 'Connect to Kason-MBP')).toBeNull();
     expect(t.root.querySelectorAll('.mac')).toHaveLength(1);
   });
@@ -177,7 +177,7 @@ describe('Your Macs with an account', () => {
     click(t.root, 'Connect to Kason-MBP');
     await until(t.root, () => text(t).includes('didn’t finish connecting'));
     expect(text(t)).toContain('Kason-MBP didn’t finish connecting. Tap Connect to try again.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(buttonNamed(t.root, 'Connect to Kason-MBP')).not.toBeNull();
     expect(await loadMacs(t.deps.store)).toEqual([]);
     expect([...t.vault.keys()].filter((k) => k !== ACCOUNT_VAULT_KEY)).toEqual([]);
@@ -198,9 +198,9 @@ describe('Your Macs with an account', () => {
     const t = createHarness({ authSession: true, search: '?tap=1' });
     await seedMac(t, { ...KASON_MBP, backendDeviceId: '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f' }, 'revoked');
     await t.app.start();
-    click(t.root, 'Pair another Mac');
+    click(t.root, 'Pair another computer');
     await signIn(t);
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('owner@example.com'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('owner@example.com'));
     click(t.root, /^Kason-MBP/);
     await until(t.root, () => text(t).includes('removed this phone'));
     expect(text(t)).toContain('Kason-MBP removed this phone. Pair again to use it.');
@@ -227,7 +227,7 @@ describe('Your Macs with an account', () => {
     t.mac.account.revokeDevice(t.mac.account.devices()[0]);
     click(t.root, 'Pair with a QR code');
     expect(buttonNamed(t.root, 'Sign in with Google')).toBeNull(); // signed in: no second sign-in offered
-    click(t.root, 'Your Macs');
+    click(t.root, 'Your computers');
     await until(t.root, () => heading(t.root) === 'Pair with a Mac');
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
   });
@@ -249,7 +249,7 @@ describe('Your Macs with an account', () => {
     click(t.root, 'Connect to Kason-MBP');
     await until(t.root, () => t.root.querySelector('[role="alert"]') !== null);
     expect(t.root.querySelector('[role="alert"]')?.textContent).toContain('devices panel');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
   });
 
   it('Android: the sign-in App Link reaching appUrlOpen mid sign-in is ignored, and the sign-in still lands', async () => {
@@ -262,7 +262,7 @@ describe('Your Macs with an account', () => {
     });
     await t.app.start();
     await signIn(t);
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('owner@example.com'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('owner@example.com'));
     expect(text(t)).not.toContain('pairing link');
   });
 
@@ -302,17 +302,17 @@ describe('the lock coming up while the sign-in sheet is open', () => {
     return t;
   }
 
-  it('a sign-in that finished behind the lock: the unlock lands on Your Macs, signed in', async () => {
+  it('a sign-in that finished behind the lock: the unlock lands on Your computers, signed in', async () => {
     const t = await signInBehindLock((redirect) => ({ url: redirect }));
     await until(t.root, () => t.vault.has(ACCOUNT_VAULT_KEY)); // stored while locked
     expect(heading(t.root)).toBe('AASC is locked');
     click(t.root, 'Unlock');
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('Signed in as owner@example.com'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('Signed in as owner@example.com'));
     await until(t.root, () => buttonNamed(t.root, 'Connect to Kason-MBP') !== null);
     expect(waiting(t)).toBe(false);
   });
 
-  it('a sign-in that finishes after the unlock, back on the waiting screen, lands on Your Macs too', async () => {
+  it('a sign-in that finishes after the unlock, back on the waiting screen, lands on Your computers too', async () => {
     let release: () => void = () => undefined;
     const t = await signInBehindLock((redirect, h) => {
       release = h.mac.holdNextBackendRequest();
@@ -323,7 +323,7 @@ describe('the lock coming up while the sign-in sheet is open', () => {
     await until(t.root, () => heading(t.root) === 'Check this code');
     expect(waiting(t)).toBe(true);
     release();
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('Signed in as owner@example.com'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('Signed in as owner@example.com'));
   });
 
   it('a sheet closed behind the lock: the unlock lands back on the pair screen, saying nothing was saved', async () => {
@@ -352,7 +352,9 @@ describe('the lock coming up while the sign-in sheet is open', () => {
 
 // A locked keychain: the token is there but can't be read. Never the same as a missing token (Nov 17 2026).
 describe('a sign-in this phone can’t read right now', () => {
-  const requests = (t: Harness) => t.mac.calls.length;
+  // Nothing goes to AASC Cloud. The list's own "does it answer" check of each computer (macReach.ts, Nov 27 2026)
+  // is the GET /api/auth/status opening one starts with, so it isn't counted.
+  const requests = (t: Harness) => t.mac.calls.filter((c) => !(c.method === 'GET' && c.url.endsWith('/api/auth/status'))).length;
 
   it('is not a sign-out when the list refreshes: nothing is asked, the account and its Macs stay on show', async () => {
     const t = createHarness({ authSession: true });
@@ -360,9 +362,9 @@ describe('a sign-in this phone can’t read right now', () => {
     t.mac.calls.length = 0;
     t.faults.vaultRead = true;
     click(t.root, 'Pair with a QR code');
-    click(t.root, 'Your Macs');
+    click(t.root, 'Your computers');
     await new Promise((r) => setTimeout(r, 50));
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(text(t)).not.toContain('signed this phone out');
     expect(buttonNamed(t.root, 'Connect to Kason-MBP')).not.toBeNull();
@@ -376,11 +378,11 @@ describe('a sign-in this phone can’t read right now', () => {
     const t = createHarness({ authSession: true, mac: { account: { macs: [] } } });
     await t.app.start();
     await signIn(t);
-    await until(t.root, () => heading(t.root) === 'Your Macs' && text(t).includes('No Macs on your account yet'));
+    await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('No computers on your account yet'));
     t.mac.calls.length = 0;
     t.faults.vaultRead = true;
     click(t.root, 'Pair with a QR code');
-    click(t.root, 'Your Macs');
+    click(t.root, 'Your computers');
     await until(t.root, () => text(t).includes('This phone can’t read its sign-in right now. Unlock it and try again.'));
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(text(t)).not.toContain('signed this phone out');
@@ -388,7 +390,7 @@ describe('a sign-in this phone can’t read right now', () => {
     expect(requests(t)).toBe(0);
     t.faults.vaultRead = false;
     click(t.root, 'Try again');
-    await until(t.root, () => text(t).includes('No Macs on your account yet'));
+    await until(t.root, () => text(t).includes('No computers on your account yet'));
     expect(requests(t)).toBe(1);
   });
 
@@ -400,7 +402,7 @@ describe('a sign-in this phone can’t read right now', () => {
     click(t.root, 'Connect to Kason-MBP');
     await until(t.root, () => t.root.querySelector('[role="alert"]') !== null);
     expect(t.root.querySelector('[role="alert"]')?.textContent).toContain('This phone can’t read its sign-in right now. Unlock it and try again.');
-    expect(heading(t.root)).toBe('Your Macs');
+    expect(heading(t.root)).toBe('Your computers');
     expect(text(t)).toContain('Signed in as owner@example.com');
     expect(buttonNamed(t.root, 'Try connecting to Kason-MBP again')).not.toBeNull();
     expect(requests(t)).toBe(0);
@@ -433,7 +435,7 @@ describe('a sign-in whose email can’t be stored', () => {
 // the only source of before. The hint is asked for once the list is on show, changes no row, and is used only when
 // the Mac's Tailscale address does not answer. The account-enroll flow asks no home-network question either way (it
 // never did): it names the home network while it tries, and a Mac reached that way is saved with the home network
-// on, which Your Macs then marks unencrypted.
+// on, which Your computers then marks unencrypted.
 describe('an account Mac and the directory’s home-network hint', () => {
   const MBP = '7d3e9a2c-1b4f-4c6d-8e2f-3a5b6c7d8e9f';
   const HOME = new URL(LAN).hostname;
@@ -500,9 +502,9 @@ describe('an account Mac and the directory’s home-network hint', () => {
     const t = createHarness({ authSession: true, search: '?tap=1', mac: { account: withHint } });
     await seedMac(t, { ...KASON_MBP, backendDeviceId: MBP });
     await t.app.start();
-    click(t.root, 'Pair another Mac');
+    click(t.root, 'Pair another computer');
     await signIn(t);
-    await until(t.root, () => text(t).includes('Every Mac on your account is on this phone'));
+    await until(t.root, () => text(t).includes('Every computer on your account is on this phone'));
     await new Promise((r) => setTimeout(r, 20));
     expect(urls(t)).toContain('https://api.aasc.work/v1/enroll/macs');
     expect(urls(t)).not.toContain(MACHINES);
@@ -552,6 +554,9 @@ describe('an account Mac and the directory’s home-network hint', () => {
     const t = createHarness({ authSession: true, mac: { reachable: [LAN], account: withHint } });
     holdDirectory(t, new Promise<void>((resolve) => { release = resolve; }));
     await signInFromPair(t);
+    // The list's own "does it answer" check of the row (macReach.ts) is done first; only Connect's dialling counts.
+    await until(t.root, () => t.root.querySelector('[data-reach]') !== null);
+    t.mac.calls.length = 0;
     click(t.root, 'Connect to Kason-MBP');
     await until(t.root, () => text(t).includes('Looking for Kason-MBP…'));
     await new Promise((r) => setTimeout(r, 30));
@@ -654,7 +659,7 @@ describe('an account Mac and the directory’s home-network hint', () => {
     await signInFromPair(t); // the first list (Kason-MBP) is on show, its hint held
     t.mac.account.setMacs([{ deviceId: STUDIO_ID, name: 'Studio', lan: '192.168.1.40', tailnet: '100.88.1.7', port: 3333 }]);
     click(t.root, 'Pair with a QR code');
-    click(t.root, 'Your Macs'); // asks the list again
+    click(t.root, 'Your computers'); // asks the list again
     await until(t.root, () => buttonNamed(t.root, 'Connect to Studio') !== null && asked.length === 2);
     open[1](); // the newer list's hint first,
     await new Promise((r) => setTimeout(r, 10));

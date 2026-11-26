@@ -33,8 +33,11 @@ button.chipButton:focus-visible {
 .card {
   position: fixed;
   z-index: var(--z-portal-menu, 10000);
-  width: 320px;
+  width: 360px;
   max-width: calc(100vw - 16px);
+  /* The placement caps the height to the room it has; the card then scrolls inside. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   background: var(--bg-panel);
   color: var(--text-primary);
@@ -69,7 +72,6 @@ button.chipButton:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 12px;
 }
 .usedValue {
   display: inline-flex;
@@ -106,34 +108,189 @@ button.chipButton:focus-visible {
   background: var(--accent-red);
 }
 
-.section {
+/* One labelled section of the card (Nov 27 2026): WINDOW, WHAT'S IN IT, TOKENS, COST, SESSION. */
+.block {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle-strong);
 }
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
-  margin: 0;
-}
-.cell {
-  min-width: 0;
-}
-.cell dt {
+.heading,
+.subheading {
+  margin: 0 0 8px;
   color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-.cell dd {
-  margin: 0;
+.subheading {
+  margin-top: 12px;
+}
+
+/* TOKENS: one row per scope, input beside output. */
+.tokens {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tokens th {
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+.tokens thead th {
+  padding-bottom: 4px;
+  font-size: 10px;
+}
+.tokens tbody th {
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+}
+.tokens td {
+  padding: 4px 0;
   font-family: var(--font-mono);
   font-size: 13px;
+  vertical-align: top;
 }
-/* Its own line under the value, so a long "(cached … / new …)" never breaks mid-phrase. */
+.tokens thead th + th,
+.tokens td + td {
+  padding-left: 8px;
+}
+/* Its own line under the value, so a long "cached … · new …" never breaks mid-phrase. */
 .detail {
   display: block;
   color: var(--text-secondary);
   font-size: 10px;
+  white-space: nowrap;
+}
+.mono {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* WHAT'S IN IT: chevron · label · tokens · share bar · share. */
+.kinds,
+.entryList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kindButton,
+.kindStatic {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto 56px 32px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+}
+.kindButton {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.kindButton:hover {
+  background: var(--bg-subtle);
+}
+.kindButton:active {
+  background: var(--bg-subtle-strong);
+}
+.kindButton:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+.chevron {
+  color: var(--text-secondary);
+  transition: transform 150ms ease;
+}
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+.kindLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kindValue,
+.kindPct {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.kindPct {
+  color: var(--text-secondary);
+  text-align: right;
+}
+.kindBar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-subtle-strong);
+  overflow: hidden;
+}
+.kindFill {
+  display: block;
+  width: var(--kind-pct, 0%);
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-cyan);
+}
+.entries {
+  margin: 0 0 4px 24px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-subtle-strong);
+}
+.entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.entry[data-rest] {
+  color: var(--text-secondary);
+}
+.entryLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entryCount {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.entryValue {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.items {
+  margin: 0;
+}
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.item dt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item dd {
+  margin: 0;
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
@@ -149,7 +306,7 @@ button.chipButton:focus-visible {
   font-weight: 700;
 }
 .note {
-  margin-top: 4px;
+  margin: 4px 0 0;
   color: var(--text-secondary);
   font-size: 11px;
 }
@@ -182,7 +339,9 @@ button.chipButton:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  button.chipButton {
+  button.chipButton,
+  .kindButton,
+  .chevron {
     transition: none;
   }
 }

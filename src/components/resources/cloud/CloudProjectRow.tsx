@@ -23,6 +23,7 @@ import ProjectRowFrame, { FavToggle, PrimaryButton } from './ProjectRowFrame';
 import ProjectTags from './ProjectTags';
 import { projectStatus } from './projectState';
 import type { SyncCard } from '../sync/useSyncCards';
+import { useTransferMenu } from '../transfer/useTransferMenu';
 import styles from '@/styles/modules/CloudResources.module.css';
 
 export const OWN_SIGN_IN = 'This Mac’s Git sign-in';
@@ -114,6 +115,9 @@ export default function CloudProjectRow({
       : []),
   ];
   const openUrl = local?.openUrl ?? null;
+  // "Sync with a server…" doubles as the way out when the folder already exists on the other computer.
+  const openSync = sync?.menuItems.find((i) => i.id === 'sync')?.onSelect;
+  const transfer = useTransferMenu(path, openSync);
   const menu: MenuItem[] = [
     ...(openUrl && status.primary !== 'open'
       ? [
@@ -154,6 +158,7 @@ export default function CloudProjectRow({
       onSelect: () => setPanel('account'),
     },
     ...(sync?.menuItems ?? []),
+    ...transfer.menuItems,
     {
       kind: 'action',
       id: 'remove',
@@ -201,6 +206,7 @@ export default function CloudProjectRow({
       }
     >
       {sync?.line && <p className={styles.hint}>{sync.line}</p>}
+      {transfer.movedLine && <p className={styles.hint}>{transfer.movedLine}</p>}
       {status.hint && <p className={styles.hint}>{status.hint}</p>}
       {checkError && <div className={styles.rowError}>{checkError}</div>}
       {panel === 'tags' && (
@@ -262,6 +268,7 @@ export default function CloudProjectRow({
         </div>
       )}
       {children}
+      {transfer.dialog}
     </ProjectRowFrame>
   );
 }

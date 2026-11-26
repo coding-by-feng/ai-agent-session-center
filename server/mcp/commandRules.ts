@@ -155,6 +155,13 @@ export const unknownCliRefusal = (): ToolError =>
 // ---------------------------------------------------------------------------
 
 /**
+ * Exactly `/clear`, lowercase, with nothing but whitespace after it. The one never-list command a central may queue,
+ * and only as a chain step of a loop or a schedule that is switched off, in a Claude session that is not its own card
+ * (Ruling 68, queueWriteKit.ts). It stays on the never-list: every other place refuses it.
+ */
+export const isBareClear = (cmd: LeadingCommand | null): boolean => cmd !== null && cmd.bare && cmd.name === 'clear';
+
+/**
  * What the rule says without the session's catalog: a refusal (the never list in any case; model or effort typed bare),
  * `allowed` (a safe built-in as the CLI names it), or `catalog` when only the catalog can tell.
  */

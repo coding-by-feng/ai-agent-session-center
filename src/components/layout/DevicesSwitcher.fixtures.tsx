@@ -82,6 +82,9 @@ export function installWorld(): World {
     }),
     accountMachines: vi.fn(() => ok(world.directory)),
     accountConnect: vi.fn(),
+    projectTransferStart: vi.fn(),
+    projectTransferCancel: vi.fn(),
+    onProjectTransferProgress: vi.fn(() => () => {}),
   };
   window.electronAPI = { remotes: world.api as unknown as RemoteComputersAPI } as typeof window.electronAPI;
   return world;

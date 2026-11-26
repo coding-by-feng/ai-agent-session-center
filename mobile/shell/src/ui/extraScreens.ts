@@ -100,7 +100,7 @@ export function renderPhone(s: Extract<Screen, { name: 'phone' }>, ctx: ScreenCo
       ]
     : [para('The lock isn’t available in this build.', 'hint')];
 
-  return screen(`This ${ctx.device}`, { label: 'Your Macs', onClick: a.showMacs },
+  return screen(`This ${ctx.device}`, { label: 'Your computers', onClick: a.showMacs },
     notice(s.notice),
     h('h2', {}, 'Lock'),
     ...lockPart,

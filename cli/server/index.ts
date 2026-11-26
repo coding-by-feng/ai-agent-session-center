@@ -5,6 +5,7 @@
  *   install-service · uninstall-service       the systemd user unit (P1, service.ts)
  *   pair · devices · status · doctor · logs   the owner's commands on the box (P2)
  *   share-default                             share sessions started on the box (Oct 29 2026)
+ *   transfers                                 answer Project Transfer requests, forget a computer (Nov 27 2026)
  *
  * The API commands authenticate with <data>/owner.token (http.ts); nothing here reads a token from
  * argv or the environment. Exit codes follow §8.1 (http.ts EXIT).
@@ -25,6 +26,7 @@ import { AdminError, EXIT, createAdminClient, readOwnerToken, resolveAdminPort, 
 import { runPair, type AddressKind } from './pair.js';
 import { runDevices } from './devices.js';
 import { runShareDefault } from './shareDefault.js';
+import { runTransfers } from './transfers.js';
 import { runStatus } from './status.js';
 import { runDoctor, realProbes } from './doctor.js';
 import type { CliAuthReport } from '../../src/types/cliAuth.js';
@@ -35,7 +37,7 @@ const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HEALTH_TIMEOUT_MS = 15_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 
-const COMMANDS = ['install-service', 'uninstall-service', 'pair', 'devices', 'status', 'doctor', 'logs', 'share-default'] as const;
+const COMMANDS = ['install-service', 'uninstall-service', 'pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers'] as const;
 
 const ArgsSchema = z.object({
   command: z.enum(COMMANDS),
@@ -245,6 +247,11 @@ async function main(): Promise<number> {
     case 'share-default': {
       const { client } = adminClient(args);
       return runShareDefault({ client, args: args.rest, json: args.json, out });
+    }
+
+    case 'transfers': {
+      const { client } = adminClient(args);
+      return runTransfers({ client, args: args.rest, json: args.json, out, now: Date.now });
     }
 
     case 'status': {

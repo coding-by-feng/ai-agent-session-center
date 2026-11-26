@@ -8,16 +8,18 @@
  * details card (`ContextDetailsPopover`): tokens, cache hit rates, the reference cost. Lite
  * keeps the read-only `<span>` (`role="status"`, which reads a change aloud): new UI is Full-only.
  */
-import { useCallback, useId, useRef, useState, type ReactElement } from 'react';
+import { lazy, Suspense, useCallback, useId, useRef, useState, type ReactElement } from 'react';
 import Tooltip from '@/components/ui/Tooltip';
 import { IS_LITE } from '@/lib/edition';
 import { resolveContextDisplay, resolveRuntimeDisplay, type ContextDisplay } from '@/lib/sessionRuntime';
 import type { Session } from '@/types';
 import { EffortIcon } from './EffortStepPicker';
 import { ModelIcon } from './ModelStepPicker';
-import ContextDetailsPopover from './ContextDetailsPopover';
 import styles from '@/styles/modules/DetailPanel.module.css';
 import detailStyles from '@/styles/modules/ContextDetails.module.css';
+
+// lazy(): the card reads phone-only chat code (usageModel, chatApi) that the desktop entry chunk must not import.
+const ContextDetailsPopover = lazy(() => import('./ContextDetailsPopover'));
 
 function sourceNote(live: boolean, effortLive: boolean, hasEffort: boolean): string {
   if (!live) return 'What this session was launched with. Updates as soon as Claude Code reports its live model and effort.';
@@ -92,6 +94,7 @@ export default function SessionRuntimeChip({ session }: { session: Session }) {
       description={IS_LITE ? description : `${description} Click for token details.`}
       placement="bottom"
       disabled={disabled}
+      triggerClassName={styles.runtimeTrigger}
     >
       {child}
     </Tooltip>
@@ -124,7 +127,11 @@ export default function SessionRuntimeChip({ session }: { session: Session }) {
     <>
       {/* The tooltip would sit on top of the card it describes: it steps aside while open. */}
       {tooltip(button, open)}
-      {open && <ContextDetailsPopover session={session} anchorRef={buttonRef} id={cardId} onClose={close} />}
+      {open && (
+        <Suspense fallback={null}>
+          <ContextDetailsPopover session={session} anchorRef={buttonRef} id={cardId} onClose={close} />
+        </Suspense>
+      )}
     </>
   );
 }

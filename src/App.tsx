@@ -46,6 +46,7 @@ import { IS_LITE } from '@/lib/edition';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 import { hostedParent, hostedBase } from '@/lib/hosted';
 import { useQuickCreateStore } from '@/stores/quickCreateStore';
+import { useProjectTransferStore } from '@/stores/projectTransferStore';
 import { ROOM_MANAGER_MODAL_ID } from '@/lib/quickCreate';
 const HostedWorkspace = lazy(() => import('@/components/hosted/HostedWorkspace'));
 const HostedPhonePair = lazy(() => import('@/components/hosted/HostedPhonePair'));
@@ -66,6 +67,8 @@ const QuickCreateMenu = lazy(() => import('@/components/session/QuickCreateMenu'
 const RoomManagerModal = lazy(() => import('@/components/modals/RoomManagerModal'));
 const InterruptedSessionsPrompt = lazy(() => import('@/components/modals/InterruptedSessionsPrompt'));
 const UpdateReadyBanner = lazy(() => import('@/components/layout/UpdateReadyBanner'));
+// Another computer asks to send a project here (Nov 27 2026): loaded only while a request waits.
+const IncomingTransferPrompt = lazy(() => import('@/components/resources/transfer/IncomingTransferPrompt'));
 // The phone app (AASC-38, every phone since AASC-48): its own chunk, never part
 // of the desktop's first download (phoneChunkBoundary.test.ts).
 const PhoneAppFrame = lazy(() => import('@/components/mobile/app/PhoneAppFrame'));
@@ -79,6 +82,17 @@ function QuickCreateHost() {
     <Suspense fallback={null}>
       {menuOpen && <QuickCreateMenu />}
       {roomsOpen && <RoomManagerModal />}
+    </Suspense>
+  );
+}
+
+/** The Allow prompt for an incoming project, mounted only while one waits (desktop layout, Full only). */
+function IncomingTransferHost() {
+  const waiting = useProjectTransferStore((s) => s.requests.length > 0);
+  if (IS_LITE || !waiting) return null;
+  return (
+    <Suspense fallback={null}>
+      <IncomingTransferPrompt />
     </Suspense>
   );
 }
@@ -163,6 +177,7 @@ function AppLayout() {
       <SessionJumpOverlay />
       <FloatingTerminalRoot />
       <FileOpenChooser />
+      <IncomingTransferHost />
       {window.electronAPI?.updates && (
         <Suspense fallback={null}>
           <UpdateReadyBanner />

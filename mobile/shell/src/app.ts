@@ -21,7 +21,8 @@ import { parseCallRequest } from './voiceCall.js';
 import { browserRtcEnv } from './voiceRtc.js';
 import { createCallWiring, openCallLine } from './callWiring.js';
 import { allowedOrigins, LAST_MAC_KEY, loadMacs, saveMacs, withMac, type SavedMac } from './savedMacs.js';
-import { pairNewMac, SESSION_COOKIE_MAX_AGE, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
+import { pairNewMac, probeWith, SESSION_COOKIE_MAX_AGE, signInAndOpen, unpairMac, type OpenOutcome } from './shellFlows.js';
+import { reachOne, reachTargets, type Reach } from './macReach.js';
 import { cleanLabel } from './text.js';
 import { renderAccountDelete, renderAccountMatch } from './ui/accountScreens.js';
 import { renderMacs, renderSettings } from './ui/macScreens.js';
@@ -110,6 +111,12 @@ export function createShellApp(
   let chain: Promise<unknown> = Promise.resolve();
   /** The opening the home-network offer holds back ("Not now" goes on with it). */
   let offeredLeave: Extract<OpenOutcome, { kind: 'navigate' }> | null = null;
+  /** Nov 27 2026: opened as the switcher (`?tap=1&switch=1`) from this computer's page (the one used last). */
+  let switchFrom: string | null = null;
+  /** Which rows of the list answered (macReach.ts), probed once each time the list opens. */
+  let reach: ReadonlyMap<string, Reach> = new Map();
+  let reachStarted = new Set<string>();
+  let reachRound = 0;
 
   const serial = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = chain.then(fn, fn);
@@ -118,7 +125,9 @@ export function createShellApp(
   };
   const find = (id: string) => macs.find((m) => m.id === id);
   // Plan 17: signed in to AASC Cloud, the list is home even with nothing saved yet (it shows the account's Macs).
-  const homeScreen = (notice: string | null = null): Screen => (macs.length || account?.signedIn() ? { name: 'macs', notice } : pairScreen(notice));
+  const homeScreen = (notice: string | null = null): Screen => (macs.length || account?.signedIn()
+    ? { name: 'macs', notice, ...(switchFrom ? { switchFrom } : {}) }
+    : pairScreen(notice));
   const defaultPhoneName = () => defaultDeviceName(deps?.os ?? 'web', deps?.formFactor);
 
   // AASC-19 / AASC-21: share, lock, push, this phone's settings.
@@ -194,8 +203,33 @@ export function createShellApp(
   function show(next: Screen): void {
     gen += 1;
     stopPoll();
+    if (next.name === 'macs' && screen.name !== 'macs') {
+      // The list opened (again): every row is asked afresh; answers from an earlier opening are dropped.
+      reachRound += 1;
+      reach = new Map();
+      reachStarted = new Set();
+    }
     screen = withoutStaleUnpair(account?.settle(next) ?? next);
     render(true);
+  }
+
+  /**
+   * Nov 27 2026: ask each row of the list not asked yet this opening whether it answers (the account's rows come
+   * later, once AASC Cloud lists them). Each answer draws the list again; nothing waits for it.
+   */
+  function startReach(): void {
+    if (!deps || screen.name !== 'macs') return;
+    const probe = probeWith(deps);
+    const round = reachRound;
+    for (const target of reachTargets(macs, account?.view()?.macs ?? [])) {
+      if (reachStarted.has(target.key)) continue;
+      reachStarted.add(target.key);
+      void reachOne(probe, target).then((answer) => {
+        if (round !== reachRound) return;
+        reach = new Map(reach).set(target.key, answer);
+        if (screen.name === 'macs') render(false);
+      });
+    }
   }
 
   /** The lock shows the screen from before it again: an unpair that finished meanwhile no longer says "Telling …". */
@@ -218,6 +252,7 @@ export function createShellApp(
     root.dataset.screen = screen.name;
     const again = !moved && focusedId ? root.querySelector<HTMLElement>(`#${focusedId}`) : null;
     (again ?? root.querySelector<HTMLElement>('#screen-title'))?.focus({ preventScroll: !moved });
+    startReach();
   }
 
   function draw(): HTMLElement {
@@ -230,6 +265,7 @@ export function createShellApp(
       device: deviceNoun(deps?.os ?? 'web', deps?.formFactor),
       account: account?.view() ?? null,
       canSignIn: account?.canSignIn() ?? false,
+      reach,
     };
     const s = screen;
     switch (s.name) {
@@ -607,7 +643,14 @@ export function createShellApp(
     // The phone sent the app back for a notification tap (AASC-19, MainActivity): the tap, held
     // until push starts listening, picks the session. Opening a Mac here would race it. The Mac's
     // page sends it here too (More → Switch AASC, thisPhone.ts), to pick another Mac or pair one.
-    if (new URLSearchParams(search).get('tap') === '1') {
+    const asked = new URLSearchParams(search);
+    if (asked.get('tap') === '1') {
+      // Nov 27 2026: `switch=1` (the Sessions host line, More → Switch AASC): the page was the computer used last,
+      // so its row says "Using now" and the bar goes back to it.
+      if (asked.get('switch') === '1') {
+        const from = find((await d.store.get(LAST_MAC_KEY)) ?? '');
+        switchFrom = from?.status === 'active' ? from.id : null;
+      }
       show(homeScreen(null));
       return;
     }

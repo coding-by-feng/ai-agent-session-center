@@ -104,6 +104,8 @@ describe('readAccountDirectory', () => {
     ['the backend not answering', { status: 502, body: { success: false, error: { code: 'cloud_unavailable', message: 'x' } } }, 'unreachable'],
     ['a dashboard that wants a sign-in', { status: 401, body: { error: 'Unauthorized' } }, 'unreachable'],
     ['a server from before plan 18', { status: 404, body: { error: 'Not found' } }, 'unreachable'],
+    // The cloud answers, but its backend predates the machines service: Retry can't change that, a deploy can.
+    ['a backend with no machines service', { status: 404, body: { success: false, error: { code: 'unsupported', message: 'x' } } }, 'unsupported'],
     ['an answer that is no JSON', { status: 200, body: '<html>' }, 'unreachable'],
     ['a list of the wrong shape', { status: 200, body: { success: true, data: { machines: 'none' } } }, 'unreachable'],
     ['no answer at all', 'network-error', 'unreachable'],
@@ -547,6 +549,7 @@ describe('connectThroughAccount', () => {
       ['signed out', { status: 409, body: { success: false, error: { code: 'not_connected', message: 'x' } } }, /Sign in to AASC Cloud on this computer first/],
       ['signed in before this release', { status: 403, body: { success: false, error: { code: 'needs_sign_in', message: 'x' } } }, /Sign in to AASC Cloud again on this computer/],
       ['the cloud out of reach', 'network-error', /Can’t reach AASC Cloud/],
+      ['on a backend with no machines service', { status: 404, body: { success: false, error: { code: 'unsupported', message: 'x' } } }, /AASC Cloud can’t list your account’s computers yet/],
     ])('says so when this computer is %s', async (_name, answer, message) => {
       const { net } = world({ local: { machines: answer } });
       const out = await connectThroughAccount(deps(net), local, MACHINE_ID);

@@ -14,7 +14,7 @@ export function renderNeedsApp(): HTMLElement {
 
 export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
   const a = ctx.actions;
-  const back = ctx.macs.length || ctx.account ? { label: 'Your Macs', onClick: a.showMacs } : null;
+  const back = ctx.macs.length || ctx.account ? { label: 'Your computers', onClick: a.showMacs } : null;
 
   // Plan 17: Sign in with Google comes first where the app has the sign-in sheet; the QR is then the second way.
   const busy = s.accountBusy === true;

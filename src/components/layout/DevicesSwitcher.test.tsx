@@ -67,10 +67,10 @@ describe('DevicesSwitcher — sections', () => {
     expect(within(mine).getByText('Offline')).toBeTruthy();
     expect(button('Open VPS').disabled).toBe(false);
     expect(button('More for VPS')).toBeTruthy();
-    // Never connected: Connect alone.
+    // Never connected: Connect, and the ⋯ menu with Remove… (Nov 27 2026: DevicesSwitcher.remove.test.tsx).
     expect(within(mine).getByText('Not connected yet')).toBeTruthy();
     expect(button('Connect Studio iMac')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'More for Studio iMac' })).toBeNull();
+    expect(button('More for Studio iMac')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Open Studio iMac' })).toBeNull();
     // Waiting for Allow: Dismiss alone, with the code formatted as the link rows format it.
     expect(within(mine).getByText('Waiting for Allow on Linux box · code 482 913')).toBeTruthy();

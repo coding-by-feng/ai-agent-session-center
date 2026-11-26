@@ -113,6 +113,7 @@ import {
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
 import { workingProjectPaths } from './cloud/agentWork.js';
+import { createProjectTransferWiring } from './projectTransfer/wiring.js';
 import { createCloudConnection } from './cloud/connection.js';
 import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
 import { cloudStateBase } from './cloud/paths.js';
@@ -895,6 +896,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     hasArmedQueue,
   });
   if (hosted) app.use('/api/workspace/continuation', authMiddleware, phoneProfile, createHostedContinuationRouter(hosted, (_req, id) => canSeeSession(false, getSession(id))));
+  // Copy / Move a project to another computer (docs/plans/project-transfer.md). Its own gates: loopback for this
+  // computer's routes, a paired computer's Bearer session over Tailscale or HTTPS for /incoming.
+  app.use('/api/project-transfer', authMiddleware, createProjectTransferWiring({
+    sessions: () => Object.values(getAllSessions()),
+    broadcastLocal: (message) => broadcastByLocality(message, null),
+  }));
   app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, diskUsageRouter, createSessionSleepRouter(), closeSuggestionsRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');

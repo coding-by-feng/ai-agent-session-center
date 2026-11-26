@@ -2,6 +2,7 @@
 import type { AccountMac } from '../accountMacs.js';
 import type { Candidate } from '../connectionPlan.js';
 import type { DeviceNoun } from '../formFactor.js';
+import type { Reach } from '../macReach.js';
 import type { ManualEntry } from '../manualEntry.js';
 import type { RawShare } from '../native.js';
 import type { PairingLink } from '../pairingLink.js';
@@ -45,6 +46,11 @@ export type Screen =
       accountMenu?: boolean;
       /** Plan 17: connecting to one of the account's Macs; `message` is the status line or what went wrong. */
       enroll?: { deviceId: string; step: EnrollStep; message: string | null } | null;
+      /**
+       * Nov 27 2026: opened as the switcher (`?tap=1&switch=1`) from this saved computer's page: its row says "Using now"
+       * and the bar goes back to it.
+       */
+      switchFrom?: string | null;
     }
   | { name: 'settings'; macId: string; step: UnpairStep; notice: string | null }
   | { name: 'connecting'; macId: string; back: string; reauth: boolean; status: string }
@@ -194,4 +200,6 @@ export interface ScreenContext {
   account: AccountView | null;
   /** Plan 17: this build has the sign-in sheet and no account is signed in. */
   canSignIn: boolean;
+  /** Nov 27 2026: which rows of the list answered (macReach.ts); a row not in it has no answer yet. */
+  reach: ReadonlyMap<string, Reach>;
 }

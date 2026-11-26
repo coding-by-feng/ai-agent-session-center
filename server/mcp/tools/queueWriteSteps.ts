@@ -12,6 +12,7 @@ import type { ToolDef } from '../registry.js';
 import { addStep, editStep, moveStep, removeStep } from '../queueOps.js';
 import { defineTool, SESSION_REF } from './define.js';
 import {
+  assertClearStepFits,
   CHAIN,
   ITEM_ID,
   itemAnswer,
@@ -37,7 +38,9 @@ const addStepTool = (deps: QueueWriteDeps): ToolDef =>
       'Adds a step to a queued prompt’s `before` chain (typed ahead of the prompt) or `after` chain (typed behind ' +
       'it), last or at `position` (0 is first). The scheduler sends the steps in order, each when the turn before ' +
       'has finished. Refused while that prompt is partway through its chain, and past 20 steps in its two chains. The ' +
-      `step text is plain text. ${ON_LOCK} ${RAILS}`,
+      'step text is plain text. A bare /clear is allowed only on a loop or schedule that is off, never in your own ' +
+      'session; in a session you did not open, the person turns it on (queue_ask_enable, whose card shows the clear). ' +
+      `${ON_LOCK} ${RAILS}`,
     risk: 'steers',
     phase: 2,
     input: {
@@ -48,9 +51,10 @@ const addStepTool = (deps: QueueWriteDeps): ToolDef =>
       position: PLACE.optional().describe('Where in the chain it goes: 0 is first. Leave out to add it last.'),
     },
     async run(args, ctx) {
-      const s = await steerTargetForText(ctx, args.id, args.text);
+      const s = await steerTargetForText(ctx, args.id, args.text, 'step');
       const change = await writeOp(deps, ctx, s, (state) => {
         lockIfOn(deps, ctx, s, state.items, args.itemId);
+        assertClearStepFits(state.items, args.itemId, args.text);
         return addStep(state, { itemId: args.itemId, chain: args.chain, text: args.text, position: args.position }, ctx.now());
       });
       const { stepId } = change.result;
@@ -79,9 +83,10 @@ const editStepTool = (deps: QueueWriteDeps): ToolDef =>
     idempotent: true,
     input: { id: SESSION_REF, itemId: ITEM_ID, chain: CHAIN, stepId: STEP_ID, text: PROMPT_TEXT },
     async run(args, ctx) {
-      const s = await steerTargetForText(ctx, args.id, args.text);
+      const s = await steerTargetForText(ctx, args.id, args.text, 'step');
       const change = await writeOp(deps, ctx, s, (state) => {
         lockIfOn(deps, ctx, s, state.items, args.itemId);
+        assertClearStepFits(state.items, args.itemId, args.text);
         return editStep(state, { itemId: args.itemId, chain: args.chain, stepId: args.stepId, text: args.text });
       });
       return itemAnswer({

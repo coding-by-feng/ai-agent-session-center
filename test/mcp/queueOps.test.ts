@@ -322,6 +322,42 @@ describe('setItemSchedule', () => {
     expect(stored(out)).toMatchObject(base);
   });
 
+  describe('a loop with a first fire of the day (Nov 27 2026)', () => {
+    // Local clock times, as the window's scheduler reads firstFireOfDay.
+    const at = (h: number, m: number, day = 27) => new Date(2026, 10, day, h, m).getTime();
+    const DAY = 86_400_000;
+    const save = (base: Record<string, unknown>, input: Record<string, unknown>, now: number) =>
+      stored(setItemSchedule(stateOf([item(1, base)]), { itemId: 1, ...input } as Parameters<typeof setItemSchedule>[1], now));
+
+    it('runs next at today’s start time while it is still ahead, not one interval from now', () => {
+      expect(save({}, { type: 'loop', intervalMs: DAY, firstFireOfDay: '10:00' }, at(0, 26)).nextFireAt).toBe(at(10, 0));
+    });
+
+    it('brings a later next run back to today’s start time (the 11-28 that skipped 11-27)', () => {
+      const out = save({ type: 'loop', intervalMs: DAY, nextFireAt: at(0, 26, 28) }, { type: 'loop', intervalMs: DAY, firstFireOfDay: '10:00' }, at(0, 30));
+      expect(out.nextFireAt).toBe(at(10, 0));
+    });
+
+    it('uses the start time already saved when only the interval changes', () => {
+      const base = { type: 'loop', intervalMs: DAY, firstFireOfDay: '10:00', nextFireAt: at(0, 26, 28) };
+      expect(save(base, { type: 'loop', intervalMs: 12 * 3_600_000 }, at(0, 40)).nextFireAt).toBe(at(10, 0));
+    });
+
+    it('keeps an earlier next run that is still ahead', () => {
+      const base = { type: 'loop', intervalMs: 3_600_000, firstFireOfDay: '10:00', nextFireAt: at(1, 0) };
+      expect(save(base, { type: 'loop', intervalMs: 3_600_000 }, at(0, 40)).nextFireAt).toBe(at(1, 0));
+    });
+
+    it('keeps today’s rule once the start time has passed: no run at once', () => {
+      expect(save({}, { type: 'loop', intervalMs: DAY, firstFireOfDay: '10:00' }, at(15, 0)).nextFireAt).toBe(at(15, 0) + DAY);
+    });
+
+    it('drops back to today’s rule when the start time is cleared', () => {
+      const base = { type: 'loop', intervalMs: DAY, firstFireOfDay: '10:00' };
+      expect(save(base, { type: 'loop', intervalMs: DAY, firstFireOfDay: null }, at(0, 26)).nextFireAt).toBe(at(0, 26) + DAY);
+    });
+  });
+
   it('makes a schedule: the run time is the first fire; no interval, no first fire of the day; windows stay', () => {
     const base = { type: 'loop', intervalMs: 60_000, firstFireOfDay: '08:00', excludeWindows: [{ id: 3, startHHMM: '01:00', endHHMM: '02:00' }] };
 
