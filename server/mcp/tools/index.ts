@@ -12,6 +12,7 @@
 import type { ToolDef } from '../registry.js';
 import type { Toolset } from '../types.js';
 import { agendaTools } from './agenda.js';
+import { alertTools } from './alerts.js';
 import { cloudTools } from './cloud.js';
 import { conversationTools } from './conversation.js';
 import { historyTools } from './history.js';
@@ -38,7 +39,7 @@ export const toolsByToolset: Readonly<Record<Toolset, readonly ToolDef[]>> = Obj
   conversation: conversationTools,
   prompts: promptTools,
   tasks: [...taskTools, ...routingTools],
-  requests: requestTools,
+  requests: [...requestTools, ...alertTools],
   queue: [...queueTools, ...queueWriteTools, queueAskEnable],
   rooms: roomTools,
   resources: resourceTools,

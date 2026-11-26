@@ -1,5 +1,5 @@
-// tools/roomWrite.ts — the rooms toolset's writes (P3, Task 12): room_create, room_rename, room_set_color, room_delete,
-// room_move_session and room_reorder. Each sends one op of src/types/room.ts `RoomOp` to `POST /rooms/ops`, which
+// tools/roomWrite.ts — the rooms toolset's writes (P3, Task 12): room_create, room_rename, room_set_color,
+// room_set_alert_level (Nov 25 2026), room_delete, room_move_session and room_reorder. Each sends one op of src/types/room.ts `RoomOp` to `POST /rooms/ops`, which
 // checks what the caller may see and hands the op to the workspace writer (the Mac's window); the window applies it
 // and its next PUT shows the result in the mirror (`ctx.rooms()`).
 //
@@ -10,7 +10,9 @@
 //     character, no `<`, `>` or backtick, and no other room the central can see may have it (any case);
 //   * a session goes through `resolveTarget`, then `ctx.mayEdit` (scope; not a central's card, an ops shell, a
 //     subagent, a floating popup, an external or SSH card; not hands-off). Nothing is typed, so the 60 s rule is not
-//     asked (Ruling P3-7).
+//     asked (Ruling P3-7);
+//   * a room's alert level reaches every card in it, so it is HANDS_OFF while the room holds a hands-off card
+//     (Nov 25 2026), the answer session_set_alert_level gives for that card itself.
 // The route answers 202 once the window has the op. A create carries no id: the window assigns it, so room_create
 // watches the mirror for a new room of that name, every 250 ms for up to 10 s, and answers `pending` after that.
 // No window is NO_WINDOW, a room with sessions the caller cannot see is DENIED (delete), past 20 ops in 10 s BUDGET.
@@ -18,6 +20,7 @@
 
 import { z } from 'zod';
 import { ROOM_COLOR_PALETTE } from '../../../src/lib/roomColor.js';
+import { ALERT_LEVELS } from '../../../src/lib/attention.js';
 import type { Room, RoomOp } from '../../../src/types/room.js';
 import type { InternalResponse } from '../client.js';
 import type { ToolContext, ToolDef, ToolResult } from '../registry.js';
@@ -41,6 +44,7 @@ const RIGHTS: Readonly<Record<RoomOp['type'], Readonly<Record<CentralKind, RoomR
   create: { global: 'any', room: 'denied', project: 'any' },
   rename: { global: 'any', room: 'own', project: 'denied' },
   color: { global: 'any', room: 'own', project: 'denied' },
+  'alert-level': { global: 'any', room: 'own', project: 'denied' },
   delete: { global: 'any', room: 'denied', project: 'denied' },
   move: { global: 'any', room: 'own', project: 'any' },
   reorder: { global: 'any', room: 'denied', project: 'denied' },
@@ -77,6 +81,21 @@ function visibleRoom(ctx: ToolContext, roomId: string): Room {
   const room = visibleRooms(ctx).find((r) => r.id === roomId);
   if (room === undefined) throw roomNotFound();
   return room;
+}
+
+/**
+ * A room's level reaches every card in it that has none of its own, so a central changes it only while no hands-off
+ * card is in the room: it may not change that card's level (session_set_alert_level), through its room neither.
+ */
+function assertNoHandsOffCard(ctx: ToolContext, roomId: string): void {
+  const ids = new Set(ctx.rooms().find((r) => r.id === roomId)?.sessionIds ?? []);
+  if (ctx.sessions().some((s) => ids.has(s.sessionId) && s.handsOff === true)) {
+    throw new ToolError(
+      'HANDS_OFF',
+      'That room holds a hands-off session, and the room’s alert level would reach it: only the person sets it.',
+      'Ask the person to set the room’s level in AASC, or give other sessions their own level with session_set_alert_level.',
+    );
+  }
 }
 
 /** A room central's own room only, for an `own` right. */
@@ -272,6 +291,39 @@ const roomSetColor = defineTool({
   },
 });
 
+const roomSetAlertLevel = defineTool({
+  name: 'room_set_alert_level',
+  toolset: 'rooms',
+  title: 'Set a room’s alert level',
+  description:
+    'Sets the alert level of a room’s sessions that have none of their own: silent, quiet, normal, loud or urgent, or ' +
+    'null to follow AASC’s default. A session’s own level (session_set_alert_level) wins. A global central sets any ' +
+    'room’s; a room central its own room’s only; a project central none. HANDS_OFF while the room holds a hands-off ' +
+    'session. NO_WINDOW when no AASC window is open on the Mac.',
+  risk: 'write',
+  phase: 3,
+  idempotent: true,
+  input: {
+    roomId: ROOM_ID,
+    level: z.enum(ALERT_LEVELS).nullable().describe('silent, quiet, normal, loud or urgent; null to follow the default.'),
+  },
+  async run(args, ctx) {
+    const right = assertRight(ctx, 'alert-level', 'set rooms’ alert levels');
+    const room = visibleRoom(ctx, args.roomId);
+    assertOwnRoom(ctx, right, room.id, 'set the alert level of a room other than its own');
+    assertNoHandsOffCard(ctx, room.id);
+    await sendOp(ctx, { type: 'alert-level', roomId: room.id, level: args.level });
+    const id = plain(room.id, 128);
+    const said = args.level === null ? 'the default alert level' : `the ${args.level} alert level`;
+    return written(
+      { roomId: room.id, alertLevel: args.level },
+      `Set the room ${id} to ${said}.`,
+      `Set the alert level of the room ${id}.`,
+      { roomId: room.id, level: args.level },
+    );
+  },
+});
+
 const roomDelete = defineTool({
   name: 'room_delete',
   toolset: 'rooms',
@@ -365,4 +417,6 @@ const roomReorder = defineTool({
   },
 });
 
-export const roomWriteTools: readonly ToolDef[] = [roomCreate, roomRename, roomSetColor, roomDelete, roomMoveSession, roomReorder];
+export const roomWriteTools: readonly ToolDef[] = [
+  roomCreate, roomRename, roomSetColor, roomSetAlertLevel, roomDelete, roomMoveSession, roomReorder,
+];

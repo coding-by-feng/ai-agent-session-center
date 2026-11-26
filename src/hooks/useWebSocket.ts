@@ -26,6 +26,7 @@ import { isCliVersionInfo } from '@/lib/cliVersionsApi';
 import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
 import { receiveRooms, handleRoomOpMessage, onRoomsSocketConnected } from '@/lib/roomSync';
 import { handleKeepAwakeOpMessage, handleSkillNoteOpMessage } from '@/lib/skillNoteOps';
+import { fetchAlerts, useAttentionStore } from '@/stores/attentionStore';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -284,6 +285,12 @@ export function useWebSocket(token: string | null): WsClient | null {
           break;
         }
 
+        // The alerts centrals raised (Nov 26 2026), cut for this device: the header bell's list.
+        case 'alerts_update': {
+          useAttentionStore.getState().setAlerts(msg.alerts);
+          break;
+        }
+
         // Another device asked for a room change; only the Mac's main window applies it.
         case 'room_op': {
           handleRoomOpMessage(msg);
@@ -377,6 +384,9 @@ export function useWebSocket(token: string | null): WsClient | null {
       // Every window reads the room list on each (re)connect: a paired phone may
       // not read the workspace snapshot, and the server may have restarted.
       if (status === 'connected') onRoomsSocketConnected();
+      // The raised alerts too (an `alerts_update` sent while the socket was down is not replayed): the desktop bell
+      // and, since Nov 26 2026, the phone's Inbox. Not a pop-out, which shows neither.
+      if (status === 'connected' && !popout) void fetchAlerts();
       // The live centrals are read on each (re)connect too: a `centrals_update` sent while the
       // socket was down is never replayed. Only the dashboard window uses them (the New Session
       // form lives there; a phone may not start a central, and its read would only be refused).

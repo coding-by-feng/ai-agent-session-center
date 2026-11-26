@@ -161,7 +161,7 @@ describe('collectCallProgress', () => {
   it('reads the central and its tasks, leaving out sessions the caller may not see', async () => {
     const { collectCallProgress } = await import('../../server/voice/callProgress.js');
     const sessions: Record<string, ReturnType<typeof session>> = {
-      central: session('central', { title: 'Voice', status: 'working', toolLog: [{ tool: 'mcp__aasc__session_list', timestamp: 3_000 }] }),
+      central: session('central', { title: 'Voice', status: 'working', cli: 'codex', toolLog: [{ tool: 'mcp__aasc__session_list', timestamp: 3_000 }] }),
       shared: session('shared', { title: 'AASC docs' }),
       hidden: session('hidden', { title: 'Private work' }),
     };
@@ -180,9 +180,27 @@ describe('collectCallProgress', () => {
       getSession: (id) => sessions[id] ?? null,
       canSee: (s) => s.sessionId !== 'hidden',
     });
-    expect(view.central).toEqual({ title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 2_500 });
+    expect(view.central).toEqual({ title: 'Voice', state: 'working', step: 'Checking your sessions', elapsedMs: 2_500, cli: 'codex' });
     expect(view.tasks).toEqual([{ title: 'AASC docs', state: 'working' }]);
     expect(view.replies).toEqual([{ at: 4_000, text: 'Done.' }]);
+  });
+
+  it('lists what waits for the next question, without its saved path (Nov 24 2026)', async () => {
+    const { collectCallProgress } = await import('../../server/voice/callProgress.js');
+    const view = collectCallProgress({
+      call: {
+        replies: () => [],
+        busySince: () => null,
+        pending: () => [{ id: 'att1', kind: 'photo', name: 'receipt.jpg', path: '/tmp/claude-queue-images/queue-img-1-a.jpg' }],
+      },
+      startedAt: 0,
+      now: 0,
+      central: null,
+      tasks: () => [],
+      getSession: (id: string) => session(id),
+      canSee: () => true,
+    });
+    expect(view.pending).toEqual([{ id: 'att1', kind: 'photo', name: 'receipt.jpg' }]);
   });
 
   it('shows no central the caller may not see, and no central when there is none', async () => {

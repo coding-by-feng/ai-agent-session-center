@@ -168,9 +168,11 @@ export function createRoomsService(deps: RoomsServiceDeps): RoomsService {
         respondNotFound(res, 'Room');
         return;
       }
-      // Deleting takes every session out of the room, the hidden ones too.
+      // Deleting takes every session out of the room, the hidden ones too, and a room's alert level is
+      // theirs as well (Nov 25 2026): a remote device does either only to a room it sees whole.
       const room = mirror.get().rooms.find((r) => r.id === roomId);
-      if (op.type === 'delete' && room && hiddenSessionCount(room, isLocal, deps.getSession) > 0) {
+      const reachesHidden = op.type === 'delete' || op.type === 'alert-level';
+      if (reachesHidden && room && hiddenSessionCount(room, isLocal, deps.getSession) > 0) {
         res.status(409).json({ ok: false, error: 'room-has-hidden-sessions' });
         return;
       }

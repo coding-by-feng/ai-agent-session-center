@@ -22,6 +22,9 @@ import {
   checkAlarms, clearAllAlarms, handleEventSounds, alertSession, unalertSession, muteSession, unmuteSession,
 } from './alarmEngine';
 import type { Session } from '@/types';
+import { useRoomStore } from '@/stores/roomStore';
+import { useAlertConfigStore } from '@/stores/alertConfigStore';
+import { DEFAULT_ALERT_CONFIG } from './attention';
 
 const engine = vi.mocked(soundEngine);
 
@@ -160,5 +163,59 @@ describe('alarmEngine — sessions without Alert', () => {
     unmuteSession('s1');
     handleEventSounds(makeSession({ muted: true, events: [stop(2)] as never }));
     expect(engine.play).not.toHaveBeenCalled();
+  });
+});
+
+describe('alarmEngine — alert levels (Nov 25 2026)', () => {
+  const baseSound = useSettingsStore.getState().soundSettings;
+  let sessions: Map<string, Session>;
+  const getSessions = () => sessions;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    sessions = new Map();
+    useSettingsStore.setState({ soundSettings: { ...baseSound, enabled: true, perCli: {} } } as never);
+  });
+  afterEach(() => {
+    clearAllAlarms();
+    useRoomStore.setState({ rooms: [] });
+    useAlertConfigStore.setState({ config: DEFAULT_ALERT_CONFIG });
+    useSettingsStore.setState({ soundSettings: baseSound } as never);
+    vi.useRealTimers();
+  });
+
+  it('a Quiet session makes no sound at all, not even for an approval', () => {
+    const s = makeSession({ status: 'approval', alertLevel: 'quiet' });
+    sessions.set('s1', s);
+    checkAlarms(s, getSessions);
+    handleEventSounds(makeSession({ alertLevel: 'quiet', events: [stop(1)] as never }));
+    expect(engine.play).not.toHaveBeenCalled();
+    expect(engine.playLoud).not.toHaveBeenCalled();
+  });
+
+  it('an Urgent session is loud, like Alert', () => {
+    const s = makeSession({ status: 'approval', alertLevel: 'urgent' });
+    sessions.set('s1', s);
+    checkAlarms(s, getSessions);
+    expect(engine.playLoud).toHaveBeenCalledWith('siren');
+  });
+
+  it('a session with no level of its own follows its room, and its own level wins over the room', () => {
+    useRoomStore.setState({ rooms: [{ id: 'r1', name: 'Ops', sessionIds: ['s1'], collapsed: false, createdAt: 0, alertLevel: 'loud' }] });
+    handleEventSounds(makeSession({ events: [stop(1)] as never }));
+    expect(engine.playLoud).toHaveBeenCalledWith('bells');
+
+    vi.clearAllMocks();
+    handleEventSounds(makeSession({ alertLevel: 'silent', events: [stop(2)] as never }));
+    expect(engine.playLoud).not.toHaveBeenCalled();
+    expect(engine.play).not.toHaveBeenCalled();
+  });
+
+  it('plays what the level table says the level does', () => {
+    const { levels } = DEFAULT_ALERT_CONFIG;
+    useAlertConfigStore.setState({ config: { ...DEFAULT_ALERT_CONFIG, levels: { ...levels, normal: { ...levels.normal, sound: 'loud' } } } });
+    handleEventSounds(makeSession({ events: [stop(1)] as never }));
+    expect(engine.playLoud).toHaveBeenCalledWith('bells');
   });
 });

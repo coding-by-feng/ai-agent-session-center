@@ -200,6 +200,28 @@ describe('createPushNotifier', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('follows the alert level when it is given one: a level that does not push stays silent, live at send time', () => {
+    let pushes = false;
+    notifier = createPushNotifier({
+      getSession: (id) => live.get(id) ?? null,
+      canNotify: () => true,
+      pushAllowed: () => pushes,
+      sink: () => ({ notify: async (m) => { sent.push(m); } }),
+      now: () => clock,
+      setTimer: (fn, ms) => { const t = { at: clock + ms, fn, cancelled: false }; timers.push(t); return t; },
+      clearTimer: (h) => { (h as { cancelled: boolean }).cancelled = true; },
+    });
+    update({ status: 'working' });
+    update({ status: 'approval', approvalSource: 'permission_request' });
+    expect(sent).toHaveLength(0);
+    // The level is read on the live session when the push would go: a level raised meanwhile pushes the next one.
+    pushes = true;
+    update({ status: 'working', muted: true });
+    update({ status: 'input' });
+    advance(10_000);
+    expect(sent.map((m) => m.kind)).toEqual(['input']);
+  });
+
   it('with no backend connected nothing is sent and nothing throws', () => {
     sinkEnabled = false;
     expect(() => update({ status: 'approval', approvalSource: 'permission_request' })).not.toThrow();
@@ -263,5 +285,35 @@ describe('buildPushMessage', () => {
   it('keeps only safe characters of the tool name', () => {
     const m = buildPushMessage('approval', session({ pendingTool: 'mcp__github__create_issue <script>' }), 'm1')!;
     expect(m.toolName).toBe('mcp__github__create_issuescript');
+  });
+});
+
+describe('notifyAlert: an alert a central raised (Nov 26 2026)', () => {
+  it('pushes at once as "needs you", with the title only: never the alert’s text or a tool', () => {
+    update({ status: 'working', pendingTool: 'Bash' });
+    notifier.notifyAlert('s1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'input', sessionRef: 's1', title: 'Fix login bug' });
+    expect(sent[0].toolName).toBeUndefined();
+  });
+
+  it('never pushes for a hidden or unknown session, or without a backend', () => {
+    update({ remoteVisible: false });
+    notifier.notifyAlert('s1');
+    notifier.notifyAlert('nobody');
+    update({ remoteVisible: true });
+    sinkEnabled = false;
+    notifier.notifyAlert('s1');
+    expect(sent).toHaveLength(0);
+  });
+
+  it('pushes one alert a minute per session', () => {
+    notifier.notifyAlert('s1');
+    advance(30_000);
+    notifier.notifyAlert('s1');
+    expect(sent).toHaveLength(1);
+    advance(31_000);
+    notifier.notifyAlert('s1');
+    expect(sent).toHaveLength(2);
   });
 });

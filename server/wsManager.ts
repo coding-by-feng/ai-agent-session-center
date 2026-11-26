@@ -33,6 +33,7 @@ import { isLoopbackAddress } from './presenceManager.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
+import { promoteRestoreLaunch } from './launchQueue.js';
 import { noteInputProbe } from './typingProbe.js';
 import type WebSocket from 'ws';
 
@@ -327,6 +328,8 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             const exists = setWsClient(msg.terminalId, client);
             if (exists) {
               client._terminalIds.add(msg.terminalId);
+              // A restored card still waiting for its launch slot starts now that someone is looking at it.
+              promoteRestoreLaunch(msg.terminalId);
               // Tell the joining client the PTY's real width. A device too
               // narrow to drive the PTY (a phone) renders at this size and
               // pans, instead of soft-wrapping 120 columns into ~49 and

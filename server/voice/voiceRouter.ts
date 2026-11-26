@@ -4,6 +4,10 @@
 //   POST /voice/call  { sdp }     start a call from the device's WebRTC SDP offer → { callId, sdp: answer }
 //   POST /voice/call/:id/end      end that call (this Mac: any call; a remote device: only its own)
 //   GET  /voice/call/:id/progress what the Voice central is doing for that call (callProgress.ts), same owner rule
+//   POST /voice/call/:id/attach   a photo, video or file from the call screen's ＋ Add (raw bytes, Nov 24 2026),
+//                                 held for the person's next question (callAttach.ts); same owner rule
+//   POST /voice/call/:id/skill { name }  a /command or $skill for the next question
+//   DELETE /voice/call/:id/attach/:attachId  take one back before the question
 //   GET  /voice/settings          this Mac only: the settings, never the key
 //   PUT  /voice/settings          this Mac only: { apiKey?, voice?, brainCentralId? }
 //   POST /voice/dictate { audio, mime }  a held-🎙 clip from the phone app → { text } (dictation.ts). It needs the
@@ -14,11 +18,16 @@
 // can name any session, and a phone can already read a shared central's chat, so sharing it is the consent.
 
 import express, { Router } from 'express';
+import { rmSync } from 'fs';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import log from '../logger.js';
 import { CallBusyError, mayControl, type ActiveCall, type CallOwner } from './callManager.js';
 import type { CallProgressView } from './callProgress.js';
+import {
+  CALL_ATTACH_MAX_BYTES, attachmentKind, cleanFileName, extensionFor, saveCallUpload, skillPick, MAX_CALL_ATTACHMENTS,
+  type CallAttachment,
+} from './callAttach.js';
 import { LiveApiError, type LiveFailure } from './liveApi.js';
 import { DICTATION_MIME_TYPES, type TranscribeInput } from './dictation.js';
 import {
@@ -74,7 +83,29 @@ export interface VoiceRouterDeps {
   callProgress?(callId: string, caller: CallOwner): CallProgressView | null;
   /** A clip's words, through OpenAI (dictation.ts); throws LiveApiError. */
   transcribe(input: TranscribeInput): Promise<string>;
+  /** What that call holds for its next question, for this caller (callAttach.ts), or null for another call or device. */
+  callAttachments?(callId: string, caller: CallOwner): CallAttachments | null;
+  /** Where attached files are saved; the prompt-media folder by default. */
+  attachDir?: string;
   now?(): number;
+}
+
+/** The part of a live call the ＋ Add routes use (voiceCall.ts). */
+export interface CallAttachments {
+  attach(item: Omit<CallAttachment, 'id'>): CallAttachment | null;
+  detach(id: string): boolean;
+  pending(): readonly CallAttachment[];
+}
+
+const skillBody = z.object({ name: z.string().min(2).max(81) }).strict();
+
+const shown = ({ id, kind, name }: CallAttachment) => ({ id, kind, name });
+
+/** A header's value, URL-decoded when it can be. */
+function headerText(req: Request, name: string): string {
+  const raw = req.headers[name];
+  const v = Array.isArray(raw) ? raw[0] ?? '' : raw ?? '';
+  try { return decodeURIComponent(v); } catch { return v; }
 }
 
 const callBody = z.object({ sdp: z.string().min(1).max(SDP_MAX) }).strict();
@@ -255,6 +286,63 @@ export function createVoiceRouter(deps: VoiceRouterDeps): Router {
     const view = deps.callProgress?.(String(req.params.id ?? ''), ownerOf(req)) ?? null;
     if (view === null) { refuse(res, 404, 'not_found', 'No such call'); return; }
     res.json({ success: true, data: view });
+  });
+
+  router.post('/voice/call/:id/attach', async (req: Request, res: Response) => {
+    const call = deps.callAttachments?.(String(req.params.id ?? ''), ownerOf(req)) ?? null;
+    const done = (status: number, code: string, error: string): void => { refuse(res, status, code, error); req.resume(); };
+    if (!call) { done(404, 'not_found', 'No such call'); return; }
+    // Raw bytes only: the global JSON parser has already eaten a JSON body, so a file's own type rides x-file-type.
+    if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/octet-stream')) {
+      done(415, 'unsupported_type', 'Send the file as application/octet-stream');
+      return;
+    }
+    if (call.pending().length >= MAX_CALL_ATTACHMENTS) {
+      done(409, 'full', `Your next question already carries ${MAX_CALL_ATTACHMENTS} things`);
+      return;
+    }
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > CALL_ATTACH_MAX_BYTES) { done(413, 'too_large', 'That file is too large: keep it under 100 MB'); return; }
+    const name = cleanFileName(headerText(req, 'x-file-name'));
+    const type = headerText(req, 'x-file-type');
+    const saved = await saveCallUpload(req, { ext: extensionFor(name, type), dir: deps.attachDir });
+    if (!saved.ok) {
+      if (saved.code === 'too_large') done(413, 'too_large', 'That file is too large: keep it under 100 MB');
+      else if (saved.code === 'empty') done(400, 'empty', 'The file was empty');
+      else {
+        log.warn('voice', 'A call attachment could not be saved');
+        done(500, 'failed', 'The file could not be saved');
+      }
+      return;
+    }
+    const item = call.attach({ kind: attachmentKind(type), name, path: saved.path });
+    if (!item) {
+      // The call ended, or filled up, while the bytes arrived.
+      rmSync(saved.path, { force: true });
+      refuse(res, call.pending().length >= MAX_CALL_ATTACHMENTS ? 409 : 404, call.pending().length >= MAX_CALL_ATTACHMENTS ? 'full' : 'not_found', 'The call can no longer take it');
+      return;
+    }
+    res.status(201).json({ success: true, data: { item: shown(item) } });
+  });
+
+  router.post('/voice/call/:id/skill', (req: Request, res: Response) => {
+    const call = deps.callAttachments?.(String(req.params.id ?? ''), ownerOf(req)) ?? null;
+    if (!call) { refuse(res, 404, 'not_found', 'No such call'); return; }
+    const body = skillBody.safeParse(req.body);
+    const name = body.success ? skillPick(body.data.name) : null;
+    if (!name) { refuse(res, 400, 'invalid', 'Pick a /command or $skill'); return; }
+    const item = call.attach({ kind: 'skill', name });
+    if (!item) { refuse(res, 409, 'full', `Your next question already carries ${MAX_CALL_ATTACHMENTS} things`); return; }
+    res.status(201).json({ success: true, data: { item: shown(item) } });
+  });
+
+  router.delete('/voice/call/:id/attach/:attachId', (req: Request, res: Response) => {
+    const call = deps.callAttachments?.(String(req.params.id ?? ''), ownerOf(req)) ?? null;
+    const id = String(req.params.attachId ?? '');
+    const held = call?.pending().find((a) => a.id === id);
+    if (!call || !held || !call.detach(id)) { refuse(res, 404, 'not_found', 'Nothing like that waits for your next question'); return; }
+    if (held.path) rmSync(held.path, { force: true });
+    res.json({ success: true, data: { removed: id } });
   });
 
   router.get('/voice/settings', (req: Request, res: Response) => {

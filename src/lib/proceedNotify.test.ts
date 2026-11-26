@@ -35,15 +35,15 @@ describe('newProceedAsks', () => {
 });
 
 describe('shouldShowProceed', () => {
-  const ctx = { enabled: true, focused: false, openSessionId: null };
+  const ctx = { enabled: true, focused: false, openSessionId: null, notify: 'proceed' as const };
 
   it('shows a still-owed ask', () => {
     expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, ctx)).toBe(true);
     expect(shouldShowProceed(s('a', { status: 'idle', pendingProceedAt: 7 }), 7, ctx)).toBe(true);
   });
 
-  it('steps aside for an alerted session: its alert notification already says it waits for proceed (Nov 23 2026)', () => {
-    expect(shouldShowProceed(s('a', { pendingProceedAt: 7, alerted: true }), 7, ctx)).toBe(false);
+  it('steps aside for a level that notifies every moment: its alert notification already says it waits for proceed', () => {
+    expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, { ...ctx, notify: 'all' })).toBe(false);
   });
 
   it('not once a prompt answered it, a newer ask replaced it, or the session is gone', () => {
@@ -52,13 +52,13 @@ describe('shouldShowProceed', () => {
     expect(shouldShowProceed(undefined, 7, ctx)).toBe(false);
   });
 
-  it('not for a muted session, nor with the setting off', () => {
-    expect(shouldShowProceed(s('a', { pendingProceedAt: 7, muted: true }), 7, ctx)).toBe(false);
+  it('not for a level that does not notify (Silent, Quiet), nor with the setting off', () => {
+    expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, { ...ctx, notify: 'none' })).toBe(false);
     expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, { ...ctx, enabled: false })).toBe(false);
   });
 
   it('not while the user is looking at that very session; yes for another one', () => {
-    const looking = { enabled: true, focused: true, openSessionId: 'a' };
+    const looking = { enabled: true, focused: true, openSessionId: 'a', notify: 'proceed' as const };
     expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, looking)).toBe(false);
     expect(shouldShowProceed(s('b', { pendingProceedAt: 7 }), 7, looking)).toBe(true);
     expect(shouldShowProceed(s('a', { pendingProceedAt: 7 }), 7, { ...looking, focused: false })).toBe(true);

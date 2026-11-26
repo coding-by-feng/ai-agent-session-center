@@ -69,7 +69,7 @@ export interface ServerConfig {
    * The switch for central sessions (server/mcp). Off unless `{ "enabled": true }` (Oct 28 2026); off leaves
    * `/mcp` unmounted and launches carry no MCP flags or token. The Settings → ADVANCED choice
    * (`central-sessions.json`, server/mcp/runtime.ts) wins over this when one was saved.
-   * `router`, `autoRouting` and `idleWorkerMinutes` tune P4's automatic routing (server/mcp/routerConfig.ts);
+   * `router`, `autoRouting`, `idleWorkerMinutes`, `maxLiveWorkers` and `roomMaxLiveWorkers` tune P4 (server/mcp/routerConfig.ts);
    * all are read once at start, so a change needs a restart.
    */
   mcp?: {
@@ -79,6 +79,18 @@ export interface ServerConfig {
     autoRouting?: boolean;
     /** Minutes an idle worker a central opened is left before AASC closes it; 0 turns clean-up off (default 30). */
     idleWorkerMinutes?: number;
+    /**
+     * How many live sessions of its own a central keeps open (default 8; whole sessions, 1-50). `session_create`
+     * and the own opens of fork and clone are refused (BUDGET) past it; the limit of 10 opens a minute stays.
+     * Memory: each open session, idle or not, is a live CLI of about 250–310 MB plus its MCP servers
+     * (server/sessionSleep.ts), so 15 idle ones hold roughly 4–5 GB.
+     */
+    maxLiveWorkers?: number;
+    /**
+     * A room central's own cap, keyed by room id (or by room name when no other room has it), over
+     * `maxLiveWorkers`: e.g. `{ "Content Pipeline": 15 }`. Same range and memory cost; other rooms keep the default.
+     */
+    roomMaxLiveWorkers?: Record<string, number>;
     /**
      * P5's typed notices (server/mcp/notices.ts): one `[AASC · notice]` line typed into an idle central about its
      * ended tasks and late-answered confirmations. Off unless `true` (Ruling P5-19): each notice starts a model turn.

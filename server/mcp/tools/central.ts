@@ -9,6 +9,7 @@
 
 import { centralInstructions } from '../instructions.js';
 import type { ToolContext, ToolDef } from '../registry.js';
+import { liveWorkerCapOf } from '../openWorker.js';
 import { shortIdOf } from '../scope.js';
 import { MCP_MAX_PHASE, type CentralKind } from '../types.js';
 import { defineTool, fence, plural, visibleRooms } from './define.js';
@@ -38,7 +39,8 @@ const scopeGet = defineTool({
   title: 'My scope',
   description:
     'Says what this central is and what it can reach: its kind (global, room or project), its room or folder, its ' +
-    'toolsets, and how many sessions are in its scope now. Sessions outside it answer NOT_IN_SCOPE. Its data also ' +
+    'toolsets, how many sessions are in its scope now, and how many of its own sessions it has open against its cap ' +
+    '(ownWorkers: live, max and the setting max comes from). Sessions outside it answer NOT_IN_SCOPE. Its data also ' +
     'includes how to work as a central (playbook): read it when you start.',
   risk: 'read',
   phase: 1,
@@ -48,6 +50,8 @@ const scopeGet = defineTool({
     const inScope = ctx.scopedSessions().filter((s) => !s.isFloating);
     const live = inScope.filter((s) => s.status !== 'ended');
     const scopeName = scopeNameOf(kind, scopeRef, roomNamesOf(ctx));
+    const cap = liveWorkerCapOf(ctx);
+    const ownLive = ctx.workers.liveCount(centralId, ctx.sessions());
     const data = {
       centralId,
       kind,
@@ -58,6 +62,7 @@ const scopeGet = defineTool({
       toolsets: [...toolsets],
       inScopeCount: inScope.length,
       liveCount: live.length,
+      ownWorkers: { live: ownLive, max: cap.max, setting: cap.setting },
       playbook: centralInstructions(kind, MCP_MAX_PHASE),
     };
     const named = scopeName === null ? [] : [`Your ${kind === 'room' ? 'room' : 'folder'}: ${fence('aasc', 'scope-name', scopeName)}`];
@@ -65,6 +70,7 @@ const scopeGet = defineTool({
       REACH[kind],
       ...named,
       `${plural(inScope.length, 'session')} in scope now (${live.length} live).`,
+      `Your own sessions open: ${ownLive} of at most ${cap.max} (${cap.setting}).`,
       `Toolsets: ${toolsets.join(', ')}.`,
     ];
     return { data, summary: lines.join('\n') };

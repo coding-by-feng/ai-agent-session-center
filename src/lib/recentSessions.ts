@@ -107,28 +107,49 @@ export function recencyOf(session: RecentCandidate, now: number): number {
 }
 
 /**
+ * Every session, most recently worked first: the hold-⌘ Switch Session overlay's order
+ * (Nov 25 2026). The same recency as RECENT (`recencyOf`: a running turn counts as now, and a
+ * restore's SessionStart never counts), but with no limit and no pinned-first, so the first E tap
+ * goes back to the work just left. It used `sortSessionsByActivity` (pinned, then
+ * `lastActivityAt`), and after a restart that put the pinned and the just-restored sessions on top.
+ * Running sessions tie at `now` and fall back to their last work, so they hold still; sessions
+ * that never worked go last; title, then id, make the order total. Returns a new array.
+ */
+export function sortByRecentWork<T extends RecentCandidate>(sessions: readonly T[], now: number): T[] {
+  return sessions
+    .map((s) => ({ s, at: recencyOf(s, now), work: lastWorkAt(s) }))
+    .sort((a, b) => {
+      if (a.at !== b.at) return b.at - a.at;
+      if (a.work !== b.work) return b.work - a.work;
+      const byTitle = (a.s.title || a.s.projectName || '').localeCompare(b.s.title || b.s.projectName || '');
+      if (byTitle !== 0) return byTitle;
+      return (a.s.sessionId || '').localeCompare(b.s.sessionId || '');
+    })
+    .map(({ s }) => s);
+}
+
+/**
  * The RECENT frame's contents: the `limit` sessions (default `RECENT_LIMIT`) that
- * worked most recently (`recencyOf`), listed pinned first (as in every session ordering
- * here), then newest prompt first. Deliberately not ordered by the latest
- * event: two working sessions fire tool events every few seconds, and cards
- * that swap places on each one cannot be clicked. A prompt only changes when
- * one is sent. Never-prompted sessions go last; title, then id, make the
- * order total. Returns a new array.
+ * worked most recently, in that order, newest first (Nov 26 2026: no longer pinned first and
+ * then by prompt; a pinned session sits at its real place, and PINNED lists it anyway). The
+ * order is `recencyOf`: a running turn counts as now, else the session's last work. Running
+ * sessions tie at now and break the tie by their last prompt, never by the latest event: two
+ * working sessions fire tool events every few seconds, and cards that swap places on each one
+ * cannot be clicked. A prompt only changes when one is sent. Title, then id, make the order
+ * total. The same list feeds the phone's Recent group (sessionsModel.ts). Returns a new array.
  */
 export function pickRecentSessions<T extends RecentCandidate>(sessions: readonly T[], now: number, limit = RECENT_LIMIT): T[] {
   return sessions
-    .map((s) => ({ s, at: recencyOf(s, now) }))
+    .map((s) => ({ s, at: recencyOf(s, now), promptAt: lastPromptAt(s) }))
     .filter(({ at }) => at > 0)
-    .sort((a, b) => b.at - a.at)
-    // Cut by recency first, then order: the 10 are the newest 10, not the first 10 of a longer list.
-    .slice(0, limit)
-    .map(({ s }) => ({ s, promptAt: lastPromptAt(s) }))
     .sort((a, b) => {
-      if (!!a.s.pinned !== !!b.s.pinned) return a.s.pinned ? -1 : 1;
+      if (a.at !== b.at) return b.at - a.at;
       if (a.promptAt !== b.promptAt) return b.promptAt - a.promptAt;
       const byTitle = (a.s.title || a.s.projectName || '').localeCompare(b.s.title || b.s.projectName || '');
       if (byTitle !== 0) return byTitle;
       return (a.s.sessionId || '').localeCompare(b.s.sessionId || '');
     })
+    // One order cuts and lists: the 10 are the newest 10, in the order they worked.
+    .slice(0, limit)
     .map(({ s }) => s);
 }

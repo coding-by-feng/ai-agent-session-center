@@ -25,6 +25,8 @@ beforeEach(() => useCentralFeatureStore.setState({ on: true }));
 // fetch would otherwise resolve outside act() after every test here. One stable
 // array: a fresh literal per call re-runs the menu's effect forever.
 const { KNOWN_PROJECTS } = vi.hoisted(() => ({ KNOWN_PROJECTS: [] as string[] }));
+// The disk chip reads its own route (DiskChip.test.tsx); here it would add fetches the call counts below don't expect.
+vi.mock('./DiskChip', () => ({ default: () => null }));
 vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => KNOWN_PROJECTS }));
 const sendProceed = vi.fn<(id: string) => Promise<boolean>>(async () => true);
 vi.mock('@/lib/chat/sendProceed', () => ({ sendProceed: (id: string) => sendProceed(id) }));
@@ -756,9 +758,9 @@ describe('SessionSwitcher — room reorder', () => {
 
     const row = container.querySelector('[class*="roomHeaderRow"]')!;
     const dividers = row.querySelectorAll('[class*="roomHeaderDivider"]');
-    // One between [grip collapse] and [up down]; one before the kill skull,
-    // which only renders while the room has live sessions.
-    expect(dividers.length).toBe(2);
+    // One between [grip collapse] and [up down]; one before the room Alert bell and one before the kill skull,
+    // both of which only render while the room has live sessions.
+    expect(dividers.length).toBe(3);
 
     const kids = [...row.children];
     const collapseIdx = kids.indexOf(screen.getByLabelText('Collapse room Alpha'));
@@ -845,6 +847,41 @@ describe('SessionSwitcher — room reorder', () => {
 
     expect(useUiStore.getState().activeModal).toBe(ROOM_KILL_MODAL_ID);
     expect(useUiStore.getState().roomKillTargetId).toBe('room-a');
+  });
+
+  // Full has the room's alert level here (RoomAlertLevelPicker.test.tsx covers what it does); Lite keeps the
+  // one-shot room Alert (RoomAlertToggle.test.tsx).
+  describe('the room alert level', () => {
+    const levelButton = () => screen.queryByRole('button', { name: /^Alert level for Alpha:/ });
+
+    it('sits before the skull, each behind its own divider', () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+      const sessions = [
+        makeSession({ sessionId: 'cur' }),
+        makeSession({ sessionId: 'a' }),
+        makeSession({ sessionId: 'b', status: 'working' }),
+        makeSession({ sessionId: 'c', status: 'ended' }),
+      ];
+      useSessionStore.setState({ sessions: new Map(sessions.map((s) => [s.sessionId, s])) } as never);
+      renderWithRooms([makeRoom({ id: 'room-a', name: 'Alpha', sessionIds: ['a', 'b', 'c'] })], sessions);
+      const bell = levelButton()!;
+      const skull = screen.getByLabelText(/^Kill all 2 sessions in room Alpha$/);
+
+      expect(bell).toHaveAccessibleName('Alert level for Alpha: Normal');
+      expect(bell.compareDocumentPosition(skull) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The picker sits in a click-stopping wrapper; the dividers are the wrapper's neighbours.
+      const slot = bell.closest('[class*="roomAlertWrap"]')!;
+      expect(slot.previousElementSibling?.className).toMatch(/roomHeaderDivider/);
+      expect(slot.nextElementSibling?.className).toMatch(/roomHeaderDivider/);
+      vi.unstubAllGlobals();
+    });
+
+    it('is absent, like the skull, when the room has no live session', () => {
+      const sessions = [makeSession({ sessionId: 'cur' }), makeSession({ sessionId: 'x', status: 'ended' })];
+      renderWithRooms([makeRoom({ id: 'room-a', name: 'Alpha', sessionIds: ['x'] })], sessions);
+      expect(levelButton()).toBeNull();
+      expect(screen.queryByLabelText(/^Kill all/)).toBeNull();
+    });
   });
 
   // NOTE: this test logs a benign "not wrapped in act()" warning despite every
@@ -1333,13 +1370,13 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
   const roomAasc = makeRoom({ id: 'room-aasc', name: 'AASC', sessionIds: ['qa', 'b'], roomIndex: 2 });
   const allRooms = [roomSms, roomExm, roomAasc];
 
-  function renderSwitcher(sessions: Session[], rooms: Room[] = allRooms) {
+  function renderSwitcher(sessions: Session[], rooms: Room[] = allRooms, onSwitch = vi.fn()) {
     useRoomStore.setState({ rooms });
     return render(
       <SessionSwitcher
         currentSession={sessions[0]}
         sessions={new Map(sessions.map((s) => [s.sessionId, s]))}
-        onSwitch={vi.fn()}
+        onSwitch={onSwitch}
       />,
     );
   }
@@ -1353,6 +1390,11 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     [...frame.querySelectorAll('[class*="sessionTabTitle"]')].map((el) => el.textContent);
   const roomFrame = (container: HTMLElement, name: string) =>
     framesOf(container).find((f) => f.getAttribute('title') === name) as HTMLElement;
+  /** A RECENT card's Put down: a sibling of the card's own button, in the card's host. */
+  const putDownOf = (frame: HTMLElement, title: string) => {
+    const host = within(frame).getByText(title).closest('[class*="sessionTabPutDownHost"]') as HTMLElement;
+    return within(host).getByRole('button', { name: 'Put down from Recent for today' });
+  };
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
@@ -1415,8 +1457,7 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     const recent = () => recentOf(container)!;
     // The put-down control is only on RECENT's copies, never on the room cards.
     expect(within(roomFrame(container, 'AASC')).queryAllByLabelText('Put down from Recent for today')).toHaveLength(0);
-    const card = within(recent()).getByText('AASC Codex Builder').closest('button')!;
-    fireEvent.click(within(card).getByLabelText('Put down from Recent for today'));
+    fireEvent.click(putDownOf(recent(), 'AASC Codex Builder'));
     expect(titlesIn(recent())).toEqual(['AASC Q & A', 'SMS Fixing']);
     expect(titlesIn(roomFrame(container, 'AASC'))).toContain('AASC Codex Builder');
     // The header counts it and puts it back.
@@ -1424,6 +1465,25 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'AASC Codex Builder' }));
     expect(titlesIn(recent())).toEqual(['AASC Q & A', 'AASC Codex Builder', 'SMS Fixing']);
     expect(within(recent()).queryByRole('button', { name: /put down from Recent/ })).toBeNull();
+  });
+
+  it('Put down is its own keyboard button beside the card, not inside it, and does not open the card (Nov 24 2026)', () => {
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
+    const onSwitch = vi.fn();
+    const { container } = renderSwitcher([qa, builder, sms, exm], allRooms, onSwitch);
+    const control = putDownOf(recentOf(container)!, 'AASC Codex Builder');
+    // A real button, reachable by Tab, never nested in the card's own <button>.
+    expect(control.tagName).toBe('BUTTON');
+    expect(control).toHaveAttribute('type', 'button');
+    expect(control.parentElement!.closest('button')).toBeNull();
+    // The hint comes from the shared Tooltip on focus too, not a native title.
+    expect(control).not.toHaveAttribute('title');
+    act(() => { control.focus(); });
+    expect(document.activeElement).toBe(control);
+    fireEvent.click(control);
+    expect(onSwitch).not.toHaveBeenCalled();
+    expect(titlesIn(recentOf(container)!)).toEqual(['AASC Q & A', 'SMS Fixing']);
+    act(() => { useRecentPutDownStore.getState().putBackAll(); });
   });
 
   it('Alert on: a card that needs you rings; not the open card, not one without Alert (Nov 23 2026)', () => {
@@ -2581,7 +2641,7 @@ describe('SessionSwitcher — model · effort badge', () => {
 
   it('shows what the CLI reports it runs on now, in place of the launch model id', () => {
     renderWith(makeSession({ runtime: { model: 'Haiku 4.5', modelAt: 2, effort: 'low', effortAt: 2 } }));
-    expect(screen.getByRole('status', { name: 'Model Haiku 4.5, effort low' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model Haiku 4.5, effort low. Context details' })).toBeInTheDocument();
     expect(screen.queryByText('claude-opus-5-5')).toBeNull();
   });
 
@@ -2591,7 +2651,7 @@ describe('SessionSwitcher — model · effort badge', () => {
     rerender(
       <SessionSwitcher currentSession={next} sessions={new Map([[next.sessionId, next]])} onSwitch={vi.fn()} model={next.model} />,
     );
-    expect(screen.getByRole('status', { name: 'Model Sonnet 5.5, effort max' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model Sonnet 5.5, effort max. Context details' })).toBeInTheDocument();
   });
 
   it('a Codex session keeps its launch model as plain text', () => {

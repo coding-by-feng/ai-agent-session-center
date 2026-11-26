@@ -19,6 +19,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
 import type { McpConfirmView } from '@/types/mcpConfirm';
 import { usePhoneNavStore } from '@/stores/phoneNavStore';
+import { useAttentionStore } from '@/stores/attentionStore';
 import { DEFAULT_RESUME_PROMPT } from '@/lib/resumeWatchdog';
 
 const NOW = Date.now();
@@ -63,6 +64,7 @@ function stubMac() {
 beforeEach(() => {
   vi.clearAllMocks();
   usePhoneConfirmStore.setState({ confirms: [] });
+  useAttentionStore.setState({ alerts: [] });
   load();
 });
 
@@ -201,5 +203,37 @@ describe('InboxScreen — central confirmations', () => {
     usePhoneConfirmStore.setState({ confirms: [card({ expiresAt: Date.now() - 1 })] });
     render(<InboxScreen />);
     expect(screen.queryByTestId('phone-confirm-card')).toBeNull();
+  });
+});
+
+// Nov 26 2026: a central's alert waits in the Inbox; Dismiss closes it on every device.
+describe('InboxScreen: a central’s alert', () => {
+  const raised = {
+    id: 'al1', key: 'stuck', sessionId: 'd', centralId: '', centralSessionId: 'a', message: 'Package step stuck 45m — lock held by run T26',
+    raisedAt: NOW - 3_600_000, updatedAt: NOW - 3_600_000, count: 1,
+  };
+
+  it('lists it under Waiting with its message and the central it came from, and Dismiss closes it', async () => {
+    const calls = stubMac();
+    useAttentionStore.setState({ alerts: [raised] });
+    render(<InboxScreen />);
+    const rows = screen.getAllByTestId('inbox-item');
+    const row = rows.find((r) => r.getAttribute('data-kind') === 'alert');
+    if (!row) throw new Error('no alert row');
+    expect(rows[0]).toBe(row);
+    expect(within(row).getByText('Package step stuck 45m — lock held by run T26')).toBeTruthy();
+    expect(within(row).getByText('From agent-manager-2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Waiting.*4/ })).toBeTruthy();
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Dismiss the alert on website-1' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/alerts/al1/dismiss')).toBe(true));
+    expect(screen.getAllByTestId('inbox-item').some((r) => r.getAttribute('data-kind') === 'alert')).toBe(false);
+  });
+
+  it('leaves out an alert on a Silent session', () => {
+    useSessionStore.setState((s) => ({ sessions: new Map([...s.sessions, ['d', { ...s.sessions.get('d')!, alertLevel: 'silent' } as Session]]) }));
+    useAttentionStore.setState({ alerts: [raised] });
+    render(<InboxScreen />);
+    expect(screen.getAllByTestId('inbox-item').some((r) => r.getAttribute('data-kind') === 'alert')).toBe(false);
   });
 });

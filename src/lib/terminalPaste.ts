@@ -9,19 +9,22 @@
 
 export interface TerminalPaste {
   text: string;
-  images: File[];
+  files: File[];
 }
 
-/** The text and image files a paste event carries. Images win, as before: their saved paths are typed. */
+/**
+ * The text and the files a paste event carries. Files win: they are uploaded and their saved paths typed
+ * (lib/terminalFiles.ts). Any file counts, not only images (Nov 26 2026): a PDF or a `.md` copied in Finder too.
+ */
 export function readPasteData(data: DataTransfer | null): TerminalPaste {
-  if (!data) return { text: '', images: [] };
-  const images: File[] = [];
+  if (!data) return { text: '', files: [] };
+  const files: File[] = [];
   for (const item of Array.from(data.items ?? [])) {
-    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+    if (item.kind !== 'file') continue;
     const file = item.getAsFile();
-    if (file) images.push(file);
+    if (file) files.push(file);
   }
-  return { text: data.getData('text/plain') ?? '', images };
+  return { text: data.getData('text/plain') ?? '', files };
 }
 
 /** A pasted line must not submit itself: trailing line breaks are dropped. */

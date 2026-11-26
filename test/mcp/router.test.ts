@@ -60,7 +60,7 @@ describe('route: reuse', () => {
   it('a human-active session is not eligible', async () => {
     const typed = worker(A, AGENT, { ...withContext(10), lastActivityAt: NOW - MIN });
     const quiet = worker(B, AGENT);
-    const controller = (id: string) => (id === A ? { clientId: 'window-1', lastActivityAt: NOW - 10_000 } : null);
+    const controller = (id: string) => (id === A ? { clientId: 'window-1', lastActivityAt: NOW - 10_000, lastInputAt: NOW - 10_000 } : null);
 
     const r = await go({ sessions: [typed, quiet], controller }).result;
 
@@ -144,7 +144,7 @@ describe('route: reuse', () => {
       worker(B, AGENT), // 5
       worker('sess-ddd4', `${AGENT}/packages/web`), // 2: under the threshold
     ];
-    const controller = (id: string) => (id === A ? { clientId: 'window-1', lastActivityAt: NOW - 10_000 } : null);
+    const controller = (id: string) => (id === A ? { clientId: 'window-1', lastActivityAt: NOW - 10_000, lastInputAt: NOW - 10_000 } : null);
     const h = makeCtx({ sessions, routes: emptyRoutes(), controller });
     const asked: string[] = [];
     const ctx = { ...h.ctx, mayDrive: (s: Session) => { asked.push(s.sessionId); h.ctx.mayDrive(s); } };

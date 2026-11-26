@@ -2,7 +2,7 @@
 // interruptions with Continue, finished turns, the "continue interrupted sessions"
 // offer, and what this phone has read.
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { PendingRequest, Session } from '@/types';
+import type { PendingRequest, RaisedAlert, Session } from '@/types';
 import { inboxCount } from './inboxModel';
 import {
   FINISHED_WINDOW_MS,
@@ -216,5 +216,53 @@ describe('inboxAge', () => {
     expect(inboxAge(NOW - 90 * 60_000, NOW)).toBe('1h');
     expect(inboxAge(NOW - 30 * 3600_000, NOW)).toBe('1d');
     expect(inboxAge(NOW + 5000, NOW)).toBe('now');
+  });
+});
+
+// Nov 26 2026: a central's alert waits in the Inbox like a question.
+describe('inboxItems: raised alerts', () => {
+  const raised = (over: Partial<RaisedAlert> = {}): RaisedAlert => ({
+    id: 'al1', key: 'stuck', sessionId: 'w', centralId: '', centralSessionId: 'c', message: 'Package step stuck 45m',
+    raisedAt: NOW - 600_000, updatedAt: NOW - 600_000, count: 1, ...over,
+  });
+  const sessions = () => new Map([
+    ['w', session('w', 'working')],
+    ['c', session('c', 'working')],
+    ['q', session('q', 'input', { lastActivityAt: NOW - 60_000 })],
+  ]);
+  const titleOf = (s: Session) => s.title ?? s.sessionId;
+
+  it('lists one as waiting, with its message, the central it came from and its id', () => {
+    const items = inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised()] });
+    const item = items.find((i) => i.kind === 'alert');
+    expect(item).toMatchObject({
+      id: 'alert:al1:1', sessionId: 'w', title: 'Session w', line: 'Package step stuck 45m', at: NOW - 600_000,
+      waiting: true, alertId: 'al1', from: 'Session c',
+    });
+    expect(waitingCount(items)).toBe(2);
+  });
+
+  it('sorts it among the waiting by when it was raised, oldest first', () => {
+    const items = filterInbox(inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised()] }), 'waiting');
+    expect(items.map((i) => i.kind)).toEqual(['alert', 'question']);
+  });
+
+  it('names no central for an alert about the central’s own card, or one this device can’t see', () => {
+    const own = inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised({ centralSessionId: 'w' })] });
+    expect(own.find((i) => i.kind === 'alert')?.from).toBeUndefined();
+    const unseen = inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised({ centralSessionId: null })] });
+    expect(unseen.find((i) => i.kind === 'alert')?.from).toBeUndefined();
+  });
+
+  it('is unread again when the central raises it again', () => {
+    const first = inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised()] }).find((i) => i.kind === 'alert');
+    const again = inboxItems(sessions(), { titleOf, now: NOW, alerts: [raised({ count: 2 })] }).find((i) => i.kind === 'alert');
+    expect(first?.id).not.toBe(again?.id);
+  });
+
+  it('skips an alert on an ended or unknown session', () => {
+    const map = sessions();
+    map.set('w', session('w', 'ended'));
+    expect(inboxItems(map, { titleOf, now: NOW, alerts: [raised(), raised({ id: 'al2', sessionId: 'x' })] }).some((i) => i.kind === 'alert')).toBe(false);
   });
 });

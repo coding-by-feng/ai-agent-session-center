@@ -134,7 +134,7 @@ describe('the four relaunches: happy paths', () => {
     expect(d('session_resume')).toMatch(/ended sessions only/i);
     expect(d('session_reconnect')).toMatch(/ended sessions only/i);
     expect(d('session_resume')).toContain('History in AASC');
-    for (const n of ['session_fork', 'session_clone']) expect(d(n)).toContain('your own sessions (at most 8 open, 10 opens a minute)');
+    for (const n of ['session_fork', 'session_clone']) expect(d(n)).toContain('your own sessions (at most your cap open, 8 unless set: scope_get shows it; 10 opens a minute)');
   });
 });
 

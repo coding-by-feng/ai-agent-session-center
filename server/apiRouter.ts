@@ -13,7 +13,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setPinnedOrder, setSessionRecap, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionHookLevel, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setPinnedOrder, setSessionRecap, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionHookLevel, setSessionAlertLevel, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId, clearSessionCentral, healSplitCard, setLaunchResumeId, resumableIdOf } from './sessionStore.js';
 import { config as serverConfig, CONFIG_PATH as SERVER_CONFIG_PATH } from './serverConfig.js';
 import { saveServerConfigKeys } from './mobile/accountEnrollSetting.js';
 import { getLocalIP } from './networkInfo.js';
@@ -45,7 +45,12 @@ import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { terminalHeard } from './heardTerminals.js';
 import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
 import { createQueueMediaRouter } from './queueMediaRouter.js';
+import { createTerminalFilesRouter } from './terminalFilesRouter.js';
 import { createRoomsService } from './roomsRouter.js';
+import { alertStore } from './alerts/alertStore.js';
+import { createAlertsService } from './alerts/alertsRouter.js';
+import { createAlertLevelRouter } from './alertLevelRouter.js';
+import { ALERT_LEVELS } from '../src/lib/attention.js';
 import { parseRoomList, roomsViewFor } from './roomsMirror.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -76,6 +81,7 @@ import type { SessionCentralMarker } from '../src/types/central.js';
 import type { Session } from '../src/types/session.js';
 import { stripCodexLaunchFlags } from './codexNoDaemon.js';
 import log from './logger.js';
+import { enqueueRestoreLaunch } from './launchQueue.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { attachmentDisposition, parseByteRange, refusesStreamSize } from './fileStreamPolicy.js';
 import { getCommandIndex } from './commandIndex.js';
@@ -559,6 +565,17 @@ const terminalCreateSchema = z.object({
     .max(200)
     .regex(/^[a-zA-Z0-9_-]+$/, 'resumeSessionId contains invalid characters')
     .optional(),
+  /**
+   * Set only by the workspace restore: its launch line waits for one of a few restore slots
+   * (`launchQueue.ts`) instead of starting with every other restored session at once.
+   */
+  restoreBatch: z.boolean().optional().catch(undefined),
+  /**
+   * The restore's saved screen for this card (base64), put in the ring before the card is announced, so
+   * the first device to open it replays the old screen (a separate prefill call raced that subscribe).
+   * Honoured from this Mac only, like POST /terminals/:id/prefill-output.
+   */
+  prefillOutput: z.string().max(48 * 1024 * 1024).optional().catch(undefined),
   /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max/ultracode) */
   // `minimal` is Codex-only (`model_reasoning_effort`); Claude's --effort ignores it.
   effortLevel: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
@@ -593,6 +610,8 @@ const terminalCreateSchema = z.object({
   /** The Automation mark (server/sessionHookLevel.ts), carried through a restore. Anything but 'lite' is dropped, never a 400. */
   hookLevel: z.literal('lite').optional().catch(undefined),
   alerted: z.boolean().optional(),
+  /** The session's own alert level (src/lib/attention.ts), carried through a restore. An unknown one is dropped, never a 400. */
+  alertLevel: z.enum(ALERT_LEVELS).optional().catch(undefined),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
   /** Same cap as remarkSchema — a workspace restore must not smuggle a longer one. */
@@ -692,14 +711,6 @@ const pinnedOrderSchema = z.object({
 
 const pinnedSchema = z.object({
   pinned: z.boolean(),
-});
-
-const mutedSchema = z.object({
-  muted: z.boolean(),
-});
-
-const alertedSchema = z.object({
-  alerted: z.boolean(),
 });
 
 const accentColorSchema = z.object({
@@ -2285,8 +2296,9 @@ router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   const visible = req.body?.remoteVisible === true;
   setSessionRemoteVisible(id, visible);
   // Rooms name their sessions, so a remote device's copy of the room list
-  // changes with the sharing: re-cut and re-send it either way.
+  // changes with the sharing: re-cut and re-send it either way. So do the alerts a central raised about it.
   roomsService.republish();
+  alertsService.republish();
   // Un-sharing cuts remote devices off at once (AASC-27): their terminal
   // subscriptions end and the card disappears, instead of streaming on until
   // they happen to resubscribe. wsManager is loaded lazily (see broadcastPresence).
@@ -2333,6 +2345,7 @@ router.post('/sessions/share-all', async (req: Request, res: Response) => {
   for (const id of changed) setSessionRemoteVisible(id, true);
   if (changed.length > 0) {
     roomsService.republish();
+    alertsService.republish();
     const { broadcast } = await import('./wsManager.js');
     for (const id of changed) {
       const session = getSession(id);
@@ -2364,21 +2377,8 @@ router.put('/pinned-order', (req: Request, res: Response) => {
   res.json({ ok: true, changed: setPinnedOrder(body.sessionIds, visible) });
 });
 
-// Update session muted state
-router.put('/sessions/:id/muted', (req: Request, res: Response) => {
-  const body = validateBody(mutedSchema, req.body, res);
-  if (!body) return;
-  setSessionMuted(str(req.params.id), body.muted);
-  res.json({ ok: true });
-});
-
-// Update session alerted state
-router.put('/sessions/:id/alerted', (req: Request, res: Response) => {
-  const body = validateBody(alertedSchema, req.body, res);
-  if (!body) return;
-  setSessionAlerted(str(req.params.id), body.alerted);
-  res.json({ ok: true });
-});
+// Alert levels (Nov 25 2026): the level table, a session's level, and the older Mute and Alert routes as levels.
+router.use(createAlertLevelRouter({ getSession, setSessionAlertLevel, rooms: () => roomsService.current(), isLocal: requestIsLocal }));
 
 // Update session accent color
 router.put('/sessions/:id/accent-color', (req: Request, res: Response) => {
@@ -2511,6 +2511,18 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
 
 // ── Terminals ──
 
+/**
+ * Type a restored session's launch line. A workspace restore paces its launches a few at a time
+ * (launchQueue.ts): 61 `claude --resume` started at once took up to 6 minutes to come up.
+ */
+function typeRestoredLaunch(terminalId: string, line: string, paced: boolean): void {
+  if (!paced) {
+    writeWhenReady(terminalId, line);
+    return;
+  }
+  enqueueRestoreLaunch(terminalId, () => { void writeWhenReady(terminalId, line); });
+}
+
 router.post('/terminals', async (req: Request, res: Response) => {
   // A central never starts another central (Ruling P4-8): its own calls carry `mcp:<centralId>`. Looked at before
   // the body is read, on the raw header, so nothing it sends can mint one. Its plain sessions are its workers.
@@ -2607,6 +2619,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.handsOff) config.handsOff = true;
     if (isLiteHookLevel(body.hookLevel)) config.hookLevel = 'lite';
     if (body.alerted) config.alerted = body.alerted;
+    if (body.alertLevel) config.alertLevel = body.alertLevel;
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
     if (body.remark) config.remark = body.remark;
@@ -2733,6 +2746,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // A central whose terminal does not start is revoked: no PTY holds its token.
     const terminalId = await spawnCentralTerminal(config.central, () => createTerminal(terminalConfig, null));
     if (config.central) unclaimedCentralTerminal = { terminalId, central: config.central };
+    if (body.prefillOutput && isLocalCaller) prefillTerminalOutput(terminalId, body.prefillOutput);
 
     // Create ops terminal (blank shell for manual commands) if requested
     let opsTerminalId: string | undefined;
@@ -2789,7 +2803,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
         prefix += `export AGENT_MANAGER_TERMINAL_ID='${terminalId.replace(/'/g, "'\\''")}' && `;
         if (config.workingDir) prefix += `cd '${config.workingDir.replace(/'/g, "'\\''")}' && `;
       }
-      writeWhenReady(terminalId, `${prefix}${resumeLaunchCmd}\r`);
+      typeRestoredLaunch(terminalId, `${prefix}${resumeLaunchCmd}\r`, body.restoreBatch === true);
       log.info('api', `Workspace resume: ${resumeId.slice(0, 8)} → terminal ${terminalId.slice(0, 16)} (${resumeLaunchCmd.slice(0, 120)}${resumeLaunchCmd.length > 120 ? '…' : ''})`);
       // Restore ultracode (launched at xhigh above) so a resumed session comes
       // back at the SAME effort it was created with.
@@ -2803,7 +2817,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
         prefix += `export AGENT_MANAGER_TERMINAL_ID='${terminalId.replace(/'/g, "'\\''")}' && `;
         if (config.workingDir) prefix += `cd '${config.workingDir.replace(/'/g, "'\\''")}' && `;
       }
-      writeWhenReady(terminalId, `${prefix}${startupLaunchCmd}\r`);
+      typeRestoredLaunch(terminalId, `${prefix}${startupLaunchCmd}\r`, body.restoreBatch === true);
       log.info('api', `Workspace startup command: terminal ${terminalId.slice(0, 16)} (${startupLaunchCmd.slice(0, 120)}${startupLaunchCmd.length > 120 ? '…' : ''})`);
     }
 
@@ -2949,6 +2963,9 @@ router.post('/queue-images', (req: Request, res: Response) => {
 
 // POST /api/queue-media — a prompt's video, streamed to the same folder (Oct 27 2026).
 router.use(createQueueMediaRouter());
+
+// POST /api/terminal-files — a file pasted into, or picked for, a terminal's prompt (Nov 26 2026).
+router.use(createTerminalFilesRouter());
 
 // Prefill a terminal's output ring buffer with saved data (base64).
 // Used during workspace import to restore previous terminal scrollback.
@@ -4386,6 +4403,21 @@ const roomsService = createRoomsService({
 });
 
 router.use(roomsService.router);
+
+// Alerts centrals raise for the person (Nov 26 2026): the bell's list, cut per device like the rooms.
+const alertsService = createAlertsService({
+  store: alertStore,
+  isLocal: requestIsLocal,
+  clientId: clientIdFromRequest,
+  getSession,
+  canSee: canSeeSession,
+  publish: async (local, remote) => {
+    const ws = await import('./wsManager.js');
+    ws.broadcastByLocality(local, remote);
+  },
+});
+
+router.use(alertsService.router);
 
 /**
  * The Mac's whole room list as GET /rooms answers this Mac: the rooms mirror with each room's session ids

@@ -345,4 +345,18 @@ describe('a room change from this device\'s UI (AASC-55)', () => {
     await vi.advanceTimersByTimeAsync(ROOM_RESYNC_MS + 10);
     expect(gets()).toHaveLength(0);
   });
+
+  it('elsewhere: a room holding sessions hidden here is changed on the Mac, and the refusal says which change', async () => {
+    setWriter('the-mac');
+    fetchMock.mockResolvedValueOnce(answer(409, { ok: false, error: 'room-has-hidden-sessions' }));
+    expect(await requestRoomChange({ type: 'alert-level', roomId: 'r1', level: 'silent' }, false)).toEqual({
+      ok: false,
+      message: 'This room holds sessions not shared with this device. Set its alert level on your Mac.',
+    });
+    fetchMock.mockResolvedValueOnce(answer(409, { ok: false, error: 'room-has-hidden-sessions' }));
+    expect(await requestRoomChange({ type: 'delete', roomId: 'r1' }, false)).toEqual({
+      ok: false,
+      message: 'This room holds sessions not shared with this device. Delete it on your Mac.',
+    });
+  });
 });

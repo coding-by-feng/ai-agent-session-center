@@ -59,6 +59,14 @@ describe('parseRoomOp', () => {
     expect(parseRoomOp({ type: 'move', sessionId: 's', roomId: null })).toEqual({ type: 'move', sessionId: 's', roomId: null });
   });
 
+  it('takes a room\'s alert level (Nov 25 2026), on the list and as an op; null follows the default', () => {
+    expect(parseRoomList({ rooms: [{ ...room('r1', ['a']), alertLevel: 'urgent' }] })).toEqual([{ ...room('r1', ['a']), alertLevel: 'urgent' }]);
+    // A level this build does not know is dropped, not the whole list refused.
+    expect(parseRoomList({ rooms: [{ ...room('r1', ['a']), alertLevel: 'deafening' }] })).toEqual([room('r1', ['a'])]);
+    expect(parseRoomOp({ type: 'alert-level', roomId: 'r1', level: 'quiet' })).toEqual({ type: 'alert-level', roomId: 'r1', level: 'quiet' });
+    expect(parseRoomOp({ type: 'alert-level', roomId: 'r1', level: null })).toEqual({ type: 'alert-level', roomId: 'r1', level: null });
+  });
+
   it('takes a reorder (AASC-55): room ids in their new list order', () => {
     expect(parseRoomOp({ type: 'reorder', roomIds: ['r2', 'r1'] })).toEqual({ type: 'reorder', roomIds: ['r2', 'r1'] });
     const most = Array.from({ length: ROOM_LIMITS.rooms }, (_, i) => `r${i}`);
@@ -71,6 +79,8 @@ describe('parseRoomOp', () => {
     [{ type: 'create', name: 'two\nlines' }],
     [{ type: 'rename', roomId: '', name: 'x' }],
     [{ type: 'color', roomId: 'r1', color: 'red; background:url(x)' }],
+    [{ type: 'alert-level', roomId: 'r1', level: 'deafening' }],
+    [{ type: 'alert-level', roomId: 'r1' }],
     [{ type: 'move', sessionId: 's' }],
     [{ type: 'move', sessionId: 's', roomId: 'r1', roomIndex: 3 }],
     [{ type: 'setRoomIndex', roomId: 'r1', roomIndex: 2 }],
@@ -396,7 +406,20 @@ describe('POST /rooms/ops', () => {
     expect((await call('POST', '/rooms/ops', PHONE, { type: 'rename', roomId: 'mixed', name: 'y' })).status).toBe(202);
   });
 
+  it("a remote device may not set the alert level of a room that holds sessions hidden from it: the level reaches them", async () => {
+    for (const level of ['silent', null]) {
+      const res = await call('POST', '/rooms/ops', PHONE, { type: 'alert-level', roomId: 'mixed', level });
+      expect(res.status, String(level)).toBe(409);
+      expect(res.json.error).toBe('room-has-hidden-sessions');
+    }
+    expect(h.sent).toEqual([]);
+    // A room whose every session it can see is its to set.
+    expect((await call('POST', '/rooms/ops', PHONE, { type: 'alert-level', roomId: 'target', level: 'loud' })).status).toBe(202);
+    expect(h.sent[0].msg.op).toEqual({ type: 'alert-level', roomId: 'target', level: 'loud' });
+  });
+
   it('this machine may act on any room, hidden sessions or not', async () => {
+    expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'alert-level', roomId: 'mixed', level: 'urgent' })).status).toBe(202);
     expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'delete', roomId: 'secret' })).status).toBe(202);
     expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'move', sessionId: 'hidden', roomId: 'empty' })).status).toBe(202);
     expect((await call('POST', '/rooms/ops', LAN_TAB, { type: 'rename', roomId: 'no-such-room', name: 'x' })).status).toBe(404);

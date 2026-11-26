@@ -6,6 +6,8 @@ import {
   EMPTY_PROJECT_FILES,
   MAX_OPEN_FILES,
   MAX_RECENT_FILES,
+  afterClosing,
+  tabName,
   closedAllFiles,
   closedFile,
   leftFile,
@@ -79,6 +81,25 @@ describe('opening and closing files', () => {
     closedAllFiles(s);
     leftFile(s);
     expect(s).toEqual(copy);
+  });
+});
+
+describe('closing the tab on screen (the file tabs, Nov 25 2026)', () => {
+  it('shows the tab after it, else the one before it, else none', () => {
+    const open = ['/a.md', '/b.md', '/c.md'];
+    expect(afterClosing(open, '/b.md')).toBe('/c.md');
+    expect(afterClosing(open, '/c.md')).toBe('/b.md');
+    expect(afterClosing(['/a.md'], '/a.md')).toBeNull();
+    expect(afterClosing(open, '/missing.md')).toBeNull();
+  });
+});
+
+describe('a tab’s name (Nov 25 2026)', () => {
+  it('keeps a short name; shortens a long one in the middle so dated names still differ', () => {
+    expect(tabName('README.md')).toBe('README.md');
+    expect(tabName('2026-11-24-01-content-pipeline-architecture.md')).toBe('2026-11-24-01…tecture.md');
+    expect(tabName('2026-11-24-02-content-pipeline-build-prompts.md')).toBe('2026-11-24-02…prompts.md');
+    expect(tabName('2026-11-24-01-content-pipeline-architecture.md')).toHaveLength(24);
   });
 });
 

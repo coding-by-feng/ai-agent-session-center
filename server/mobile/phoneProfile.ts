@@ -29,6 +29,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { RoomOp } from '../../src/types/room.js';
 import log from '../logger.js';
 import { databaseDirectory } from '../dbPaths.js';
 import { browsableFolder, expandHome, inside, realOrNull, touchesSecret, writtenFolder } from './homeFolders.js';
@@ -59,11 +60,21 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - folders   the folder browser: a folder under home that isn't hidden or private (AASC-54)
  * - origin    an AI popup: from a shared session, asked from a shared session's terminal, and a
  *             file it names (a file popup, AASC-57) one the phone may read
+ * - room-op   a room change of a kind the phone's own screens make (PHONE_ROOM_OPS); the rooms
+ *             router still checks which rooms and sessions it may see
  * On top of the rule, every route that opens a new agent terminal (opensTerminal)
  * counts against the phone's per-minute terminal budget (AASC-32).
  */
 export type PhoneRule =
-  | 'allow' | 'terminal' | 'type' | 'prompt' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'folders' | 'origin';
+  | 'allow' | 'terminal' | 'type' | 'prompt' | 'answer' | 'files' | 'commands' | 'upload' | 'launch' | 'folders' | 'origin'
+  | 'room-op';
+
+/**
+ * The room changes a phone's screens make (RoomSheets, SessionsScreen, RoomGroupParts). Not a room's alert level
+ * (Nov 25 2026): it reaches every session in the room and the phone has no level controls yet. A new kind of room
+ * change reaches a phone only once it is added here.
+ */
+export const PHONE_ROOM_OPS: ReadonlySet<RoomOp['type']> = new Set<RoomOp['type']>(['create', 'rename', 'color', 'delete', 'move', 'reorder']);
 
 interface PhoneRoute {
   method: RegExp;
@@ -120,6 +131,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/sessions/spawn-floating', 'origin'),
   route('POST', '/queue-images', 'upload'),
   route('POST', '/queue-media', 'upload'), // a prompt's video (Oct 27 2026)
+  route('POST', '/terminal-files', 'upload'), // a file for the terminal's prompt (Nov 26 2026)
   // Shared from the Mac (AASC-20): a paused append, the QUEUE badge record, saved prompts.
   route('POST', '/sessions/:id/queue/items', 'upload'), // may carry shared images
   route('GET|POST', '/sessions/:id/queue/sent', 'allow'),
@@ -127,9 +139,13 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('PATCH|DELETE', '/snippets/:id', 'allow'),
   route('POST', '/snippets/:id/use', 'allow'),
   // Rooms come from the Mac (AASC-20): read the cut it may see, and ask the Mac
-  // for a change. Never PUT /rooms: only the Mac's window sets the list.
+  // for a change its screens make. Never PUT /rooms: only the Mac's window sets the list.
   route('GET', '/rooms', 'allow'),
-  route('POST', '/rooms/ops', 'allow'),
+  route('POST', '/rooms/ops', 'room-op'),
+  // Alerts centrals raise (Nov 26 2026): the phone's Inbox lists and dismisses the ones on sessions it may see (the
+  // alerts router cuts them and 404s a hidden one). Raising (POST /alerts) stays this Mac's centrals': no rule.
+  route('GET', '/alerts', 'allow'),
+  route('POST', '/alerts/:id/dismiss', 'allow'),
   // Notes and history of a shared session (the history and note gates check the owner).
   route('GET', '/db/sessions/:id', 'allow'),
   route('GET|POST', '/db/sessions/:id/notes', 'allow'),
@@ -154,6 +170,11 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/voice/call/:id/end', 'allow'),
   // What the Voice central is doing for that call (Nov 22 2026): the route answers only the call's own device.
   route('GET', '/voice/call/:id/progress', 'allow'),
+  // The call screen's ＋ Add (Nov 24 2026): a file or a picked skill counts against the phone's upload budget (each
+  // one also tells the paid voice session); the routes answer only the call's own device.
+  route('POST', '/voice/call/:id/attach', 'upload'),
+  route('POST', '/voice/call/:id/skill', 'upload'),
+  route('DELETE', '/voice/call/:id/attach/[^/]+', 'allow'),
   // Call memory review (Nov 22 2026): the routes show a phone only global items and its visible projects'.
   route('GET', '/voice/memory', 'allow'),
   route('POST', '/voice/memory/:id', 'allow'),
@@ -210,6 +231,13 @@ export function phoneProjectRoot(projectPath: string, home: string): string | nu
   const realHome = realOrNull(home);
   if (!real || !realHome || real === realHome || !inside(real, realHome)) return null;
   return touchesSecret(relative(realHome, real)) ? null : real;
+}
+
+/** Is `p` the home folder itself (links followed)? */
+function isHomeFolder(p: string, home: string): boolean {
+  if (!isAbsolute(p)) return false;
+  const real = realOrNull(p);
+  return real !== null && real === realOrNull(home);
 }
 
 /** The real path a request points at; a missing file resolves through its folder. */
@@ -529,7 +557,13 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       }
       case 'commands': {
         const projectPath = one(req.query.projectPath);
-        return !projectPath || phoneMayRead(projectPath, deps.sharedProjectPaths(), home) ? null : 'outside shared projects';
+        if (!projectPath) return null;
+        const shared = deps.sharedProjectPaths();
+        // A session in the home folder itself (a Global or Codex central, Nov 25 2026): its catalog is the
+        // commands and skills under ~/.claude, ~/.codex and the plugins enabled for home. That is names and
+        // descriptions only; the phone still reads no file there (phoneMayRead never accepts the home folder).
+        if (isHomeFolder(projectPath, home) && shared.some((p) => isHomeFolder(p, home))) return null;
+        return phoneMayRead(projectPath, shared, home) ? null : 'outside shared projects';
       }
       case 'upload':
         return overUploadBudget(phone) ? 'too many uploads' : null;
@@ -560,6 +594,10 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
         return phoneFloatingRefusal(req.body, deps, (p) => phoneMayRead(p, deps.sharedProjectPaths(), home))
           ? 'not from a shared session, or a file outside shared projects'
           : null;
+      case 'room-op': {
+        const type = (req.body as { type?: unknown } | undefined)?.type;
+        return typeof type === 'string' && (PHONE_ROOM_OPS as ReadonlySet<string>).has(type) ? null : 'not a room change the phone makes';
+      }
     }
   }
 

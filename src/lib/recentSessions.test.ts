@@ -7,6 +7,7 @@ import {
   lastWorkAt,
   lastWorkEventAt,
   pickRecentSessions,
+  sortByRecentWork,
 } from './recentSessions';
 import type { Session } from '@/types/session';
 
@@ -82,12 +83,13 @@ describe('recencyOf', () => {
 });
 
 describe('pickRecentSessions', () => {
-  it('keeps a session that went quiet long ago, newest prompt first', () => {
+  it('keeps a session that went quiet long ago, the one that worked last first (Nov 26 2026: not the newest prompt)', () => {
     const old = make({ sessionId: 'old', title: 'Old', promptHistory: [prompt(90)], events: [ev('Stop', 80)] });
+    // A was prompted before B but finished after it: A worked more recently.
     const a = make({ sessionId: 'a', title: 'A', promptHistory: [prompt(20)], events: [ev('Stop', 2)] });
     const b = make({ sessionId: 'b', title: 'B', promptHistory: [prompt(4)], events: [ev('Stop', 3)] });
     const never = make({ sessionId: 'never', title: 'Never' });
-    expect(pickRecentSessions([old, a, b, never], NOW).map((s) => s.sessionId)).toEqual(['b', 'a', 'old']);
+    expect(pickRecentSessions([old, a, b, never], NOW).map((s) => s.sessionId)).toEqual(['a', 'b', 'old']);
   });
 
   it(`keeps the ${RECENT_LIMIT} that worked most recently, running turns included`, () => {
@@ -111,14 +113,15 @@ describe('pickRecentSessions', () => {
     expect(pickRecentSessions(quiet, NOW)).toHaveLength(RECENT_LIMIT);
   });
 
-  it('cuts by recency before ordering pinned first: the 10 are the newest 10, not the first 10 of the 20', () => {
+  it('lists the 10 as the first 10 of the 20: one order, newest work first', () => {
     const quiet = Array.from({ length: 15 }, (_, i) =>
       make({ sessionId: `q${i}`, title: `Q${i}`, promptHistory: [prompt(100 + i * 10)] }));
     const oldPinned = make({ sessionId: 'pin', title: 'Pin', pinned: true, promptHistory: [prompt(900)] });
     const ten = pickRecentSessions([...quiet, oldPinned], NOW).map((s) => s.sessionId);
     const twenty = pickRecentSessions([...quiet, oldPinned], NOW, RECENT_EXPANDED_LIMIT).map((s) => s.sessionId);
     expect(ten).not.toContain('pin');
-    expect(twenty[0]).toBe('pin');
+    expect(twenty.slice(0, RECENT_LIMIT)).toEqual(ten);
+    expect(twenty[twenty.length - 1]).toBe('pin');
   });
 
   it('orders by prompt, not by the latest event, so busy cards do not swap places', () => {
@@ -129,17 +132,17 @@ describe('pickRecentSessions', () => {
     expect(pickRecentSessions([a, b], NOW).map((s) => s.sessionId)).toEqual(['b', 'a']);
   });
 
-  it('puts pinned sessions first, like every other session ordering', () => {
+  it('leaves a pinned session at its real place (Nov 26 2026: PINNED already lists it)', () => {
     const a = make({ sessionId: 'a', title: 'A', promptHistory: [prompt(1)] });
     const p = make({ sessionId: 'p', title: 'P', pinned: true, promptHistory: [prompt(10)] });
-    expect(pickRecentSessions([a, p], NOW).map((s) => s.sessionId)).toEqual(['p', 'a']);
+    expect(pickRecentSessions([p, a], NOW).map((s) => s.sessionId)).toEqual(['a', 'p']);
   });
 
-  it('puts never-prompted sessions last, then breaks ties by title and id', () => {
+  it('puts a running turn first, even one never prompted, then breaks ties by title and id', () => {
     const running = make({ sessionId: 'r', title: 'Running', status: 'working' });
     const z = make({ sessionId: 'z2', title: 'Same', promptHistory: [prompt(5)] });
     const y = make({ sessionId: 'z1', title: 'Same', promptHistory: [prompt(5)] });
-    expect(pickRecentSessions([running, z, y], NOW).map((s) => s.sessionId)).toEqual(['z1', 'z2', 'r']);
+    expect(pickRecentSessions([z, y, running], NOW).map((s) => s.sessionId)).toEqual(['r', 'z1', 'z2']);
   });
 
   it('does not reorder the array it was given', () => {
@@ -181,5 +184,36 @@ describe('lastWorkEventAt — the newest work hook event, never a prompt', () =>
   it('is 0 for a thin session with no events at all', () => {
     expect(lastWorkEventAt({ sessionId: 'x', status: 'idle' })).toBe(0);
     expect(lastWorkEventAt(make({ events: null as never }))).toBe(0);
+  });
+});
+
+describe('sortByRecentWork (the Switch Session overlay, Nov 25 2026)', () => {
+  it('lists every session by its last work, a running turn first and a pinned one not lifted', () => {
+    const pinned = make({ sessionId: 'pin', title: 'Pin', pinned: true, pinOrder: 0, promptHistory: [prompt(300)] });
+    const recent = make({ sessionId: 'recent', title: 'Recent', events: [ev('Stop', 2)] });
+    const older = make({ sessionId: 'older', title: 'Older', promptHistory: [prompt(30)] });
+    const running = make({ sessionId: 'run', title: 'Run', status: 'working', promptHistory: [prompt(500)] });
+    const never = make({ sessionId: 'never', title: 'Never' });
+    expect(sortByRecentWork([pinned, never, older, running, recent], NOW).map((s) => s.sessionId))
+      .toEqual(['run', 'recent', 'older', 'pin', 'never']);
+  });
+
+  it('ignores the SessionStart a restore stamps on every card', () => {
+    const restored = make({ sessionId: 'restored', title: 'A', lastActivityAt: NOW, events: [ev('SessionStart', 0)], promptHistory: [prompt(60)] });
+    const worked = make({ sessionId: 'worked', title: 'B', lastActivityAt: NOW - 50 * MIN, promptHistory: [prompt(5)] });
+    expect(sortByRecentWork([restored, worked], NOW).map((s) => s.sessionId)).toEqual(['worked', 'restored']);
+  });
+
+  it('keeps two running sessions in the order of their last work, so they hold still', () => {
+    const a = make({ sessionId: 'a', title: 'A', status: 'working', events: [ev('PreToolUse', 1)] });
+    const b = make({ sessionId: 'b', title: 'B', status: 'working', events: [ev('PreToolUse', 3)] });
+    expect(sortByRecentWork([b, a], NOW).map((s) => s.sessionId)).toEqual(['a', 'b']);
+  });
+
+  it('returns a new array and keeps every session', () => {
+    const list = [make({ sessionId: 'x' }), make({ sessionId: 'y' })];
+    const sorted = sortByRecentWork(list, NOW);
+    expect(sorted).not.toBe(list);
+    expect(sorted).toHaveLength(2);
   });
 });

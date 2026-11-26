@@ -10,7 +10,9 @@ import type { Session, SessionStatus } from '../../../src/types/session.js';
 import { SESSION_STATUS } from '../../constants.js';
 import { normalizeFolder } from '../paths.js';
 import type { ToolContext, ToolDef } from '../registry.js';
-import { isWithin, shortIdOf, toSessionCard, type SessionCard } from '../scope.js';
+import { isWithin, toSessionCard, type SessionCard } from '../scope.js';
+import { describeAlertLevel, roomAlertLevelOf } from '../../../src/lib/attention.js';
+import { getAlertConfig } from '../../alertConfig.js';
 import {
   defineTool,
   fence,
@@ -124,11 +126,14 @@ const sessionList = defineTool({
     const names = new Map(rooms.map((r) => [r.id, r.name]));
     const base = listBase(ctx, filter);
     const projectRoot = filter.project === undefined ? null : normalizeFolder(filter.project);
+    const ref = refOf(ctx);
     const views: ListView[] = base
       .map((s) => {
         const card = toSessionCard(s, rooms);
         return {
           ...card,
+          // The reference the next call accepts: 8 characters only where they start this one session.
+          shortId: ref(s.sessionId),
           roomName: card.roomId === null ? null : (names.get(card.roomId) ?? null),
           guessedWait: isGuessedWait(s),
           own: ctx.workers.isOwn(ctx.central.centralId, s),
@@ -140,7 +145,7 @@ const sessionList = defineTool({
     return {
       // The titles are fenced in the data, one by one; the rows in the text sit in one block (listSummary).
       data: { count: views.length, total: base.length, sessions: views.map(dataCard) },
-      summary: listSummary(views, base.length, filtered, ctx.now(), refOf(ctx)),
+      summary: listSummary(views, base.length, filtered, ctx.now(), ref),
     };
   },
 });
@@ -190,7 +195,8 @@ const sessionGet = defineTool({
   description:
     'Describes one session: status, CLI, model, effort, context %, the open request it waits on (its input ' +
     'fenced as untrusted), any API-fault banner, background shells, subagents, queue count, room and flags ' +
-    '(pinned, muted, shared with the phone, external, has a terminal). Its card says `handsOff: true` when the ' +
+    '(pinned, muted, shared with the phone, external, has a terminal) and its alert level. Its card says ' +
+    '`handsOff: true` when the ' +
     'person keeps the session to themselves: you may read it, but every write to it is refused. `started: false` ' +
     'means it has not reported in yet: prompts to it are refused and tasks wait.',
   risk: 'read',
@@ -199,7 +205,8 @@ const sessionGet = defineTool({
   async run(args, ctx) {
     const s = resolveTarget(ctx, args.id);
     const rooms = visibleRooms(ctx);
-    const card = toSessionCard(s, rooms);
+    const ref = refOf(ctx)(s.sessionId);
+    const card = { ...toSessionCard(s, rooms), shortId: ref };
     const roomName = rooms.find((r) => r.id === card.roomId)?.name ?? null;
     const subagents = s.subagents ?? [];
     const guessed = isGuessedWait(s);
@@ -231,8 +238,10 @@ const sessionGet = defineTool({
       },
       team: s.teamId ? { teamId: s.teamId, role: s.teamRole ?? null } : null,
       central: s.central ? { centralId: s.central.centralId, kind: s.central.kind } : null,
+      // Its level and where it comes from: its own, its room's, or the default (src/lib/attention.ts).
+      alertLevel: describeAlertLevel(s, roomAlertLevelOf(s.sessionId, rooms), getAlertConfig().defaultLevel),
     };
-    return { data, summary: describeSummary(s, card, roomName, ctx.now(), refOf(ctx)(s.sessionId)) };
+    return { data, summary: describeSummary(s, card, roomName, ctx.now(), ref) };
   },
 });
 
@@ -253,7 +262,7 @@ const sessionWhere = defineTool({
     const body = unwrap<{ source?: unknown }>(await ctx.client.get(`/sessions/${seg(s.sessionId)}/source`));
     const source = typeof body.source === 'string' && body.source !== '' ? plain(body.source, 30) : 'unknown';
     return {
-      data: { id: s.sessionId, shortId: shortIdOf(s.sessionId), source },
+      data: { id: s.sessionId, shortId: refOf(ctx)(s.sessionId), source },
       summary: `Session ${refOf(ctx)(s.sessionId)} runs in: ${source}.`,
     };
   },

@@ -9,6 +9,7 @@
  *   ⟳ aasc-backend-1 · 1m    Stopped: API Error: 529       [Continue]
  *   ✓ website-1 · 12m        "Updated the pricing page…"
  *
+ * A central's alerts (alert_raise, Nov 26 2026) wait in Waiting like a question; Dismiss closes one for every device.
  * A central's confirmations (AASC P5-15) wait above the filter chips, in every filter: they expire on their own
  * and count as denied, so they are never filtered away. Oldest first, so a new card never moves an older one's buttons.
  *
@@ -28,6 +29,8 @@ import { PhoneConfirmList } from '../chat/PhoneConfirmCard';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
+import { useAttentionStore } from '@/stores/attentionStore';
+import { useInboxAlerts } from '../chat/useInboxAlerts';
 import { useOpenScreen, useOpenTerminalScreen } from '../app/listPane';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { sessionHasChat, sessionPath } from '@/lib/chat/phoneRoutes';
@@ -106,14 +109,15 @@ export default function InboxScreen() {
   const confirms = usePhoneConfirmStore((s) => s.confirms);
   const pruneConfirms = usePhoneConfirmStore((s) => s.prune);
   const offer = useSyncExternalStore(subscribeInterrupted, getInterruptedOffer, () => null);
+  const alerts = useInboxAlerts();
   const now = useNow();
   const [filter, setFilter] = useState<InboxFilter>('waiting');
   const [read, setRead] = useState<ReadState>(loadReadState);
   const { busy, run } = useContinue(sessions);
 
   const items = useMemo(
-    () => inboxItems(sessions, { titleOf: sessionDisplayTitle, now, offer }),
-    [sessions, now, offer],
+    () => inboxItems(sessions, { titleOf: sessionDisplayTitle, now, offer, alerts }),
+    [sessions, now, offer, alerts],
   );
   const waiting = useMemo(() => filterInbox(items, 'waiting'), [items]);
   const finished = useMemo(() => filterInbox(items, 'finished'), [items]);
@@ -138,6 +142,10 @@ export default function InboxScreen() {
     openTerminal(sessionId, target ? sessionHasChat(detectCli(target)) : true);
   }, [push, openTerminal]);
 
+  const dismissAlert = useCallback((item: InboxItem) => {
+    if (item.alertId) useAttentionStore.getState().dismissAlert(item.alertId);
+  }, []);
+
   const markAll = (
     <Button small variant="plain" onClick={() => updateRead(items.map((i) => i.id))}>Mark all read</Button>
   );
@@ -158,7 +166,7 @@ export default function InboxScreen() {
           title={filter === 'finished' ? 'No finished turns' : filter === 'waiting' ? (confirms.length > 0 ? 'Nothing else needs you' : 'Nothing needs you') : 'Nothing here yet'}
           message={filter === 'finished'
             ? 'Turns that ended in the last 12 hours show up here.'
-            : 'Approvals, questions and turns that stopped show up here.'}
+            : 'Approvals, questions, turns that stopped and alerts from your centrals show up here.'}
           action={filter === 'waiting' && finished.length > 0
             ? <Button onClick={() => setFilter('finished')}>See {finished.length} finished</Button>
             : undefined}
@@ -176,6 +184,7 @@ export default function InboxScreen() {
               onRead={onRead}
               onContinue={(i) => void run(i)}
               continuing={busy.has(item.id)}
+              onDismiss={dismissAlert}
             />
           ))}
         </ul>

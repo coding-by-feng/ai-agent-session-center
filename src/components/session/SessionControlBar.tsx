@@ -1,11 +1,11 @@
 /**
  * SessionControlBar — the selected session's toggles and room:
- * Resume (ended sessions only), Mute · Share · Alert, and the room it is in.
+ * Resume (ended sessions only), the alert level · Share, and the room it is in.
  *
- * Mute, Share and Alert are one control style, the shared Button as a toggle:
- * a fixed label and icon, the state in aria-pressed and the "on" fill
- * (AASC-11). Kill is not here: it is destructive, so it sits at the end of the
- * header's title row (SessionSwitcher), away from these toggles.
+ * The alert level (Nov 25 2026, AlertLevelPicker) replaced Mute and Alert in Full; Lite keeps those two toggles
+ * (the server maps them onto levels). Mute, Share and Alert are one control style, the shared Button as a toggle:
+ * a fixed label and icon, the state in aria-pressed and the "on" fill (AASC-11). Kill is not here: it is
+ * destructive, so it sits at the end of the header's title row (SessionSwitcher), away from these toggles.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Session } from '@/types';
@@ -22,6 +22,8 @@ import { faultLabel } from '@/lib/resumeWatchdog';
 import { usageLimitReset } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
 import { tooltips } from '@/lib/tooltips';
+import { IS_LITE } from '@/lib/edition';
+import AlertLevelPicker from './AlertLevelPicker';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
@@ -180,21 +182,27 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
         </Tooltip>
       )}
       <span className={styles.ctrlToggles}>
-        <Tooltip {...(session.muted ? tooltips.ctrlUnmute : tooltips.ctrlMute)}>
-          <Button size="sm" icon={<MuteIcon />} pressed={!!session.muted} onClick={handleToggleMute}>
-            Mute
-          </Button>
-        </Tooltip>
+        {IS_LITE ? (
+          <Tooltip {...(session.muted ? tooltips.ctrlUnmute : tooltips.ctrlMute)}>
+            <Button size="sm" icon={<MuteIcon />} pressed={!!session.muted} onClick={handleToggleMute}>
+              Mute
+            </Button>
+          </Tooltip>
+        ) : (
+          <AlertLevelPicker session={session} />
+        )}
         <Tooltip {...(session.remoteVisible ? tooltips.ctrlRemoteVisibleOn : tooltips.ctrlRemoteVisibleOff)}>
           <Button size="sm" icon={<ShareIcon />} pressed={!!session.remoteVisible} onClick={handleToggleRemoteVisible}>
             Share
           </Button>
         </Tooltip>
-        <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>
-          <Button size="sm" icon={<AlertIcon />} pressed={!!session.alerted} onClick={handleToggleAlert}>
-            Alert
-          </Button>
-        </Tooltip>
+        {IS_LITE && (
+          <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>
+            <Button size="sm" icon={<AlertIcon />} pressed={!!session.alerted} onClick={handleToggleAlert}>
+              Alert
+            </Button>
+          </Tooltip>
+        )}
       </span>
 
       {/* Room select */}

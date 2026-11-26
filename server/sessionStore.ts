@@ -72,8 +72,11 @@ import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { TeamSerialized } from '../src/types/team.js';
 import { initialRemoteVisible, isShareNewSessionsOn } from './shareDefault.js';
+import { scrollbackStore } from './scrollbackStore.js';
+import { releaseRestoreLaunch } from './launchQueue.js';
 import { inferCliSource } from './agentCli.js';
 import { nextPinOrder, placeVisiblePins, planPinnedOrder } from '../src/lib/pinOrder.js';
+import { legacyFlags, ownAlertLevel, type AlertLevel } from '../src/lib/attention.js';
 
 const sessions = new Map<string, Session>();
 const projectSessionCounters = new Map<string, number>();
@@ -1073,6 +1076,15 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     session.transcriptPath = hookData.transcript_path;
   }
 
+  // Every hook carries the session's permission mode, and Shift+Tab changes it mid-session (Nov 25 2026): read at
+  // SessionStart and PermissionRequest only, a central switched to `auto` kept a null mode, `centralCap` answered
+  // `default`, and the worker card it asked for was refused. An event without one keeps the mode. `plan` is a passing
+  // stop, never recorded here, so a restart does not reopen in it (a session STARTED in plan still records it below).
+  const eventMode = 'permission_mode' in hookData && typeof hookData.permission_mode === 'string' ? hookData.permission_mode : '';
+  if (eventMode !== '' && eventMode !== 'plan' && eventMode !== session.permissionMode) session.permissionMode = eventMode;
+  // A restored launch holds one of the few restore slots until its CLI reports (launchQueue.ts, Nov 25 2026).
+  if (session.terminalId) releaseRestoreLaunch(session.terminalId);
+
   const statusBefore = session.status;
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
@@ -1361,7 +1373,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.waitingDetail = ('tool_input' in hookData && hookData.tool_input)
         ? `Approve ${permTool}: ${summarizeToolInput(hookData.tool_input as Record<string, unknown>, permTool)}`
         : `Approve ${permTool}`;
-      session.permissionMode = ('permission_mode' in hookData ? hookData.permission_mode : undefined) || null;
+      // The mode itself is recorded above, for every event; a request without one keeps it rather than blanking it.
       eventEntry.detail = `Permission request: ${permTool}`;
       break;
     }
@@ -1833,12 +1845,13 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   if (config.pinned) session.pinned = config.pinned;
   // Its place in PINNED, else the end: a restored pin keeps its slot, a new one goes last.
   if (config.pinned) session.pinOrder = config.pinOrder ?? nextPinOrder(sessions.values());
-  if (config.muted) session.muted = config.muted;
-  // Hands-off (server/mcp) survives a restore like muted does, and is on the first broadcast.
+  // The alert level (src/lib/attention.ts): a restore's own level, else its older switches as one, with the
+  // switches kept as its mirror, so older clients read the same thing.
+  applyAlertLevel(session, ownAlertLevel(config) ?? null);
+  // Hands-off (server/mcp) survives a restore like the level does, and is on the first broadcast.
   if (config.handsOff) session.handsOff = true;
   // The Automation mark is on the card from its first broadcast, so the next auto-save keeps it.
   if (config.hookLevel === 'lite') session.hookLevel = 'lite';
-  if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
   // A central (server/mcp) is a property of its card from the first broadcast: the registry finds the
@@ -2061,6 +2074,8 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   dropControl(resolvedId);
   sessions.delete(resolvedId);
   invalidateSessionsCache();
+  // A killed or closed card's output saved at the last quit must not outlive it (scrollbackStore.ts).
+  scrollbackStore.forget(resolvedId);
   return true;
 }
 
@@ -2101,9 +2116,13 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
     const session = sessions.get(id);
     if (!session) continue;
 
-    // Capture terminal output buffer BEFORE killing the terminal
-    if (session.terminalId) {
-      const buf = getTerminalOutputBuffer(session.terminalId);
+    // Capture terminal output buffer BEFORE killing the terminal. After a server restart a session
+    // has no terminal yet: its output is the ring saved at the last quit (scrollbackStore.ts, Nov 25 2026).
+    {
+      const live = session.terminalId ? getTerminalOutputBuffer(session.terminalId) : null;
+      // Always consumed: a live ring is newer than the file, and a file must never be handed out twice.
+      const saved = scrollbackStore.take(session.sessionId);
+      const buf = live ?? saved?.toString('base64') ?? null;
       if (buf) {
         // Key by the RAW sshConfig.workingDir, not the resolved projectPath:
         // the client's workspace snapshot carries cfg.workingDir verbatim
@@ -2120,7 +2139,7 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
         // session's scrollback into another's fresh PTY.
         savedOutputs.push({ key, sessionId: session.sessionId, data: buf });
       }
-      closeTerminal(session.terminalId);
+      if (session.terminalId) closeTerminal(session.terminalId);
     }
     if (session.opsTerminalId) {
       closeTerminal(session.opsTerminalId);
@@ -2260,9 +2279,36 @@ export function setSessionHookLevel(sessionId: string, hookLevel: SessionHookLev
   return { ...session };
 }
 
-export function setSessionMuted(sessionId: string, muted: boolean): void {
-  const session = sessions.get(sessionId);
-  if (session) { session.muted = muted; invalidateSessionsCache(); }
+/**
+ * A session's own alert level on the card, and the older switches as its mirror (Silent is `muted`, Loud and Urgent
+ * are `alerted`), so a Client edition or an older phone build reads the same thing. Null clears it: the session follows
+ * its room's level, else the default (src/lib/attention.ts). In place, like every setter here.
+ */
+function applyAlertLevel(session: Session, level: AlertLevel | null): void {
+  const flags = legacyFlags(level);
+  if (level) session.alertLevel = level;
+  else delete session.alertLevel;
+  if (flags.muted) session.muted = true;
+  else delete session.muted;
+  if (flags.alerted) session.alerted = true;
+  else delete session.alerted;
+}
+
+/**
+ * Set a session's own alert level, or with null let it follow its room and the default (server/alertLevelRouter.ts,
+ * which also maps the older Mute and Alert routes onto it). Every window is told with a `session_update`, and one
+ * waiting in the 20 ms batch is dropped (the new card holds everything it did). Follows a re-keyed id. Returns the
+ * card as it now is, or null when there is none.
+ */
+export function setSessionAlertLevel(sessionId: string, level: AlertLevel | null): Session | null {
+  const id = resolveSessionId(sessionId);
+  const session = id === null ? undefined : sessions.get(id);
+  if (id === null || !session) return null;
+  applyAlertLevel(session, level);
+  invalidateSessionsCache();
+  dropPendingSessionUpdates(session.sessionId);
+  void broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+  return { ...session };
 }
 
 /**
@@ -2292,11 +2338,6 @@ export function setSessionHandsOff(sessionId: string, on: boolean): Session | nu
   dropPendingSessionUpdates(session.sessionId);
   void broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
   return { ...session };
-}
-
-export function setSessionAlerted(sessionId: string, alerted: boolean): void {
-  const session = sessions.get(sessionId);
-  if (session) { session.alerted = alerted; invalidateSessionsCache(); }
 }
 
 export function setSessionAccentColor(sessionId: string, color: string): void {

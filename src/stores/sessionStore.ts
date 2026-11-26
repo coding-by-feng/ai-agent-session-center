@@ -3,6 +3,8 @@ import type { Session } from '@/types';
 import { isAiPopupEnabled } from '@/lib/aiPopup';
 import { isListedSession } from '@/lib/sessionSort';
 import { nextPinOrder, planPinnedOrder } from '@/lib/pinOrder';
+import { legacyFlags, levelAfterAlert, levelAfterMute, ownAlertLevel, type AlertLevel } from '@/lib/attention';
+import { sessionAlertOf } from '@/lib/sessionAlertLevel';
 
 /** The answer to an Automation (lite hooks) change: see `setHookLevel`. */
 export type HookLevelResult =
@@ -52,6 +54,16 @@ interface SessionState {
   setPinnedOrder: (sessionIds: readonly string[]) => void;
   toggleMute: (sessionId: string) => void;
   toggleAlert: (sessionId: string) => void;
+  /**
+   * Set a session's own alert level, or with null let it follow its room and the default (lib/attention.ts, Nov 25
+   * 2026). Optimistic, then `PUT /api/sessions/:id/alert-level`; the server's `session_update` settles it.
+   */
+  setAlertLevel: (sessionId: string, level: AlertLevel | null) => void;
+  /**
+   * Set Alert to `alerted` on several sessions at once (the room frame header's Alert, `roomAlert.ts`). Optimistic, one
+   * store update, then the same `PUT /api/sessions/:id/alerted` per session as `toggleAlert`.
+   */
+  setAlertedMany: (sessionIds: readonly string[], alerted: boolean) => void;
   toggleRemoteVisible: (sessionId: string) => void;
   toggleAiPopup: (sessionId: string) => void;
   /**
@@ -62,6 +74,22 @@ interface SessionState {
   setSessionTitle: (sessionId: string, title: string) => void;
   /** Set the inline progress remark. Empty string clears it. */
   setSessionRemark: (sessionId: string, remark: string) => void;
+}
+
+/**
+ * The session with its own alert level (null: none) and the older switches as its mirror, as the server writes it
+ * (server/sessionStore.ts `applyAlertLevel`): a key that is off is absent, not false.
+ */
+function withAlertLevel(session: Session, level: AlertLevel | null): Session {
+  const next: Session = { ...session };
+  delete next.alertLevel;
+  delete next.muted;
+  delete next.alerted;
+  const flags = legacyFlags(level);
+  if (level) next.alertLevel = level;
+  if (flags.muted) next.muted = true;
+  if (flags.alerted) next.alerted = true;
+  return next;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -228,8 +256,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const session = state.sessions.get(sessionId);
       if (!session) return state;
       const muted = !session.muted;
+      // The level the server will give it (server/alertLevelRouter.ts maps the switch the same way).
+      const level = levelAfterMute(ownAlertLevel(session), sessionAlertOf(session).followed, muted);
       const next = new Map(state.sessions);
-      next.set(sessionId, { ...session, muted });
+      next.set(sessionId, level === undefined ? { ...session, muted } : withAlertLevel(session, level));
       // Persist to server
       fetch(`/api/sessions/${encodeURIComponent(sessionId)}/muted`, {
         method: 'PUT',
@@ -244,13 +274,51 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const session = state.sessions.get(sessionId);
       if (!session) return state;
       const alerted = !session.alerted;
+      const level = levelAfterAlert(ownAlertLevel(session), sessionAlertOf(session).followed, alerted);
       const next = new Map(state.sessions);
-      next.set(sessionId, { ...session, alerted });
+      next.set(sessionId, level === undefined ? { ...session, alerted } : withAlertLevel(session, level));
       fetch(`/api/sessions/${encodeURIComponent(sessionId)}/alerted`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alerted }),
       }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  setAlertLevel: (sessionId, level) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(sessionId, withAlertLevel(session, level));
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/alert-level`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      }).catch(() => { /* ignore network errors: the next session_update says what the server has */ });
+      return { sessions: next };
+    }),
+
+  setAlertedMany: (sessionIds, alerted) =>
+    set((state) => {
+      const changed = sessionIds.filter((id) => {
+        const session = state.sessions.get(id);
+        return session !== undefined && !!session.alerted !== alerted;
+      });
+      if (changed.length === 0) return state;
+      const next = new Map(state.sessions);
+      for (const id of changed) {
+        const session = state.sessions.get(id);
+        if (session) {
+          const level = levelAfterAlert(ownAlertLevel(session), sessionAlertOf(session).followed, alerted);
+          next.set(id, level === undefined ? { ...session, alerted } : withAlertLevel(session, level));
+        }
+        fetch(`/api/sessions/${encodeURIComponent(id)}/alerted`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alerted }),
+        }).catch(() => { /* ignore network errors */ });
+      }
       return { sessions: next };
     }),
 

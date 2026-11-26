@@ -23,6 +23,8 @@ export interface FileTreeHandle {
   collapseAll(): void;
   /** Re-load the tree from disk, preserving open dirs + scroll. */
   refresh(): Promise<void>;
+  /** Open a folder and every folder above it, then scroll to it (a folder link in a markdown preview). */
+  revealDir(path: string): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +522,42 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
   }, [refresh]);
 
   // Expose imperative methods to parent components (e.g. toolbar buttons)
+  /**
+   * Load and open each directory in `dirIds` (outermost first), then scroll to `scrollId`.
+   * Shared by the active-file auto-reveal and `revealDir` (a folder link in a markdown preview).
+   */
+  const revealDirs = useCallback(async (dirIds: string[], scrollId: string, isCancelled: () => boolean) => {
+    // Sequentially load each directory if not yet loaded
+    for (const dirId of dirIds) {
+      if (isCancelled()) return;
+      if (!loadedDirs.current.has(dirId)) {
+        try {
+          const { items } = await provider.listDir(projectPath, dirId, showHidden);
+          if (isCancelled()) return;
+          loadedDirs.current.add(dirId);
+          const children = entriesToNodes(items, dirId);
+          setTreeData((prev) => updateNodeInTree(prev, dirId, (n) => ({
+            ...n, isLoading: false, children,
+          })));
+        } catch {
+          return; // stop if a dir fails to load
+        }
+      }
+    }
+
+    // Wait for React to render the new tree data, then open them and scroll
+    requestAnimationFrame(() => {
+      if (isCancelled() || !treeRef.current) return;
+      for (const dirId of dirIds) {
+        treeRef.current.open(dirId);
+      }
+      requestAnimationFrame(() => {
+        if (isCancelled() || !treeRef.current) return;
+        treeRef.current.scrollTo(scrollId);
+      });
+    });
+  }, [projectPath, showHidden, provider]);
+
   useImperativeHandle(ref, () => ({
     collapseAll: () => {
       const api = treeRef.current;
@@ -542,7 +580,14 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
     refresh: async () => {
       await refresh();
     },
-  }), [refresh, schedulePersist]);
+    revealDir: (path: string) => {
+      const parts = path.split('/').filter(Boolean);
+      if (parts.length === 0) return; // the root is always shown
+      const dirIds = parts.map((_, i) => '/' + parts.slice(0, i + 1).join('/'));
+      void revealDirs(dirIds, dirIds[dirIds.length - 1], () => false);
+      schedulePersist();
+    },
+  }), [refresh, schedulePersist, revealDirs]);
 
   // Auto-refresh: silently reload all loaded directories to detect external changes.
   // Unlike refresh(), this does not clear loadedDirs or set loading state, preventing
@@ -637,42 +682,9 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
     }
 
     let cancelled = false;
-
-    async function revealPath() {
-      // Sequentially load each ancestor directory if not yet loaded
-      for (const dirId of ancestors) {
-        if (cancelled) return;
-        if (!loadedDirs.current.has(dirId)) {
-          try {
-            const { items } = await provider.listDir(projectPath, dirId, showHidden);
-            if (cancelled) return;
-            loadedDirs.current.add(dirId);
-            const children = entriesToNodes(items, dirId);
-            setTreeData((prev) => updateNodeInTree(prev, dirId, (n) => ({
-              ...n, isLoading: false, children,
-            })));
-          } catch {
-            return; // stop if a dir fails to load
-          }
-        }
-      }
-
-      // Wait for React to render the new tree data, then open ancestors and scroll
-      requestAnimationFrame(() => {
-        if (cancelled || !treeRef.current) return;
-        for (const dirId of ancestors) {
-          treeRef.current.open(dirId);
-        }
-        requestAnimationFrame(() => {
-          if (cancelled || !treeRef.current || !activeFilePath) return;
-          treeRef.current.scrollTo(activeFilePath);
-        });
-      });
-    }
-
-    revealPath();
+    void revealDirs(ancestors, activeFilePath, () => cancelled);
     return () => { cancelled = true; };
-  }, [activeFilePath, projectPath, showHidden, provider]);
+  }, [activeFilePath, revealDirs]);
 
   // Bind onRequestDelete into the Node renderer so per-row trash buttons work.
   const nodeRenderer = useMemo(

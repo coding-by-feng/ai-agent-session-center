@@ -22,10 +22,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { Session } from '@/types';
-import { Button, Chip, EmptyState, ListRow, ListSection, Screen, Sheet } from '../kit';
+import { Button, Chip, EmptyState, ListRow, ListSection, MenuButton, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
 import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ForkIcon, KillIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { CloneIcon, ForkIcon, KillIcon, MoreIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
 import { pinnedMoveOrder } from '@/lib/pinMove';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
@@ -49,6 +49,11 @@ import { useRoomStore } from '@/stores/roomStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
+import { putDownToday } from '@/lib/recentPutDown';
+import { isAlerting } from '@/lib/alertNotify';
+import { sessionAlertOf } from '@/lib/sessionAlertLevel';
+import { PutDownIcon } from '@/components/session/PutDownIcon';
 import { usePullToRefresh, type PullPhase } from '@/hooks/usePullToRefresh';
 import { showToast } from '@/components/ui/ToastContainer';
 import { refreshSessionList } from '@/lib/sessionRefresh';
@@ -142,6 +147,8 @@ interface RoomGrouping {
   /** Recent lists 20, not 10 (this phone's ⌄⌄; the desktop keeps its own choice). */
   recentExpanded: boolean;
   onToggleRecentLimit: () => void;
+  /** The live sessions put down from Recent today (Nov 24 2026): the header's Put back chip lists them. */
+  recentPutDown: readonly Session[];
   pinnedCollapsed: boolean;
   onTogglePinned: () => void;
   onRoomMenu: (roomId: string) => void;
@@ -174,7 +181,8 @@ interface GroupProps {
   now: number;
   folded: boolean;
   onToggleFold: () => void;
-  rowProps: (session: Session) => { swipeActions: SwipeAction[]; menuItems: ContextMenuItem[] };
+  /** `inRecent`: the row is Recent's copy, which alone offers Put down (as on the desktop). */
+  rowProps: (session: Session, inRecent: boolean) => { swipeActions: SwipeAction[]; menuItems: ContextMenuItem[]; alerting: boolean };
   onOpen: (session: Session) => void;
   /** Set when grouped by room. */
   rooms?: RoomGrouping;
@@ -233,6 +241,7 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
       collapsed={frameFolded}
       onToggle={rooms.onToggleRecent}
       limit={group.recentHasMore ? { expanded: rooms.recentExpanded, onToggle: rooms.onToggleRecentLimit } : undefined}
+      putDown={rooms.recentPutDown}
     />
   ) : rooms && group.room ? (
     <RoomGroupHeader
@@ -282,7 +291,9 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
       {header}
       {frameFolded ? null : (
       <ListSection label={group.title} className={styles.groupList}>
-      {count === 0 && rooms ? (
+      {count === 0 && rooms && group.kind === 'recent' ? (
+        <li className={roomStyles.emptyRoom}>All put down for today.</li>
+      ) : count === 0 && rooms ? (
         <li className={roomStyles.emptyRoom}>No sessions. Hold a session’s ≡ and drop it here.</li>
       ) : folded ? (
         <li className={styles.foldedNote}>
@@ -300,7 +311,7 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
           onOpen={onOpen}
           grip={builtin ? undefined : rooms?.gripFor(s.sessionId, roomId)}
           dragY={drag?.sessionId === s.sessionId ? drag.dy : undefined}
-          {...rowProps(s)}
+          {...rowProps(s, group.kind === 'recent')}
         />
       ))}
       </ListSection>
@@ -374,9 +385,19 @@ export default function SessionsScreen() {
       return next;
     });
   }, []);
+  // Put down (Nov 24 2026): this device's list, the desktop's rules (recentPutDown.ts); the clock brings them back at midnight.
+  const putDownState = useRecentPutDownStore((st) => st.putDown);
+  const putDownIds = useMemo(() => putDownToday(putDownState, now), [putDownState, now]);
+  const recentPutDown = useMemo(
+    () => putDownIds.flatMap((id) => {
+      const s = sessions.get(id);
+      return s && s.status !== 'ended' && !s.isFloating ? [s] : [];
+    }),
+    [putDownIds, sessions],
+  );
   const groups = useMemo(
-    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded }),
-    [sessions, groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded],
+    () => groupSessions({ sessions: sessions.values(), groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded, putDown: putDownIds }),
+    [sessions, groupBy, filter, query, rooms, reads, now, showCentral, projectOrder, recentExpanded, putDownIds],
   );
   // What the live sessions said and did, for a search (the desktop's ⇧⌘F search, Oct 20 2026).
   const contentHits = useMemo(() => {
@@ -416,18 +437,24 @@ export default function SessionsScreen() {
     openTerminal(id, target ? sessionHasChat(detectCli(target)) : true);
   }, [openTerminal]);
 
-  const rowProps = useCallback((s: Session) => {
+  const putDownSession = useRecentPutDownStore((st) => st.putDownSession);
+  const rowProps = useCallback((s: Session, inRecent: boolean) => {
     const id = s.sessionId;
     const unread = isUnreadFinish(s, reads);
+    // Recent's copy swipes to Put down in Mute's place (Nov 24 2026): still three actions, and Mute stays in the menu.
     const swipeActions: SwipeAction[] = [
       { id: 'read', label: unread ? 'Mark read' : 'Read', tone: 'accent', onAction: () => markRead(s) },
-      { id: 'mute', label: s.muted ? 'Unmute' : 'Mute', icon: <SpeakerIcon width={20} height={20} />, onAction: () => setNotifications(s, !!s.muted) },
+      inRecent
+        ? { id: 'put-down', label: 'Put down', icon: <PutDownIcon size={20} />, onAction: () => putDownSession(id) }
+        : { id: 'mute', label: s.muted ? 'Unmute' : 'Mute', icon: <SpeakerIcon width={20} height={20} />, onAction: () => setNotifications(s, !!s.muted) },
       { id: 'more', label: 'More', icon: <EllipsisIcon />, onAction: () => openSheet(id, 'actions') },
     ];
     const ended = s.status === 'ended';
     const menuItems: ContextMenuItem[] = [
       { id: 'read', label: 'Mark read', disabledReason: unread ? undefined : 'Nothing new since you read it.', onSelect: () => markRead(s) },
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
+      // Out of Recent until midnight; it stays in its room (the desktop's RECENT put-down, Nov 24 2026).
+      ...(inRecent ? [{ id: 'put-down', label: 'Put down for today', icon: <PutDownIcon size={20} />, onSelect: () => putDownSession(id) }] : []),
       // The desktop's PINNED frame and respawn (Nov 2 2026; AASC-50 had kept a phone from pinning).
       { id: 'pin', label: s.pinned ? 'Unpin' : 'Pin', icon: <PinIcon />, onSelect: () => void setPinned(s, !s.pinned) },
       // The desktop drags PINNED cards; the phone steps them (Nov 18 2026). Only where a step is possible.
@@ -440,8 +467,11 @@ export default function SessionsScreen() {
       { id: 'restart', label: 'Restart…', icon: <RestartIcon />, disabledReason: restartBlocker(s) ?? undefined, onSelect: () => openSheet(id, 'restart') },
       { id: 'kill', label: 'Kill…', icon: <KillIcon />, destructive: true, disabledReason: ended ? 'It has already ended.' : undefined, onSelect: () => openSheet(id, 'kill') },
     ];
-    return { swipeActions, menuItems };
-  }, [reads, markRead, setNotifications, setPinned, setPinnedOrder, sessions, openSheet, copy]);
+    // Alert on (Nov 24 2026): the desktop card's ring, by the same rule; the list is never "the open card". Whether it
+    // glows is its alert level's (Nov 25 2026, lib/sessionAlertLevel.ts).
+    const alerting = isAlerting(s, { isCurrent: false, finishedUnseen: unread, glow: sessionAlertOf(s).outputs.glow });
+    return { swipeActions, menuItems, alerting };
+  }, [reads, markRead, setNotifications, setPinned, setPinnedOrder, sessions, openSheet, copy, putDownSession]);
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);
@@ -518,6 +548,7 @@ export default function SessionsScreen() {
     onToggleRecent: toggleRecent,
     recentExpanded,
     onToggleRecentLimit: toggleRecentLimit,
+    recentPutDown,
     pinnedCollapsed,
     onTogglePinned: togglePinned,
     onToggleRoom: toggleRoom,
@@ -529,7 +560,7 @@ export default function SessionsScreen() {
     registerGroup: sessionDrag.registerGroup,
     gripFor: sessionDrag.gripFor,
     sessionDrag: sessionDrag.drag,
-  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, recentExpanded, toggleRecentLimit, pinnedCollapsed, togglePinned, toggleRoom, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts,
+  } : undefined), [byRoom, collapsedRooms, centralCollapsed, toggleCentral, recentCollapsed, toggleRecent, recentExpanded, toggleRecentLimit, recentPutDown, pinnedCollapsed, togglePinned, toggleRoom, frameDrag.onPointerDown, frameDrag.draggingId, frameDrag.shifts,
     registerFrameEl, sessionDrag.registerGroup, sessionDrag.gripFor, sessionDrag.drag]);
 
   const projectFrames = useMemo<ProjectFrames | undefined>(() => (byProject ? {
@@ -545,39 +576,37 @@ export default function SessionsScreen() {
   // Null in a phone browser, so the button is the app's alone. The call returns to this tab.
   const callUrl = nativeShellCallUrl(`${window.location.pathname}${window.location.search}`);
 
+  const toggleSearch = useCallback(() => {
+    setSearching((on) => !on);
+    if (searching) setQuery('');
+  }, [searching]);
+
+  // Nov 24 2026: Call AASC, Rooms and Search fold behind one ⋯, so the title stays centred; ＋ (the
+  // screen's main action) stays out. Each keeps its old rule: Call in the app only (callUrl), Rooms
+  // grouped by room once the Mac answered (rooms stay manageable with no session shared here).
+  // Search alone needs no menu: it stays its own icon.
+  const folded: ContextMenuItem[] = [
+    ...(callUrl ? [{ id: 'call', label: 'Call AASC', icon: <PhoneCallIcon />, onSelect: () => window.location.assign(callUrl) }] : []),
+    ...(snapshotReceived && byRoom ? [{ id: 'rooms', label: 'New or manage rooms', icon: <RoomIcon />, onSelect: () => setManageRooms(true) }] : []),
+    { id: 'search', label: searching ? 'Close search' : 'Search', icon: <SearchIcon />, onSelect: toggleSearch },
+  ];
+
   const actions = (
     <>
-      {callUrl && (
-        <button type="button" className={styles.navAction} onClick={() => window.location.assign(callUrl)} aria-label="Call AASC" title="Call AASC">
-          <PhoneCallIcon />
-        </button>
-      )}
-      {/* Rooms stay manageable with no session shared here (only the filters need sessions). First, so
-          Search and + keep their place in the groupings that have no rooms (Nov 19 2026: was a row under the chips). */}
-      {snapshotReceived && byRoom && (
-        <button
-          type="button"
+      {folded.length > 1 ? (
+        <MenuButton
           className={styles.navAction}
-          onClick={() => setManageRooms(true)}
-          aria-label="New or manage rooms"
-          aria-haspopup="dialog"
-          title="New or manage rooms"
-        >
-          <RoomIcon />
+          label="More actions"
+          menuLabel="Session actions"
+          items={folded}
+          icon={<MoreIcon />}
+          pressed={searching}
+        />
+      ) : (
+        <button type="button" className={styles.navAction} onClick={toggleSearch} aria-label="Search" aria-pressed={searching}>
+          <SearchIcon />
         </button>
       )}
-      <button
-        type="button"
-        className={styles.navAction}
-        onClick={() => {
-          setSearching((on) => !on);
-          if (searching) setQuery('');
-        }}
-        aria-label="Search"
-        aria-pressed={searching}
-      >
-        <SearchIcon />
-      </button>
       <button type="button" className={styles.navAction} onClick={openNew} aria-label="New session" aria-haspopup="dialog">
         <PlusIcon />
       </button>

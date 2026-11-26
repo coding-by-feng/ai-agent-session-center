@@ -25,6 +25,13 @@
  *
  * null for a Codex session (its rollout carries no per-request window), no transcript, or no request yet.
  *
+ * And the rest of the header's Context details card (Nov 25 2026, sessionUsage.ts): the session's
+ * token totals and reply count, Claude Code's reference cost, and the terminal's size.
+ *
+ *   GET /api/sessions/:id/context-usage      → { success: true, data: SessionUsageDetails }
+ *
+ * Each field is absent when unknown; totals and cost are Claude only.
+ *
  * Every page marks the tool calls that touched a secret file and their results (`secret`,
  * `callUnknown`; secretMarks.ts), judged on the calls' whole input and across pages. The content is
  * the same for everyone: the phone profile hides what a paired phone may not see by those marks, and
@@ -38,7 +45,8 @@
  */
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import type { Session } from '../../src/types/session.js';
+import { basename } from 'node:path';
+import type { Session, SessionUsageDetails } from '../../src/types/session.js';
 import type { ChatPage, ChangedFile, SessionChanges } from '../../src/types/chat.js';
 import { isLocalRequest } from '../requestLocality.js';
 import { canSeeSession } from '../sessionVisibility.js';
@@ -50,6 +58,7 @@ import { CursorError, PAGE_ENTRIES } from './transcriptPager.js';
 import { locateTranscript, transcriptCliOf, type LocatorSession } from './transcriptLocator.js';
 import { buildSessionChanges } from './sessionChanges.js';
 import { readContextBreakdown } from './contextBreakdown.js';
+import { readSessionUsage, readStatusLineCost } from './sessionUsage.js';
 import type { ChangesSnapshot } from './changeSet.js';
 
 export interface ChatRouterDeps {
@@ -58,6 +67,10 @@ export interface ChatRouterDeps {
   isLocal?(req: Request): boolean;
   /** A chat read this transcript: tell its readers when it grows (`transcriptWatch.ts`). */
   watchTranscript?(sessionId: string, path: string): void;
+  /** The live PTY's size, or null when it has none. */
+  terminalGeometry?(terminalId: string): { cols: number; rows: number } | null;
+  /** Claude Code's reference cost for a Claude session id. Defaults to the status-line tap's snapshot. */
+  readCost?(claudeSessionId: string): Promise<number | undefined>;
 }
 
 const cursor = z.string().min(1).max(64);
@@ -196,6 +209,29 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
     } catch (err) {
       log.warn('api', `context breakdown failed: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ success: false, error: 'Could not read what fills the context window' });
+    }
+  });
+
+  router.get('/sessions/:id/context-usage', visibleSession, async (_req: Request, res: Response) => {
+    const session = res.locals.session as Session;
+    try {
+      const data: SessionUsageDetails = {};
+      const location = await locateTranscript(session as LocatorSession);
+      if (location?.cli === 'claude') {
+        const [totals, costUsd] = await Promise.all([
+          readSessionUsage(location.path),
+          // The tap names its snapshot after Claude's session id, which names the transcript too.
+          (deps.readCost ?? readStatusLineCost)(basename(location.path, '.jsonl')),
+        ]);
+        if (totals) data.totals = totals;
+        if (costUsd !== undefined) data.costUsd = costUsd;
+      }
+      const terminal = session.terminalId ? deps.terminalGeometry?.(session.terminalId) : null;
+      if (terminal) data.terminal = terminal;
+      res.json({ success: true, data });
+    } catch (err) {
+      log.warn('api', `context usage failed: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ success: false, error: 'Could not read this session’s token usage' });
     }
   });
 

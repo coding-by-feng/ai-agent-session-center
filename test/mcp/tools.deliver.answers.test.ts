@@ -143,7 +143,7 @@ describe('request_answer', () => {
     const human = deliverCtx({
       sessions: [asking()],
       routes: { [answerRoute()]: accepted },
-      controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 20_000 }),
+      controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 20_000, lastInputAt: NOW - 20_000 }),
     });
     const args = { id: 'w1', requestId: 'req-1', choice: 'allow_once' };
 

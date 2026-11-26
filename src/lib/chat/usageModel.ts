@@ -13,6 +13,7 @@ import type { ContextBreakdown, ContextKind } from '@/types/chat';
 import { detectCli } from '@/lib/cliDetect';
 import { describePlanUsage, formatAge, type PlanUsageView } from '@/lib/planUsage';
 import { resolveContextDisplay, type ContextDisplay } from '@/lib/sessionRuntime';
+import { formatTokens } from '@/lib/formatTokens';
 
 export interface UsageContext {
   pct: number;
@@ -57,14 +58,8 @@ export interface UsageView {
   ariaLabel: string;
 }
 
-/** 950 · 9.5k · 118k · 1.2M */
-export function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '?';
-  if (n < 1000) return String(Math.round(n));
-  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-}
+/** 950 · 9.5k · 118k · 1.2M (lib/formatTokens.ts, shared with the desktop's context card). */
+export { formatTokens };
 
 function contextOf(session: Session): UsageContext | null {
   const ctx = resolveContextDisplay(session);

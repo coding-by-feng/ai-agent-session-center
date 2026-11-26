@@ -12,6 +12,7 @@ import type { Session } from './session.js';
 import type { TeamSerialized } from './team.js';
 import type { Room, RoomOp } from './room.js';
 import type { CliUpdateMessage } from './cliVersions.js';
+import type { AlertsUpdateMessage } from './alert.js';
 
 // ---------------------------------------------------------------------------
 // Hook Stats (broadcast via HookStatsMessage)
@@ -266,6 +267,7 @@ export type ServerMessage =
   | SnippetsUpdateMessage
   | RoomsUpdateMessage
   | RoomOpMessage
+  | AlertsUpdateMessage
   | CentralsUpdateMessage
   | McpActivityMessage
   | McpTaskUpdateMessage

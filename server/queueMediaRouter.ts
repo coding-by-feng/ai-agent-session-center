@@ -39,10 +39,10 @@ export interface QueueMediaRouterOptions {
   maxBytes?: number;
 }
 
-class TooLargeError extends Error {}
+export class TooLargeError extends Error {}
 
 /** Passes bytes through, and fails once more than `max` have gone by. */
-function byteCap(max: number): Transform & { bytes: () => number } {
+export function byteCap(max: number): Transform & { bytes: () => number } {
   let seen = 0;
   const cap = new Transform({
     transform(chunk: Buffer, _enc: BufferEncoding, done: TransformCallback) {

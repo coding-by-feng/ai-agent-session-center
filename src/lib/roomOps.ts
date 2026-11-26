@@ -16,6 +16,7 @@
 import { useRoomStore } from '@/stores/roomStore';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 import { listOrdersAfterReorder } from '@/lib/roomOrder';
+import { isAlertLevel } from '@/lib/attention';
 import type { RoomOp } from '@/types';
 
 /** What a phone says when no Mac window is connected to apply a change. */
@@ -61,6 +62,10 @@ export function readRoomOp(value: unknown): RoomOp | null {
       if (!isString(op.roomId)) return null;
       if (op.color === null) return { type: 'color', roomId: op.roomId, color: null };
       return isString(op.color) && ROOM_COLOR_PALETTE.includes(op.color) ? { type: 'color', roomId: op.roomId, color: op.color } : null;
+    case 'alert-level':
+      if (!isString(op.roomId)) return null;
+      if (op.level === null) return { type: 'alert-level', roomId: op.roomId, level: null };
+      return isAlertLevel(op.level) ? { type: 'alert-level', roomId: op.roomId, level: op.level } : null;
     case 'delete':
       return isString(op.roomId) ? { type: 'delete', roomId: op.roomId } : null;
     case 'move':
@@ -90,6 +95,9 @@ export function applyRoomOp(op: RoomOp): void {
     case 'color':
       if (hasRoom(op.roomId)) store.setRoomColor(op.roomId, op.color ?? undefined);
       return;
+    case 'alert-level':
+      if (hasRoom(op.roomId)) store.setRoomAlertLevel(op.roomId, op.level ?? undefined);
+      return;
     case 'delete':
       if (hasRoom(op.roomId)) store.deleteRoom(op.roomId);
       return;
@@ -109,10 +117,12 @@ export function applyRoomOp(op: RoomOp): void {
 export type RoomOpOutcome = { ok: true } | { ok: false; message: string };
 
 /** Words for a refused change, from the server's answer. */
-function refusal(status: number, error: unknown): string {
+function refusal(status: number, error: unknown, op: RoomOp): string {
   if (error === 'no-writer') return NO_WRITER_MESSAGE;
   if (error === 'room-has-hidden-sessions') {
-    return 'This room holds sessions not shared with this device. Delete it on your Mac.';
+    // A delete or a room's alert level reaches the sessions this device can't see (server/roomsRouter.ts).
+    const change = op.type === 'alert-level' ? 'Set its alert level' : 'Delete it';
+    return `This room holds sessions not shared with this device. ${change} on your Mac.`;
   }
   if (status === 404) return 'That room or session is no longer here.';
   if (status === 429) return 'Too many room changes. Try again in a moment.';
@@ -129,7 +139,7 @@ export async function sendRoomOp(op: RoomOp): Promise<RoomOpOutcome> {
     });
     if (res.ok) return { ok: true };
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-    return { ok: false, message: refusal(res.status, body?.error) };
+    return { ok: false, message: refusal(res.status, body?.error, op) };
   } catch {
     return { ok: false, message: 'Couldn’t reach your Mac. Rooms not changed.' };
   }

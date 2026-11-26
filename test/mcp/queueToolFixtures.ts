@@ -177,7 +177,7 @@ export function loggedWorld(opts: LoggedWorldOptions = {}) {
   const sessions: Session[] = opts.sessions ?? [card, worker('s1'), worker('s2', { handsOff: true }), worker('s3')];
   const t = testDeliver({
     sessions: () => sessions,
-    controller: (id) => (id === 's3' ? { clientId: 'device-1', lastActivityAt: NOW - 5_000 } : null),
+    controller: (id) => (id === 's3' ? { clientId: 'device-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 } : null),
   });
   const store = fakeQueueStore(standardRows());
   const tools = toolsOver(store, { unlocked: opts.unlocked === true });

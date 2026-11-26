@@ -181,6 +181,18 @@ describe.skipIf(!hasJq || process.platform === 'win32')('dashboard-statusline.sh
       });
     });
 
+    it("records Claude Code's reference cost (Nov 25 2026: the Context details card)", async () => {
+      runTap(payload({ cost: { total_cost_usd: 14.0812, total_duration_ms: 5000 } }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect(JSON.parse(readFileSync(runtimePath(), 'utf8')).cost).toEqual({ usd: 14.0812 });
+    });
+
+    it('records no cost when the CLI sends none or a non-number', async () => {
+      runTap(payload({ cost: { total_cost_usd: 'lots' } }));
+      expect(await waitFor(() => existsSync(runtimePath()))).toBe(true);
+      expect('cost' in JSON.parse(readFileSync(runtimePath(), 'utf8'))).toBe(false);
+    });
+
     it('records no tokens before the first reply (current_usage is null)', async () => {
       runTap(payload({
         context_window: {

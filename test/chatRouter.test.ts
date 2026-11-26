@@ -56,7 +56,10 @@ beforeAll(async () => {
   sessions.set(CODEX_ID, { sessionId: CODEX_ID, cliSource: 'codex', projectPath: project, remoteVisible: true });
 
   const app = express();
-  app.use('/api', createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null, watchTranscript: (id, path) => watchedReads.push([id, path]) }));
+  app.use('/api', createChatRouter({ getSession: (id) => (sessions.get(id) as never) ?? null, watchTranscript: (id, path) => watchedReads.push([id, path]),
+    terminalGeometry: (id) => (id === 'term-usage' ? { cols: 115, rows: 35 } : null),
+    readCost: async (key) => (key === 'usage' ? 14.08 : undefined),
+  }));
   server = createServer(app);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
@@ -282,5 +285,49 @@ describe('GET /sessions/:id/context-breakdown', () => {
   it('is null for a Codex session and for one with no transcript', async () => {
     expect((await getJson(`/sessions/${CODEX_ID}/context-breakdown`)).body).toEqual({ success: true, data: null });
     expect((await getJson('/sessions/empty/context-breakdown')).body).toEqual({ success: true, data: null });
+  });
+});
+
+describe('GET /sessions/:id/context-usage', () => {
+  async function getJson(path: string, headers: Record<string, string> = {}) {
+    const res = await fetch(`${base}/api${path}`, { headers });
+    return { status: res.status, body: (await res.json()) as { success: boolean; data: unknown; error?: string } };
+  }
+  const reply = (id: string, usage: Record<string, number>) => ({
+    type: 'assistant', timestamp: '2026-11-25T00:00:00.000Z',
+    message: { id, role: 'assistant', content: [{ type: 'text', text: 'x' }], usage },
+  });
+
+  beforeAll(() => {
+    const dir = join(tmp, 'home', '.claude', 'projects', '-proj');
+    const u1 = { input_tokens: 2, cache_creation_input_tokens: 100, cache_read_input_tokens: 0, output_tokens: 5 };
+    const u2 = { input_tokens: 3, cache_creation_input_tokens: 10, cache_read_input_tokens: 100, output_tokens: 7 };
+    // The transcript is named after Claude's session id, which keys the cost snapshot.
+    const path = writeJsonl(join(dir, 'usage.jsonl'), [reply('m1', u1), reply('m1', u1), reply('m2', u2)]);
+    sessions.set('card-usage', {
+      sessionId: 'card-usage', cliSource: 'claude', projectPath: join(tmp, 'home', 'proj'),
+      transcriptPath: path, terminalId: 'term-usage', remoteVisible: true,
+    });
+    sessions.set('hidden-usage', { sessionId: 'hidden-usage', cliSource: 'claude', transcriptPath: path, terminalId: 'term-usage' });
+  });
+
+  it('sums each reply once and adds the cost and terminal size', async () => {
+    const res = await getJson('/sessions/card-usage/context-usage', REMOTE);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      totals: { steps: 2, input: 5, cacheWrite: 110, cacheRead: 100, output: 12 },
+      costUsd: 14.08,
+      terminal: { cols: 115, rows: 35 },
+    });
+  });
+
+  it('answers a remote device 404 for a hidden session, like for an unknown one', async () => {
+    expect((await getJson('/sessions/hidden-usage/context-usage', REMOTE)).status).toBe(404);
+    expect((await getJson('/sessions/nope/context-usage', REMOTE)).status).toBe(404);
+  });
+
+  it('leaves out what is unknown: no transcript, no terminal, a Codex session', async () => {
+    expect((await getJson('/sessions/empty/context-usage')).body).toEqual({ success: true, data: {} });
+    expect((await getJson(`/sessions/${CODEX_ID}/context-usage`)).body).toEqual({ success: true, data: {} });
   });
 });

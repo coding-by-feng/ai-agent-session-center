@@ -4,6 +4,7 @@
  */
 
 import type { SessionCentralMarker } from './central.js';
+import type { AlertLevel } from '../lib/attention.js';
 
 // ---------------------------------------------------------------------------
 // Enums / Literal Unions
@@ -433,8 +434,33 @@ export interface SessionContextUsage {
   size?: number;
   /** Tokens in the window: input + cache creation + cache read of the last reply. */
   tokens?: number;
+  /** `pct` was worked out from tokens ÷ size, not reported by the CLI itself. */
+  estimated?: boolean;
   /** The last reply's tokens by kind (Oct 21 2026: the phone's context details); a kind the CLI did not report is absent. */
   parts?: SessionContextParts;
+}
+
+/** A session's token totals over its whole transcript (`server/chat/sessionUsage.ts`). */
+export interface SessionUsageTotals {
+  /** API replies made (each counted once). */
+  steps: number;
+  /** New input, neither read from nor written to the cache. */
+  input: number;
+  cacheWrite: number;
+  cacheRead: number;
+  output: number;
+}
+
+/**
+ * `GET /api/sessions/:id/context-usage` → `{ success: true, data: SessionUsageDetails }`: what the
+ * header's Context details card adds to `runtime.context`. Each field is absent when unknown.
+ */
+export interface SessionUsageDetails {
+  totals?: SessionUsageTotals;
+  /** Claude Code's own cost at public API prices, in USD — a reference, not a bill. */
+  costUsd?: number;
+  /** The live PTY's size. */
+  terminal?: { cols: number; rows: number };
 }
 
 export interface SessionContextParts {
@@ -651,8 +677,13 @@ export interface Session {
    * so `undefined` can never be mistaken for `false`.
    */
   aiPopupEnabled?: boolean;
-  /** When true, play loud alert sounds for approval, input, and task completion */
+  /** When true, play loud alert sounds for approval, input, and task completion. The mirror of `alertLevel` Loud/Urgent. */
   alerted?: boolean;
+  /**
+   * The session's own alert level (src/lib/attention.ts, Nov 25 2026); absent: it follows its room's level, else the
+   * default. The server keeps `muted` (Silent) and `alerted` (Loud, Urgent) in step with it for older clients.
+   */
+  alertLevel?: AlertLevel;
   /**
    * Process-isolation marker for any session spawned from another session
    * (main-session clone/fork actions AND floating popups). Read by the kill

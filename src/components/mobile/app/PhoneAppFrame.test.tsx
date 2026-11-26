@@ -26,6 +26,7 @@ import { PHONE_PALETTES, PHONE_SCHEME_ATTR } from '@/lib/chat/phoneThemes';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
+import { useAttentionStore } from '@/stores/attentionStore';
 import { PHONE_SPLIT_MEDIA_QUERY } from '@/lib/platform';
 
 function session(id: string, title: string, status: string, extra: Partial<Session> = {}): Session {
@@ -53,6 +54,7 @@ beforeEach(() => {
   useSessionStore.setState({ sessions: fixtures(), selectedSessionId: null });
   useWsStore.setState({ snapshotReceived: true, connected: true, hiddenCount: 0 });
   usePhoneConfirmStore.setState({ confirms: [] });
+  useAttentionStore.setState({ alerts: [] });
 });
 
 const tabButton = (name: RegExp | string) => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name });
@@ -75,6 +77,14 @@ describe('PhoneAppFrame', () => {
         cardId: 'card-1', centralId: 'central-1', tool: 'session_kill', risk: 'destructive', summary: 'Kill the session',
         detail: null, targetSessionId: 's2', createdAt: Date.now(), expiresAt: Date.now() + 300_000,
       }],
+    });
+    render(<PhoneAppFrame />);
+    expect(await screen.findByRole('button', { name: 'Inbox, 3 waiting for you' })).toBeTruthy();
+  });
+
+  it('counts a central’s alert the Inbox lists in the Inbox badge (Nov 26 2026)', async () => {
+    useAttentionStore.setState({
+      alerts: [{ id: 'al1', key: 'k', sessionId: 's2', centralId: '', centralSessionId: null, message: 'Stuck', raisedAt: 1, updatedAt: 1, count: 1 }],
     });
     render(<PhoneAppFrame />);
     expect(await screen.findByRole('button', { name: 'Inbox, 3 waiting for you' })).toBeTruthy();

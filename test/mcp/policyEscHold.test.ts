@@ -77,7 +77,7 @@ describe('the Esc hold in assertMaySteer', () => {
   it('comes after hands-off and the 60-second rule, and before the lock', () => {
     const session = worker({ userCancelledAt: STAMP });
     expect(refusal(central, { ...session, handsOff: true }, steerCtx())?.code).toBe('HANDS_OFF');
-    const person = steerCtx({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 1_000 }) });
+    const person = steerCtx({ controller: () => ({ clientId: 'desktop-1', lastActivityAt: NOW - 1_000, lastInputAt: NOW - 1_000 }) });
     expect(refusal(central, session, person)?.message).toMatch(/less than a minute/);
     expect(refusal(central, session, steerCtx({ isLocked: () => true }))?.code).toBe('HUMAN_ACTIVE');
   });

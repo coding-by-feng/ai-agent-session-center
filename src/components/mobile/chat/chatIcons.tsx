@@ -110,6 +110,11 @@ export const QuestionIcon = (p: IconProps) => (
   <Svg size={18} {...p}><circle cx="12" cy="12" r="9" /><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8" /><circle cx="12" cy="17.2" r="0.9" fill="currentColor" stroke="none" /></Svg>
 );
 
+/** A central's alert in the Inbox (Nov 26 2026): the desktop header's bell. */
+export const BellIcon = (p: IconProps) => (
+  <Svg size={18} {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></Svg>
+);
+
 export const ContinueIcon = (p: IconProps) => (
   <Svg size={18} {...p}><path d="M20 12a8 8 0 1 1-2.3-5.6" /><polyline points="20 4 20 8 16 8" /></Svg>
 );

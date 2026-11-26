@@ -4,6 +4,7 @@
  * and session metadata so the workspace can be recreated later.
  */
 import type { Session, SessionCentralMarker, SessionHookLevel, SshConfig } from '@/types';
+import { isAlertLevel, type AlertLevel } from '@/lib/attention';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -53,6 +54,11 @@ export interface SessionSnapshot {
   /** The Automation mark (lite hooks, server/sessionHookLevel.ts). Only ever `'lite'`; a restore relaunches with it. */
   hookLevel?: SessionHookLevel;
   alerted?: boolean;
+  /**
+   * The session's own alert level (Nov 25 2026, lib/attention.ts); absent when it follows its room and the default.
+   * `muted` / `alerted` stay beside it for older builds; a restore sends all three and the level wins.
+   */
+  alertLevel?: AlertLevel;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
   /** Original startup command with full params (e.g. 'claude --model opus', 'codex --full-auto') */
@@ -261,6 +267,7 @@ export function buildSnapshot(
       ...(session.handsOff === true ? { handsOff: true as const } : {}),
       ...(session.hookLevel === 'lite' ? { hookLevel: 'lite' as const } : {}),
       alerted: session.alerted,
+      ...(session.alertLevel ? { alertLevel: session.alertLevel } : {}),
       enableOpsTerminal: !!session.opsTerminalId || !!session.hadOpsTerminal,
       sshConfig: { ...session.sshConfig },
       startupCommand: session.startupCommand,
@@ -440,6 +447,20 @@ export function buildSavedOutputIndex(entries: SavedOutputEntry[]): SavedOutputI
 }
 
 /**
+ * The order a restore creates its sessions in, which is the order the server starts their CLIs
+ * (a few at a time, server/launchQueue.ts): pinned sessions first, in pin order, then the rest as
+ * saved. Floating popups keep their place among the rest.
+ */
+export function restoreLaunchOrder<T extends Pick<SessionSnapshot, 'pinned' | 'pinOrder'>>(sessions: readonly T[]): T[] {
+  const pinned = sessions
+    .filter((s) => s.pinned)
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => (a.s.pinOrder ?? Number.MAX_SAFE_INTEGER) - (b.s.pinOrder ?? Number.MAX_SAFE_INTEGER) || a.i - b.i)
+    .map(({ s }) => s);
+  return [...pinned, ...sessions.filter((s) => !s.pinned)];
+}
+
+/**
  * Claim the scrollback belonging to one restored session, removing it from the
  * index so no other session can receive the same bytes.
  *
@@ -560,6 +581,7 @@ function foldSplitCard(card: Session, twin: Session): Session {
     handsOff: card.handsOff ?? twin.handsOff,
     hookLevel: card.hookLevel ?? twin.hookLevel,
     alerted: card.alerted ?? twin.alerted,
+    alertLevel: card.alertLevel ?? twin.alertLevel,
     remoteVisible: card.remoteVisible ?? twin.remoteVisible,
     central: card.central ?? twin.central,
     effortLevel: card.effortLevel ?? twin.effortLevel,
@@ -884,9 +906,11 @@ export async function importSnapshot(
   // could never be shown — and we'd still spawn its PTY, leaking an invisible
   // orphan. (Forks whose origin IS restored are re-linked in the second pass.)
   const restoredOriginalIds = new Set(userFiltered.map((s) => s.originalSessionId));
-  const dedupedSessions = userFiltered.filter(
+  // Pinned sessions first: the server starts restored launches a few at a time, in this order
+  // (server/launchQueue.ts, Nov 25 2026). A card someone opens while it waits starts at once.
+  const dedupedSessions = restoreLaunchOrder(userFiltered.filter(
     (s) => !isFloatingSnapshot(s) || !s.originSessionId || restoredOriginalIds.has(s.originSessionId),
-  );
+  ));
   const droppedForks = userFiltered.length - dedupedSessions.length;
   if (droppedForks > 0) {
     console.info(`[workspace] Skipping ${droppedForks} floating popup(s) whose origin session is not in this restore`);
@@ -937,10 +961,24 @@ export async function importSnapshot(
         payloadCommand = '';
       }
 
+      // The previous screen (previous session's scrollback) goes in with the create call, so it is in
+      // the ring before the card is announced and the first subscribe replays it. CLAIMS the buffer —
+      // a claimed buffer is removed from the index so a same-title sibling in this workDir can never
+      // be prefilled with these bytes.
+      const savedOutput = savedOutputIndex.size > 0
+        ? claimSavedOutput(
+          savedOutputIndex,
+          (sessionSnap.title || '') + '\0' + (cfg.workingDir || ''),
+          sessionSnap.originalSessionId,
+        )
+        : undefined;
+
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          restoreBatch: true,
+          prefillOutput: savedOutput || undefined,
           host: cfg.host || 'localhost',
           port: cfg.port || 22,
           username: cfg.username,
@@ -970,6 +1008,7 @@ export async function importSnapshot(
           handsOff: sessionSnap.handsOff === true ? true : undefined,
           hookLevel: sessionSnap.hookLevel === 'lite' ? 'lite' : undefined,
           alerted: sessionSnap.alerted || undefined,
+          alertLevel: isAlertLevel(sessionSnap.alertLevel) ? sessionSnap.alertLevel : undefined,
           accentColor: sessionSnap.accentColor || undefined,
           characterModel: sessionSnap.characterModel || undefined,
           // Preserve fork status (kill-guard for the origin's PID) and floating
@@ -1016,7 +1055,7 @@ export async function importSnapshot(
           }).catch(() => {});
         }
 
-        // Metadata (pinned, muted, handsOff, alerted, accentColor, characterModel) is now
+        // Metadata (pinned, muted, handsOff, alerted, alertLevel, accentColor, characterModel) is now
         // included in the POST body above, so the first WS broadcast already has it.
         // No separate PUTs needed — eliminates the race with auto-save.
 
@@ -1093,24 +1132,14 @@ export async function importSnapshot(
           useQueueStore.getState().restoreAutomation(data.terminalId, sessionSnap.automation);
         }
 
-        // Restore terminal output from saved buffer (previous session's
-        // scrollback). CLAIMS the buffer — a claimed buffer is removed from the
-        // index so a same-title sibling in this workDir can never be prefilled
-        // with these bytes.
-        if (savedOutputIndex.size > 0) {
-          const outputKey = (sessionSnap.title || '') + '\0' + (cfg.workingDir || '');
-          const savedOutput = claimSavedOutput(
-            savedOutputIndex,
-            outputKey,
-            sessionSnap.originalSessionId,
-          );
-          if (savedOutput) {
-            fetch(`/api/terminals/${encodeURIComponent(data.terminalId)}/prefill-output`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: savedOutput }),
-            }).catch(() => {});
-          }
+        // A card deduplicated onto an existing one spawned nothing, so the create call's prefill
+        // did not apply: give its terminal the saved screen the old way.
+        if (savedOutput && data.deduplicated) {
+          fetch(`/api/terminals/${encodeURIComponent(data.terminalId)}/prefill-output`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: savedOutput }),
+          }).catch(() => {});
         }
       } else {
         failed++;

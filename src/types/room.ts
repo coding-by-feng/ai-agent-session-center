@@ -2,6 +2,8 @@
 // Rooms — shared by the browser's room store and the server's room mirror
 // ---------------------------------------------------------------------------
 
+import type { AlertLevel } from '../lib/attention.js';
+
 export interface Room {
   id: string;
   name: string;
@@ -29,6 +31,9 @@ export interface Room {
    *  colour. Picking a colour never touches `roomIndex`, so it can never move
    *  the room in the 3D scene. */
   color?: string;
+  /** The alert level of the room's sessions that have none of their own (src/lib/attention.ts, Nov 25 2026).
+   *  Undefined = they follow the default level. */
+  alertLevel?: AlertLevel;
 }
 
 /**
@@ -39,6 +44,7 @@ export interface Room {
  *  - create  a new room; with `sessionId`, the session moves into it
  *  - rename  a room's name
  *  - color   a palette colour, or null for the room's slot colour
+ *  - alert-level  the room's alert level, or null to follow the default
  *  - delete  the room; its sessions stay open and leave it
  *  - move    a session into a room, or out of every room (null)
  *  - reorder the rooms' LIST order (`listOrder`, AASC-55): `roomIds` in their new
@@ -50,6 +56,7 @@ export type RoomOp =
   | { type: 'create'; name: string; sessionId?: string }
   | { type: 'rename'; roomId: string; name: string }
   | { type: 'color'; roomId: string; color: string | null }
+  | { type: 'alert-level'; roomId: string; level: AlertLevel | null }
   | { type: 'delete'; roomId: string }
   | { type: 'move'; sessionId: string; roomId: string | null }
   | { type: 'reorder'; roomIds: string[] };

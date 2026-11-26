@@ -146,6 +146,27 @@ describe('session_list', () => {
     expect(rows.find((r) => r.includes('Real one'))).toMatch(/^01234567 · /);
   });
 
+  it('gives each card a shortId the next call accepts: the whole id where 8 characters start several sessions', async () => {
+    // Terminal ids are term-<epoch ms>-<random>: every terminal opened in the same ~17 minutes starts `term-179`.
+    const sessions = [
+      makeSession('term-1795556040403-o4x7im', { title: 'New worker' }),
+      makeSession('term-1795555406088-ey0wvh', { title: 'Older worker' }),
+      makeSession('0123456789abcdef', { title: 'Real one' }),
+    ];
+    const { ctx } = makeCtx({ sessions });
+
+    const cards = (await dataOf<ListData>('session_list', {}, ctx)).sessions;
+    const shortOf = (id: string) => cards.find((c) => c.id === id)?.shortId;
+
+    expect(shortOf('term-1795556040403-o4x7im')).toBe('term-1795556040403-o4x7im');
+    expect(shortOf('term-1795555406088-ey0wvh')).toBe('term-1795555406088-ey0wvh');
+    expect(shortOf('0123456789abcdef')).toBe('01234567');
+    for (const card of cards) {
+      const got = await dataOf<{ card: { id: string } }>('session_get', { id: card.shortId }, ctx);
+      expect(got.card.id).toBe(card.id);
+    }
+  });
+
   describe('filters', () => {
     const rooms = [makeRoom('r1', ['s-aaa-111'], 'Backend')];
 

@@ -139,7 +139,8 @@ export function capacitorDeps(): ShellDeps {
       method: req.method,
       url: req.url,
       headers: req.headers ?? {},
-      ...(req.body === undefined ? {} : { data: req.body }),
+      // A raw body goes as `dataType: 'file'`: both native sides decode the base64 and send the bytes (Nov 24 2026).
+      ...(req.bytes !== undefined ? { data: req.bytes, dataType: 'file' as const } : req.body === undefined ? {} : { data: req.body }),
       ...(req.timeoutMs === undefined ? {} : { connectTimeout: req.timeoutMs, readTimeout: req.timeoutMs }),
     }),
   };

@@ -125,7 +125,9 @@ describe('phoneRuleFor', () => {
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
     ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
-    ['GET', '/rooms'], ['POST', '/rooms/ops'],
+    ['GET', '/rooms'],
+    // Alerts centrals raise (Nov 26 2026): read and dismiss; the router cuts them per device.
+    ['GET', '/alerts'], ['POST', '/alerts/a1/dismiss'],
     // The phone chat (AASC-41) and what a session edited (AASC-44), behind the /sessions/:id gate.
     ['GET', '/sessions/abc/chat'], ['GET', '/sessions/abc/changes'], ['GET', '/sessions/abc/changes/3'], ['GET', '/sessions/abc/context-breakdown'],
     // AASC Cloud, read-only, through the Mac's connection (AASC-51).
@@ -139,6 +141,11 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
 
+  // Nov 25 2026: a room change passes only for the kinds the phone's screens make (see 'never a room alert level').
+  it('judges a phone POST /rooms/ops by the kind of room change', () => {
+    expect(phoneRuleFor('POST', '/rooms/ops')).toBe('room-op');
+  });
+
   it('checks terminals, typing, prompts, files, commands, uploads and launches before letting them through', () => {
     expect(phoneRuleFor('GET', '/terminals/t1/output')).toBe('terminal');
     expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
@@ -147,6 +154,7 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
     expect(phoneRuleFor('POST', '/queue-media')).toBe('upload'); // a prompt's video (Oct 27 2026)
+    expect(phoneRuleFor('POST', '/terminal-files')).toBe('upload'); // a file for the terminal's prompt (Nov 26 2026)
     expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');
     expect(phoneRuleFor('POST', '/db/sessions/abc/note-media')).toBe('upload');
     expect(phoneRuleFor('GET', '/files/read')).toBe('files');
@@ -195,6 +203,8 @@ describe('phoneRuleFor', () => {
     ['GET', '/mcp/tasks'], ['PUT', '/mcp/sessions/abc/hands-off'],
     ['POST', '/phone-confirms'], ['GET', '/phone-confirms/abc'], ['DELETE', '/phone-confirms/abc'],
     ['POST', '/phone-confirms/abc/allow'], ['PUT', '/phone-confirms/abc'],
+    // Alerts centrals raise (Nov 26 2026): only this Mac's centrals raise one.
+    ['POST', '/alerts'], ['PUT', '/alerts/a1'], ['DELETE', '/alerts/a1'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
   });
@@ -511,6 +521,29 @@ describe('filterPhoneKnownProjects', () => {
 });
 
 describe('a paired phone through the API', () => {
+  // Nov 26 2026: the phone Inbox lists and dismisses central alerts, only on sessions shared with it.
+  it('reads and dismisses alerts on shared sessions only, and can’t raise one', async () => {
+    const { alertStore } = await import('../server/alerts/alertStore.js');
+    const shared = alertStore.raise({ centralId: 'c-ph', centralSessionId: 'ph-hidden', sessionId: 'ph-shared', key: 'ph-a', message: 'Needs you' });
+    const hidden = alertStore.raise({ centralId: 'c-ph', centralSessionId: null, sessionId: 'ph-hidden', key: 'ph-b', message: 'Secret' });
+    if (!shared.ok || !hidden.ok) throw new Error('raise failed');
+    try {
+      const list = await call('GET', '/alerts', PHONE);
+      expect(list.status).toBe(200);
+      const alerts = list.json.alerts as Array<Record<string, unknown>>;
+      expect(alerts.map((a) => a.id)).toEqual([shared.alert.id]);
+      expect(alerts[0]).toMatchObject({ centralId: '', centralSessionId: null });
+      expect((await call('POST', `/alerts/${hidden.alert.id}/dismiss`, PHONE)).status).toBe(404);
+      expect(alertStore.get(hidden.alert.id)).not.toBeNull();
+      expect((await call('POST', '/alerts', PHONE, { sessionId: 'ph-shared', key: 'k', message: 'x' })).status).toBe(404);
+      expect((await call('POST', `/alerts/${shared.alert.id}/dismiss`, PHONE)).status).toBe(200);
+      expect(alertStore.get(shared.alert.id)).toBeNull();
+    } finally {
+      alertStore.dismiss(shared.alert.id);
+      alertStore.dismiss(hidden.alert.id);
+    }
+  });
+
   it('reads a shared project’s files', async () => {
     const res = await call('GET', `/files/read?${q({ root: project, path: '/README.md' })}`, PHONE);
     expect(res.status).toBe(200);
@@ -695,6 +728,24 @@ describe('a paired phone through the API', () => {
     expect((await call('GET', `/commands?${q({ cli: 'claude', projectPath: project })}`, PHONE)).json.code).not.toBe('PHONE_NOT_ALLOWED');
   });
 
+  // Nov 25 2026: a Global or Codex central starts in the home folder, and its `$` / `/` lists stayed
+  // empty on the phone: the home folder is never a project root, so the catalog was refused.
+  it('reads the autocomplete catalog for the home folder only while a session there is shared', async () => {
+    const homeCatalog = () => call('GET', `/commands?${q({ cli: 'codex', projectPath: home })}`, PHONE);
+    await store.createTerminalSession('ph-home', { host: 'localhost', workingDir: home, command: 'codex' });
+    try {
+      expect((await homeCatalog()).status).toBe(404);
+      store.setSessionRemoteVisible('ph-home', true);
+      const res = await homeCatalog();
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.json.entries)).toBe(true);
+      // Sharing a session in the home folder opens only the home folder's own catalog, not any folder under it.
+      expect((await call('GET', `/commands?${q({ cli: 'codex', projectPath: join(home, 'code', 'library') })}`, PHONE)).status).toBe(404);
+    } finally {
+      store.setSessionRemoteVisible('ph-home', false);
+    }
+  });
+
   it('can’t widen a search with a glob', async () => {
     const res = await call('GET', `/files/grep?${q({ root: project, q: 'KEY', glob: '.aws/**' })}`, PHONE);
     expect(res.status).toBe(404);
@@ -816,6 +867,26 @@ describe('a paired phone through the API', () => {
     const noWriter = await call('POST', '/rooms/ops', PHONE, { type: 'move', sessionId: 'ph-shared', roomId: null });
     expect(noWriter.status).toBe(409);
     expect(noWriter.json.error).toBe('no-writer');
+  });
+
+  // Nov 25 2026 (security review): POST /rooms/ops was open to a phone for every kind of change, so a crafted request
+  // could set a room's alert level (Urgent included), which the phone's screens never offer. The profile now passes the
+  // changes those screens make (RoomSheets, SessionsScreen, RoomGroupParts) and nothing else.
+  it('sends the room changes its screens make, never a room alert level', async () => {
+    const rooms = [{ id: 'r-whole', name: 'Whole', sessionIds: ['ph-shared'], collapsed: false, createdAt: 1, roomIndex: 0 }];
+    expect((await call('PUT', '/rooms', {}, { rooms })).status).toBe(200);
+
+    for (const level of ['urgent', null]) {
+      const refused = await call('POST', '/rooms/ops', PHONE, { type: 'alert-level', roomId: 'r-whole', level });
+      expect(refused.status).toBe(404);
+      expect(refused.json.code).toBe('PHONE_NOT_ALLOWED');
+    }
+    expect((await call('POST', '/rooms/ops', PHONE, { type: 'mystery', roomId: 'r-whole' })).json.code).toBe('PHONE_NOT_ALLOWED');
+
+    // A rename passes the profile to the rooms router (no Mac window is connected to apply it).
+    const rename = await call('POST', '/rooms/ops', PHONE, { type: 'rename', roomId: 'r-whole', name: 'Renamed' });
+    expect(rename.status).toBe(409);
+    expect(rename.json.error).toBe('no-writer');
   });
 
   it('has an upload budget per minute', async () => {
@@ -1188,6 +1259,24 @@ describe('dictation from a phone', () => {
     ['POST', '/voice/dictate/now'],
     ['GET', '/voice/settings'],
     ['PUT', '/voice/settings'],
+  ])('stays closed for %s %s', (method, path) => {
+    expect(phoneRuleFor(method, path)).toBeNull();
+  });
+});
+
+// ── The voice call screen's ＋ Add (Nov 24 2026) ─────────────────────────────────────────────────────────
+
+describe('adding to a voice call from a phone', () => {
+  it('counts a file against the upload budget and opens the skill pick and take-back routes', () => {
+    expect(phoneRuleFor('POST', '/voice/call/call_abc/attach')).toBe('upload');
+    expect(phoneRuleFor('POST', '/voice/call/call_abc/skill')).toBe('upload'); // each one tells the paid voice session
+    expect(phoneRuleFor('DELETE', '/voice/call/call_abc/attach/att1')).toBe('allow');
+  });
+
+  it.each([
+    ['GET', '/voice/call/call_abc/attach'],
+    ['PUT', '/voice/call/call_abc/attach'],
+    ['DELETE', '/voice/call/call_abc/attach'],
   ])('stays closed for %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
   });

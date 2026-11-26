@@ -286,7 +286,7 @@ function contextFromCodexInfo(raw: unknown): SessionContextUsage | undefined {
     input: input !== undefined && cacheRead !== undefined ? Math.max(0, input - cacheRead) : input,
     output: last?.output_tokens,
   });
-  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size, tokens, ...(parts ? { parts } : {}) };
+  return { pct: Math.min(100, Math.round((tokens / size) * 100)), size, tokens, estimated: true, ...(parts ? { parts } : {}) };
 }
 
 /** The last reply's counts by kind (`{ input, cacheWrite, cacheRead, output }`), each kept only when it is a count. */
@@ -319,6 +319,7 @@ function contextFromSnapshot(raw: unknown): SessionContextUsage | null {
     pct: Math.min(100, pct),
     ...(size ? { size } : {}),
     ...(tokens !== undefined ? { tokens } : {}),
+    ...(reported === undefined ? { estimated: true } : {}),
     ...(parts ? { parts } : {}),
   };
 }
@@ -406,7 +407,7 @@ export function withoutContext(runtime: SessionRuntime | undefined): SessionRunt
 function sameContext(a: SessionContextUsage | undefined, b: SessionContextUsage | undefined): boolean {
   const p = a?.parts;
   const q = b?.parts;
-  return a?.pct === b?.pct && a?.size === b?.size && a?.tokens === b?.tokens
+  return a?.pct === b?.pct && a?.size === b?.size && a?.tokens === b?.tokens && a?.estimated === b?.estimated
     && p?.input === q?.input && p?.cacheWrite === q?.cacheWrite && p?.cacheRead === q?.cacheRead && p?.output === q?.output;
 }
 

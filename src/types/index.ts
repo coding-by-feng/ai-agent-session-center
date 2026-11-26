@@ -273,3 +273,5 @@ export type {
   ResourceCompare,
   ResourcesApiResponse,
 } from './resources.js';
+
+export type { RaisedAlert, AlertsUpdateMessage } from './alert.js';

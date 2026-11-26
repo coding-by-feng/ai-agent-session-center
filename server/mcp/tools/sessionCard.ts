@@ -1,6 +1,6 @@
 // tools/sessionCard.ts — the card setters of the sessions toolset (P3, Ruling P3-7): a central labels and files a
-// session's card the way the person does from its detail panel: title, remark, pinned, muted, alerted, accent colour,
-// character model, AI popup and sharing with the paired phone.
+// session's card the way the person does from its detail panel: title, remark, pinned, muted, alerted, the alert level
+// (Nov 25 2026), accent colour, character model, AI popup and sharing with the paired phone.
 //
 // Each setter names its session through `resolveTarget`, passes the card rail (`ctx.mayEdit`, policy.ts
 // `assertMayEditCard`: in scope; never a central's card, its own included, an ops shell, a subagent, an AI popup, an
@@ -19,6 +19,7 @@
 
 import { z } from 'zod';
 import { ROBOT_MODEL_TYPES } from '../../../src/lib/robotModelMeta.js';
+import { ALERT_LEVELS } from '../../../src/lib/attention.js';
 import type { Session } from '../../../src/types/session.js';
 import type { ToolContext, ToolDef, ToolResult } from '../registry.js';
 import { titleRefusal } from '../titleRule.js';
@@ -148,6 +149,29 @@ const setAlerted = switchTool({
   key: 'alerted',
   field: 'alerted',
   what: 'the alert',
+});
+
+const setAlertLevel = defineTool({
+  name: 'session_set_alert_level',
+  toolset: 'sessions',
+  title: 'Set a session’s alert level',
+  description:
+    'Sets how loudly a session asks for the person when it finishes or needs them: silent (nothing), quiet, normal, ' +
+    'loud (loud sound, notification, glowing card) or urgent (loud, repeated until the person opens it); null lets it ' +
+    'follow its room’s level, else AASC’s default. session_set_muted and session_set_alerted are the older switches ' +
+    `for silent and loud. ${CARD_RULE}`,
+  risk: 'write',
+  phase: 3,
+  idempotent: true,
+  input: {
+    id: SESSION_REF,
+    level: z.enum(ALERT_LEVELS).nullable().describe('silent, quiet, normal, loud or urgent; null to follow its room and the default.'),
+  },
+  async run(args, ctx) {
+    const s = await putCard(ctx, args.id, 'alert-level', { level: args.level });
+    const words = args.level === null ? 'let the alert level follow its room' : `set the alert level to ${args.level}`;
+    return setAnswer(ctx, s, { alertLevel: args.level }, words);
+  },
 });
 
 const setAiPopup = switchTool({
@@ -295,6 +319,7 @@ export const cardTools: readonly ToolDef[] = [
   setPinned,
   setMuted,
   setAlerted,
+  setAlertLevel,
   setAccentColor,
   setCharacterModel,
   setAiPopup,

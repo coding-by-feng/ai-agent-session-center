@@ -44,6 +44,7 @@ import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePhoneConfirmStore } from '@/stores/phoneConfirmStore';
+import { useInboxAlerts } from '../chat/useInboxAlerts';
 import { useWsStore } from '@/stores/wsStore';
 import {
   LEAVE_WINDOW_MS,
@@ -240,9 +241,11 @@ export default function PhoneAppFrame() {
   const tab = usePhoneNavStore((s) => s.tab);
   const stack = usePhoneNavStore((s) => s.stacks[s.tab]);
   const pop = usePhoneNavStore((s) => s.pop);
-  // The Inbox badge counts the sessions waiting on the person and the central confirmations this phone may answer.
+  // The Inbox badge counts the sessions waiting on the person, the central confirmations this phone may answer, and
+  // the alerts centrals raised that the Inbox lists (Nov 26 2026).
   const confirmsWaiting = usePhoneConfirmStore((s) => s.confirms.length);
-  const waiting = useSessionStore((s) => inboxCount(s.sessions)) + confirmsWaiting;
+  const alertsWaiting = useInboxAlerts().length;
+  const waiting = useSessionStore((s) => inboxCount(s.sessions)) + confirmsWaiting + alertsWaiting;
   const keyboardOpen = useSoftKeyboardOpen();
 
   const scroller = useRef<HTMLElement | null>(null);

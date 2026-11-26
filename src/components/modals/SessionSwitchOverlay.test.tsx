@@ -25,6 +25,8 @@ beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => {};
 });
 
+const prompt = (timestamp: number) => ({ text: 'go', timestamp }) as Session['promptHistory'][number];
+
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     sessionId: 's1',
@@ -88,11 +90,11 @@ describe('SessionSwitchOverlay — hold-to-cycle session switcher', () => {
     expect(screen.queryByText('SWITCH SESSION')).not.toBeInTheDocument();
   });
 
-  it('opens on hold+tap, listing other live sessions most-recently-active first, excluding the current one', () => {
+  it('opens on hold+tap, listing other live sessions most-recently-worked first, excluding the current one', () => {
     const store = useSessionStore.getState();
     store.addSession(makeSession({ sessionId: 'current', title: 'Current', lastActivityAt: 1000 }));
-    store.addSession(makeSession({ sessionId: 'older', title: 'Older', lastActivityAt: 500 }));
-    store.addSession(makeSession({ sessionId: 'newer', title: 'Newer', lastActivityAt: 900 }));
+    store.addSession(makeSession({ sessionId: 'older', title: 'Older', promptHistory: [prompt(500)] }));
+    store.addSession(makeSession({ sessionId: 'newer', title: 'Newer', promptHistory: [prompt(900)] }));
     store.addSession(makeSession({ sessionId: 'gone', title: 'Ended', status: 'ended', lastActivityAt: 2000 }));
     store.selectSession('current');
 
@@ -104,6 +106,25 @@ describe('SessionSwitchOverlay — hold-to-cycle session switcher', () => {
     expect(screen.queryByText('Ended')).not.toBeInTheDocument();
     const rows = screen.getAllByRole('button');
     expect(rows.map((r) => r.textContent).join('|')).toMatch(/Newer.*Older/);
+  });
+
+  it('after a restart, lists the session you last worked in first, not the pinned or freshly restored ones (Nov 25 2026)', () => {
+    const store = useSessionStore.getState();
+    const restoredAt = 5000; // the restore's SessionStart stamped lastActivityAt on every card
+    store.addSession(makeSession({ sessionId: 'current', title: 'Current', lastActivityAt: restoredAt }));
+    store.addSession(makeSession({ sessionId: 'pin', title: 'Pinned Quiet', pinned: true, pinOrder: 0, lastActivityAt: restoredAt, promptHistory: [prompt(100)] }));
+    store.addSession(makeSession({ sessionId: 'never', title: 'Never Worked', lastActivityAt: restoredAt }));
+    store.addSession(makeSession({ sessionId: 'recent', title: 'Worked Recently', lastActivityAt: restoredAt, promptHistory: [prompt(4000)] }));
+    store.addSession(makeSession({ sessionId: 'busy', title: 'Running Now', status: 'working', lastActivityAt: restoredAt, promptHistory: [prompt(200)] }));
+    store.selectSession('current');
+
+    render(<SessionSwitchOverlay />);
+    tapE();
+
+    const names = screen.getAllByRole('button').map((r) => r.textContent ?? '');
+    const order = ['Running Now', 'Worked Recently', 'Pinned Quiet', 'Never Worked'].map((t) => names.findIndex((n) => n.includes(t)));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
   it('says Compacting on a session that is compacting, in the working colour', () => {

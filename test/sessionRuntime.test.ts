@@ -210,7 +210,7 @@ describe('readingFromTranscript — Codex rollouts', () => {
   it('reads the context window from the newest token_count (Oct 20 2026: the phone shows it for Codex too)', () => {
     const r = readingFromTranscript([tokenCount(usage(90_000), 1), turnContext('gpt-6-astra', 'high', 2), tokenCount(usage(172_161), 3)]);
     // Codex counts cached input inside input_tokens: new input is the rest.
-    expect(r.context).toEqual({ pct: 67, size: 258400, tokens: 172161, parts: { cacheRead: 167680, cacheWrite: 0, input: 524, output: 3957 } });
+    expect(r.context).toEqual({ pct: 67, size: 258400, tokens: 172161, estimated: true, parts: { cacheRead: 167680, cacheWrite: 0, input: 524, output: 3957 } });
     expect(r.contextAt).toBe(at(3));
   });
 
@@ -313,7 +313,7 @@ describe('context-window usage (status line)', () => {
   });
 
   it('works the % out from the tokens when an older CLI sends no used_percentage', () => {
-    expect(readingFromStatusLine(snap({ size: 200000, tokens: 50000 }))?.context).toEqual({ pct: 25, size: 200000, tokens: 50000 });
+    expect(readingFromStatusLine(snap({ size: 200000, tokens: 50000 }))?.context).toEqual({ pct: 25, size: 200000, tokens: 50000, estimated: true });
   });
 
   it('clamps to 0..100 and rounds', () => {

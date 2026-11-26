@@ -19,6 +19,27 @@ describe('frontInstructions', () => {
 });
 
 describe('brainPrompt', () => {
+  // Nov 24 2026: what the person added on the call screen goes with their next question.
+  it('lists the call screen\'s photos, files and skill after the words, on the same line', () => {
+    const text = brainPrompt({
+      request: 'what is on this receipt',
+      context: '',
+      added: [
+        { id: 'a1', kind: 'photo', name: 'receipt.jpg', path: '/tmp/claude-queue-images/queue-img-1-abc.jpg' },
+        { id: 'a2', kind: 'file', name: 'notes\n"x".pdf', path: '/tmp/claude-queue-images/queue-img-2-def.pdf' },
+        { id: 'a3', kind: 'skill', name: '/expense-log' },
+      ],
+    });
+    expect(text).not.toMatch(/[\r\n]/);
+    expect(text).toContain('They added on the call screen: photo receipt.jpg at /tmp/claude-queue-images/queue-img-1-abc.jpg; file notes "x".pdf at /tmp/claude-queue-images/queue-img-2-def.pdf.');
+    expect(text).toContain('Use /expense-log.');
+    expect(text.indexOf('receipt.jpg')).toBeGreaterThan(text.indexOf('what is on this receipt'));
+  });
+
+  it('says nothing of the call screen when nothing was added', () => {
+    expect(brainPrompt({ request: 'hi', context: '', added: [] })).not.toContain('They added on the call screen');
+  });
+
   it('is one line marked as a voice request, quoting what the person said', () => {
     const text = brainPrompt({ request: 'check the AASC project\nplease', context: 'You: hi' });
     expect(text.startsWith('[AASC · voice]')).toBe(true);

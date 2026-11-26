@@ -26,7 +26,8 @@
 # - It never loops. The chained command runs with AASC_STATUSLINE_TAP=1 and a tap that
 #   finds that marker (or a command that names this script) does not chain again.
 # - It stores only session_id, a timestamp, rate_limits, the model/effort and the context
-#   numbers (used %, window size, tokens in it, and the last reply's counts by kind) — not the cwd or
+#   numbers (used %, window size, tokens in it, and the last reply's counts by kind) and the reference
+#   cost (cost.total_cost_usd) — not the cwd or
 #   transcript path — and only when the dashboard's queue directory exists.
 # - It writes only into a usage/runtime directory that is a real directory owned by the current user:
 #   never through a symlink, never into someone else's directory.
@@ -75,6 +76,9 @@ case "$INPUT" in
           ({session_id, ts: (now * 1000 | floor),
             model: {id: .model.id, display_name: .model.display_name},
             effort: (if (.effort | type) == "object" then {level: .effort.level} else null end)}
+           # The cost at public API prices, as Claude Code reports it: the Context details card shows it as a reference.
+           + (if (.cost | type) == "object" and (.cost.total_cost_usd | type) == "number"
+                then {cost: {usd: .cost.total_cost_usd}} else {} end)
            # Only a CLI that reports context_window gets the key: its absence means "not reported".
            + (if (.context_window | type) == "object" then
                 (.context_window as $c

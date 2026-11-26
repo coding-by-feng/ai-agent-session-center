@@ -21,6 +21,8 @@ import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useProceedNotifications } from '@/hooks/useProceedNotifications';
 import { useAlertNotifications } from '@/hooks/useAlertNotifications';
+import { useUrgentRepeat } from '@/hooks/useUrgentRepeat';
+import { useAlertConfigSync } from '@/hooks/useAlertConfigSync';
 import { useAuth } from '@/hooks/useAuth';
 import { startNotesSync } from '@/stores/skillNotesStore';
 import LoginScreen from '@/components/auth/LoginScreen';
@@ -97,8 +99,11 @@ function AppLayout() {
   useKeyboardShortcuts();
   // Desktop app only: a system notification when a session waits for "proceed" (no-op without the bridge).
   useProceedNotifications();
-  // Desktop app only: an alerted session's finish / approval / question as a system notification (Nov 23 2026).
+  // Desktop app only: a loud session's finish / approval / question as a system notification (Nov 23 2026).
   useAlertNotifications();
+  // The alert level table (Nov 25 2026), and the reminders of a repeating level (Urgent) until a moment is handled.
+  useAlertConfigSync();
+  useUrgentRepeat();
 
   // A popped-out session's "back to main" button focuses this window and sends
   // this signal — deselect back to the session list, mirroring FloatingTerminalRoot's

@@ -38,6 +38,9 @@ function resolveImport(from: string, request: string): string | null {
   else return null; // a package
   if (existsSync(base) && statSync(base).isFile()) return base;
   for (const ext of SOURCE_EXTENSIONS) if (existsSync(base + ext)) return base + ext;
+  // A lib the server shares imports its neighbours NodeNext-style (`./x.js` for `x.ts`).
+  const bare = base.replace(/\.js$/, '');
+  if (bare !== base) for (const ext of SOURCE_EXTENSIONS) if (existsSync(bare + ext)) return bare + ext;
   throw new Error(`${relative(SRC, from)}: cannot resolve '${specifier}'`);
 }
 

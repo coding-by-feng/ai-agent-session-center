@@ -35,6 +35,7 @@
 .item[data-kind='interrupted'],
 .item[data-kind='continue-all'] { --tone: var(--ph-status-error); }
 .item[data-kind='finished'] { --tone: var(--ph-status-finished); }
+.item[data-kind='alert'] { --tone: var(--ph-status-approval); }
 
 .item + .item::before {
   content: '';

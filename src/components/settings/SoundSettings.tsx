@@ -14,6 +14,7 @@ import { IS_LITE } from '@/lib/edition';
 import { useIsDesktopApp } from '@/lib/platform';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
+import AlertLevelSettings from './AlertLevelSettings';
 import type { SelectOption } from '@/components/ui/Select';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -475,6 +476,9 @@ export default function SoundSettings() {
           )}
         </div>
       </div>
+
+      {/* What each alert level does (Nov 25 2026). Lite keeps Mute and Alert, which the server maps onto levels. */}
+      {!IS_LITE && <AlertLevelSettings />}
 
       {/* Notifications */}
       <div className={styles.section}>

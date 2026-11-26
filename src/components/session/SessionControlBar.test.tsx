@@ -17,6 +17,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import SessionControlBar from './SessionControlBar';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useAlertConfigStore } from '@/stores/alertConfigStore';
+import { DEFAULT_ALERT_CONFIG } from '@/lib/attention';
 import type { Session } from '@/types';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -74,10 +76,11 @@ function Harness({ sessionId }: { sessionId: string }) {
   return <SessionControlBar session={session} />;
 }
 
-describe('SessionControlBar — the three toggles (AASC-11)', () => {
+describe('SessionControlBar — the alert level and Share (AASC-11; levels Nov 25 2026)', () => {
   beforeEach(() => {
     useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
     useRoomStore.setState({ rooms: [] });
+    useAlertConfigStore.setState({ config: DEFAULT_ALERT_CONFIG });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
   });
 
@@ -85,23 +88,48 @@ describe('SessionControlBar — the three toggles (AASC-11)', () => {
     vi.unstubAllGlobals();
   });
 
-  // One label each, whatever the state: the state is aria-pressed and the "on"
-  // fill. The old labels mixed verbs (MUTE/UNMUTE) with states (HOST ONLY/SHARED,
-  // ALERT ON), so a label could not be read as either.
-  it('are Mute, Share and Alert, all off for a fresh session', () => {
+  const levelTrigger = () => screen.getByRole('button', { name: /^Alert level:/ });
+
+  // Full: one picker in place of Mute and Alert (Lite keeps those: SessionControlBar.lite.test.tsx).
+  it('shows the alert level and Share; a fresh session follows the default level', () => {
     useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
-    for (const name of ['Mute', 'Share', 'Alert']) {
-      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
-    }
+    expect(levelTrigger()).toHaveAccessibleName('Alert level: Normal, from its default');
+    expect(screen.getByRole('button', { name: 'Share' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: 'Mute' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Alert' })).toBeNull();
   });
 
-  it('show each one on when the session carries it', () => {
-    useSessionStore.getState().addSession(makeSession({ muted: true, remoteVisible: true, alerted: true }));
+  it('names the session\'s own level, and an old Alert as Loud', () => {
+    useSessionStore.getState().addSession(makeSession({ alertLevel: 'urgent' }));
+    useSessionStore.getState().addSession(makeSession({ sessionId: 's2', alerted: true }));
+    const { unmount } = render(<Harness sessionId="s1" />);
+    expect(levelTrigger()).toHaveAccessibleName('Alert level: Urgent');
+    unmount();
+    render(<Harness sessionId="s2" />);
+    expect(levelTrigger()).toHaveAccessibleName('Alert level: Loud');
+  });
+
+  it('choosing a level writes it, and Follow clears it', () => {
+    useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
-    for (const name of ['Mute', 'Share', 'Alert']) {
-      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
-    }
+    fireEvent.click(levelTrigger());
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Quiet' }));
+    expect(useSessionStore.getState().sessions.get('s1')?.alertLevel).toBe('quiet');
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/sessions/s1/alert-level', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ level: 'quiet' }) }));
+
+    fireEvent.click(levelTrigger());
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Follow default (Normal)' }));
+    expect(useSessionStore.getState().sessions.get('s1')).not.toHaveProperty('alertLevel');
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/sessions/s1/alert-level', expect.objectContaining({ body: JSON.stringify({ level: null }) }));
+  });
+
+  it('a room level is what the session follows', () => {
+    useRoomStore.setState({ rooms: [{ id: 'r1', name: 'Ops', sessionIds: ['s1'], alertLevel: 'loud' } as never] });
+    useSessionStore.getState().addSession(makeSession());
+    render(<Harness sessionId="s1" />);
+    expect(levelTrigger()).toHaveAccessibleName('Alert level: Loud, from its room');
   });
 
   it('Share flips on click and back — the store, not just the label (the original remote-visibility bug)', () => {
@@ -116,22 +144,11 @@ describe('SessionControlBar — the three toggles (AASC-11)', () => {
     expect(share()).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('Share does not touch its neighbours', () => {
+  it('Share does not touch the alert level', () => {
     useSessionStore.getState().addSession(makeSession());
     render(<Harness sessionId="s1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Share' }));
-    expect(screen.getByRole('button', { name: 'Mute' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'Alert' })).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('Mute and Alert flip their own flags', () => {
-    useSessionStore.getState().addSession(makeSession());
-    render(<Harness sessionId="s1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Alert' }));
-    const s = useSessionStore.getState().sessions.get('s1');
-    expect(s?.muted).toBe(true);
-    expect(s?.alerted).toBe(true);
+    expect(levelTrigger()).toHaveAccessibleName('Alert level: Normal, from its default');
   });
 
   it('holds no Kill: it is in the title row, away from the toggles', () => {

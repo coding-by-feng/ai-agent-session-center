@@ -21,6 +21,7 @@
 import { z } from 'zod';
 import { canSeeSession, type VisibilityCandidate } from './sessionVisibility.js';
 import { ROOM_COLOR_PALETTE } from '../src/lib/roomColor.js';
+import { ALERT_LEVELS } from '../src/lib/attention.js';
 import type { Room, RoomOp } from '../src/types/room.js';
 
 export const ROOM_LIMITS = {
@@ -63,6 +64,7 @@ const roomSchema = z.object({
   roomIndex: z.number().int().min(-1_000_000).max(1_000_000).optional(),
   listOrder: z.number().finite().optional(),
   color: z.string().max(64).optional(),
+  alertLevel: z.enum(ALERT_LEVELS).optional().catch(undefined),
 });
 
 const roomListSchema = z.object({ rooms: z.array(roomSchema).max(ROOM_LIMITS.rooms) })
@@ -75,6 +77,7 @@ const roomOpSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('create'), name: opNameSchema, sessionId: sessionIdSchema.optional() }).strict(),
   z.object({ type: z.literal('rename'), roomId: roomIdSchema, name: opNameSchema }).strict(),
   z.object({ type: z.literal('color'), roomId: roomIdSchema, color: paletteColor.nullable() }).strict(),
+  z.object({ type: z.literal('alert-level'), roomId: roomIdSchema, level: z.enum(ALERT_LEVELS).nullable() }).strict(),
   z.object({ type: z.literal('delete'), roomId: roomIdSchema }).strict(),
   z.object({ type: z.literal('move'), sessionId: sessionIdSchema, roomId: roomIdSchema.nullable() }).strict(),
   // AASC-55: the rooms' LIST order (listOrder), never their 3D slot (roomIndex).

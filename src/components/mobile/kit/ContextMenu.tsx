@@ -16,7 +16,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -24,19 +23,12 @@ import {
   type PointerEvent,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
-import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD, placeMenuAtPoint, type SafeInsets } from './menuPosition';
+import { FINGER_GAP, LONG_PRESS_MS, VIEWPORT_PAD } from './menuPosition';
+import MenuLayer, { type ContextMenuItem } from './MenuLayer';
 import { useBackLayer } from '@/lib/backLayers';
 import styles from '@/styles/modules/mobile/ContextMenu.module.css';
 
-export interface ContextMenuItem {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-  destructive?: boolean;
-  disabledReason?: string;
-  onSelect: () => void;
-}
+export type { ContextMenuItem } from './MenuLayer';
 
 export interface ContextMenuProps {
   items: ReadonlyArray<ContextMenuItem>;
@@ -47,22 +39,9 @@ export interface ContextMenuProps {
 
 const MOVE_CANCEL_PX = 10;
 
-/** The safe-area insets in px. `env()` can't be read through a custom property, so a probe measures them. */
-function readSafeInsets(): SafeInsets {
-  const probe = document.createElement('div');
-  probe.className = styles.safeProbe;
-  document.body.appendChild(probe);
-  const s = getComputedStyle(probe);
-  const px = (v: string) => Number.parseFloat(v) || 0;
-  const insets = { top: px(s.paddingTop), right: px(s.paddingRight), bottom: px(s.paddingBottom), left: px(s.paddingLeft) };
-  probe.remove();
-  return insets;
-}
-
 export default function ContextMenu({ items, label, children }: ContextMenuProps) {
   const menuId = useId();
   const triggerRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   /** Where it opened, and how: a finger hold (the finger is still down there) or a keyboard. */
   const [at, setAt] = useState<{ x: number; y: number; byHold?: boolean; byKeyboard?: boolean } | null>(null);
   // A hold-opened menu ignores item clicks until a fresh press inside it: on iOS
@@ -137,65 +116,6 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
     e.stopPropagation();
   };
 
-  // Place once measured, then focus it (a hidden element can't take focus).
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!at || !menu) return;
-    const { width, height } = menu.getBoundingClientRect();
-    const gap = at.byHold ? FINGER_GAP : 0;
-    const { left, top, maxHeight } = placeMenuAtPoint(
-      at.x, at.y, width, height, window.innerWidth, window.innerHeight, readSafeInsets(), VIEWPORT_PAD, gap,
-    );
-    menu.style.setProperty('--menu-left', `${Math.round(left)}px`);
-    menu.style.setProperty('--menu-top', `${Math.round(top)}px`);
-    menu.style.setProperty('--menu-max-height', `${Math.floor(maxHeight)}px`);
-    menu.dataset.placed = '';
-    // A keyboard gets its first item (and the focus ring); a touch or a click the menu itself,
-    // whose arrows still start at the first item. After placing, in the next frame too: a real
-    // browser drops focus given in the same tick as the hidden render (ui-primitives.md; jsdom keeps it).
-    const target = at.byKeyboard ? menu.querySelector<HTMLElement>('[role="menuitem"]') : menu;
-    target?.focus({ preventScroll: true });
-    const frame = requestAnimationFrame(() => {
-      if (document.activeElement !== target) target?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [at]);
-
-  // Escape closes it wherever focus is (a tap can leave focus on <body>).
-  useEffect(() => {
-    if (!at) return;
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      close();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [at, close]);
-
-  const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const list = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    const i = list.indexOf(document.activeElement as HTMLElement);
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      list[(i + 1) % list.length]?.focus();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      // From the menu itself (a touch opened it), up goes to the last item.
-      list[i < 0 ? list.length - 1 : (i - 1 + list.length) % list.length]?.focus();
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      list[0]?.focus();
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      list[list.length - 1]?.focus();
-    }
-  };
-
   return (
     <>
       <div
@@ -211,42 +131,17 @@ export default function ContextMenu({ items, label, children }: ContextMenuProps
       >
         {children}
       </div>
-      {at && createPortal(
-        <div className={styles.layer} onPointerDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-          <div
-            ref={menuRef}
-            id={menuId}
-            role="menu"
-            aria-label={label}
-            tabIndex={-1}
-            className={styles.menu}
-            onKeyDown={onMenuKey}
-            onPointerDown={() => { armed.current = true; }}
-          >
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="menuitem"
-                className={`${styles.item}${item.destructive ? ` ${styles.destructive}` : ''}`}
-                aria-disabled={item.disabledReason ? true : undefined}
-                onClick={(e) => {
-                  // e.detail 0: a keyboard activation, never the hold's release.
-                  if (item.disabledReason || (!armed.current && e.detail !== 0)) return;
-                  close();
-                  item.onSelect();
-                }}
-              >
-                <span className={styles.itemText}>
-                  <span>{item.label}</span>
-                  {item.disabledReason && <span className={styles.reason}>{item.disabledReason}</span>}
-                </span>
-                {item.icon && <span className={styles.icon}>{item.icon}</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body,
+      {at && (
+        <MenuLayer
+          at={{ x: at.x, y: at.y, gap: at.byHold ? FINGER_GAP : 0, byKeyboard: at.byKeyboard }}
+          id={menuId}
+          label={label}
+          items={items}
+          onClose={close}
+          // e.detail 0: a keyboard activation, never the hold's release.
+          canActivate={(e) => armed.current || e.detail === 0}
+          onMenuPointerDown={() => { armed.current = true; }}
+        />
       )}
     </>
   );

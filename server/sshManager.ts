@@ -435,6 +435,11 @@ function isLocal(host: string | undefined): boolean {
   return !host || localAddresses.has(host);
 }
 
+/** Whether an SSH host is this machine (no host, a loopback name, or one of its own addresses). */
+export function isLocalSshHost(host: string | undefined): boolean {
+  return isLocal(host);
+}
+
 /**
  * Point a Claude launch line at the status-line tap, which is how the dashboard learns the
  * plan limits Claude reports nowhere else (see applyStatusLineTap). Only for a LOCAL terminal
@@ -1517,6 +1522,10 @@ export function getTerminalOutputTail(terminalId: string, maxBytes = 2048): stri
   return snap.subarray(Math.max(0, snap.length - maxBytes)).toString('utf8');
 }
 
+/** Written between a restored screen and the new terminal's output (Nov 25 2026). Resets attributes first:
+ *  the saved bytes may end inside a colour. */
+export const RESTORED_OUTPUT_DIVIDER = Buffer.from('\x1b[0m\r\n\x1b[2m──── restored output above · this session continues below ────\x1b[0m\r\n', 'utf8');
+
 /**
  * Prepend saved output (base64) into a terminal's ring buffer.
  * Used during workspace import to restore previous terminal scrollback.
@@ -1527,7 +1536,10 @@ export function prefillTerminalOutput(terminalId: string, base64Data: string): b
   if (!term) return false;
   const saved = Buffer.from(base64Data, 'base64');
   const existing = ringSnapshot(term);
-  const combined = Buffer.concat([saved, existing]);
+  // The restored screen ends here: the CLI's own resume reprints part of the same history below it.
+  const combined = saved.length > 0
+    ? Buffer.concat([saved, RESTORED_OUTPUT_DIVIDER, existing])
+    : existing;
   // Trim to this terminal's own ring capacity (set when it was created — which
   // may differ from the current global setting). Must read `.cap`, NOT
   // `.buf.length`: the ring grows lazily, so its current allocation is usually

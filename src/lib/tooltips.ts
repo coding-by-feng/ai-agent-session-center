@@ -58,6 +58,11 @@ export const tooltips = {
     label: 'Unpin session',
     description: 'Stop keeping this session fixed and auto-recreating it.',
   },
+  // RECENT's Put down on each card (Nov 23 2026; shared Tooltip since Nov 24 so it shows on focus too).
+  recentPutDown: {
+    label: 'Put down for today',
+    description: 'Hide it from Recent until midnight. It stays in its room.',
+  },
   // The strip toolbar's toggle for the built-in PINNED frame. One label, the
   // pressed state says which: a toggle's name stays put. Empty = on, but the
   // frame has nothing to list (nothing pinned, or filtered out).
@@ -106,6 +111,10 @@ export const tooltips = {
   termPaste: {
     label: 'Paste from clipboard',
     description: 'Paste the system clipboard into the terminal at the cursor.',
+  },
+  termAttach: {
+    label: 'Attach files',
+    description: 'Pick files to upload; their saved paths are typed at the prompt. You can also paste files.',
   },
   termSendUp: {
     label: 'Send Up arrow',

@@ -603,7 +603,7 @@ describe('the steering rails', () => {
       unlocked: true,
       rows: standardRows(),
       routes: RESUME_ROUTE,
-      controller: () => ({ clientId: 'device-1', lastActivityAt: NOW - 5_000 }),
+      controller: () => ({ clientId: 'device-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }),
     });
 
     const err = await w.refused(name, args);

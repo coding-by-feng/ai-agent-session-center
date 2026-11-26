@@ -9,7 +9,8 @@
  * Approvals and questions answer through the same checked route and the same
  * take-control confirm as the session's card (useRequestAnswer). An interrupted
  * turn offers Continue; "continue all" continues each of its sessions; a
- * finished turn just opens. The dot says this phone hasn't seen it yet.
+ * finished turn just opens. A central's alert (Nov 26 2026) shows its message and the central it came from, and
+ * Dismiss closes it on every device. The dot says this phone hasn't seen it yet.
  */
 import type { Session } from '@/types';
 import { Button, ConfirmSheet } from '../kit';
@@ -17,7 +18,7 @@ import { ChevronRightIcon } from '../kit/kitIcons';
 import { inboxAge, type InboxItem } from '@/lib/chat/inboxItems';
 import { offeredChoices, waitingCardModel } from '@/lib/chat/waitingCardModel';
 import { choiceKey, useRequestAnswer } from './useRequestAnswer';
-import { ContinueIcon, DoneIcon, QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
+import { BellIcon, ContinueIcon, DoneIcon, QuestionIcon, TerminalIcon, WarningIcon } from './chatIcons';
 import styles from '@/styles/modules/mobile/Inbox.module.css';
 
 export interface InboxItemRowProps {
@@ -30,6 +31,8 @@ export interface InboxItemRowProps {
   onRead: (itemId: string) => void;
   onContinue: (item: InboxItem) => void;
   continuing: boolean;
+  /** A central's alert: close it (for every device). */
+  onDismiss?: (item: InboxItem) => void;
 }
 
 const KIND_ICON = {
@@ -38,6 +41,7 @@ const KIND_ICON = {
   interrupted: <ContinueIcon />,
   'continue-all': <ContinueIcon />,
   finished: <DoneIcon />,
+  alert: <BellIcon />,
 } as const;
 
 function Answers({ item, session, onOpen, onRead }: { item: InboxItem; session: Session; onOpen: InboxItemRowProps['onOpen']; onRead: (id: string) => void }) {
@@ -94,7 +98,7 @@ function Answers({ item, session, onOpen, onRead }: { item: InboxItem; session: 
   );
 }
 
-export default function InboxItemRow({ item, session, now, unread, onOpen, onRead, onContinue, continuing }: InboxItemRowProps) {
+export default function InboxItemRow({ item, session, now, unread, onOpen, onRead, onContinue, continuing, onDismiss }: InboxItemRowProps) {
   const open = () => {
     onRead(item.id);
     if (item.sessionId) onOpen(item.sessionId);
@@ -127,6 +131,16 @@ export default function InboxItemRow({ item, session, now, unread, onOpen, onRea
       {item.command && <pre className={styles.command} tabIndex={0} aria-label="The command" data-testid="inbox-command">{item.command}</pre>}
       {(item.kind === 'approval' || item.kind === 'question') && session && (
         <Answers item={item} session={session} onOpen={onOpen} onRead={onRead} />
+      )}
+      {item.kind === 'alert' && (
+        <>
+          {item.from && <p className={styles.note}>From {item.from}</p>}
+          <div className={styles.actions}>
+            <Button small variant="secondary" onClick={() => { onRead(item.id); onDismiss?.(item); }} aria-label={`Dismiss the alert on ${item.title}`}>
+              Dismiss
+            </Button>
+          </div>
+        </>
       )}
       {(item.kind === 'interrupted' || item.kind === 'continue-all') && (
         <div className={styles.actions}>

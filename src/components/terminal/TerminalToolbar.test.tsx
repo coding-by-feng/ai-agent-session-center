@@ -151,3 +151,37 @@ describe('TerminalToolbar — Formatted view', () => {
     expect(screen.queryByRole('button', { name: 'Formatted view' })).toBeNull();
   });
 });
+
+describe('TerminalToolbar — Attach files (Nov 26 2026)', () => {
+  it('is an icon button after the touch-only keys (Paste … Enter) that opens a file picker for several files', () => {
+    render(<TerminalToolbar {...base} onAttachFiles={vi.fn()} />);
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(names[names.indexOf('Send Enter') + 1]).toBe('Attach files');
+    const attach = screen.getByRole('button', { name: 'Attach files' });
+    expect(attach.textContent).toBe('');
+    expect(attach.querySelector('svg')).not.toBeNull();
+    const input = screen.getByTestId('terminal-attach-input') as HTMLInputElement;
+    expect(input.type).toBe('file');
+    expect(input.multiple).toBe(true);
+    const click = vi.spyOn(input, 'click');
+    fireEvent.click(attach);
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands the picked files over, then clears the picker so the same file can be picked again', () => {
+    const onAttachFiles = vi.fn();
+    render(<TerminalToolbar {...base} onAttachFiles={onAttachFiles} />);
+    const input = screen.getByTestId('terminal-attach-input') as HTMLInputElement;
+    const a = new File(['a'], 'a.pdf');
+    const b = new File(['b'], 'b.txt');
+    fireEvent.change(input, { target: { files: [a, b] } });
+    expect(onAttachFiles).toHaveBeenCalledWith([a, b]);
+    expect(input.value).toBe('');
+  });
+
+  it('is not offered without a handler', () => {
+    render(<TerminalToolbar {...base} />);
+    expect(screen.queryByRole('button', { name: 'Attach files' })).toBeNull();
+    expect(screen.queryByTestId('terminal-attach-input')).toBeNull();
+  });
+});

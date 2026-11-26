@@ -5,13 +5,15 @@
  *
  *   newProceedAsks   which sessions asked since the last look (a first sighting never counts, so a
  *                    launch or reconnect doesn't bring every standing P back as a notification)
- *   shouldShowProceed after the settle: still the same ask, not muted, setting on, and the user is
- *                    not already looking at that session
+ *   shouldShowProceed after the settle: still the same ask, its alert level notifies proceed asks
+ *                    (Normal by default; Loud and Urgent notify through useAlertNotifications), the
+ *                    setting on, and the user is not already looking at that session
  *   proceedNotice    what the notification says: the session's name only, never the answer's text
  *
  * The phone's version of this is the push (server/push/pushNotifier.ts sends such a turn as `input`).
  */
 import { sessionDisplayTitle } from './sessionDisplayTitle';
+import type { AlertNotify } from './attention';
 
 /** How long an ask must stand before it notifies: a queued prompt usually answers it within a second or two. */
 export const PROCEED_NOTIFY_SETTLE_MS = 3_000;
@@ -22,9 +24,6 @@ export interface ProceedSession {
   sessionId: string;
   status: string;
   pendingProceedAt?: number | null;
-  muted?: boolean;
-  /** Alert on: useAlertNotifications already notifies this turn ("waiting for you to proceed"). */
-  alerted?: boolean;
   title?: string | null;
   projectName?: string | null;
 }
@@ -62,10 +61,15 @@ export interface ProceedNotifyContext {
   focused: boolean;
   /** The session open in the detail panel, if any. */
   openSessionId: string | null;
+  /**
+   * What the session's alert level notifies (src/lib/attention.ts): only 'proceed' shows this one. 'all' is
+   * useAlertNotifications' ("waiting for you to proceed"), 'none' is a Silent or Quiet session.
+   */
+  notify: AlertNotify;
 }
 
 export function shouldShowProceed(session: ProceedSession | undefined, askedAt: number, ctx: ProceedNotifyContext): boolean {
-  if (!session || !ctx.enabled || session.muted || session.alerted === true) return false;
+  if (!session || !ctx.enabled || ctx.notify !== 'proceed') return false;
   if (askOf(session) !== askedAt) return false; // answered, or a newer ask took its place
   return !(ctx.focused && ctx.openSessionId === session.sessionId);
 }

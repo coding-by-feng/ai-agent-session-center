@@ -49,6 +49,29 @@ export function closedAllFiles(state: ProjectFilesState): ProjectFilesState {
   return { ...state, open: [], current: null };
 }
 
+/**
+ * The open file to show once `path` is closed while on screen, as the desktop's tabs do: the one after it, else the
+ * one before it, else none (the tab goes to the closed file's folder).
+ */
+export function afterClosing(open: readonly string[], path: string): string | null {
+  const at = open.indexOf(path);
+  if (at === -1) return null;
+  return open[at + 1] ?? open[at - 1] ?? null;
+}
+
+/** The longest name a tab writes out; past it the middle goes (`2026-11-24-01…tecture.md`). */
+const TAB_NAME_MAX = 24;
+
+/**
+ * A tab's name, shortened in the middle: file names that share a dated start (`2026-11-24-01-…`, `-02-…`) differ at
+ * both ends, so cutting the end would make their tabs read alike.
+ */
+export function tabName(name: string): string {
+  if (name.length <= TAB_NAME_MAX) return name;
+  const tail = 10;
+  return `${name.slice(0, TAB_NAME_MAX - tail - 1)}…${name.slice(-tail)}`;
+}
+
 /** Back from a file: it stays open (like a tab), but none is being read. */
 export function leftFile(state: ProjectFilesState): ProjectFilesState {
   return state.current === null ? state : { ...state, current: null };

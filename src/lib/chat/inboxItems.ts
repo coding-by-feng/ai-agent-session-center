@@ -7,6 +7,7 @@
  *   continue-all          two or more of those, or the sessions an AASC restart cut
  *                         off (interruptedRestore's offer): one "Continue all"
  *   finished              a turn that ended in the last 12 hours, with the start of its answer
+ *   alert                 a central's "this needs you" (alert_raise, Nov 26 2026), waiting like a question
  *
  * What waits comes first, the longest waiting first (the triage order of
  * inboxModel); finished turns follow, newest first. An item's id carries what
@@ -14,12 +15,12 @@
  * a new request on the same session is unread again. "Read" is this phone's own
  * (localStorage), never synced.
  */
-import type { Session } from '@/types';
+import type { RaisedAlert, Session } from '@/types';
 import type { InterruptedOffer } from '@/lib/interruptedRestore';
 import { stoppedLine } from './inboxModel';
 import { waitingCardModel } from './waitingCardModel';
 
-export type InboxKind = 'approval' | 'question' | 'interrupted' | 'continue-all' | 'finished';
+export type InboxKind = 'approval' | 'question' | 'interrupted' | 'continue-all' | 'finished' | 'alert';
 
 export interface InboxItem {
   id: string;
@@ -37,6 +38,10 @@ export interface InboxItem {
   reason?: 'restart' | 'interruptions';
   /** An approval's whole command, unclipped: the row shows it above Allow (Oct 20 2026). */
   command?: string;
+  /** alert: the raised alert's id (Dismiss closes it on every device). */
+  alertId?: string;
+  /** alert: the central's card, when the alert is about another session and this device may see that card. */
+  from?: string;
 }
 
 export type InboxFilter = 'waiting' | 'finished' | 'all';
@@ -50,6 +55,8 @@ export interface InboxOptions {
   now: number;
   /** interruptedRestore's offer, when this device holds one. */
   offer?: InterruptedOffer | null;
+  /** The raised alerts to list, already cut to what this device shows (inboxAlerts.ts `shownAlerts`). */
+  alerts?: readonly RaisedAlert[];
 }
 
 const oneLine = (text: string): string => {
@@ -148,6 +155,25 @@ export function inboxItems(sessions: ReadonlyMap<string, Session>, opts: InboxOp
       line: oneLine(answer.text),
       at: answer.timestamp,
       waiting: false,
+    });
+  }
+
+  for (const alert of opts.alerts ?? []) {
+    const session = sessions.get(alert.sessionId);
+    if (!session || session.status === 'ended') continue;
+    const central = alert.centralSessionId && alert.centralSessionId !== alert.sessionId ? sessions.get(alert.centralSessionId) : undefined;
+    waiting.push({
+      // Raised again while open (count) is news again: unread once more.
+      id: `alert:${alert.id}:${alert.count}`,
+      kind: 'alert',
+      sessionId: session.sessionId,
+      sessionIds: [session.sessionId],
+      title: titleOf(session),
+      line: oneLine(alert.message),
+      at: alert.raisedAt,
+      waiting: true,
+      alertId: alert.id,
+      ...(central ? { from: titleOf(central) } : {}),
     });
   }
 

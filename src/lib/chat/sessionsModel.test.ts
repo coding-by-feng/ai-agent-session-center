@@ -249,17 +249,17 @@ describe('groupSessions', () => {
     ];
     const byRoom = (over: Partial<GroupInput> = {}) => groupSessions(input(list, { groupBy: 'room', rooms, now: N, ...over }));
 
-    it('lists the most recently worked live sessions: pinned first, then newest prompt', () => {
+    it('lists the most recently worked live sessions, newest work first (Nov 26 2026: running turns first, pinned in place)', () => {
       const recent = byRoom().find((g) => g.kind === 'recent')!;
       expect(recent).toMatchObject({ key: 'recent', kind: 'recent', title: 'Recent' });
-      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
+      expect(recent.sessions.map((s) => s.sessionId)).toEqual(['run', 'loose', 'fresh', 'pin', 'quiet']);
     });
 
     it('keeps each of them in its own room as well', () => {
       const groups = byRoom();
       expect(groups.map((g) => [g.title, g.sessions.map((s) => s.sessionId)])).toEqual([
         ['Pinned', ['pin']],
-        ['Recent', ['pin', 'fresh', 'run', 'quiet', 'loose']],
+        ['Recent', ['run', 'loose', 'fresh', 'pin', 'quiet']],
         ['First', ['pin', 'run', 'fresh', 'quiet']], // the room's own order: pinned first
         ['No room', ['loose']],
       ]);
@@ -267,7 +267,7 @@ describe('groupSessions', () => {
 
     it('keeps quiet sessions however long ago they worked, never an ended one (RECENT_LIMIT, Nov 2)', () => {
       const later = byRoom({ now: N + 600 * MIN }).find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId);
-      expect(later).toEqual(['pin', 'fresh', 'run', 'quiet', 'loose']);
+      expect(later).toEqual(['run', 'loose', 'fresh', 'pin', 'quiet']);
       expect(later).not.toContain('gone');
     });
 
@@ -296,6 +296,32 @@ describe('groupSessions', () => {
 
       it('has nothing more to offer when 10 or fewer qualify', () => {
         expect(byRoom().find((g) => g.kind === 'recent')!.recentHasMore).toBe(false);
+      });
+    });
+
+    // The desktop rail's Put down, on the phone (Nov 24 2026): out of Recent for today, still in its room.
+    describe('put down', () => {
+      it('leaves a put-down session out of Recent but keeps it in its room', () => {
+        const groups = byRoom({ putDown: ['fresh'] });
+        expect(groups.find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['run', 'loose', 'pin', 'quiet']);
+        expect(groups.find((g) => g.title === 'First')!.sessions.map((s) => s.sessionId)).toContain('fresh');
+      });
+
+      it('lets the next most recent take its slot before the cut', () => {
+        const many = Array.from({ length: 11 }, (_, i) => mk(`s${String(i).padStart(2, '0')}`, { status: 'waiting', ...prompted(N - (i + 1) * MIN) }));
+        const recent = groupSessions(input(many, { groupBy: 'room', rooms: [], now: N, putDown: ['s00'] })).find((g) => g.kind === 'recent')!;
+        expect(recent.sessions).toHaveLength(10);
+        expect(recent.sessions.map((s) => s.sessionId)).toContain('s10');
+        expect(recent.recentHasMore).toBe(false);
+      });
+
+      it('keeps an empty Recent while a live session is put down, so it can be put back', () => {
+        const solo = [mk('only', { status: 'waiting', ...prompted(N - 5 * MIN) })];
+        const groups = groupSessions(input(solo, { groupBy: 'room', rooms: [], now: N, putDown: ['only'] }));
+        expect(groups.find((g) => g.kind === 'recent')).toMatchObject({ sessions: [] });
+        // An id that is no longer a live session keeps nothing.
+        const none = groupSessions(input(solo, { groupBy: 'room', rooms: [], now: N, putDown: ['gone-long-ago'] }));
+        expect(none.find((g) => g.kind === 'recent')!.sessions.map((s) => s.sessionId)).toEqual(['only']);
       });
     });
 

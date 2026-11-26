@@ -7,12 +7,16 @@
  * - Event sounds: maps hook events to sound actions, once per event
  * - Alert (Nov 18 2026): an alerted session sounds a loud siren for approval (every 5 s) and loud
  *   bells for completion, over mute, the global sound switch and the CLI's own mapping
+ * - Alert levels (Nov 25 2026): the session's level (src/lib/attention.ts, sessionAlertLevel.ts) picks the
+ *   sound: none (Silent, Quiet), the settings' sounds (Normal), or the loud siren and bells (Loud, Urgent)
  */
 import type { Session, SessionEvent } from '@/types';
 import type { SoundAction, SoundName } from './soundEngine';
 import { soundEngine } from './soundEngine';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { detectCli } from './cliDetect';
+import { ownAlertLevel, type AlertLevel, type AlertSound } from './attention';
+import { sessionAlertOf } from './sessionAlertLevel';
 
 // ---------------------------------------------------------------------------
 // Tool name -> sound action mapping
@@ -46,15 +50,18 @@ const mutedSessions = new Set<string>();
 const alertedSessions = new Set<string>();
 
 /**
- * Alert is the session's flag (the server keeps it and restores it), so it holds after a reload and
- * when it was set on another device. This window's click counts only while the session has no flag yet.
+ * The level is the session's (the server keeps it and restores it), so it holds after a reload and when it was set
+ * on another device. This window's Mute or Alert click counts only while the session has no flag of that kind yet.
  */
-function alertOn(session: Session): boolean {
-  return session.alerted ?? alertedSessions.has(session.sessionId);
+function clickedLevel(session: Session): AlertLevel | undefined {
+  if (session.alerted === undefined && alertedSessions.has(session.sessionId)) return 'loud';
+  if (session.muted === undefined && mutedSessions.has(session.sessionId)) return 'silent';
+  return undefined;
 }
 
-function mutedOn(session: Session): boolean {
-  return session.muted ?? mutedSessions.has(session.sessionId);
+/** The sound the session's level makes: none, the settings' sounds, or loud over mute and sounds off. */
+function soundOf(session: Session): AlertSound {
+  return sessionAlertOf(session, ownAlertLevel(session) ?? clickedLevel(session)).outputs.sound;
 }
 
 /** Has this event already made its sound? Same type and time as the previous update's last event. */
@@ -159,14 +166,14 @@ export function handleEventSounds(session: Session, prev?: Session): void {
   if (!lastEvt) return;
   if (sameEvent(lastEvt, prev?.events?.[prev.events.length - 1])) return;
 
-  const alert = alertOn(session);
-  // An alerted session's completion: loud bells, heard over mute and over sounds being off.
-  if (alert && lastEvt.type === 'Stop') {
+  const sound = soundOf(session);
+  // Silent and Quiet sessions never play a sound.
+  if (sound === 'none') return;
+  // A loud session's completion: loud bells, heard over mute and over sounds being off.
+  if (sound === 'loud' && lastEvt.type === 'Stop') {
     soundEngine.playLoud('bells');
     return;
   }
-  // Muted sessions never play sounds (unless alerted — alert overrides mute)
-  if (mutedOn(session) && !alert) return;
 
   switch (lastEvt.type) {
     case 'SessionStart':
@@ -198,6 +205,20 @@ export function handleEventSounds(session: Session, prev?: Session): void {
 }
 
 /**
+ * A reminder of a moment you have not handled (useUrgentRepeat, Nov 25 2026): a loud level's bells, else the
+ * session's own sound for that moment. Approval has none: its alarm already repeats while it stands.
+ */
+export function playReminder(session: Session, kind: 'done' | 'input'): void {
+  const sound = soundOf(session);
+  if (sound === 'none') return;
+  if (sound === 'loud') {
+    soundEngine.playLoud('bells');
+    return;
+  }
+  playForCli(session, kind === 'done' ? 'taskComplete' : 'inputNeeded');
+}
+
+/**
  * Check and manage approval/input alarms for a session.
  * Call this on every session update to start/stop alarms.
  */
@@ -208,13 +229,13 @@ export function checkAlarms(
   const sid = session.sessionId;
 
   // ---- Approval alarm (repeating) ----
-  // Alerted sessions: the loud siren every 5s, over mute; normal sessions: their sound every 10s.
-  const audible = (s: Session) => alertOn(s) || !mutedOn(s);
+  // Loud sessions: the loud siren every 5s, over mute; normal sessions: their sound every 10s; silent ones none.
+  const audible = (s: Session) => soundOf(s) !== 'none';
   const approvalSound = (s: Session) => {
-    if (alertOn(s)) soundEngine.playLoud('siren');
+    if (soundOf(s) === 'loud') soundEngine.playLoud('siren');
     else playForCli(s, 'approvalNeeded');
   };
-  const interval = alertOn(session) ? ALERT_APPROVAL_INTERVAL : NORMAL_APPROVAL_INTERVAL;
+  const interval = soundOf(session) === 'loud' ? ALERT_APPROVAL_INTERVAL : NORMAL_APPROVAL_INTERVAL;
   if (session.status === 'approval' && audible(session)) {
     if (!approvalTimers.has(sid)) {
       approvalSound(session);
@@ -230,7 +251,7 @@ export function checkAlarms(
       approvalTimers.set(sid, intervalId);
     }
   } else if (approvalTimers.has(sid)) {
-    // Answered, or muted with Alert off: stop the repeat.
+    // Answered, or its level went quiet: stop the repeat.
     const timer = approvalTimers.get(sid)!;
     clearInterval(timer);
     approvalTimers.delete(sid);
@@ -238,7 +259,7 @@ export function checkAlarms(
 
   // ---- Input notification (one-shot) ----
   const inputKey = `input-${sid}`;
-  if (session.status === 'input' && !mutedOn(session)) {
+  if (session.status === 'input' && soundOf(session) !== 'none') {
     if (!inputFired.has(inputKey)) {
       playForCli(session, 'inputNeeded');
       inputFired.set(inputKey, true);

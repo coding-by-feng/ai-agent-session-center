@@ -31,7 +31,9 @@ import { reorderOpFor } from '@/lib/chat/roomsListModel';
 import { killSharedRoomSessions, roomKillSummary, sharedRoomTargets } from '@/lib/chat/phoneRoomKill';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { RECENT_EXPANDED_LIMIT, RECENT_LIMIT } from '@/lib/recentSessions';
-import type { RoomOp } from '@/types';
+import { useRecentPutDownStore } from '@/stores/recentPutDownStore';
+import { PutDownIcon } from '@/components/session/PutDownIcon';
+import type { RoomOp, Session } from '@/types';
 import styles from '@/styles/modules/mobile/SessionRooms.module.css';
 
 const FIT = ['fit'] as const;
@@ -206,31 +208,73 @@ export function ProjectGroupHeader({ projectKey, title, count, color, collapsed,
  * The built-in Recent group's header (By room, Oct 20 2026): the desktop rail's
  * RECENT frame. It folds like a room but is not one, so no ≡ and no ⋯; the space
  * where ≡ sits keeps its title in line with the rooms' titles.
+ *
+ * Put back (Nov 24 2026, the desktop's RECENT put-down on the phone): while any
+ * session is put down today, an eye-off + N chip opens a sheet that puts each back,
+ * or all. The put-down list is this device's own (recentPutDownStore).
  */
-export function RecentGroupHeader({ count, collapsed, onToggle, limit }: {
+export function RecentGroupHeader({ count, collapsed, onToggle, limit, putDown = [] }: {
   count: number;
   collapsed: boolean;
   onToggle: () => void;
   /** The 10 ↔ 20 toggle (Nov 18 2026), given only when more than 10 qualify; shown while open. */
   limit?: { expanded: boolean; onToggle: () => void };
+  /** The live sessions put down from Recent today, newest put down last. */
+  putDown?: readonly Session[];
 }) {
   const shown = limit?.expanded ? RECENT_EXPANDED_LIMIT : RECENT_LIMIT;
   const name = limit?.expanded ? `Show only the ${RECENT_LIMIT} most recent` : `Show the ${RECENT_EXPANDED_LIMIT} most recent`;
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const putBack = useRecentPutDownStore((st) => st.putBackSession);
+  const putBackAll = useRecentPutDownStore((st) => st.putBackAll);
+  const downCount = putDown.length;
+  const chipName = `${downCount} put down from Recent today`;
+  // Closes on the last put-back, so the sheet never stays open over nothing.
+  const back = (id: string) => {
+    putBack(id);
+    if (downCount <= 1) setSheetOpen(false);
+  };
   return (
-    <BuiltinGroupHeader
-      title="Recent"
-      icon={<ClockIcon />}
-      count={count}
-      collapsed={collapsed}
-      onToggle={onToggle}
-      describe={`the ${shown} most recently active`}
-    >
-      {limit && !collapsed && (
-        <button type="button" className={styles.menuButton} onClick={limit.onToggle} aria-label={name} aria-pressed={limit.expanded}>
-          <RecentLimitGlyph expanded={limit.expanded} />
-        </button>
-      )}
-    </BuiltinGroupHeader>
+    <>
+      <BuiltinGroupHeader
+        title="Recent"
+        icon={<ClockIcon />}
+        count={count}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        describe={`the ${shown} most recently active`}
+      >
+        {downCount > 0 && (
+          <button
+            type="button"
+            className={styles.putDownChip}
+            onClick={() => setSheetOpen(true)}
+            aria-label={chipName}
+            aria-haspopup="dialog"
+          >
+            <PutDownIcon size={16} />
+            <span>{downCount}</span>
+          </button>
+        )}
+        {limit && !collapsed && (
+          <button type="button" className={styles.menuButton} onClick={limit.onToggle} aria-label={name} aria-pressed={limit.expanded}>
+            <RecentLimitGlyph expanded={limit.expanded} />
+          </button>
+        )}
+      </BuiltinGroupHeader>
+      <Sheet open={sheetOpen && downCount > 0} onClose={() => setSheetOpen(false)} title="Put back in Recent" detents={FIT} testId="recent-put-back-sheet">
+        <ListSection label="Put down today" footer="Put-down sessions stay in their rooms and come back at midnight.">
+          {putDown.map((s) => (
+            <ListRow key={s.sessionId} title={sessionDisplayTitle(s)} value="Put back" ariaLabel={`Put ${sessionDisplayTitle(s)} back in Recent`} onClick={() => back(s.sessionId)} />
+          ))}
+        </ListSection>
+        {downCount > 1 && (
+          <ListSection label="All">
+            <ListRow title="Put all back" onClick={() => { putBackAll(); setSheetOpen(false); }} />
+          </ListSection>
+        )}
+      </Sheet>
+    </>
   );
 }
 

@@ -50,22 +50,5 @@ export function RecentLimitIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
-/** RECENT's Put down (Nov 23 2026): an arrow down onto a line, "set it down". Decorative; the control is named. */
-export function PutDownIcon() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path d="M6 1.5v6M3.5 5 6 7.5 8.5 5M2 10.5h8" />
-    </svg>
-  );
-}
+/** RECENT's Put down glyph lives in its own CSS-free file, so the phone can draw it too (Nov 24 2026). */
+export { PutDownIcon } from './PutDownIcon';

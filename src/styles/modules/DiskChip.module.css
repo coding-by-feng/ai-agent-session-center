@@ -1,0 +1,85 @@
+/* DiskChip — the session panel's disk readout (Nov 26 2026), beside the plan chip and drawn like it: mono 10px, no
+   frame, a hover chip behind it. Low and critical colour the mark and the number; the words are in the tooltip. */
+
+.chip {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip::before {
+  content: '';
+  position: absolute;
+  inset: -2px -4px;
+  z-index: -1;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.chip:hover::before {
+  background: var(--bg-subtle);
+}
+
+.chip:active::before {
+  background: var(--bg-accent);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 3px;
+}
+
+.chip[data-tone='low'] {
+  color: var(--accent-orange, #ff9100);
+}
+
+.chip[data-tone='critical'] {
+  color: var(--accent-red, #ff3355);
+  font-weight: 700;
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+}
+
+.path {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chip::before {
+    transition: background 0.15s ease;
+  }
+}
+
+@media (pointer: coarse) {
+  .chip::after {
+    content: '';
+    position: absolute;
+    inset: -14px -4px;
+  }
+}

@@ -11,8 +11,12 @@ import {
   addCentralReplies, addTranscript, callBubble, callEventEffect, centralOnScreen, CALL_MESSAGES, pageOn, requestCall, requestEnd, requestProgress, type CallLine,
 } from './voiceCall.js';
 import { createCallRtc, RtcError, type CallRtc, type RtcEnv } from './voiceRtc.js';
+import {
+  addSkillToCall, CALL_FILE_MAX_BYTES, decideMemory, fileToBase64, removeFromCall, requestCommands, requestMemory, uploadToCall, type AddResult,
+} from './callAdd.js';
+import { openCallAddSheet, type CallAddSheet } from './ui/callAddSheet.js';
 
-export type CallActions = Pick<Actions, 'endCall' | 'toggleMute' | 'togglePause' | 'toggleMinimize' | 'retryCall'>;
+export type CallActions = Pick<Actions, 'endCall' | 'toggleMute' | 'togglePause' | 'toggleMinimize' | 'retryCall' | 'openCallAdd' | 'removeCallItem'>;
 
 type CallScreen = Extract<Screen, { name: 'call' }>;
 
@@ -35,6 +39,10 @@ export interface CallHost {
   layer?: CallLayer | null;
   /** Gives the Mac page shown over the call this call's sign-in (the session cookie). */
   setCookie?(origin: string, token: string): Promise<void>;
+  /** The ＋ Add sheet (Nov 24 2026); callAddSheet.ts by default. */
+  openAddSheet?: typeof openCallAddSheet;
+  /** A picked file's bytes as base64; FileReader by default. */
+  readFile?(file: Blob): Promise<string>;
 }
 
 export interface CallWiring {
@@ -78,6 +86,14 @@ export function createCallWiring(host: CallHost): CallWiring {
   let floated = false;
   /** The origin of the page shown over the call, and where it was last: a later Minimize and the end of the call go back there. */
   let page: { origin: string; path: string | null } | null = null;
+  /** The ＋ Add sheet while it is open (Nov 24 2026). */
+  let sheet: CallAddSheet | null = null;
+  /** The Voice central's CLI, from the last progress read: the sheet lists its commands. */
+  let centralCli: 'claude' | 'codex' = 'claude';
+  /** Picked files go to the Mac one at a time (each crosses the native bridge whole). */
+  let uploads: Promise<void> = Promise.resolve();
+  /** Bumped by each add or removal here, so a progress read that started before it can't undo it. */
+  let localEdits = 0;
 
   /** host.update, and the bubble follows while the call floats. */
   function update(patch: Partial<CallScreen>): void {
@@ -113,6 +129,8 @@ export function createCallWiring(host: CallHost): CallWiring {
 
   /** Lets go of the audio and the clock; tells the Mac when a call was live. */
   function hangUp(): void {
+    sheet?.close();
+    sheet = null;
     if (ticker !== null) clearInterval(ticker);
     ticker = null;
     if (poller !== null) clearInterval(poller);
@@ -149,8 +167,9 @@ export function createCallWiring(host: CallHost): CallWiring {
     seenReplies = [];
     host.show({
       name: 'call', macId: mac.id, back, phase: 'starting', message: null, muted: false, paused: false, minimized: false,
-      lines: [], central: null, tasks: [], startedAt: null, now: host.now(),
+      lines: [], central: null, tasks: [], pending: [], adding: 0, addNotice: null, startedAt: null, now: host.now(),
     });
+    centralCli = 'claude';
     const env = host.rtcEnv();
     if (!env) { fail(my, CALL_MESSAGES.failed); return; }
 
@@ -205,6 +224,7 @@ export function createCallWiring(host: CallHost): CallWiring {
       const on = live;
       if (reading || !on || !onCall(my)) return;
       reading = true;
+      const editsAtRead = localEdits;
       void requestProgress(host.requester, on.line, on.callId).then((progress) => {
         reading = false;
         const s = onCall(my);
@@ -212,7 +232,9 @@ export function createCallWiring(host: CallHost): CallWiring {
         if (!progress || !s || live !== on) return;
         const merged = addCentralReplies(s.lines, seenReplies, progress.replies);
         seenReplies = merged.seen;
-        update({ central: centralOnScreen(progress.central, host.now()), tasks: progress.tasks, lines: [...merged.lines] });
+        if (progress.central?.cli) centralCli = progress.central.cli;
+        // The Mac's list is the truth: the next question takes everything that waited (Nov 24 2026).
+        update({ central: centralOnScreen(progress.central, host.now()), tasks: progress.tasks, lines: [...merged.lines], ...(editsAtRead === localEdits ? { pending: progress.pending } : {}) });
       });
     }, PROGRESS_POLL_MS);
   }
@@ -259,9 +281,85 @@ export function createCallWiring(host: CallHost): CallWiring {
     if (host.screen().name === 'call') host.update({ minimized: false });
   }
 
+  /** The live call's screen and line, if this call is still the one on screen. */
+  function liveNow(): { s: CallScreen; on: { line: CallLine; callId: string } } | null {
+    const s = host.screen();
+    return s.name === 'call' && s.phase === 'live' && live ? { s, on: live } : null;
+  }
+
+  /** Shows what the Mac now holds, or why it didn't take it. */
+  function settle(on: { line: CallLine; callId: string } | null, result: AddResult): void {
+    const s = host.screen();
+    if (s.name !== 'call' || live !== on || !on) return;
+    if (result.ok) {
+      localEdits += 1;
+      const pending = s.pending.some((p) => p.id === result.item.id) ? s.pending : [...s.pending, result.item];
+      update({ pending, addNotice: null });
+    } else {
+      update({ addNotice: result.message });
+    }
+  }
+
+  function addFiles(files: readonly File[]): void {
+    const now = liveNow();
+    if (!now || files.length === 0) return;
+    const { on } = now;
+    update({ adding: now.s.adding + files.length, addNotice: null });
+    const read = host.readFile ?? fileToBase64;
+    for (const file of files) {
+      uploads = uploads.then(async () => {
+        let result: AddResult;
+        try {
+          // Checked before reading: a 1 GB video read as base64 would take the WebView, and the call, down.
+          result = live !== on
+            ? { ok: false, message: 'The call ended before it was sent.' }
+            : file.size > CALL_FILE_MAX_BYTES
+              ? { ok: false, message: `${file.name} is over 100 MB.` }
+              : await uploadToCall(host.requester, on.line, on.callId, { name: file.name, type: file.type, base64: await read(file), size: file.size });
+        } catch {
+          result = { ok: false, message: `Couldn’t read ${file.name}.` };
+        }
+        settle(on, result);
+        const s = host.screen();
+        if (s.name === 'call' && live === on) update({ adding: Math.max(0, s.adding - 1) });
+      });
+    }
+  }
+
+  function openCallAdd(): void {
+    const now = liveNow();
+    if (!now || sheet) return;
+    const { on } = now;
+    sheet = (host.openAddSheet ?? openCallAddSheet)({
+      addFiles,
+      loadCommands: () => requestCommands(host.requester, on.line, centralCli),
+      pickCommand: (token) => {
+        update({ addNotice: null });
+        void addSkillToCall(host.requester, on.line, on.callId, token).then((result) => settle(on, result));
+      },
+      loadMemory: () => requestMemory(host.requester, on.line),
+      decideMemory: (id, action) => decideMemory(host.requester, on.line, id, action),
+      onClosed: () => {
+        sheet = null;
+        globalThis.document?.getElementById('call-add')?.focus();
+      },
+    });
+  }
+
+  function removeCallItem(id: string): void {
+    const now = liveNow();
+    if (!now) return;
+    localEdits += 1;
+    update({ pending: now.s.pending.filter((p) => p.id !== id) });
+    // A refusal (already taken by a question) needs nothing more: the next progress read shows the Mac's list.
+    void removeFromCall(host.requester, now.on.line, now.on.callId, id);
+  }
+
   return {
     start,
     actions: {
+      openCallAdd,
+      removeCallItem,
       endCall: leave,
       toggleMute: () => {
         const s = host.screen();

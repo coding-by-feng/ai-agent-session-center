@@ -4,6 +4,7 @@
 
 import type { SessionCentralMarker } from './central.js';
 import type { SessionHookLevel } from './session.js';
+import type { AlertLevel } from '../lib/attention.js';
 
 // ---------------------------------------------------------------------------
 // Terminal scrollback replay buffer (configurable)
@@ -159,6 +160,8 @@ export interface TerminalConfig {
    */
   hookLevel?: SessionHookLevel;
   alerted?: boolean;
+  /** The session's own alert level (src/lib/attention.ts), carried through a restore; wins over `muted` / `alerted`. */
+  alertLevel?: AlertLevel;
   accentColor?: string;
   characterModel?: string;
   /** User's progress remark, carried through a workspace restore. */

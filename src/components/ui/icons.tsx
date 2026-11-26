@@ -18,6 +18,7 @@
  */
 import type { SVGProps } from 'react';
 import FileTypeIcon from '@/components/ui/FileTypeIcon';
+import type { AlertLevel } from '@/lib/attention';
 
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -130,6 +131,23 @@ export function AlertIcon(props: IconProps) {
     <svg {...svg(12, '0 0 16 16', props)}>
       <path d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8L4 11Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
       <path d="M6.5 14a1.6 1.6 0 0 0 3 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** A bell at five volumes — the session's alert level (Nov 25 2026, lib/attention.ts): slashed (Silent), plain
+ *  (Quiet), ringing (Normal), ringing twice (Loud), filled and ringing twice (Urgent). Not the Lite Alert switch's
+ *  AlertIcon, which never shows beside it (Full has no Alert switch; Lite has no levels). */
+export function AlertLevelIcon({ level, ...props }: IconProps & { level: AlertLevel }) {
+  const rings = level === 'normal' || level === 'loud' || level === 'urgent';
+  const twice = level === 'loud' || level === 'urgent';
+  return (
+    <svg {...svg(12, '0 0 16 16', props)} stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.2 6a3.8 3.8 0 0 1 7.6 0c0 4.2 1.7 5.6 1.7 5.6h-11S4.2 10.2 4.2 6" fill={level === 'urgent' ? 'currentColor' : 'none'} />
+      <path d="M6.9 14a1.3 1.3 0 0 0 2.2 0" />
+      {rings && <path d="M2.6 1.6C1.8 2.7 1.3 4 1.3 5.5M14.7 5.5c0-1.5-.5-2.8-1.3-3.9" />}
+      {twice && <path d="M3.9 3.2c-.4.6-.6 1.3-.6 2.1M12.7 5.3c0-.8-.2-1.5-.6-2.1" />}
+      {level === 'silent' && <path d="M2 2l12 12" />}
     </svg>
   );
 }

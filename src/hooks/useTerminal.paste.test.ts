@@ -46,7 +46,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function attached(tap?: TerminalInputTap) {
+async function attached(tap?: TerminalInputTap, sshHost?: string) {
+  const { hook: _hook, ...rest } = await attachedWithHook(tap, sshHost);
+  void _hook;
+  return rest;
+}
+
+async function attachedWithHook(tap?: TerminalInputTap, sshHost?: string) {
   let term: Terminal | null = null;
   let keyHandler: ((e: KeyboardEvent) => boolean) | null = null;
   keySpy = vi.spyOn(Terminal.prototype, 'attachCustomKeyEventHandler').mockImplementation(
@@ -57,14 +63,14 @@ async function attached(tap?: TerminalInputTap) {
     },
   );
   const ws = { readyState: 1, send: vi.fn() } as unknown as WebSocket;
-  const hook = renderHook(() => useTerminal({ ws }));
+  const hook = renderHook(() => useTerminal({ ws, sshHost }));
   act(() => { hook.result.current.containerRef.current = sizedContainer(); });
   await act(async () => {
     hook.result.current.attach('term-paste');
     await new Promise((r) => setTimeout(r, 300));
   });
   if (tap) act(() => hook.result.current.setInputTap(tap));
-  return { ws, term: term! as Terminal, keyHandler: keyHandler! as (e: KeyboardEvent) => boolean };
+  return { ws, hook, term: term! as Terminal, keyHandler: keyHandler! as (e: KeyboardEvent) => boolean };
 }
 
 /** A paste event as the browser fires it on xterm's textarea (jsdom has no ClipboardEvent / DataTransfer). */
@@ -141,13 +147,29 @@ describe('useTerminal — paste', () => {
   });
 
   it('a pasted image is uploaded and its saved path typed instead', async () => {
-    const fetchMock = vi.fn(async () => ({ json: async () => ({ paths: ['/tmp/claude-queue-images/a.png'] }) }));
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, path: '/tmp/claude-terminal-files-501/1/shot.png' }) }));
     vi.stubGlobal('fetch', fetchMock);
     const { ws, term } = await attached();
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
     act(() => { term.textarea!.dispatchEvent(pasteEvent('', [png])); });
-    await vi.waitFor(() => expect(inputs(ws)).toEqual(['/tmp/claude-queue-images/a.png']));
-    expect(fetchMock).toHaveBeenCalledWith('/api/queue-images', expect.objectContaining({ method: 'POST' }));
+    await vi.waitFor(() => expect(inputs(ws)).toEqual(['/tmp/claude-terminal-files-501/1/shot.png']));
+    expect(fetchMock).toHaveBeenCalledWith('/api/terminal-files', expect.objectContaining({ method: 'POST', body: png }));
+  });
+
+  it('any pasted file is uploaded, several at once, their paths typed space-separated (Nov 26 2026)', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, path: '/tmp/f/1/report.pdf' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, path: '/tmp/f/2/notes.md' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const tap = { onKey: () => false, onData: vi.fn(), onReset: vi.fn() };
+    const { ws, term } = await attached(tap as TerminalInputTap);
+    const pdf = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
+    const md = new File(['# hi'], 'notes.md', { type: '' });
+    // Finder puts the names on the clipboard as text too: the files win.
+    act(() => { term.textarea!.dispatchEvent(pasteEvent('report.pdf\nnotes.md', [pdf, md])); });
+    await vi.waitFor(() => expect(inputs(ws)).toEqual(['/tmp/f/1/report.pdf /tmp/f/2/notes.md']));
+    // A typed path starts with `/`: the slash-command list must not open on it.
+    expect(tap.onData).not.toHaveBeenCalled();
   });
 
   it('an image that fails to upload falls back to the pasted text', async () => {
@@ -156,5 +178,34 @@ describe('useTerminal — paste', () => {
     const png = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
     act(() => { term.textarea!.dispatchEvent(pasteEvent('caption', [png])); });
     await vi.waitFor(() => expect(inputs(ws)).toEqual(['caption']));
+  });
+
+  it('a terminal SSH\'d to another host uploads nothing: its text is still pasted', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { ws, term } = await attached(undefined, 'vps.example.com');
+    const png = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
+    act(() => { term.textarea!.dispatchEvent(pasteEvent('caption', [png])); });
+    await vi.waitFor(() => expect(inputs(ws)).toEqual(['caption']));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useTerminal — attachFiles (the toolbar\'s 📎)', () => {
+  it('uploads the picked files and types their paths at the prompt', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, path: '/tmp/f/1/a.csv' }) })));
+    const tap = { onKey: () => false, onData: vi.fn(), onReset: vi.fn() };
+    const { ws, hook } = await attachedWithHook(tap as TerminalInputTap);
+    await act(async () => { await hook.result.current.attachFiles([new File(['a,b'], 'a.csv', { type: 'text/csv' })]); });
+    expect(inputs(ws)).toEqual(['/tmp/f/1/a.csv']);
+    expect(tap.onReset).toHaveBeenCalled();
+    expect(tap.onData).not.toHaveBeenCalled();
+  });
+
+  it('types nothing when no file went up', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    const { ws, hook } = await attachedWithHook();
+    await act(async () => { await hook.result.current.attachFiles([new File(['x'], 'a.txt')]); });
+    expect(inputs(ws)).toEqual([]);
   });
 });

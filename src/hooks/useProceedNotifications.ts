@@ -3,14 +3,16 @@
  * user to reply "proceed" (the amber P; Nov 8 2026). Mounted once in the main window's AppLayout;
  * does nothing without the desktop bridge (`window.electronAPI.notify`: a browser dashboard or a
  * Client edition), so one Mac notifies once. An ask must stand PROCEED_NOTIFY_SETTLE_MS before it
- * notifies, and is skipped when muted, when Settings → Sound → Notifications has it off, or while
- * that session is open in a focused window. Clicking the notification opens the session.
+ * notifies, and is skipped unless the session's alert level notifies proceed asks (Normal by default:
+ * Loud and Urgent notify through useAlertNotifications, Silent and Quiet not at all), when Settings →
+ * Sound → Notifications has it off, or while that session is open in a focused window. Clicking the notification opens the session.
  * Rules: src/lib/proceedNotify.ts. The phone gets the same turn as a push (pushNotifier.ts).
  */
 import { useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { sessionAlertOf } from '@/lib/sessionAlertLevel';
 import {
   PROCEED_NOTIFY_SETTLE_MS,
   newProceedAsks,
@@ -26,6 +28,7 @@ function showIfStillOwed(ask: ProceedAsk, notify: NonNullable<NonNullable<Window
     enabled: useSettingsStore.getState().proceedNotifyEnabled,
     focused: document.hasFocus(),
     openSessionId: useUiStore.getState().detailPanelMinimized ? null : selectedSessionId,
+    notify: session ? sessionAlertOf(session).outputs.notify : 'none',
   };
   if (!session || !shouldShowProceed(session, ask.askedAt, ctx)) return;
   notify(proceedNotice(session)).catch(() => { /* no notification is not worth a toast */ });

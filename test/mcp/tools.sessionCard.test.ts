@@ -30,6 +30,8 @@ const CASES: Case[] = [
   { tool: 'session_set_pinned', args: { on: true }, route: 'pinned', body: { pinned: true }, data: { pinned: true } },
   { tool: 'session_set_muted', args: { on: false }, route: 'muted', body: { muted: false }, data: { muted: false } },
   { tool: 'session_set_alerted', args: { on: true }, route: 'alerted', body: { alerted: true }, data: { alerted: true } },
+  { tool: 'session_set_alert_level', args: { level: 'urgent' }, route: 'alert-level', body: { level: 'urgent' }, data: { alertLevel: 'urgent' } },
+  { tool: 'session_set_alert_level', args: { level: null }, route: 'alert-level', body: { level: null }, data: { alertLevel: null } },
   { tool: 'session_set_accent_color', args: { color: '#00f0ff' }, route: 'accent-color', body: { color: '#00f0ff' }, data: { accentColor: '#00f0ff' } },
   { tool: 'session_set_character_model', args: { model: 'drone' }, route: 'character-model', body: { model: 'drone' }, data: { characterModel: 'drone' } },
   {
@@ -51,6 +53,8 @@ const CASES: Case[] = [
 ];
 
 const SETTERS = CASES.map((c) => c.tool);
+/** The sharing case, found by name so a new setter in CASES never shifts it. */
+const SHARED_CASE = CASES.find((c) => c.tool === 'session_set_shared') as Case;
 
 /** A world with one plain card, its route answering ok. */
 function world(c: Case, over: Partial<Session> = {}) {
@@ -174,7 +178,7 @@ describe('session_set_shared', () => {
   };
 
   it('set_shared on asks with the session’s short id and no title in the summary', async () => {
-    const h = world(CASES[8], { title: 'Secret project title' });
+    const h = world(SHARED_CASE, { title: 'Secret project title' });
 
     const ask = await tool().confirm({ id: ID, on: true }, h.ctx);
 
@@ -184,7 +188,7 @@ describe('session_set_shared', () => {
   });
 
   it('set_shared off calls the route without a card', async () => {
-    const h = world(CASES[8], { remoteVisible: true });
+    const h = world(SHARED_CASE, { remoteVisible: true });
 
     expect(await tool().confirm({ id: ID, on: false }, h.ctx)).toBeNull();
     const result = await run('session_set_shared', { id: ID, on: false }, h.ctx);
@@ -194,12 +198,12 @@ describe('session_set_shared', () => {
   });
 
   it('a card that is already shared needs no card to be shared again', async () => {
-    const h = world(CASES[8], { remoteVisible: true });
+    const h = world(SHARED_CASE, { remoteVisible: true });
     expect(await tool().confirm({ id: ID, on: true }, h.ctx)).toBeNull();
   });
 
   it('a hands-off card is refused before any card opens', async () => {
-    const h = world(CASES[8], { handsOff: true });
+    const h = world(SHARED_CASE, { handsOff: true });
     await expect(Promise.resolve().then(() => tool().confirm({ id: ID, on: true }, h.ctx))).rejects.toMatchObject({ code: 'HANDS_OFF' });
   });
 });

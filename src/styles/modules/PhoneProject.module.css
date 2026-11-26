@@ -645,24 +645,114 @@
   color: #0a0a1a;
 }
 
-/* ---------- header: the open-files button and its count ---------- */
+/* ---------- the open files as tabs (Nov 25 2026, OpenFileTabs) ----------
+   One row under the header, scrolling sideways; each tab is a 44px name button and a 44px ✕ beside it (siblings).
+   The tab on screen is marked like the desktop's: an accent underline and the accent name. */
 
-.badgeHost { position: relative; }
-.countBadge {
-  position: absolute;
-  top: 4px;
-  right: 2px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border-radius: 9px;
-  background: var(--ph-accent, var(--accent-cyan));
-  color: var(--ph-on-accent, #ffffff);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
+.fileTabs {
+  flex: none;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-header, var(--bg-panel));
+}
+.fileTabsRow {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline-end: 44px; /* the pinned "+" */
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.fileTabsRow::-webkit-scrollbar { display: none; }
+.fileTab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 300px;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
+}
+.fileTabActive {
+  border-bottom-color: var(--ph-accent, var(--accent-cyan));
+  background: color-mix(in srgb, var(--ph-accent, var(--accent-cyan)) 8%, transparent);
+}
+.fileTabOpen,
+.fileTabClose {
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fileTabOpen {
+  gap: 8px;
+  min-width: 0;
+  padding: 0 4px 0 12px;
+  font-size: 14px;
+}
+.fileTabClose {
+  flex: none;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+.fileTabActive .fileTabOpen { color: var(--ph-accent, var(--accent-cyan)); font-weight: 600; }
+/* The "+" (Nov 26 2026): right after the last tab, pinned to the right edge once the tabs overflow. Opaque, since
+   the tabs scroll beneath it; the row's scroll padding keeps a tab brought into view clear of it. */
+.fileTabNew {
+  position: sticky;
+  right: 0;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin-left: -1px; /* its divider sits on the last tab's, not beside it */
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
+  background: var(--bg-header, var(--bg-panel));
+  color: var(--text-secondary);
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fileTabNew.fileTabActive {
+  border-bottom-color: var(--ph-accent, var(--accent-cyan));
+  color: var(--ph-accent, var(--accent-cyan));
+  background: color-mix(in srgb, var(--ph-accent, var(--accent-cyan)) 8%, var(--bg-header, var(--bg-panel)));
+}
+@media (hover: hover) {
+  .fileTabNew:hover { color: var(--text-primary); }
+}
+.fileTabNew:active { background: var(--bg-subtle-strong); }
+.fileTabNew:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+.fileTabIcon { flex: none; display: inline-flex; }
+.fileTabName {
+  min-width: 0;
+  max-width: 216px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fileTabOpen:hover,
+.fileTabClose:hover { background: var(--bg-subtle); color: var(--text-primary); }
+.fileTabOpen:active,
+.fileTabClose:active { background: var(--bg-subtle-strong); }
+.fileTabOpen:focus-visible,
+.fileTabClose:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
 }
 
 /* ---------- find bar ---------- */

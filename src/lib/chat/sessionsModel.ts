@@ -188,6 +188,8 @@ export interface GroupInput {
   projectOrder?: readonly string[];
   /** Recent lists up to RECENT_EXPANDED_LIMIT instead of RECENT_LIMIT (this phone's ⌄⌄, Nov 18 2026). */
   recentExpanded?: boolean;
+  /** Sessions put down from Recent today on this device (recentPutDown.ts, Nov 24 2026): left out before the cut. */
+  putDown?: readonly string[];
 }
 
 const byRecent = (a: Session, b: Session) =>
@@ -198,11 +200,10 @@ const byLongestWaiting = (a: Session, b: Session) =>
 const SECTION_ORDER: readonly StatusSection[] = ['needs-you', 'working', 'finished', 'idle'];
 
 /** The listed groups, in the order they are drawn; empty groups are left out. */
-export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true, projectOrder = [], recentExpanded = false }: GroupInput): SessionGroup[] {
+export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, now, showCentral = true, projectOrder = [], recentExpanded = false, putDown = [] }: GroupInput): SessionGroup[] {
   // Live, never a floating AI popup (it shows over its own session), filtered and searched.
-  const listed = numberedSessions(sessions).filter(
-    (s) => !s.isFloating && matchesFilter(s, filter) && matchesSearch(s, query),
-  );
+  const live = numberedSessions(sessions).filter((s) => !s.isFloating);
+  const listed = live.filter((s) => matchesFilter(s, filter) && matchesSearch(s, query));
 
   if (groupBy === 'status') {
     const buckets = new Map<StatusSection, Session[]>(SECTION_ORDER.map((k) => [k, []]));
@@ -226,10 +227,14 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
   // stays in its room.
   const byRoom = groupBy === 'room';
   // Picked with the real limit, never sliced from the 20: the list is ordered pinned-first after the cut.
-  const wideRecent = byRoom ? pickRecentSessions(listed, now, RECENT_EXPANDED_LIMIT) : [];
+  // A session put down today is left out first, so the next most recent takes its slot, as on the desktop.
+  const recentPool = putDown.length > 0 ? listed.filter((s) => !putDown.includes(s.sessionId)) : listed;
+  const wideRecent = byRoom ? pickRecentSessions(recentPool, now, RECENT_EXPANDED_LIMIT) : [];
   const recentHasMore = wideRecent.length > RECENT_LIMIT;
-  const recentIds = (recentExpanded || !recentHasMore ? wideRecent : pickRecentSessions(listed, now)).map((s) => s.sessionId);
-  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom && showCentral });
+  const recentIds = (recentExpanded || !recentHasMore ? wideRecent : pickRecentSessions(recentPool, now)).map((s) => s.sessionId);
+  // While a live session is put down Recent is drawn even when empty, or nothing could put it back.
+  const keepRecent = byRoom && live.some((s) => putDown.includes(s.sessionId));
+  const items = buildStripItems({ filtered: listed, all: listed, rooms, mode: groupBy, recentIds, showPinned: byRoom, showCentral: byRoom && showCentral, keepRecent });
   const groups: SessionGroup[] = [];
   const loose: Session[] = [];
   const roomGroup = (room: Room, list: Session[], color: string): SessionGroup =>

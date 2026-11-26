@@ -8,20 +8,22 @@ const transfer = (text: string, items: Array<{ kind: string; type: string; file?
   }) as unknown as DataTransfer;
 
 describe('readPasteData', () => {
-  it('reads the text and only image files', () => {
+  it('reads the text and every pasted file, whatever its type (Nov 26 2026)', () => {
     const png = new File(['x'], 'a.png', { type: 'image/png' });
     const pdf = new File(['x'], 'a.pdf', { type: 'application/pdf' });
+    const md = new File(['x'], 'notes.md', { type: '' });
     const out = readPasteData(transfer('hello', [
       { kind: 'file', type: 'image/png', file: png },
       { kind: 'file', type: 'application/pdf', file: pdf },
       { kind: 'string', type: 'text/html' },
       { kind: 'file', type: 'image/jpeg', file: null },
+      { kind: 'file', type: '', file: md },
     ]));
-    expect(out).toEqual({ text: 'hello', images: [png] });
+    expect(out).toEqual({ text: 'hello', files: [png, pdf, md] });
   });
 
   it('is empty with no clipboard data', () => {
-    expect(readPasteData(null)).toEqual({ text: '', images: [] });
+    expect(readPasteData(null)).toEqual({ text: '', files: [] });
   });
 });
 

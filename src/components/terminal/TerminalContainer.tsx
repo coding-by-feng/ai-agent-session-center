@@ -130,6 +130,14 @@ export default memo(function TerminalContainer({
     setSearch((cur) => ({ ...cur, ...patch }));
   }, []);
 
+  // The SSH host of this terminal's session: agent voice needs a local one, and files are refused on another host.
+  const terminalSshHost = useSessionStore((st) => {
+    if (!terminalId) return null;
+    for (const s of st.sessions.values()) {
+      if (s.terminalId === terminalId && s.status !== 'ended') return s.sshConfig?.host ?? s.sshHost ?? null;
+    }
+    return null;
+  });
   const {
     containerRef,
     attach,
@@ -143,6 +151,7 @@ export default memo(function TerminalContainer({
     sendEnter,
     sendKeys,
     pasteToTerminal,
+    attachFiles,
     refitTerminal,
     setTheme,
     handleTerminalOutput,
@@ -173,7 +182,7 @@ export default memo(function TerminalContainer({
     focusTerminal,
     clearXtermSelection,
     activeTerminalId,
-  } = useTerminal({ ws, themeName, projectPath, onFindRequest: isPhone ? undefined : openSearch });
+  } = useTerminal({ ws, themeName, projectPath, onFindRequest: isPhone ? undefined : openSearch, sshHost: terminalSshHost });
 
   useEffect(() => { selectionForSearchRef.current = getXtermSelection; }, [getXtermSelection]);
   const closeSearch = useCallback(() => {
@@ -214,13 +223,6 @@ export default memo(function TerminalContainer({
 
   // ---- The agent CLI's own voice input (Claude hold-to-talk, Codex /voice) ----
   // The CLI records from the machine it runs on, so only a loopback page on a local terminal.
-  const terminalSshHost = useSessionStore((st) => {
-    if (!terminalId) return null;
-    for (const s of st.sessions.values()) {
-      if (s.terminalId === terminalId && s.status !== 'ended') return s.sshConfig?.host ?? s.sshHost ?? null;
-    }
-    return null;
-  });
   const voiceKind = liteDesktop
     ? null
     : agentVoiceKind({
@@ -608,6 +610,7 @@ export default memo(function TerminalContainer({
         onSendArrowDown={sendArrowDown}
         onSendEnter={sendEnter}
         onPaste={pasteToTerminal}
+        onAttachFiles={attachFiles}
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
         onRefreshOutput={liteDesktop ? undefined : refreshOutput}
@@ -762,6 +765,7 @@ export default memo(function TerminalContainer({
               onSendArrowDown={sendArrowDown}
               onSendEnter={sendEnter}
               onPaste={pasteToTerminal}
+              onAttachFiles={attachFiles}
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
               onRefreshOutput={liteDesktop ? undefined : refreshOutput}

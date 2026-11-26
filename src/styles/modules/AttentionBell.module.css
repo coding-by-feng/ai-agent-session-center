@@ -1,0 +1,274 @@
+/* AttentionBell — the header bell, its list and its hint (Nov 26 2026).
+   The list and the hint are portaled to <body> as position: fixed, in the 10000+ band the header's other panels
+   use (DevicePresence.module.css .panel: 10060), so they paint over the session panel and the 3D scene. */
+
+.bell {
+  position: relative;
+}
+
+.bellOpen {
+  color: var(--accent-text, var(--accent-cyan));
+  border-color: var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 10%, transparent);
+}
+
+.bell:focus-visible,
+.openBtn:focus-visible,
+.iconBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: 2px;
+}
+
+/* The count sits on the bell's top right corner. Orange: something waits on you (red stays for errors). */
+.count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--accent-orange, #ff9100);
+  color: #0a0a1a;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ---- The list ---- */
+
+.panel,
+.hint {
+  position: fixed;
+  z-index: 10060;
+  box-sizing: border-box;
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 10px;
+  background: var(--bg-panel, #14142a);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  color: var(--text-primary, #e8e8f0);
+  font-size: 12px;
+  /* Shown once placed under the bell (AttentionPanels useAnchoredPlacement), so it never paints at 0,0. */
+  visibility: hidden;
+}
+
+.panel {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.panelHead {
+  padding: 4px 16px 8px;
+  color: var(--text-secondary, #8a8aa8);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--text-secondary, #8a8aa8);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border-top: 1px solid var(--border-subtle, #2a2a44);
+}
+
+.row:hover {
+  background: var(--bg-subtle, rgb(255 255 255 / 4%));
+}
+
+.rowMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--text-primary, #e8e8f0);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The detail shrinks; the age / "+N more" beside it does not. */
+.rowDetail {
+  display: flex;
+  align-items: baseline;
+  column-gap: 0.6ch;
+  min-width: 0;
+  color: var(--text-secondary, #8a8aa8);
+}
+
+/* A central's alert: its message on up to two lines, the from · age line under it. */
+.rowDetailStacked {
+  flex-direction: column;
+  align-items: stretch;
+  row-gap: 2px;
+}
+
+.detailText {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.detailClamp {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary, #e8e8f0);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.rowMeta {
+  flex: none;
+  overflow: hidden;
+  color: var(--text-muted, var(--text-secondary, #8a8aa8));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+
+/* What it waits on, as a glyph in its own colour: ? answer, ! approval, P proceed (the card's amber P), ⚠ a central. */
+.glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.glyphQuestion {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 18%, transparent);
+  color: var(--accent-text, var(--accent-cyan, #00e5ff));
+}
+
+.glyphApproval {
+  background: color-mix(in srgb, var(--accent-yellow, #ffd600) 18%, transparent);
+  color: var(--accent-yellow, #ffd600);
+}
+
+.glyphProceed {
+  background: color-mix(in srgb, var(--accent-orange, #ff9100) 18%, transparent);
+  color: var(--accent-orange, #ff9100);
+}
+
+.glyphAlert {
+  background: color-mix(in srgb, var(--accent-orange, #ff9100) 24%, transparent);
+  color: var(--accent-orange, #ff9100);
+}
+
+/* Open: the row's one text action. */
+.openBtn {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-accent, var(--accent-cyan, #00e5ff));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-text, var(--accent-cyan, #00e5ff));
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.openBtn:hover {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 14%, transparent);
+}
+
+.openBtn:active {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 24%, transparent);
+}
+
+/* ×: hide or dismiss. */
+.iconBtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #8a8aa8);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.iconBtn:hover {
+  border-color: var(--border-subtle, #2a2a44);
+  background: var(--bg-subtle, rgb(255 255 255 / 4%));
+  color: var(--text-primary, #e8e8f0);
+}
+
+.iconBtn:active {
+  background: var(--border-subtle, #2a2a44);
+}
+
+/* ---- The hint ---- */
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  animation: hintIn 180ms ease-out;
+}
+
+.hintText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+@keyframes hintIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint {
+    animation: none;
+  }
+}

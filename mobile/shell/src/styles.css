@@ -480,3 +480,91 @@ select.input { appearance: auto; }
 .call-md th, .call-md td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 4ch; max-width: 16em; }
 .call-md th { font-weight: 600; background: var(--surface-2); white-space: nowrap; }
 .call-md tbody tr:last-child td { border-bottom: none; }
+
+/* ── Voice call: ＋ Add (Nov 24 2026) ─────────────────────────────────
+   What waits for the next question, under the transcript; the sheet is drawn into <body> (callAddSheet.ts),
+   outside the call screen that redraws every second. */
+.call-added { margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.call-added-head { margin: 0; font-size: 0.8em; font-weight: 600; color: var(--text-muted); }
+.call-added-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.call-added-item { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 0 0 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.call-added-kind { flex: none; font-size: 0.8em; font-weight: 600; color: var(--text-muted); }
+.call-added-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.call-added-remove { flex: none; width: 44px; min-height: 44px; padding: 0; color: var(--text-muted); }
+.call-added-remove:hover:not(:disabled) { color: var(--text); }
+.call-added-sending { padding-right: 12px; color: var(--text-muted); font-size: 0.9375rem; }
+.call-added-notice { margin: 0; }
+
+.call-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+.call-sheet {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px 16px 0 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.24);
+  animation: call-sheet-in 200ms ease-out;
+}
+.call-sheet:focus { outline: none; }
+@keyframes call-sheet-in { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .call-sheet { animation: none; } }
+.call-sheet-head { display: flex; align-items: center; gap: 8px; min-height: 48px; }
+.call-sheet-head .btn { width: auto; min-height: 44px; padding: 8px 12px; }
+.call-sheet-back { min-width: 44px; padding: 8px !important; }
+.call-sheet-back[hidden] { display: none; }
+.call-sheet-title { flex: 1; min-width: 0; margin: 0; font-size: 1.0625rem; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-sheet-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 4px; }
+.call-sheet-input { display: none; }
+.call-sheet-rows, .call-sheet-list { display: flex; flex-direction: column; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+.call-sheet-list { list-style: none; margin: 0; padding: 0; }
+.call-sheet-list li[hidden] { display: none; }
+.call-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.call-sheet-rows .call-sheet-row + .call-sheet-row, .call-sheet-list li + li { border-top: 1px solid var(--border); }
+.call-sheet-row:hover { background: var(--surface-2); }
+.call-sheet-row:active { background: var(--border); }
+.call-sheet-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.call-sheet-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.call-sheet-label { font-weight: 600; overflow-wrap: anywhere; }
+.call-sheet-detail { font-size: 0.875rem; color: var(--text-muted); }
+.call-sheet-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.call-sheet-chevron { flex: none; color: var(--text-muted); }
+.call-sheet-hint { margin: 0; }
+.call-sheet-filter { flex: none; }
+
+.call-memory-row { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; }
+.call-memory-row p { margin: 0; }
+.call-memory-meant { color: var(--text); overflow-wrap: anywhere; }
+.call-memory-meta { font-size: 0.875rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.call-memory-status { font-weight: 600; }
+.call-memory-row[data-status="proposed"] .call-memory-status { color: var(--warn); }
+.call-memory-row[data-status="kept"] .call-memory-status { color: var(--safe); }
+.call-memory-actions { display: flex; gap: 8px; padding-top: 4px; }
+.call-memory-actions .btn { width: auto; min-height: 44px; padding: 8px 16px; }
+.call-memory-note:empty { display: none; }
+.call-memory-note { font-size: 0.875rem; color: var(--danger); }

@@ -30,6 +30,7 @@ import {
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
 import { logicalLineAt, locateBookmark, rowAtOffset } from '@/lib/terminalBookmarks';
 import { isPasteKey, readPasteData, stripTrailingNewlines } from '@/lib/terminalPaste';
+import { attachTerminalFiles } from '@/lib/terminalFiles';
 import { isMac } from '@/lib/shortcutKeys';
 import { TERMINAL_SEARCH_HIGHLIGHT_LIMIT, isTerminalFindKey } from '@/lib/terminalSearch';
 import type { CaretContext, CaretRect } from '@/lib/terminalCommandTrigger';
@@ -78,6 +79,8 @@ interface UseTerminalOptions {
   projectPath?: string;
   /** ⌘F (Ctrl+F off a Mac) pressed inside this terminal: open its find bar. */
   onFindRequest?: () => void;
+  /** The SSH host of this terminal's session, if any: files are refused on another host (lib/terminalFiles.ts). */
+  sshHost?: string | null;
 }
 
 interface UseTerminalReturn {
@@ -97,6 +100,8 @@ interface UseTerminalReturn {
    *  bar (AASC-18), where focusing xterm would raise the on-screen keyboard. */
   sendKeys: (data: string) => void;
   pasteToTerminal: () => void;
+  /** Upload files (the toolbar's 📎) and type their saved paths at the prompt (Nov 26 2026). */
+  attachFiles: (files: File[]) => Promise<void>;
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
   handleTerminalOutput: (terminalId: string, base64Data: string) => void;
@@ -339,36 +344,6 @@ async function readClipboard(): Promise<{ text: string | null; imageBlobs: Blob[
   }
 
   return { text, imageBlobs };
-}
-
-/**
- * Upload image blobs to the server and return saved file paths.
- */
-async function uploadClipboardImages(blobs: Blob[]): Promise<string[]> {
-  const images: { name: string; dataUrl: string }[] = [];
-  for (const blob of blobs) {
-    const ext = blob.type.split('/')[1] || 'png';
-    const name = `clipboard-${Date.now()}.${ext}`;
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    images.push({ name, dataUrl });
-  }
-  if (images.length === 0) return [];
-  try {
-    const resp = await fetch('/api/queue-images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ images }),
-    });
-    const data = await resp.json();
-    return data.paths ?? [];
-  } catch {
-    return [];
-  }
 }
 
 // A PTY narrower than this is never a real layout — it means fitAddon.fit()
@@ -676,12 +651,17 @@ function forceCanvasRepaint(
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFindRequest }: UseTerminalOptions): UseTerminalReturn {
+export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFindRequest, sshHost = null }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
   // Read at key time: the key handler is installed once per xterm.
   const onFindRequestRef = useRef(onFindRequest);
   useEffect(() => { onFindRequestRef.current = onFindRequest; }, [onFindRequest]);
+  // Read when files are pasted or picked: the host can change while the terminal stays attached.
+  const sshHostRef = useRef(sshHost);
+  useEffect(() => { sshHostRef.current = sshHost; }, [sshHost]);
+  // True while a paste (text or file paths) is going out through term.paste: the `/` list never follows a paste.
+  const pastingRef = useRef(false);
   // Phones render at the PTY's width and pan; everything else fits its
   // container as before. Held in a ref because the FitAddon is installed once
   // per terminal but these values change afterwards (mode toggle, PTY resize).
@@ -1243,13 +1223,12 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
         // root, so its textarea's paste handler never runs and nothing is typed twice.
         // `term.paste` goes out through onData below (bracketed when the app asked for it, \n → \r, chunked),
         // and the `/` list never follows a paste.
-        let pasting = false;
         const pasteText = (text: string): void => {
-          pasting = true;
+          pastingRef.current = true;
           try {
             term.paste(text);
           } finally {
-            pasting = false;
+            pastingRef.current = false;
           }
         };
         // Every paste (⌘V, the Edit menu, a phone's long-press) arrives here first. Capture phase on xterm's own
@@ -1258,10 +1237,10 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           e.preventDefault();
           e.stopImmediatePropagation();
           inputTapRef.current?.onReset();
-          const { text, images } = readPasteData(e.clipboardData);
+          const { text, files } = readPasteData(e.clipboardData);
           void (async () => {
-            if (images.length > 0) {
-              const paths = await uploadClipboardImages(images);
+            if (files.length > 0) {
+              const paths = await attachTerminalFiles(files, { sshHost: sshHostRef.current });
               if (paths.length > 0) {
                 pasteText(paths.join(' '));
                 return;
@@ -1281,7 +1260,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
           const data = mouseGuard.filterInput(raw);
           if (data === null) return;
           const tap = inputTapRef.current;
-          if (tap && !pasting) tap.onData(data, readCaretContext(term));
+          if (tap && !pastingRef.current) tap.onData(data, readCaretContext(term));
           if (!wsRef.current || wsRef.current.readyState !== 1) return;
           if (data.length <= CHUNK_SIZE) {
             // A typed key (not a paste): its echo may skip the frame batch.
@@ -1726,7 +1705,9 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     try {
       const { text, imageBlobs } = await readClipboard();
       if (imageBlobs.length > 0) {
-        const paths = await uploadClipboardImages(imageBlobs);
+        const images = imageBlobs.map((blob, i) =>
+          new File([blob], `clipboard-${Date.now()}-${i}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type }));
+        const paths = await attachTerminalFiles(images, { sshHost: sshHostRef.current });
         if (paths.length > 0) {
           await sendText(paths.join(' '));
           activeRef.current?.term.focus();
@@ -1767,6 +1748,21 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
       await sendText(fallbackText);
     }
     activeRef.current?.term.focus();
+  }, []);
+
+  const attachFiles = useCallback(async (files: File[]) => {
+    if (!activeRef.current || files.length === 0) return;
+    inputTapRef.current?.onReset();
+    const paths = await attachTerminalFiles(files, { sshHost: sshHostRef.current });
+    const term = activeRef.current?.term;
+    if (!term || paths.length === 0) return;
+    pastingRef.current = true;
+    try {
+      term.paste(paths.join(' '));
+    } finally {
+      pastingRef.current = false;
+    }
+    term.focus();
   }, []);
 
   const refitTerminal = useCallback(() => {
@@ -2075,6 +2071,7 @@ export function useTerminal({ ws, themeName = 'auto', palette, projectPath, onFi
     sendEnter,
     sendKeys,
     pasteToTerminal,
+    attachFiles,
     refitTerminal,
     setTheme: setThemeFn,
     handleTerminalOutput,

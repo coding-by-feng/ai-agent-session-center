@@ -59,7 +59,7 @@ describe('assertMayEditCard', () => {
 
   it('edit refuses hands-off but not a card a person typed in 5 s ago', () => {
     expect(refusal(() => assertMayEditCard(central, card('w1', { handsOff: true }), rails())).code).toBe('HANDS_OFF');
-    const typed = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000 }), isLocked: () => true });
+    const typed = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }), isLocked: () => true });
     expect(() => assertMayEditCard(central, card('w1'), typed)).not.toThrow();
   });
 
@@ -94,9 +94,9 @@ describe('assertMayRelaunch', () => {
 
   it('relaunch applies the 60 s rule and the lock', () => {
     expect(refusal(() => assertMayRelaunch(central, ended({ handsOff: true }), rails())).code).toBe('HANDS_OFF');
-    const person = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000 }) });
+    const person = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 }) });
     expect(refusal(() => assertMayRelaunch(central, ended(), person)).code).toBe('HUMAN_ACTIVE');
-    const longAgo = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 61_000 }) });
+    const longAgo = rails({ controller: () => ({ clientId: 'browser-1', lastActivityAt: NOW - 61_000, lastInputAt: NOW - 61_000 }) });
     expect(() => assertMayRelaunch(central, ended(), longAgo)).not.toThrow();
     expect(refusal(() => assertMayRelaunch(central, ended(), rails({ isLocked: () => true }))).code).toBe('BUSY');
   });

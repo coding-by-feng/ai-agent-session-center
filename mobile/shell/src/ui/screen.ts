@@ -8,6 +8,7 @@ import type { PairingLink } from '../pairingLink.js';
 import type { SavedMac } from '../savedMacs.js';
 import type { ShareTarget } from '../shareToQueue.js';
 import type { CallProgress, CallTranscriptLine, CentralOnScreen } from '../voiceCall.js';
+import type { AddedItem } from '../callAdd.js';
 
 export type ApproveState = 'waiting' | 'unreachable' | 'stalled' | 'refused' | 'error' | 'cancelling';
 export type UnpairStep = 'idle' | 'confirm' | 'busy' | 'unreachable';
@@ -92,6 +93,12 @@ export type Screen =
       central: CentralOnScreen | null;
       /** The sessions it handed work to during this call, newest first. */
       tasks: CallProgress['tasks'];
+      /** Nov 24 2026: what ＋ Add put on the Mac for the person's next question (the Mac's list). */
+      pending: AddedItem[];
+      /** Files being sent to the Mac now. */
+      adding: number;
+      /** Why the last thing added didn't make it, or null. */
+      addNotice: string | null;
       startedAt: number | null;
       now: number;
     };
@@ -149,6 +156,9 @@ export interface Actions {
   togglePause(): void;
   toggleMinimize(): void;
   retryCall(): void;
+  /** Nov 24 2026: the ＋ Add sheet (callAddSheet.ts), and taking one added thing back. */
+  openCallAdd(): void;
+  removeCallItem(id: string): void;
 }
 
 /** Plan 17: the signed-in AASC Cloud account, as the screens show it (nothing secret). */

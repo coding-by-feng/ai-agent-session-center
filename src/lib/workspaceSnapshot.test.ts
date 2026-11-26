@@ -1067,6 +1067,16 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(buildSnapshot(new Map([['sess-full', plain]]), []).sessions[0]).not.toHaveProperty('hookLevel');
   });
 
+  // The alert level (Nov 25 2026, lib/attention.ts): only a session's own level is saved; following is absence.
+  it('keeps the session\'s own alert level, and nothing for a session that follows its room', () => {
+    const urgent = { ...loopSession('sess-urgent'), alertLevel: 'urgent', alerted: true } as unknown as Session;
+    const saved = buildSnapshot(new Map([['sess-urgent', urgent]]), []).sessions[0];
+    expect(saved.alertLevel).toBe('urgent');
+    expect(saved.alerted).toBe(true);
+    const plain = loopSession('sess-follows') as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-follows', plain]]), []).sessions[0]).not.toHaveProperty('alertLevel');
+  });
+
   it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
     // Non-Claude session: session.model is the raw launch command (has spaces).
     const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
@@ -1222,6 +1232,23 @@ describe('importSnapshot — loop round-trip', () => {
     const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
     expect(bodies.map((b) => b.handsOff)).toEqual(saved.sessions.map((snap) => snap.handsOff ? true : undefined));
     expect(bodies.filter((b) => b.handsOff === true)).toHaveLength(1);
+  });
+
+  it('round-trips the alert level, and drops a level this build does not know', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-level-1' }),
+    });
+    const quiet = { ...loopSession('sess-level-1'), alertLevel: 'quiet' } as unknown as Session;
+    const follows = loopSession('sess-level-2') as unknown as Session;
+    const saved = buildSnapshot(new Map([['sess-level-1', quiet], ['sess-level-2', follows]]), []);
+    const junk = makeSnap({ originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-888888888888' });
+    const withJunk = { ...saved, sessions: [...saved.sessions, { ...junk, alertLevel: 'deafening' as never }] };
+
+    await importSnapshot(withJunk, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    const bodies = calls.filter((c) => c.url.includes('/api/terminals') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)));
+    expect(bodies.map((b) => b.alertLevel)).toEqual(['quiet', undefined, undefined]);
   });
 
   it('round-trips the Automation mark: what a snapshot saved is what the restore POSTs', async () => {

@@ -40,14 +40,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
-import { sortSessionsByActivity } from '@/lib/sessionSort';
+import { sortByRecentWork } from '@/lib/recentSessions';
 import { isMac } from '@/lib/shortcutKeys';
 import type { Session } from '@/types';
 
 export interface SessionSwitchHoldState {
   open: boolean;
-  /** Recency-ordered candidates (pinned first, then most-recently-active),
-   *  excluding the currently selected session and any that have ended. */
+  /** Candidates, most recently worked first (`sortByRecentWork`, the RECENT frame's recency,
+   *  pinned not lifted), excluding the currently selected session and any that have ended. */
   items: Session[];
   highlightedIndex: number;
   /** Commit the item at `index` and close. Exposed so a row click can select
@@ -97,10 +97,11 @@ export function useSessionSwitchHold(): SessionSwitchHoldState {
     function openOrAdvance() {
       if (!openRef.current) {
         const { sessions, selectedSessionId } = useSessionStore.getState();
-        const candidates = sortSessionsByActivity(
+        const candidates = sortByRecentWork(
           [...sessions.values()].filter(
             (s) => s.status !== 'ended' && s.sessionId !== selectedSessionId,
           ),
+          Date.now(),
         );
         if (candidates.length === 0) return; // nothing to switch to — no-op
         itemsRef.current = candidates;

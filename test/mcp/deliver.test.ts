@@ -169,7 +169,7 @@ describe('ctx.ledger: the shared ledger, seen as one central', () => {
 describe('ctx.mayDrive', () => {
   it('lets an in-scope worker through, and refuses with the policy’s codes', async () => {
     const b = build({
-      deliver: { controller: (id) => (id === 'w2' ? { clientId: 'desktop-1', lastActivityAt: Date.now() - 5_000 } : null) },
+      deliver: { controller: (id) => (id === 'w2' ? { clientId: 'desktop-1', lastActivityAt: Date.now() - 5_000, lastInputAt: Date.now() - 5_000 } : null) },
     });
     const c = mint(b, globalInput());
     const ctx = b.ctxOf(c.centralId);
@@ -198,7 +198,7 @@ describe('ctx.mayDrive', () => {
   });
 
   it('logs each refusal to the activity log when the call is a tool’s (runTool does that; a bare context does not)', () => {
-    const b = build({ deliver: { controller: () => ({ clientId: 'phone-1', lastActivityAt: Date.now() }) } });
+    const b = build({ deliver: { controller: () => ({ clientId: 'phone-1', lastActivityAt: Date.now(), lastInputAt: Date.now() }) } });
     const c = mint(b, globalInput());
 
     expect(codeOf(() => b.ctxOf(c.centralId).mayDrive(b.sessions[0]))).toBe('HUMAN_ACTIVE');

@@ -97,13 +97,13 @@ describe('eligible', () => {
   });
 
   it('a human-active session is not eligible', () => {
-    const { ctx } = makeCtx({ controller: () => ({ clientId: 'window-1', lastActivityAt: NOW - 10 * 1000 }) });
+    const { ctx } = makeCtx({ controller: () => ({ clientId: 'window-1', lastActivityAt: NOW - 10 * 1000, lastInputAt: NOW - 10 * 1000 }) });
 
     expect(eligible(worker('s1', AGENT), ctx, want)).toBe('HUMAN_ACTIVE');
   });
 
   it('a session a person drove a minute ago is free again; a central’s own driving is not a person', () => {
-    const quiet = makeCtx({ controller: () => ({ clientId: 'window-1', lastActivityAt: NOW - 61 * 1000 }) });
+    const quiet = makeCtx({ controller: () => ({ clientId: 'window-1', lastActivityAt: NOW - 61 * 1000, lastInputAt: NOW - 61 * 1000 }) });
     expect(eligible(worker('s1', AGENT), quiet.ctx, want)).toBeNull();
 
     const mcp = makeCtx({ controller: () => ({ clientId: 'mcp:c1', lastActivityAt: NOW - 1000 }) });
@@ -175,7 +175,7 @@ describe('steerRefusal', () => {
 
 describe('the minute rule is the policy’s', () => {
   it('a person who drove a session 59 seconds ago holds it', () => {
-    const { ctx } = makeCtx({ controller: () => ({ clientId: 'phone:1', lastActivityAt: NOW - 59_000 }) });
+    const { ctx } = makeCtx({ controller: () => ({ clientId: 'phone:1', lastActivityAt: NOW - 59_000, lastInputAt: NOW - 59_000 }) });
 
     expect(eligible(worker('s1', AGENT, { lastActivityAt: NOW - MIN }), ctx, want)).toBe('HUMAN_ACTIVE');
   });

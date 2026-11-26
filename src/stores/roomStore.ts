@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Room } from '@/types';
+import type { AlertLevel } from '@/lib/attention';
 
 // The shape lives in src/types so the server's room mirror (AASC-20) shares it.
 export type { Room };
@@ -43,6 +44,8 @@ interface RoomState {
   setListOrders: (orders: ReadonlyMap<string, number>) => void;
   /** The room's own colour (a ROOM_COLOR_PALETTE entry); undefined = its slot colour. */
   setRoomColor: (roomId: string, color: string | undefined) => void;
+  /** The room's alert level (src/lib/attention.ts); undefined: its sessions follow the default. */
+  setRoomAlertLevel: (roomId: string, level: AlertLevel | undefined) => void;
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
   getRoomForSession: (sessionId: string) => Room | undefined;
   loadFromStorage: () => void;
@@ -189,6 +192,19 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         const next: Room = { ...r, color };
         // Back to the slot colour: no `color` key at all, as before one was picked.
         if (color === undefined) delete next.color;
+        return next;
+      });
+      saveToLocalStorage(rooms);
+      return { rooms };
+    }),
+
+  setRoomAlertLevel: (roomId, level) =>
+    set((state) => {
+      const rooms = state.rooms.map((r) => {
+        if (r.id !== roomId || r.alertLevel === level) return r;
+        const next: Room = { ...r, alertLevel: level };
+        // Back to the default: no `alertLevel` key at all, as before one was picked.
+        if (level === undefined) delete next.alertLevel;
         return next;
       });
       saveToLocalStorage(rooms);

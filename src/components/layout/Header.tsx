@@ -3,6 +3,7 @@ import { useState, useCallback, useRef } from 'react';
 import { SettingsButton } from '@/components/settings/SettingsPanel';
 import DevicePresenceChip from './DevicePresenceChip';
 import MemoryChip from './MemoryChip';
+import AttentionBell from './AttentionBell';
 import { APP_DISPLAY_NAME, IS_LITE } from '@/lib/edition';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
@@ -262,6 +263,9 @@ export default function Header() {
             collapses when you're on one device, nudging the icons to its right.
             That shift was previously absorbed by NavBar's flex spacer. */}
         <DevicePresenceChip />
+        {/* What waits on you (Nov 26 2026): questions, approvals, proceed asks and centrals' alerts. Full only; it
+            sits before the memory chip so Settings and Quit keep their corner. */}
+        {!IS_LITE && <AttentionBell />}
         {/* What macOS charges AASC for: mostly the CLIs in its terminals (Oct 28 2026). */}
         {!IS_LITE && <MemoryChip />}
         {/* Workspace export/import: a desktop file-system workflow (OS file

@@ -90,7 +90,7 @@ function world(o: WorldOptions = {}) {
   const tool = createQueueClearTool({ store: async () => store });
   const t = testDeliver({
     sessions: () => sessions,
-    controller: (id) => (id === 's3' ? { clientId: 'device-1', lastActivityAt: NOW - 5_000 } : null),
+    controller: (id) => (id === 's3' ? { clientId: 'device-1', lastActivityAt: NOW - 5_000, lastInputAt: NOW - 5_000 } : null),
   });
   const book = createConfirmBook();
   books.push(book);

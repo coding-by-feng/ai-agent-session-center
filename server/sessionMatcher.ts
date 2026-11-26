@@ -262,7 +262,7 @@ export function isInheritedTerminalClaim(
  */
 /** What the person set on a card, or its launch gave it: kept when a split pair rejoins. */
 const CARD_IDENTITY_KEYS = [
-  'title', 'remark', 'accentColor', 'characterModel', 'colorIndex', 'muted', 'pinned', 'pinOrder', 'alerted',
+  'title', 'remark', 'accentColor', 'characterModel', 'colorIndex', 'muted', 'pinned', 'pinOrder', 'alerted', 'alertLevel',
   'remoteVisible', 'aiPopupEnabled', 'central', 'handsOff', 'hookLevel', 'effortLevel', 'queueCount',
   'terminalId', 'opsTerminalId', 'hadOpsTerminal', 'sshHost', 'sshCommand', 'sshConfig',
   'startupCommand', 'source', 'projectName', 'projectPath', 'previousSessions',

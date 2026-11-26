@@ -38,6 +38,11 @@ export interface PushNotifierDeps {
   getSession(sessionId: string): Session | null | undefined;
   /** Visibility rule for remote devices (canSeeSession(false, …)). */
   canNotify(session: Session): boolean;
+  /**
+   * Does the session's alert level push (src/lib/attention.ts, from the level table; Nov 25 2026)? Asked on the live
+   * session at send time. Without it, a muted session never pushes, as before levels.
+   */
+  pushAllowed?(session: Session): boolean;
   /** The backend sink, or null when no backend is connected. */
   sink(): PushSink | null;
   now?: () => number;
@@ -95,7 +100,7 @@ export function createPushNotifier(deps: PushNotifierDeps) {
     const live = deps.getSession(sessionId);
     if (!live) return;
     if (!stillApplies(kind, viewOf(live))) return;
-    if (live.muted) return;
+    if (!(deps.pushAllowed ? deps.pushAllowed(live) : !live.muted)) return;
     if (!deps.canNotify(live)) return;
     // A turn whose answer asks for "proceed" (the amber P) is waiting on the user, not just finished. Decided on the
     // live session, so a proceed read off the transcript after the Stop (150 / 600 ms retries) still counts.
@@ -137,6 +142,28 @@ export function createPushNotifier(deps: PushNotifierDeps) {
         return;
       }
       pending.set(key, setTimer(() => fire(session.sessionId, kind), delay));
+    },
+
+    /**
+     * An alert a central raised about this session (MCP alert_raise, Nov 26 2026), whose level pushes: the caller
+     * decided that from the alert's level under the session's own (src/lib/raisedAlerts.ts). Sent at once as `input`
+     * (a kind the installed phone app already shows: it needs you), with the session's title only, never the alert's
+     * text, and only for a session shared with the phone. One a minute per session.
+     */
+    notifyAlert(sessionId: string): void {
+      const live = deps.getSession(sessionId);
+      if (!live || live.status === 'ended' || !deps.canNotify(live)) return;
+      const sentKey = `${live.sessionId}:alert`;
+      const sentAt = lastSent.get(sentKey);
+      if (sentAt !== undefined && now() - sentAt < cooldownMs('input')) return;
+      const sink = deps.sink();
+      if (!sink) return;
+      const message = buildPushMessage('input', { ...live, pendingTool: null }, randomUUID());
+      if (!message) return;
+      lastSent.set(sentKey, now());
+      sink.notify(message).catch((err: unknown) => {
+        deps.onError?.(`push alert failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
     },
 
     pendingCount(): number {

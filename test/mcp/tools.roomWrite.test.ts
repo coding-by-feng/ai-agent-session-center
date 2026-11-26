@@ -59,6 +59,7 @@ describe('roomRight: the rights table of Ruling P3-12', () => {
       create: { global: 'any', room: 'denied', project: 'any' },
       rename: { global: 'any', room: 'own', project: 'denied' },
       color: { global: 'any', room: 'own', project: 'denied' },
+      'alert-level': { global: 'any', room: 'own', project: 'denied' },
       delete: { global: 'any', room: 'denied', project: 'denied' },
       move: { global: 'any', room: 'own', project: 'any' },
       reorder: { global: 'any', room: 'denied', project: 'denied' },
@@ -95,6 +96,8 @@ describe('the op each tool sends', () => {
     await run('room_rename', { roomId: 'r1', name: ' API ' }, h.ctx);
     await run('room_set_color', { roomId: 'r1', color: '#4a9eff' }, h.ctx);
     await run('room_set_color', { roomId: 'r1', color: null }, h.ctx);
+    await run('room_set_alert_level', { roomId: 'r1', level: 'urgent' }, h.ctx);
+    await run('room_set_alert_level', { roomId: 'r1', level: null }, h.ctx);
     await run('room_delete', { roomId: 'r2' }, h.ctx);
     await run('room_move_session', { sessionId: 's1', roomId: 'r2' }, h.ctx);
     await run('room_move_session', { sessionId: 's1', roomId: null }, h.ctx);
@@ -104,6 +107,8 @@ describe('the op each tool sends', () => {
       { type: 'rename', roomId: 'r1', name: 'API' },
       { type: 'color', roomId: 'r1', color: '#4a9eff' },
       { type: 'color', roomId: 'r1', color: null },
+      { type: 'alert-level', roomId: 'r1', level: 'urgent' },
+      { type: 'alert-level', roomId: 'r1', level: null },
       { type: 'delete', roomId: 'r2' },
       { type: 'move', sessionId: 's1', roomId: 'r2' },
       { type: 'move', sessionId: 's1', roomId: null },
@@ -322,6 +327,24 @@ describe('the card rails and the route’s answers', () => {
 
     expect((await runRefused('room_move_session', { sessionId: 's1', roomId: 'r2' }, h.ctx)).code).toBe('HANDS_OFF');
     expect((await runRefused('room_create', { name: 'Ops', firstSession: 's1' }, h.ctx)).code).toBe('HANDS_OFF');
+    expect(opsSent(h)).toEqual([]);
+  });
+
+  // Nov 25 2026 (security review): a room's level reaches every card in it that has none of its own, so a central
+  // that may not change a hands-off card's level (session_set_alert_level) may not change it through the room either.
+  it('room_set_alert_level on a room holding a hands-off card is HANDS_OFF', async () => {
+    const h = world({ sessions: [makeSession('s1', { terminalId: 'term-s1', handsOff: true }), s2, other] });
+
+    expect((await runRefused('room_set_alert_level', { roomId: 'r1', level: 'silent' }, h.ctx)).code).toBe('HANDS_OFF');
+    await run('room_set_alert_level', { roomId: 'r2', level: 'silent' }, h.ctx);
+    expect(opsSent(h)).toEqual([{ type: 'alert-level', roomId: 'r2', level: 'silent' }]);
+  });
+
+  it('a room central meets the same rule in its own room', async () => {
+    const hands = makeSession('s1', { terminalId: 'term-s1', handsOff: true });
+    const h = world({ kind: 'room', scopeRef: 'r1', sessions: [hands, s2, other] });
+
+    expect((await runRefused('room_set_alert_level', { roomId: 'r1', level: 'quiet' }, h.ctx)).code).toBe('HANDS_OFF');
     expect(opsSent(h)).toEqual([]);
   });
 

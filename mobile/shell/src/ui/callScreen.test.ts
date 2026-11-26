@@ -15,7 +15,7 @@ const ctx = {
 
 const call = (over: Partial<CallScreen> = {}): CallScreen => ({
   name: 'call', macId: 'm1', back: '/', phase: 'live', message: null, muted: false, paused: false, minimized: false,
-  lines: [], central: null, tasks: [], startedAt: 0, now: 68_000,
+  lines: [], central: null, tasks: [], pending: [], adding: 0, addNotice: null, startedAt: 0, now: 68_000,
   ...over,
 });
 
@@ -90,5 +90,35 @@ describe('renderCall: a Central line with an on-screen part (Nov 23 2026)', () =
     expect(central?.querySelector('.call-md pre code')?.textContent).toBe('npm run build');
     expect(el.querySelector('.call-you .call-md')).toBeNull();
     expect(text(el.querySelector('.call-you .call-text'))).toBe('**not markdown** | a |');
+  });
+});
+
+describe('renderCall: ＋ Add (Nov 24 2026)', () => {
+  it('offers ＋ Add on a live call only, between Mute and Minimize', () => {
+    const live = renderCall(call(), mac, ctx);
+    const ids = Array.from(live.querySelectorAll('.actions button')).map((b) => b.id);
+    expect(ids).toEqual(['call-end', 'call-pause', 'call-mute', 'call-add', 'call-minimize']);
+    expect(live.querySelector('#call-add')?.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(renderCall(call({ phase: 'starting' }), mac, ctx).querySelector('#call-add')).toBeNull();
+    expect(renderCall(call({ minimized: true }), mac, ctx).querySelector('#call-add')).toBeNull();
+  });
+
+  it('lists what goes with the next question, each with its own ✕, and a file still being sent', () => {
+    const removeCallItem = vi.fn();
+    const local = { actions: new Proxy({ removeCallItem }, { get: (t, k) => (k in t ? (t as Record<string, unknown>)[k as string] : vi.fn()) }) } as unknown as ScreenContext;
+    const el = renderCall(call({ pending: [{ id: 'att1', kind: 'photo', name: 'receipt.jpg' }, { id: 'att2', kind: 'skill', name: '/expense-log' }], adding: 1 }), mac, local);
+    const panel = el.querySelector('.call-added');
+    expect(panel?.getAttribute('aria-label')).toBe('Goes with the next thing you say');
+    expect(Array.from(panel?.querySelectorAll('.call-added-item') ?? []).map(text)).toEqual([
+      'Photo receipt.jpg ✕', 'Use /expense-log ✕', 'Sending 1 file to the Mac…',
+    ]);
+    (el.querySelector('[aria-label="Remove receipt.jpg"]') as HTMLButtonElement).click();
+    expect(removeCallItem).toHaveBeenCalledWith('att1');
+  });
+
+  it('shows nothing when nothing was added, and says why an add failed', () => {
+    expect(renderCall(call(), mac, ctx).querySelector('.call-added')).toBeNull();
+    const el = renderCall(call({ addNotice: 'big.mov is over 100 MB.' }), mac, ctx);
+    expect(text(el.querySelector('.call-added-notice'))).toBe('big.mov is over 100 MB.');
   });
 });

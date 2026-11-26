@@ -1,0 +1,123 @@
+/* Settings ▸ Sound ▸ Alert levels (AlertLevelSettings, Nov 25 2026). The table scrolls sideways in a narrow panel
+   with the level column pinned, so cells never wrap into one-character columns. */
+
+/* Another device reads the table: one line says why it holds no controls. */
+.readOnlyNote {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.defaultRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+
+.defaultLabel {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.defaultValue {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.defaultHint {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.tableScroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+}
+
+/* Columns still off to the right (AlertLevelSettings' useMoreToTheRight): the edge fades to say so. */
+.tableScroll[data-more='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.table thead th {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.table tbody tr + tr th,
+.table tbody tr + tr td {
+  border-top: 1px solid var(--border-faint);
+}
+
+/* The level column stays put while the rest scrolls; it needs its own opaque background to cover what slides under. */
+.levelHead,
+.levelCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+}
+
+.levelCell {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.levelName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Silent's fixed values: no control already says "not editable", so the text keeps body contrast (≥ 4.5:1). */
+.fixedCell {
+  color: var(--text-secondary);
+}
+
+.cellSelect {
+  height: 28px;
+  min-width: 96px;
+}
+
+.switchCell {
+  display: inline-flex;
+  min-height: 28px;
+}
+
+.resetRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+@media (pointer: coarse) {
+  .cellSelect {
+    height: 44px;
+  }
+
+  .switchCell {
+    min-height: 44px;
+  }
+}

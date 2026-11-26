@@ -18,14 +18,18 @@ import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, broadcastByLocality, disconnectDevice, onBroadcast, isPhoneDeviceOnline, isPairedComputerOnline, sendToClientId, isPairedPhoneClient } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
+import { alertLevelOf, alertOutputsOf, getAlertConfig } from './alertConfig.js';
+import { alertStore } from './alerts/alertStore.js';
+import { raisedAlertLevel } from '../src/lib/raisedAlerts.js';
 import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep, healSplitCard } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids } from './sshManager.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId, getTerminals, getTerminalOutputTail, getTerminalOutputBuffer, writeToTerminal, onTerminalExit, closeTerminal, closeTerminalAndWait, isTmuxBackedTerminal, getTerminalShellPids, getTerminalGeometry, isLocalSshHost } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded, getPromptUsesSince, getSkillCallsSince, getSessionQueue, getProjectActivity } from './db.js';
 import { createSessionMemory } from './sessionMemory.js';
+import { createDiskUsageRouter } from './diskUsage.js';
 import { createSessionSleepRouter, startSessionSleep } from './sessionSleep.js';
 import { createCloseSuggestionsRouter } from './closeSuggestions.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
@@ -44,6 +48,8 @@ import { createAfterDelete } from './cloud/afterDelete.js';
 import { createGoogleCallbackRouter } from './cloud/googleCallbackRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
+import { scrollbackStore } from './scrollbackStore.js';
+import { releaseRestoreLaunch } from './launchQueue.js';
 import { ensureSpawnHelperExecutable } from './ptySpawnHelper.js';
 import { respawnTerminalConfig } from './respawnConfig.js';
 import { config, CONFIG_DIR, CONFIG_PATH } from './serverConfig.js';
@@ -345,6 +351,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // `mcp.enabled: false`) has its own gate (this Mac, naming itself, with a live central's token), so it
   // sits ahead of the /api auth stack, the static files and the SPA fallback.
   watchCentralLifecycle(centrals, onBroadcast, onTerminalExit);
+  // A restored launch whose terminal is gone frees its restore slot (launchQueue.ts).
+  onTerminalExit(releaseRestoreLaunch);
   // P2's runtime: the task ledger, the activity log, presence and the alias map every write tool runs on. The
   // router gets it as `deliver`; without it every non-read tool answers UNAVAILABLE and nothing is steered.
   // The dashboard's router reads the activity log and the tasks from the same one.
@@ -471,11 +479,21 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const pushNotifier = createPushNotifier({
     getSession,
     canNotify: (session) => canSeeSession(false, session),
+    // The session's alert level decides (Silent and Quiet never push), from the Mac's rooms and the level table.
+    pushAllowed: (session) => alertOutputsOf(session, currentRooms()).push,
     // A test sink when one is set, else the cloud connection while it is connected.
     sink: () => getPushSink() ?? phoneCloud.pushSink(),
     onError: (message) => log.warn('push', message),
   });
   onBroadcast((data) => pushNotifier.onBroadcast(data));
+  // An alert a central raised (Nov 26 2026) pushes when its level does: the level it asked for, under the session's own.
+  alertStore.onChange((change) => {
+    if (change.type !== 'raised' || !change.created) return;
+    const session = getSession(change.alert.sessionId);
+    if (!session) return;
+    const level = raisedAlertLevel(change.alert.level, alertLevelOf(session, currentRooms()));
+    if (getAlertConfig().levels[level].push) pushNotifier.notifyAlert(session.sessionId);
+  });
 
   // -- Keep-awake (AASC-16, optional): re-check whenever a session changes --
   onBroadcast((data) => {
@@ -790,7 +808,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const transcriptWatch = createTranscriptWatch({
     onGrow: (sessionId) => broadcast({ type: WS_TYPES.CHAT_GREW, sessionId }),
   });
-  const chatRouter = createChatRouter({ getSession, watchTranscript: transcriptWatch.touch });
+  const chatRouter = createChatRouter({ getSession, watchTranscript: transcriptWatch.touch, terminalGeometry: getTerminalGeometry });
   // The phone's folder browser for a new session (AASC-54): folder names under the home folder.
   const folderRouter = createFolderRouter();
   // The agent CLIs' versions and one-click update (Settings ▸ ADVANCED ▸ Agent CLIs, Oct 25 2026).
@@ -843,6 +861,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     terminals: getTerminalShellPids,
     sessions: () => Object.values(getAllSessions()),
   });
+  // The disk a session works on (Nov 26 2026): the session panel's disk chip. This Mac only.
+  const diskUsageRouter = createDiskUsageRouter({ getSession: (id) => getSession(id), isLocalHost: isLocalSshHost });
   const openTerminalIds = () => new Set(getTerminals().map((t) => t.terminalId));
   const foldedFrom = new Map<string, string>(); // real id -> the terminal id a folded split card was keyed by
   // A folded card's queue can still be stored under the card's terminal id (foldedFrom, below).
@@ -875,7 +895,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     hasArmedQueue,
   });
   if (hosted) app.use('/api/workspace/continuation', authMiddleware, phoneProfile, createHostedContinuationRouter(hosted, (_req, id) => canSeeSession(false, getSession(id))));
-  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, createSessionSleepRouter(), closeSuggestionsRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
+  app.use('/api', authMiddleware, phoneProfile, skillNoteFavorites, phoneCloudRouter, phoneResourcesRouter, chatRouter, requestAnswer, promptRouter, voice.router, folderRouter, cliVersionsRouter, cliAuthRouter, createCentralSettingRouter(), sessionMemory.router, diskUsageRouter, createSessionSleepRouter(), closeSuggestionsRouter, centralsRouter, phoneConfirms, skillNoteOps, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -1215,6 +1235,16 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   // Returns a promise so Electron can await full cleanup before quitting.
   // Every caller (SIGTERM, SIGINT, Electron's quit) shares ONE shutdown promise.
   let shutdownPromise: Promise<void> | null = null;
+  function saveScrollbackForRestart(): void {
+    const all = Object.values(getAllSessions());
+    const entries = all.flatMap((s) => {
+      const b64 = s.terminalId ? getTerminalOutputBuffer(s.terminalId) : null;
+      return b64 ? [{ sessionId: s.sessionId, data: Buffer.from(b64, 'base64') }] : [];
+    });
+    const saved = scrollbackStore.saveAll(entries, all.map((s) => s.sessionId));
+    log.info('server', `Saved the terminal output of ${saved} session(s) for the next start`);
+  }
+
   function gracefulShutdown(signal: string): Promise<void> {
     if (shutdownPromise) return shutdownPromise;
     // Published before cleanup begins, so a reentrant caller waits for the same work.
@@ -1233,6 +1263,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       stopTokenCleanup();
       // Save final snapshot before exiting
       try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
+      // Each terminal's screen, so the next start shows it before its CLI resumes (scrollbackStore.ts).
+      try { saveScrollbackForRestart(); } catch { /* best effort */ }
       try { remoteServer?.close(); } catch { /* best effort */ }
       try { loopbackCompanion?.close(); } catch { /* best effort */ }
       try { lanAdvertiser?.stop(); } catch { /* best effort */ }

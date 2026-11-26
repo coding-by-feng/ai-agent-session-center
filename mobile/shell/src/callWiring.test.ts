@@ -5,6 +5,8 @@ import type { CallBubble, CallLayer } from './native.js';
 import type { SavedMac } from './savedMacs.js';
 import type { Screen } from './ui/screen.js';
 import type { ChannelLike, PeerLike, RtcEnv } from './voiceRtc.js';
+import type { CallAddHandlers } from './ui/callAddSheet.js';
+import { CALL_FILE_MAX_BYTES } from './callAdd.js';
 
 const mac = { id: 'm1', name: 'Mac mini' } as SavedMac;
 
@@ -57,7 +59,10 @@ class FakeLayer implements CallLayer {
   tap(): void { this.visible = false; this.listener?.(this.url); }
 }
 
-function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean; progress?: () => { status: number; data: unknown }; layer?: FakeLayer } = {}) {
+function setup(over: {
+  openLine?: () => Promise<LineResult>; callStatus?: number; callData?: unknown; mic?: boolean; progress?: () => { status: number; data: unknown } | Promise<{ status: number; data: unknown }>; layer?: FakeLayer;
+  respond?: (req: HttpRequest) => { status: number; data: unknown } | undefined;
+} = {}) {
   let screen: Screen = { name: 'macs', notice: null };
   const peer = new FakePeer();
   const requests: HttpRequest[] = [];
@@ -78,7 +83,7 @@ function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number
           return { status: over.callStatus ?? 201, data: over.callData ?? { success: true, data: { callId: 'call_1', sdp: 'v=0 answer' } } };
         }
         if (req.url.endsWith('/progress')) return over.progress?.() ?? { status: 404, data: {} };
-        return { status: 200, data: {} };
+        return over.respond?.(req) ?? { status: 200, data: {} };
       }),
     },
     macs: () => [mac],
@@ -92,9 +97,13 @@ function setup(over: { openLine?: () => Promise<LineResult>; callStatus?: number
     now: () => 1_000,
     layer: over.layer ?? null,
     setCookie: vi.fn(async () => undefined),
+    openAddSheet: vi.fn((handlers: CallAddHandlers) => { sheets.push(handlers); return { close: () => sheetClosed.push(handlers) }; }),
+    readFile: vi.fn(async (f: Blob) => `b64:${(f as File).name}`),
   };
+  const sheets: CallAddHandlers[] = [];
+  const sheetClosed: CallAddHandlers[] = [];
   const wiring = createCallWiring(host);
-  return { wiring, host, peer, requests, track, screen: () => screen as Extract<Screen, { name: 'call' }> };
+  return { wiring, host, peer, requests, track, sheets, sheetClosed, screen: () => screen as Extract<Screen, { name: 'call' }> };
 }
 
 describe('createCallWiring', () => {
@@ -377,5 +386,131 @@ describe('createCallWiring', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(t.host.backToMac).toHaveBeenCalledWith(mac, '/more');
     });
+  });
+});
+
+describe('＋ Add on a live call (Nov 24 2026)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const held = (id: string, kind: string, name: string) => ({ status: 201, data: { success: true, data: { item: { id, kind, name } } } });
+
+  it('starts a call with nothing added', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    expect(t.screen()).toMatchObject({ pending: [], adding: 0, addNotice: null });
+  });
+
+  it('opens the sheet only while live', async () => {
+    const t = setup();
+    t.wiring.actions.openCallAdd();
+    expect(t.sheets).toHaveLength(0);
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    expect(t.sheets).toHaveLength(1);
+  });
+
+  it('sends picked files to the call one after another, raw, and lists what the Mac holds', async () => {
+    let n = 0;
+    const t = setup({ respond: (req) => (req.url.endsWith('/attach') ? held(`att${(n += 1)}`, 'photo', `p${n}.jpg`) : undefined) });
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    t.sheets[0].addFiles([new File(['a'], 'p1.jpg', { type: 'image/jpeg' }), new File(['b'], 'p2.jpg', { type: 'image/jpeg' })]);
+    expect(t.screen().adding).toBe(2);
+    await vi.advanceTimersByTimeAsync(0);
+    const uploads = t.requests.filter((r) => r.url === 'http://mac:3334/api/voice/call/call_1/attach');
+    expect(uploads.map((r) => r.bytes)).toEqual(['b64:p1.jpg', 'b64:p2.jpg']);
+    expect(uploads[0].headers).toMatchObject({ 'X-File-Name': 'p1.jpg', 'X-File-Type': 'image/jpeg' });
+    expect(t.screen()).toMatchObject({ adding: 0, addNotice: null, pending: [{ id: 'att1', kind: 'photo', name: 'p1.jpg' }, { id: 'att2', kind: 'photo', name: 'p2.jpg' }] });
+  });
+
+  it('says why a file did not make it', async () => {
+    const t = setup({ respond: (req) => (req.url.endsWith('/attach') ? { status: 409, data: { code: 'full', error: 'Your next question already carries 10 things' } } : undefined) });
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    t.sheets[0].addFiles([new File(['a'], 'a.txt')]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.screen()).toMatchObject({ adding: 0, pending: [], addNotice: 'Your next question already carries 10 things' });
+  });
+
+  it('refuses a file over the Mac\'s cap before reading it (a huge video would crash the call)', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    const big = new File(['x'], 'big.mov', { type: 'video/quicktime' });
+    Object.defineProperty(big, 'size', { value: CALL_FILE_MAX_BYTES + 1 });
+    t.sheets[0].addFiles([big]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.host.readFile).not.toHaveBeenCalled();
+    expect(t.requests.some((r) => r.url.endsWith('/attach'))).toBe(false);
+    expect(t.screen()).toMatchObject({ adding: 0, addNotice: 'big.mov is over 100 MB.' });
+  });
+
+  it('keeps a just-added item when a read that started before it answers with the older list', async () => {
+    let answerRead: (pending: unknown[]) => void = () => undefined;
+    const t = setup({
+      progress: () => new Promise((r) => { answerRead = (pending) => r({ status: 200, data: { success: true, data: { central: null, tasks: [], replies: [], pending } } }); }),
+      respond: (req) => (req.url.endsWith('/attach') ? held('att1', 'photo', 'p.jpg') : undefined),
+    });
+    await t.wiring.start(mac, '/');
+    await vi.advanceTimersByTimeAsync(2_000); // a read is out
+    t.wiring.actions.openCallAdd();
+    t.sheets[0].addFiles([new File(['a'], 'p.jpg', { type: 'image/jpeg' })]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.screen().pending.map((p) => p.id)).toEqual(['att1']);
+    answerRead([]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.screen().pending.map((p) => p.id)).toEqual(['att1']);
+  });
+
+  it('adds a picked command, reading the Voice central\'s own CLI for the list', async () => {
+    const t = setup({
+      progress: () => ({ status: 200, data: { success: true, data: { central: { title: 'Voice', state: 'idle', step: null, elapsedMs: null, cli: 'codex' }, tasks: [], replies: [], pending: [] } } }),
+      respond: (req) => (req.url.endsWith('/skill') ? held('att1', 'skill', '$review')
+        : req.url.includes('/api/commands') ? { status: 200, data: { entries: [{ name: 'review', cli: 'codex', kind: 'skill', source: 'user', description: '' }], usage: {} } }
+          : undefined),
+    });
+    await t.wiring.start(mac, '/');
+    await vi.advanceTimersByTimeAsync(2_000);
+    t.wiring.actions.openCallAdd();
+    expect(await t.sheets[0].loadCommands()).toEqual([{ token: '$review', description: '' }]);
+    expect(t.requests.some((r) => r.url === 'http://mac:3334/api/commands?cli=codex')).toBe(true);
+    t.sheets[0].pickCommand('$review');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.requests.find((r) => r.url.endsWith('/skill'))?.body).toEqual({ name: '$review' });
+    expect(t.screen().pending).toEqual([{ id: 'att1', kind: 'skill', name: '$review' }]);
+  });
+
+  it('takes one back at once, and follows the Mac\'s list on each read (the next question took them)', async () => {
+    let pending: unknown[] = [{ id: 'att1', kind: 'photo', name: 'a.jpg' }, { id: 'att2', kind: 'file', name: 'b.pdf' }];
+    const t = setup({ progress: () => ({ status: 200, data: { success: true, data: { central: null, tasks: [], replies: [], pending } } }) });
+    await t.wiring.start(mac, '/');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(t.screen().pending.map((p) => p.id)).toEqual(['att1', 'att2']);
+    t.wiring.actions.removeCallItem('att1');
+    expect(t.screen().pending.map((p) => p.id)).toEqual(['att2']);
+    expect(t.requests.find((r) => r.method === 'DELETE')?.url).toBe('http://mac:3334/api/voice/call/call_1/attach/att1');
+    pending = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(t.screen().pending).toEqual([]);
+  });
+
+  it('reads and decides the call memory through the call\'s sign-in', async () => {
+    const t = setup({ respond: (req) => (req.url.endsWith('/api/voice/memory')
+      ? { status: 200, data: { success: true, data: { items: [{ id: 'm1', kind: 'correction', meant: 'AASC', heard: 'ASC', status: 'proposed' }] } } }
+      : undefined) });
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    expect((await t.sheets[0].loadMemory())?.map((r) => r.id)).toEqual(['m1']);
+    expect(await t.sheets[0].decideMemory('m1', 'keep')).toBe(true);
+    expect(t.requests.find((r) => r.url.endsWith('/api/voice/memory/m1'))?.body).toEqual({ action: 'keep' });
+  });
+
+  it('closes the sheet when the call ends', async () => {
+    const t = setup();
+    await t.wiring.start(mac, '/');
+    t.wiring.actions.openCallAdd();
+    t.wiring.actions.endCall();
+    expect(t.sheetClosed).toHaveLength(1);
   });
 });

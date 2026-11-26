@@ -2,7 +2,7 @@
  * TerminalToolbar shows theme selector, ESC, paste icon, expand/collapse,
  * fullscreen toggle, and reconnect.
  */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { getThemeNames } from './themes';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -281,6 +281,44 @@ const ReaderIcon = () => (
   </svg>
 );
 
+const PaperclipIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </svg>
+);
+
+/** 📎: a hidden multi-file picker behind an icon button. The picker is cleared after each pick, so the same file can
+ *  be picked again. */
+function AttachFilesButton({ onAttachFiles }: { onAttachFiles: (files: File[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <Tooltip {...tooltips.termAttach}>
+        <button
+          type="button"
+          className={styles.toolbarBtn}
+          onClick={() => inputRef.current?.click()}
+          aria-label={tooltips.termAttach.label}
+        >
+          <PaperclipIcon />
+        </button>
+      </Tooltip>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        hidden
+        data-testid="terminal-attach-input"
+        onChange={(e) => {
+          const files = Array.from(e.currentTarget.files ?? []);
+          e.currentTarget.value = '';
+          if (files.length > 0) onAttachFiles(files);
+        }}
+      />
+    </>
+  );
+}
+
 interface TerminalToolbarProps {
   themeName: string;
   onThemeChange: (theme: string) => void;
@@ -290,6 +328,8 @@ interface TerminalToolbarProps {
   onSendArrowDown: () => void;
   onSendEnter: () => void;
   onPaste: () => void;
+  /** Upload the picked files and type their paths (Nov 26 2026); no 📎 button without it. */
+  onAttachFiles?: (files: File[]) => void;
   onReconnect?: () => void;
   onScrollToBottom?: () => void;
   onRefreshOutput?: () => void;
@@ -341,6 +381,7 @@ export default function TerminalToolbar({
   onSendArrowDown,
   onSendEnter,
   onPaste,
+  onAttachFiles,
   onReconnect,
   onScrollToBottom,
   onRefreshOutput,
@@ -439,6 +480,9 @@ export default function TerminalToolbar({
           <EnterIcon />
         </button>
       </Tooltip>
+
+      {/* After the touch-only keys, so on a desktop (where they are hidden) it sits evenly beside the next button. */}
+      {onAttachFiles && <AttachFilesButton onAttachFiles={onAttachFiles} />}
 
       {onToggleAiPopup && (
         <Tooltip {...(aiPopupEnabled ? tooltips.termAiPopupOn : tooltips.termAiPopupOff)}>
