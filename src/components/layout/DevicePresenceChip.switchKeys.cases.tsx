@@ -87,6 +87,12 @@ export function describeSwitchKeys(edition: 'Full' | 'Lite'): void {
       return elsewhere;
     }
 
+    it('the chip’s tooltip names the key as bound now; its accessible name stays the device count (Nov 27 2026)', () => {
+      renderApp();
+      expect(chip().getAttribute('title')).toBe(`1 device connected · Switch computer ${isMac ? '⇧⌘S' : 'Ctrl+Shift+S'}`);
+      expect(chip().getAttribute('aria-label')).toBe('1 device connected');
+    });
+
     it('opening the panel moves focus into Switch: the first row’s primary action', async () => {
       render(<MemoryRouter><DevicePresenceChip /></MemoryRouter>);
       chip().focus();

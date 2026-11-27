@@ -43,21 +43,31 @@
 
 /* The built-in Recent group (By room, Oct 20 2026), the desktop rail's RECENT
    frame, and Pinned (Oct 22 2026, its PINNED frame), which wears the same class:
-   views, not rooms. Dashed like the desktop's frame; the space where a
-   room's ≡ sits keeps its title in line with the rooms' titles. */
+   views, not rooms. Dashed like the desktop's frame; its icon sits where a
+   room's ≡ sits, so its chevron lines up with the rooms' chevrons. */
 .recentGroup > section > ul {
   border: 1px dashed var(--ph-text-tertiary);
 }
 
-.gripSpace {
-  flex: none;
-  width: var(--ph-target);
-}
-
 .recentIcon {
-  /* A room swatch's 10px, so "Recent" starts where the room names do. */
   flex: none;
   color: var(--ph-text-secondary);
+}
+
+/* A built-in group's toggle (Central, Pinned, Recent; Nov 28 2026) starts at the
+   header's edge: its icon fills the 44px column where a room's ≡ sits, and the
+   column's right margin plus the gap put its chevron where a room's chevron is
+   (≡ 44 + header gap 4 + toggle padding 8). */
+/* Two classes: `.toggle`, later in this file, sets the padding. */
+.toggle.builtinToggle { padding-left: 0; }
+
+.builtinIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ph-target);
+  margin-right: var(--ph-space-1);
 }
 
 /* ---- Header: ≡ ▾ ■ NAME · N ⋯ ---- */

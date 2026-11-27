@@ -63,6 +63,8 @@ import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
 import { deviceChipTitle, drivingCount, summarizePhones } from '@/lib/devicePresenceSummary';
 import { DEVICES_SWITCH_EVENT, hasAccountChannels } from '@/lib/devicesSwitcher';
+import { keyComboToGlyphs } from '@/lib/shortcutKeys';
+import { useShortcutStore } from '@/stores/shortcutStore';
 import { usePairedPhones, usePanelNetwork } from '@/hooks/useDevicePanelData';
 import ConnectedDeviceList from '@/components/layout/ConnectedDeviceList';
 import PanelNetworkAddress from '@/components/layout/PanelNetworkAddress';
@@ -76,6 +78,7 @@ import styles from '@/styles/modules/DevicePresence.module.css';
 // eager header chunk. It only loads when a local user opens the panel.
 const PhonePairing = lazy(() => import('@/components/layout/PhonePairing'));
 const SharingDefault = lazy(() => import('@/components/layout/SharingDefault'));
+const DashboardPassword = lazy(() => import('@/components/layout/DashboardPassword'));
 const RemoteComputers = lazy(() => import('@/components/layout/RemoteComputers'));
 const DevicesSwitcher = lazy(() => import('@/components/layout/DevicesSwitcher'));
 const MachineAccountSettings = lazy(() => import('@/components/layout/MachineAccountSettings'));
@@ -119,7 +122,7 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
   const deviceKey = devices.map((d) => d.clientId).join(',');
   // A chip-less copy draws no counts, so it reads none.
   const pairedPhones = usePairedPhones(isMac && !chipless, deviceKey);
-  const { networkUrl, passwordEnabled } = usePanelNetwork(open);
+  const { networkUrl } = usePanelNetwork(open);
 
   // Pairing answers the AASC page on this machine only; a remote device would
   // get 404s, so the section isn't offered there.
@@ -129,6 +132,7 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
   const canPairRemotes = canPairPhones && isDesktopApp && !!window.electronAPI?.remotes;
   // The account's computers (plan 18): the app's main process must offer them. A Client edition's doesn't.
   const hasSwitcher = canPairRemotes && hasAccountChannels();
+  const switchCombo = useShortcutStore((s) => s.bindings.find((b) => b.actionId === 'switchDevice')?.combo ?? null);
   // The two-part panel is a little wider: its footer holds two actions that need 327px to share a row.
   const panelWidth = hasSwitcher ? SWITCHER_PANEL_WIDTH : PANEL_WIDTH;
 
@@ -243,6 +247,9 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
 
   const myControlled = drivingCount(controllers, myId);
   const phoneSummary = summarizePhones(canPairPhones ? pairedPhones : null);
+  const chipTitle = deviceChipTitle(devices.length, phoneSummary);
+  // The tooltip names the `switchDevice` key as bound now (Nov 27 2026), so it is found without the shortcuts list.
+  const switchHint = hasSwitcher && switchCombo !== null ? ` · Switch computer ${keyComboToGlyphs(switchCombo)}` : '';
 
   /** What the panel held before the switcher: all of it without the account channels, the This computer part with them. */
   const thisComputer = (
@@ -251,6 +258,8 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
       {canPairPhones && (
         <Suspense fallback={null}>
           <SharingDefault />
+          {/* Before pairing: without a password no phone or computer can connect (Nov 27 2026). */}
+          <DashboardPassword />
           <PhonePairing />
           {/* With the switcher, the remote computers are its rows; their place here goes to the account settings. */}
           {hasSwitcher ? <MachineAccountSettings /> : canPairRemotes && <RemoteComputers />}
@@ -274,22 +283,8 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
         </button>
       )}
 
-      {/* Remote devices are refused outright when no password is set
-          (403 / ws 4003), so this is now a "why can't my phone connect"
-          explainer rather than the old "anyone can get in" alarm. Shown
-          whenever a LAN URL is on offer above — i.e. exactly when the
-          user might try to use it — not only once a remote device has
-          somehow appeared. */}
-      {/* `npm run set-password`, NOT `npm run setup`: the setup wizard
-          hard-codes <repo>/data/server-config.json, but a packaged app
-          reads $APP_USER_DATA/server-config.json — so the wizard writes a
-          password this app never reads, and appears to do nothing. */}
-      {networkUrl && !passwordEnabled && (
-        <p className={styles.warn}>
-          ⚠ Other devices are blocked until you set a password.
-          Run <code>npm run set-password</code> on this machine to allow them.
-        </p>
-      )}
+      {/* No-password warning: the panel's DashboardPassword section (Nov 27 2026) says it and sets one,
+          so the old "run npm run set-password" line, which a packaged app can't follow, is gone. */}
     </>
   );
 
@@ -306,8 +301,8 @@ export default function DevicePresenceChip({ chipless = false }: DevicePresenceC
         }}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={deviceChipTitle(devices.length, phoneSummary)}
-        aria-label={deviceChipTitle(devices.length, phoneSummary)}
+        title={`${chipTitle}${switchHint}`}
+        aria-label={chipTitle}
       >
         <DeviceKindIcon kind="computer" className={styles.chipIcon} />
         <span className={styles.chipCount}>{devices.length}</span>

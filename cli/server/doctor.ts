@@ -268,6 +268,16 @@ export async function runChecks(deps: DoctorDeps): Promise<CheckResult[]> {
       : { state: 'warn', name: 'Linger', detail: 'off: the service stops when you log out', fix: `sudo loginctl enable-linger ${deps.user}` });
   }
 
+  // Keep awake (Nov 27 2026): only said when it is on, and only the tool the server would hold it with.
+  const keepAwake = config.keepAwake === 'busy' || config.keepAwake === 'always' ? config.keepAwake : null;
+  const holderTool = deps.platform === 'darwin' ? 'caffeinate' : deps.platform === 'linux' ? 'systemd-inhibit' : null;
+  if (keepAwake && holderTool) {
+    const when = keepAwake === 'always' ? 'always' : 'while an agent is busy';
+    add(onPath(holderTool, pathEnv)
+      ? { state: 'ok', name: 'Keep awake', detail: `${when}, with ${holderTool}` }
+      : { state: 'warn', name: 'Keep awake', detail: `${when}, but ${holderTool} is not on PATH: the box may still sleep`, fix: 'aasc-server keep-awake off, or install systemd' });
+  }
+
   const tailscale = await deps.run('tailscale', ['ip', '-4']);
   add(tailscale.code === 0 && tailscale.stdout.trim()
     ? { state: 'ok', name: 'Tailscale', detail: `up, ${tailscale.stdout.trim().split('\n')[0]}` }

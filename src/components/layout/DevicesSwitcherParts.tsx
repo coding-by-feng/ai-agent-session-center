@@ -10,12 +10,14 @@ import Button from '@/components/ui/Button';
 import Menu from '@/components/ui/Menu';
 import type { DirectoryView } from '@/hooks/useAccountDirectory';
 import { IS_LITE } from '@/lib/edition';
+import { sessionBadges, type RowBadge } from '@/lib/remoteComputerBadges';
 import { sessionsLine, type AccountRow } from '@/lib/remoteComputerRows';
 import { countListedSessions, countSessionsNeedingYou } from '@/lib/sessionNeeds';
 import { useSessionStore } from '@/stores/sessionStore';
 import rows from '@/styles/modules/RemoteComputers.module.css';
 import styles from '@/styles/modules/DevicesSwitcher.module.css';
 import { ConnectButton, MenuSlot } from './RemoteComputerRow';
+import RowBadges from './RowBadges';
 
 // Lite has no RESOURCES tab, where the ☁ account lives: its two lines say where to sign in, and carry no action.
 const SIGNED_OUT = IS_LITE
@@ -46,7 +48,7 @@ export function ThisComputerRow({ name }: { name: string }) {
         <span className={rows.name} title={name}>{name}</span>
         <span className={styles.aside}>here</span>
       </span>
-      {line && <span className={rows.meta}>{line}</span>}
+      {line && <RowBadges badges={sessionBadges(sessions, needsYou)} sentence={line} />}
     </li>
   );
 }
@@ -117,7 +119,7 @@ export function UnconnectedRow({ row, running, error, onConnect, onRemove }: Unc
           ) : <MenuSlot />}
         </span>
       </span>
-      <span className={rows.meta}>{words}</span>
+      <RowBadges badges={unconnectedBadges(row.connectable, running)} reason={row.connectable ? null : words} sentence={words} />
       {confirming && (
         <span className={rows.confirm} role="group" aria-label={`Remove ${row.name}`}>
           <span>Remove {row.name} from your AASC Cloud account? It is signed out there.</span>
@@ -134,6 +136,12 @@ export function UnconnectedRow({ row, running, error, onConnect, onRemove }: Unc
       {(removeError ?? error) && <span className={rows.error} role="alert">{removeError ?? error}</span>}
     </li>
   );
+}
+
+/** An account computer never connected to: one grey pill, or none when only the words can say what to do. */
+function unconnectedBadges(connectable: boolean, running: boolean): RowBadge[] {
+  if (!connectable) return [];
+  return [{ id: 'state', tone: 'checking', label: running ? 'Connecting…' : 'Not connected yet' }];
 }
 
 interface DirectoryNoticeProps {

@@ -142,8 +142,8 @@ expect(parsedCard?.rows.first?.title == "Fix the build", "control characters fla
 expect(parsedCard?.rows.last?.title.count == 60, "title clipped to 60")
 expect(parsedCard?.mac == "kason-mac" && parsedCard?.headline == "working" && parsedCard?.more == 2, "fields kept")
 let manyRows: [String: Any] = ["v": 1, "headline": "finished", "more": 0,
-                               "rows": (1...6).map { ["mark": "done", "title": "s\($0)"] }]
-expect(LiveActivityRules.card(manyRows, mac: "m")?.rows.count == 4, "at most 4 rows")
+                               "rows": (1...8).map { ["mark": "done", "title": "s\($0)"] }]
+expect(LiveActivityRules.card(manyRows, mac: "m")?.rows.count == 6, "at most 6 rows (the lead plus five)")
 expect(LiveActivityRules.card(manyRows, mac: "m")?.more == 2, "extra rows counted in more")
 expect(LiveActivityRules.card(["v": 2, "headline": "working"], mac: "m") == nil, "other version")
 expect(LiveActivityRules.card(["v": 1, "headline": "party"], mac: "m") == nil, "unknown headline")

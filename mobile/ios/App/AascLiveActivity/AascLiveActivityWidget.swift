@@ -95,12 +95,30 @@ private struct Elapsed: View {
     }
 }
 
+/// How tightly the card is drawn. The lock screen (Nov 28 2026) packs more sessions into iOS's 160 pt cap: the lead
+/// plus four rows under a lead with a preview line, plus five without one (measured: 152 pt and 151 pt; the lead plus
+/// five under a preview line is 169 pt, which iOS clips). The expanded island, with less room under its header
+/// regions, keeps the roomier look and the lead plus three.
+private struct Density {
+    let restLimit: Int
+    let restLimitNoDetail: Int
+    let rowFont: CGFloat
+    let rowSpacing: CGFloat
+    let leadGap: CGFloat
+
+    /// 5 = LiveActivityRules.maxRows − 1 (that file is the app's, not this extension's).
+    static let lockScreen = Density(restLimit: 4, restLimitNoDetail: 5, rowFont: 13, rowSpacing: 1, leadGap: 4)
+    static let island = Density(restLimit: 3, restLimitNoDetail: 3, rowFont: 14, rowSpacing: 4, leadGap: 6)
+
+    func rest(_ card: LiveActivityCard) -> Int { card.rows.first?.detail == nil ? restLimitNoDetail : restLimit }
+}
+
 private struct Header: View {
     let card: LiveActivityCard
 
     var body: some View {
         HStack(spacing: 10) {
-            AppGlyph(size: 24)
+            AppGlyph(size: 22)
             Text(card.mac).font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
             Spacer(minLength: 8)
             Text(headerText(card))
@@ -145,19 +163,23 @@ private struct Lead: View {
     }
 }
 
-/// The rows after the lead; "+N more" rides on the last one, because the lock screen caps an activity at 160 pt.
+/// The rows after the lead, as many as `density` allows; "+N more" rides on the last one (it also counts the rows
+/// this view leaves out), because the lock screen caps an activity at 160 pt.
 private struct Rows: View {
     let card: LiveActivityCard
+    let density: Density
 
-    private var rest: [LiveActivityRow] { Array(card.rows.dropFirst()) }
+    private var rest: [LiveActivityRow] { Array(card.rows.dropFirst().prefix(density.rest(card))) }
+    private var more: Int { card.more + max(0, card.rows.count - 1 - density.rest(card)) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: density.rowSpacing) {
             ForEach(Array(rest.enumerated()), id: \.offset) { index, row in
                 HStack(spacing: 10) {
-                    Mark(mark: row.mark).frame(width: 24)
+                    // A fixed height, so a tall mark (the 15 pt "!") can't make one row taller than the others.
+                    Mark(mark: row.mark).frame(width: 24, height: density.rowFont + 3)
                     Text(row.title)
-                        .font(.system(size: 14))
+                        .font(.system(size: density.rowFont))
                         .foregroundStyle(.white.opacity(row.mark == "idle" ? 0.5 : row.mark == "done" ? 0.65 : 0.9))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -165,8 +187,8 @@ private struct Rows: View {
                     if let start = row.startedAt {
                         Elapsed(start: start).font(.system(size: 13)).frame(maxWidth: 64, alignment: .trailing)
                     }
-                    if index == rest.count - 1 && card.more > 0 {
-                        Text("+\(card.more) more").font(.system(size: 13)).foregroundStyle(.white.opacity(0.5)).fixedSize()
+                    if index == rest.count - 1 && more > 0 {
+                        Text("+\(more) more").font(.system(size: 13)).foregroundStyle(.white.opacity(0.5)).fixedSize()
                     }
                 }
             }
@@ -176,11 +198,12 @@ private struct Rows: View {
 
 private struct CardBody: View {
     let card: LiveActivityCard
+    let density: Density
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: density.leadGap) {
             if let lead = card.rows.first { Lead(row: lead) }
-            Rows(card: card)
+            Rows(card: card, density: density)
         }
     }
 }
@@ -189,12 +212,12 @@ private struct LockScreenCard: View {
     let card: LiveActivityCard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Header(card: card)
-            CardBody(card: card)
+            CardBody(card: card, density: .lockScreen)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
     }
 }
 
@@ -220,7 +243,7 @@ struct AascLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    CardBody(card: context.state).padding(.top, 6)
+                    CardBody(card: context.state, density: .island).padding(.top, 6)
                 }
             } compactLeading: {
                 AppGlyph(size: 22, needsYou: context.state.needs > 0)

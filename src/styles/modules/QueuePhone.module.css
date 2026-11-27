@@ -112,3 +112,59 @@
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
 }
+
+/* The compose row's 🎙 (Nov 27 2026, the app only; QueueDictation). Same states as the Chat composer's mic. */
+.mic {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.mic[data-phase='recording'] {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 22%, var(--bg-panel));
+  color: var(--accent-cyan);
+}
+.mic[data-phase='transcribing'] {
+  color: var(--accent-cyan);
+  animation: queueMicWait 1.2s ease-in-out infinite;
+}
+@keyframes queueMicWait {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic[data-phase='transcribing'] { animation: none; }
+}
+/* Its status line: a row of its own under the buttons (the row wraps on a phone). */
+.dictateLine {
+  order: 99;
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+.dictateError {
+  color: var(--accent-red, #ff5252);
+}
+.dictateError > span {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+.dictateDismiss {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.dictateDismiss:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+  border-radius: 8px;
+}

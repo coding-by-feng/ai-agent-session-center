@@ -32,6 +32,7 @@ import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects, liveProjectActivity, rankRecentProjects, PROJECT_ACTIVITY_WINDOW_MS } from './knownProjects.js';
 import { appendPausedItem, isStaleQueueWrite } from './sessionQueueCodec.js';
 import { keepAwake } from './keepAwakeService.js';
+import { KEEP_AWAKE_MODES } from './keepAwake.js';
 import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
 import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
 import { createSubagentTranscriptRouter } from './subagentTranscript.js';
@@ -841,18 +842,46 @@ router.post('/hook-stats/reset', (_req: Request, res: Response) => {
 // terminals. Pushed from the browser when the ADVANCED setting loads or changes.
 // The value is clamped on the backend, so a bad value can't allocate gigabytes.
 const terminalBufferSchema = z.object({ bytes: z.number().finite() });
-const keepAwakeSchema = z.object({ enabled: z.boolean() });
+// `mode` since Nov 27 2026; `enabled` is the older desktop window's switch (true = busy).
+const keepAwakeSchema = z.union([
+  z.object({ mode: z.enum(KEEP_AWAKE_MODES) }).strict(),
+  z.object({ enabled: z.boolean() }).strict(),
+]);
+
+const keepAwakeState = () => ({
+  mode: keepAwake.getMode(),
+  enabled: keepAwake.isEnabled(),
+  awake: keepAwake.isAwake(),
+  /** Awake and really held: false when the platform helper should hold but stopped (see the server log). */
+  holding: keepAwake.isHolding(),
+  /** Chosen and saved on this computer; false = never chosen (off by default). */
+  saved: serverConfig.keepAwake !== undefined,
+});
 
 /**
- * The desktop's "keep the Mac awake while an agent works" setting (AASC-16).
- * The Mac only: it changes how the machine sleeps, which no remote device may
- * decide (the phone profile refuses it too).
+ * Keep this computer awake (AASC-16; three modes and saved since Nov 27 2026). This computer only: it
+ * changes how the machine sleeps, which no remote device may decide (the phone profile refuses it too).
+ * The mode is saved in server-config.json so a server with no window keeps it across restarts.
  */
+router.get('/config/keep-awake', requireLocalOnly, (_req: Request, res: Response) => {
+  res.json({ success: true, data: keepAwakeState() });
+});
+
 router.post('/config/keep-awake', requireLocalOnly, (req: Request, res: Response) => {
   const body = validateBody(keepAwakeSchema, req.body, res);
   if (!body) return;
-  keepAwake.setEnabled(body.enabled);
-  res.json({ success: true, data: { enabled: keepAwake.isEnabled(), awake: keepAwake.isAwake() } });
+  // The older switch's on (a desktop window, a central's aasc_set_keep_awake) never lowers Always to busy.
+  const mode = 'mode' in body ? body.mode : !body.enabled ? 'off' : keepAwake.getMode() === 'always' ? 'always' : 'busy';
+  try {
+    saveServerConfigKeys(SERVER_CONFIG_PATH, { keepAwake: mode });
+    serverConfig.keepAwake = mode;
+  } catch (err) {
+    log.error('keep-awake', `Could not save the keep-awake setting: ${err instanceof Error ? err.message : String(err)}`);
+    res.status(500).json({ success: false, error: 'Couldn’t save the setting. Check that AASC can write its settings folder.' });
+    return;
+  }
+  keepAwake.setMode(mode);
+  res.json({ success: true, data: keepAwakeState() });
 });
 
 /**

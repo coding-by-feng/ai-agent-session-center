@@ -20,7 +20,7 @@ import { pickRecentSessions, RECENT_EXPANDED_LIMIT, RECENT_LIMIT } from '@/lib/r
 import { applyProjectOrder } from './projectsListModel';
 import { roomsInListOrder } from '@/lib/roomOrder';
 import { roomColor } from '@/lib/roomColor';
-import { numberedSessions, sortSessionsByActivity } from '@/lib/sessionSort';
+import { numberedSessions } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { busyMark, owesProceed } from '@/lib/sessionStatusStyle';
 
@@ -194,6 +194,11 @@ export interface GroupInput {
 
 const byRecent = (a: Session, b: Session) =>
   (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0) || a.sessionId.localeCompare(b.sessionId);
+/** By recent: newest activity first, then A to Z by the shown title, then id, so equal times keep one order. */
+const byNewestActivity = (a: Session, b: Session) =>
+  (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)
+  || sessionDisplayTitle(a).localeCompare(sessionDisplayTitle(b))
+  || a.sessionId.localeCompare(b.sessionId);
 const byLongestWaiting = (a: Session, b: Session) =>
   (a.lastActivityAt ?? 0) - (b.lastActivityAt ?? 0) || a.sessionId.localeCompare(b.sessionId);
 
@@ -217,8 +222,9 @@ export function groupSessions({ sessions, groupBy, filter, query, rooms, reads, 
   }
 
   if (groupBy === 'activity') {
-    // The desktop's own ordering for this view (sessionSort), so both list the same order.
-    return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: sortSessionsByActivity(listed) }] : [];
+    // Newest activity first, pinned or not (Nov 27 2026): each row shows its age, so a pinned 2h session
+    // above a 2m one read as unsorted. Pins have their own place in By room.
+    return listed.length > 0 ? [{ key: 'activity', kind: 'none', title: 'Recent activity', sessions: [...listed].sort(byNewestActivity) }] : [];
   }
 
   // By room, Central, Pinned then Recent go first, as the desktop rail's CENTRAL, PINNED and

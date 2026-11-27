@@ -135,7 +135,7 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
               </div>
             ) : (
               <Button variant="primary" disabled={action.busy || !name.trim()} onClick={signIn}>
-                Sign in with Google
+                Sign in
               </Button>
             )}
             {signInError && (

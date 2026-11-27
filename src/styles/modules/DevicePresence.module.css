@@ -274,24 +274,6 @@
   color: var(--accent-orange, #ff9f43);
 }
 
-.warn {
-  margin: 10px 0 0;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent-orange, #ff9f43) 35%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-orange, #ff9f43) 8%, transparent);
-  color: var(--accent-orange, #ff9f43);
-  font-size: 10.5px;
-  line-height: 1.5;
-}
-
-.warn code {
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: rgb(0 0 0 / 30%);
-  font-size: 10px;
-}
-
 /* --------------------------------------------- per-session control lock */
 
 .lock {

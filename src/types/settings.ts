@@ -38,6 +38,11 @@ export interface ServerConfig {
   /** Write <data>/owner.token on this server too (aasc-server always does). AASC_OWNER_TOKEN=1/0 wins. */
   ownerToken?: boolean;
   /**
+   * Keep this computer awake (Nov 27 2026; server/keepAwake.ts): `off`, `busy` (while an agent is busy) or
+   * `always` (while AASC runs). Absent = off. Asked at setup; Settings → ADVANCED and `aasc-server keep-awake` write it.
+   */
+  keepAwake?: 'off' | 'busy' | 'always';
+  /**
    * Offer "Pair a phone" on the desktop. Absent means on; `false` turns it off
    * (it was off until the phone app shipped, AASC-30). `AASC_PHONE_PAIRING=1` / `0`
    * overrides it. Phones paired before are listed and revocable either way.

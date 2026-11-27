@@ -69,7 +69,7 @@ describe('Google sign-in routes on the Mac', () => {
     const res = await fetch(`${h.base}/cloud/google/start`, startBody({ deviceName: 'kason-mac' }));
     expect(res.status).toBe(200);
     const url = new URL((await res.json()).data.url);
-    expect(url.origin + url.pathname).toBe('https://api.aasc.work/v1/auth/google/start');
+    expect(url.origin + url.pathname).toBe('https://api.aasc.work/v1/auth/start');
     expect(url.searchParams.get('return')).toBe(RETURN);
     expect(h.signIn.pending()).toBe(true);
   });

@@ -22,6 +22,8 @@ import { alertLevelOf, alertOutputsOf, getAlertConfig } from './alertConfig.js';
 import { alertStore } from './alerts/alertStore.js';
 import { raisedAlertLevel } from '../src/lib/raisedAlerts.js';
 import { keepAwake } from './keepAwakeService.js';
+import { createSleepHolder } from './keepAwakeHolder.js';
+import { parseKeepAwakeMode } from './keepAwake.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, getSessionIdByTerminalId, clearPendingRequest, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal, clearSessionCentral, setSessionHandsOff, setSessionAsleep, healSplitCard } from './sessionStore.js';
@@ -110,6 +112,7 @@ import {
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, getTokenComputerId, revokeTokensForDevice, createComputerToken,
   bearerSession, isOwnerRequest, getTokenHostedIdentity, revokeHostedTokens,
 } from './authManager.js';
+import { createPasswordRouter } from './authPassword.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 import { cloudJsonParser } from './cloud/router.js';
 import { workingProjectPaths } from './cloud/agentWork.js';
@@ -282,6 +285,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const app = express();
   const server = createServer(app);
   const hostedSockets = new Map<string, Set<WebSocket>>();
+  /** Open sockets of password sign-ins, by lineage: a password change closes them (authPassword.ts). */
+  const passwordSockets = new Map<string, Set<WebSocket>>();
+  /** Sockets let in with no token because no password was set: the first password closes them (authPassword.ts). */
+  const noPasswordSockets = new Set<WebSocket>();
+  /** Close code that makes a client reconnect (any but 4001); the reconnect must then show a session. */
+  const WS_RECONNECT_WITH_SESSION = 1012;
   const hostedLaunchSockets = new Map<string, Set<WebSocket>>();
   let hostedAccessRevoked = (): void => {};
   // Keep the current AASC frame limit and compression for hosted and local clients.
@@ -461,6 +470,30 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     res.json({ success: true });
   });
 
+  // Set or change the dashboard password from the devices panel (Nov 27 2026); this computer only.
+  app.use('/api/auth/password', createPasswordRouter({
+    configPath: CONFIG_PATH,
+    isLocal: (req) => isLocalRequest(req),
+    isHosted: () => hosted !== null,
+    clientIp: loginClientIp,
+    onSessionsEnded: (lineages) => {
+      for (const lineage of lineages) for (const ws of passwordSockets.get(lineage) ?? []) ws.close(4001, 'Password changed');
+    },
+    onPasswordSet: (changed) => {
+      // What a restart with the new password would do (phone-pairing.md, Password binding).
+      if (changed) revokePhonesFromOldPassword(deviceAuth, (message) => log.info('mobile', message));
+      startLanAdvertiserIfWanted();
+      void machineAccountWiring.publisher?.check();
+      // A socket let in before there was a password keeps no session: make it reconnect, which now needs one. Not at
+      // once, so the window that set it has its new cookie (sent with this answer) before its socket comes back.
+      if (!changed) {
+        const toClose = [...noPasswordSockets];
+        noPasswordSockets.clear();
+        setTimeout(() => { for (const ws of toClose) ws.close(WS_RECONNECT_WITH_SESSION, 'Password set'); }, 500).unref();
+      }
+    },
+  }));
+
   // -- Static files (Vite-built React SPA) --
   const clientDir = join(__dirname, '..', 'dist', hosted ? 'client-lite' : 'client');
   const sendIndex = (_req: express.Request, res: express.Response): void => {
@@ -497,6 +530,15 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   });
 
   // -- Keep-awake (AASC-16, optional): re-check whenever a session changes --
+  // Electron subscribed before this ran and holds its own blocker; a server with no window holds the
+  // platform's (keepAwakeHolder.ts). Then the saved mode (server-config.json `keepAwake`, Nov 27 2026).
+  if (!keepAwake.hasListener()) {
+    const holder = createSleepHolder({ log });
+    keepAwake.onChange((awake) => holder.set(awake));
+    // So status reports a helper that stopped on its own (refused, killed) instead of "holding".
+    keepAwake.setHoldCheck(holder.isHolding);
+  }
+  keepAwake.setMode(parseKeepAwakeMode(config.keepAwake) ?? 'off');
   onBroadcast((data) => {
     if (data.type === WS_TYPES.SESSION_UPDATE || data.type === 'session_removed') keepAwake.evaluate();
   });
@@ -968,6 +1010,12 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       wsLineage = getTokenLineage(token);
       wsDeviceId = getTokenDeviceId(token);
       wsPairedId = wsDeviceId ?? getTokenComputerId(token);
+      if (!hosted && wsLineage && !wsPairedId) {
+        const lineage = wsLineage;
+        const sockets = passwordSockets.get(lineage) ?? new Set<WebSocket>();
+        sockets.add(ws); passwordSockets.set(lineage, sockets);
+        ws.once('close', () => { sockets.delete(ws); if (!sockets.size) passwordSockets.delete(lineage); });
+      }
     } else if (wsIsRemote) {
       // No password configured: loopback still connects freely (the desktop
       // app), but a remote device is refused. 4003 "Forbidden" rather than
@@ -976,6 +1024,9 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       log.warn('auth', `Blocked remote WebSocket (no password configured) from ${wsAddress}`);
       ws.close(4003, 'Forbidden: set a password to allow remote devices');
       return;
+    } else {
+      noPasswordSockets.add(ws);
+      ws.once('close', () => noPasswordSockets.delete(ws));
     }
     if (hosted) {
       const token = extractToken(req)!;
@@ -1132,20 +1183,24 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     }
   }
 
+  /** Bonjour, so a paired phone finds this Mac again after its address changes (lanAdvertiser.ts). At start, and
+   *  when a first password is set from the devices panel (Nov 27 2026). */
+  function startLanAdvertiserIfWanted(): void {
+    if (lanAdvertiser || !phonesCouldUse()) return;
+    lanAdvertiser = startLanAdvertiser({
+      name: hostname().replace(/\.local$/, ''),
+      port: PORT,
+      log: { info: (m) => log.info('mobile', m), warn: (m) => log.warn('mobile', m), debug: (m) => log.debug('mobile', m) },
+    });
+  }
+
   function onReady(): void {
     if (REMOTE_LISTENER_PORT !== null && !remoteServer) {
       startRemoteListener(app, wss, REMOTE_LISTENER_PORT)
         .then((srv) => { remoteServer = srv; })
         .catch((err: Error) => log.warn('remote-listener', `Remote-only listener failed to start: ${err.message}`));
     }
-    // Bonjour, so a paired phone finds this Mac again after its address changes (lanAdvertiser.ts).
-    if (!lanAdvertiser && phonesCouldUse()) {
-      lanAdvertiser = startLanAdvertiser({
-        name: hostname().replace(/\.local$/, ''),
-        port: PORT,
-        log: { info: (m) => log.info('mobile', m), warn: (m) => log.warn('mobile', m), debug: (m) => log.debug('mobile', m) },
-      });
-    }
+    startLanAdvertiserIfWanted();
     // Tell the cloud account where this Mac is on Tailscale: a check at once, then one a minute. Its timer never keeps
     // the process alive, and cloud.stop() at shutdown aborts a request in flight.
     macPathsPublisher?.start();

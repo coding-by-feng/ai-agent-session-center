@@ -134,6 +134,8 @@ export function registerSetupHandlers() {
         && c.sessionHistoryHours >= 0
         && c.sessionHistoryHours <= 8760
         ? c.sessionHistoryHours : 24,
+      // Keep this computer awake (Nov 27 2026): one of three, else left out (off).
+      ...(c.keepAwake === 'off' || c.keepAwake === 'busy' || c.keepAwake === 'always' ? { keepAwake: c.keepAwake } : {}),
       // A plaintext `password` (setup wizard) is hashed here; a pre-computed
       // `passwordHash` is still accepted so any other caller keeps working.
       // Plaintext never leaves this process — it crosses only the local IPC

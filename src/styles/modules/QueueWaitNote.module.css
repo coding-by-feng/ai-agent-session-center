@@ -1,0 +1,41 @@
+/* Why a plain queue with Auto-send on is not sending right now (Nov 28 2026). Info, not a warning:
+   waiting for a turn to end is normal, so it borrows no orange from the Auto-send-off banner. */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--accent-cyan, #00e5ff);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 6%, transparent);
+  color: var(--text-secondary, #8888aa);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.note[data-kind='no-sender'],
+.note[data-kind='all-off'] {
+  border-left-color: var(--accent-orange, #ffb86c);
+  background: color-mix(in srgb, var(--accent-orange, #ffb86c) 6%, transparent);
+}
+
+.icon {
+  flex: none;
+}
+
+/* The phone queue (Info → Queue, the Queue tab): the phone's type and colours. */
+.note[data-phone] {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-left-color: var(--ph-accent, var(--accent-cyan, #00e5ff));
+  background: var(--ph-fill, rgba(127, 127, 127, 0.08));
+  color: var(--ph-text-secondary, var(--text-secondary, #8888aa));
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.note[data-phone][data-kind='no-sender'],
+.note[data-phone][data-kind='all-off'] {
+  border-left-color: var(--ph-status-approval, var(--accent-orange, #ffb86c));
+}

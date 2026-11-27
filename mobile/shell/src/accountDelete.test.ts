@@ -96,7 +96,7 @@ describe('the delete start URL', () => {
     const t = createHarness({ authSession: true, os: 'android' });
     const pending = await prepared(t);
     const start = new URL(pending.startUrl);
-    expect(start.origin + start.pathname).toBe('https://api.aasc.work/v1/auth/google/start');
+    expect(start.origin + start.pathname).toBe('https://api.aasc.work/v1/auth/start');
     expect([...start.searchParams.keys()].sort()).toEqual(['c', 'intent', 'return', 's']);
     expect(start.searchParams.get('intent')).toBe('delete');
     expect(start.searchParams.get('c')).toMatch(B64U43);

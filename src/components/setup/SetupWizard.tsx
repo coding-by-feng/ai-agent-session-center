@@ -13,6 +13,7 @@ const defaultConfig: SetupConfig = {
   hookDensity: 'medium',
   debug: false,
   sessionHistoryHours: 24,
+  keepAwake: 'busy',
 }
 
 export interface StepProps {

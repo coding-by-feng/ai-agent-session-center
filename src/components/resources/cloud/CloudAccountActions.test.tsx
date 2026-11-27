@@ -132,7 +132,7 @@ it('Continue opens the browser step for this account, waits, and signs this Mac 
       for (const answer of answers.splice(0)) answer();
     });
     expect(await screen.findByText('Your AASC Cloud account was deleted.')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Your account' })).not.toBeInTheDocument();
     // The card's own read of the new status must not be cut off by the wait ending.
     expect(thrownAway).toBe(0);

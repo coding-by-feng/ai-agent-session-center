@@ -81,7 +81,7 @@ describe('the account’s computers in the switcher', () => {
   async function signedIn() {
     const t = createHarness({ authSession: true, mac: { reachable: [TAILNET] } });
     await t.app.start();
-    click(t.root, 'Sign in with Google');
+    click(t.root, 'Sign in');
     await until(t.root, () => heading(t.root) === 'Check this code');
     click(t.root, 'Continue');
     await until(t.root, () => buttonNamed(t.root, 'Connect to Kason-MBP') !== null);

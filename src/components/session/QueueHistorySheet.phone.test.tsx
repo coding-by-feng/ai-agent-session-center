@@ -4,7 +4,7 @@
  * removes at once, as before.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QueueHistorySheet from './QueueHistorySheet';
 import { useQueueHistoryStore, type QueueHistoryEntry } from '@/stores/queueHistoryStore';
@@ -15,6 +15,7 @@ vi.mock('@/lib/platform', async (importOriginal) => ({
   useIsMobile: () => platform.isMobile,
 }));
 vi.mock('./QueueItemEditModal', () => ({ default: () => null }));
+vi.mock('./SentPromptsList', () => ({ default: () => null }));
 
 const entry: QueueHistoryEntry = {
   id: 3, alias: 'Nightly e2e', sourceSessionTitle: 'AASC', sourceSessionId: 's1', usedCount: 2,
@@ -29,11 +30,16 @@ beforeEach(() => {
   useQueueHistoryStore.setState({ entries: [entry], removeEntry } as Partial<ReturnType<typeof useQueueHistoryStore.getState>>);
 });
 
-const renderSheet = () => render(
-  <div data-testid="panel">
-    <QueueHistorySheet open onClose={vi.fn()} currentSessionId="s1" currentSessionTitle="AASC" />
-  </div>,
-);
+// The sheet opens on Sent (Nov 27 2026); these are about the Saved tab.
+const renderSheet = () => {
+  const view = render(
+    <div data-testid="panel">
+      <QueueHistorySheet open onClose={vi.fn()} currentSessionId="s1" currentSessionTitle="AASC" />
+    </div>,
+  );
+  fireEvent.click(screen.getByRole('tab', { name: /Saved/ }));
+  return view;
+};
 
 describe('QueueHistorySheet on a phone', () => {
   it('is portaled out of the queue panel', () => {

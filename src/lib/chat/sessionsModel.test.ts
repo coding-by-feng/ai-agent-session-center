@@ -499,3 +499,19 @@ describe('a session whose background shells still run', () => {
     expect(statusSection(mk('a', { ...owing }))).toBe('needs-you');
   });
 });
+
+describe('groupSessions — By recent (Nov 27 2026)', () => {
+  it('lists newest activity first, pinned or not, so the order matches each row’s age', () => {
+    const NOW = 1_800_000_000_000;
+    const sessions = [
+      mk('pin-2h', { title: 'Text Pier', pinned: true, pinOrder: 0, lastActivityAt: NOW - 7_200_000 }),
+      mk('now', { title: 'AASC', pinned: true, pinOrder: 1, lastActivityAt: NOW }),
+      mk('pin-2h-b', { title: 'Blog', pinned: true, pinOrder: 2, lastActivityAt: NOW - 7_200_000 }),
+      mk('2m', { title: 'CC Lesson', lastActivityAt: NOW - 120_000 }),
+      mk('never', { title: 'Zed', lastActivityAt: undefined }),
+    ];
+    const [group] = groupSessions(input(sessions, { groupBy: 'activity', now: NOW }));
+    expect(group).toMatchObject({ key: 'activity', title: 'Recent activity' });
+    expect(group.sessions.map((s) => s.sessionId)).toEqual(['now', '2m', 'pin-2h-b', 'pin-2h', 'never']);
+  });
+});

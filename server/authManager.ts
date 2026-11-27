@@ -374,6 +374,32 @@ export function isPasswordEnabled(): boolean {
 }
 
 /**
+ * Use a new password hash in this run (Nov 27 2026, POST /api/auth/password). The caller has
+ * already written it to server-config.json; every gate reads `isPasswordEnabled()` live.
+ */
+export function setPasswordHash(hash: string): void {
+  config.passwordHash = hash;
+}
+
+/**
+ * End every password sign-in (a browser's, or a window's that logged in), so a session opened
+ * with the old password doesn't outlive a change. Paired phones, paired computers and hosted
+ * sessions sign in with their own keys, not the password, and are kept. Returns the lineages
+ * removed, so their open sockets can be closed too. `keepLineage` (the sign-in that made the
+ * change) is kept, so the window that changed it stays signed in.
+ */
+export function revokePasswordSessions(keepLineage: string | null = null): string[] {
+  const lineages = new Set<string>();
+  for (const [token, entry] of tokens) {
+    if (entry.deviceId || entry.computerId || entry.hosted) continue;
+    if (keepLineage !== null && entry.lineage === keepLineage) continue;
+    tokens.delete(token);
+    lineages.add(entry.lineage);
+  }
+  return [...lineages];
+}
+
+/**
  * Parse the auth_token cookie from a raw Cookie header string.
  */
 export function parseCookieToken(cookieHeader: string | undefined): string | null {

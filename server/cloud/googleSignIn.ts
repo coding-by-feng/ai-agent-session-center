@@ -112,7 +112,8 @@ export function createGoogleSignIn(deps: {
       const state = randomBytes(32).toString('base64url');
       pending = { verifier, state, origin, deviceName: name, expiresAt: now() + SIGN_IN_PENDING_MS, intent: intent ?? 'connect' };
       last = null;
-      const url = new URL('/v1/auth/google/start', origin);
+      // The backend's "Sign in to AASC Cloud" page: Google, GitHub, Microsoft or Apple (Nov 28 2026).
+      const url = new URL('/v1/auth/start', origin);
       url.search = new URLSearchParams({
         c: createHash('sha256').update(verifier).digest('base64url'),
         s: state,
@@ -120,7 +121,7 @@ export function createGoogleSignIn(deps: {
         // The backend then shows "Delete your AASC Cloud account?" and only its button deletes.
         ...(intent === 'delete' ? { intent } : {}),
       }).toString();
-      log(intent === 'delete' ? 'Account deletion started in the browser' : 'Google sign-in started');
+      log(intent === 'delete' ? 'Account deletion started in the browser' : 'Sign-in started in the browser');
       return { url: url.href };
     },
     async finish(query) {

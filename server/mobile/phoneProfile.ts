@@ -124,6 +124,9 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   // sessions from a remote device and leaves the pins it can't see where they are.
   route('PUT', '/pinned-order', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
+  // The long-press menu's Summarize and the Recent prompts sheet (Nov 27 2026): the desktop peek's AI Summary.
+  // Spends a short `claude -p` on the Mac; the route's /sessions/:id visibility gate still runs.
+  route('POST', '/sessions/:id/recap', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
   // An AI popup (AASC-20): a floating fork of a shared session, started from its
   // Conversation text. The API's own gate checks the same thing; this keeps the

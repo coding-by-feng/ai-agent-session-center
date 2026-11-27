@@ -21,6 +21,8 @@ export interface ScreenProps {
   onBack?: () => void;
   backLabel?: string;
   actions?: ReactNode;
+  /** NavBar's `leading`: a button on the left when there is no Back. */
+  leading?: ReactNode;
   onTitlePress?: () => void;
   /** A hold on the title (NavBar's `onTitleLongPress`), and what it is spoken as. */
   onTitleLongPress?: () => void;
@@ -50,6 +52,7 @@ export default function Screen({
   onBack,
   backLabel,
   actions,
+  leading,
   onTitlePress,
   onTitleLongPress,
   titleLongPressHint,
@@ -93,6 +96,7 @@ export default function Screen({
           onBack={onBack}
           backLabel={backLabel}
           actions={actions}
+          leading={leading}
           onTitlePress={onTitlePress}
           onTitleLongPress={onTitleLongPress}
           titleLongPressHint={titleLongPressHint}

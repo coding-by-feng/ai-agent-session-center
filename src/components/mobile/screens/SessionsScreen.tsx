@@ -20,12 +20,12 @@
  * way, both on this phone only: the Mac keeps no project order. Pull down (or
  * Refresh in the search bar) re-asks the Mac.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { Session } from '@/types';
 import { Button, Chip, EmptyState, ListRow, ListSection, MenuButton, Screen, Sheet } from '../kit';
 import type { ContextMenuItem, SwipeAction } from '../kit';
-import { ChevronRightIcon, EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
-import { CloneIcon, ComputersIcon, ForkIcon, KillIcon, MoreIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SpeakerIcon } from '../phoneIcons';
+import { EllipsisIcon, SessionsTabIcon } from '../kit/kitIcons';
+import { CloneIcon, ComputersIcon, ForkIcon, KillIcon, MoreIcon, PinIcon, PhoneCallIcon, PlusIcon, RenameIcon, RestartIcon, SparkIcon, SpeakerIcon } from '../phoneIcons';
 import { pinnedMoveOrder } from '@/lib/pinMove';
 import { SearchIcon } from '../projectIcons';
 import { ManageRoomsSheet, RoomIcon } from '../RoomSheets';
@@ -86,6 +86,11 @@ import roomStyles from '@/styles/modules/mobile/SessionRooms.module.css';
 import ConversationHits, { CONTENT_HITS_SHOWN } from './ConversationHits';
 import { searchSessionContent } from '@/lib/sessionContentSearch';
 import { useMoreToTheRight } from '@/hooks/useMoreToTheRight';
+import { recapAction, recapStale, requestRecap } from '@/hooks/useSessionRecap';
+import { typedPrompts } from '@/lib/promptPeek';
+
+// The desktop's hover peek, from the row menu (Nov 27 2026): recent prompts and the AI Summary.
+const RecentPromptsSheet = lazy(() => import('./RecentPromptsSheet'));
 
 const GROUP_KEY = 'aasc.phoneSessionsGroup';
 const FIT = ['fit'] as const;
@@ -113,35 +118,36 @@ async function refreshOrSay(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Host card
+// The computer button
 // ---------------------------------------------------------------------------
 
-function HostStatus() {
+/**
+ * The computer button, top left of the bar (Nov 28 2026): the host line that sat under the bar and the ⋯ menu's
+ * "Switch or manage computers", merged. A laptop with a dot (green online, amber reconnecting). In the phone app
+ * it opens the app's switcher (this computer, the account's others); in a phone browser, which has none, it says
+ * the line the strip used to show. Either way the line is its spoken name.
+ */
+function ComputerButton() {
   const connected = useWsStore((s) => s.connected);
   const macName = usePresenceStore((s) => s.devices.find((d) => d.isLocal)?.label);
   const path = connectionPath(window.location.hostname);
   const switchUrl = nativeShellSwitchUrl();
-  // One line (Oct 19 2026): the counts are the chips' and New session is the bar's ＋.
-  // State and path come first, so a long Mac name is what truncates.
-  const line = <>{connected ? 'Online' : 'Reconnecting…'} · {CONNECTION_WORDS[path]} · {macName || 'Your Mac'}</>;
+  const line = `${connected ? 'Online' : 'Reconnecting…'} · ${CONNECTION_WORDS[path]} · ${macName || 'Your Mac'}`;
+  const onClick = switchUrl
+    ? () => window.location.assign(switchUrl)
+    : () => showToast(line, connected ? 'info' : 'warning');
   return (
-    <section className={styles.hostStrip} aria-label="Your Mac" data-online={connected ? '' : undefined}>
-      <span className={styles.dot} aria-hidden="true" />
-      {switchUrl ? (
-        // Nov 27 2026: in the phone app the line opens the app's switcher (this computer, the account's others).
-        <button
-          type="button"
-          className={`${styles.hostLine} ${styles.hostSwitch}`}
-          aria-label={`Switch computer (${macName || 'Your Mac'})`}
-          onClick={() => window.location.assign(switchUrl)}
-        >
-          <span className={styles.hostSwitchText}>{line}</span>
-          <ChevronRightIcon />
-        </button>
-      ) : (
-        <span className={styles.hostLine}>{line}</span>
-      )}
-    </section>
+    <button
+      type="button"
+      className={`${styles.navAction} ${styles.computerButton}`}
+      data-online={connected ? '' : undefined}
+      aria-label={switchUrl ? `Switch computer: ${line}` : `Your Mac: ${line}`}
+      onClick={onClick}
+      data-testid="computer-button"
+    >
+      <ComputersIcon />
+      <span className={styles.computerDot} aria-hidden="true" />
+    </button>
   );
 }
 
@@ -298,6 +304,7 @@ function GroupSection({ group, foldable, groupBy, now, folded, onToggleFold, row
       ref={groupRef}
       className={`${styles.group} ${rooms || projects ? roomStyles.roomGroup : ''}${builtin ? ` ${roomStyles.recentGroup}` : ''}`}
       data-room-lifted={lifted ? '' : undefined}
+      data-folded={frameFolded ? '' : undefined}
       data-drop-target={drag && drag.overRoomId === roomId && drag.fromRoomId !== roomId ? '' : undefined}
       style={frameShift ? ({ '--room-shift': `${frameShift}px` } as CSSProperties) : undefined}
       data-testid={rooms ? `room-group-${builtin ? group.kind : roomId ?? 'none'}` : projectKey ? `project-group-${projectKey}` : undefined}
@@ -365,6 +372,8 @@ export default function SessionsScreen() {
   /** The folder the New session sheet lists first: a project group's ＋. */
   const [newDir, setNewDir] = useState<string | null>(null);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
+  // The session whose Recent prompts sheet is open (the row menu's first two items).
+  const [recentFor, setRecentFor] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SessionSheetKind | null>(null);
   const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
   const [manageRooms, setManageRooms] = useState(false);
@@ -452,6 +461,31 @@ export default function SessionsScreen() {
   }, [openTerminal]);
 
   const putDownSession = useRecentPutDownStore((st) => st.putDownSession);
+  const closeRecent = useCallback(() => setRecentFor(null), []);
+  // From the list there is no Prompts tab on screen: a prompt or "All prompts" opens the session's.
+  const openRecentPrompts = useCallback(() => {
+    if (recentFor) push(sessionPath(recentFor, 'prompts'));
+    setRecentFor(null);
+  }, [recentFor, push]);
+  const peekItems = useCallback((s: Session): ContextMenuItem[] => {
+    const id = s.sessionId;
+    const action = recapAction(s.recap, recapStale(s), false);
+    return [
+      { id: 'recent', label: 'Recent prompts…', onSelect: () => setRecentFor(id) },
+      {
+        id: 'summarize',
+        // The desktop's labels, but "Summarize" (a verb) for a first one in a menu of verbs.
+        label: action.kind === 'new' ? 'Summarize' : action.label,
+        icon: <SparkIcon />,
+        disabledReason: typedPrompts(s).length === 0 ? 'No prompts typed yet.' : undefined,
+        // While one is being made, the sheet shows it arriving; asking again would only queue a second run.
+        onSelect: () => {
+          if (action.kind !== 'running') void requestRecap(id);
+          setRecentFor(id);
+        },
+      },
+    ];
+  }, []);
   const rowProps = useCallback((s: Session, inRecent: boolean) => {
     const id = s.sessionId;
     const unread = isUnreadFinish(s, reads);
@@ -465,6 +499,7 @@ export default function SessionsScreen() {
     ];
     const ended = s.status === 'ended';
     const menuItems: ContextMenuItem[] = [
+      ...peekItems(s),
       { id: 'read', label: 'Mark read', disabledReason: unread ? undefined : 'Nothing new since you read it.', onSelect: () => markRead(s) },
       { id: 'mute', label: s.muted ? 'Turn notifications on' : 'Mute notifications', icon: <SpeakerIcon />, onSelect: () => setNotifications(s, !!s.muted) },
       // Out of Recent until midnight; it stays in its room (the desktop's RECENT put-down, Nov 24 2026).
@@ -485,7 +520,7 @@ export default function SessionsScreen() {
     // glows is its alert level's (Nov 25 2026, lib/sessionAlertLevel.ts).
     const alerting = isAlerting(s, { isCurrent: false, finishedUnseen: unread, glow: sessionAlertOf(s).outputs.glow });
     return { swipeActions, menuItems, alerting };
-  }, [reads, markRead, setNotifications, setPinned, setPinnedOrder, sessions, openSheet, copy, putDownSession]);
+  }, [reads, markRead, setNotifications, setPinned, setPinnedOrder, sessions, openSheet, copy, putDownSession, peekItems]);
 
   const pull = usePullToRefresh<HTMLDivElement>(refreshOrSay);
   const pullHost = useRef<HTMLDivElement>(null);
@@ -589,7 +624,6 @@ export default function SessionsScreen() {
   // Nov 22 2026: a voice call to the Voice central, made by the app's own page (it may use the microphone).
   // Null in a phone browser, so the button is the app's alone. The call returns to this tab.
   const callUrl = nativeShellCallUrl(`${window.location.pathname}${window.location.search}`);
-  const switchUrl = nativeShellSwitchUrl();
 
   const toggleSearch = useCallback(() => {
     setSearching((on) => !on);
@@ -602,8 +636,7 @@ export default function SessionsScreen() {
   // Search alone needs no menu: it stays its own icon.
   const folded: ContextMenuItem[] = [
     ...(callUrl ? [{ id: 'call', label: 'Call AASC', icon: <PhoneCallIcon />, onSelect: () => window.location.assign(callUrl) }] : []),
-    // Nov 27 2026: the app's list of computers, also reached from the host line below: tap one to switch, ⚙ to manage.
-    ...(switchUrl ? [{ id: 'computers', label: 'Switch or manage computers', icon: <ComputersIcon />, onSelect: () => window.location.assign(switchUrl) }] : []),
+    // The app's list of computers moved to the bar's top-left button (Nov 28 2026; here from Nov 27).
     ...(snapshotReceived && byRoom ? [{ id: 'rooms', label: 'New or manage rooms', icon: <RoomIcon />, onSelect: () => setManageRooms(true) }] : []),
     { id: 'search', label: searching ? 'Close search' : 'Search', icon: <SearchIcon />, onSelect: toggleSearch },
   ];
@@ -697,7 +730,7 @@ export default function SessionsScreen() {
   }
 
   return (
-    <Screen title="Sessions" banner={<><ConnectionBanner /><CliLoginBanner />{callUrl && <CallMemoryBanner />}</>} actions={actions} testId="phone-sessions">
+    <Screen title="Sessions" banner={<><ConnectionBanner /><CliLoginBanner />{callUrl && <CallMemoryBanner />}</>} actions={actions} leading={<ComputerButton />} testId="phone-sessions">
       <div
         ref={pullHost}
         className={styles.pullHost}
@@ -729,7 +762,6 @@ export default function SessionsScreen() {
             </Button>
           </div>
         )}
-        {snapshotReceived && <HostStatus />}
         {snapshotReceived && counts.all > 0 && (
           <div className={styles.chipsBar}>
             <div ref={chipsRef} className={styles.chips} data-more={moreChips ? '' : undefined} role="group" aria-label="Show">
@@ -748,6 +780,11 @@ export default function SessionsScreen() {
       </div>
 
       <NewSessionSheet open={newOpen} onClose={closeNew} preferDir={newDir} blocker={blocker} />
+      {recentFor && (
+        <Suspense fallback={null}>
+          <RecentPromptsSheet sessionId={recentFor} onClose={closeRecent} onOpenPrompt={openRecentPrompts} onAllPrompts={openRecentPrompts} />
+        </Suspense>
+      )}
       <SessionSheets
         sessionId={sheetFor}
         sheet={sheet}

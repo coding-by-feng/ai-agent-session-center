@@ -28,7 +28,7 @@ describe('Google sign-in on the Mac', () => {
   it('begin builds the backend start URL with c=SHA256(v), s and the return URL', async () => {
     const h = harness();
     const url = begin(h);
-    expect(url.origin + url.pathname).toBe('https://api.aasc.work/v1/auth/google/start');
+    expect(url.origin + url.pathname).toBe('https://api.aasc.work/v1/auth/start');
     const c = url.searchParams.get('c')!;
     const s = url.searchParams.get('s')!;
     expect(c).toMatch(/^[A-Za-z0-9_-]{43}$/);

@@ -19,7 +19,7 @@ export function renderPair(s: PairScreen, ctx: ScreenContext): HTMLElement {
   // Plan 17: Sign in with Google comes first where the app has the sign-in sheet; the QR is then the second way.
   const busy = s.accountBusy === true;
   const google = ctx.canSignIn
-    ? button(busy ? 'Signing in…' : 'Sign in with Google', a.signInWithGoogle, 'primary', {
+    ? button(busy ? 'Signing in…' : 'Sign in', a.signInWithGoogle, 'primary', {
         disabled: busy, 'aria-busy': busy ? 'true' : null, 'aria-describedby': 'google-hint',
       })
     : null;

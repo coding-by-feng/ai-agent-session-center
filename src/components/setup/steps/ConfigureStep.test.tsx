@@ -121,6 +121,34 @@ describe('ConfigureStep', () => {
     })
   })
 
+  it('asks whether to keep this computer awake, While busy by default, and saves and applies the choice', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async () => new Response('{"success":true}'))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      render(<ConfigureStep config={defaultConfig} setConfig={vi.fn()} onNext={vi.fn()} />)
+      expect(screen.getByRole('radio', { name: /While an agent is busy/ })).toBeChecked()
+      await user.click(screen.getByRole('radio', { name: /^Always/ }))
+      await user.type(screen.getByPlaceholderText('Password'), VALID_PW)
+      await user.type(screen.getByPlaceholderText('Confirm password'), VALID_PW)
+      await user.click(screen.getByRole('button', { name: /continue/i }))
+      await waitFor(() => expect(mockAPI.saveConfig).toHaveBeenCalledWith(expect.objectContaining({ keepAwake: 'always' })))
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/config/keep-awake', expect.objectContaining({ method: 'POST', body: JSON.stringify({ mode: 'always' }) })))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a re-run starts from the choice this computer already saved, so pressing on never switches it (review, Nov 27 2026)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, data: { mode: 'off', saved: true } }))))
+    try {
+      render(<ConfigureStep config={defaultConfig} setConfig={vi.fn()} onNext={vi.fn()} />)
+      await waitFor(() => expect(screen.getByRole('radio', { name: /^Off/ })).toBeChecked())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('shows the password fields immediately — there is no opt-out toggle', () => {
     render(
       <ConfigureStep

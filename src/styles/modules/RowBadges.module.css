@@ -1,0 +1,87 @@
+/*
+ * RowBadges — the devices switcher row's second line as pills (Nov 27 2026). It sits under the name, past the dot,
+ * as the old text line did (RemoteComputers .meta), and wraps as one group in the 360px panel.
+ * Pill text mixes the accent into --text-primary, as the kit's danger text does: the raw accents are under 4.5:1
+ * on the light themes.
+ */
+
+.line {
+  display: block;
+  padding-left: 16px;
+  min-width: 0;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  min-height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle, #2a2a44);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #8a8aa8);
+  background: transparent;
+}
+
+.online {
+  --pill: var(--accent-green, #00ff88);
+}
+
+.pending,
+.warn {
+  --pill: var(--accent-orange, #ff9100);
+}
+
+.removed {
+  --pill: var(--accent-red, #ff5252);
+}
+
+.online,
+.pending,
+.warn,
+.removed {
+  color: var(--pill-text, color-mix(in srgb, var(--pill) 55%, var(--text-primary, #e0e0f0)));
+  border-color: color-mix(in srgb, var(--pill) 45%, transparent);
+  background: color-mix(in srgb, var(--pill) 12%, transparent);
+}
+
+.neutral {
+  color: var(--text-primary, #e0e0f0);
+}
+
+/* Offline and not checked yet: the plain grey pill; checking is dashed, like the dot's ring. */
+.checking {
+  border-style: dashed;
+}
+
+.reason {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #8a8aa8);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -11,6 +11,13 @@ const DENSITY_OPTIONS: { value: SetupConfig['hookDensity']; label: string; desc:
   { value: 'high', label: 'High', desc: 'All 14 events. Full monitoring + approval detection.' },
   { value: 'medium', label: 'Medium', desc: '12 events. Good balance of monitoring and overhead.' },
   { value: 'low', label: 'Low', desc: '5 events. Minimal overhead, basic status tracking.' },
+]
+
+// Keep this computer awake (Nov 27 2026): asked once here; Settings changes it later (server/keepAwake.ts).
+const KEEP_AWAKE_OPTIONS: { value: NonNullable<SetupConfig['keepAwake']>; label: string; desc: string }[] = [
+  { value: 'off', label: 'Off', desc: 'The computer sleeps as usual.' },
+  { value: 'busy', label: 'While an agent is busy', desc: 'Stay awake while an agent works or waits for you.' },
+  { value: 'always', label: 'Always', desc: 'Stay awake while AASC runs, for a computer your phone or other computers use.' },
 ]
 
 const HISTORY_OPTIONS = [
@@ -38,6 +45,7 @@ const formSchema = z.object({
   enableCodex: z.boolean(),
   hookDensity: z.enum(['high', 'medium', 'low']),
   sessionHistoryHours: z.number(),
+  keepAwake: z.enum(['off', 'busy', 'always']),
   password: z.string(),
   confirmPassword: z.string(),
 }).superRefine((data, ctx) => {
@@ -70,12 +78,31 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
       enableCodex: config.enabledClis.includes('codex'),
       hookDensity: config.hookDensity,
       sessionHistoryHours: config.sessionHistoryHours,
+      keepAwake: config.keepAwake ?? 'busy',
       password: '',
       confirmPassword: '',
     },
   })
 
   const hookDensity = watch('hookDensity')
+  const keepAwake = watch('keepAwake')
+
+  // A re-run starts from what this computer already saved, so pressing Continue never switches keep-awake
+  // on (review, Nov 27 2026); with nothing saved it stays at While busy. No answer (no server yet): the same.
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/config/keep-awake', { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return
+        const body = (await res.json()) as { data?: { mode?: unknown; saved?: unknown } }
+        const mode = body.data?.mode
+        if (!controller.signal.aborted && body.data?.saved === true && (mode === 'off' || mode === 'busy' || mode === 'always')) {
+          setValue('keepAwake', mode)
+        }
+      })
+      .catch(() => { /* no server to ask: keep the default */ })
+    return () => controller.abort()
+  }, [setValue])
 
   const onSubmit = async (data: FormValues) => {
     const clis: SetupConfig['enabledClis'] = ['claude']
@@ -87,6 +114,7 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
       hookDensity: data.hookDensity,
       debug: false,
       sessionHistoryHours: data.sessionHistoryHours,
+      keepAwake: data.keepAwake,
     }
 
     // The wizard's own state must NOT carry the plaintext password — it is
@@ -103,6 +131,13 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
         setSaving(false)
         return
       }
+      // The server that serves this wizard is already running: tell it now, so the choice holds before a
+      // restart (it saves it too). A failure only means it applies from the next start.
+      await fetch('/api/config/keep-awake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: data.keepAwake }),
+      }).catch(() => undefined)
       setSaving(false)
     }
 
@@ -140,6 +175,27 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
                   type="radio"
                   value={opt.value}
                   {...register('hookDensity')}
+                />
+                <span className={styles.radioTitle}>{opt.label}</span>
+                <span className={styles.radioDesc}>{opt.desc}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Keep awake */}
+        <div className={styles.fieldGroup}>
+          <label className={styles.fieldLabel}>Keep This Computer Awake</label>
+          <div className={styles.radioGroup}>
+            {KEEP_AWAKE_OPTIONS.map(opt => (
+              <label
+                key={opt.value}
+                className={`${styles.radioOption} ${keepAwake === opt.value ? styles.selected : ''}`}
+              >
+                <input
+                  type="radio"
+                  value={opt.value}
+                  {...register('keepAwake')}
                 />
                 <span className={styles.radioTitle}>{opt.label}</span>
                 <span className={styles.radioDesc}>{opt.desc}</span>

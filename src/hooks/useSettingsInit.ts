@@ -78,21 +78,32 @@ export function useSettingsInit(): void {
     });
   }, [replayBufferBytes]);
 
-  // Keep-awake lives in the desktop app's main process (AASC-16): tell this Mac's
-  // server whenever the setting changes. Only the desktop app sends it; the
-  // route answers this machine only.
-  const keepAwake = useSettingsStore((s) => s.keepAwakeWhileWorking);
+  // Keep-awake (AASC-16) is the server's own setting since Nov 27 2026 (server-config.json `keepAwake`,
+  // Settings' KeepAwakeControl). Once, carry an older desktop window's "on" across: when this computer
+  // never chose a mode, the old switch's on becomes `busy`. An off, or a mode already saved, is left alone.
+  const keepAwakeLegacy = useSettingsStore((s) => s.keepAwakeWhileWorking);
   const isDesktopApp = useIsDesktopApp();
   useEffect(() => {
-    if (!isDesktopApp) return;
-    fetch('/api/config/keep-awake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: keepAwake === true }),
-    }).catch(() => {
-      // Server unreachable — it stays off; re-pushed on the next change.
-    });
-  }, [keepAwake, isDesktopApp]);
+    if (!isDesktopApp || keepAwakeLegacy !== true) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch('/api/config/keep-awake', { signal: controller.signal });
+        if (!res.ok) return;
+        const body = (await res.json()) as { data?: { saved?: boolean } };
+        if (body.data?.saved !== false || controller.signal.aborted) return;
+        await fetch('/api/config/keep-awake', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'busy' }),
+          signal: controller.signal,
+        });
+      } catch {
+        // Unreachable or an older server: try again on the next start.
+      }
+    })();
+    return () => controller.abort();
+  }, [keepAwakeLegacy, isDesktopApp]);
 
   // Unlock Web Audio on first user interaction so alarm sounds can play
   useEffect(() => {

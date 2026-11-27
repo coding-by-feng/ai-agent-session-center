@@ -50,26 +50,26 @@ function ChevronIcon({ open }: { open: boolean }) {
 
 function ClockIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
       className={styles.recentIcon}>
       <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
     </svg>
   );
 }
 
-/** A star, the size of a room swatch: what a central's card shows (CentralBadge's ★), at header scale. */
+/** A star: what a central's card shows (CentralBadge's ★), at header scale. */
 function StarGlyph() {
   return (
-    <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
+    <svg viewBox="0 0 12 12" width="14" height="14" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
       <path d="M6 .8l1.55 3.3 3.6.42-2.66 2.47.7 3.56L6 8.77l-3.19 1.78.7-3.56L.85 4.52l3.6-.42Z" />
     </svg>
   );
 }
 
-/** A filled pin, the size of a room swatch: what a pinned card shows (PinIcon), at header scale. */
+/** A filled pin: what a pinned card shows (PinIcon), at header scale. */
 function PinGlyph() {
   return (
-    <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
+    <svg viewBox="0 0 12 12" width="14" height="14" fill="currentColor" aria-hidden="true" className={styles.recentIcon}>
       <path d="M6 1.2c-1.6 0-2.8 1.2-2.8 2.7 0 1.2.8 2.2 1.8 2.6L6 10.8l1-4.3c1-.4 1.8-1.4 1.8-2.6 0-1.5-1.2-2.7-2.8-2.7Z" />
     </svg>
   );
@@ -206,8 +206,8 @@ export function ProjectGroupHeader({ projectKey, title, count, color, collapsed,
 
 /**
  * The built-in Recent group's header (By room, Oct 20 2026): the desktop rail's
- * RECENT frame. It folds like a room but is not one, so no ≡ and no ⋯; the space
- * where ≡ sits keeps its title in line with the rooms' titles.
+ * RECENT frame. It folds like a room but is not one, so no ≡ and no ⋯; its clock
+ * sits where ≡ sits, so its chevron lines up with the rooms' chevrons.
  *
  * Put back (Nov 24 2026, the desktop's RECENT put-down on the phone): while any
  * session is put down today, an eye-off + N chip opens a sheet that puts each back,
@@ -312,17 +312,18 @@ function BuiltinGroupHeader({ title, icon, count, collapsed, onToggle, describe,
 }) {
   return (
     <div className={styles.header}>
-      <span className={styles.gripSpace} aria-hidden="true" />
+      {/* The group's icon sits where a room's ≡ sits (Nov 28 2026; that column was empty and the header looked indented),
+          inside the toggle, so the whole row folds. */}
       <h2 className={styles.title}>
         <button
           type="button"
-          className={styles.toggle}
+          className={`${styles.toggle} ${styles.builtinToggle}`}
           onClick={onToggle}
           aria-expanded={!collapsed}
           aria-label={`${title}, ${count} ${count === 1 ? 'session' : 'sessions'} ${describe}, also in their rooms, ${collapsed ? 'folded' : 'open'}`}
         >
+          <span className={styles.builtinIcon}>{icon}</span>
           <ChevronIcon open={!collapsed} />
-          {icon}
           <span className={styles.titleText}>{title} · {count}</span>
         </button>
       </h2>

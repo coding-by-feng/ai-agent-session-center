@@ -44,6 +44,7 @@ import { useQueueStripCollapsed } from '@/hooks/useQueueStripCollapsed';
 import { useUiStore } from '@/stores/uiStore';
 import { useIsStartReleased } from '@/stores/startReleaseStore';
 import QueueHoldBanner from './QueueHoldBanner';
+import QueueWaitNote from './QueueWaitNote';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -79,6 +80,7 @@ import phoneStyles from '@/styles/modules/QueuePhone.module.css';
 // phone only (AASC-31).
 const PhoneSuggestionBar = lazy(() => import('@/components/mobile/PhoneSuggestionBar'));
 const QueuePhotoButtons = lazy(() => import('@/components/mobile/QueuePhotoButtons'));
+const QueueDictation = lazy(() => import('@/components/mobile/QueueDictation'));
 const QueueMoveSheet = lazy(() => import('./QueueMoveSheet'));
 
 // ---------------------------------------------------------------------------
@@ -1410,6 +1412,20 @@ export default function QueueTab({
             runningBackground={runningBackground}
           />
         )}
+        {/* Why a plain queue isn't sending right now (Nov 28 2026): mid-turn, an approval, every
+            prompt switched off, or a phone app with no Mac window to send. */}
+        <QueueWaitNote
+          items={items}
+          autoSend={autoSend}
+          automationPaused={automationConfig.paused}
+          held={!!queueHold}
+          sessionStatus={sessionStatus}
+          cliName={(() => {
+            const cli = currentSession ? detectCli(currentSession) : null;
+            return cli === 'codex' ? 'Codex' : cli === 'claude' ? 'Claude' : 'the agent';
+          })()}
+          phone={isMobile}
+        />
         {/* Compose */}
         <div
           className={`${styles.queueCompose}${dragOver ? ` ${styles.queueComposeDragOver}` : ''}`}
@@ -1526,6 +1542,13 @@ export default function QueueTab({
                 <QueuePhotoButtons
                   sessionId={sessionId}
                   count={composeImages.length}
+                  buttonClassName={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+                />
+                {/* Keyed per session: a switch unmounts it, which cancels a recording, so the words never land in another draft. */}
+                <QueueDictation
+                  key={sessionId}
+                  sessionId={sessionId}
+                  textarea={composeTextarea}
                   buttonClassName={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
                 />
               </Suspense>

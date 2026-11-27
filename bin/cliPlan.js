@@ -9,7 +9,7 @@ import { homedir, constants } from 'os';
 import { resolveDataDir, isCheckout } from '../hooks/dataDir.js';
 
 /** The owner's commands on the box (P2): cli/server, authenticated with <data>/owner.token. */
-export const ADMIN_COMMANDS = ['pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers'];
+export const ADMIN_COMMANDS = ['pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers', 'keep-awake'];
 
 export const COMMANDS = [
   'serve', 'setup', 'set-password', 'install-service', 'uninstall-service', 'install-hooks', 'uninstall-hooks', 'help',
@@ -147,7 +147,8 @@ export function planTool(command, { projectRoot, rest, env = process.env, platfo
     case 'doctor':
     case 'logs':
     case 'share-default':
-    case 'transfers': {
+    case 'transfers':
+    case 'keep-awake': {
       // A checkout runs the sources with tsx (development); a package runs the bundle.
       if (isSourceCheckout(projectRoot)) {
         return { command: tsxBin(projectRoot), args: [join(projectRoot, 'cli', 'server', 'index.ts'), command, '--data-dir', dir, ...args], env: childEnv, dataDir: dir, dataSource: source };

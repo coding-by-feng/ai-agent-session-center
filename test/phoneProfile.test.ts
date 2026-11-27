@@ -121,6 +121,8 @@ describe('phoneRuleFor', () => {
     ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['GET', '/sessions/abc/subagents/a1b2/transcript'],
     ['PUT', '/sessions/abc/queue'],
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
+    // The long-press menu's Summarize (Nov 27 2026), behind the /sessions/:id gate.
+    ['POST', '/sessions/abc/recap'],
     ['PUT', '/sessions/abc/title'], ['PUT', '/sessions/abc/pinned'], ['PUT', '/pinned-order'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
     ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],

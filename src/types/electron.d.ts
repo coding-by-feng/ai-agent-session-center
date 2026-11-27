@@ -15,6 +15,8 @@ export interface SetupConfig {
   hookDensity: 'high' | 'medium' | 'low'
   debug: boolean
   sessionHistoryHours: number
+  /** Keep this computer awake (Nov 27 2026): asked at setup, saved as server-config.json `keepAwake`. */
+  keepAwake?: 'off' | 'busy' | 'always'
   passwordHash?: string
   /**
    * Plaintext, write-only, and never persisted: `setup:save-config` hashes it

@@ -30,10 +30,12 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { errorText } from '@/hooks/useRemoteComputers';
 import { PRIMARY_ACTION } from '@/hooks/useSwitcherKeys';
 import { focusSiblingAfterRemoval } from '@/lib/focusAfterRemoval';
+import type { RowBadges as RowBadgeSet } from '@/lib/remoteComputerBadges';
 import { rowDetail, rowState } from '@/lib/remoteComputerRows';
 import type { RemoteComputer, RemoteComputerCheck, RemoteComputersAPI } from '@/types/electron';
 import kit from '@/styles/modules/Button.module.css';
 import styles from '@/styles/modules/RemoteComputers.module.css';
+import RowBadges from './RowBadges';
 
 /** The same cap as a paired phone's name. */
 const MAX_NAME = 80;
@@ -67,10 +69,12 @@ export interface RemoteComputerRowProps {
   account?: AccountRowWords;
   /** The switcher's rows: Open takes part in its ↑ ↓ Home End. */
   arrowKeys?: boolean;
+  /** The switcher's rows (Nov 27 2026): the second line as pills, its sentence kept for screen readers. */
+  badges?: RowBadgeSet;
 }
 
 export default function RemoteComputerRow({
-  api, computer: c, check, fallbackFocus, onChanged, onRecheck, onRemoved, onOpened, account, arrowKeys = false,
+  api, computer: c, check, fallbackFocus, onChanged, onRecheck, onRemoved, onOpened, account, arrowKeys = false, badges,
 }: RemoteComputerRowProps) {
   const [opening, setOpening] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -249,7 +253,9 @@ export default function RemoteComputerRow({
         )}
       </span>
 
-      <span className={styles.meta}>{account ? account.detail : rowDetail(c, check)}</span>
+      {badges
+        ? <RowBadges badges={badges.badges} reason={badges.reason} sentence={account ? account.detail : rowDetail(c, check)} />
+        : <span className={styles.meta}>{account ? account.detail : rowDetail(c, check)}</span>}
 
       {confirmRemove && (
         <span className={styles.confirm} role="alert">

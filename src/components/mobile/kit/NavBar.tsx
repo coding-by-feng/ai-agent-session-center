@@ -33,6 +33,8 @@ export interface NavBarProps {
   backLabel?: string;
   /** Buttons on the right (44px each). */
   actions?: ReactNode;
+  /** A button on the left of a screen with no Back (Sessions' computer switcher, Nov 28 2026). */
+  leading?: ReactNode;
   /** Makes the title a button (a session's title will open its info). */
   onTitlePress?: () => void;
   /** A hold on that title button (a session's: its recent prompts, Oct 23 2026). Shift+F10 or the
@@ -51,6 +53,7 @@ export default function NavBar({
   onBack,
   backLabel = 'Back',
   actions,
+  leading,
   onTitlePress,
   onTitleLongPress,
   titleLongPressHint,
@@ -70,11 +73,11 @@ export default function NavBar({
     <header className={`${styles.navBar}${large && !collapsed ? ` ${styles.flat}` : ''}`}>
       <div className={styles.bar}>
         <div className={styles.leading}>
-          {onBack && (
+          {onBack ? (
             <button type="button" className={styles.back} onClick={onBack} aria-label={backLabel}>
               <ChevronLeftIcon />
             </button>
-          )}
+          ) : leading}
         </div>
         {large ? (
           <div className={`${styles.center} ${showCompact ? styles.shown : styles.concealed}`} aria-hidden="true">

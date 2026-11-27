@@ -1847,6 +1847,7 @@
 }
 .queuePanelPhone .queueComposeActions {
   flex: 1 1 100%;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-left: 0;

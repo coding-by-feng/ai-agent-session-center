@@ -116,23 +116,34 @@ describe('SettingsPanel', () => {
     }
   });
 
-  it('offers keep-awake only in the desktop app, and saves the choice (AASC-16)', () => {
+  it('offers keep-awake where this computer’s server answers, and saves the choice there (AASC-16)', async () => {
     useUiStore.setState({ activeModal: 'settings' });
-    useSettingsStore.setState({ keepAwakeWhileWorking: false, persistSetting: vi.fn() } as never);
-    const { unmount } = render(<SettingsPanel />);
-    fireEvent.click(screen.getByText('ADVANCED'));
-    expect(screen.queryByText('Keep this Mac awake')).toBeNull();
-    unmount();
-    (window as unknown as { electronAPI?: unknown }).electronAPI = {};
+    const posted: unknown[] = [];
+    let local = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url) === '/api/config/keep-awake') {
+        if (!local) return new Response('', { status: 404 });
+        if (init?.method === 'POST') { posted.push(JSON.parse(String(init.body))); return new Response('{"success":true}'); }
+        return new Response(JSON.stringify({ success: true, data: { mode: 'busy', saved: true } }));
+      }
+      return new Response('{}');
+    }));
     try {
+      const { unmount } = render(<SettingsPanel />);
+      fireEvent.click(screen.getByText('ADVANCED'));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.queryByText('Keep this computer awake')).toBeNull();
+      unmount();
+      local = true;
       render(<SettingsPanel />);
       fireEvent.click(screen.getByText('ADVANCED'));
-      expect(screen.getByText('Keep this Mac awake')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Keep awake while an agent is busy' }));
-      expect(useSettingsStore.getState().keepAwakeWhileWorking).toBe(true);
-      expect(useSettingsStore.getState().persistSetting).toHaveBeenCalledWith('keepAwakeWhileWorking', true);
+      expect(await screen.findByText('Keep this computer awake')).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'While an agent is busy' })).toBeChecked();
+      fireEvent.click(screen.getByRole('radio', { name: 'Always, while AASC runs' }));
+      await vi.waitFor(() => expect(posted).toEqual([{ mode: 'always' }]));
+      expect(screen.getByRole('radio', { name: 'Always, while AASC runs' })).toBeChecked();
     } finally {
-      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+      vi.unstubAllGlobals();
     }
   });
 

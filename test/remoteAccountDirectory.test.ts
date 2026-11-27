@@ -534,8 +534,8 @@ describe('connectThroughAccount', () => {
       ['a computer the account doesn’t list', [machine({ deviceId: OTHER_MACHINE_ID })], /no longer on your AASC Cloud account/],
       ['this computer itself', [machine({ current: true })], /this computer/i],
       ['a computer that can’t redeem a ticket', [machine({ connectable: false })], /Sign in to AASC Cloud again on Mac mini/],
-      ['a computer that shows no address', [machine({ paths: null })], /Mac mini shows no address/],
-      ['a computer whose addresses are all of the wrong kind', [machine({ paths: { lan: '8.8.8.8', tailnet: null, public: '10.0.0.1', port: 3333, updatedAt: 'x' } })], /Mac mini shows no address/],
+      ['a computer that shows no address', [machine({ paths: null })], /Mac mini isn’t sharing an address with your account\. On Mac mini, set a dashboard password/],
+      ['a computer whose addresses are all of the wrong kind', [machine({ paths: { lan: '8.8.8.8', tailnet: null, public: '10.0.0.1', port: 3333, updatedAt: 'x' } })], /Mac mini isn’t sharing an address with your account\. On Mac mini, set a dashboard password/],
     ])('refuses %s, and asks for no ticket', async (_name, machines, message) => {
       const { net } = world({ machines });
       const out = await connectThroughAccount(deps(net), local, MACHINE_ID);

@@ -6,6 +6,13 @@ const TOKEN_KEY = 'auth_token';
 // Refresh token 5 minutes before expiry
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+/**
+ * A session this window got without the login screen (Nov 27 2026: setting the dashboard password
+ * in the devices panel signs the window in). `detail.expiresIn` is in seconds; useAuth schedules
+ * its refresh, or the cookie would lapse after an hour and the login screen would appear.
+ */
+export const AUTH_SESSION_EVENT = 'aasc-auth-session';
+
 interface AuthState {
   token: string | null;
   loading: boolean;
@@ -222,10 +229,17 @@ export function useAuth(): UseAuthReturn {
     }
     document.addEventListener('ws-auth-failed', handleAuthFailed);
 
+    function handleSessionStarted(event: Event) {
+      const expiresIn = count((event as CustomEvent<{ expiresIn?: unknown }>).detail?.expiresIn);
+      scheduleRefresh(expiresIn ?? 3600);
+    }
+    document.addEventListener(AUTH_SESSION_EVENT, handleSessionStarted);
+
     return () => {
       cancelled = true;
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       document.removeEventListener('ws-auth-failed', handleAuthFailed);
+      document.removeEventListener(AUTH_SESSION_EVENT, handleSessionStarted);
     };
   }, [scheduleRefresh]);
 

@@ -16,7 +16,7 @@ const text = (t: { root: HTMLElement }) => t.root.textContent ?? '';
 
 /** Sign in with Google, past the match-code step (review M2). */
 async function signIn(t: ReturnType<typeof createHarness>) {
-  click(t.root, 'Sign in with Google');
+  click(t.root, 'Sign in');
   await until(t.root, () => heading(t.root) === 'Check this code');
   click(t.root, 'Continue');
 }
@@ -27,17 +27,17 @@ async function signInFromPair(t: ReturnType<typeof createHarness>) {
   await until(t.root, () => heading(t.root) === 'Your computers' && text(t).includes('Kason-MBP'));
 }
 
-describe('Sign in with Google', () => {
+describe('Sign in (Google, GitHub, Microsoft, Apple)', () => {
   it('shows only where the app has the sign-in sheet, first on the pair screen', async () => {
     const without = createHarness({ scan: async () => null });
     await without.app.start();
-    expect(buttonNamed(without.root, 'Sign in with Google')).toBeNull();
+    expect(buttonNamed(without.root, 'Sign in')).toBeNull();
     expect(buttonNamed(without.root, 'Scan the QR code')?.className).toContain('btn-primary');
     document.body.replaceChildren();
 
     const t = createHarness({ authSession: true, scan: async () => null });
     await t.app.start();
-    const google = buttonNamed(t.root, 'Sign in with Google')!;
+    const google = buttonNamed(t.root, 'Sign in')!;
     expect(google.className).toContain('btn-primary');
     expect(buttonNamed(t.root, 'Scan the QR code')?.className).toContain('btn-secondary');
     const all = Array.from(t.root.querySelectorAll('button'));
@@ -47,7 +47,7 @@ describe('Sign in with Google', () => {
   it('is the only primary action on the pair screen, even without a scanner', async () => {
     const t = createHarness({ authSession: true });
     await t.app.start();
-    expect(Array.from(t.root.querySelectorAll('.btn-primary')).map((b) => b.textContent?.trim())).toEqual(['Sign in with Google']);
+    expect(Array.from(t.root.querySelectorAll('.btn-primary')).map((b) => b.textContent?.trim())).toEqual(['Sign in']);
   });
 
   it('signs in, then lists the account’s Mac with its email and Connect', async () => {
@@ -96,7 +96,7 @@ describe('Check this code (review M2)', () => {
   it('shows the code for the challenge before the sheet opens; Continue opens it with that same challenge', async () => {
     const t = createHarness({ authSession: true });
     await t.app.start();
-    click(t.root, 'Sign in with Google');
+    click(t.root, 'Sign in');
     await until(t.root, () => heading(t.root) === 'Check this code');
     expect(t.extras.authStarts).toHaveLength(0);
     const shown = t.root.querySelector('.code')?.textContent ?? '';
@@ -116,7 +116,7 @@ describe('Check this code (review M2)', () => {
   it('Cancel opens nothing and goes back to the pair screen', async () => {
     const t = createHarness({ authSession: true });
     await t.app.start();
-    click(t.root, 'Sign in with Google');
+    click(t.root, 'Sign in');
     await until(t.root, () => heading(t.root) === 'Check this code');
     click(t.root, 'Cancel');
     expect(heading(t.root)).toBe('Pair with a Mac');
@@ -129,7 +129,7 @@ describe('Check this code (review M2)', () => {
     await t.app.start();
     const codes: string[] = [];
     for (let i = 0; i < 6; i += 1) {
-      click(t.root, 'Sign in with Google');
+      click(t.root, 'Sign in');
       await until(t.root, () => heading(t.root) === 'Check this code');
       codes.push(t.root.querySelector('.code')?.textContent ?? '');
       click(t.root, 'Cancel');
@@ -218,7 +218,7 @@ describe('Your computers with an account', () => {
     await until(t.root, () => heading(t.root) === 'Pair with a Mac');
     expect(text(t)).toContain('Signed out of AASC Cloud');
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
-    expect(buttonNamed(t.root, 'Sign in with Google')).not.toBeNull();
+    expect(buttonNamed(t.root, 'Sign in')).not.toBeNull();
   });
 
   it('a 401 for the list signs the phone out', async () => {
@@ -226,7 +226,7 @@ describe('Your computers with an account', () => {
     await signInFromPair(t);
     t.mac.account.revokeDevice(t.mac.account.devices()[0]);
     click(t.root, 'Pair with a QR code');
-    expect(buttonNamed(t.root, 'Sign in with Google')).toBeNull(); // signed in: no second sign-in offered
+    expect(buttonNamed(t.root, 'Sign in')).toBeNull(); // signed in: no second sign-in offered
     click(t.root, 'Your computers');
     await until(t.root, () => heading(t.root) === 'Pair with a Mac');
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
@@ -334,7 +334,7 @@ describe('the lock coming up while the sign-in sheet is open', () => {
     await until(t.root, () => heading(t.root) === 'Pair with a Mac');
     expect(text(t)).toContain('Sign-in cancelled. Nothing was saved.');
     expect(waiting(t)).toBe(false);
-    expect(buttonNamed(t.root, 'Sign in with Google')?.disabled).toBe(false);
+    expect(buttonNamed(t.root, 'Sign in')?.disabled).toBe(false);
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
   });
 
@@ -427,7 +427,7 @@ describe('a sign-in whose email can’t be stored', () => {
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
     expect(await currentAccount(t.deps)).toBeNull();
     expect(text(t)).not.toContain('Signed in as');
-    expect(buttonNamed(t.root, 'Sign in with Google')).not.toBeNull();
+    expect(buttonNamed(t.root, 'Sign in')).not.toBeNull();
   });
 });
 

@@ -63,7 +63,7 @@ describe('parseCli', () => {
 
   it('names each P1 and P2 subcommand, and flags an unknown one', () => {
     for (const c of ['setup', 'set-password', 'install-service', 'uninstall-service', 'install-hooks', 'uninstall-hooks', 'help',
-      'pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers']) {
+      'pair', 'devices', 'status', 'doctor', 'logs', 'share-default', 'transfers', 'keep-awake']) {
       expect(parseCli([c, '-x']).command).toBe(c);
     }
     expect(parseCli(['--help']).command).toBe('help');

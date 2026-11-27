@@ -98,27 +98,28 @@ const region = (name: string) => screen.getByRole('region', { name });
 const names = (el: HTMLElement) => within(el).getAllByTestId(/^session-row-/).map((r) => r.getAttribute('data-testid')!.replace('session-row-', ''));
 
 describe('SessionsScreen', () => {
-  it('says in one line whether the Mac is online, how it is reached and which Mac (Oct 19 2026: no card)', () => {
+  // Nov 28 2026: the host line under the bar and the ⋯ menu's computers item became one button, top left.
+  it('puts the computer button top left: a phone browser hears and is shown the old host line', async () => {
+    const user = userEvent.setup();
     render(<SessionsScreen />);
-    const strip = screen.getByRole('region', { name: 'Your Mac' });
-    expect(strip.textContent).toMatch(/^Online · .+ · .+$/);
-    // The counts are the chips' (All N, Needs you N); the ＋ is the nav bar's.
-    expect(strip.textContent).not.toContain('live');
-    expect(within(strip).queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Your Mac' })).toBeNull();
+    const bar = within(screen.getByRole('banner'));
+    const computer = bar.getByRole('button', { name: /^Your Mac: Online · .+ · .+$/ });
+    expect(bar.getAllByRole('button')[0]).toBe(computer); // first in the bar: the left slot
+    expect(computer.getAttribute('data-online')).toBe('');
+    await user.click(computer);
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/^Online · .+ · .+$/), 'info'); // no switcher here: it says the line
     expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy();
   });
 
-  // Nov 27 2026: in the phone app the line is the way to the account's other computers (the shell's switcher).
-  it('makes the host line a switch button in the phone app, which opens the app’s list of computers', async () => {
+  it('opens the app’s list of computers from the top-left button, in the phone app', async () => {
     const user = userEvent.setup();
     const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1 (ios)');
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, hostname: window.location.hostname, assign });
     try {
       render(<SessionsScreen />);
-      const strip = screen.getByRole('region', { name: 'Your Mac' });
-      const button = within(strip).getByRole('button', { name: /^Switch computer/ });
-      expect(button.textContent).toMatch(/^Online · .+ · .+$/);
+      const button = within(screen.getByRole('banner')).getByRole('button', { name: /^Switch computer: Online · .+ · .+$/ });
       await user.click(button);
       expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1&switch=1');
     } finally {
@@ -138,31 +139,11 @@ describe('SessionsScreen', () => {
     try {
       render(<SessionsScreen />);
       const bar = within(screen.getByRole('banner'));
-      expect(bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More actions', 'New session']);
+      expect(bar.getAllByRole('button').slice(1).map((b) => b.getAttribute('aria-label'))) // [0] is the computer button.toEqual(['More actions', 'New session']);
       await user.click(bar.getByRole('button', { name: 'More actions' }));
       const menu = screen.getByRole('menu', { name: 'Session actions' });
       expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent))
-        .toEqual(['Call AASC', 'Switch or manage computers', 'Search']); // grouped by status here: no Rooms row
-    } finally {
-      ua.mockRestore();
-    }
-  });
-
-  // Nov 27 2026: the app's list of computers (switch by tapping one, manage with its ⚙) from the ⋯ menu too.
-  it('opens the app’s list of computers from the ⋯ menu, in the app only', async () => {
-    const user = userEvent.setup();
-    const { unmount } = render(<SessionsScreen />);
-    expect(screen.queryByRole('menuitem', { name: 'Switch or manage computers' })).toBeNull(); // browser: one icon, no menu
-    unmount();
-
-    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(`Mozilla/5.0 (iPhone) ${NATIVE_APP_UA_TOKEN}`);
-    const assign = vi.fn();
-    vi.stubGlobal('location', { ...window.location, hostname: window.location.hostname, assign });
-    try {
-      render(<SessionsScreen />);
-      await user.click(within(screen.getByRole('banner')).getByRole('button', { name: 'More actions' }));
-      await user.click(screen.getByRole('menuitem', { name: 'Switch or manage computers' }));
-      expect(assign).toHaveBeenCalledWith('capacitor://localhost/?tap=1&switch=1');
+        .toEqual(['Call AASC', 'Search']); // grouped by status here: no Rooms row; computers moved top left (Nov 28 2026)
     } finally {
       ua.mockRestore();
     }
@@ -396,7 +377,7 @@ describe('SessionsScreen', () => {
       const user = userEvent.setup();
       render(<SessionsScreen />);
       const bar = within(screen.getByRole('banner'));
-      expect(bar.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['More actions', 'New session']);
+      expect(bar.getAllByRole('button').slice(1).map((b) => b.getAttribute('aria-label'))) // [0] is the computer button.toEqual(['More actions', 'New session']);
       await user.click(bar.getByRole('button', { name: 'More actions' }));
       expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['New or manage rooms', 'Search']);
     });
@@ -428,7 +409,7 @@ describe('SessionsScreen', () => {
       expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
       // Search alone needs no menu: it stays its own icon.
-      expect(within(screen.getByRole('banner')).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Search', 'New session']);
+      expect(within(screen.getByRole('banner')).getAllByRole('button').slice(1).map((b) => b.getAttribute('aria-label'))) // [0] is the computer button.toEqual(['Search', 'New session']);
     });
 
     it('keeps the grouping this phone chose', async () => {
@@ -442,7 +423,7 @@ describe('SessionsScreen', () => {
       expect(screen.getByRole('button', { name: 'By status' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: /New or manage rooms/ })).toBeNull();
       // Search alone needs no menu: it stays its own icon.
-      expect(within(screen.getByRole('banner')).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Search', 'New session']);
+      expect(within(screen.getByRole('banner')).getAllByRole('button').slice(1).map((b) => b.getAttribute('aria-label'))) // [0] is the computer button.toEqual(['Search', 'New session']);
     });
   });
 
@@ -1004,8 +985,9 @@ describe('SessionsScreen', () => {
     useWsStore.setState({ connected: false });
     render(<SessionsScreen />);
     expect(screen.getByTestId('session-row-s1')).toBeTruthy();
-    const strip = screen.getByRole('region', { name: 'Your Mac' });
-    expect(strip.textContent).toMatch(/^Reconnecting… · /);
+    const computer = screen.getByTestId('computer-button');
+    expect(computer.getAttribute('aria-label')).toMatch(/^Your Mac: Reconnecting… · /);
+    expect(computer.getAttribute('data-online')).toBeNull();
   });
 
   describe('desktop parity (Oct 20 2026)', () => {
@@ -1050,5 +1032,57 @@ describe('SessionsScreen', () => {
       await user.click(hit);
       expect(usePhoneNavStore.getState().stacks.sessions.at(-1)).toBe('/sessions/s3/chat');
     });
+  });
+});
+
+describe('the desktop peek in the row menu (Nov 27 2026)', () => {
+  const withPrompts = () => {
+    const sessions = fixtures();
+    sessions.set('s2', session('s2', 'Working one', 'working', {
+      promptHistory: [{ text: 'fix the queue badge', timestamp: NOW - 120_000 }] as never,
+    }));
+    useSessionStore.setState({ sessions });
+  };
+
+  it('starts with Recent prompts… and Summarize; Recent prompts opens the sheet for that session', async () => {
+    withPrompts();
+    const user = userEvent.setup();
+    render(<SessionsScreen />);
+    fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+    const menu = await screen.findByRole('menu', { name: 'Actions for Working one' });
+    const items = within(menu).getAllByRole('menuitem').map((i) => i.textContent ?? '');
+    expect(items[0]).toMatch(/^Recent prompts…/);
+    expect(items[1]).toMatch(/^Summarize/);
+    await user.click(within(menu).getByRole('menuitem', { name: /Recent prompts/ }));
+    const sheet = await screen.findByTestId('recent-prompts-sheet');
+    expect(within(sheet).getByText('fix the queue badge')).toBeTruthy();
+  });
+
+  it('Summarize asks the Mac and opens the sheet where the summary arrives', async () => {
+    withPrompts();
+    const fetchMock = vi.fn(async () => new Response('{"ok":true,"state":"running"}', { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<SessionsScreen />);
+    fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+    await user.click(await screen.findByRole('menuitem', { name: /^Summarize/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s2/recap', { method: 'POST' }));
+    expect(await screen.findByTestId('recent-prompts-sheet')).toBeTruthy();
+  });
+
+  it('names Summarize for the summary there is, and holds it off with nothing typed', async () => {
+    const sessions = fixtures();
+    sessions.set('s2', session('s2', 'Working one', 'working', {
+      promptHistory: [{ text: 'fix it', timestamp: NOW - 120_000 }] as never,
+      recap: { state: 'done', text: '• fixed', at: NOW - 60_000, promptAt: NOW - 120_000 },
+    }));
+    useSessionStore.setState({ sessions });
+    render(<SessionsScreen />);
+    fireEvent.contextMenu(screen.getByTestId('session-row-s2'));
+    expect(await screen.findByRole('menuitem', { name: /^Resummarize/ })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.contextMenu(screen.getByTestId('session-row-s4'));
+    const summarize = await screen.findByRole('menuitem', { name: /^Summarize/ });
+    expect(summarize).toHaveAttribute('aria-disabled', 'true');
   });
 });

@@ -171,7 +171,7 @@ export function createFakeAccount(host: string, opts: FakeAccountOptions, issue:
       const c = url.searchParams.get('c') ?? '';
       const s = url.searchParams.get('s') ?? '';
       const intent = url.searchParams.get('intent');
-      if (url.protocol !== 'https:' || url.host !== host || url.pathname !== '/v1/auth/google/start') return null;
+      if (url.protocol !== 'https:' || url.host !== host || !['/v1/auth/start', '/v1/auth/google/start'].includes(url.pathname)) return null;
       if (!PHONE_RETURNS.includes(back) || !B64U43.test(c) || !s) return null;
       if (intent !== null && intent !== 'delete') return null;
       if (intent === 'delete') {

@@ -422,6 +422,92 @@
   gap: 2px;
 }
 
+/* ---- Sent / Saved tabs (Nov 27 2026) ------------------------------------------ */
+.tabRow {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-primary);
+}
+.tab:active {
+  opacity: 0.8;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: -2px;
+}
+.tabActive {
+  color: var(--accent-text, var(--accent-cyan));
+  border-bottom-color: var(--accent-cyan);
+}
+
+/* A sent prompt: three lines until tapped, then all of it. */
+.sentText {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.sentText:hover {
+  color: var(--accent-text, var(--accent-cyan));
+}
+.sentText:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.sentTextOpen {
+  display: block;
+  -webkit-line-clamp: unset;
+  user-select: text;
+}
+.sentFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sentActions {
+  display: inline-flex;
+  gap: 4px;
+}
+.sentNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--accent-red, #ff3355);
+}
+.sentMore {
+  align-self: center;
+}
+
 /* ---- On a phone (AASC-18) ----------------------------------------------------
    Same query as MOBILE_MEDIA_QUERY (src/lib/platform.ts). The sheet and its two
    inner dialogs take the whole screen, header and footer pinned; every control is
@@ -559,5 +645,31 @@
   .rowAliasEmpty:focus-visible {
     outline: 2px solid var(--accent-cyan);
     outline-offset: 2px;
+  }
+}
+
+/* The Sent / Saved tabs on a phone: 44px targets, two equal halves. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .tabRow {
+    padding: 0 8px;
+  }
+  .tab {
+    flex: 1 1 0;
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .sentText {
+    font-size: 13px;
+  }
+  .sentActions {
+    gap: 8px;
+  }
+  .sentActions > .btnGhost,
+  .sentActions > .btnPrimary {
+    flex: 0 0 auto;
+  }
+  .sentNotice > .btnGhost,
+  .sentMore {
+    flex: 0 0 auto;
   }
 }

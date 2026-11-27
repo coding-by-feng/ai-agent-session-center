@@ -122,8 +122,8 @@ async function askPassword(prompt) {
 }
 
 // ── Main ──
-// A headless server asks one more question (step 6, sharing); the password is always last.
-const TOTAL = HEADLESS ? 7 : 6;
+// A headless server asks one more question (step 7, sharing); the password is always last.
+const TOTAL = HEADLESS ? 8 : 7;
 const PASSWORD_STEP = TOTAL;
 
 console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
@@ -191,7 +191,20 @@ const historyOptions = [
 const currentHistIdx = historyOptions.findIndex(o => o.value === (existing.sessionHistoryHours ?? 24));
 const history = await choose(5, TOTAL, 'Session history retention', historyOptions, currentHistIdx >= 0 ? currentHistIdx : 1);
 
-// 6. (headless only) Share sessions started on the box. A desktop has a Settings toggle for this; a
+// 6. Keep this computer awake (Nov 27 2026; server/keepAwake.ts). The server holds it with the platform's own
+// tool (caffeinate, systemd-inhibit, a Windows power request) and lets go when it stops; no admin password.
+const keepAwakeOptions = [
+  { label: `Off ${DIM}— the computer sleeps as usual${RESET}`, value: 'off' },
+  { label: `While an agent is busy ${DIM}— stay awake while an agent works or waits for you${RESET}`, value: 'busy' },
+  { label: `Always ${DIM}— stay awake while AASC runs (a computer your phone or other computers use)${RESET}`, value: 'always' },
+];
+// An install set up before this question was asked has been off all along: re-running setup and pressing Enter
+// must not switch it on (review, Nov 27 2026). Only a first setup starts at "While an agent is busy".
+const keepAwakeDefault = existing.keepAwake ?? (Object.keys(existing).length > 0 ? 'off' : 'busy');
+const currentKeepAwakeIdx = keepAwakeOptions.findIndex(o => o.value === keepAwakeDefault);
+const keepAwake = await choose(6, TOTAL, 'Keep this computer awake?', keepAwakeOptions, currentKeepAwakeIdx >= 0 ? currentKeepAwakeIdx : 0);
+
+// 7. (headless only) Share sessions started on the box. A desktop has a Settings toggle for this; a
 // headless server has no screen, so a session started over ssh would stay hidden from every device.
 // Off by default: sharing shows a session to every paired phone and computer.
 let shareNew = null;
@@ -200,10 +213,10 @@ if (HEADLESS) {
     { label: `Off ${DIM}— sessions started on this server (ssh, a terminal) stay hidden from your devices${RESET}`, value: false },
     { label: `On ${DIM}— every new session shows on every paired phone and computer${RESET}`, value: true },
   ];
-  shareNew = await choose(6, TOTAL, 'Share sessions started on this server with paired devices?', shareOptions, readShareDefault(DATA_DIR) ? 1 : 0);
+  shareNew = await choose(7, TOTAL, 'Share sessions started on this server with paired devices?', shareOptions, readShareDefault(DATA_DIR) ? 1 : 0);
 }
 
-// 6 (7 on a headless server). Dashboard password
+// 7 (8 on a headless server). Dashboard password
 const hasExistingPassword = Boolean(existing.passwordHash);
 let passwordHash = null;
 
@@ -277,6 +290,7 @@ const configData = {
   hookDensity: density.value,
   debug: debug.value,
   sessionHistoryHours: history.value,
+  keepAwake: keepAwake.value,
   ...(passwordHash ? { passwordHash } : {}),
 };
 
@@ -299,6 +313,7 @@ info(`Enabled CLIs: ${BOLD}${configData.enabledClis.join(', ')}${RESET}`);
 info(`Hook density: ${BOLD}${configData.hookDensity}${RESET}`);
 info(`Debug: ${BOLD}${configData.debug ? 'ON' : 'OFF'}${RESET}`);
 info(`History retention: ${BOLD}${configData.sessionHistoryHours === 0 ? 'Keep all' : `${configData.sessionHistoryHours}h`}${RESET}`);
+info(`Keep awake: ${BOLD}${{ off: 'Off', busy: 'While an agent is busy', always: 'Always' }[configData.keepAwake]}${RESET} ${DIM}(${HEADLESS ? 'aasc-server keep-awake off|busy|always' : 'Settings → ADVANCED'})${RESET}`);
 info(`Password: ${BOLD}${configData.passwordHash ? 'Enabled' : 'Disabled'}${RESET}`);
 if (shareNew !== null) info(`Share new sessions: ${BOLD}${shareNew.value ? 'On' : 'Off'}${RESET} ${DIM}(aasc-server share-default on|off)${RESET}`);
 

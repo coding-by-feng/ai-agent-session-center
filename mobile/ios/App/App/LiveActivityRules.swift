@@ -7,7 +7,8 @@ import Foundation
 enum LiveActivityRules {
     /// The shell's saved Macs (savedMacs.ts MACS_KEY) in Capacitor Preferences' UserDefaults namespace.
     static let macsDefaultsKey = "CapacitorStorage.aasc.macs.v1"
-    static let maxRows = 4
+    /// The lead plus five (Nov 28 2026; four before): the lock screen draws them all, the island the lead plus three.
+    static let maxRows = 6
     static let titleMax = 60
     static let detailMax = 80
     /// A start time older than this is not a turn still running: no timer.

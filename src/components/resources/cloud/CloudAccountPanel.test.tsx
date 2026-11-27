@@ -138,7 +138,7 @@ it('a disconnected Mac offers Sign in with Google with its own name, and keeps t
   // room for a full-suite load.
   const signIn = await screen.findByRole(
     'button',
-    { name: 'Sign in with Google' },
+    { name: 'Sign in' },
     { timeout: 5000 },
   );
   await waitFor(() => expect(signIn).toBeEnabled(), { timeout: 5000 });
@@ -162,7 +162,7 @@ it('sign-in opens the backend in the browser, waits, and turns connected when st
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     show();
     await waitFor(() => expect(screen.getByLabelText("This Mac's name")).toHaveValue('kason-mac'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
     await waitFor(() =>
       expect(start).toHaveBeenCalledWith({ deviceName: 'kason-mac' }, expect.any(AbortSignal)),
     );
@@ -196,11 +196,11 @@ it('cancel stops waiting and tells the Mac to drop the sign-in', async () => {
   vi.spyOn(window, 'open').mockReturnValue(null);
   show();
   await waitFor(() => expect(screen.getByLabelText("This Mac's name")).toHaveValue('kason-mac'));
-  fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(cancel).toHaveBeenCalled());
   expect(screen.queryByText(/Finish signing in in your browser/)).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
 });
 
 it('a failed sign-in shows the reason from the connection status', async () => {
@@ -213,7 +213,7 @@ it('a failed sign-in shows the reason from the connection status', async () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
     show();
     await waitFor(() => expect(screen.getByLabelText("This Mac's name")).toHaveValue('kason-mac'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
     await screen.findByText(/Finish signing in in your browser/);
     vi.mocked(cloudApi.status).mockResolvedValue({
       ...disconnected,
@@ -224,7 +224,7 @@ it('a failed sign-in shows the reason from the connection status', async () => {
     });
     const card = screen.getByRole('heading', { name: 'Device connection' }).closest('section')!;
     expect(await within(card).findByRole('alert')).toHaveTextContent('Invalid pairing code');
-    expect(within(card).getByRole('button', { name: 'Sign in with Google' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Sign in' })).toBeEnabled();
   } finally {
     vi.useRealTimers();
   }

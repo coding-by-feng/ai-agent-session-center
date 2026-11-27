@@ -275,7 +275,9 @@ export async function connectThroughAccount(
   const target: AccountTarget | null = machine.addresses
   const plan = target ? addressPlan(target) : []
   if (!target || plan.length === 0) {
-    return fail(`${name} shows no address to your account. Turn on “Show this computer to my account” there, or pair with a link.`)
+    // The account only knows there is no address, not why (Nov 27 2026): a missing dashboard password is the
+    // common cause (the computer publishes nothing without one), so name it beside the setting.
+    return fail(`${name} isn’t sharing an address with your account. On ${name}, set a dashboard password and turn on “Show this computer to my account”, or pair with a link.`)
   }
 
   // One nonce per address, all made before anything is sent: a random source that fails spends no ticket.

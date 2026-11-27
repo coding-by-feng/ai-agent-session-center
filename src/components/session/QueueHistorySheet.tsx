@@ -32,6 +32,7 @@ import { showToast } from '@/components/ui/ToastContainer';
 import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import { useIsMobile } from '@/lib/platform';
 import QueueItemEditModal from './QueueItemEditModal';
+import SentPromptsList from './SentPromptsList';
 import styles from '@/styles/modules/QueueHistory.module.css';
 
 interface QueueHistorySheetProps {
@@ -44,6 +45,8 @@ interface QueueHistorySheetProps {
 
 type FilterType = 'all' | QueueItemType;
 type SortMode = 'recent' | 'used' | 'created';
+/** Sent: what this session was sent (Nov 27 2026). Saved: the favourites this sheet always held. */
+type SheetTab = 'sent' | 'saved';
 
 export default function QueueHistorySheet({
   open,
@@ -64,6 +67,7 @@ export default function QueueHistorySheet({
     (s) => s.sessions.get(currentSessionId)?.projectPath ?? null,
   );
 
+  const [tab, setTab] = useState<SheetTab>('sent');
   const [filter, setFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
@@ -247,8 +251,9 @@ export default function QueueHistorySheet({
     >
       <div className={styles.panel} role="dialog" aria-modal="true">
         <div className={styles.header}>
-          <h3>📚 Queue history</h3>
+          <h3>📚 History</h3>
           <div className={styles.headerActions}>
+            {tab === 'saved' && (<>
             <button
               className={styles.headerIconBtn}
               onClick={handleExport}
@@ -280,17 +285,34 @@ export default function QueueHistorySheet({
               style={{ display: 'none' }}
               onChange={(e) => { void handleFileChosen(e); }}
             />
+            </>)}
             <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
               ✕
             </button>
           </div>
         </div>
 
-        <div className={styles.targetStrip} title="Apply will add to this session">
+        <div className={styles.tabRow} role="tablist" aria-label="History">
+          {(['sent', 'saved'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              className={`${styles.tab}${tab === t ? ` ${styles.tabActive}` : ''}`}
+              onClick={() => setTab(t)}
+            >
+              {t === 'sent' ? 'Sent to this session' : `Saved${entries.length > 0 ? ` (${entries.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.targetStrip} title={tab === 'sent' ? 'Queue again will add to this session' : 'Apply will add to this session'}>
           <span className={styles.targetLabel}>Adding to:</span>
           <span className={styles.targetSession}>{currentSessionTitle || currentSessionId.slice(0, 8)}</span>
         </div>
 
+        {tab === 'sent' ? <SentPromptsList key={currentSessionId} sessionId={currentSessionId} /> : (<>
         <div className={styles.controlsRow}>
           <input
             className={styles.filterInput}
@@ -345,10 +367,11 @@ export default function QueueHistorySheet({
             ))
           )}
         </div>
+        </>)}
 
         <div className={styles.footer}>
           <span className={styles.footerStats}>
-            {entries.length === 0
+            {tab === 'sent' || entries.length === 0
               ? ''
               : `${visible.length} of ${entries.length}`}
           </span>

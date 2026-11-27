@@ -46,3 +46,47 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* The desktop peek's AI Summary (Nov 27 2026): a tinted block above the remark and prompts. */
+.recap {
+  margin: 0 0 var(--ph-space-3);
+  padding: var(--ph-space-3);
+  border-radius: var(--ph-radius);
+  background: var(--ph-fill);
+}
+
+.recapHead {
+  display: flex;
+  align-items: center;
+  gap: var(--ph-space-1);
+  margin: 0 0 var(--ph-space-1);
+  color: var(--ph-text-secondary);
+  font-size: var(--ph-size-caption);
+}
+
+.recapHead svg {
+  flex: none;
+  color: var(--ph-accent);
+}
+
+/* The model's few "• " lines: kept as written, line breaks included. */
+.recapText {
+  margin: 0;
+  color: var(--ph-text);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.recapError {
+  margin: 0;
+  color: var(--ph-danger);
+  font-size: var(--ph-size-secondary);
+  line-height: var(--ph-line-secondary);
+}
+
+.recapAction {
+  display: flex;
+  margin: 0 0 var(--ph-space-3);
+}

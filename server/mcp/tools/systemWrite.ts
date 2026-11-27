@@ -55,9 +55,7 @@ const confirmWait = defineTool({
 
 /** The keep-awake op route's refusals in fixed words: the window's own text never reaches a central. */
 function keepAwakeFailure(answer: InternalResponse<unknown>): ToolError | null {
-  if (answer.status === 409) {
-    return new ToolError('NO_WINDOW', 'The AASC window on the Mac is closed.', 'Keep-awake is the AASC app’s setting: ask the person to open AASC, then try again.');
-  }
+  // 409 (no window) is not a failure: the tool then sets the server's own setting.
   if (answer.status === 404) {
     return new ToolError('UNAVAILABLE', 'This build of AASC cannot change keep-awake for a central.', 'Ask the person to update AASC.');
   }
@@ -81,13 +79,13 @@ const setKeepAwake = defineTool({
   title: 'Keep the Mac awake',
   description:
     'Turns AASC’s "keep the Mac awake while an agent works" setting on or off, as the person’s own switch in AASC ' +
-    'does. It is the person’s setting: change it only when they asked for it. The AASC desktop app window on the Mac ' +
-    'makes the change (the setting lives and shows there): with no AASC window on the Mac the call answers ' +
-    'NO_WINDOW; when the open window is a browser rather than the desktop app, or has not loaded its settings yet, ' +
-    'it answers UNAVAILABLE (for the second, try again in a moment). Applied: ' +
-    'answers applied: true, whether it is on now, and whether the Mac is being kept awake at this moment (only while ' +
-    'a session works). Not confirmed by the window within 5 s: applied: false with pending: true (it may still be ' +
-    'applied: do not repeat it at once).',
+    'does. It is the person’s setting: change it only when they asked for it. When the AASC desktop app window is ' +
+    'open it makes the change, so it shows there at once; with no window (a headless aasc-server, or the window ' +
+    'closed) the server’s saved setting is changed directly. When the open window is a browser rather than the ' +
+    'desktop app, or has not loaded its settings yet, it answers UNAVAILABLE (for the second, try again in a moment). ' +
+    'Applied: answers applied: true, whether it is on now, and whether the Mac is being kept awake at this moment (only ' +
+    'while a session works). Not confirmed by the window within 5 s: applied: false with pending: true (it may still ' +
+    'be applied: do not repeat it at once).',
   risk: 'write',
   phase: 3,
   idempotent: true,
@@ -95,9 +93,10 @@ const setKeepAwake = defineTool({
   async run(args, ctx) {
     const word = args.on ? 'on' : 'off';
     const asked = await ctx.client.post('/keep-awake/ops', { on: args.on });
+    // No window (409): the setting is the server's own since Nov 27 2026, so set it there (review, Nov 27 2026).
     const refused = keepAwakeFailure(asked);
     if (refused !== null) throw refused;
-    const op = unwrap<unknown>(asked);
+    const op = asked.status === 409 ? null : unwrap<unknown>(asked);
     if (isRecord(op) && op.applied === false) {
       return {
         data: { applied: false, pending: true },

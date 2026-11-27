@@ -21,8 +21,12 @@
  */
 import { sessionDisplayTitle } from './sessionDisplayTitle';
 
-/** ActivityKit caps the whole state at 4 KB: four rows of short titles stay far below it. */
-export const LIVE_ACTIVITY_ROWS = 4;
+/**
+ * The lead plus five (Nov 28 2026; four before): what the lock-screen card draws in iOS's 160 pt. ActivityKit caps
+ * the whole state at 4 KB: six rows of 60-character titles and one 80-character preview stay below it even in CJK.
+ * An older app keeps four and counts the rest into "+N more".
+ */
+export const LIVE_ACTIVITY_ROWS = 6;
 export const LIVE_ACTIVITY_TITLE_MAX = 60;
 export const LIVE_ACTIVITY_DETAIL_MAX = 80;
 

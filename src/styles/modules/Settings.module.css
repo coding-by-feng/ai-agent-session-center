@@ -232,3 +232,19 @@
   .fontBtn { min-width: 44px; min-height: 44px; }
   .fontSizeSlider { min-height: 44px; }
 }
+
+/* Keep this computer awake (Nov 27 2026): three radio choices on a fieldset that looks like any section. */
+.keepAwakeSet { border: 0; border-bottom: 1px solid var(--border-subtle); margin: 0 0 24px; padding: 0 0 20px; min-width: 0; }
+.keepAwakeSet:last-child { border-bottom: none; margin-bottom: 0; }
+.keepAwakeSet legend { padding: 0; }
+.keepAwakeSet h4 { font-size: 11px; letter-spacing: 1.5px; color: var(--text-secondary); text-transform: uppercase; margin: 0 0 12px; }
+.keepAwakeChoices { display: flex; flex-direction: column; gap: 4px; }
+.keepAwakeChoice { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.keepAwakeChoice:hover { background: var(--bg-card); color: var(--text-primary); }
+.keepAwakeChoice:active { opacity: 0.8; }
+.keepAwakeChoice input { accent-color: var(--accent-cyan); margin: 0; cursor: pointer; }
+.keepAwakeChoice input:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.keepAwakeChoice input:checked + span { color: var(--text-primary); }
+.keepAwakeChoice:has(input:disabled) { cursor: not-allowed; opacity: 0.6; }
+.keepAwakeError { margin: 8px 0 0; font-size: 11px; color: var(--accent-red, #ff5252); }
+@media (pointer: coarse) { .keepAwakeChoice { min-height: 44px; } }

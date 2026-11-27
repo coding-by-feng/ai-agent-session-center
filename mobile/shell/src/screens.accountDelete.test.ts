@@ -185,7 +185,7 @@ describe('after the sheet', () => {
     await deleteThrough(t);
     expect(notice(t)).toBe('Your AASC Cloud account was deleted.');
     expect(heading(t.root)).toBe('Pair with a Mac'); // signed out with nothing saved
-    expect(buttonNamed(t.root, 'Sign in with Google')).not.toBeNull();
+    expect(buttonNamed(t.root, 'Sign in')).not.toBeNull();
     expect(t.vault.has(ACCOUNT_VAULT_KEY)).toBe(false);
     expect(requests(t)).toEqual([LIST]); // no delete request, no pairing
   });
@@ -341,7 +341,7 @@ describe('the lock coming up while the sheet is open', () => {
     await until(t.root, () => notice(t) !== '');
     expect(notice(t)).toBe('Your AASC Cloud account was deleted.');
     expect(heading(t.root)).toBe('Pair with a Mac');
-    expect(buttonNamed(t.root, 'Sign in with Google')).not.toBeNull();
+    expect(buttonNamed(t.root, 'Sign in')).not.toBeNull();
   });
 
   it('an answer that arrives after the unlock, back on the waiting screen, is said too', async () => {

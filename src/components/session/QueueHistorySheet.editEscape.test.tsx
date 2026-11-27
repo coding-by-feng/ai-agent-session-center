@@ -8,6 +8,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import QueueHistorySheet from './QueueHistorySheet';
 import { useQueueHistoryStore, type QueueHistoryEntry } from '@/stores/queueHistoryStore';
 
+vi.mock('./SentPromptsList', () => ({ default: () => null }));
+
 const platform = vi.hoisted(() => ({ isMobile: false }));
 vi.mock('@/lib/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/platform')>()),
@@ -35,6 +37,7 @@ describe('QueueHistorySheet — Escape in its editor', () => {
   it('closes the photo, then the editor, then the sheet — one layer per Escape', () => {
     const onClose = vi.fn();
     render(<QueueHistorySheet open onClose={onClose} currentSessionId="s1" currentSessionTitle="AASC" />);
+    fireEvent.click(screen.getByRole('tab', { name: /Saved/ }));
     fireEvent.click(screen.getByRole('button', { name: /^Edit/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Main prompt' }), { target: { value: 'edited text' } });
     fireEvent.click(screen.getByRole('button', { name: 'View a.png' }));

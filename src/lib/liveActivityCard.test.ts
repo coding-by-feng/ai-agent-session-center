@@ -13,9 +13,11 @@ const s = (status: string, lastActivityAt: number, title = `t${lastActivityAt}`,
 describe('buildLiveActivityCard', () => {
   it('leads with the working session, then the latest others newest first, and counts the rest', () => {
     const card = buildLiveActivityCard([
-      s('waiting', 1), s('idle', 5), s('working', 3), s('waiting', 4), s('waiting', 2), s('idle', 6),
+      s('waiting', 1), s('idle', 5), s('working', 3), s('waiting', 4), s('waiting', 2), s('idle', 6), s('idle', 7),
+      s('waiting', 8),
     ]);
-    expect(card.rows.map((r) => r.title)).toEqual(['t3', 't6', 't5', 't4']);
+    // The lead plus five (Nov 28 2026: the lock screen draws six rows).
+    expect(card.rows.map((r) => r.title)).toEqual(['t3', 't8', 't7', 't6', 't5', 't4']);
     expect(card.more).toBe(2);
   });
 
@@ -29,9 +31,10 @@ describe('buildLiveActivityCard', () => {
     const proceedAsk = s('waiting', 1, 'asked to proceed', { pendingProceedAt: 1 });
     const card = buildLiveActivityCard([
       proceedAsk, s('working', 9), s('working', 8), s('working', 7), s('approval', 2, 'deploy'), s('waiting', 10),
+      s('working', 6), s('working', 5),
     ]);
     // A request, then the proceed ask (older than every working row), then working, then done.
-    expect(card.rows.map((r) => r.title)).toEqual(['deploy', 'asked to proceed', 't9', 't8']);
+    expect(card.rows.map((r) => r.title)).toEqual(['deploy', 'asked to proceed', 't9', 't8', 't7', 't6']);
     expect(card.needs).toBe(2);
     expect(card.more).toBe(2);
   });
@@ -75,12 +78,14 @@ describe('buildLiveActivityCard', () => {
 
   it('flags idle rows (still mark done, so an older app draws them as ✓) and counts every idle session', () => {
     const card = buildLiveActivityCard([
-      s('idle', 9), s('waiting', 8), s('idle', 7), s('idle', 6), s('idle', 5), s('working', 1),
+      s('idle', 9), s('waiting', 8), s('idle', 7), s('idle', 6), s('idle', 5), s('working', 1), s('idle', 4), s('idle', 3),
     ]);
     expect(card.rows.map((r) => [r.title, r.mark, r.idle])).toEqual([
       ['t1', 'working', undefined], ['t9', 'done', true], ['t8', 'done', undefined], ['t7', 'done', true],
+      ['t6', 'done', true], ['t5', 'done', true],
     ]);
-    expect(card.idle).toBe(4);
+    expect(card.more).toBe(2);
+    expect(card.idle).toBe(6);
     expect(card.headline).toBe('working');
   });
 

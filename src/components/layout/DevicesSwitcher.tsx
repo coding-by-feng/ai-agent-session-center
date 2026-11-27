@@ -32,12 +32,14 @@ import { APP_UNREACHABLE, useAccountDirectory } from '@/hooks/useAccountDirector
 import { useRemoteComputers } from '@/hooks/useRemoteComputers';
 import { PRIMARY_ACTION, useSwitcherKeys } from '@/hooks/useSwitcherKeys';
 import { DEVICES_SWITCH_EVENT } from '@/lib/devicesSwitcher';
+import { rowBadges } from '@/lib/remoteComputerBadges';
 import { CloudApiError, cloudApi } from '@/lib/cloudApi';
 import { IS_LITE } from '@/lib/edition';
 import { focusSiblingAfterRemoval } from '@/lib/focusAfterRemoval';
 import {
   accountRowDetail, accountRows, countOnline, linkRecords, matchesName, needsConnect, searchShown, type AccountRow,
 } from '@/lib/remoteComputerRows';
+import { keyComboToGlyphs } from '@/lib/shortcutKeys';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import type { RemoteComputer, RemoteComputersAPI, RemoteResult } from '@/types/electron';
 import rows from '@/styles/modules/RemoteComputers.module.css';
@@ -266,6 +268,7 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
                   onRecheck={() => void remotes.checkOne(c.id).then(() => remotes.reload())}
                   onRemoved={(id) => forget(row, id)}
                   arrowKeys
+                  badges={rowBadges(c, check, { account: true, connecting: isRunning, checkFailed: checkError !== null })}
                   account={{
                     rowKey: row.key,
                     detail: isRunning ? 'Connecting…' : accountRowDetail(c, check, checkError !== null),
@@ -300,6 +303,7 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
                   onRecheck={() => void remotes.checkOne(c.id).then(() => remotes.reload())}
                   onRemoved={remotes.removed}
                   arrowKeys
+                  badges={rowBadges(c, remotes.checks[c.id])}
                 />
               ))}
             </ul>
@@ -323,6 +327,22 @@ function Switcher({ api, onLeave, focusOnOpen }: { api: RemoteComputersAPI; onLe
       </div>
 
       {remotes.loadError && <p className={rows.error} role="alert">{remotes.loadError}</p>}
+
+      <SwitchKeyHint />
     </div>
+  );
+}
+
+/**
+ * The part's keys, last (Nov 27 2026), so the `switchDevice` key is found where it is used: its combo as bound now,
+ * so a rebound key shows as rebound. Nothing where the key has no binding.
+ */
+function SwitchKeyHint() {
+  const combo = useShortcutStore((s) => s.bindings.find((b) => b.actionId === 'switchDevice')?.combo ?? null);
+  if (combo === null) return null;
+  return (
+    <p className={styles.keys} aria-hidden="true">
+      <kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> opens · <kbd>{keyComboToGlyphs(combo)}</kbd> closes
+    </p>
   );
 }

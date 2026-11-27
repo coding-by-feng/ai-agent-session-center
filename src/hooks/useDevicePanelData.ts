@@ -49,10 +49,6 @@ export function usePairedPhones(enabled: boolean, deviceKey: string): PairedPhon
  *  fields (hookDensity, debug, enabledClis) that nothing here needs. */
 interface ConfigResponse {
   localIP: string | null;
-  /** Whether a password is configured (never the password itself). Remote
-   *  devices are refused outright without one, so this decides whether the
-   *  panel explains that or stays quiet. */
-  passwordEnabled?: boolean;
 }
 
 export interface PanelNetwork {
@@ -61,9 +57,7 @@ export interface PanelNetwork {
    * fetched if this machine has no reachable LAN interface (e.g. no Wi-Fi/ethernet).
    */
   networkUrl: string | null | undefined;
-  /** Defaults to TRUE so the "other devices are blocked" warning is never shown
-   *  on a guess — only once the server has actually said no password is set. */
-  passwordEnabled: boolean;
+  // The no-password state moved to DashboardPassword (Nov 27 2026), which reads it live.
 }
 
 /**
@@ -76,7 +70,6 @@ export interface PanelNetwork {
  */
 export function usePanelNetwork(open: boolean): PanelNetwork {
   const [networkUrl, setNetworkUrl] = useState<string | null | undefined>(undefined);
-  const [passwordEnabled, setPasswordEnabled] = useState(true);
   useEffect(() => {
     if (!open || networkUrl !== undefined) return;
     const controller = new AbortController();
@@ -89,12 +82,11 @@ export function usePanelNetwork(open: boolean): PanelNetwork {
         // configured port was in use and portManager.ts fell back to
         // another one (see server/index.ts's EADDRINUSE retry).
         setNetworkUrl(data.localIP ? `http://${data.localIP}:${window.location.port}` : null);
-        setPasswordEnabled(!!data.passwordEnabled);
       })
       .catch(() => {
         if (!controller.signal.aborted) setNetworkUrl(null);
       });
     return () => controller.abort();
   }, [open, networkUrl]);
-  return { networkUrl, passwordEnabled };
+  return { networkUrl };
 }

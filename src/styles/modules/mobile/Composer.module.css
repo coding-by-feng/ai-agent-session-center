@@ -483,7 +483,9 @@
   display: flex;
   align-items: center;
   gap: var(--ph-space-1);
-  padding: 0 var(--ph-space-1) var(--ph-space-1);
+  /* Nov 28 2026: 8px right and bottom (was 4px), so the filled ■ and send button sit inset
+     like ＋ on the left rather than against the field's edge. */
+  padding: 0 var(--ph-space-2) var(--ph-space-2) var(--ph-space-1);
 }
 
 .spacer { flex: 1; }
@@ -512,10 +514,10 @@
 }
 
 @media (hover: hover) {
-  .tool:hover:not(:disabled) { background: var(--ph-fill); }
+  .tool:hover:not(:disabled) { background-color: var(--ph-fill); }
 }
 
-.tool:active:not(:disabled) { background: var(--ph-fill-strong); }
+.tool:active:not(:disabled) { background-color: var(--ph-fill-strong); }
 .tool:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 .tool:disabled { opacity: 0.4; cursor: not-allowed; }
 /* The last answer asks you to proceed (Oct 23 2026): P lit in the approval amber, a reply away. */
@@ -547,7 +549,7 @@
 
 /* The quick reply stays holdable while it can't send (a hold edits it), so it is aria-disabled. */
 .tool[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
-.tool[aria-disabled='true']:active { background: transparent; }
+.tool[aria-disabled='true']:active { background-color: transparent; }
 
 /* ■ Stop beside the send button needs the room on a narrow phone (Nov 13 2026): / and @
    stay in ＋, which lists commands and files too. */
@@ -580,10 +582,13 @@
   min-width: var(--ph-target);
   min-height: var(--ph-target);
   margin: 0;
-  padding: 0 var(--ph-space-3) 0 var(--ph-space-4);
-  border: 0;
+  /* A 36px pill in a 44px tap box (Nov 28 2026): the transparent 4px border is the rest of the
+     target, and the background stops at it. */
+  padding: 0 var(--ph-space-2) 0 var(--ph-space-3);
+  border: 4px solid transparent;
   border-radius: 22px;
   background: var(--ph-accent);
+  background-clip: padding-box;
   color: var(--ph-on-accent);
   font: inherit;
   font-family: var(--ph-font);
@@ -599,7 +604,9 @@
 }
 
 .primary[data-action='deny-and-tell'] {
-  background: var(--ph-danger);
+  /* background-color, not the shorthand: the shorthand resets background-clip and the fill
+     would grow back to the 44px tap box. Same for the state rules below and on .tool. */
+  background-color: var(--ph-danger);
   color: var(--ph-on-danger);
 }
 
@@ -608,10 +615,10 @@
 }
 
 .primary:active:not([aria-disabled='true']) { transform: scale(0.97); }
-.primary:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
+.primary:focus-visible { outline: 2px solid var(--ph-focus); outline-offset: -2px; }
 
 .primary[aria-disabled='true'] {
-  background: var(--ph-fill-strong);
+  background-color: var(--ph-fill-strong);
   color: var(--ph-text-secondary);
   cursor: not-allowed;
 }
@@ -689,7 +696,10 @@
 
 /* ■ beside the send button: the phone's one Stop, a tap away. */
 .stop {
+  /* A 36px circle in the 44px tap box, like the send pill beside it (Nov 28 2026). */
+  border: 4px solid transparent;
   background: var(--ph-fill);
+  background-clip: padding-box;
   color: var(--ph-accent);
 }
 

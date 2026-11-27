@@ -31,10 +31,8 @@ import { centralTooltip, workersText } from '@/lib/centralChoice';
 import { useMcpStore } from '@/stores/mcpStore';
 import { useCentralSessionsShown } from '@/stores/centralFeatureStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { useSessionStore } from '@/stores/sessionStore';
-import { recapIsStale } from '@/lib/sessionRecap';
+import { useSessionRecap } from '@/hooks/useSessionRecap';
 import { IS_LITE } from '@/lib/edition';
-import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/SessionPromptPeek.module.css';
 
 export default function SessionPromptPeek({ session }: { session: Session }) {
@@ -50,31 +48,12 @@ export default function SessionPromptPeek({ session }: { session: Session }) {
     central?.kind === 'room' ? s.rooms.find((r) => r.id === central.scopeRef)?.name : undefined,
   );
   const workers = workersText(useMcpStore((s) => (central ? s.centrals.get(central.centralId)?.workerCount ?? 0 : 0)));
-  // The live session, not the prop: the card's tooltip is drawn from a memoised strip, and the
-  // answer arrives as a session update while the peek is open.
-  const live = useSessionStore((s) => s.sessions.get(session.sessionId)) ?? session;
-  const recap = live.recap;
-  const [asking, setAsking] = useState(false);
-  const running = asking || recap?.state === 'running';
-  const stale = !!recap && recap.state !== 'running' && recapIsStale(live, recap);
+  // The live session's summary and its one button: the rule the phone sheet shares (useSessionRecap).
+  const { recap, running, stale, action, ask: askRecap } = useSessionRecap(session);
   const ask = (event: MouseEvent) => {
     event.stopPropagation();
-    setAsking(true);
-    fetch(`/api/sessions/${encodeURIComponent(session.sessionId)}/recap`, { method: 'POST' })
-      .then(async (res) => {
-        if (res.ok) return;
-        const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-        showToast(typeof body?.error === 'string' ? body.error : 'Couldn’t summarize this session.', 'error');
-      })
-      .catch(() => showToast('Couldn’t reach the Mac to summarize this session.', 'error'))
-      .finally(() => setAsking(false));
+    askRecap();
   };
-  // One button, named for what a click does now; a current summary can be made again (Nov 23 2026).
-  const action = running ? { label: 'Summarizing…', name: 'Summarizing this session' }
-    : !recap ? { label: 'Summary', name: 'Summarize what this session has done' }
-    : recap.state === 'error' ? { label: 'Try again', name: 'Try the summary again' }
-    : stale ? { label: 'Update', name: 'Update the summary' }
-    : { label: 'Resummarize', name: 'Summarize this session again' };
   const showAction = !IS_LITE && prompts.length > 0;
   const recapAge = recap ? promptAge(recap.at, now) : '';
   return (

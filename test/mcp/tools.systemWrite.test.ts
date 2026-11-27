@@ -33,13 +33,16 @@ describe('aasc_set_keep_awake', () => {
     expect(off.client.calls.map((c) => c.body)).toEqual([{ on: false }, { enabled: false }]);
   });
 
-  it('no window on this Mac is NO_WINDOW, and the server flag is not touched', async () => {
-    const h = makeCtx({ routes: { [OP]: fail(409, 'no-writer') } });
+  it('with no window (a headless aasc-server, or the window closed) it sets the server’s saved setting directly (review, Nov 27 2026)', async () => {
+    const h = makeCtx({ routes: { [OP]: fail(409, 'no-writer'), [CONFIG]: envelope({ enabled: true, awake: true }) } });
 
-    const refused = await runRefused('aasc_set_keep_awake', { on: true }, h.ctx);
+    const result = await run('aasc_set_keep_awake', { on: true }, h.ctx);
 
-    expect(refused.code).toBe('NO_WINDOW');
-    expect(h.client.calls).toEqual([{ method: 'POST', path: '/keep-awake/ops', body: { on: true } }]);
+    expect(h.client.calls).toEqual([
+      { method: 'POST', path: '/keep-awake/ops', body: { on: true } },
+      { method: 'POST', path: '/config/keep-awake', body: { enabled: true } },
+    ]);
+    expect(result.data).toEqual({ applied: true, enabled: true, awake: true });
   });
 
   it('a window that has not answered is pending, and the server flag is left to the window', async () => {
@@ -72,7 +75,8 @@ describe('aasc_set_keep_awake', () => {
   it('is a phase-3 idempotent system write whose description names the window and NO_WINDOW', () => {
     const tool = toolNamed('aasc_set_keep_awake');
     expect(tool).toMatchObject({ toolset: 'system', risk: 'write', phase: 3, idempotent: true });
-    expect(tool?.description).toContain('NO_WINDOW');
+    expect(tool?.description).not.toContain('NO_WINDOW');
+    expect(tool?.description).toContain('no window');
     expect(tool?.description).toContain('desktop app');
     expect(tool?.description).toContain('pending');
   });

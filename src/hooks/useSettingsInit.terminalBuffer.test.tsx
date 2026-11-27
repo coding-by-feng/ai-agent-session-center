@@ -52,13 +52,20 @@ describe('useSettingsInit — terminal buffer push', () => {
   });
 });
 
-describe('useSettingsInit — keep-awake push (AASC-16)', () => {
+describe('useSettingsInit — keep-awake carried to the server once (AASC-16, Nov 27 2026)', () => {
+  let saved: boolean;
   let fetchMock: ReturnType<typeof vi.fn>;
-  const keepAwakePushes = () => fetchMock.mock.calls
-    .filter(([url]) => String(url).includes('/api/config/keep-awake'))
+  const posts = () => fetchMock.mock.calls
+    .filter(([url, init]) => String(url).includes('/api/config/keep-awake') && (init as RequestInit | undefined)?.method === 'POST')
     .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
   beforeEach(() => {
-    fetchMock = vi.fn(async () => new Response('{}'));
+    saved = false;
+    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/config/keep-awake') && init?.method !== 'POST') {
+        return new Response(JSON.stringify({ success: true, data: { mode: 'off', saved } }));
+      }
+      return new Response('{}');
+    });
     vi.stubGlobal('fetch', fetchMock);
     useSettingsStore.setState({ keepAwakeWhileWorking: false, persistSetting: vi.fn(async () => {}) } as never);
   });
@@ -68,17 +75,27 @@ describe('useSettingsInit — keep-awake push (AASC-16)', () => {
     delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   });
 
-  it('the desktop app tells its server each time the toggle flips', () => {
+  it('an older window’s "on" becomes busy when this computer never chose a mode', async () => {
     (window as unknown as { electronAPI?: unknown }).electronAPI = {};
+    useSettingsStore.setState({ keepAwakeWhileWorking: true } as never);
     renderHook(() => useSettingsInit());
-    act(() => useSettingsStore.getState().setKeepAwakeWhileWorking(true));
-    act(() => useSettingsStore.getState().setKeepAwakeWhileWorking(false));
-    expect(keepAwakePushes()).toEqual([{ enabled: false }, { enabled: true }, { enabled: false }]);
+    await vi.waitFor(() => expect(posts()).toEqual([{ mode: 'busy' }]));
   });
 
-  it('a browser never sends it', () => {
+  it('a mode already saved on the server wins, and an off sends nothing', async () => {
+    (window as unknown as { electronAPI?: unknown }).electronAPI = {};
     renderHook(() => useSettingsInit());
-    act(() => useSettingsStore.getState().setKeepAwakeWhileWorking(true));
-    expect(keepAwakePushes()).toEqual([]);
+    saved = true;
+    act(() => useSettingsStore.setState({ keepAwakeWhileWorking: true } as never));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posts()).toEqual([]);
+  });
+
+  it('a browser never sends it', async () => {
+    useSettingsStore.setState({ keepAwakeWhileWorking: true } as never);
+    renderHook(() => useSettingsInit());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('keep-awake'))).toEqual([]);
   });
 });

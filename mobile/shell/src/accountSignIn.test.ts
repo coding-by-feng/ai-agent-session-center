@@ -33,7 +33,7 @@ describe('signInWithGoogle', () => {
     expect(out).toEqual({ ok: true, account: { email: 'owner@example.com', host: ACCOUNT_HOST } });
     const [{ url, callback }] = t.extras.authStarts;
     const start = new URL(url);
-    expect(start.origin + start.pathname).toBe('https://api.aasc.work/v1/auth/google/start');
+    expect(start.origin + start.pathname).toBe('https://api.aasc.work/v1/auth/start');
     expect(start.searchParams.get('return')).toBe('https://aasc.work/auth/google');
     expect(callback).toEqual({ prefix: 'https://aasc.work/auth/google' });
     const [pair] = pairCalls(t);

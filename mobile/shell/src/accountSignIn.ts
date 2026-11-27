@@ -137,7 +137,8 @@ export async function prepareGoogleSignIn(
   const verifier = randomB64url(32);
   const state = randomB64url(32);
   const c = await pkceChallenge(verifier);
-  const start = new URL('/v1/auth/google/start', `https://${ACCOUNT_HOST}`);
+  // The backend's "Sign in to AASC Cloud" page: Google, GitHub, Microsoft or Apple (Nov 28 2026).
+  const start = new URL('/v1/auth/start', `https://${ACCOUNT_HOST}`);
   start.search = new URLSearchParams({ c, s: state, return: returnUrl, ...(intent === 'delete' ? { intent } : {}) }).toString();
   return {
     ok: true, intent, startUrl: start.href, returnUrl, state, verifier, matchCode: await matchCode(c),

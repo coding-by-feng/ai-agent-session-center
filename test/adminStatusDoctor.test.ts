@@ -248,6 +248,18 @@ describe('aasc-server doctor', () => {
     expect(await runDoctor(d)).toBe(EXIT.FAILED);
   });
 
+  it('says keep-awake only when it is on, and whether the tool that holds it is there (Nov 27 2026)', async () => {
+    const { d, calls } = deps();
+    expect(Object.fromEntries((await runChecks(d)).map((r) => [r.name, r]))['Keep awake']).toBeUndefined();
+    writeFileSync(join(d.dataDir, 'server-config.json'), JSON.stringify({ passwordHash: 'salt:hash', enabledClis: ['claude'], keepAwake: 'always' }));
+    let results = Object.fromEntries((await runChecks(d)).map((r) => [r.name, r]));
+    expect(results['Keep awake']).toMatchObject({ state: 'warn', detail: expect.stringMatching(/systemd-inhibit is not on PATH/), fix: expect.stringMatching(/keep-awake off/) });
+    writeFileSync(join(d.env.PATH as string, 'systemd-inhibit'), '');
+    results = Object.fromEntries((await runChecks(d)).map((r) => [r.name, r]));
+    expect(results['Keep awake']).toMatchObject({ state: 'ok', detail: 'always, with systemd-inhibit' });
+    expect(calls.some((c) => c.includes('systemd-inhibit'))).toBe(false);
+  });
+
   it('looks for Antigravity as `agy` and OpenCode as `opencode`, and their hooks', async () => {
     const { d } = deps();
     writeFileSync(join(d.dataDir, 'server-config.json'), JSON.stringify({ passwordHash: 'salt:hash', enabledClis: ['claude', 'opencode', 'antigravity'] }));

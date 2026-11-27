@@ -71,3 +71,26 @@
 .noMatch {
   overflow-wrap: anywhere;
 }
+
+/* The part's keys, last (Nov 27 2026): quiet, and wrapping as words in a narrow window. */
+.keys {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.keys kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin: 0 2px;
+  padding: 0 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 4px;
+}

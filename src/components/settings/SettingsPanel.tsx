@@ -17,9 +17,10 @@ import AgentCliSettings from './AgentCliSettings';
 import CentralSessionsSetting from './CentralSessionsSetting';
 import VoiceCallSetting from './VoiceCallSetting';
 import SessionSleepSetting from './SessionSleepSetting';
-import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
+import { isNativeMobileApp } from '@/lib/platform';
 import { APP_BUILD, APP_VERSION, versionSummary } from '@/lib/appVersion';
 import { IS_LITE, LITE_SETTINGS_TABS } from '@/lib/edition';
+import KeepAwakeControl from './KeepAwakeControl';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -118,6 +119,8 @@ export default function SettingsPanel() {
         {/* Tab Content */}
         <div style={{ padding: '16px 0', overflowY: 'auto', maxHeight: '72vh' }}>
           {activeTab === 'appearance' && <ThemeSettings />}
+          {/* Lite has no ADVANCED tab, and "Always" acts on its own: its off switch lives here. */}
+          {activeTab === 'appearance' && IS_LITE && <KeepAwakeControl />}
           {activeTab === 'sound' && <SoundSettings />}
           {activeTab === 'hooks' && <HookSettings />}
           {activeTab === 'apikeys' && <ApiKeySettings />}
@@ -317,28 +320,6 @@ function TerminalBufferControl() {
         {MIN_TERMINAL_SCROLLBACK_LINES.toLocaleString()}–
         {MAX_TERMINAL_SCROLLBACK_LINES.toLocaleString()} lines.
       </p>
-    </div>
-  );
-}
-
-/** Desktop app only: the power blocker lives in its main process (AASC-16). */
-function KeepAwakeControl() {
-  const enabled = useSettingsStore((s) => s.keepAwakeWhileWorking);
-  const setEnabled = useSettingsStore((s) => s.setKeepAwakeWhileWorking);
-  const isDesktopApp = useIsDesktopApp();
-  if (!isDesktopApp) return null;
-  return (
-    <div className={styles.section}>
-      <h4>Keep this Mac awake</h4>
-      <p className={styles.settingsHint}>
-        While an agent is working or waiting for you, stop the Mac from sleeping on its own, so your phone can still
-        reach it and get notifications. The screen can still turn off.
-      </p>
-      <label className={styles.toggleLabel}>
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        <span className={styles.toggleSwitch} />
-        <span>Keep awake while an agent is busy</span>
-      </label>
     </div>
   );
 }

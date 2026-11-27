@@ -106,71 +106,27 @@
   outline-offset: 0;
 }
 
-/* ---- The Mac, in one line (was a card until Oct 19 2026) ---- */
+/* ---- The computer button, top left of the bar (Nov 28 2026) ----
+   The host line under the bar (Oct 19 – Nov 27 2026) and the ⋯ menu's
+   "Switch or manage computers", merged: a laptop with a status dot at its
+   top right, ringed in the bar's colour so it reads apart from the glyph. */
 
-.hostStrip {
-  display: flex;
-  align-items: center;
-  gap: var(--ph-space-2);
-  min-height: 32px;
-  margin: 0 var(--ph-gutter) var(--ph-space-2);
-  font-family: var(--ph-font);
-}
+.computerButton { position: relative; }
 
-.hostLine {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--ph-size-secondary);
-  line-height: var(--ph-line-secondary);
-  color: var(--ph-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dot {
-  flex: none;
+.computerDot {
+  position: absolute;
+  top: 9px;
+  right: 7px;
   width: 8px;
   height: 8px;
+  /* The bar's own colour, so the ring cuts the glyph, not a dark or light disc around the dot. */
+  border: 2px solid var(--ph-bar-bg, var(--ph-bg));
   border-radius: 50%;
+  box-sizing: content-box;
   background: var(--ph-status-approval);
 }
 
-.hostStrip[data-online] .dot { background: var(--ph-status-finished); }
-
-/* Nov 27 2026: in the phone app the line is a button to the app's switcher. 44px tall to tap, same look as the line. */
-.hostSwitch {
-  display: flex;
-  align-items: center;
-  gap: var(--ph-space-1);
-  min-height: 44px;
-  margin: -6px 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--ph-size-secondary);
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.hostSwitchText {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hostSwitch svg { flex: none; color: var(--ph-text-tertiary); }
-
-.hostSwitch:active { opacity: 0.6; }
-
-.hostSwitch:focus-visible {
-  outline: 2px solid var(--ph-accent);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
+.computerButton[data-online] .computerDot { background: var(--ph-status-finished); }
 
 /* ---- Filter chips (scroll sideways, never the page) ---- */
 
@@ -207,6 +163,10 @@
 .group {
   margin-bottom: var(--ph-space-4);
 }
+
+/* A folded frame is one header row: folded frames stack without the gap an open
+   one keeps below its card (Nov 28 2026; three folded built-ins sat 60px apart). */
+.group[data-folded] { margin-bottom: 0; }
 
 .group > .groupList { margin-bottom: 0; }
 
