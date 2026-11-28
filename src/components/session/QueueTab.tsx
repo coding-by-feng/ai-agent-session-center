@@ -379,6 +379,13 @@ export default function QueueTab({
     const caret = stillShown && composeTextarea && document.activeElement === composeTextarea ? composeTextarea.selectionStart : null;
     const next = insertAtCaret(latest, out.text, caret);
     setComposeDraftPatch(sid, { text: next.value });
+    // Images AASC attached in the terminal ([Image #N] there) join this session's queue box, within its caps.
+    if (out.images.length > 0) {
+      const prevImages = useQueueStore.getState().composeDrafts.get(sid)?.images ?? [];
+      const fit = addImagesToPrompt(prevImages, out.images);
+      setComposeDraftPatch(sid, { images: fit.images });
+      if (fit.message) showToast(fit.message, 'warning');
+    }
     if (stillShown) {
       requestAnimationFrame(() => {
         if (!composeTextarea) return;

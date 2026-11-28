@@ -55,7 +55,7 @@ describe('QueueTab — take the text from Claude\'s input box', () => {
 
   it('moves the dictated text into the box and adds nothing to the queue', async () => {
     seed('claude');
-    take.mockResolvedValue({ kind: 'text', text: 'fix the queue please', cleared: true });
+    take.mockResolvedValue({ kind: 'text', text: 'fix the queue please', cleared: true, images: [] });
     const user = userEvent.setup();
     render(<QueueTab sessionId={SID} sessionStatus="working" terminalId="term-1" />);
     const box = screen.getByPlaceholderText(/Add a prompt to the queue/i);
@@ -74,7 +74,7 @@ describe('QueueTab — take the text from Claude\'s input box', () => {
     take.mockResolvedValueOnce({ kind: 'empty' });
     await user.click(screen.getByRole('button', { name: LABEL }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining('empty'), 'info', expect.any(Number)));
-    take.mockResolvedValueOnce({ kind: 'text', text: 'kept', cleared: false });
+    take.mockResolvedValueOnce({ kind: 'text', text: 'kept', cleared: false, images: [] });
     await user.click(screen.getByRole('button', { name: LABEL }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("Claude's box still has text"), 'warning', expect.any(Number)));
     expect(screen.getByPlaceholderText(/Add a prompt to the queue/i)).toHaveValue('kept');
@@ -90,7 +90,19 @@ describe('QueueTab — take the text from Claude\'s input box', () => {
     await user.click(box);
     await user.click(screen.getByRole('button', { name: LABEL }));
     await user.type(box, 'typed meanwhile');
-    finish({ kind: 'text', text: 'dictated', cleared: true });
+    finish({ kind: 'text', text: 'dictated', cleared: true, images: [] });
     await waitFor(() => expect(box).toHaveValue('typed meanwhile dictated'));
+  });
+
+  it('puts the images AASC attached in the terminal into this session\'s queue box (Nov 28 2026)', async () => {
+    seed('claude');
+    const img = { name: 'clipboard-1.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' };
+    take.mockResolvedValue({ kind: 'text', text: 'look at this', cleared: true, images: [img] });
+    const user = userEvent.setup();
+    render(<QueueTab sessionId={SID} sessionStatus="working" terminalId="term-1" />);
+    await user.click(screen.getByRole('button', { name: LABEL }));
+    await waitFor(() => expect(useQueueStore.getState().composeDrafts.get(SID)?.images).toEqual([img]));
+    expect(screen.getByPlaceholderText(/Add a prompt to the queue/i)).toHaveValue('look at this');
+    expect(useQueueStore.getState().queues.get(SID) ?? []).toEqual([]);
   });
 });

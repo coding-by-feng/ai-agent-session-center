@@ -5,7 +5,10 @@ import { readFileSync } from 'node:fs';
 import {
   clearKeysFor,
   forgetTerminalWrites,
+  forgetTypedInput,
   isSendPending,
+  noteTypedInput,
+  typedImagePaths,
   noteTerminalWrite,
   parseInputBox,
   SEND_PENDING_MS,
@@ -169,6 +172,8 @@ describe('takeInputBox', () => {
       wait: async () => {},
       agentInFront: () => true,
       sendPending: () => false,
+      typedImages: () => [],
+      loadImage: async (path) => ({ name: path.split('/').pop() ?? path, dataUrl: `data:image/png;base64,${path.length}` }),
       ...over,
     };
     return { d, write };
@@ -177,14 +182,14 @@ describe('takeInputBox', () => {
 
   it('takes the text, clears the box with Ctrl+U and confirms it is empty', async () => {
     const { d, write } = deps(screens([...box('hello there', 'second row'), FOOTER], EMPTY));
-    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: 'hello there second row', cleared: true });
+    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: 'hello there second row', cleared: true, images: [] });
     expect(write).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledWith('t1', clearKeysFor(2));
   });
 
   it('writes nothing when the box is empty', async () => {
     const { d, write } = deps(screens(EMPTY));
-    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: '', cleared: true });
+    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: '', cleared: true, images: [] });
     expect(write).not.toHaveBeenCalled();
   });
 
@@ -194,12 +199,59 @@ describe('takeInputBox', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('refuses a box holding a paste or image placeholder (the real content is not on screen)', async () => {
-    for (const text of ['[Pasted text #1 +40 lines] and look at this', 'see [Image #2]']) {
-      const { d, write } = deps(screens([...box(text), FOOTER]));
-      expect(await takeInputBox('t1', d)).toEqual({ ok: false, reason: 'has-attachment' });
-      expect(write).not.toHaveBeenCalled();
-    }
+  it('refuses a box holding pasted text (it is not on screen), writing nothing', async () => {
+    const { d, write } = deps(screens([...box('[Pasted text #1 +40 lines] and look at this'), FOOTER]));
+    expect(await takeInputBox('t1', d)).toEqual({ ok: false, reason: 'has-paste' });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('refuses an image AASC did not attach (Claude\'s own Ctrl+V), writing nothing', async () => {
+    const { d, write } = deps(screens([...box('see [Image #2]'), FOOTER]));
+    expect(await takeInputBox('t1', d)).toEqual({ ok: false, reason: 'unknown-image' });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('moves the text and the images AASC typed, dropping the placeholders (Nov 28 2026)', async () => {
+    const shot = '/tmp/claude-terminal-files-501/1795835060206-ab12cd/clipboard-1.png';
+    const { d, write } = deps(screens([...box('for all manual action, we have', 'supplement as well [Image #5] /raab enhance'), FOOTER], EMPTY), {
+      typedImages: () => [shot],
+    });
+    expect(await takeInputBox('t1', d)).toEqual({
+      ok: true,
+      text: 'for all manual action, we have supplement as well /raab enhance',
+      cleared: true,
+      images: [{ name: 'clipboard-1.png', dataUrl: `data:image/png;base64,${shot.length}` }],
+    });
+    expect(write).toHaveBeenCalledWith('t1', clearKeysFor(2));
+  });
+
+  it('matches images by count: Claude numbers them per conversation, so #N is not an index', async () => {
+    const a = '/tmp/q/a.png';
+    const b = '/tmp/q/b.jpg';
+    const { d } = deps(screens([...box('[Image #7] [Image #8] compare these'), FOOTER], EMPTY), { typedImages: () => [a, b] });
+    const out = await takeInputBox('t1', d);
+    expect(out).toMatchObject({ ok: true, text: 'compare these' });
+    expect(out.ok && out.images.map((i) => i.name)).toEqual(['a.png', 'b.jpg']);
+  });
+
+  it('refuses when the counts differ (an image was deleted in Claude, or one came from elsewhere)', async () => {
+    const { d, write } = deps(screens([...box('one [Image #3]'), FOOTER]), { typedImages: () => ['/tmp/q/a.png', '/tmp/q/b.png'] });
+    expect(await takeInputBox('t1', d)).toEqual({ ok: false, reason: 'unknown-image' });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('leaves a typed path that is still literal text in the box as text (it is not a placeholder)', async () => {
+    const p = '/tmp/q/raw.png';
+    const { d } = deps(screens([...box(`look ${p} and [Image #4]`), FOOTER], EMPTY), { typedImages: () => [p, '/tmp/q/real.png'] });
+    const out = await takeInputBox('t1', d);
+    expect(out).toMatchObject({ ok: true, text: `look ${p} and` });
+    expect(out.ok && out.images.map((i) => i.name)).toEqual(['real.png']);
+  });
+
+  it('refuses, writing nothing, when an image file can no longer be read (swept after 24 h)', async () => {
+    const { d, write } = deps(screens([...box('see [Image #2]'), FOOTER]), { typedImages: () => ['/tmp/q/gone.png'], loadImage: async () => null });
+    expect(await takeInputBox('t1', d)).toEqual({ ok: false, reason: 'unknown-image' });
+    expect(write).not.toHaveBeenCalled();
   });
 
   it('refuses while a send waits for its Enter, without reading the screen', async () => {
@@ -224,6 +276,41 @@ describe('takeInputBox', () => {
   it('still returns the text but says so when the box did not clear', async () => {
     const full = [...box('stuck text'), FOOTER];
     const { d } = deps(screens(full, full));
-    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: 'stuck text', cleared: false });
+    expect(await takeInputBox('t1', d)).toEqual({ ok: true, text: 'stuck text', cleared: false, images: [] });
+  });
+});
+
+describe('image files typed into a terminal since its last Enter', () => {
+  const ROOTS = ['/tmp/claude-terminal-files-501', '/tmp/claude-queue-images'];
+  beforeEach(() => forgetTypedInput());
+
+  it('finds AASC\'s image paths in what was typed, oldest first, and forgets them on Enter', () => {
+    noteTypedInput('t1', 'look ');
+    noteTypedInput('t1', '/tmp/claude-terminal-files-501/17958-ab/clipboard-1.png ');
+    noteTypedInput('t1', '/tmp/claude-queue-images/queue-img-1-x.JPG');
+    expect(typedImagePaths('t1', ROOTS)).toEqual([
+      '/tmp/claude-terminal-files-501/17958-ab/clipboard-1.png',
+      '/tmp/claude-queue-images/queue-img-1-x.JPG',
+    ]);
+    noteTypedInput('t1', '\r');
+    expect(typedImagePaths('t1', ROOTS)).toEqual([]);
+  });
+
+  it('keeps them across a bracketed paste and Alt+Enter (new lines in the same prompt)', () => {
+    noteTypedInput('t1', '\x1b[200~/tmp/claude-queue-images/queue-img-2-y.png\r\nmore\x1b[201~');
+    noteTypedInput('t1', '\x1b\r');
+    expect(typedImagePaths('t1', ROOTS)).toEqual(['/tmp/claude-queue-images/queue-img-2-y.png']);
+  });
+
+  it('ignores files outside AASC\'s folders, other file types, and other terminals', () => {
+    noteTypedInput('t1', '/etc/passwd.png /tmp/claude-queue-images/notes.txt /tmp/claude-queue-images-evil/x.png');
+    noteTypedInput('t2', '/tmp/claude-queue-images/queue-img-3-z.png');
+    expect(typedImagePaths('t1', ROOTS)).toEqual([]);
+  });
+
+  it('a path split across two writes still counts (sends are chunked)', () => {
+    noteTypedInput('t1', '/tmp/claude-terminal-files-501/1-a/clip');
+    noteTypedInput('t1', 'board-9.webp');
+    expect(typedImagePaths('t1', ROOTS)).toEqual(['/tmp/claude-terminal-files-501/1-a/clipboard-9.webp']);
   });
 });

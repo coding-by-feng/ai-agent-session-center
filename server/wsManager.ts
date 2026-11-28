@@ -27,6 +27,7 @@ import { createDialogCloseWatch } from './dialogCloseWatch.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { bindRemoteClientId } from './clientBinding.js';
 import { stripTerminalReplies } from './terminalReplies.js';
+import { noteTypedInput } from './inputBoxCapture.js';
 import { isLineageAlive } from './authManager.js';
 import * as presence from './presenceManager.js';
 import { isLoopbackAddress } from './presenceManager.js';
@@ -267,6 +268,8 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             }
             if (msg.probe !== undefined) noteInputProbe(msg.terminalId, client, msg.probe);
             writeToTerminal(msg.terminalId, msg.data);
+            // A terminal Cmd+V types an image's path here; the queue's take carries it (inputBoxCapture.ts).
+            noteTypedInput(msg.terminalId, msg.data);
             // Answering a dialog here ends the "!" and the alarm once the agent is working again.
             if (typed !== '') dialogCloseWatch.noteInput(msg.terminalId);
           }

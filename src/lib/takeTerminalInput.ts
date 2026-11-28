@@ -2,15 +2,27 @@
  * takeTerminalInput — the queue compose row's "Take the text from Claude's input box" button
  * (Nov 13 2026). The user dictates into Claude with its own hold-Space voice feature (or types
  * there); this moves that text into the queue box, where they check it and click ADD. The server
- * reads the box off the screen and clears it (server/inputBoxCapture.ts).
+ * reads the box off the screen and clears it (server/inputBoxCapture.ts). Images AASC attached in
+ * the terminal (shown there as `[Image #N]`) come back too, as queue attachments (Nov 28 2026).
  */
+import type { QueueImageAttachment } from '@/stores/queueStore';
 
 export type TakeInputOutcome =
-  | { kind: 'text'; text: string; cleared: boolean }
+  | { kind: 'text'; text: string; cleared: boolean; images: QueueImageAttachment[] }
   | { kind: 'empty' }
   | { kind: 'error'; message: string };
 
 const FAILED_MESSAGE = "Couldn't read Claude's input box.";
+
+/** The server's images, keeping only well-formed image data URLs. */
+function imagesOf(raw: unknown): QueueImageAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (i): i is QueueImageAttachment =>
+      !!i && typeof i === 'object' && typeof (i as QueueImageAttachment).name === 'string'
+      && typeof (i as QueueImageAttachment).dataUrl === 'string' && (i as QueueImageAttachment).dataUrl.startsWith('data:image/'),
+  );
+}
 
 /** POST /api/terminals/:id/take-input, as one of three outcomes. Never throws. */
 export async function takeTerminalInput(terminalId: string): Promise<TakeInputOutcome> {
@@ -21,14 +33,15 @@ export async function takeTerminalInput(terminalId: string): Promise<TakeInputOu
       body: '{}',
     });
     const body = (await res.json().catch(() => ({}))) as {
-      data?: { text?: unknown; cleared?: unknown };
+      data?: { text?: unknown; cleared?: unknown; images?: unknown };
       error?: string;
     };
     // The server says why in words a person can act on (no box, a paste in it, a send in flight…).
     if (!res.ok) return { kind: 'error', message: typeof body.error === 'string' && body.error ? body.error : FAILED_MESSAGE };
     const text = typeof body.data?.text === 'string' ? body.data.text : '';
-    if (!text.trim()) return { kind: 'empty' };
-    return { kind: 'text', text, cleared: body.data?.cleared === true };
+    const images = imagesOf(body.data?.images);
+    if (!text.trim() && images.length === 0) return { kind: 'empty' };
+    return { kind: 'text', text, cleared: body.data?.cleared === true, images };
   } catch {
     return { kind: 'error', message: FAILED_MESSAGE };
   }

@@ -218,6 +218,63 @@ describe('POST /terminals/:id/take-input', () => {
     expect((await call('POST', '/terminals/t-shared/take-input', {}, {})).status).toBe(404);
   });
 
+  // Nov 28 2026: images AASC typed into the terminal move with the text instead of blocking the take.
+  it('moves an image AASC typed (a real file in its folder) as an attachment, and drops its placeholder', async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const dir = '/tmp/claude-queue-images';
+    mkdirSync(dir, { recursive: true });
+    const file = `${dir}/queue-img-${Date.now()}-vitest.png`;
+    writeFileSync(file, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    try {
+      (await import('../server/inputBoxCapture.js')).forgetTypedInput();
+      await call('POST', '/terminals/t-shared/write', {}, { data: file });
+      await new Promise((r) => setTimeout(r, 0));
+      (await import('../server/inputBoxCapture.js')).forgetTerminalWrites(); // the send's Enter is not the point here
+      term.screen = box('see [Image #5] please');
+      term.write.mockClear();
+      const res = await call('POST', '/terminals/t-shared/take-input', {}, {});
+      expect(res.status).toBe(200);
+      expect(res.json.data.text).toBe('see please');
+      expect(res.json.data.images).toEqual([{ name: file.split('/').pop(), dataUrl: 'data:image/png;base64,iVBORw==' }]);
+      expect(term.write).toHaveBeenCalledWith('t-shared', expect.stringMatching(/^\x15+$/));
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  it('refuses, writing nothing, an image whose typed path leads outside AASC\'s folders (symlink)', async () => {
+    const { mkdirSync, writeFileSync, symlinkSync, rmSync } = await import('node:fs');
+    const dir = '/tmp/claude-queue-images';
+    mkdirSync(dir, { recursive: true });
+    const outside = `/tmp/vitest-outside-${Date.now()}.png`;
+    const link = `${dir}/queue-img-${Date.now()}-link.png`;
+    writeFileSync(outside, 'x');
+    symlinkSync(outside, link);
+    try {
+      (await import('../server/inputBoxCapture.js')).forgetTypedInput();
+      await call('POST', '/terminals/t-shared/write', {}, { data: link });
+      (await import('../server/inputBoxCapture.js')).forgetTerminalWrites();
+      term.screen = box('see [Image #1]');
+      term.write.mockClear();
+      const res = await call('POST', '/terminals/t-shared/take-input', {}, {});
+      expect(res.status).toBe(409);
+      expect(res.json.code).toBe('UNKNOWN_IMAGE');
+      expect(term.write).not.toHaveBeenCalled();
+    } finally {
+      rmSync(link, { force: true });
+      rmSync(outside, { force: true });
+    }
+  });
+
+  it('says pasted text is the blocker, writing nothing', async () => {
+    term.screen = box('[Pasted text #1 +40 lines] check');
+    const res = await call('POST', '/terminals/t-shared/take-input', {}, {});
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('HAS_PASTE');
+    expect(res.json.error).toContain('pasted text');
+    expect(term.write).not.toHaveBeenCalled();
+  });
+
   it('never reaches a hidden session from a remote device, nor any session anonymously', async () => {
     term.screen = box('secret');
     expect((await call('POST', '/terminals/t-hidden/take-input', { ...REMOTE, 'X-AASC-Client-Id': 'phone-1' }, {})).status).toBe(404);

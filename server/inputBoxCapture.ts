@@ -37,11 +37,27 @@
  * that gap would move the queued prompt here and leave the Enter to submit an empty box, while the
  * queue records it as sent. `noteTerminalWrite` (fed by POST /terminals/:id/write) remembers a text
  * write with no Enter after it, and the take refuses until the Enter comes or SEND_PENDING_MS pass.
+ *
+ * **Images AASC attached move with the text** (Nov 28 2026). A Cmd+V or 📎 into the AASC terminal saves
+ * the file and types its path; Claude shows it as `[Image #N]`, so the picture is not on screen. AASC
+ * typed that path, though: `noteTypedInput` (fed by the socket's terminal_input and by /write) keeps
+ * what was typed since the last Enter, and the take pairs the box's placeholders with the image paths
+ * found there, by count and order. Claude numbers images per conversation (#5 in a fresh box), so #N
+ * is not an index. The images come back as attachments and the placeholders leave the text. When the
+ * counts differ (an image deleted in Claude, or one pasted with Claude's own Ctrl+V) or a file is gone,
+ * it refuses as before. `[Pasted text #N]` is always refused: AASC can't recover that text.
  */
 import type { ScreenCell } from './headlessScreen.js';
 import { PROMPT_RE, RULE_RE, TOP_RULE_RE } from './claudeInputBoxRules.js';
-/** Claude's stand-ins for a paste or an image: the real content is not on screen. */
-const ATTACHMENT_RE = /\[(?:Pasted text|Image) #\d+[^\]]*\]/;
+/** Claude's stand-in for pasted text: the text itself is not on screen and AASC can't recover it. */
+const PASTE_RE = /\[Pasted text #\d+[^\]]*\]/;
+/** Claude's stand-in for an image, and a run of them with the spaces around it (for removal). */
+const IMAGE_RE = /\[Image #\d+[^\]]*\]/g;
+const IMAGE_RUN_RE = /(?: ?\[Image #\d+[^\]]*\])+ ?/g;
+/** Image files the take can carry into the queue. */
+const IMAGE_EXT = '(?:png|jpe?g|gif|webp)';
+/** What was typed since the last Enter is kept up to this many characters (the newest). */
+const TYPED_CAP = 16 * 1024;
 /** CJK scripts, written without spaces between words. */
 const CJK_RE = /[぀-ヿ㐀-䶿一-鿿가-힯＀-￯]/u;
 /** Blank cells Claude leaves right of the box's text (Claude Code 2.1.323, 100 columns). */
@@ -170,6 +186,45 @@ export function forgetTerminalWrites(terminalId?: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// What was typed since the last Enter: where the images AASC attached are named.
+// ---------------------------------------------------------------------------
+
+const typedSinceEnter = new Map<string, string>();
+/** Bracketed pastes: an Enter inside one is a line of the paste, not a send. */
+const BRACKETED_PASTE_RE = /\x1b\[200~[\s\S]*?(?:\x1b\[201~|$)/g;
+
+/** Does this input end the prompt (an Enter that is not Alt+Enter and not inside a paste)? */
+function submits(data: string): boolean {
+  return /(?<!\x1b)\r/.test(data.replace(BRACKETED_PASTE_RE, ''));
+}
+
+/** Record input typed into a terminal (socket keystrokes and pastes, and POST /terminals/:id/write). */
+export function noteTypedInput(terminalId: string, data: string): void {
+  if (submits(data)) {
+    typedSinceEnter.delete(terminalId);
+    return;
+  }
+  const next = (typedSinceEnter.get(terminalId) ?? '') + data;
+  typedSinceEnter.set(terminalId, next.length > TYPED_CAP ? next.slice(-TYPED_CAP) : next);
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The image files under `roots` named in what was typed since the last Enter, oldest first. Pure but for the map. */
+export function typedImagePaths(terminalId: string, roots: readonly string[]): string[] {
+  const typed = typedSinceEnter.get(terminalId);
+  if (!typed || roots.length === 0) return [];
+  const re = new RegExp(`(?:${roots.map(escapeRe).join('|')})[\\\\/][^\\s'"\\x00-\\x1f]*?\\.${IMAGE_EXT}(?![\\w.])`, 'gi');
+  return typed.match(re) ?? [];
+}
+
+/** Forget a terminal's typed input (closed, or its box was taken) or everything (tests). */
+export function forgetTypedInput(terminalId?: string): void {
+  if (terminalId === undefined) typedSinceEnter.clear();
+  else typedSinceEnter.delete(terminalId);
+}
+
+// ---------------------------------------------------------------------------
 // The take.
 // ---------------------------------------------------------------------------
 
@@ -182,19 +237,42 @@ export interface InputBoxDeps {
   agentInFront(terminalId: string): boolean;
   /** Is a send's Enter still to come (`isSendPending`)? */
   sendPending(terminalId: string): boolean;
+  /** The image files AASC typed into this terminal since its last Enter (`typedImagePaths`). */
+  typedImages(terminalId: string): string[];
+  /** One of those files as a queue attachment, or null when it is gone or not allowed. */
+  loadImage(path: string): Promise<TakenImage | null>;
 }
 
-export type TakeRefusal = 'no-terminal' | 'no-input-box' | 'not-agent' | 'send-in-progress' | 'has-attachment';
+/** An image moved with the text: the queue box's attachment shape (`QueueImageAttachment`). */
+export interface TakenImage {
+  name: string;
+  dataUrl: string;
+}
+
+export type TakeRefusal = 'no-terminal' | 'no-input-box' | 'not-agent' | 'send-in-progress' | 'has-paste' | 'unknown-image';
 
 export type TakeInputResult =
-  | { ok: true; text: string; cleared: boolean }
+  | { ok: true; text: string; cleared: boolean; images: TakenImage[] }
   | { ok: false; reason: TakeRefusal };
 
 /**
- * Read the input box, clear it, and confirm it is empty. Writes nothing unless the box holds plain
- * text and it is safe to type: the agent is in front, no send is between its text and its Enter,
- * and the box holds no paste or image placeholder (whose content would be lost).
- * `cleared: false` means the box still holds text after the clear.
+ * The images behind the box's `[Image #N]` placeholders, or null when they can't all be recovered.
+ * A typed path still shown literally in the box is text, not a placeholder, so it is left out.
+ */
+async function imagesFor(terminalId: string, text: string, deps: InputBoxDeps): Promise<TakenImage[] | null> {
+  const placeholders = text.match(IMAGE_RE)?.length ?? 0;
+  if (placeholders === 0) return [];
+  const paths = deps.typedImages(terminalId).filter((p) => !text.includes(p));
+  if (paths.length !== placeholders) return null;
+  const images = await Promise.all(paths.map((p) => deps.loadImage(p)));
+  return images.every((i): i is TakenImage => i !== null) ? images : null;
+}
+
+/**
+ * Read the input box, clear it, and confirm it is empty. Writes nothing unless everything in the box
+ * can be moved and it is safe to type: the agent is in front, no send is between its text and its
+ * Enter, the box holds no pasted text, and every image placeholder is an image AASC typed (whose file
+ * is read before the box is cleared). `cleared: false` means the box still holds text after the clear.
  */
 export async function takeInputBox(terminalId: string, deps: InputBoxDeps): Promise<TakeInputResult> {
   if (deps.sendPending(terminalId)) return { ok: false, reason: 'send-in-progress' };
@@ -203,11 +281,17 @@ export async function takeInputBox(terminalId: string, deps: InputBoxDeps): Prom
   if (!deps.agentInFront(terminalId)) return { ok: false, reason: 'not-agent' };
   const box = parseInputBox(screen);
   if (!box) return { ok: false, reason: 'no-input-box' };
-  if (!box.text) return { ok: true, text: '', cleared: true };
-  if (ATTACHMENT_RE.test(box.text)) return { ok: false, reason: 'has-attachment' };
+  if (!box.text) return { ok: true, text: '', cleared: true, images: [] };
+  if (PASTE_RE.test(box.text)) return { ok: false, reason: 'has-paste' };
+  const images = await imagesFor(terminalId, box.text, deps);
+  if (!images) return { ok: false, reason: 'unknown-image' };
   deps.write(terminalId, clearKeysFor(box.rows));
   await deps.wait(CLEAR_SETTLE_MS);
   const after = await deps.readScreen(terminalId);
   const left = after ? parseInputBox(after) : null;
-  return { ok: true, text: box.text, cleared: left !== null && left.text === '' };
+  const cleared = left !== null && left.text === '';
+  // Its images now belong to the queue box: a later take must not pair them with new placeholders.
+  if (cleared) forgetTypedInput(terminalId);
+  const text = images.length ? box.text.replace(IMAGE_RUN_RE, ' ').trim() : box.text;
+  return { ok: true, text, cleared, images };
 }

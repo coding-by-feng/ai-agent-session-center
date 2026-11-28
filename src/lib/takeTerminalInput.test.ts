@@ -29,7 +29,7 @@ describe('takeTerminalInput', () => {
 
   it('posts to the terminal and returns its text', async () => {
     respond(200, { success: true, data: { text: 'dictated words', cleared: true } });
-    expect(await takeTerminalInput('term 1')).toEqual({ kind: 'text', text: 'dictated words', cleared: true });
+    expect(await takeTerminalInput('term 1')).toEqual({ kind: 'text', text: 'dictated words', cleared: true, images: [] });
     expect(fetch).toHaveBeenCalledWith('/api/terminals/term%201/take-input', expect.objectContaining({ method: 'POST' }));
   });
 
@@ -39,10 +39,22 @@ describe('takeTerminalInput', () => {
   });
 
   it('shows the server\'s reason, or a fallback when it gives none', async () => {
-    respond(409, { success: false, code: 'HAS_ATTACHMENT', error: "Claude's input box holds a paste or an image." });
+    respond(409, { success: false, code: 'HAS_PASTE', error: "Claude's input box holds pasted text, which isn't on screen." });
     expect(await takeTerminalInput('t1')).toEqual({ kind: 'error', message: expect.stringContaining('paste') });
     respond(500, {});
     expect(await takeTerminalInput('t1')).toEqual({ kind: 'error', message: "Couldn't read Claude's input box." });
+  });
+
+  it('returns the images AASC attached with the text, dropping malformed ones (Nov 28 2026)', async () => {
+    const img = { name: 'clipboard-1.png', dataUrl: 'data:image/png;base64,AAAA' };
+    respond(200, { success: true, data: { text: 'look', cleared: true, images: [img, { name: 'x' }, 'junk', { name: 'y', dataUrl: 'javascript:1' }] } });
+    expect(await takeTerminalInput('t1')).toEqual({ kind: 'text', text: 'look', cleared: true, images: [img] });
+  });
+
+  it('counts a box holding only images as something to move, not as empty', async () => {
+    const img = { name: 'a.png', dataUrl: 'data:image/png;base64,AAAA' };
+    respond(200, { success: true, data: { text: '', cleared: true, images: [img] } });
+    expect(await takeTerminalInput('t1')).toEqual({ kind: 'text', text: '', cleared: true, images: [img] });
   });
 
   it('passes the server error on, and never throws on a network failure', async () => {

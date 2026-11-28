@@ -41,12 +41,12 @@ import { createSessionInterruptRouter } from './sessionInterruptRouter.js';
 import type { PromptSubmitter } from './promptSubmit.js';
 import { centralEscBook } from './mcp/escHold.js';
 import { clearTerminalOutput, getForegroundProcess, readTerminalScreenCells } from './sshManager.js';
-import { isSendPending, noteTerminalWrite, takeInputBox, type TakeRefusal } from './inputBoxCapture.js';
+import { isSendPending, noteTerminalWrite, noteTypedInput, takeInputBox, typedImagePaths, type TakeRefusal, type TakenImage } from './inputBoxCapture.js';
 import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { terminalHeard } from './heardTerminals.js';
 import { QUEUE_IMAGES_DIR, queueImageId } from './queueImages.js';
 import { createQueueMediaRouter } from './queueMediaRouter.js';
-import { createTerminalFilesRouter } from './terminalFilesRouter.js';
+import { createTerminalFilesRouter, defaultTerminalFilesDir } from './terminalFilesRouter.js';
 import { createRoomsService } from './roomsRouter.js';
 import { alertStore } from './alerts/alertStore.js';
 import { createAlertsService } from './alerts/alertsRouter.js';
@@ -60,6 +60,7 @@ import { getMqStats } from './mqReader.js';
 import * as presence from './presenceManager.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
+import { readFile as readFileAsync, realpath as realpathAsync, stat as statAsync } from 'fs/promises';
 import { pipeline } from 'stream';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
@@ -3049,6 +3050,7 @@ router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: 
   }
   // A send's text half, until its Enter: the queue's take-input waits for it (inputBoxCapture.ts).
   noteTerminalWrite(terminalId, data);
+  noteTypedInput(terminalId, data);
   writeToTerminal(terminalId, data);
   res.json({ ok: true });
 });
@@ -3062,12 +3064,38 @@ const TAKE_REFUSALS: Record<TakeRefusal, { status: number; code: string; error: 
   'no-input-box': { status: 409, code: 'NO_INPUT_BOX', error: "Couldn't find Claude's input box on screen." },
   'not-agent': { status: 409, code: 'NOT_AGENT', error: "Claude isn't running in this terminal." },
   'send-in-progress': { status: 409, code: 'SEND_IN_PROGRESS', error: 'A prompt is being sent to this terminal. Try again in a moment.' },
-  'has-attachment': {
+  'has-paste': {
     status: 409,
-    code: 'HAS_ATTACHMENT',
-    error: "Claude's input box holds a paste or an image. Move that prompt by hand.",
+    code: 'HAS_PASTE',
+    error: "Claude's input box holds pasted text, which isn't on screen. Move that prompt by hand.",
+  },
+  'unknown-image': {
+    status: 409,
+    code: 'UNKNOWN_IMAGE',
+    error: "Claude's input box holds an image AASC didn't attach (pasted with Claude's own Ctrl+V, or removed since). Move that prompt by hand.",
   },
 };
+
+/** Where AASC saves the images it types into a terminal: a terminal Cmd+V or 📎, and queue sends. */
+const TYPED_IMAGE_ROOTS = [defaultTerminalFilesDir(), QUEUE_IMAGES_DIR];
+const TAKEN_IMAGE_MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+/** One image's cap; the queue box then applies its own (10 images, ~6 MB together). */
+const MAX_TAKEN_IMAGE_BYTES = 6 * 1024 * 1024;
+
+/** A typed image as a queue attachment: only a regular file inside AASC's own folders. */
+async function loadTakenImage(path: string): Promise<TakenImage | null> {
+  try {
+    const real = await realpathAsync(path);
+    const roots = await Promise.all(TYPED_IMAGE_ROOTS.map((r) => realpathAsync(r).catch(() => null)));
+    if (!roots.some((r) => r && real.startsWith(r + sep))) return null;
+    const mime = TAKEN_IMAGE_MIME[extname(real).toLowerCase()];
+    const info = await statAsync(real);
+    if (!mime || !info.isFile() || info.size > MAX_TAKEN_IMAGE_BYTES) return null;
+    return { name: basename(real), dataUrl: `data:${mime};base64,${(await readFileAsync(real)).toString('base64')}` };
+  } catch {
+    return null;
+  }
+}
 
 router.post('/terminals/:id/take-input', requireVisibleTerminal, async (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
@@ -3079,13 +3107,15 @@ router.post('/terminals/:id/take-input', requireVisibleTerminal, async (req: Req
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       agentInFront: (id) => isAgentProcessName(getForegroundProcess(id)),
       sendPending: (id) => isSendPending(id),
+      typedImages: (id) => typedImagePaths(id, TYPED_IMAGE_ROOTS),
+      loadImage: loadTakenImage,
     });
     if (!result.ok) {
       const refusal = TAKE_REFUSALS[result.reason];
       res.status(refusal.status).json({ success: false, code: refusal.code, error: refusal.error });
       return;
     }
-    res.json({ success: true, data: { text: result.text, cleared: result.cleared } });
+    res.json({ success: true, data: { text: result.text, cleared: result.cleared, images: result.images } });
   } catch (err) {
     log.error('take-input', err instanceof Error ? err.message : String(err));
     res.status(500).json({ success: false, error: "Couldn't read Claude's input box" });
